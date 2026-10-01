@@ -135,7 +135,7 @@ clean:
 	find . -name "__pycache__" -type d -not -path "./.venv/*" -exec rm -rf {} +
 
 # ---------------------------------------------------------------- roadmap Phase 0 (app/)
-APP_PATHS := app tests/app
+APP_PATHS := app tests/app .claude/skills/account-intelligence/scripts
 
 app-lint:
 	$(RUFF) check $(APP_PATHS)

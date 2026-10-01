@@ -111,7 +111,8 @@ def test_version_is_recorded(rules: RuleBundle) -> None:
 
 
 def test_version_changes_when_content_changes(config_dir: Path, edit_yaml: EditYaml) -> None:
-    before = load_rules(config_dir).version
+    original = load_rules(config_dir)
+    before = original.version
 
     def rename(d: dict[str, Any]) -> None:
         d["rows"][0]["row"] = "Prior customer status and history"
@@ -120,7 +121,7 @@ def test_version_changes_when_content_changes(config_dir: Path, edit_yaml: EditY
     after = load_rules(config_dir)
     assert after.version != before
     # Declared version unchanged, so only the hash moved: the edit is still detectable.
-    assert after.file_versions["checklist.yaml"] == "1.0.0"
+    assert after.file_versions["checklist.yaml"] == original.file_versions["checklist.yaml"]
 
 
 def _drop_row(d: dict[str, Any]) -> None:

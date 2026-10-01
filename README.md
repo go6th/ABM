@@ -361,7 +361,7 @@ uv run uvicorn src.api.main:app --port 8080
 
 Tests use **recorded broker fixtures** and synthetic tenants only. Production data never enters lower environments.
 
-The starter code already runs its own isolation and integration tests today (20 passing, plus 2 expected failures that document known gaps). See `account-intelligence-platform/assets/starter/README.md`; it needs PostgreSQL 16 with a recent pgvector (0.6.0 has no `halfvec`; 0.8.0 does).
+The starter code already runs its own isolation and integration tests today (20 passing, plus 2 expected failures that document known gaps). See `.claude/skills/account-intelligence-platform/assets/starter/README.md`; it needs PostgreSQL 16 with a recent pgvector (0.6.0 has no `halfvec`; 0.8.0 does).
 
 ---
 
@@ -382,7 +382,7 @@ The starter code already runs its own isolation and integration tests today (20 
 
 ### Problems found in the architecture document's starter code
 
-The architecture document includes starter code (its chapter 18). It says the code was compile-checked but never run. While building the skill, the code was extracted and run against a real PostgreSQL with pgvector, and the results are in `account-intelligence-platform/assets/starter/`:
+The architecture document includes starter code (its chapter 18). It says the code was compile-checked but never run. While building the skill, the code was extracted and run against a real PostgreSQL with pgvector, and the results are in `.claude/skills/account-intelligence-platform/assets/starter/`:
 
 - **Private facts leak to the public renderer.** The row-level-security pattern in the listing has no role clause, so the public-facing database role can also read private rows. This breaks the two-output rule at the database layer. Reproduced; fixed by scoping each policy to its role; a test and a lint rule now guard it.
 - **The research graph crashes on its first parallel step.** The spend total is written by four branches at once with no reducer, and LangGraph rejects that. Reproduced; fixed.
@@ -434,4 +434,4 @@ Items in the architecture document tagged **[VERIFY]** (model IDs and prices, ca
 | **SaaS** | *Account Intelligence as a Service: Multi client SaaS design, scheduled refresh and alerts, and the enhanced version* (6th, September 2026) |
 | **Architecture v2** | *Account Intelligence SaaS: Architecture & Implementation Specification v2.0* (49 pages) |
 
-The accompanying skill (`account-intelligence-platform/`) turns this into instructions for building it step by step. It contains `SKILL.md` (how to work and what never to break), 14 reference files, the data assets, helper scripts with a self-test, and the tested starter code.
+The accompanying skill (`.claude/skills/account-intelligence-platform/`) turns this into instructions for building it step by step. It contains `SKILL.md` (how to work and what never to break), 14 reference files, the data assets, helper scripts with a self-test, and the tested starter code.

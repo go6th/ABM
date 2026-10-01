@@ -1,6 +1,6 @@
 ---
 name: account-intelligence-builder
-description: Build the Account Intelligence platform phase by phase from the production roadmap PDF. Use when implementing, extending or checking any roadmap phase (Phase 0 foundations through Phase 4 signals), when editing the versioned rule config in config/, when adding broker connectors, workflows, golden accounts or benchmarks, or when updating phase status documents.
+description: SUPERSEDED by the account-intelligence skill; use that one for all work on this repo. Kept for history (the first Phase 0 build skill).
 ---
 
 # Account Intelligence builder
