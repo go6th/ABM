@@ -14,10 +14,15 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import MetaData, Uuid
+from sqlalchemy import MetaData, Text, Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped
 
 from app.db.types import CreatedAt, JSONObject, TZDateTime, UpdatedAt, UUIDPk
+
+# There is no tenants feature in v1 (roadmap s9 brings it in Phase 3). Every row still carries
+# tenant_id, defaulting to this one fixed tenant, so Phase 3 adds a tenants table and a foreign
+# key instead of rewriting every table. Changing this value is a data migration, never an edit.
+DEFAULT_TENANT_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
 
 SCHEMA = "intel"
 INTERNAL_SCHEMA = "intel_internal"
@@ -35,6 +40,7 @@ NAMING_CONVENTION = {
 # Python annotation -> column type, so models write ``Mapped[datetime]`` and get timestamptz.
 TYPE_ANNOTATION_MAP: dict[Any, Any] = {
     uuid.UUID: Uuid(as_uuid=True),
+    str: Text(),
     datetime: TZDateTime,
     dict[str, Any]: JSONObject(),
 }

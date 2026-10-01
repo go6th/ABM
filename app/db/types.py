@@ -39,7 +39,11 @@ SERVER_UUID_DEFAULT = text("gen_random_uuid()")
 UUIDPk = Annotated[
     uuid.UUID,
     mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=new_id, server_default=SERVER_UUID_DEFAULT
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=new_id,
+        server_default=SERVER_UUID_DEFAULT,
+        sort_order=-100,
     ),
 ]
 
@@ -49,11 +53,13 @@ TZDateTime = DateTime(timezone=True)
 
 CreatedAt = Annotated[
     datetime,
-    mapped_column(TZDateTime, nullable=False, server_default=func.now()),
+    mapped_column(TZDateTime, nullable=False, server_default=func.now(), sort_order=100),
 ]
 UpdatedAt = Annotated[
     datetime,
-    mapped_column(TZDateTime, nullable=False, server_default=func.now(), onupdate=func.now()),
+    mapped_column(
+        TZDateTime, nullable=False, server_default=func.now(), onupdate=func.now(), sort_order=101
+    ),
 ]
 
 # ----------------------------------------------------------------------------- JSON

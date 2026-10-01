@@ -5,5 +5,6 @@ migrations and these models drift apart.
 """
 
 from app.db.base import Base
+from app.db.models.account import Account
 
-__all__ = ["Base"]
+__all__ = ["Account", "Base"]

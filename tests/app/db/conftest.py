@@ -107,3 +107,18 @@ def empty_database_url(pg_admin_url: str) -> Iterator[str]:
     finally:
         with psycopg.connect(pg_admin_url, autocommit=True) as conn:
             conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+
+
+@pytest.fixture()
+def migrated_database_url(
+    empty_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[str]:
+    """A fresh database upgraded to the latest data layer migration."""
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(str(Path(__file__).resolve().parents[3] / "app" / "db" / "alembic.ini"))
+    cfg.attributes["configure_logger"] = False
+    monkeypatch.setenv("DATABASE_URL", empty_database_url)
+    command.upgrade(cfg, "head")
+    yield empty_database_url

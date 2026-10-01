@@ -177,8 +177,8 @@ def test_drift_check_would_catch_an_unmigrated_table(db: str) -> None:
             diff = compare_metadata(ctx, probe)
     finally:
         engine.dispose()
-    assert [d[0] for d in diff] == ["add_table"]
-    assert diff[0][1].fullname == "intel.probe"
+    added = [d[1].fullname for d in diff if d[0] == "add_table"]
+    assert added == ["intel.probe"]
 
 
 def test_enum_checks_in_database_match_code(db: str) -> None:

@@ -63,6 +63,18 @@ Rows are rarely updated anyway: the never-overwrite rule (roadmap section 3, pri
 - `jsonb` does not keep key order or duplicate keys. Do not depend on either.
 - Raw broker responses do **not** go in JSON columns; they go to object storage under neutral keys (`docs/data_layer/PLAN.md` section 6).
 
+## Tenant
+
+There is no tenants feature in v1. `intel.accounts.tenant_id` is NOT NULL and defaults to `DEFAULT_TENANT_ID` (`app/db/base.py`), so Phase 3 can add a tenants table and a foreign key without rewriting rows. Treat the value as fixed; changing it is a data migration.
+
+## Writing migrations
+
+Autogenerate is a starting point; always edit its output before committing.
+
+- **Wrap every explicit constraint and index name in `op.f()`.** A plain string is passed through the naming convention again, producing names like `ck_accounts_ck_accounts_lane`. `alembic check` does not notice this; `test_every_check_constraint_is_tested` style tests and `enum_check_drift()` do.
+- **Write enum columns as `sa.String(length=64)` plus one explicit `CheckConstraint`**, never `sa.Enum(...)`. Autogenerate emits the enum type and duplicate CHECK constraints; the explicit form is also a fixed snapshot that does not change when config does.
+- Name revisions in sequence (`--rev-id 0003`) so the history reads in order.
+
 ## Constraint names
 
 Fixed by `NAMING_CONVENTION`, so migrations can always refer to a constraint by name:

@@ -18,7 +18,7 @@ help:
 	@echo "  make down            stop the services (volumes and data are kept)"
 	@echo "  make db-shell        psql into the local database as the owner role"
 	@echo "  make migrate         apply database migrations (legacy chain, then data layer)"
-	@echo "  make migration m=\"message\"  autogenerate a data layer migration from the models"
+	@echo "  make migration m=\"message\" [rev=0003]  autogenerate a data layer migration"
 	@echo "  make test            app tests + legacy unit and isolation tests"
 	@echo ""
 	@echo "Account Intelligence - roadmap Phase 0 (app/)"
@@ -198,4 +198,4 @@ ALEMBIC_DL := $(PY) -m alembic -c app/db/alembic.ini
 
 migration:
 	@test -n "$(m)" || { echo 'usage: make migration m="describe the change"'; exit 2; }
-	DATABASE_URL="$(MIGRATE_DATABASE_URL)" $(ALEMBIC_DL) revision --autogenerate -m "$(m)"
+	DATABASE_URL="$(MIGRATE_DATABASE_URL)" $(ALEMBIC_DL) revision --autogenerate -m "$(m)" $(if $(rev),--rev-id $(rev))

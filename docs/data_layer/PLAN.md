@@ -98,7 +98,7 @@ The tracker state machine ("a run cannot complete with a High row missing a stat
 
 | # | Question | Default chosen |
 |---|---|---|
-| Q1 | Section 11.1 says every entity is scoped by tenant, but tenancy is Phase 3. Add `tenant_id` now? | **No.** v1 stays narrow; Phase 3 adds `tenant_id` and row-level security through a migration. Object keys already carry the account UUID. |
+| Q1 | Section 11.1 says every entity is scoped by tenant, but tenancy is Phase 3. Add `tenant_id` now? | **Changed in step 7:** `accounts.tenant_id` (NOT NULL, default `DEFAULT_TENANT_ID`, no tenants table and no foreign key yet), so Phase 3 adds the tenants table, a foreign key and row-level security instead of rewriting rows. Domains are unique per tenant. |
 | Q2 | Section 11.1 puts cap and spend on Run, but credit counts must stay out of client-readable tables. | Split into `intel_internal.run_budgets`. |
 | Q3 | Section 11.1 puts grade and sentence on Source, but a stable source can be reread with a different result. | Split identity (`sources`) from each run's read (`source_reads`), so nothing is overwritten. |
 | Q4 | Coverage proof records the "tool". A broker name there would reach the client tracker. | Store the neutral routing need (for example `people_by_title`) from `config/routing.yaml`; the database rejects broker names. |
