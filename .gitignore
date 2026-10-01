@@ -1,10 +1,9 @@
-# --- Python ---
 __pycache__/
 *.py[cod]
 *.egg-info/
+.venv/
 dist/
 build/
-.venv/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
@@ -12,24 +11,24 @@ build/
 htmlcov/
 coverage.xml
 
-# --- Environment / secrets ---
-.env
-.env.*
+.env*
 !.env.example
+docs/sources/
+_review/
+*.zip
 
-# --- Docker / DB ---
 *.log
-
-# --- OS ---
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+*~
+*.bak
+*.orig
 
-# --- Terraform ---
+local-db/
+pgdata/
+terraform.tfstate*
 .terraform/
-*.tfstate
-*.tfstate.*
-*.tfplan
+.tfplan
 crash.log
-
-# --- Build output (benchmark dry runs) ---
-build/

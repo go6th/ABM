@@ -1,0 +1,23 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment: { POSTGRES_PASSWORD: dev, POSTGRES_DB: ai }
+    ports: ["5432:5432"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, retries: 10 }
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  api:
+    build: .
+    depends_on: { db: { condition: service_healthy }, redis: { condition: service_started } }
+    env_file: .env
+    environment:
+       DATABASE_URL: postgresql+asyncpg://app_rw:dev@db/ai
+       CHECKPOINT_DATABASE_URL: postgresql://app_rw:dev@db/ai
+       REDIS_URL: redis://redis:6379/0
+       ENV: dev
+    ports: ["8080:8080"]
+  inngest:
+    image: inngest/inngest
+    command: inngest dev -u http://api:8080/api/inngest
+    ports: ["8288:8288"]

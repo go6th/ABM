@@ -1,6 +1,6 @@
 ---
 name: account-intelligence-platform
-description: Reference library for the Account Intelligence platform (Architecture v2 era) - research graph, evidence grading, tenant isolation and RLS, run durability, wallet and billing, refresh and alerts, deliverables and quality gate, Phase B private context, with starter code and helper scripts. Start from the account-intelligence skill; its reconciliation register overrides this library where they disagree.
+description: Build, extend or review the Account Intelligence platform (6th): a multi-tenant SaaS that researches a sales account and returns a sourced, graded brief, people list and alerts. Use for any task on its research graph, evidence grading, tenant isolation (Postgres RLS), run durability, wallet and billing, scheduled refresh and alerts, deliverables and quality gate, or the Phase B private-context vault. Follows the PRD, SaaS design and Architecture v2.
 ---
 
 # Account Intelligence platform: implementation skill
