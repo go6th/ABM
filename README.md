@@ -1,40 +1,39 @@
-# ABM Generator (`account-intelligence`)
+# Account Intelligence
 
-Multi-tenant Account Intelligence SaaS — Phase 0 implementation (T1–T14).
+Turns one company name into a sourced, graded account brief and a deduplicated senior people list. This repository takes it from a single-operator skill to an automated, multi-tenant service, following `Account_Intelligence_Production_Roadmap.pdf`.
+
+**Current phase: Phase 0, decisions and foundations.** Status: [`docs/PHASE0_STATUS.md`](docs/PHASE0_STATUS.md).
+
+How to build here: [`.claude/skills/account-intelligence-builder/SKILL.md`](.claude/skills/account-intelligence-builder/SKILL.md). Audit of what existed before: [`docs/AUDIT.md`](docs/AUDIT.md).
 
 ## Layout
 
 ```
-src/abm_generator/    application code (db access, ledgers, runner)
-tests/                unit · isolation (hard gate) · spike · contract
-docs/                 phase0 artefacts, ADRs, reference set, legal, golden set
-migrations/           Alembic (owner role only)
-scripts/              CI checkers
-spikes/               spike 3 (cache ratio) and spike 4 (broker economics)
-docker/               init SQL (roles)
+app/                application package (settings, rules, golden, llm, brokers, people, benchmarks, workflows)
+config/             versioned rules: checklist (33 rows), grading, routing, output spec, models, people scope
+fixtures/recorded/  recorded broker responses (synthetic) used by the test doubles
+tests/app/          tests for app/
+tests/evals/golden/ golden accounts (synthetic placeholders until the analyst adds real ones)
+infra/terraform/    dev, staging, production
+scripts/deploy.sh   one-command deploy
+docs/               decision log, data handling draft, Phase 1 backlog, status, audit
+src/abm_generator/  legacy code from the earlier roadmap (kept, not extended)
 ```
 
 ## Quick start
 
-```bash
-make venv            # .venv + dev deps (python 3.12+)
-make db-up           # postgres16 + pgvector via docker compose
-make migrate         # alembic upgrade head as owner role
-make isolation       # RLS isolation suite (hard gate)
-make check           # every CI gate locally
+```
+make venv                 # .venv with dev dependencies (Python 3.12+)
+make app-check            # ruff, format check, mypy strict, pytest (what CI runs)
+make bench-model-split    # offline model split harness -> build/benchmarks
+make bench-people         # offline people source harness -> build/benchmarks
+make temporal-up worker   # local Temporal dev server and worker (needs docker)
+make hello                # run the hello-world workflow
+DRY_RUN=1 make deploy-staging
 ```
 
-## Non-negotiable invariants
+Nothing in Phase 0 calls a live broker or model. Keys needed for live runs are listed in `docs/PHASE0_STATUS.md`.
 
-1. Tenant queries run inside a transaction with transaction-local `app.tenant_id`.
-2. RLS ENABLED **and FORCED** on every tenant-owned table.
-3. Runtime role is non-owner and `NOBYPASSRLS`.
-4. Every paid call goes through the tool ledger `(run_id, args_hash)`.
-5. Untrusted text is read only by the tool-less extractor.
-6. No client artefact names a broker or credit count.
-7. No cross-account leakage of internal details.
-8. Only Confirmed facts may be stated to a prospect.
-9. Isolation tests run on every build against live Postgres.
-10. CI fails on lint/type/REQ-ID/ADR/isolation failures.
+## Rules that never bend
 
-See `docs/adr/` for the decision records and `docs/phase0/` for task artefacts.
+The system never sends outreach. Client-facing output never names data brokers, credit counts or costs. Every fact carries a grade, a URL and the exact sentence relied on; only Confirmed facts may be stated to a prospect. Full list: the skill, section 3.

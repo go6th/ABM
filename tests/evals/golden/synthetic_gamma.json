@@ -1,0 +1,268 @@
+{
+  "schema_version": "1.0.0",
+  "golden_id": "synthetic_gamma",
+  "synthetic": true,
+  "account": {
+    "name": "Synthetic Account Gamma",
+    "domain": "gamma-synthetic.example",
+    "industry": "Financial services (synthetic)",
+    "primary_lane": "Data and AI"
+  },
+  "review": {
+    "reviewed_by": null,
+    "reviewed_on": null,
+    "source_run": "SYNTHETIC placeholder, not a September run"
+  },
+  "sources": [
+    {
+      "source_id": "S001",
+      "url": "https://gamma-synthetic.example/newsroom/synthetic-release-1",
+      "published": "2026-08-04",
+      "primary": true,
+      "row_ids": [
+        "P2.01"
+      ],
+      "text": "SYNTHETIC TEXT. Synthetic Account Gamma announced a new regional operations centre. The centre is planned to open in 2027."
+    },
+    {
+      "source_id": "S002",
+      "url": "https://gamma-synthetic.example/investors/synthetic-q2-release",
+      "published": "2026-07-30",
+      "primary": true,
+      "row_ids": [
+        "P2.02",
+        "P2.12"
+      ],
+      "text": "SYNTHETIC TEXT. Synthetic Account Gamma reported quarterly revenue of 100 synthetic units. Operating margin was 10 percent."
+    },
+    {
+      "source_id": "S003",
+      "url": "https://gamma-synthetic.example/careers/synthetic-posting-42",
+      "published": "2026-09-01",
+      "primary": true,
+      "row_ids": [
+        "P2.05",
+        "P2.06"
+      ],
+      "text": "SYNTHETIC TEXT. The Data and AI Platform Lead will own the Data and AI roadmap. This role builds new Data and AI capabilities."
+    },
+    {
+      "source_id": "S004",
+      "url": "https://aggregator-synthetic.example/gamma/tech",
+      "published": "2026-06-15",
+      "primary": false,
+      "row_ids": [
+        "P2.07"
+      ],
+      "text": "SYNTHETIC TEXT. Detection feed lists Data and AI at Synthetic Account Gamma between 2024 and 2026. Source is an aggregator."
+    },
+    {
+      "source_id": "S005",
+      "url": "https://gamma-synthetic.example/investors/synthetic-call-transcript",
+      "published": "2026-07-31",
+      "primary": true,
+      "row_ids": [
+        "P2.11"
+      ],
+      "text": "SYNTHETIC TEXT. The chief executive said modernising customer operations is the top priority. Spending will shift to platforms."
+    }
+  ],
+  "known_facts": [
+    {
+      "statement": "Synthetic Account Gamma announced a new regional operations centre.",
+      "grade": "Confirmed",
+      "source_ids": [
+        "S001"
+      ],
+      "url": "https://gamma-synthetic.example/newsroom/synthetic-release-1",
+      "supporting_sentence": "Synthetic Account Gamma announced a new regional operations centre."
+    },
+    {
+      "statement": "Synthetic Account Gamma reported quarterly revenue of 100 synthetic units.",
+      "grade": "Confirmed",
+      "source_ids": [
+        "S002"
+      ],
+      "url": "https://gamma-synthetic.example/investors/synthetic-q2-release",
+      "supporting_sentence": "Synthetic Account Gamma reported quarterly revenue of 100 synthetic units."
+    },
+    {
+      "statement": "The chief executive named customer operations as the top priority.",
+      "grade": "Confirmed",
+      "source_ids": [
+        "S005"
+      ],
+      "url": "https://gamma-synthetic.example/investors/synthetic-call-transcript",
+      "supporting_sentence": "The chief executive said modernising customer operations is the top priority."
+    },
+    {
+      "statement": "Data and AI appears in a detection feed for the account.",
+      "grade": "Lead",
+      "source_ids": [
+        "S004"
+      ],
+      "url": "https://aggregator-synthetic.example/gamma/tech",
+      "supporting_sentence": "Detection feed lists Data and AI at Synthetic Account Gamma between 2024 and 2026."
+    },
+    {
+      "statement": "The account is building on Data and AI rather than only using it.",
+      "grade": "Probable",
+      "source_ids": [
+        "S003"
+      ],
+      "url": "https://gamma-synthetic.example/careers/synthetic-posting-42",
+      "supporting_sentence": "This role builds new Data and AI capabilities.",
+      "reasoning": "One build role posting names the platform as the job; one source only."
+    },
+    {
+      "statement": "A Data and AI expansion may be budgeted for next year.",
+      "grade": "Hypothesis",
+      "source_ids": [
+        "S003"
+      ],
+      "url": "https://gamma-synthetic.example/careers/synthetic-posting-42",
+      "supporting_sentence": "The Data and AI Platform Lead will own the Data and AI roadmap.",
+      "confirming_question": "Is the Data and AI roadmap funded for next year, and who approves it?"
+    }
+  ],
+  "expected_coverage": [
+    {
+      "row_id": "P1.01",
+      "status": "Partial"
+    },
+    {
+      "row_id": "P1.02",
+      "status": "Done"
+    },
+    {
+      "row_id": "P1.03",
+      "status": "Done"
+    },
+    {
+      "row_id": "P1.04",
+      "status": "Done"
+    },
+    {
+      "row_id": "P1.05",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.01",
+      "status": "Partial"
+    },
+    {
+      "row_id": "P2.02",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.03",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.04",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.05",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.06",
+      "status": "Partial"
+    },
+    {
+      "row_id": "P2.07",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.08",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.09",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.10",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.11",
+      "status": "Partial"
+    },
+    {
+      "row_id": "P2.12",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.13",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.14",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.15",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.16",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.17",
+      "status": "Not done"
+    },
+    {
+      "row_id": "P2.18",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.19",
+      "status": "Blocked"
+    },
+    {
+      "row_id": "P2.20",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.21",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.22",
+      "status": "Partial"
+    },
+    {
+      "row_id": "P2.23",
+      "status": "None"
+    },
+    {
+      "row_id": "P2.24",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.25",
+      "status": "Not done"
+    },
+    {
+      "row_id": "P2.26",
+      "status": "Done"
+    },
+    {
+      "row_id": "P2.27",
+      "status": "Blocked"
+    },
+    {
+      "row_id": "P2.28",
+      "status": "Done"
+    }
+  ],
+  "expected_people": {
+    "total": 8,
+    "priority_a": 2,
+    "by_lane": {},
+    "excluded": 2
+  }
+}

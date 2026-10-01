@@ -16,5 +16,27 @@ services:
       timeout: 3s
       retries: 30
 
+  # Temporal dev server (single binary, in-memory). Local only; staging and production use
+  # the managed or self-hosted cluster chosen with the cloud (roadmap s12).
+  temporal:
+    image: temporalio/temporal:1.9.1
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--namespace", "default"]
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+    depends_on:
+      - temporal
+    environment:
+      ENV: dev
+      TEMPORAL_ADDRESS: temporal:7233
+      MODEL_MODE: fake
+      BROKER_MODE: recorded
+    restart: on-failure
+
 volumes:
   pgdata:

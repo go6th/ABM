@@ -1,0 +1,49 @@
+{
+  "request": {
+    "broker": "sumble",
+    "operation": "people_by_technology",
+    "params": {
+      "domain": "gamma-synthetic.example",
+      "attributes": [
+        "title"
+      ]
+    }
+  },
+  "response": {
+    "people": [
+      {
+        "name": "Synthetic Person 2",
+        "title": "VP Enterprise Applications",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p2/"
+      },
+      {
+        "name": "Synthetic Person 3",
+        "title": "Director CRM Platforms",
+        "profile_url": null
+      },
+      {
+        "name": "Synthetic Person 8",
+        "title": "Director, Analytics Engineering",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p8"
+      },
+      {
+        "name": "Synthetic Person 9",
+        "title": "Senior Director, Platform Engineering",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p9"
+      },
+      {
+        "name": "Synthetic Person 10",
+        "title": "Director, IT Audit",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p10"
+      },
+      {
+        "name": "Synthetic Person 11",
+        "title": "Head of Data Platforms",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p11"
+      }
+    ]
+  },
+  "cost_credits": 12.0,
+  "synthetic": true,
+  "note": "SYNTHETIC recording for offline tests; not a real broker response"
+}

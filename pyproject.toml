@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "abm-generator"
 version = "0.1.0"
-description = "ABM Generator - account intelligence research pipeline (Phase 0 implementation)"
+description = "Account Intelligence platform (roadmap Phase 0 foundations)"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }
@@ -18,6 +18,8 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "structlog>=24.1",
+    "temporalio>=1.8",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -31,11 +33,11 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/abm_generator"]
+packages = ["app", "src/abm_generator"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests", "scripts", "spikes"]
+src = [".", "src", "tests", "scripts", "spikes"]
 target-version = "py312"
 
 [tool.ruff.lint]
@@ -64,6 +66,8 @@ ignore = [
 "tests/*" = ["S101", "PLR2004", "S105", "S106"]
 "spikes/*" = ["T201", "S106", "PLR0912", "PLR0915"]
 "scripts/*" = ["T201"]
+"app/benchmarks/*" = ["T201"]
+"app/worker.py" = ["T201"]
 "migrations/*" = ["E501", "S608"]
 "docs/**" = []
 
@@ -74,12 +78,12 @@ quote-style = "double"
 python_version = "3.12"
 strict = true
 mypy_path = "src"
-packages = ["abm_generator"]
+packages = ["app", "abm_generator"]
 warn_unreachable = true
 show_error_codes = true
 
 [[tool.mypy.overrides]]
-module = ["alembic.*"]
+module = ["alembic.*", "yaml"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -99,7 +103,7 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["src/abm_generator"]
+source = ["app", "src/abm_generator"]
 branch = true
 
 [tool.coverage.report]

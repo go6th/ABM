@@ -1,0 +1,46 @@
+name: app
+
+# Roadmap Phase 0: CI green on every commit. Runs on every push to any branch and on PRs.
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint (ruff check)
+        run: ruff check app tests/app
+      - name: Format check (ruff format)
+        run: ruff format --check app tests/app
+      - name: Type check (mypy strict)
+        run: mypy -p app
+      - name: Tests (pytest, includes Temporal hello-world via the time-skipping test server)
+        run: pytest tests/app -q
+      - name: Benchmarks run offline
+        run: |
+          python -m app.benchmarks.model_split --out build/benchmarks
+          python -m app.benchmarks.people_source --out build/benchmarks
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - name: fmt and validate (dev, staging, production)
+        run: make tf-validate
+      - name: Staging deploy dry run (plan only)
+        env:
+          DRY_RUN: "1"
+          SKIP_CHECKS: "1"
+        run: scripts/deploy.sh staging

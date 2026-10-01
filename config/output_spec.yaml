@@ -1,0 +1,91 @@
+# Deliverable set and quality gate. Source: PRD s3.4 deliverables and quality gate,
+# roadmap s7 export builders and quality gate v1, s8 human review step.
+version: "1.0.0"
+
+# {account} is replaced with the account name when files are built.
+deliverables:
+  - id: summary
+    filename: "{account}_Account_Summary"
+    format: docx
+    audience: client
+    contents:
+      - Plain language narrative first
+      - Caveats on interpretation
+      - Graded tables lane by lane
+      - Key people table (priority A and senior)
+      - Findings from LinkedIn
+      - Executive voice
+      - Hypotheses with confirming questions
+      - First call questions
+      - Coverage tracker sorted with the most valuable open work first
+  - id: evidence
+    filename: "{account}_Sources_and_Evidence"
+    format: docx
+    audience: client
+    contents:
+      - Every source with a stable ID, link, date, grade and the exact sentence relied on
+      - Job descriptions read
+      - News items verified at source
+  - id: people
+    filename: "{account}_People_List"
+    format: xlsx
+    audience: client
+    contents:
+      - Deduplicated senior people with title, level, lane, priority, profile URL and source
+      - Summary sheet listing exclusions and counts
+  - id: jobs
+    filename: "{account}_Job_Postings"
+    format: xlsx
+    audience: client
+    contents:
+      - 12 months of open and closed postings with class, platform sentence, full description and link
+  - id: tech
+    filename: "{account}_Tech_Stack_and_Teams"
+    format: xlsx
+    audience: client
+    contents:
+      - Technology detections and team structure, cross checked against postings, with dates
+  - id: workspace
+    filename: "{account}_workspace"
+    format: zip
+    audience: client
+    contents:
+      - RESTORE.md
+      - The deliverables
+      - Build scripts
+      - Raw data with neutral file names
+      - Notes
+    includes: [summary, evidence, people, jobs, tech]
+  - id: operator_only
+    # Today this is the "Rajesh Only" file. Roadmap s8: separated by access control, not naming.
+    filename: "{account}_Operator_Only"
+    format: docx
+    audience: operator_only
+    contents:
+      - Anything from calls, email threads or internal conversations that names client or account team people
+
+# Built only when asked (roadmap s3 out of scope: slide decks by default).
+on_request_only: [executive_brief_deck]
+
+# Blocking checks before any export is released (PRD s3.4, roadmap s7 quality gate v1).
+quality_gate:
+  - id: no_lost_rows
+    description: "Every Word file rendered to PDF; no table row lost at a page break"
+  - id: no_orphan_citations
+    description: "Zero orphan citations"
+  - id: banned_patterns
+    description: "Zero banned dashes, stale phrases and excluded names"
+  - id: workbook_formulas
+    description: "Workbooks recalculated with zero formula errors; totals match row counts"
+  - id: tracker_tally
+    description: "Tracker tally recomputed from the rows, never typed by hand"
+  - id: narrative_vs_tables
+    description: "Every narrative statement carries a source ID with a matching graded row"
+  - id: third_party_scan
+    description: "Unzipped package scanned: zero broker names, zero credit counts, aggregators only on labelled Lead claims"
+  - id: tool_names_stripped
+    description: "Tool names stripped from client files"
+
+document_rules:
+  page_size: US Letter
+  banned_characters: ["\u2014", "\u2013"]  # em dash, en dash

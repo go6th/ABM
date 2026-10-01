@@ -1,0 +1,335 @@
+{
+  "$defs": {
+    "Account": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "domain": {
+          "pattern": "^[a-z0-9.-]+\\.[a-z]{2,}$",
+          "title": "Domain",
+          "type": "string"
+        },
+        "industry": {
+          "title": "Industry",
+          "type": "string"
+        },
+        "primary_lane": {
+          "title": "Primary Lane",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "domain",
+        "industry",
+        "primary_lane"
+      ],
+      "title": "Account",
+      "type": "object"
+    },
+    "CoverageExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "row_id": {
+          "title": "Row Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CoverageStatus"
+        }
+      },
+      "required": [
+        "row_id",
+        "status"
+      ],
+      "title": "CoverageExpectation",
+      "type": "object"
+    },
+    "CoverageStatus": {
+      "enum": [
+        "Done",
+        "Partial",
+        "Not done",
+        "Blocked",
+        "None"
+      ],
+      "title": "CoverageStatus",
+      "type": "string"
+    },
+    "GradeName": {
+      "enum": [
+        "Confirmed",
+        "Probable",
+        "Hypothesis",
+        "Lead"
+      ],
+      "title": "GradeName",
+      "type": "string"
+    },
+    "KnownFact": {
+      "additionalProperties": false,
+      "properties": {
+        "statement": {
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "grade": {
+          "$ref": "#/$defs/GradeName"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "url": {
+          "format": "uri",
+          "maxLength": 2083,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "supporting_sentence": {
+          "minLength": 1,
+          "title": "Supporting Sentence",
+          "type": "string"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning"
+        },
+        "confirming_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confirming Question"
+        }
+      },
+      "required": [
+        "statement",
+        "grade",
+        "source_ids",
+        "url",
+        "supporting_sentence"
+      ],
+      "title": "KnownFact",
+      "type": "object"
+    },
+    "PeopleCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "priority_a": {
+          "minimum": 0,
+          "title": "Priority A",
+          "type": "integer"
+        },
+        "by_lane": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "By Lane",
+          "type": "object"
+        },
+        "excluded": {
+          "minimum": 0,
+          "title": "Excluded",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "priority_a",
+        "excluded"
+      ],
+      "title": "PeopleCounts",
+      "type": "object"
+    },
+    "Review": {
+      "additionalProperties": false,
+      "properties": {
+        "reviewed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed By"
+        },
+        "reviewed_on": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed On"
+        },
+        "source_run": {
+          "description": "Which September run this baseline came from",
+          "title": "Source Run",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_run"
+      ],
+      "title": "Review",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "pattern": "^S\\d{3,}$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "url": {
+          "format": "uri",
+          "maxLength": 2083,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "published": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published"
+        },
+        "primary": {
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "row_ids": {
+          "description": "Coverage rows this source serves",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Row Ids",
+          "type": "array"
+        },
+        "text": {
+          "description": "Text of the source as read during the run",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "url",
+        "primary",
+        "row_ids",
+        "text"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "golden_id": {
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Golden Id",
+      "type": "string"
+    },
+    "synthetic": {
+      "description": "True for placeholder data; such accounts are never valid parity evidence",
+      "title": "Synthetic",
+      "type": "boolean"
+    },
+    "account": {
+      "$ref": "#/$defs/Account"
+    },
+    "review": {
+      "$ref": "#/$defs/Review"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/Source"
+      },
+      "minItems": 1,
+      "title": "Sources",
+      "type": "array"
+    },
+    "known_facts": {
+      "items": {
+        "$ref": "#/$defs/KnownFact"
+      },
+      "minItems": 1,
+      "title": "Known Facts",
+      "type": "array"
+    },
+    "expected_coverage": {
+      "items": {
+        "$ref": "#/$defs/CoverageExpectation"
+      },
+      "minItems": 1,
+      "title": "Expected Coverage",
+      "type": "array"
+    },
+    "expected_people": {
+      "$ref": "#/$defs/PeopleCounts"
+    }
+  },
+  "required": [
+    "golden_id",
+    "synthetic",
+    "account",
+    "review",
+    "sources",
+    "known_facts",
+    "expected_coverage",
+    "expected_people"
+  ],
+  "title": "GoldenAccount",
+  "type": "object"
+}

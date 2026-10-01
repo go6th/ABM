@@ -1,0 +1,47 @@
+# Grading scheme. Source: PRD Appendix B and s3.4; roadmap s3 principles 1 and 4, s7 grading engine.
+version: "1.0.0"
+
+# Every graded fact must carry these fields (roadmap s3 principle 1).
+required_fact_fields: [grade, url, supporting_sentence]
+
+grades:
+  - name: Confirmed
+    meaning: "Read in a primary source this run"
+    use: "May be stated to a prospect"
+    may_state_to_prospect: true
+    requires_primary_source_this_run: true
+    requires_reasoning: false
+    requires_confirming_question: false
+  - name: Probable
+    meaning: "Inferred from one or two sources, reasoning stated"
+    use: "Becomes a question"
+    may_state_to_prospect: false
+    requires_primary_source_this_run: false
+    requires_reasoning: true
+    requires_confirming_question: false
+  - name: Hypothesis
+    meaning: "The system's synthesis, with a confirming question"
+    use: "Becomes a question"
+    may_state_to_prospect: false
+    requires_primary_source_this_run: false
+    requires_reasoning: false
+    requires_confirming_question: true
+  - name: Lead
+    meaning: "Seen in a secondary source, not verified"
+    use: "Becomes a question; aggregator sources labelled as such"
+    may_state_to_prospect: false
+    requires_primary_source_this_run: false
+    requires_reasoning: false
+    requires_confirming_question: false
+
+rules:
+  # Not finding something is graded Hypothesis, never a conclusion (roadmap s3 principle 4).
+  absence_of_evidence_grade: Hypothesis
+  # A keyword match or a detection date range is a lead, not a finding (PRD s3.4).
+  keyword_match_grade: Lead
+  # A Lead needs three differently worded queries across two tools before it stays a Lead.
+  lead_verification:
+    min_distinct_queries: 3
+    min_distinct_tools: 2
+  # Aggregator sites are allowed only on Lead grade claims, labelled as aggregator (PRD s3.4).
+  aggregator_allowed_grades: [Lead]

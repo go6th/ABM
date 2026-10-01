@@ -1,0 +1,52 @@
+{
+  "request": {
+    "broker": "bitscale",
+    "operation": "find_people",
+    "params": {
+      "domain": "gamma-synthetic.example",
+      "scope": "default"
+    }
+  },
+  "response": {
+    "people": [
+      {
+        "name": "Synthetic Person 1",
+        "title": "Chief Information Officer",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p1"
+      },
+      {
+        "name": "Synthetic Person 2",
+        "title": "Vice President, Enterprise Applications",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p2"
+      },
+      {
+        "name": "Synthetic Person 3",
+        "title": "Director, CRM Platforms",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p3"
+      },
+      {
+        "name": "Synthetic Person 4",
+        "title": "Senior Manager, Data Engineering",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p4"
+      },
+      {
+        "name": "Synthetic Person 5",
+        "title": "Director of IT Security",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p5"
+      },
+      {
+        "name": "Synthetic Person 6",
+        "title": "Manager, Service Desk",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p6"
+      },
+      {
+        "name": "Synthetic Person 7",
+        "title": "Head of Digital Operations",
+        "profile_url": "https://profiles-synthetic.example/in/gamma-p7"
+      }
+    ]
+  },
+  "cost_credits": 0.0,
+  "synthetic": true,
+  "note": "SYNTHETIC recording for offline tests; not a real broker response"
+}

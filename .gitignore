@@ -23,3 +23,13 @@ coverage.xml
 # --- OS ---
 .DS_Store
 Thumbs.db
+
+# --- Terraform ---
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# --- Build output (benchmark dry runs) ---
+build/

@@ -7,10 +7,22 @@ PSQL    := docker compose exec -T db psql -U postgres -d ai
 
 .PHONY: help venv install db-up db-down db-wait migrate downgrade lint format typecheck \
         unit isolation spike-durability check quality test requirements verification \
-        adrs conflicts golden phase0-docs verification-clean clean
+        adrs conflicts golden phase0-docs verification-clean clean \
+        app-lint app-typecheck app-test app-check temporal-up worker hello \
+        bench-model-split bench-people tf-validate deploy-dev deploy-staging
 
 help:
-	@echo "ABM Generator - Phase 0"
+	@echo "Account Intelligence - roadmap Phase 0 (app/)"
+	@echo "  make app-check       ruff + format check + mypy + pytest for app/ (what CI runs)"
+	@echo "  make temporal-up     local Temporal dev server via docker compose"
+	@echo "  make worker          run the Temporal worker against TEMPORAL_ADDRESS"
+	@echo "  make hello           start the hello-world workflow"
+	@echo "  make bench-model-split  offline model split benchmark -> build/benchmarks"
+	@echo "  make bench-people    offline people source benchmark -> build/benchmarks"
+	@echo "  make tf-validate     terraform fmt + validate for dev, staging, production"
+	@echo "  make deploy-staging  one-command staging deploy (DRY_RUN=1 to plan only)"
+	@echo ""
+	@echo "Legacy (earlier roadmap, src/abm_generator)"
 	@echo "  make venv            create .venv and install dev deps"
 	@echo "  make install         install package + dev tools into existing .venv"
 	@echo "  make db-up           start postgres16+pgvector via docker compose"
@@ -111,3 +123,49 @@ reference:
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov dist build
 	find . -name "__pycache__" -type d -not -path "./.venv/*" -exec rm -rf {} +
+
+# ---------------------------------------------------------------- roadmap Phase 0 (app/)
+APP_PATHS := app tests/app
+
+app-lint:
+	$(RUFF) check $(APP_PATHS)
+	$(RUFF) format --check $(APP_PATHS)
+
+app-typecheck:
+	$(MYPY) -p app
+
+app-test:
+	$(PYTEST) tests/app -q
+
+app-check: app-lint app-typecheck app-test
+	@echo "APP CHECKS PASSED"
+
+temporal-up:
+	docker compose up -d temporal
+
+worker:
+	$(PY) -m app.worker worker
+
+hello:
+	$(PY) -m app.worker hello "$${NAME:-world}"
+
+bench-model-split:
+	$(PY) -m app.benchmarks.model_split --out build/benchmarks
+
+bench-people:
+	$(PY) -m app.benchmarks.people_source --out build/benchmarks
+
+TERRAFORM ?= terraform
+
+tf-validate:
+	$(TERRAFORM) fmt -recursive -check infra/terraform
+	@for env in dev staging production; do \
+		$(TERRAFORM) -chdir=infra/terraform/envs/$$env init -input=false -backend=false >/dev/null && \
+		$(TERRAFORM) -chdir=infra/terraform/envs/$$env validate || exit 1; \
+	done
+
+deploy-dev:
+	TERRAFORM=$(TERRAFORM) scripts/deploy.sh dev
+
+deploy-staging:
+	TERRAFORM=$(TERRAFORM) scripts/deploy.sh staging
