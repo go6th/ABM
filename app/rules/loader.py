@@ -11,7 +11,15 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from app.rules.schemas import Checklist, Grading, Models, OutputSpec, PeopleScope, Routing
+from app.rules.schemas import (
+    Checklist,
+    Grading,
+    Lanes,
+    Models,
+    OutputSpec,
+    PeopleScope,
+    Routing,
+)
 
 DEFAULT_CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
 
@@ -22,6 +30,7 @@ CONFIG_FILES = (
     "output_spec.yaml",
     "models.yaml",
     "people_scope.yaml",
+    "lanes.yaml",
 )
 
 
@@ -37,6 +46,7 @@ class RuleBundle:
     output_spec: OutputSpec
     models: Models
     people_scope: PeopleScope
+    lanes: Lanes
     file_versions: dict[str, str]
     content_hash: str
 
@@ -92,6 +102,7 @@ def load_rules(config_dir: Path | str = DEFAULT_CONFIG_DIR) -> RuleBundle:
         output_spec=_load(root, "output_spec.yaml", OutputSpec, digest),
         models=_load(root, "models.yaml", Models, digest),
         people_scope=_load(root, "people_scope.yaml", PeopleScope, digest),
+        lanes=_load(root, "lanes.yaml", Lanes, digest),
         file_versions={},
         content_hash="",
     )
@@ -102,6 +113,7 @@ def load_rules(config_dir: Path | str = DEFAULT_CONFIG_DIR) -> RuleBundle:
         "output_spec.yaml": bundle.output_spec.version,
         "models.yaml": bundle.models.version,
         "people_scope.yaml": bundle.people_scope.version,
+        "lanes.yaml": bundle.lanes.version,
     }
     return replace(bundle, file_versions=versions, content_hash=digest.hexdigest())
 

@@ -104,6 +104,7 @@ def test_version_is_recorded(rules: RuleBundle) -> None:
         "output_spec.yaml",
         "models.yaml",
         "people_scope.yaml",
+        "lanes.yaml",
     }
     assert re.fullmatch(r"([a-z]+\d+\.\d+\.\d+-?)+\+[0-9a-f]{12}", rules.version)
     assert load_rules().version == rules.version  # deterministic

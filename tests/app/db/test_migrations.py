@@ -179,3 +179,16 @@ def test_drift_check_would_catch_an_unmigrated_table(db: str) -> None:
         engine.dispose()
     assert [d[0] for d in diff] == ["add_table"]
     assert diff[0][1].fullname == "intel.probe"
+
+
+def test_enum_checks_in_database_match_code(db: str) -> None:
+    """Every enum column's CHECK after upgrade head allows exactly the enum's current values."""
+    from app.db.enums import enum_check_drift
+
+    command.upgrade(_config(), "head")
+    engine = create_engine(sqlalchemy_url(db))
+    try:
+        with engine.connect() as conn:
+            assert enum_check_drift(conn, Base.metadata) == []
+    finally:
+        engine.dispose()

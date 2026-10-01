@@ -11,7 +11,7 @@ Phase 1 risk this plan answers: "Over-engineering the schema early. Keep v1 narr
 | Asset | Use in this work item |
 |---|---|
 | `config/checklist.yaml` (33 rows, priorities, shelf lives) | Coverage rows are seeded from it per run; row ids (`P2.01`) and priorities come from config, not typed by hand |
-| `config/grading.yaml` | The four grade names; the database CHECK constraints use the same list, and a test keeps them in sync |
+| `config/grading.yaml` | The four grade names; the database CHECK constraints use the same list (stored as `confirmed` and so on), and a test keeps them in sync |
 | `config/routing.yaml` | `client_banned_terms()` feeds the database check that keeps broker names out of client-readable text and object keys |
 | `app/brokers/base.py` (`BrokerRequest.cache_key()`) | The request key that makes "pull once" a unique constraint on raw objects |
 | `app/people.py` (merge by profile URL then name) | Supplies the normalised profile URL used for the per-run uniqueness of people |
@@ -74,7 +74,7 @@ Every `intel` table except `accounts` and `sources` hangs off a run, so one run'
 
 | Rule | Mechanism |
 |---|---|
-| Every fact has grade, URL and supporting sentence | `NOT NULL` plus `CHECK (length(trim(x)) > 0)` on each; `CHECK (grade IN ('Confirmed','Probable','Hypothesis','Lead'))` |
+| Every fact has grade, URL and supporting sentence | `NOT NULL` plus `CHECK (length(trim(x)) > 0)` on each; `CHECK (grade IN ('confirmed','probable','hypothesis','lead'))` (section 9) |
 | Hypothesis has a confirming question; Probable has reasoning | `CHECK` constraints on `facts` |
 | Every fact cites at least one source, and its URL is one of those sources | Deferred constraint trigger, checked at commit |
 | Source IDs assigned once per account, never reused, never renumbered | `UNIQUE (account_id, source_number)` and `UNIQUE (account_id, url)`; numbers allocated under a per-account advisory lock; trigger rejects any update of `source_number`, `url` or `account_id` |
@@ -112,3 +112,16 @@ The tracker state machine ("a run cannot complete with a High row missing a stat
 ## 8. Out of scope here
 
 Broker connectors, credit cap logic, the tracker state machine, the grading engine, the pipelines, exports and the API. Each is its own Phase 1 work item and builds on these tables. No broker or model calls, and no outreach code.
+
+## 9. Enumerated values: CHECK-constrained text, not Postgres ENUM types
+
+Decision (step 6): every enumerated column is `varchar(64)` with a named CHECK constraint, `ck_<table>_<enum>`, listing the allowed values. Code: `app/db/enums.py`.
+
+Why not native `ENUM` types:
+
+1. **Two of the lists come from config and will change.** Lanes (`config/lanes.yaml`) and person levels (`config/people_scope.yaml`) are tenant settings in Phase 3. Postgres can add an ENUM value but cannot remove or rename one; that needs a new type and a rewrite of every column using it. A CHECK constraint is dropped and recreated by name in one transactional migration.
+2. **Migrations stay simple and reversible.** `ALTER TYPE ... ADD VALUE` cannot be undone, and the new value cannot be used in the same transaction that adds it. CHECK changes have none of these limits, so every migration keeps a working downgrade.
+3. **The cost is small.** Text takes a few more bytes than an ENUM and has no special sort order; neither matters here.
+4. **The known gap is covered.** Alembic autogenerate does not compare CHECK constraints, so a config change without a migration would go unnoticed. `enum_check_drift()` reads each constraint back from Postgres and compares it with the enum, and a test runs it against the real schema after `upgrade head`.
+
+Stored values are lowercase snake case (`not_done`); display labels (`Not done`) stay in config and in `label`. Tests fail if the enums and `config/grading.yaml`, `config/checklist.yaml`, `config/people_scope.yaml` or `config/lanes.yaml` disagree.

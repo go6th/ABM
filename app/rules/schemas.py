@@ -349,3 +349,38 @@ class PeopleScope(_Versioned):
         if self.merge_keys != ["profile_url", "name"]:
             raise ValueError("people merge must be by profile_url first, then name")
         return self
+
+
+# --------------------------------------------------------------------------- lanes
+
+LANE_ID = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+class Lane(_Strict):
+    id: str
+    label: str = Field(min_length=1)
+    note: str = ""
+
+    @field_validator("id")
+    @classmethod
+    def _id_is_a_slug(cls, value: str) -> str:
+        if not LANE_ID.match(value):
+            raise ValueError(f"lane id {value!r} must be lowercase letters, digits and _")
+        return value
+
+
+class Lanes(_Versioned):
+    lanes: list[Lane] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _unique_and_has_other(self) -> Lanes:
+        ids = [lane.id for lane in self.lanes]
+        if len(ids) != len(set(ids)):
+            raise ValueError("lane ids must be unique")
+        if "other" not in ids:
+            raise ValueError("lanes must include 'other' for activity outside the default set")
+        return self
+
+    @property
+    def ids(self) -> list[str]:
+        return [lane.id for lane in self.lanes]
