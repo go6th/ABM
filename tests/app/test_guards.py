@@ -40,6 +40,8 @@ NEW_DOCS = [
     "docs/phase1_backlog.md",
     "docs/PHASE0_STATUS.md",
     "docs/AUDIT.md",
+    "docs/data_layer/PLAN.md",
+    "docs/data_layer/CONVENTIONS.md",
     "tests/evals/golden/README.md",
     "infra/README.md",
     ".claude/skills/account-intelligence-builder/SKILL.md",
