@@ -1,0 +1,25 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Docker / DB ---
+*.log
+
+# --- OS ---
+.DS_Store
+Thumbs.db
