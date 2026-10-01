@@ -9,9 +9,17 @@ PSQL    := docker compose exec -T db psql -U postgres -d ai
         unit isolation spike-durability check quality test requirements verification \
         adrs conflicts golden phase0-docs verification-clean clean \
         app-lint app-typecheck app-test app-check temporal-up worker hello \
-        bench-model-split bench-people tf-validate deploy-dev deploy-staging
+        bench-model-split bench-people tf-validate deploy-dev deploy-staging \
+        up down db-shell
 
 help:
+	@echo "Local infrastructure"
+	@echo "  make up              start Postgres 16 and MinIO, wait until healthy, create the bucket"
+	@echo "  make down            stop the services (volumes and data are kept)"
+	@echo "  make db-shell        psql into the local database as the owner role"
+	@echo "  make migrate         apply database migrations"
+	@echo "  make test            app tests + legacy unit and isolation tests"
+	@echo ""
 	@echo "Account Intelligence - roadmap Phase 0 (app/)"
 	@echo "  make app-check       ruff + format check + mypy + pytest for app/ (what CI runs)"
 	@echo "  make temporal-up     local Temporal dev server via docker compose"
@@ -64,6 +72,10 @@ migrate:
 	DATABASE_URL="postgresql://postgres:dev@localhost:5432/ai" \
 	MIGRATOR_DATABASE_URL="postgresql://postgres:dev@localhost:5432/ai" \
 	$(PY) -m alembic upgrade head
+	@if [ -f app/db/alembic.ini ]; then \
+		MIGRATOR_DATABASE_URL="postgresql://postgres:dev@localhost:5432/ai" \
+		$(PY) -m alembic -c app/db/alembic.ini upgrade head; \
+	fi
 
 downgrade:
 	DATABASE_URL="postgresql://postgres:dev@localhost:5432/ai" \
@@ -88,7 +100,7 @@ isolation:
 spike-durability:
 	$(PYTEST) tests/spike -x -q -m spike
 
-test: unit isolation
+test: app-test unit isolation
 
 requirements:
 	$(PY) scripts/check_requirements.py
@@ -169,3 +181,15 @@ deploy-dev:
 
 deploy-staging:
 	TERRAFORM=$(TERRAFORM) scripts/deploy.sh staging
+
+# ---------------------------------------------------------------- local infrastructure
+up:
+	docker compose up -d --wait db minio
+	docker compose run --rm minio-init
+	@docker compose ps db minio
+
+down:
+	docker compose down
+
+db-shell:
+	docker compose exec db psql -U postgres -d ai
