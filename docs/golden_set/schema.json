@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abm-generator.local/schemas/golden_account_v0.json",
+  "title": "Golden-set labelled account",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["slot", "schema_version", "captured_at", "labelled_by", "rows"],
+  "properties": {
+    "slot": {
+      "type": "string",
+      "pattern": "^G-[1-9]$",
+      "description": "Anonymised account slot id (G-1..G-9); company name never enters the fixture."
+    },
+    "schema_version": { "const": "0.1" },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 snapshot freeze time (UTC)."
+    },
+    "labelled_by": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Two independent labellers for v0; adjudicator recorded separately."
+    },
+    "adjudicator": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" },
+    "rows": {
+      "type": "array",
+      "minItems": 33,
+      "maxItems": 33,
+      "description": "Exactly one labelled row per coverage_tracker row C01..C33.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["row_id", "attribute", "grade", "confidence", "evidence"],
+        "properties": {
+          "row_id": {
+            "type": "string",
+            "pattern": "^C[0-9]{2}$",
+            "description": "Coverage tracker row id (C01..C33)."
+          },
+          "attribute": { "type": "string", "minLength": 1 },
+          "grade": { "enum": ["Confirmed", "Probable", "Hypothesis", "Lead"] },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Numeric confidence the system should output for calibration."
+          },
+          "value": { "type": ["string", "null"] },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source_class", "retrieved_at"],
+              "properties": {
+                "source_class": {
+                  "enum": ["official", "registry", "news", "broker", "job_board", "filing", "internal"]
+                },
+                "source_hint": { "type": "string" },
+                "retrieved_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}

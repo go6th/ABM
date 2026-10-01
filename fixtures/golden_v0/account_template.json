@@ -1,0 +1,315 @@
+{
+  "slot": "G-1",
+  "schema_version": "0.1",
+  "captured_at": "2026-09-15T09:00:00Z",
+  "labelled_by": ["labeller-a", "labeller-b"],
+  "adjudicator": "tech-lead",
+  "notes": "v0 template fixture: anonymised sector profile 'SaaS / DevTools, VC-funded, ~200 staff, visible engineering hiring'. Demonstrates every grade and the evidence format; company name intentionally withheld.",
+  "rows": [
+    {
+      "row_id": "C01",
+      "attribute": "company.identity.legal_name",
+      "grade": "Confirmed",
+      "confidence": 0.92,
+      "evidence": [
+        { "source_class": "official", "source_hint": "site footer imprint", "retrieved_at": "2026-09-15T08:12:00Z" },
+        { "source_class": "registry", "source_hint": "companies registry extract", "retrieved_at": "2026-09-15T08:14:00Z" }
+      ]
+    },
+    {
+      "row_id": "C02",
+      "attribute": "company.identity.domain",
+      "grade": "Confirmed",
+      "confidence": 0.95,
+      "evidence": [
+        { "source_class": "official", "source_hint": "resolver + verified redirect", "retrieved_at": "2026-09-15T08:15:00Z" }
+      ]
+    },
+    {
+      "row_id": "C03",
+      "attribute": "company.identity.hq_location",
+      "grade": "Confirmed",
+      "confidence": 0.88,
+      "evidence": [
+        { "source_class": "official", "source_hint": "contact page address", "retrieved_at": "2026-09-15T08:16:00Z" },
+        { "source_class": "registry", "source_hint": "registered office", "retrieved_at": "2026-09-15T08:17:00Z" }
+      ]
+    },
+    {
+      "row_id": "C04",
+      "attribute": "company.profile.industry",
+      "grade": "Confirmed",
+      "confidence": 0.86,
+      "evidence": [
+        { "source_class": "broker", "source_hint": "industry classification", "retrieved_at": "2026-09-15T08:20:00Z" },
+        { "source_class": "official", "source_hint": "about page", "retrieved_at": "2026-09-15T08:21:00Z" }
+      ]
+    },
+    {
+      "row_id": "C05",
+      "attribute": "company.profile.employee_count",
+      "grade": "Probable",
+      "confidence": 0.74,
+      "evidence": [
+        { "source_class": "broker", "source_hint": "range 180-220, no second source", "retrieved_at": "2026-09-15T08:22:00Z" }
+      ]
+    },
+    {
+      "row_id": "C06",
+      "attribute": "company.profile.description",
+      "grade": "Confirmed",
+      "confidence": 0.9,
+      "evidence": [
+        { "source_class": "official", "source_hint": "homepage paraphrase", "retrieved_at": "2026-09-15T08:23:00Z" }
+      ]
+    },
+    {
+      "row_id": "C07",
+      "attribute": "company.profile.founded_year",
+      "grade": "Confirmed",
+      "confidence": 0.85,
+      "evidence": [
+        { "source_class": "official", "source_hint": "history page", "retrieved_at": "2026-09-15T08:24:00Z" }
+      ]
+    },
+    {
+      "row_id": "C08",
+      "attribute": "company.financials.funding_stage",
+      "grade": "Confirmed",
+      "confidence": 0.9,
+      "evidence": [
+        { "source_class": "news", "source_hint": "Series B announcement", "retrieved_at": "2026-08-02T10:00:00Z" },
+        { "source_class": "broker", "source_hint": "funding tab", "retrieved_at": "2026-09-15T08:26:00Z" }
+      ]
+    },
+    {
+      "row_id": "C09",
+      "attribute": "company.financials.total_raised",
+      "grade": "Probable",
+      "confidence": 0.72,
+      "evidence": [
+        { "source_class": "broker", "source_hint": "single-source aggregate", "retrieved_at": "2026-09-15T08:27:00Z" }
+      ]
+    },
+    {
+      "row_id": "C10",
+      "attribute": "company.financials.revenue_band",
+      "grade": "Hypothesis",
+      "confidence": 0.55,
+      "evidence": [
+        { "source_class": "broker", "source_hint": "indicative band, no filing", "retrieved_at": "2026-09-15T08:28:00Z" }
+      ],
+      "notes": "never Confirmed without a filing (grade rule C10)"
+    },
+    {
+      "row_id": "C11",
+      "attribute": "company.leadership.ceo",
+      "grade": "Confirmed",
+      "confidence": 0.91,
+      "evidence": [
+        { "source_class": "official", "source_hint": "team page", "retrieved_at": "2026-09-15T08:30:00Z" },
+        { "source_class": "news", "source_hint": "appointment coverage", "retrieved_at": "2026-09-15T08:31:00Z" }
+      ]
+    },
+    {
+      "row_id": "C12",
+      "attribute": "company.leadership.cto",
+      "grade": "Confirmed",
+      "confidence": 0.86,
+      "evidence": [
+        { "source_class": "official", "source_hint": "team page", "retrieved_at": "2026-09-15T08:32:00Z" },
+        { "source_class": "filing", "source_hint": "officer list", "retrieved_at": "2026-09-15T08:33:00Z" }
+      ]
+    },
+    {
+      "row_id": "C13",
+      "attribute": "company.leadership.cfo",
+      "grade": "Probable",
+      "confidence": 0.71,
+      "evidence": [
+        { "source_class": "news", "source_hint": "single hire announcement", "retrieved_at": "2026-09-15T08:34:00Z" }
+      ]
+    },
+    {
+      "row_id": "C14",
+      "attribute": "company.leadership.cro",
+      "grade": "Lead",
+      "confidence": 0.4,
+      "evidence": [],
+      "notes": "no CRO/Head-of-Sales found; listed in gap section"
+    },
+    {
+      "row_id": "C15",
+      "attribute": "company.leadership.chro",
+      "grade": "Hypothesis",
+      "confidence": 0.52,
+      "evidence": [
+        { "source_class": "broker", "source_hint": "profile-only, no corroboration", "retrieved_at": "2026-09-15T08:36:00Z" }
+      ]
+    },
+    {
+      "row_id": "C16",
+      "attribute": "company.leadership.tenor",
+      "grade": "Probable",
+      "confidence": 0.7,
+      "evidence": [
+        { "source_class": "broker", "source_hint": "profile start dates", "retrieved_at": "2026-09-15T08:37:00Z" }
+      ]
+    },
+    {
+      "row_id": "C17",
+      "attribute": "company.hiring.open_roles_count",
+      "grade": "Probable",
+      "confidence": 0.75,
+      "evidence": [
+        { "source_class": "job_board", "source_hint": "snapshot with date stamp", "retrieved_at": "2026-09-14T06:00:00Z" }
+      ]
+    },
+    {
+      "row_id": "C18",
+      "attribute": "company.hiring.engineering_roles",
+      "grade": "Probable",
+      "confidence": 0.73,
+      "evidence": [
+        { "source_class": "job_board", "source_hint": "classifier output over snapshot", "retrieved_at": "2026-09-14T06:00:00Z" }
+      ]
+    },
+    {
+      "row_id": "C19",
+      "attribute": "company.hiring.sales_roles",
+      "grade": "Probable",
+      "confidence": 0.68,
+      "evidence": [
+        { "source_class": "job_board", "source_hint": "classifier output over snapshot", "retrieved_at": "2026-09-14T06:00:00Z" }
+      ]
+    },
+    {
+      "row_id": "C20",
+      "attribute": "company.hiring.seniority_signal",
+      "grade": "Confirmed",
+      "confidence": 0.85,
+      "evidence": [
+        { "source_class": "job_board", "source_hint": "3 director+ postings", "retrieved_at": "2026-09-14T06:00:00Z" }
+      ]
+    },
+    {
+      "row_id": "C21",
+      "attribute": "company.tech.stack.primary_cloud",
+      "grade": "Probable",
+      "confidence": 0.76,
+      "evidence": [
+        { "source_class": "job_board", "source_hint": "postings mention", "retrieved_at": "2026-09-14T06:00:00Z" },
+        { "source_class": "broker", "source_hint": "tech detection", "retrieved_at": "2026-09-15T08:40:00Z" }
+      ]
+    },
+    {
+      "row_id": "C22",
+      "attribute": "company.tech.stack.tools",
+      "grade": "Probable",
+      "confidence": 0.72,
+      "evidence": [
+        { "source_class": "job_board", "source_hint": "postings mention", "retrieved_at": "2026-09-14T06:00:00Z" },
+        { "source_class": "broker", "source_hint": "tech detection", "retrieved_at": "2026-09-15T08:41:00Z" }
+      ]
+    },
+    {
+      "row_id": "C23",
+      "attribute": "company.tech.stack.recent_adoption",
+      "grade": "Lead",
+      "confidence": 0.35,
+      "evidence": [],
+      "notes": "no prior snapshot for delta; first run establishes baseline"
+    },
+    {
+      "row_id": "C24",
+      "attribute": "company.news.recent_events",
+      "grade": "Probable",
+      "confidence": 0.65,
+      "evidence": [
+        { "source_class": "news", "source_hint": "one curated item, T3 minimum met", "retrieved_at": "2026-09-10T09:00:00Z" }
+      ]
+    },
+    {
+      "row_id": "C25",
+      "attribute": "company.news.funding_event",
+      "grade": "Confirmed",
+      "confidence": 0.89,
+      "evidence": [
+        { "source_class": "news", "source_hint": "announcement", "retrieved_at": "2026-08-02T10:00:00Z" },
+        { "source_class": "filing", "source_hint": "form D equivalent", "retrieved_at": "2026-08-05T10:00:00Z" }
+      ]
+    },
+    {
+      "row_id": "C26",
+      "attribute": "company.news.leadership_change",
+      "grade": "Lead",
+      "confidence": 0.3,
+      "evidence": [],
+      "notes": "no change observed in window"
+    },
+    {
+      "row_id": "C27",
+      "attribute": "company.sales.buying_signals",
+      "grade": "Hypothesis",
+      "confidence": 0.58,
+      "evidence": [
+        { "source_class": "internal", "source_hint": "derived from C20+C25", "retrieved_at": "2026-09-15T08:45:00Z" }
+      ]
+    },
+    {
+      "row_id": "C28",
+      "attribute": "company.sales.pain_hypotheses",
+      "grade": "Hypothesis",
+      "confidence": 0.5,
+      "evidence": [
+        { "source_class": "internal", "source_hint": "derived, labelled Hypothesis", "retrieved_at": "2026-09-15T08:46:00Z" }
+      ],
+      "notes": "never stated as Confirmed (I8)"
+    },
+    {
+      "row_id": "C29",
+      "attribute": "company.sales.competitors",
+      "grade": "Probable",
+      "confidence": 0.66,
+      "evidence": [
+        { "source_class": "job_board", "source_hint": "posting mentions rival stack", "retrieved_at": "2026-09-14T06:00:00Z" }
+      ]
+    },
+    {
+      "row_id": "C30",
+      "attribute": "company.risk.data_gaps",
+      "grade": "Confirmed",
+      "confidence": 0.9,
+      "evidence": [
+        { "source_class": "internal", "source_hint": "C14/C23/C26 listed with reasons", "retrieved_at": "2026-09-15T08:48:00Z" }
+      ]
+    },
+    {
+      "row_id": "C31",
+      "attribute": "company.evidence.source_count",
+      "grade": "Confirmed",
+      "confidence": 0.95,
+      "evidence": [
+        { "source_class": "internal", "source_hint": "count of lineage groups in ledger", "retrieved_at": "2026-09-15T08:49:00Z" }
+      ]
+    },
+    {
+      "row_id": "C32",
+      "attribute": "company.evidence.oldest_source_age",
+      "grade": "Confirmed",
+      "confidence": 0.95,
+      "evidence": [
+        { "source_class": "internal", "source_hint": "min retrieved_at across evidence", "retrieved_at": "2026-09-15T08:50:00Z" }
+      ]
+    },
+    {
+      "row_id": "C33",
+      "attribute": "company.refresh.next_probe",
+      "grade": "Confirmed",
+      "confidence": 0.95,
+      "evidence": [
+        { "source_class": "internal", "source_hint": "watch config cadence", "retrieved_at": "2026-09-15T08:51:00Z" }
+      ]
+    }
+  ]
+}
