@@ -51,7 +51,7 @@ Each schema has its own Alembic history (`app/db/migrations/`, version table in 
 | Table | One sentence |
 |---|---|
 | `raw_objects` | One raw broker response in object storage: neutral object key, request key (pull once), content hash, size and the run that pulled it. No broker name. |
-| `run_budgets` | The credit cap agreed for a run and the spend so far. Kept here because roadmap section 3 principle 6 keeps credit counts out of client-readable data. |
+| `run_budgets` | Spend so far per run (the agreed cap lives on `runs` since step 8). Kept here because roadmap section 3 principle 6 keeps credit counts out of client-readable data. |
 
 Not in v1 (later phases, per section 11.1): tenants and users, signals and alerts, exports. Broker call records with per-call cost belong to the "Broker connectors" and "Credit cap v1" work items and will add an internal table through a migration.
 
@@ -99,7 +99,7 @@ The tracker state machine ("a run cannot complete with a High row missing a stat
 | # | Question | Default chosen |
 |---|---|---|
 | Q1 | Section 11.1 says every entity is scoped by tenant, but tenancy is Phase 3. Add `tenant_id` now? | **Changed in step 7:** `accounts.tenant_id` (NOT NULL, default `DEFAULT_TENANT_ID`, no tenants table and no foreign key yet), so Phase 3 adds the tenants table, a foreign key and row-level security instead of rewriting rows. Domains are unique per tenant. |
-| Q2 | Section 11.1 puts cap and spend on Run, but credit counts must stay out of client-readable tables. | Split into `intel_internal.run_budgets`. |
+| Q2 | Section 11.1 puts cap and spend on Run, but credit counts must stay out of client-readable tables. | **Changed in step 8:** `credit_cap` is on `intel.runs` as specified, with a column comment marking it internal. Open risk: `intel` is the client-readable schema, so client-facing reads (API v1, exports, the Phase 3 app) must select explicit columns and never `credit_cap`; moving it to `intel_internal` later is a small migration. Spend stays in `intel_internal.run_budgets`. |
 | Q3 | Section 11.1 puts grade and sentence on Source, but a stable source can be reread with a different result. | Split identity (`sources`) from each run's read (`source_reads`), so nothing is overwritten. |
 | Q4 | Coverage proof records the "tool". A broker name there would reach the client tracker. | Store the neutral routing need (for example `people_by_title`) from `config/routing.yaml`; the database rejects broker names. |
 | Q5 | People and postings: one row per account updated over time, or rows per run? | Rows per run. Never overwrite, and refresh diffs compare runs. |

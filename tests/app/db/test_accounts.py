@@ -17,6 +17,7 @@ from app.db.base import DEFAULT_TENANT_ID
 from app.db.models import Account
 from app.db.models.account import InvalidCareersUrl, InvalidDomain, normalize_domain
 from app.db.url import sqlalchemy_url
+from tests.app.db.helpers import check_constraint_names, constraint_holds
 
 NOW = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
@@ -134,20 +135,6 @@ def test_required_columns(engine: Engine, column: str) -> None:
     assert isinstance(_violation(engine, **{column: None}), NotNullViolation)
 
 
-# Each CHECK is evaluated alone, using the expression read back from Postgres, because an insert
-# only reports the first failing constraint (Postgres checks them in name order).
-def _holds(conn: Connection, name: str, row: dict[str, tuple[Any, str]]) -> bool:
-    definition = conn.execute(
-        text("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = :n"), {"n": name}
-    ).scalar_one()
-    expr = definition.removeprefix("CHECK ")
-    select_list = ", ".join(f"CAST(:{c} AS {t}) AS {c}" for c, (_, t) in row.items())
-    query = f"SELECT {expr} FROM (SELECT {select_list}) AS t"  # noqa: S608
-    result = conn.execute(text(query), {c: v for c, (v, _) in row.items()}).scalar_one()
-    # A CHECK passes when its expression is true or null.
-    return result is not False
-
-
 def _domain(v: str) -> dict[str, tuple[Any, str]]:
     return {"domain": (v, "text")}
 
@@ -200,21 +187,13 @@ def test_each_check_constraint(
     bad: dict[str, tuple[Any, str]],
 ) -> None:
     with engine.connect() as conn:
-        assert _holds(conn, name, good), f"{name} rejected a valid row"
-        assert not _holds(conn, name, bad), f"{name} accepted an invalid row"
+        assert constraint_holds(conn, name, good), f"{name} rejected a valid row"
+        assert not constraint_holds(conn, name, bad), f"{name} accepted an invalid row"
 
 
 def test_every_check_constraint_is_tested(engine: Engine) -> None:
     with engine.connect() as conn:
-        names = set(
-            conn.execute(
-                text(
-                    "SELECT conname FROM pg_constraint "
-                    "WHERE conrelid = 'intel.accounts'::regclass AND contype = 'c'"
-                )
-            ).scalars()
-        )
-    assert names == {c[0] for c in CHECKS}
+        assert check_constraint_names(conn, "intel.accounts") == {c[0] for c in CHECKS}
 
 
 @pytest.mark.parametrize(
