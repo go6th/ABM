@@ -1,0 +1,43 @@
+# The 33 coverage rows every run must carry (PRD Appendix A).
+# Each row ends a run as: done | partial | not_done | blocked | none, with proof
+# (queries run, tool category, result count). Silent omission is a defect.
+# refresh_cadence comes from SaaS section 5.1 where the document states one; null where it does not.
+version: "2026-10-01.1"
+statuses: [done, partial, not_done, blocked, none]
+priorities: [high, medium, optional]
+rows:
+  # ---- Pass 1: summary homework (relationship and fit) ----
+  - {key: prior_customer_status,        pass: 1, priority: high,     label: "Prior customer status, past interactions, prior pursuits", refresh_cadence: null}
+  - {key: connections_alumni,           pass: 1, priority: high,     label: "Connections, alumni overlaps, former colleagues", refresh_cadence: null}
+  - {key: platform_vendor_account_team, pass: 1, priority: high,     label: "Platform vendor account team", refresh_cadence: null}
+  - {key: key_contact_profiles_posts,   pass: 1, priority: high,     label: "Profiles and posts of key contacts", refresh_cadence: null}
+  - {key: basic_fit_check,              pass: 1, priority: high,     label: "Basic fit check", refresh_cadence: null}
+  # ---- Pass 2: research ----
+  - {key: company_news,                 pass: 2, priority: high,     label: "Company news and press releases", refresh_cadence: weekly}
+  - {key: earnings_filings,             pass: 2, priority: high,     label: "Earnings releases and filings", refresh_cadence: quarterly}
+  - {key: leadership_changes,           pass: 2, priority: high,     label: "Leadership changes, last six months", refresh_cadence: weekly}
+  - {key: job_board_by_lane,            pass: 2, priority: high,     label: "Job board search by lane", refresh_cadence: weekly}
+  - {key: job_postings_read_classified, pass: 2, priority: high,     label: "Job postings read and classified", refresh_cadence: monthly}
+  - {key: job_postings_12_months,       pass: 2, priority: high,     label: "Job postings, last 12 months, open and closed", refresh_cadence: monthly}
+  - {key: technology_detections,        pass: 2, priority: high,     label: "Technology detections", refresh_cadence: monthly}
+  - {key: people_by_platform,           pass: 2, priority: high,     label: "People by platform", refresh_cadence: quarterly}
+  - {key: full_profiles_senior_people,  pass: 2, priority: high,     label: "Full profiles of senior people", refresh_cadence: quarterly}
+  - {key: posts_priority_people,        pass: 2, priority: medium,   label: "Posts and comments of priority people", refresh_cadence: monthly}
+  - {key: executive_voice_earnings,     pass: 2, priority: high,     label: "Executive voice from earnings calls", refresh_cadence: quarterly}
+  - {key: financial_baseline_verified,  pass: 2, priority: high,     label: "Financial baseline verified", refresh_cadence: quarterly}
+  - {key: vendor_customer_stories,      pass: 2, priority: high,     label: "Vendor customer stories", refresh_cadence: null}
+  - {key: lead_verification,            pass: 2, priority: high,     label: "Verification of items graded Lead", refresh_cadence: null}
+  - {key: customers_partners_matched,   pass: 2, priority: high,     label: "Customers and partners matched to client references", refresh_cadence: null}
+  - {key: executive_speaking,           pass: 2, priority: medium,   label: "Executive speaking, upcoming and past", refresh_cadence: monthly}
+  - {key: podcasts,                     pass: 2, priority: medium,   label: "Podcasts", refresh_cadence: monthly}
+  - {key: youtube,                      pass: 2, priority: medium,   label: "YouTube", refresh_cadence: monthly}
+  - {key: medium_substack,              pass: 2, priority: medium,   label: "Medium and Substack", refresh_cadence: monthly}
+  - {key: review_sites,                 pass: 2, priority: medium,   label: "Review sites", refresh_cadence: quarterly}
+  - {key: vendor_communities,           pass: 2, priority: medium,   label: "Vendor communities and marketplaces", refresh_cadence: quarterly}
+  - {key: regulatory_quality_events,    pass: 2, priority: optional, label: "Regulatory and quality events", refresh_cadence: null}
+  - {key: financial_position_peers,     pass: 2, priority: optional, label: "Financial position against peers", refresh_cadence: null}
+  - {key: competitor_moves,             pass: 2, priority: optional, label: "Competitor moves and peer KPIs", refresh_cadence: null}
+  - {key: major_holders_activists,      pass: 2, priority: optional, label: "Major holders and activist activity", refresh_cadence: null}
+  - {key: events_sponsored,             pass: 2, priority: optional, label: "Events sponsored or exhibited at", refresh_cadence: null}
+  - {key: employee_content_github,      pass: 2, priority: optional, label: "Employee content, GitHub, engineering blogs", refresh_cadence: null}
+  - {key: research_papers,              pass: 2, priority: optional, label: "Research papers", refresh_cadence: null}
