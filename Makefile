@@ -10,14 +10,15 @@ PSQL    := docker compose exec -T db psql -U postgres -d ai
         adrs conflicts golden phase0-docs verification-clean clean \
         app-lint app-typecheck app-test app-check temporal-up worker hello \
         bench-model-split bench-people tf-validate deploy-dev deploy-staging \
-        up down db-shell
+        up down db-shell migration
 
 help:
 	@echo "Local infrastructure"
 	@echo "  make up              start Postgres 16 and MinIO, wait until healthy, create the bucket"
 	@echo "  make down            stop the services (volumes and data are kept)"
 	@echo "  make db-shell        psql into the local database as the owner role"
-	@echo "  make migrate         apply database migrations"
+	@echo "  make migrate         apply database migrations (legacy chain, then data layer)"
+	@echo "  make migration m=\"message\"  autogenerate a data layer migration from the models"
 	@echo "  make test            app tests + legacy unit and isolation tests"
 	@echo ""
 	@echo "Account Intelligence - roadmap Phase 0 (app/)"
@@ -72,10 +73,7 @@ migrate:
 	DATABASE_URL="postgresql://postgres:dev@localhost:5432/ai" \
 	MIGRATOR_DATABASE_URL="postgresql://postgres:dev@localhost:5432/ai" \
 	$(PY) -m alembic upgrade head
-	@if [ -f app/db/alembic.ini ]; then \
-		MIGRATOR_DATABASE_URL="postgresql://postgres:dev@localhost:5432/ai" \
-		$(PY) -m alembic -c app/db/alembic.ini upgrade head; \
-	fi
+	DATABASE_URL="$(MIGRATE_DATABASE_URL)" $(PY) -m alembic -c app/db/alembic.ini upgrade head
 
 downgrade:
 	DATABASE_URL="postgresql://postgres:dev@localhost:5432/ai" \
@@ -193,3 +191,11 @@ down:
 
 db-shell:
 	docker compose exec db psql -U postgres -d ai
+
+# Data layer migrations run as the owner role; the app's runtime role never runs DDL.
+MIGRATE_DATABASE_URL ?= postgresql://postgres:dev@localhost:5432/ai
+ALEMBIC_DL := $(PY) -m alembic -c app/db/alembic.ini
+
+migration:
+	@test -n "$(m)" || { echo 'usage: make migration m="describe the change"'; exit 2; }
+	DATABASE_URL="$(MIGRATE_DATABASE_URL)" $(ALEMBIC_DL) revision --autogenerate -m "$(m)"

@@ -8,6 +8,21 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      # Empty Postgres 16 for the data layer migration tests (tests/app/db).
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:ci@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,8 +38,14 @@ jobs:
         run: ruff format --check app tests/app
       - name: Type check (mypy strict)
         run: mypy -p app
-      - name: Tests (pytest, includes Temporal hello-world via the time-skipping test server)
-        run: pytest tests/app -q
+      - name: Tests (pytest; Temporal hello-world and data layer migrations included)
+        run: pytest tests/app -q -rs
+      - name: Data layer migrations, upgrade head and downgrade base on an empty database
+        env:
+          DATABASE_URL: postgresql://postgres:ci@localhost:5432/postgres
+        run: |
+          alembic -c app/db/alembic.ini upgrade head
+          alembic -c app/db/alembic.ini downgrade base
       - name: Benchmarks run offline
         run: |
           python -m app.benchmarks.model_split --out build/benchmarks
