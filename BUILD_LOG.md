@@ -41,3 +41,16 @@ Last updated: 2026-10-01
 - D-01 through D-11 remain open as described in the skill's `references/12-open-decisions-and-verification.md`.
 - No live tenant data or real paid service was accessed.
 - The whole-suite coverage target remains 80%; its measured project-wide value is unverified until the database-backed suite can run.
+
+## Workflow v1 scaffold (2026-10-02)
+
+- Added a validated YAML DAG, sequential LangGraph builder, typed stage/repository ports, small checkpoint state and schema migration, proof-required coverage tracker, deterministic evidence checks, and optimistic lifecycle transition rules.
+- Added a total checklist-ID ownership map. P2.15 (`customers_partners_matched`) is assigned to `pass1_relationship` per product-owner response on 2026-10-02. Other ownership inferred from labels and process descriptions is identified as proposed because original PRD Appendix A is absent.
+- Added ADR-0005 to record PRD step 9 before step 10, with the Architecture judge pass inside `distill_grade`.
+- Production stage adapters, persistence repositories, builder, gate, workflow runner, and wallet settlement remain unimplemented; their ports fail closed with `NotConfigured`. Wallet settlement is blocked on the credits/USD distinction (D-04); no unit conversion was invented.
+- Workflow component harness: `pytest tests/workflow -q --cov=account_intelligence.workflow --cov-config=/dev/null --cov-fail-under=90` — 11 passed, 100% statement coverage in `src/account_intelligence/workflow/`. `ruff check src/account_intelligence/workflow tests/workflow` — pass. `mypy --strict src/account_intelligence/workflow` — pass.
+- `validate_assets.py` — pass (33 rows); `lint_migrations.py migrations` — pass (12 files).
+- `ruff check .` — blocked by 11 existing E501 violations in `tests/connectors/`, untouched by this work.
+- `pytest tests/isolation -x` and `pytest -m "not eval" -q` — blocked at the shared database fixture because PostgreSQL is unavailable at localhost:5432. No RLS or database durability claim is made.
+- `bash .claude/skills/account-intelligence-platform/scripts/selftest.sh` — pass (`selftest OK`).
+- Not run: catalog RLS query (`psql` is unavailable), full adversarial FakeLlm matrix, whole-run/resume matrix, settlement property/concurrency harness, and Inngest timeout path.
