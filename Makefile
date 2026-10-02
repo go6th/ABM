@@ -5,18 +5,29 @@ MIGRATOR_DATABASE_URL ?= postgresql://postgres:dev@localhost:5432/ai
 CHECKPOINT_DATABASE_URL ?= $(DATABASE_URL)
 APP_RW_PASSWORD ?= local-dev-only
 
-.PHONY: up down migrate test lint check
+.PHONY: up down objectstore db-shell migrate migration test lint check
 
 up:
-	$(COMPOSE) up -d db
+	$(COMPOSE) up -d db objectstore
+
+objectstore:
+	$(COMPOSE) up -d objectstore
 
 down:
 	$(COMPOSE) down
+
+db-shell:
+	$(COMPOSE) exec db psql -U postgres -d ai
 
 migrate:
 	MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
 	CHECKPOINT_DATABASE_URL="$(CHECKPOINT_DATABASE_URL)" \
 	APP_RW_PASSWORD="$(APP_RW_PASSWORD)" $(UV) run --frozen alembic upgrade head
+
+migration:
+	MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
+	CHECKPOINT_DATABASE_URL="$(CHECKPOINT_DATABASE_URL)" \
+	APP_RW_PASSWORD="$(APP_RW_PASSWORD)" $(UV) run --frozen alembic revision -m "$(m)"
 
 test:
 	$(UV) run --frozen pytest tests/isolation -x

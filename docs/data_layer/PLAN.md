@@ -17,7 +17,8 @@ steps 10, 20 and 30 and wait for the word "continue".
 | Prompt says | This repo does | Why |
 | --- | --- | --- |
 | Create `app/db/`, `app/storage/` | Use `src/db/`, `src/storage/` | The repo layout already exists (README section 14 documents `src/db/models`); the work item says to reuse it |
-| Add Postgres 16 to docker-compose | Keep the existing `db` service (pgvector/pg16), add MinIO only | Postgres 16 with healthcheck is already there |
+| Add Postgres 16 to docker-compose | Keep the existing `db` service (pgvector/pg16), add S3-compatible object storage | Postgres 16 with healthcheck is already there |
+| MinIO locally | SeaweedFS locally (`chrislusf/seaweedfs`) | MinIO removed its community images from Docker Hub in 2025 (`minio/minio` no longer resolves; `dl.min.io` returns 410). SeaweedFS serves the same S3 API and is verified locally with the boto3 client. The storage client stays boto3, so swapping endpoints is one env var |
 | Initialise Alembic | Reuse the existing `migrations/` setup; extend `env.py` | Alembic 0001/0002 already exist and CI depends on them |
 | Plain tables | Every new table carries `tenant_id NOT NULL`, forced RLS, `TO app_rw` policy | README 16.3: tenancy from the first migration; migration lint R1 and `check_rls_catalog.sql` enforce it |
 | `accounts` table | Extend the existing `accounts` (add name, industry, primary_lane, pursuing_client; domain CHECK; index) | One accounts table; the starter already creates it |
@@ -58,5 +59,5 @@ steps 10, 20 and 30 and wait for the word "continue".
 1. `runs` and `account_runs`: two tables until WP 1.5 unifies them. Default: build `runs` per the prompt, leave `account_runs` alone.
 2. Accounts `name` is nullable: starter fixtures insert domain only, and the PRD resolves the name from the domain.
 3. `careers_verified_at` is renamed to `careers_url_verified_at` to match the work item and PRD wording.
-4. MinIO bucket creation happens at application startup in dev only (step 21), not in compose.
+4. Object store bucket creation happens at application startup in dev only (step 21), not in compose.
 5. Source URL normalisation keeps the scheme (http and https are different pages), strips fragments, tracking params and default ports, sorts query params, and strips trailing slashes except on the root path.
