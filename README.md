@@ -14,6 +14,12 @@ The repository is an internal, proprietary project. See the [documentation](docs
 for architecture decisions and the roadmap. The project skill is in
 [`.claude/skills/account-intelligence-platform/SKILL.md`](.claude/skills/account-intelligence-platform/SKILL.md).
 
+## Phase 0 / Data layer v1 implementation status
+
+The repository now includes an additive tenant-isolated data-layer migration, stable source-code and evidence repositories, neutral local raw-payload storage, checklist-driven coverage guards, and parallel LangGraph research branches. Phase 0 routing, benchmark and golden-account harnesses are config-driven; real September comparisons, analyst-reviewed golden accounts, counsel review, decision sign-offs and cloud deployment remain blocked until their real inputs and approvals are supplied. See [the audit status](docs/STATUS.md), [durability spike](docs/spikes/durability.md), [people-data handling draft](docs/data-handling-people-data.md), and [infrastructure plan](docs/infrastructure-plan.md).
+
+`make deploy-staging` runs a local Compose staging path only; it is not a cloud deployment. Provider calls are not made by the harnesses or tests.
+
 Turn one company name into a **sourced, graded account brief** and an **actionable senior people list**, then keep it fresh with **scheduled refresh and change alerts**. Built first as a single-operator research skill, now being turned into a **multi-tenant SaaS**.
 
 This README explains how the project works and how the workflow runs, end to end. It is written from three source documents (listed at the bottom). Where those documents disagree, section 16 says which one this project follows.

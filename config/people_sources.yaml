@@ -1,0 +1,14 @@
+version: "1.0.0"
+mode: bitscale_only
+
+# Sumble remains the source for organization, tech-stack and team data in either mode.
+people:
+  bitscale_plus_sumble: [bitscale, sumble]
+  bitscale_only: [bitscale]
+organization_technology_teams: sumble
+
+comparison:
+  metric: cost_per_usable_senior_person
+  secondary_metric: senior_person_fill_rate
+  sample_accounts: 3
+  results_status: blocked_needs_real_september_outputs_and_broker_costs

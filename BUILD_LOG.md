@@ -2,7 +2,7 @@
 
 Current phase: 0 (Prove)  
 Current work package: foundation repository integration  
-Last updated: 2026-10-01
+Last updated: 2026-10-02
 
 ## Built
 
@@ -14,7 +14,7 @@ Last updated: 2026-10-01
 - Verified Inngest SDK `0.5.19` serving signature and wired its FastAPI endpoint at `/api/inngest`.
 - Added the grading engine and worked-example/property tests, project docs, repository hygiene, and CI.
 
-## Commands run and results
+## Commands run and results (baseline before the 2026-10-02 follow-up)
 
 | Command | Result |
 |---|---|
@@ -32,7 +32,7 @@ Last updated: 2026-10-01
 | `docker compose up -d db` / container build | Not available; Docker reports `unknown shorthand flag: 'd' in -d`, and daemon access is denied. |
 | Database migrations/catalog, isolation suite, clean-clone proof | Not run; PostgreSQL service/client are unavailable. |
 
-## Defects and open items
+## Defects and open items (baseline before the 2026-10-02 follow-up)
 
 - Starter defects 1 and 2 are retained as fixed: reducer on `spent_usd`, role-scoped RLS policies.
 - Strict expected failures remain for duplicate concurrent billing and idempotency-key body mismatch.
@@ -41,3 +41,42 @@ Last updated: 2026-10-01
 - D-01 through D-11 remain open as described in the skill's `references/12-open-decisions-and-verification.md`.
 - No live tenant data or real paid service was accessed.
 - The whole-suite coverage target remains 80%; its measured project-wide value is unverified until the database-backed suite can run.
+
+## Follow-up: Phase 0 and Data layer v1 audit (2026-10-02)
+
+The earlier database-unavailable notes above describe the pre-restore baseline. On the restored feature branch, the data-layer implementation, audit status and local database tests were completed. No live accounts, provider calls, broker credits or cloud resources were used.
+
+### Implemented
+
+- Added expand-only migration `0003_data_layer_v1.sql` and its Alembic revision for source counters/records, evidence, coverage rows, people, postings, detections, raw payload metadata and tool-call intent tracking, with composite tenant relationships, forced RLS and append-only/coverage guards.
+- Added tenant-scoped repositories for stable normalized-URL source IDs, fact/evidence transactions, coverage seeding/proof, person deduplication/merge, postings and technology detections.
+- Added neutral-key local compressed raw payload storage with content hashes and pull-once metadata.
+- Added model-tier routing, people-source adapter switching, benchmark protocols, a synthetic-only golden-account loader, the counsel-facing people-data draft, environment configuration, and local staging script.
+- Added a LangGraph/Inngest durability ADR and a process-kill/resume test. The runner persists `PARTIAL` rather than falsely reporting `COMPLETED` when required High-priority coverage proof is missing.
+- Corrected the psycopg 3 test setup to use cursor-level `executemany` and registered the database test marker.
+
+### Follow-up commands and results
+
+| Command | Result |
+|---|---|
+| `uv run --frozen ruff check .` | Pass. |
+| `uv run --frozen mypy src` | Pass; 21 source files. |
+| `bash .claude/skills/account-intelligence-platform/scripts/selftest.sh` | Pass; 33 coverage rows, 5 product grades, 8 routes, 10 alert rules. |
+| `uv run --frozen python .claude/skills/account-intelligence-platform/scripts/validate_assets.py` | Pass. |
+| `uv run --frozen python .claude/skills/account-intelligence-platform/scripts/lint_migrations.py migrations` | Pass; 3 SQL migrations. |
+| `MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5433/ai CHECKPOINT_DATABASE_URL=postgresql://postgres:dev@localhost:5433/ai APP_RW_PASSWORD=local-dev-only uv run --frozen alembic upgrade head` | Pass on an isolated local PostgreSQL 16/pgvector instance. |
+| Direct execution of `.claude/skills/account-intelligence-platform/scripts/check_rls_catalog.sql` using psycopg | Pass; `RLS catalog: no violations`. |
+| `PGPORT=5433 PGPASSWORD=dev PGADMINUSER=postgres TEST_DB=ai APP_RW_PASSWORD=local-dev-only MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5433/ai CHECKPOINT_DATABASE_URL=postgresql://app_rw:local-dev-only@localhost:5433/ai uv run --frozen pytest -m 'not eval' --cov=src --cov-fail-under=80` | Pass; 79 passed, 1 expected failure, 81.85% coverage. Includes RLS, data-layer, full-text, raw payload, coverage, runner and five process-kill/resume tests. |
+| `make check` | Static gates pass; wrapper cannot continue because the host `psql` client is not installed. Equivalent migration, catalog, isolation/integration and coverage checks above passed. |
+| `git diff --check` | Pass. |
+
+### Still blocked
+
+- Model-split results: three September accounts, paired run outputs, reviewed citation validity, model cost/time records and the decision owners' approval.
+- People-source results: same three account snapshots, usable-person rubric, broker cost/credit records and approval to spend.
+- Real golden accounts: three to five September outputs, source evidence, known-correct facts, analyst grades and dated analyst review.
+- Legal approval: counsel's lawful-basis, retention, deletion/objection and broker-term decisions.
+- Human sign-off on the decision log and Phase 1 backlog estimates/agreement; analyst-role decision remains open.
+- Cloud account/region/credentials and a local `.env` are not supplied; no cloud or local staging deployment was claimed.
+
+See `docs/STATUS.md` for the item-by-item evidence table and remaining gate state.

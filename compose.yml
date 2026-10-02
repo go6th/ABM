@@ -15,7 +15,7 @@ services:
        DATABASE_URL: postgresql+asyncpg://app_rw:dev@db/ai
        CHECKPOINT_DATABASE_URL: postgresql://app_rw:dev@db/ai
        REDIS_URL: redis://redis:6379/0
-       ENV: dev
+       ENV: ${ENV:-dev}
     ports: ["8080:8080"]
   inngest:
     image: inngest/inngest

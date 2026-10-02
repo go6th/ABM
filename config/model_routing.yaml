@@ -1,0 +1,25 @@
+version: "1.0.0"
+status: Proposed
+active_arm: single
+
+roles:
+  planner: fast
+  extractor: fast
+  judge: strong
+
+tiers:
+  fast:
+    provider_env: MODEL_FAST_PROVIDER
+    model_env: MODEL_FAST_ID
+  strong:
+    provider_env: MODEL_STRONG_PROVIDER
+    model_env: MODEL_STRONG_ID
+
+benchmark:
+  arms: [single, split]
+  required_accounts: 3
+  metrics:
+    - coverage
+    - citation_validity
+    - cost_usd
+    - elapsed_seconds

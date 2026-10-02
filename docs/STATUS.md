@@ -1,0 +1,55 @@
+# Phase 0 and Data layer v1 audit
+
+Audit date: 2026-10-02
+Branch: `feat/phase0-phase1-data-layer`
+
+Statuses below describe the restored repository after the local implementation and tests. `Done` is limited to outcomes verified by a current passing command; benchmark-dependent results, legal review and stakeholder decisions are not inferred.
+
+| Item | Status | Evidence | Remaining |
+|---|---|---|---|
+| P0-1 Workflow engine decision | Partial | [ADR-0004](decisions/ADR-0004-durable-execution.md), [durability spike](spikes/durability.md); `tests/integration/test_graph_and_ledger.py::test_checkpoint_resume_after_five_mid_fanout_process_kills` passed five real process-kill/resume cycles against local PostgreSQL with a recorded stub. The full suite also passed ambiguous-call and two-worker tests. | Proposed LangGraph + Postgres checkpoint + Inngest disposition needs tech lead, analyst owner and product owner sign-off. No provider billing guarantee is claimed. |
+| P0-2 Model split benchmark | Blocked | `config/model_routing.yaml`, `src/agents/model_routing.py`, `src/benchmarks/model_split.py`, `docs/spikes/model-split.md`; harness validation passed in `tests/unit/test_phase0_harnesses.py`. | Supply three September account snapshots and paired measured outputs (coverage, reviewed citation validity, actual cost and elapsed time). No real model was called. |
+| P0-3 People source decision | Blocked | `config/people_sources.yaml`, `src/agents/people_sources.py`, `docs/spikes/people-sources.md`; both adapter modes and Sumble's organization/technology/team invariant passed offline tests. | Supply the same three account snapshots, usable-person rubric, broker cost/credit records and approval to spend. No broker was called. |
+| P0-4 Golden accounts | Partial | `src/benchmarks/golden_accounts.py`, `tests/fixtures/synthetic/golden_accounts.json`, `docs/spikes/golden-accounts.md`; synthetic opt-in and malformed-input validation passed in `tests/unit/test_phase0_harnesses.py`. | Real set remains blocked on three to five September output bundles, source snapshots, known-correct facts, grades, analyst reviewer/date and permission to store the data. |
+| P0-5 Checklist to config | Partial | `config/checklist.yaml`, `config/grading.yaml`, `config/output_spec.yaml`, `src/db/data_layer.py::load_checklist`; `bash .claude/skills/account-intelligence-platform/scripts/selftest.sh`, asset validation and the checklist alignment unit test passed (33 rows: 5 pass-1, 28 pass-2). | Loader/schema validation covers the checklist, not all SKILL.md rules, grading and output-spec semantics. Workspace search found no local PRD/Appendix A to compare. |
+| P0-6 Environments and CI | Partial | `.github/workflows/ci.yml` runs on pushes and pull requests; `config/dev.yaml`, `config/staging.yaml`, `config/production.yaml`, `scripts/deploy_staging.sh`, `Makefile`, `docs/infrastructure-plan.md`. Offline gates and the database-backed equivalent tests passed locally. | Staging deploy was not run: `.env` is absent and port 5432 is occupied by a different workspace's service. No cloud account, validated Terraform, deployment or remote CI run is available here. `make check` stops at the missing host `psql` client; equivalent migration/catalog/pytest gates were run directly. |
+| P0-7 People-data approach | Partial | [data-handling draft](data-handling-people-data.md) is headed “Draft for counsel. Not legal advice.” It records proposed lawful-basis options, architecture retention defaults, deletion process and broker terms. | Counsel must determine lawful basis, jurisdictions, retention, deletion/objection workflow and broker terms; product/security approvals remain pending. |
+| P1 `accounts` | Done | `migrations/0001_core.sql`, `migrations/0002_rls.sql`, `migrations/0003_data_layer_v1.sql`; fresh migration succeeded, RLS catalog returned no violations, and cross-tenant isolation tests passed. Composite `(tenant_id, id)` key is available for tenant-consistent foreign keys. | None for the schema item. |
+| P1 `account_runs` | Done | `migrations/0003_data_layer_v1.sql`, `src/agents/runner.py`; the coverage completion guard and per-run lease passed `tests/isolation/test_data_layer_v1.py`, `tests/integration/test_graph_and_ledger.py` and the full database suite. Incomplete High coverage persists as `PARTIAL`, not `COMPLETED`. | None for the schema item; confirm completion semantics during stakeholder review. |
+| P1 `sources` | Done | `migrations/0003_data_layer_v1.sql`, `src/db/data_layer.py::get_or_create_source`; 50 concurrent allocations yielded unique contiguous codes, normalized refresh reused its code, and deletion was rejected in the PostgreSQL isolation suite. | None for the requested stable-ID contract. |
+| P1 `facts` | Done | Existing `facts` extended by `migrations/0003_data_layer_v1.sql`; `src/db/data_layer.py::create_fact_with_evidence` writes fact and evidence transactionally. PostgreSQL tests rejected evidence-free insert and value mutation while allowing one supersession transition. | None for the requested fact/evidence write invariant. |
+| P1 `fact_evidence` | Done | `migrations/0003_data_layer_v1.sql`; composite tenant/account foreign keys, insert-only runtime grant and evidence-required deferred trigger. Atomic writer, integrity and RLS isolation tests passed. | None for the requested evidence table/write contract. |
+| P1 `people` | Done | `migrations/0003_data_layer_v1.sql`, `src/db/data_layer.py::get_or_create_person` and `merge_person`; PostgreSQL tests covered profile-URL-first/name fallback, profile upgrade, merge pointer, exclusion validation and delete rejection. | Legal deletion workflow remains a counsel/product blocker (P0-7); database retention is not legal approval. |
+| P1 `job_postings` | Done | `migrations/0003_data_layer_v1.sql`, `src/db/data_layer.py::upsert_job_posting`; PostgreSQL tests covered normalized-URL upsert, classification validation and preservation of full-text-read state. | None for the requested table fields and repository path. |
+| P1 `tech_detections` | Done | `migrations/0003_data_layer_v1.sql`, `src/db/data_layer.py::upsert_tech_detection`; PostgreSQL tests covered first/last seen, deduplication, corroboration and Lead-only unverified evidence. | None for the requested table fields and cross-check rule. |
+| P1 `coverage_rows` | Done | Seeded from `config/checklist.yaml` by `src/db/data_layer.py::seed_coverage_rows` when runs are created. PostgreSQL tests verified 33 seeded rows, High-priority proof gating and `Blocked` with a reason as a terminal status. | None for the v1 seeding/gate requirement. |
+| P1 RLS and isolation on all tables | Done | `migrations/0003_data_layer_v1.sql`, `scripts/check_rls_catalog.sql`, `tests/isolation/test_data_layer_v1.py`; fresh catalog query returned **no violations**, and tenant isolation/read/write tests passed for the new tables. CI includes migration, catalog, isolation and integration gates. | The repository's `make check` wrapper requires a host `psql` binary; direct equivalent database commands passed against the isolated local PostgreSQL instance. |
+| P1 raw payload store | Done | `src/storage/raw_payloads.py`, `config/storage.yaml`; gzip/content hashing, neutral UUID/hash keys, traversal checks and pull-once behavior passed unit and PostgreSQL integration tests. Provider identity is stored only as an internal `provider_code`; broker names are excluded from object keys. | Local filesystem backend only; S3 is not implemented. |
+| P1 stable source IDs | Done | `src/db/data_layer.py::normalize_source_url`, `get_or_create_source`, `migrations/0003_data_layer_v1.sql`; 50-way concurrency, repeat/refresh reuse and source-delete rejection passed PostgreSQL tests. | None for the requested source-code contract. |
+
+## Phase 0 exit gate
+
+| Criterion | Status | Evidence / remaining |
+|---|---|---|
+| Decision log signed by tech lead, analyst owner and product owner | Blocked | Proposed records are in [the decision log](decisions/phase-0-decision-log.md); human sign-offs have not been supplied. |
+| CI green on every commit; staging deploy in one command | Partial | The workflow and `make deploy-staging` target exist. Local static/database gates passed, but no remote CI run or staging deploy is claimed; the local deploy requires an untracked `.env`, and its default port 5432 is occupied here. |
+| At least three golden accounts stored and loadable by tests | Partial | Three explicitly synthetic records load in tests. The required analyst-reviewed real golden accounts are blocked on real run outputs and analyst review. |
+| Phase 1 backlog estimated in person-weeks and agreed | Blocked | A working backlog and human agreement are not present; the product/engineering owners must supply and approve estimates. |
+
+## Conflict resolution
+
+- **C1 workflow engine:** the skill/Architecture v2 takes precedence: LangGraph Postgres checkpoints are the durability source of truth; Inngest provides triggers, scheduling and slices. The local kill/resume spike passed, so Temporal is not selected as the default. ADR acceptance still requires stakeholder sign-off.
+- **C3 tenancy:** `tenant_id NOT NULL`, forced RLS and role-scoped policies apply from the first migration. The catalog query checks `USING` and `WITH CHECK` for every tenant-owned table.
+- **Roles:** preserve `admin`, `seller`, `viewer`. The analyst role remains an open decision and was not added.
+
+## Verification record
+
+- `uv run --frozen ruff check .` — passed.
+- `uv run --frozen mypy src` — passed, 21 source files.
+- `bash .claude/skills/account-intelligence-platform/scripts/selftest.sh` — passed; 33 coverage rows, five product grades, eight routes and ten alert rules.
+- `uv run --frozen python .claude/skills/account-intelligence-platform/scripts/validate_assets.py` — passed.
+- `uv run --frozen python .claude/skills/account-intelligence-platform/scripts/lint_migrations.py migrations` — passed, three SQL migrations.
+- `MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5433/ai CHECKPOINT_DATABASE_URL=postgresql://postgres:dev@localhost:5433/ai APP_RW_PASSWORD=local-dev-only uv run --frozen alembic upgrade head` — passed on an isolated local PostgreSQL 16/pgvector database.
+- RLS catalog SQL executed directly through psycopg on that migrated database — returned zero violations.
+- `PGPORT=5433 PGPASSWORD=dev PGADMINUSER=postgres TEST_DB=ai APP_RW_PASSWORD=local-dev-only MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5433/ai CHECKPOINT_DATABASE_URL=postgresql://app_rw:local-dev-only@localhost:5433/ai uv run --frozen pytest -m 'not eval' --cov=src --cov-fail-under=80` — passed; 79 passed, one expected failure, 81.85% coverage. This run includes fact append-only/supersession, source-metadata matching, people retention and five kill/resume assertions.
+- `make check` — static gates passed, but wrapper exited before database tests because `psql` is not installed. Database migration, catalog, isolation/integration and coverage commands were run separately as listed.
