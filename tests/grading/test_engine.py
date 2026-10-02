@@ -107,7 +107,9 @@ def test_random_parity_with_the_reference(cfg: GradingConfig, items, cls: str) -
     top = max(r["confidence"] for r in ref_scores.values())
     tied = [v for v, r in ref_scores.items() if r["confidence"] == top]
     assert ours.best.value in tied  # F1: the reference picks among ties by input order
-    assert round(float(ours.best.confidence), 4) == ref_scores[ours.best.value]["confidence"]
+    ref_items = [REF.Evidence(t, gr, NOW - timedelta(days=a), v) for t, gr, v, a in items if v == ours.best.value]
+    raw = REF.confidence(REF.group_strengths(ref_items, cls, NOW))  # unrounded: no double rounding
+    assert abs(float(ours.best.confidence) - raw) <= 1e-9
     if abs(float(ours.best.confidence) - 0.85) > 1e-6 and abs(float(ours.best.confidence) - 0.70) > 1e-6:
         assert ours.best.engine_grade == ref_scores[ours.best.value]["grade"]  # F4 differs only on exact boundaries
 
