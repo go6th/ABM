@@ -1,0 +1,124 @@
+# INTERNAL. Grading policy that is NOT in the source documents. Every block here is a
+# proposal awaiting a product-owner decision (see docs/decisions/open-decisions.md).
+# Numbers that ARE in the sources (tier weights, half-lives, grade thresholds, the Lead
+# rule 3 queries / 2 tool categories, eval gates) are read from config/grading.yaml only.
+version: "2026-10-02.1"
+status: proposal
+
+# D-01 extension: product grade precedence (first matching rule wins), then caps.
+product_precedence:
+  status: proposal
+  decision: D-01
+  order: [no_evidence, conflicting, internal_only, primary_read, engine_a_or_b, engine_c_or_synthesis, engine_d_or_secondary_only]
+  conflicting_max_product_grade: probable
+  blocked_product_grade: hypothesis       # a Blocked attribute is shown as a question with its reason
+  internal_authoritative_default: false   # Phase B: client may mark a source authoritative
+
+# G12: judge pass. Cap when the judge is unavailable or not configured.
+judge:
+  status: proposal
+  decision: D-01
+  required_for_engine_grades: [A, B]
+  required_for_product_grades: [confirmed]
+  max_reasks: 1
+  unavailable_cap: {engine_grade: C, product_grade: probable, flag: unjudged}
+  judge_task: verification             # config/models.yaml task the judge runs
+  generator_task: synthesis            # config/models.yaml task that proposes claims
+
+# D-11 extension: a lineage group of unknown provenance counts toward confidence, but if it
+# is what lets the claim reach engine A, the claim is capped at B and flagged.
+lineage:
+  status: proposal
+  decision: D-11
+  unknown_group_reaching_a_cap: {engine_grade: B, flag: needs_lineage_review}
+
+# D-14: evidence dating. Live-state pages are dated by retrieval; dated documents by their
+# published date; a dated document without one is 'unknown': age from retrieval, flagged,
+# and it cannot support engine grade A.
+dating:
+  status: proposal
+  decision: D-14
+  live_state_date_kind: observed
+  dated_document_date_kind: published
+  unknown_date_kind: unknown
+  unknown_date_cap: {engine_grade: B, flag: date_unknown}
+
+# How each connector operation obtained its text (G5 origin). Sourced reasons in comments.
+origin_by_operation:
+  status: proposal
+  decision: D-14
+  scrape_job_page: full_page_read   # p_scrape with maxAge 0: "older than maxAge ... will be scraped"
+  read_page: cached_copy            # p_search extract: minimum live-fetch max_age is 600 s, so a
+                                    # read may predate the run; cannot prove a read this run
+  web_search: search_snippet
+  news_events: feed_item
+  job_openings: feed_item
+  tech_detections: feed_item
+  org_resolve: broker_record
+  org_tech_stack: broker_record
+  people_by_technology: broker_record
+  people_by_title: broker_record
+  profile_enrichment: broker_record
+  org_teams: broker_record
+
+# Tool category of each connector operation (categories from config/routing.yaml).
+tool_category_by_operation:
+  status: proposal
+  web_search: web_search
+  read_page: page_read
+  scrape_job_page: job_board
+  news_events: news_feed
+  job_openings: job_board
+  tech_detections: tech_detection
+  org_resolve: tech_detection
+  org_tech_stack: tech_detection
+  people_by_technology: people_search
+  people_by_title: people_search
+  profile_enrichment: profile_enrichment
+  org_teams: people_search
+
+# Attribute classes (half-life lookup) and normalisers, by attribute_key prefix. A kind
+# without a configured normaliser is 'opaque': no automatic Conflicting, only a review flag.
+attributes:
+  status: proposal
+  classes:
+    exec: leadership
+    people: leadership
+    jobs: hiring
+    hiring: hiring
+    tech: technology
+    funding: funding
+  normalisers:          # casefold_text | number | iso_date | opaque
+    exec: casefold_text
+    people: casefold_text
+    jobs: opaque
+    hiring: opaque
+    tech: casefold_text
+    funding: number
+
+# G9: "differently worded" (PRD 3.4). Metric and threshold are not in any source.
+lead_similarity:
+  status: proposal
+  source: "TODO, needs product owner"
+  metric: jaccard_token_set       # NFKC, lowercase, punctuation stripped, stopwords and account tokens removed
+  max_similarity_exclusive: 0.5   # accepted only if similarity < this against every accepted query
+  stopwords: ["a", "an", "the", "and", "or", "of", "in", "on", "at", "for", "to", "with", "by", "from", "is", "are", "was", "were", "site", "inurl"]
+  max_rejected_proposals: 3       # then incomplete(no_distinct_query)
+  max_repass: 1
+
+# G4 and G14 bounds and markers.
+spans:
+  status: proposal
+  min_sentence_chars: 12
+  max_sentence_chars: 600
+  max_value_chars: 300
+  max_reasoning_chars: 1000
+  max_question_chars: 300
+  max_excerpt_chars: 200      # stored in claim_drops, sanitised
+  canary_markers: ["CANARY-7f3a9e", "<<SYSTEM>>"]
+  instruction_markers: ["ignore previous instructions", "ignore all previous", "disregard the above", "you are now", "system prompt", "new instructions:"]
+
+# F4: confidence is rounded to this many decimals before threshold comparison.
+numeric:
+  status: proposal
+  confidence_decimals: 9
