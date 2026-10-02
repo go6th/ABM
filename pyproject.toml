@@ -28,7 +28,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/account_intelligence"]
+packages = ["src/account_intelligence", "src/jobs"]
 
 [dependency-groups]
 dev = [

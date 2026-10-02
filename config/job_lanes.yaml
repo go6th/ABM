@@ -1,0 +1,33 @@
+version: 1
+source: PRD section 3.3 inputs and section 4.2 jobs
+lanes:
+  - id: salesforce
+    label: Salesforce including field service such as ServiceMax
+    platforms: [{name: Salesforce, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: servicenow
+    label: ServiceNow
+    platforms: [{name: ServiceNow, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: sap
+    label: SAP
+    platforms: [{name: SAP, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: tableau_analytics
+    label: Tableau and analytics
+    platforms: [{name: Tableau, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: veeva
+    label: Veeva
+    platforms: [{name: Veeva, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: data_ai
+    label: Data and AI
+    platforms: [{name: Data, aliases: [], source: PRD section 3.3}, {name: AI, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner

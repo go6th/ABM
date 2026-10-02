@@ -140,3 +140,15 @@ Commands and results (PostgreSQL 16 + pgvector in compose):
 | calibration harness (`evals/grading_calibration.py`) | Blocked: needs analyst-reviewed golden accounts (synthetic labels only) |
 
 Open: every proposal (ADR-0010 to 0013, `docs/decisions/open-decisions.md`); no distinct judge model is configured, so every A, B and Confirmed is capped (`unjudged`); p_search reads are `cached_copy`, so only job pages read through p_scrape can be Confirmed; source registry has no domain entries; the data-layer plan's rename of `facts` will move migration 0009's constraints.
+
+## Job posting pipeline core (2026-10-02)
+
+Plan (5 lines): build pure job normalization, window, match, sentence, classification and count core; own `src/jobs/`, `tests/jobs/`, job config/docs, and a fail-closed workflow adapter; acceptance = synthetic invariants, Ruff and strict mypy; D-16/D-17 remain open and the provided platform-owner mapping remains unchanged; [VERIFY] normalized connector completeness and PostgreSQL migration behavior.
+
+Built:
+- Added immutable `RawPosting`/`Posting` contracts, calendar window logic, URL normalization, stable keying and dedupe, description-only platform matching, verbatim sentence spans, proposal cue classification, row-derived counts, typed ports, extractor output validation, bounded one-read escalation, claim templates, export projection, a pull-once pipeline shell, and a fail-closed `s05_jobs` adapter.
+- Added proposal configs for PRD lane names, empty search keywords/aliases, four proposal class cues, unresolved full-text scope, and provisional caps. Added docs and ADR-0008 for D-16/D-17, status/window/PII proposals, and `[VERIFY]` gaps.
+- Tests added before implementation. `PYTHONPATH=src uv run pytest tests/jobs -q`: 9 passed. `uv run ruff check src/jobs tests/jobs src/account_intelligence/workflow/stages/s05_jobs.py`: pass. `PYTHONPATH=src uv run mypy --strict src/jobs`: pass, 17 source files.
+- Gates: skill self-test, asset validation, and migration lint passed. Job tests: 9 passed; measured jobs package coverage 72% (target 90%, not met). Ruff and strict mypy passed. Isolation suite blocked because the configured local PostgreSQL connection rejected authentication (`fe_sendauth: no password supplied`). Full suite blocked during collection by an existing `SyntaxError` in `src/account_intelligence/tracker/completion.py` (future import is not first). Catalog RLS, mutation testing, resume matrix were not run. No migration or production repository was added.
+- Not proven: production idempotency across process crashes, full-text completeness from a real adapter, two-pass extractor/judge integration, per-run loop caps, counts against the full requested oracle corpus, DB RLS, coverage evidence integration. The stage raises `NotConfigured`, so no coverage row is falsely successful.
+- Outstanding inputs: lane search keywords and aliases; rubric definitions/cues; full-text scope; sample records for board, feed, page-read; PostgreSQL test DB for expand-only schema and RLS validation. D-06 PII approach remains for legal review.
