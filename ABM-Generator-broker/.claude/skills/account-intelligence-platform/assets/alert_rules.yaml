@@ -1,0 +1,19 @@
+# Merge of SaaS 5.3 (tiers) and Architecture v2 6.4 (noise control). Rules are tenant objects and can
+# only reference that tenant's own accounts. Every alert traces to a graded, sourced fact delta.
+version: "2026-10-01.1"
+dedupe_key: "(rule, account, fingerprint)"
+rules:
+  - {id: new_build_role,      tier: immediate, delivery: [email, slack], trigger: "new build or admin/owner role posted in a lane the tenant sells", noise: "debounce: a vanished posting must be absent on two probes before REMOVED"}
+  - {id: leadership_change,   tier: immediate, delivery: [email, slack], trigger: "technology or commercial leadership change (fingerprint change on a watched role)", noise: "two sources or one T1 source"}
+  - {id: tier_one_news,       tier: immediate, delivery: [email, slack], trigger: "expansion, acquisition, divestiture, major program, regulatory action", precondition: "verified at source", noise: "per-account daily cap"}
+  - {id: funding_ma,          tier: immediate, delivery: [email, slack], trigger: "new funding or acquisition fact at grade B or better", noise: "dedupe on event fingerprint"}
+  - {id: new_tech_detection,  tier: digest,    delivery: [weekly_digest], trigger: "technology added or removed in a tenant lane", noise: "ignore changes below grade C"}
+  - {id: exec_speaking,       tier: digest,    delivery: [weekly_digest], trigger: "executive announced as speaker at an upcoming event"}
+  - {id: priority_a_posts,    tier: digest,    delivery: [weekly_digest], trigger: "priority A person posts after a quiet period"}
+  - {id: lead_regraded_up,    tier: digest,    delivery: [weekly_digest], trigger: "a Lead regraded to Confirmed or Probable"}
+  - {id: confidence_drop,     tier: digest,    delivery: [weekly_digest], trigger: "material fact drops a grade", noise: "never real-time"}
+  - {id: budget,              tier: immediate, delivery: [email_admin],   trigger: "run cost above estimate, or wallet below next refresh cost"}
+sensitive_signals: "breach, layoff, lawsuit: alert as preparation, never as an outreach hook"
+refresh:
+  probe_sources: [job_postings, news_events]
+  escalate_when: "delta score crosses threshold OR brief older than its maximum age"

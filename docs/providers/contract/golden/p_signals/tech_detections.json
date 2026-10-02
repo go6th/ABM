@@ -1,0 +1,41 @@
+{
+ "items_read": 1,
+ "next_cursor": null,
+ "provider_credits": null,
+ "records": [
+  {
+   "behind_firewall": false,
+   "detection_id": "91f24898-55ab-47a6-a31d-8f03d2a150e5",
+   "evidence_urls": [
+    "https://www.adobe.com/trust.html?promoid=M7K4SSY3&mv=other",
+    "https://www.adobe.com/trust.html",
+    "https://www.adobe.com/trust/document-cloud-security.html",
+    "https://www.adobe.com/creativecloud/social-media.html",
+    "https://www.adobe.com/legal/terms.html",
+    "https://careers.adobe.com/us/en/job/R170443/Senior-Product-Manager-Adobe-GenStudio-Ad-Trafficking-and-Activation",
+    "https://careers.adobe.com/us/en/job/R169456/Product-Manager-Voice-of-Employee",
+    "https://careers.adobe.com/us/en/job/R162016/Senior-Product-Manager-for-GenStudio",
+    "https://careers.adobe.com/us/en/job/R158883/2026-Intern-Customer-Value-Strategy",
+    "https://careers.adobe.com/us/en/job/R161791/Senior-Business-Intelligence-Developer"
+   ],
+   "first_seen_at": "2022-05-14T10:18:57Z",
+   "kind": "tech_detection",
+   "last_seen_at": "2026-09-23T09:46:50Z",
+   "lineage_hint": null,
+   "provenance": {
+    "index": 0,
+    "operation": "tech_detections",
+    "page": 1,
+    "provider_code": "p_signals",
+    "raw_ref": "golden/p_signals/tech_detections",
+    "retrieved_at": "2026-10-02T12:00:00Z",
+    "source_url": "https://www.adobe.com/trust.html?promoid=M7K4SSY3&mv=other"
+   },
+   "score": 1.0,
+   "source_count": 37,
+   "technology_id": "f4cb1b99-53c2-5cf4-8801-4608a37727ac",
+   "technology_name": "Qualtrics"
+  }
+ ],
+ "warnings": []
+}

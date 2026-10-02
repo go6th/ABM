@@ -1,0 +1,81 @@
+# Coverage checklist. Source: PRD Appendix A (33 rows: 5 in pass 1, 28 in pass 2).
+# Shelf lives come from the service design s5.1 suggested cadences. Rows with no cadence
+# in the source documents have no shelf life yet; the analyst sets them (roadmap s10).
+# 1.1.0: added the five s5.1 cadences 1.0.0 missed (found by the alignment check).
+version: "1.1.0"
+
+statuses: [Done, Partial, Not done, Blocked, None]
+proof_fields: [queries, tool, result_count]
+
+shelf_lives:
+  job_board:
+    days: 7
+    basis: "Service design s5.1: live job board by lane, weekly"
+  job_postings:
+    days: 30
+    basis: "Service design s5.1: job openings feed, monthly"
+  news:
+    days: 7
+    basis: "Service design s5.1: news events, weekly"
+  leadership:
+    days: 7
+    basis: "Service design s5.1: leadership changes, weekly"
+  technology:
+    days: 30
+    basis: "Service design s5.1: technology detections, monthly"
+  earnings:
+    days: 90
+    basis: "Service design s5.1: earnings and filings, quarterly"
+  people_list:
+    days: 90
+    basis: "Service design s5.1: senior people list, quarterly"
+  profiles:
+    days: 90
+    basis: "Service design s5.1: profiles of priority A people, quarterly"
+  posts:
+    days: 30
+    basis: "Service design s5.1: posts of priority A people, monthly (only people with recent activity)"
+  person_content:
+    days: 30
+    basis: "Service design s5.1: speaking, podcasts, content, monthly"
+  review_sites:
+    days: 90
+    basis: "Service design s5.1: review sites and communities, quarterly"
+  unset:
+    days: null
+    basis: "No cadence in the source documents; analyst to set in the Phase 4 shelf-life policy"
+
+rows:
+  - {id: P1.01, pass: 1, row: "Prior customer status, past interactions, prior pursuits", priority: High, shelf_life: unset}
+  - {id: P1.02, pass: 1, row: "Connections, alumni overlaps, former colleagues", priority: High, shelf_life: unset}
+  - {id: P1.03, pass: 1, row: "Platform vendor account team", priority: High, shelf_life: unset}
+  - {id: P1.04, pass: 1, row: "Profiles and posts of key contacts", priority: High, shelf_life: unset}
+  - {id: P1.05, pass: 1, row: "Basic fit check", priority: High, shelf_life: unset}
+  - {id: P2.01, pass: 2, row: "Company news and press releases", priority: High, shelf_life: news}
+  - {id: P2.02, pass: 2, row: "Earnings releases and filings", priority: High, shelf_life: earnings}
+  - {id: P2.03, pass: 2, row: "Leadership changes, last six months", priority: High, shelf_life: leadership}
+  - {id: P2.04, pass: 2, row: "Job board search by lane", priority: High, shelf_life: job_board}
+  - {id: P2.05, pass: 2, row: "Job postings read and classified", priority: High, shelf_life: job_postings}
+  - {id: P2.06, pass: 2, row: "Job postings, last 12 months, open and closed", priority: High, shelf_life: job_postings}
+  - {id: P2.07, pass: 2, row: "Technology detections", priority: High, shelf_life: technology}
+  - {id: P2.08, pass: 2, row: "People by platform", priority: High, shelf_life: people_list}
+  - {id: P2.09, pass: 2, row: "Full profiles of senior people", priority: High, shelf_life: profiles}
+  - {id: P2.10, pass: 2, row: "Posts and comments of priority people", priority: Medium, shelf_life: posts}
+  - {id: P2.11, pass: 2, row: "Executive voice from earnings calls", priority: High, shelf_life: earnings}
+  - {id: P2.12, pass: 2, row: "Financial baseline verified", priority: High, shelf_life: earnings}
+  - {id: P2.13, pass: 2, row: "Vendor customer stories", priority: High, shelf_life: unset}
+  - {id: P2.14, pass: 2, row: "Verification of items graded Lead", priority: High, shelf_life: unset}
+  - {id: P2.15, pass: 2, row: "Customers and partners matched to client references", priority: High, shelf_life: unset}
+  - {id: P2.16, pass: 2, row: "Executive speaking, upcoming and past", priority: Medium, shelf_life: person_content}
+  - {id: P2.17, pass: 2, row: "Podcasts", priority: Medium, shelf_life: person_content}
+  - {id: P2.18, pass: 2, row: "YouTube", priority: Medium, shelf_life: person_content}
+  - {id: P2.19, pass: 2, row: "Medium and Substack", priority: Medium, shelf_life: person_content}
+  - {id: P2.20, pass: 2, row: "Review sites", priority: Medium, shelf_life: review_sites}
+  - {id: P2.21, pass: 2, row: "Vendor communities and marketplaces", priority: Medium, shelf_life: review_sites}
+  - {id: P2.22, pass: 2, row: "Regulatory and quality events", priority: Optional, shelf_life: unset}
+  - {id: P2.23, pass: 2, row: "Financial position against peers", priority: Optional, shelf_life: unset}
+  - {id: P2.24, pass: 2, row: "Competitor moves and peer KPIs", priority: Optional, shelf_life: unset}
+  - {id: P2.25, pass: 2, row: "Major holders and activist activity", priority: Optional, shelf_life: unset}
+  - {id: P2.26, pass: 2, row: "Events sponsored or exhibited at", priority: Optional, shelf_life: unset}
+  - {id: P2.27, pass: 2, row: "Employee content, GitHub, engineering blogs", priority: Optional, shelf_life: unset}
+  - {id: P2.28, pass: 2, row: "Research papers", priority: Optional, shelf_life: unset}

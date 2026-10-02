@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: ai
+          POSTGRES_PASSWORD: dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://app_rw:local-dev-only@localhost:5432/ai
+      MIGRATOR_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai
+      CHECKPOINT_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai
+      APP_RW_PASSWORD: local-dev-only
+      PGPASSWORD: dev
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - name: Verify pgvector version
+        run: |
+          version="$(psql "$MIGRATOR_DATABASE_URL" -Atc "SELECT default_version FROM pg_available_extensions WHERE name = 'vector'")"
+          test -n "$version"
+          test "$(printf '%s\n' "$version" 0.7.0 | sort -V | head -n1)" = "0.7.0"
+          echo "pgvector $version"
+      - run: uv sync --frozen --python ${{ matrix.python-version }}
+      - run: make check
+      - run: docker build -t account-intelligence:ci .

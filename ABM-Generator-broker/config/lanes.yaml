@@ -1,0 +1,21 @@
+# Platform lanes. Source: PRD s3.3 inputs ("Platform lanes: default set"); roadmap s9 makes them a
+# per-tenant setting in Phase 3. `id` is the stored value; `label` is what documents show.
+version: "1.0.0"
+
+lanes:
+  - id: salesforce
+    label: "Salesforce (including field service such as ServiceMax)"
+  - id: servicenow
+    label: "ServiceNow"
+  - id: sap
+    label: "SAP"
+  - id: tableau_analytics
+    label: "Tableau and analytics"
+  - id: veeva
+    label: "Veeva"
+    note: "Primary for life sciences; recorded once as None elsewhere (PRD s3.3)"
+  - id: data_ai
+    label: "Data and AI"
+  - id: other
+    label: "Other"
+    note: "Activity outside the default lanes"

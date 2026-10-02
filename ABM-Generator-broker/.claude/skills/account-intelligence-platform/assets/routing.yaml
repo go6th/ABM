@@ -1,0 +1,25 @@
+# Broker routing (PRD 4.3 + SaaS 4.4). Provider names are INTERNAL. They never appear in client-facing
+# output, object keys, file names or client-safe views. Use provider_code in storage; map here only.
+version: "2026-10-01.1"
+providers:            # provider_code -> internal adapter name (internal use only)
+  p_search:  {name: "Parallel",      role: "open web search and page reads"}
+  p_scrape:  {name: "Firecrawl",     role: "job boards, browser pages, YouTube transcripts, monitoring"}
+  p_signals: {name: "PredictLeads",  role: "structured news events, technology detections, job openings and descriptions"}
+  p_people:  {name: "BitScale",      role: "people by title, profile and post enrichment"}
+  p_org:     {name: "Sumble",        role: "people by technology, organizations, tech stack and teams"}
+routes:
+  - {need: open_web_search,         first: p_search,  fallback: web_search_builtin, cost: "free; one session per run"}
+  - {need: read_known_page,         first: p_search,  fallback: fetch_builtin,      cost: "free; rate limits after a few calls"}
+  - {need: job_boards_and_pages,    first: p_scrape,  fallback: p_search,           cost: "1 credit per plain scrape; avoid JSON extraction (5) and search-with-scrape (20+)"}
+  - {need: news_tech_job_feeds,     first: p_signals, fallback: p_search,           cost: "credits per call; PULL ONCE per run and save"}
+  - {need: people_by_title,         first: p_people,  fallback: p_org,              cost: "no visible credit cost on current plan"}
+  - {need: people_by_technology,    first: p_org,     fallback: p_people,           cost: "1 credit per person plus per attribute"}
+  - {need: profiles_posts_comments, first: p_people,  fallback: null,               cost: "estimate on a sample first, then confirm"}
+  - {need: client_history,          first: tenant_connectors, fallback: null,       cost: "needs the pursuing client name; people names stay in the Internal Only view"}
+adapter_rules:        # learned rules each adapter must carry (SaaS 4.4)
+  - "Never route Sumble output to a hosted file."
+  - "Plain Firecrawl scrapes only on job pages."
+  - "Page BitScale sources rather than re-adding them."
+  - "PredictLeads is pulled once per run and saved."
+  - "A broker outage or empty balance marks the affected coverage rows BLOCKED with a reason; it never fails the run."
+tool_categories: [web_search, page_read, job_board, news_feed, people_search, tech_detection, profile_enrichment]

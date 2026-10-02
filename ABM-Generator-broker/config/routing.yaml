@@ -1,0 +1,61 @@
+# INTERNAL ENGINEERING CONFIG. Never shown in client-facing material (roadmap s11.2).
+# Broker routing. Source: roadmap s11.2, detail from PRD s4.3.
+version: "1.0.0"
+
+# Providers the connector layer knows. `paid` means calls are metered against the run cap.
+brokers:
+  parallel: {display_name: "Parallel", paid: false}
+  firecrawl: {display_name: "Firecrawl", paid: true}
+  predictleads: {display_name: "PredictLeads", paid: true}
+  bitscale: {display_name: "BitScale", paid: true}
+  sumble: {display_name: "Sumble", paid: true}
+  builtin: {display_name: "Built-in web tools", paid: false}
+
+# Connector requirements (roadmap s11.2) that apply to every broker.
+connector_policy:
+  pull_once_per_run: true
+  cache_key: request
+  raw_storage_naming: neutral
+  record_cost_per_call: true
+  retry:
+    max_attempts: 3
+    backoff_initial_seconds: 1.0
+    backoff_multiplier: 2.0
+
+routes:
+  - need: web_search
+    description: "Open web search, long excerpts"
+    first_choice: {broker: parallel, operation: search}
+    fallback: {broker: builtin, operation: web_search}
+    cost_note: "Free; one session per run"
+  - need: page_read
+    description: "Read a known page"
+    first_choice: {broker: parallel, operation: fetch}
+    fallback: {broker: builtin, operation: fetch}
+    cost_note: "Free; rate limits after a few calls"
+  - need: scrape
+    description: "Job boards, browser pages, YouTube transcripts"
+    first_choice: {broker: firecrawl, operation: scrape}
+    fallback: {broker: parallel, operation: fetch}
+    cost_note: "One credit per plain scrape; avoid JSON extraction (five credits) and search with scrape (twenty plus)"
+    avoid_operations: [json_extraction, search_with_scrape]
+  - need: structured_signals
+    description: "Structured news, technology detections, 12 months of postings"
+    first_choice: {broker: predictleads, operation: company_data}
+    fallback: {broker: parallel, operation: search}
+    cost_note: "Credits per call; pull once, save locally"
+  - need: people_by_title
+    description: "People by title, company wide"
+    first_choice: {broker: bitscale, operation: find_people}
+    fallback: {broker: sumble, operation: people}
+    cost_note: "No visible credit cost on the current plan"
+  - need: people_by_technology
+    description: "People by technology, organizations, tech stack, teams"
+    first_choice: {broker: sumble, operation: people_by_technology}
+    fallback: {broker: bitscale, operation: find_people_leadership_titles}
+    cost_note: "One credit per person plus per attribute; never route output to a hosted file"
+  - need: profile_enrichment
+    description: "Profiles, posts and comments"
+    first_choice: {broker: bitscale, operation: enrichment}
+    fallback: null
+    cost_note: "Estimate on a sample first, then confirm"

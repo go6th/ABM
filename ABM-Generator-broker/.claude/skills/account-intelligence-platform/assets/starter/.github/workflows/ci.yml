@@ -1,0 +1,29 @@
+name: ci
+on: { pull_request: {}, push: { branches: [main] } }
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+         image: pgvector/pgvector:pg16
+         env: { POSTGRES_PASSWORD: dev }
+         ports: ["5432:5432"]
+         options: >-
+           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4             # pin third-party actions by commit SHA in production
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: uv run ruff check . && uv run mypy src
+      - run: uv run alembic upgrade head       # applies RLS migrations as the migrator role
+      - run: uv run pytest tests/isolation -x # HARD GATE: any cross-tenant read/write fails the build
+      - run: uv run pytest -m "not eval" --cov=src --cov-fail-under=80
+      - run: docker build -t ai-saas:${{ github.sha }} .
+      - run: trivy image --exit-code 1 --severity HIGH,CRITICAL ai-saas:${{ github.sha }}
+  eval-gate:
+    if: github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: uv run pytest -m eval --eval-baseline=main    # blocks promotion on regression
