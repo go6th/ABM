@@ -1,0 +1,14 @@
+version: 1
+status: proposal
+source: TODO, proposed class cues derived from class labels only
+classes: [build, admin_owner, working_tool, user]
+rules:
+  - {rule_id: proposed_build, label: build, cues: [build], status: proposal, source: class name, positive: "Build a platform", negative: "Use a platform"}
+  - {rule_id: proposed_admin, label: admin_owner, cues: [admin, owner], status: proposal, source: class name, positive: "Platform admin and owner", negative: "Platform user"}
+  - {rule_id: proposed_working_tool, label: working_tool, cues: [working tool], status: proposal, source: class name, positive: "Platform is a working tool", negative: "Platform is the user's destination"}
+  - {rule_id: proposed_user, label: user, cues: [user], status: proposal, source: class name, positive: "Platform user", negative: "Build the platform"}
+full_text_scope:
+  status: unresolved
+  proposal_superset: [build, admin_owner]
+  proposal_build_only: [build]
+  selected: null

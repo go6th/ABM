@@ -1,0 +1,8 @@
+version: 1
+status: proposal
+caps:
+  max_page_reads: {value: 20, status: proposal, source: connector default [VERIFY]}
+  max_extractor_calls: {value: 20, status: proposal, source: needs product owner}
+  batch_size: {value: 25, status: proposal, source: needs product owner}
+  max_description_chars: {value: 100000, status: proposal, source: needs product owner}
+  minimum_text_length: {value: 1, status: proposal, source: needs product owner}
