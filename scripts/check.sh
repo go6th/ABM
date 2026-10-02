@@ -34,7 +34,7 @@ export ADMIN_DSN="$scratch_url"
 export ADMIN_MAINT_DSN="${ADMIN_MAINT_DSN:-$maintenance_url}"
 
 uv run --frozen alembic upgrade head
-violations="$(psql "$scratch_url" -v ON_ERROR_STOP=1 -tA -f "$skill/scripts/check_rls_catalog.sql")"
+violations="$(psql "$scratch_url" -v ON_ERROR_STOP=1 -tA -f scripts/check_rls_catalog.sql)"
 if [[ -n "$violations" ]]; then
     printf '%s\n' "$violations" >&2
     exit 1

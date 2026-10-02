@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from src.agents.graph import GRAPH_VERSION
 from src.api.auth import Identity, require_role
+from src.db.data_layer import seed_coverage_rows
 from src.db.session import tenant_txn
 from src.orchestrator.functions import client as inngest_client
 
@@ -67,6 +68,7 @@ async def create_run(
                 )
             ).one()
             return {"run_id": str(prev.id), "status": prev.status}
+        await seed_coverage_rows(s, run_id)
         ok = (
             await s.execute(
                 text(  # atomic: only succeeds if balance suffices

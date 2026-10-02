@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 import psycopg
 import pytest
+import yaml
 from psycopg import sql
 
 HOST = os.getenv("PGHOST", "localhost")
@@ -114,32 +115,83 @@ def account_of_b(tenant_b: UUID) -> UUID:
 @pytest.fixture
 def run_of_b(tenant_b: UUID, account_of_b: UUID) -> UUID:
     with _admin() as c:
-        return c.execute(
+        run_id = c.execute(
             "INSERT INTO account_runs "
             "(tenant_id, account_id, graph_version, budget_json, reserved_credits, "
             "idempotency_key) "
             "VALUES (%s, %s, 'test', '{}', 1, %s) RETURNING id",
             (tenant_b, account_of_b, "k-" + uuid4().hex[:10]),
         ).fetchone()[0]
+        checklist = yaml.safe_load(
+            (MIGRATIONS.parent / "config" / "checklist.yaml").read_text(encoding="utf-8")
+        )
+        c.execute(
+            "UPDATE account_runs SET checklist_version = %s, expected_coverage_rows = %s "
+            "WHERE tenant_id = %s AND id = %s",
+            (checklist["version"], len(checklist["rows"]), tenant_b, run_id),
+        )
+        c.cursor().executemany(
+            "INSERT INTO coverage_rows (tenant_id, account_id, run_id, checklist_version, "
+            "row_key, pass, description, priority) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            [
+                (
+                    tenant_b,
+                    account_of_b,
+                    run_id,
+                    checklist["version"],
+                    row["id"],
+                    row["pass"],
+                    row["row"],
+                    row["priority"],
+                )
+                for row in checklist["rows"]
+            ],
+        )
+        return run_id
 
 
 @pytest.fixture
 def private_fact_of_a(tenant_a: UUID) -> UUID:
     acct = _make_account(tenant_a, f"a-{uuid4().hex[:6]}.example.com")
-    with _admin() as c:
-        c.execute(
-            "INSERT INTO facts "
-            "(tenant_id, account_id, attribute_key, value_json, fingerprint, visibility) "
-            "VALUES (%s, %s, 'internal.note', '{}', 'fp-public', 'public')",
-            (tenant_a, acct),
-        )
-        return c.execute(
-            "INSERT INTO facts "
-            "(tenant_id, account_id, attribute_key, value_json, fingerprint, visibility) "
-            "VALUES (%s, %s, 'internal.note', '{\"secret\": true}', 'fp-private', 'private') "
-            "RETURNING id",
-            (tenant_a, acct),
-        ).fetchone()[0]
+    with psycopg.connect(ADMIN_DSN) as c:
+        source_ids = [
+            c.execute(
+                "INSERT INTO sources (tenant_id, account_id, source_code, url, url_hash, domain, "
+                "tier, lineage_group) VALUES (%s, %s, %s, %s, %s, %s, 'T1', %s) RETURNING id",
+                (
+                    tenant_a,
+                    acct,
+                    f"S-{number:04d}",
+                    f"https://example.com/source-{number}",
+                    f"{number:064x}",
+                    "example.com",
+                    f"fixture-{number}",
+                ),
+            ).fetchone()[0]
+            for number in (1, 2)
+        ]
+        fact_ids = [
+            c.execute(
+                "INSERT INTO facts "
+                "(tenant_id, account_id, attribute_key, value_json, fingerprint, visibility) "
+                "VALUES (%s, %s, 'internal.note', %s::jsonb, %s, %s) RETURNING id",
+                (tenant_a, acct, value, fingerprint, visibility),
+            ).fetchone()[0]
+            for value, fingerprint, visibility in (
+                ("{}", "fp-public", "public"),
+                ('{"secret": true}', "fp-private", "private"),
+            )
+        ]
+        for fact_id, source_id, code, quote in (
+            (fact_ids[0], source_ids[0], "S-0001", "Public evidence"),
+            (fact_ids[1], source_ids[1], "S-0002", "Private evidence"),
+        ):
+            c.execute(
+                "INSERT INTO fact_evidence (tenant_id, account_id, fact_id, source_id, "
+                "source_code, lineage_group, quote_text) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (tenant_a, acct, fact_id, source_id, code, f"fixture-{code}", quote),
+            )
+        return fact_ids[1]
 
 
 @pytest.fixture
