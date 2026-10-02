@@ -376,3 +376,52 @@ async def test_http_settings_follow_the_sourced_timeouts() -> None:
     assert isinstance(org, HttpSettings) and org.read_s >= 65  # api-overview.md: 65 s or more
     scrape = http_settings(cfg.provider(ProviderCode.P_SCRAPE))
     assert scrape.read_s > 60  # scrape timeout default 60 000 ms
+
+
+async def test_results_and_failures_carry_the_ledger_keys_tracker_proof_cites(
+    harness: Harness, tenant_a: UUID
+) -> None:
+    """GUARANTEE(test_results_and_failures_carry_the_ledger_keys_tracker_proof_cites): a stage
+    cites ledger keys the connector produced (tracker T2), never a reference it made up."""
+    ctx, rt = _setup(harness, tenant_a)
+    rt = replace(
+        rt,
+        connectors={
+            **rt.connectors,
+            ProviderCode.P_SIGNALS: type(rt.connectors[ProviderCode.P_SIGNALS])(page_limit=2),
+        },
+    )
+    fake = harness.providers[ProviderCode.P_SIGNALS]
+    fake.script(Reply(body=_news_page(["a", "b"], 3)), Reply(body=_news_page(["c"], 3)))
+    result = await call_operation(
+        Operation.NEWS_EVENTS, FeedArgs(domain=ctx.account_domain), ctx, rt
+    )
+    rows = {r["args_hash"]: r for r in ledger_rows(ctx.run_id)}
+    assert set(result.call_refs) == set(rows) and len(result.call_refs) == 2
+    assert sorted(rows[ref]["response"]["record_count"] for ref in result.call_refs) == [1, 2]
+    assert all(rows[ref]["response"]["error_class"] is None for ref in result.call_refs)
+    again = await call_operation(
+        Operation.NEWS_EVENTS, FeedArgs(domain=ctx.account_domain), ctx, rt
+    )
+    assert again.call_refs == result.call_refs  # a replay cites the same calls
+
+    harness.providers[ProviderCode.P_SEARCH].script(Reply(status=503, body={}))
+    with pytest.raises(RetryableProviderError) as caught:
+        await call_operation(Operation.WEB_SEARCH, SEARCH, ctx, rt)
+    failed = [e for e in event_rows(ctx.run_id) if e["event"] == "failed"]
+    assert caught.value.call_ref == failed[-1]["args_hash"]
+
+
+async def test_schema_drift_is_recorded_as_a_failure_in_the_done_row(
+    harness: Harness, tenant_a: UUID
+) -> None:
+    ctx, rt = _setup(harness, tenant_a)
+    body = _body("p_search", "web_search")
+    body["results"][0].pop("url")
+    harness.providers[ProviderCode.P_SEARCH].script(Reply(body=body))
+    with pytest.raises(SchemaDriftError) as caught:
+        await call_operation(Operation.WEB_SEARCH, SEARCH, ctx, rt)
+    (row,) = ledger_rows(ctx.run_id)
+    assert row["args_hash"] == caught.value.call_ref
+    assert row["response"]["error_class"] == "SchemaDriftError"
+    assert row["response"]["record_count"] is None

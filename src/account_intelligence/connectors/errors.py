@@ -31,6 +31,9 @@ class ConnectorError(Exception):
         # Ledger attempt number for the (run, args) key; set by call_operation once the
         # intent row exists. The graph node compares it with its RetryPolicy budget.
         self.attempt = attempt
+        # Ledger key (args_hash) of the attempt that failed; set by call_operation so the stage
+        # can cite the failed call as tracker proof (T2, T6) without inventing a reference.
+        self.call_ref: str | None = None
 
     @property
     def blocked_reason(self) -> str:

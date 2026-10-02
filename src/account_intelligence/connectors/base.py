@@ -153,6 +153,9 @@ class ConnectorResult:
     replayed: bool = False
     possible_duplicate: bool = False
     blocked_reason: str | None = None
+    # Ledger keys (args_hash, one per page) of the calls behind this result. Stages pass them to
+    # the tracker, which reads the proof back from the ledger (T2); never built by hand.
+    call_refs: tuple[str, ...] = ()
     extra: Mapping[str, Any] = field(default_factory=dict)
 
 

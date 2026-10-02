@@ -115,6 +115,7 @@ class _PageCost:
     figure: CostFigure
     replayed: bool
     possible_duplicate: bool
+    call_ref: str = ""  # ledger key (args_hash) of the page: tracker proof cites it (T2)
 
 
 async def call_operation(
@@ -205,6 +206,7 @@ async def call_operation(
         fell_back_from=fell_back_from,
         replayed=bool(costs) and all(c.replayed for c in costs),
         possible_duplicate=any(c.possible_duplicate for c in costs),
+        call_refs=tuple(c.call_ref for c in costs),
         extra={"warnings": tuple(warnings)} if warnings else {},
     )
 
@@ -316,6 +318,7 @@ async def _fetch_page(
                 ),
                 replayed=True,
                 possible_duplicate=claim.possible_duplicate,
+                call_ref=key.args_hash,
             )
         )
         warnings.extend(parsed.warnings)
@@ -367,6 +370,7 @@ async def _fetch_page(
         error.provider_code = error.provider_code or provider
         error.operation = error.operation or op
         error.attempt = claim.attempt
+        error.call_ref = key.args_hash
         if isinstance(error, RateLimited):
             await rt.limiter.note_retry_after(provider, error.retry_after)
         if paid_body_received and raw is not None and ref is not None and retrieved_at is not None:
@@ -374,7 +378,19 @@ async def _fetch_page(
             if isinstance(error, SchemaDriftError):
                 error.raw_ref = ref
             await _finalize_done(
-                rt, ctx, key, claim, provider, op, args, raw, ref, retrieved_at, None, cursor
+                rt,
+                ctx,
+                key,
+                claim,
+                provider,
+                op,
+                args,
+                raw,
+                ref,
+                retrieved_at,
+                None,
+                cursor,
+                error_class=type(error).__name__,
             )
             await rt.breaker.record_neutral(provider)
             obs.record_call(provider, op, type(error).__name__, raw.latency_ms)
@@ -415,6 +431,7 @@ async def _fetch_page(
         raise
     except Exception as error:
         # A defect in our own code after the claim: close the attempt, never leave money unrecorded.
+        setattr(error, "call_ref", key.args_hash)  # noqa: B010 - foreign exception type
         await rt.ledger.finalize_failed(
             ctx,
             rt.worker_id,
@@ -428,7 +445,14 @@ async def _fetch_page(
         rt, ctx, key, claim, provider, op, args, raw, ref, retrieved_at, parsed, cursor
     )
     await rt.breaker.record_success(provider)
-    costs.append(_PageCost(figure, replayed=False, possible_duplicate=claim.possible_duplicate))
+    costs.append(
+        _PageCost(
+            figure,
+            replayed=False,
+            possible_duplicate=claim.possible_duplicate,
+            call_ref=key.args_hash,
+        )
+    )
     warnings.extend(parsed.warnings)
     if figure.usd is None:
         obs.record_unknown_cost(provider, op)
@@ -516,6 +540,8 @@ async def _finalize_done(
     retrieved_at: datetime,
     parsed: ParsedPage | None,
     cursor: str | None = None,
+    *,
+    error_class: str | None = None,
 ) -> CostFigure:
     figure = rt.cost.actual(
         provider,
@@ -544,6 +570,10 @@ async def _finalize_done(
                 # what was asked, so the stored payload can be re-parsed (grading adapters)
                 "args": args.model_dump(mode="json"),
                 "cursor": cursor,
+                # tracker proof (T2, T3): records kept from this page; None when unknown
+                "record_count": len(parsed.records) if parsed is not None else None,
+                # a paid body we refused (schema drift): the call is a failure, not a success
+                "error_class": error_class,
             },
             response_ref=ref,
         ),
