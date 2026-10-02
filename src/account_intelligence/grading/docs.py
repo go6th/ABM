@@ -1,7 +1,7 @@
 """Generate docs/grading/schema.json and docs/grading/rules.md from code and config.
 
-    python -m account_intelligence.grading.docs           # write
-    python -m account_intelligence.grading.docs --check   # exit 1 if stale (used by a test)
+python -m account_intelligence.grading.docs           # write
+python -m account_intelligence.grading.docs --check   # exit 1 if stale (used by a test)
 """
 
 from __future__ import annotations
@@ -38,9 +38,11 @@ def rules_markdown(cfg: GradingConfig) -> str:
         f"* A: c >= {t.a}, at least {t.a_min_groups} independent lineage groups, one of them "
         f"{' or '.join(t.a_required_tiers)} (tier of the group's strongest contributor).",
         f"* B: c >= {t.b}. C: c >= {t.c}. D: c < {t.d_below}.",
-        f"* Conflicting: two independent groups with different normalised values, both c > {t.conflict_above}.",
+        f"* Conflicting: two independent groups with different normalised values, both c >"
+        f" {t.conflict_above}.",
         f"* Confidence is quantised to {cfg.confidence_decimals} decimals and compared as Decimal.",
-        f"* Lead rule: {cfg.lead_rule.min_distinct_queries} differently worded queries across at least "
+        f"* Lead rule: {cfg.lead_rule.min_distinct_queries} differently worded queries across at"
+        f" least "
         f"{cfg.lead_rule.min_distinct_tool_categories} tool categories.",
         "",
         "## Product grade precedence (proposal, D-01)",
@@ -48,28 +50,37 @@ def rules_markdown(cfg: GradingConfig) -> str:
         *[f"{i}. `{rule}`" for i, rule in enumerate(cfg.precedence.order, start=1)],
         "",
         f"Conflicting is capped at `{cfg.precedence.conflicting_max_product_grade}`; Blocked is "
-        f"`{cfg.precedence.blocked_product_grade}`. Only grades with `may_state_to_prospect` true may be "
+        f"`{cfg.precedence.blocked_product_grade}`. Only grades with `may_state_to_prospect` true"
+        f" may be "
         f"stated: {', '.join(g for g, v in sorted(cfg.may_state.items()) if v)}.",
         "",
         "## Caps applied after precedence (proposals)",
         "",
         f"* Judge unavailable (G12): engine {cfg.judge.unavailable_cap.engine_grade}, product "
         f"{cfg.judge.unavailable_cap.product_grade}, flag `{cfg.judge.unavailable_cap.flag}`.",
-        f"* Unknown lineage reaching A (D-11): engine {cfg.lineage_cap.engine_grade}, flag `{cfg.lineage_cap.flag}`.",
-        f"* Unknown evidence date reaching A (D-14): engine {cfg.date_cap.engine_grade}, flag `{cfg.date_cap.flag}`.",
+        f"* Unknown lineage reaching A (D-11): engine {cfg.lineage_cap.engine_grade}, flag"
+        f" `{cfg.lineage_cap.flag}`.",
+        f"* Unknown evidence date reaching A (D-14): engine {cfg.date_cap.engine_grade}, flag"
+        f" `{cfg.date_cap.flag}`.",
         "",
         "## Origin of each connector operation (G5, proposal)",
         "",
         "| Operation | Origin | Tool category |",
         "|---|---|---|",
-        *[f"| {op} | {origin} | {cfg.category_by_operation.get(op, '-')} |" for op, origin in sorted(cfg.origin_by_operation.items())],
+        *[
+            f"| {op} | {origin} | {cfg.category_by_operation.get(op, '-')} |"
+            for op, origin in sorted(cfg.origin_by_operation.items())
+        ],
         "",
-        "Only `full_page_read` of a T1 source fetched in this run after run start can make a claim Confirmed.",
+        "Only `full_page_read` of a T1 source fetched in this run after run start can make a"
+        " claim Confirmed.",
         "",
         "## Differently worded (proposal, needs product owner)",
         "",
-        f"Metric `{cfg.similarity.metric}`; accepted only if similarity < {cfg.similarity.max_similarity_exclusive} "
-        f"against every accepted query; at most {cfg.similarity.max_rejected_proposals} rejected proposals per pass; "
+        f"Metric `{cfg.similarity.metric}`; accepted only if similarity <"
+        f" {cfg.similarity.max_similarity_exclusive} "
+        f"against every accepted query; at most {cfg.similarity.max_rejected_proposals} rejected"
+        f" proposals per pass; "
         f"{cfg.similarity.max_repass} re-pass.",
         "",
     ]
@@ -82,7 +93,11 @@ def render() -> dict[Path, str]:
 
 
 def main(argv: list[str]) -> int:
-    stale = [p for p, content in render().items() if not p.exists() or p.read_text(encoding="utf-8") != content]
+    stale = [
+        p
+        for p, content in render().items()
+        if not p.exists() or p.read_text(encoding="utf-8") != content
+    ]
     if "--check" in argv:
         for p in stale:
             print(f"stale: {p.relative_to(ROOT)}")

@@ -63,10 +63,15 @@ def ensure_judge_differs(cfg: GradingConfig, judge_profile: str, generator_profi
 
 
 def needs_judge(engine_grade: EngineGrade, product_grade: ProductGrade, cfg: GradingConfig) -> bool:
-    return engine_grade in cfg.judge.required_for_engine_grades or product_grade in cfg.judge.required_for_product_grades
+    return (
+        engine_grade in cfg.judge.required_for_engine_grades
+        or product_grade in cfg.judge.required_for_product_grades
+    )
 
 
-async def call_judge(port: SupportJudgePort | None, claim: str, sentence: str, cfg: GradingConfig) -> JudgeResult:
+async def call_judge(
+    port: SupportJudgePort | None, claim: str, sentence: str, cfg: GradingConfig
+) -> JudgeResult:
     """Ask the judge; one bounded re-ask on invalid output, then unavailable. Never raises."""
     if port is None:
         return JudgeResult("unavailable", 0, "not_configured")
@@ -81,7 +86,9 @@ async def call_judge(port: SupportJudgePort | None, claim: str, sentence: str, c
             verdict = JudgeVerdict.model_validate(raw)
         except ValidationError:
             continue
-        return JudgeResult("supported" if verdict.supported else "unsupported", attempts, verdict.reason)
+        return JudgeResult(
+            "supported" if verdict.supported else "unsupported", attempts, verdict.reason
+        )
     return JudgeResult("unavailable", attempts, "invalid_judge_output")
 
 

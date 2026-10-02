@@ -12,7 +12,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
 
@@ -21,6 +21,7 @@ from account_intelligence.connectors.models import (
     ARGS_FOR,
     JobOpeningRecord,
     NewsEventRecord,
+    OperationArgs,
     OrganizationRecord,
     PersonRecord,
     Record,
@@ -97,8 +98,10 @@ class LedgerAdapter:
                 (
                     await s.execute(
                         text(
-                            "SELECT args_hash, provider_code, operation, response, response_ref, created_at"
-                            " FROM tool_calls WHERE run_id = :r AND provider_code IS NOT NULL ORDER BY args_hash"
+                            "SELECT args_hash, provider_code, operation, response, response_ref,"
+                            " created_at"
+                            " FROM tool_calls WHERE run_id = :r AND provider_code IS NOT NULL"
+                            " ORDER BY args_hash"
                         ),
                         {"r": run.run_id},
                     )
@@ -109,19 +112,30 @@ class LedgerAdapter:
         out: dict[str, FetchRecord] = {}
         for row in await self._rows(run):
             meta = row.response or {}
-            when = datetime.fromisoformat(meta["retrieved_at"]) if "retrieved_at" in meta else row.created_at
+            when = (
+                datetime.fromisoformat(meta["retrieved_at"])
+                if "retrieved_at" in meta
+                else row.created_at
+            )
             out[row.args_hash] = FetchRecord(
-                call_ref=row.args_hash, run_id=run.run_id, provider_code=row.provider_code, operation=row.operation,
+                call_ref=row.args_hash,
+                run_id=run.run_id,
+                provider_code=row.provider_code,
+                operation=row.operation,
                 origin=self.cfg.origin_by_operation.get(row.operation, "broker_record"),
                 tool_category=self.cfg.category_by_operation.get(row.operation, "web_search"),
-                fetched_at=when, success=True, queries=call_queries(row.operation, meta.get("args") or {}),
+                fetched_at=when,
+                success=True,
+                queries=call_queries(row.operation, meta.get("args") or {}),
             )
         async with self.txn(run.tenant_id) as s:
             failed = (
                 await s.execute(
                     text(
-                        "SELECT DISTINCT ON (args_hash) args_hash, provider_code, operation, created_at"
-                        " FROM tool_call_events WHERE run_id = :r AND event = 'failed' AND provider_code IS NOT NULL"
+                        "SELECT DISTINCT ON (args_hash) args_hash, provider_code, operation,"
+                        " created_at"
+                        " FROM tool_call_events WHERE run_id = :r AND event = 'failed' AND"
+                        " provider_code IS NOT NULL"
                         " ORDER BY args_hash, attempt DESC"
                     ),
                     {"r": run.run_id},
@@ -130,9 +144,14 @@ class LedgerAdapter:
         for row in failed:
             if row.args_hash not in out:
                 out[row.args_hash] = FetchRecord(
-                    row.args_hash, run.run_id, row.provider_code, row.operation,
+                    row.args_hash,
+                    run.run_id,
+                    row.provider_code,
+                    row.operation,
                     self.cfg.origin_by_operation.get(row.operation, "broker_record"),
-                    self.cfg.category_by_operation.get(row.operation, "web_search"), row.created_at, False,
+                    self.cfg.category_by_operation.get(row.operation, "web_search"),
+                    row.created_at,
+                    False,
                 )
         return out
 
@@ -146,11 +165,17 @@ class LedgerAdapter:
             args = ARGS_FOR[op].model_validate_json(json.dumps(meta["args"]))
             body = await self.payloads.get(row.response_ref)
             retrieved = datetime.fromisoformat(meta["retrieved_at"])
-            base = {"provider_code": row.provider_code, "operation": op, "raw_ref": row.response_ref,
-                    "retrieved_at": retrieved}
+            base = {
+                "provider_code": row.provider_code,
+                "operation": op,
+                "raw_ref": row.response_ref,
+                "retrieved_at": retrieved,
+            }
             connector = self.connectors[ProviderCode(row.provider_code)]
-            raw = RawResponse(200, str(meta.get("content_type", "application/json")), body, {}, 0, "")
-            parsed = connector.parse(op, args, raw, base, meta.get("cursor"))
+            raw = RawResponse(
+                200, str(meta.get("content_type", "application/json")), body, {}, 0, ""
+            )
+            parsed = connector.parse(op, cast(OperationArgs, args), raw, base, meta.get("cursor"))
             for i, record in enumerate(parsed.records):
                 url = record.provenance.source_url
                 if not url:
@@ -161,11 +186,19 @@ class LedgerAdapter:
                     continue
                 out.append(
                     RunSource(
-                        source_ref=f"{row.response_ref}#{i}", call_ref=row.args_hash, run_id=run.run_id, url=url,
-                        url_normalized=norm, host=(norm.split("/")[2]).split(":")[0], text=record_text(record),
+                        source_ref=f"{row.response_ref}#{i}",
+                        call_ref=row.args_hash,
+                        run_id=run.run_id,
+                        url=url,
+                        url_normalized=norm,
+                        host=(norm.split("/")[2]).split(":")[0],
+                        text=record_text(record),
                         origin=self.cfg.origin_by_operation.get(row.operation, "broker_record"),
-                        provider_code=row.provider_code, operation=row.operation, fetched_at=retrieved,
-                        published_at=record_published(record), lineage_hint=record.lineage_hint,
+                        provider_code=row.provider_code,
+                        operation=row.operation,
+                        fetched_at=retrieved,
+                        published_at=record_published(record),
+                        lineage_hint=record.lineage_hint,
                     )
                 )
         return out

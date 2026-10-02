@@ -73,7 +73,9 @@ _LABELS: dict[str, str] = {
 }
 
 
-def display_label(grade: ProductGrade, flags: tuple[str, ...] = (), lead_status: str | None = None) -> str:
+def display_label(
+    grade: ProductGrade, flags: tuple[str, ...] = (), lead_status: str | None = None
+) -> str:
     """Label for deliverables. A Lead whose verification is not complete is never shown as a
     plain Lead; aggregator support is labelled."""
     label = _LABELS[grade]

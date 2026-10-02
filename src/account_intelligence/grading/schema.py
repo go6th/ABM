@@ -89,7 +89,11 @@ class GradedEvidence(_Strict):
     @model_validator(mode="after")
     def _traceable(self) -> GradedEvidence:
         if self.evidence_kind in ("source", "inherited"):
-            missing = [n for n in ("url", "span_sha256", "tier", "origin", "evidence_date") if getattr(self, n) is None]
+            missing = [
+                n
+                for n in ("url", "span_sha256", "tier", "origin", "evidence_date")
+                if getattr(self, n) is None
+            ]
             if missing:
                 raise ValueError(f"{self.evidence_kind} evidence needs {missing}")
         if self.evidence_kind == "search_proof" and self.call_ref is None:
@@ -132,9 +136,13 @@ class GradedClaim(_Strict):
     @model_validator(mode="after")
     def _rules(self) -> GradedClaim:
         kinds = {e.evidence_kind for e in self.evidence}
-        expected = {"sourced": {"source"}, "synthesis": {"inherited"}, "absence": {"search_proof"}}[self.claim_kind]
+        expected = {"sourced": {"source"}, "synthesis": {"inherited"}, "absence": {"search_proof"}}[
+            self.claim_kind
+        ]
         if kinds != expected:
-            raise ValueError(f"{self.claim_kind} claim needs {sorted(expected)} evidence, got {sorted(kinds)}")
+            raise ValueError(
+                f"{self.claim_kind} claim needs {sorted(expected)} evidence, got {sorted(kinds)}"
+            )
         if self.product_grade == "confirmed" and not self.read_in_primary_this_run:
             raise ValueError("confirmed requires a code-verified primary read this run (G5)")
         if self.may_state_to_prospect != (self.product_grade == "confirmed"):

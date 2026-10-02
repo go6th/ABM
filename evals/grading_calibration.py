@@ -69,7 +69,9 @@ def expected_calibration_error(items: Sequence[GoldenItem], bins: int = 10) -> f
     total = 0.0
     for b in range(bins):
         lo, hi = b / bins, (b + 1) / bins
-        bucket = [i for i in items if lo <= i.confidence < hi or (b == bins - 1 and i.confidence == 1.0)]
+        bucket = [
+            i for i in items if lo <= i.confidence < hi or (b == bins - 1 and i.confidence == 1.0)
+        ]
         if bucket:
             acc = sum(i.correct for i in bucket) / len(bucket)
             conf = sum(i.confidence for i in bucket) / len(bucket)
@@ -77,7 +79,9 @@ def expected_calibration_error(items: Sequence[GoldenItem], bins: int = 10) -> f
     return total
 
 
-def evaluate(items: Sequence[GoldenItem], expected: dict[str, list[str]], cfg: GradingConfig) -> Report:
+def evaluate(
+    items: Sequence[GoldenItem], expected: dict[str, list[str]], cfg: GradingConfig
+) -> Report:
     g = cfg.eval_gates
     pa, pb = _precision(items, "A"), _precision(items, "B")
     cit = sum(i.citation_valid for i in items) / len(items) if items else None
@@ -90,10 +94,13 @@ def evaluate(items: Sequence[GoldenItem], expected: dict[str, list[str]], cfg: G
         "precision_grade_B": pb is not None and pb >= g.precision_grade_B_min,
         "citation_validity": cit is not None and cit >= g.citation_validity_min,
         "calibration_error": ece is not None and ece <= g.calibration_error_max,
-        "coverage_expected_attributes": cov is not None and cov >= g.coverage_expected_attributes_min,
+        "coverage_expected_attributes": cov is not None
+        and cov >= g.coverage_expected_attributes_min,
     }
     if not items or any(i.synthetic for i in items):
-        return Report("blocked", "needs analyst-reviewed golden accounts", pa, pb, cit, ece, cov, gates)
+        return Report(
+            "blocked", "needs analyst-reviewed golden accounts", pa, pb, cit, ece, cov, gates
+        )
     return Report("pass" if all(gates.values()) else "fail", None, pa, pb, cit, ece, cov, gates)
 
 

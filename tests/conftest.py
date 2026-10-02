@@ -124,7 +124,9 @@ def run_of_b(tenant_b: UUID, account_of_b: UUID) -> UUID:
         ).fetchone()[0]
 
 
-def _insert_fact(c: psycopg.Connection, tenant: UUID, acct: UUID, value: str, fp: str, visibility: str) -> UUID:
+def _insert_fact(
+    c: psycopg.Connection, tenant: UUID, acct: UUID, value: str, fp: str, visibility: str
+) -> UUID:
     """A graded fact plus its evidence in one transaction (migration 0009: product grade
     required, no fact without evidence at commit)."""
     with c.transaction():
@@ -135,7 +137,8 @@ def _insert_fact(c: psycopg.Connection, tenant: UUID, acct: UUID, value: str, fp
             (tenant, acct, value, fp, visibility),
         ).fetchone()[0]
         c.execute(
-            "INSERT INTO fact_evidence (tenant_id, fact_id, evidence_kind, supporting_sentence, call_ref) "
+            "INSERT INTO fact_evidence (tenant_id, fact_id, evidence_kind, supporting_sentence,"
+            " call_ref) "
             "VALUES (%s, %s, 'search_proof', 'synthetic fixture evidence', 'fixture-call')",
             (tenant, fact),
         )

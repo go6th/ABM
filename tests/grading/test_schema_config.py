@@ -23,17 +23,43 @@ from account_intelligence.grading.schema import (
 )
 
 WHEN = datetime(2026, 10, 1, tzinfo=UTC)
-SRC = dict(evidence_kind="source", url="https://acme.example/a", supporting_sentence="Jane Doe is the CTO of Acme.",
-           span_sha256="0" * 64, source_ref="r#0", call_ref="c1", origin="full_page_read", tier="T1",
-           lineage_group="account_primary", is_aggregator=False, date_kind="observed", evidence_date=WHEN, provider_code="p_scrape")
+SRC = dict(
+    evidence_kind="source",
+    url="https://acme.example/a",
+    supporting_sentence="Jane Doe is the CTO of Acme.",
+    span_sha256="0" * 64,
+    source_ref="r#0",
+    call_ref="c1",
+    origin="full_page_read",
+    tier="T1",
+    lineage_group="account_primary",
+    is_aggregator=False,
+    date_kind="observed",
+    evidence_date=WHEN,
+    provider_code="p_scrape",
+)
 
 
 def claim(**over: Any) -> GradedClaim:
     base: dict[str, Any] = dict(
-        schema_version=1, config_hash="h", claim_hash="c", claim_kind="sourced", attribute_key="exec.cto.name",
-        value="Jane Doe", normalised_value="jane doe", product_grade="confirmed", engine_grade="B", confidence=0.9,
-        read_in_primary_this_run=True, may_state_to_prospect=True, precedence_rule="primary_read",
-        evidence=(GradedEvidence(**SRC),), confirming_question=None, reasoning=None, flags=(), lead=None,
+        schema_version=1,
+        config_hash="h",
+        claim_hash="c",
+        claim_kind="sourced",
+        attribute_key="exec.cto.name",
+        value="Jane Doe",
+        normalised_value="jane doe",
+        product_grade="confirmed",
+        engine_grade="B",
+        confidence=0.9,
+        read_in_primary_this_run=True,
+        may_state_to_prospect=True,
+        precedence_rule="primary_read",
+        evidence=(GradedEvidence(**SRC),),
+        confirming_question=None,
+        reasoning=None,
+        flags=(),
+        lead=None,
     )
     base.update(over)
     return GradedClaim(**base)
@@ -55,8 +81,16 @@ def test_a_valid_confirmed_claim_builds() -> None:
         (dict(flags=("conflicting",)), "confirming question"),
         (dict(claim_kind="synthesis"), "inherited"),
         (dict(evidence=()), "at least 1"),
-        (dict(claim_kind="absence", product_grade="probable", may_state_to_prospect=False, reasoning="r",
-              evidence=(GradedEvidence(**{**SRC, "evidence_kind": "search_proof", "url": None}),)), "hypotheses"),
+        (
+            dict(
+                claim_kind="absence",
+                product_grade="probable",
+                may_state_to_prospect=False,
+                reasoning="r",
+                evidence=(GradedEvidence(**{**SRC, "evidence_kind": "search_proof", "url": None}),),
+            ),
+            "hypotheses",
+        ),
         (dict(product_grade="confirmed", grade="A"), "Extra inputs"),
     ],
 )
@@ -70,8 +104,11 @@ def test_evidence_must_be_traceable() -> None:
         GradedEvidence(**{**SRC, "url": None})
     with pytest.raises(ValidationError, match="call it proves"):
         GradedEvidence(**{**SRC, "evidence_kind": "search_proof", "call_ref": None})
-    lead = claim(product_grade="lead", may_state_to_prospect=False,
-                 lead=LeadRecord(status="pending", reason=None, accepted_queries=0, tool_categories=()))
+    lead = claim(
+        product_grade="lead",
+        may_state_to_prospect=False,
+        lead=LeadRecord(status="pending", reason=None, accepted_queries=0, tool_categories=()),
+    )
     assert lead.lead and lead.lead.status == "pending"
     assert claim(flags=("b", "a", "a")).flags == ("a", "b")
 
@@ -79,7 +116,14 @@ def test_evidence_must_be_traceable() -> None:
 def test_proposed_claim_has_no_grade_fields() -> None:
     schema = PROPOSED_ADAPTER.json_schema()
     text = str(schema)
-    for forbidden in ("product_grade", "engine_grade", "confidence", "tier", "lineage", "read_in_primary"):
+    for forbidden in (
+        "product_grade",
+        "engine_grade",
+        "confidence",
+        "tier",
+        "lineage",
+        "read_in_primary",
+    ):
         assert forbidden not in text
 
 
@@ -108,10 +152,16 @@ def _edit(path: Path, fn: Any) -> None:
         ("grading.yaml", lambda d: d["engine"]["source_tiers"]["T1_primary"].update(weight=1.5)),
         ("grading.yaml", lambda d: d["engine"]["half_life_days"].update(hiring=0)),
         ("grading_policy.yaml", lambda d: d["attributes"]["classes"].update(exec="weather")),
-        ("grading_policy.yaml", lambda d: d["tool_category_by_operation"].update(web_search="telepathy")),
+        (
+            "grading_policy.yaml",
+            lambda d: d["tool_category_by_operation"].update(web_search="telepathy"),
+        ),
         ("grading_policy.yaml", lambda d: d["origin_by_operation"].pop("status")),
         ("grading_policy.yaml", lambda d: d["judge"].update(max_reasks=9)),
-        ("source_registry.yaml", lambda d: d["provider_codes"].update({"SomeVendor": d["provider_codes"]["p_org"]})),
+        (
+            "source_registry.yaml",
+            lambda d: d["provider_codes"].update({"SomeVendor": d["provider_codes"]["p_org"]}),
+        ),
         ("routing.yaml", lambda d: d.pop("tool_categories")),
     ],
 )
@@ -134,8 +184,13 @@ def test_unreadable_config_and_stable_hash(tmp_path: Path, cfg: GradingConfig) -
 
 
 def test_routing_tool_categories_equal_the_skill_asset() -> None:
-    skill = Path(__file__).resolve().parents[2] / ".claude/skills/account-intelligence-platform/assets/routing.yaml"
-    assert yaml.safe_load(skill.read_text())["tool_categories"] == list(load_grading_config().tool_categories)
+    skill = (
+        Path(__file__).resolve().parents[2]
+        / ".claude/skills/account-intelligence-platform/assets/routing.yaml"
+    )
+    assert yaml.safe_load(skill.read_text())["tool_categories"] == list(
+        load_grading_config().tool_categories
+    )
 
 
 def test_every_proposal_block_is_labelled() -> None:
@@ -145,4 +200,6 @@ def test_every_proposal_block_is_labelled() -> None:
         if isinstance(block, dict):
             assert block.get("status") == "proposal", name
     reg = yaml.safe_load((CONFIG_DIR / "source_registry.yaml").read_text())
-    assert reg["status"] == "proposal" and all("TODO" in v["source"] for v in reg["provider_codes"].values())
+    assert reg["status"] == "proposal" and all(
+        "TODO" in v["source"] for v in reg["provider_codes"].values()
+    )

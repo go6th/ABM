@@ -44,7 +44,12 @@ from account_intelligence.grading.leads import (
 from account_intelligence.grading.lineage import profile_for
 from account_intelligence.grading.ports import FetchRecord
 from account_intelligence.grading.primary import VerifiedEvidence, read_in_primary_this_run
-from account_intelligence.grading.product import ProductInputs, display_label, product_grade, statement_policy
+from account_intelligence.grading.product import (
+    ProductInputs,
+    display_label,
+    product_grade,
+    statement_policy,
+)
 from account_intelligence.grading.spans import (
     bounded,
     check_hostile,
@@ -64,7 +69,15 @@ TERMS = account_terms("acme.example", "Acme")
 
 def ledger(*specs: tuple[str, str, tuple[str, ...], bool]) -> dict[str, FetchRecord]:
     return {
-        ref: _fetch(ref, "web_search" if cat == "web_search" else "x", "search_snippet", cat, "p_search", queries=qs, success=ok)
+        ref: _fetch(
+            ref,
+            "web_search" if cat == "web_search" else "x",
+            "search_snippet",
+            cat,
+            "p_search",
+            queries=qs,
+            success=ok,
+        )
         for ref, cat, qs, ok in specs
     }
 
@@ -72,8 +85,15 @@ def ledger(*specs: tuple[str, str, tuple[str, ...], bool]) -> dict[str, FetchRec
 # ------------------------------------------------------------------ G9 leads
 
 
-def test_near_duplicates_by_case_order_punctuation_and_account_name_are_rejected(cfg: GradingConfig) -> None:
-    variants = ["salesforce admin hiring", "Hiring, Salesforce ADMIN!", "acme salesforce admin hiring", "Acme: admin hiring salesforce"]
+def test_near_duplicates_by_case_order_punctuation_and_account_name_are_rejected(
+    cfg: GradingConfig,
+) -> None:
+    variants = [
+        "salesforce admin hiring",
+        "Hiring, Salesforce ADMIN!",
+        "acme salesforce admin hiring",
+        "Acme: admin hiring salesforce",
+    ]
     f = ledger(*[(f"c{i}", "web_search", (q,), True) for i, q in enumerate(variants)])
     s = new_lead("k")
     for i, q in enumerate(variants):
@@ -85,9 +105,11 @@ def test_near_duplicates_by_case_order_punctuation_and_account_name_are_rejected
 
 
 def test_three_queries_across_two_categories_completes_the_lead(cfg: GradingConfig) -> None:
-    f = ledger(("a", "web_search", ("salesforce administrator job",), True),
-               ("b", "job_board", ("crm platform team opening",), True),
-               ("c", "web_search", ("service cloud migration partner",), True))
+    f = ledger(
+        ("a", "web_search", ("salesforce administrator job",), True),
+        ("b", "job_board", ("crm platform team opening",), True),
+        ("c", "web_search", ("service cloud migration partner",), True),
+    )
     s = new_lead("k")
     for ref, cat in [("a", "web_search"), ("b", "job_board"), ("c", "web_search")]:
         s = submit_query(s, f[ref].queries[0], cat, ref, f, TERMS, cfg)
@@ -98,16 +120,21 @@ def test_three_queries_across_two_categories_completes_the_lead(cfg: GradingConf
 
 def test_category_boundaries(cfg: GradingConfig) -> None:
     # three distinct queries in one category: the third is refused (category unreachable)
-    f = ledger(("a", "web_search", ("salesforce administrator job",), True),
-               ("b", "web_search", ("crm platform team opening",), True),
-               ("c", "web_search", ("service cloud migration partner",), True))
+    f = ledger(
+        ("a", "web_search", ("salesforce administrator job",), True),
+        ("b", "web_search", ("crm platform team opening",), True),
+        ("c", "web_search", ("service cloud migration partner",), True),
+    )
     s = new_lead("k")
     for ref in "abc":
         s = submit_query(s, f[ref].queries[0], "web_search", ref, f, TERMS, cfg)
     assert [q.rejection_reason for q in s.queries] == [None, None, "needs_new_category"]
     assert evaluate_lead(s, cfg) == "pending"
     # two queries in two categories: still pending
-    f2 = ledger(("a", "web_search", ("salesforce administrator job",), True), ("b", "job_board", ("crm platform team opening",), True))
+    f2 = ledger(
+        ("a", "web_search", ("salesforce administrator job",), True),
+        ("b", "job_board", ("crm platform team opening",), True),
+    )
     s2 = new_lead("k")
     s2 = submit_query(s2, "salesforce administrator job", "web_search", "a", f2, TERMS, cfg)
     s2 = submit_query(s2, "crm platform team opening", "job_board", "b", f2, TERMS, cfg)
@@ -125,9 +152,15 @@ def test_category_boundaries(cfg: GradingConfig) -> None:
         ("stop", "the of and", "web_search", "empty_after_normalisation"),
     ],
 )
-def test_queries_must_be_real_successful_calls(cfg: GradingConfig, ref: str, query: str, cat: str, reason: str) -> None:
-    f = ledger(("failed", "web_search", ("salesforce admin",), False), ("ok", "web_search", ("salesforce admin",), True),
-               ("weird", "telepathy", ("salesforce admin",), True), ("stop", "web_search", ("the of and",), True))
+def test_queries_must_be_real_successful_calls(
+    cfg: GradingConfig, ref: str, query: str, cat: str, reason: str
+) -> None:
+    f = ledger(
+        ("failed", "web_search", ("salesforce admin",), False),
+        ("ok", "web_search", ("salesforce admin",), True),
+        ("weird", "telepathy", ("salesforce admin",), True),
+        ("stop", "web_search", ("the of and",), True),
+    )
     s = submit_query(new_lead("k"), query, cat, ref, f, TERMS, cfg)
     assert s.queries[-1].rejection_reason == reason and not s.accepted
 
@@ -138,7 +171,11 @@ def test_upgrade_incomplete_and_repass(cfg: GradingConfig) -> None:
     assert evaluate_lead(up, cfg) == "upgraded" and up.upgraded_by == "a"
     with pytest.raises(LeadRuleViolation):
         mark_upgraded(new_lead("k"), "bad", f)
-    for reason, exit_reason in [("budget", "budget"), ("source_blocked", "source_blocked"), ("deadline", "deadline")]:
+    for reason, exit_reason in [
+        ("budget", "budget"),
+        ("source_blocked", "source_blocked"),
+        ("deadline", "deadline"),
+    ]:
         inc = mark_incomplete(new_lead("k"), reason)  # type: ignore[arg-type]
         assert (inc.status, inc.exit_reason) == ("incomplete", exit_reason)
     inc = mark_incomplete(new_lead("k"), "budget")
@@ -162,10 +199,23 @@ def test_display_never_shows_an_unfinished_lead_as_a_plain_lead() -> None:
 
 
 @settings(max_examples=300, deadline=None)
-@given(st.lists(st.tuples(st.text(alphabet="abcdefg ", min_size=1, max_size=20), st.sampled_from(["web_search", "job_board", "news_feed"]), st.booleans()), max_size=40))
-def test_property_lead_loop_always_terminates_within_caps(cfg: GradingConfig, proposals: list[tuple[str, str, bool]]) -> None:
-    f = {f"c{i}": _fetch(f"c{i}", "x", "search_snippet", cat, "p_search", queries=(q,), success=ok)
-         for i, (q, cat, ok) in enumerate(proposals)}
+@given(
+    st.lists(
+        st.tuples(
+            st.text(alphabet="abcdefg ", min_size=1, max_size=20),
+            st.sampled_from(["web_search", "job_board", "news_feed"]),
+            st.booleans(),
+        ),
+        max_size=40,
+    )
+)
+def test_property_lead_loop_always_terminates_within_caps(
+    cfg: GradingConfig, proposals: list[tuple[str, str, bool]]
+) -> None:
+    f = {
+        f"c{i}": _fetch(f"c{i}", "x", "search_snippet", cat, "p_search", queries=(q,), success=ok)
+        for i, (q, cat, ok) in enumerate(proposals)
+    }
     s = new_lead("k")
     steps = 0
     for i, (q, cat, _) in enumerate(proposals):
@@ -183,7 +233,9 @@ def test_similarity_edges(cfg: GradingConfig) -> None:
     assert similarity(frozenset(), frozenset()) == 1.0
     assert similarity(frozenset({"a"}), frozenset({"b"})) == 0.0
     # stopword "at" and the account tokens ("acme") are removed
-    assert query_tokens("Acme's CTO, at acme.example", TERMS, cfg) == frozenset({"s", "cto", "example"})
+    assert query_tokens("Acme's CTO, at acme.example", TERMS, cfg) == frozenset(
+        {"s", "cto", "example"}
+    )
 
 
 # ------------------------------------------------------------------ G12 judge
@@ -193,7 +245,9 @@ def test_similarity_edges(cfg: GradingConfig) -> None:
 async def test_judge_outcomes(cfg: GradingConfig) -> None:
     ok = {"supported": True, "reason": "states it"}
     assert (await call_judge(ScriptedJudge([ok]), "c", "s", cfg)).outcome == "supported"
-    assert (await call_judge(ScriptedJudge([{"supported": False, "reason": "no"}]), "c", "s", cfg)).outcome == "unsupported"
+    assert (
+        await call_judge(ScriptedJudge([{"supported": False, "reason": "no"}]), "c", "s", cfg)
+    ).outcome == "unsupported"
     r = await call_judge(ScriptedJudge(["junk", "junk"]), "c", "s", cfg)
     assert (r.outcome, r.attempts, r.reason) == ("unavailable", 2, "invalid_judge_output")
     assert (await call_judge(ScriptedJudge(["raise"]), "c", "s", cfg)).reason == "judge_unavailable"
@@ -215,7 +269,9 @@ async def test_judge_outcomes(cfg: GradingConfig) -> None:
         ("A", "internal", "unavailable", (True, "C", "internal", True)),
     ],
 )
-def test_apply_support_verdict(cfg: GradingConfig, engine: str, product: ProductGrade, outcome: str, expect: tuple[Any, ...]) -> None:
+def test_apply_support_verdict(
+    cfg: GradingConfig, engine: str, product: ProductGrade, outcome: str, expect: tuple[Any, ...]
+) -> None:
     j = apply_support_verdict(engine, product, (), JudgeResult(outcome, 1), cfg)  # type: ignore[arg-type]
     assert (j.keep, j.engine_grade, j.product_grade, "unjudged" in j.flags) == expect
     if not j.keep:
@@ -228,8 +284,14 @@ def test_judge_must_differ_from_the_generator(cfg: GradingConfig, tmp_path: Path
     ensure_judge_differs(cfg, "judge-model", "generator-model")
     # The repository's current model config routes both tasks to one profile: refused.
     with pytest.raises(ConfigError):
-        ensure_judge_differs(cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task))
-    assert needs_judge("A", "probable", cfg) and needs_judge("C", "confirmed", cfg) and not needs_judge("C", "hypothesis", cfg)
+        ensure_judge_differs(
+            cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task)
+        )
+    assert (
+        needs_judge("A", "probable", cfg)
+        and needs_judge("C", "confirmed", cfg)
+        and not needs_judge("C", "hypothesis", cfg)
+    )
 
 
 # ------------------------------------------------------------------ product precedence
@@ -241,17 +303,27 @@ def test_judge_must_differ_from_the_generator(cfg: GradingConfig, tmp_path: Path
         (ProductInputs("no_evidence", None, False), "hypothesis", "no_evidence"),
         (ProductInputs("conflicting", "CONFLICTING", True), "probable", "conflicting"),
         (ProductInputs("graded", "A", True, internal_only=True), "internal", "internal_only"),
-        (ProductInputs("graded", "A", True, internal_only=True, internal_authoritative=True), "confirmed", "primary_read"),
+        (
+            ProductInputs("graded", "A", True, internal_only=True, internal_authoritative=True),
+            "confirmed",
+            "primary_read",
+        ),
         (ProductInputs("graded", "D", True), "confirmed", "primary_read"),
         (ProductInputs("graded", "A", False), "probable", "engine_a_or_b"),
         (ProductInputs("graded", "B", False), "probable", "engine_a_or_b"),
         (ProductInputs("graded", "C", False), "hypothesis", "engine_c_or_synthesis"),
-        (ProductInputs("graded", "A", False, synthesis=True), "hypothesis", "engine_c_or_synthesis"),
+        (
+            ProductInputs("graded", "A", False, synthesis=True),
+            "hypothesis",
+            "engine_c_or_synthesis",
+        ),
         (ProductInputs("graded", "D", False), "lead", "engine_d_or_secondary_only"),
         (ProductInputs("blocked", "BLOCKED", False), "hypothesis", "blocked"),
     ],
 )
-def test_product_precedence(cfg: GradingConfig, inputs: ProductInputs, grade: str, rule: str) -> None:
+def test_product_precedence(
+    cfg: GradingConfig, inputs: ProductInputs, grade: str, rule: str
+) -> None:
     assert product_grade(inputs, cfg) == (grade, rule)
 
 
@@ -259,10 +331,20 @@ def test_product_precedence(cfg: GradingConfig, inputs: ProductInputs, grade: st
 @given(
     st.sampled_from(["no_evidence", "graded", "conflicting", "blocked"]),
     st.sampled_from(["A", "B", "C", "D", None]),
-    st.booleans(), st.booleans(), st.booleans(), st.booleans(),
+    st.booleans(),
+    st.booleans(),
+    st.booleans(),
+    st.booleans(),
 )
-def test_property_confirmed_iff_primary_read_and_only_confirmed_may_be_stated(cfg: GradingConfig, status: str, eg: Any, prim: bool, synth: bool, internal: bool, sec: bool) -> None:
-    grade, _ = product_grade(ProductInputs(status, eg, prim, synthesis=synth, internal_only=internal, secondary_only=sec), cfg)  # type: ignore[arg-type]
+def test_property_confirmed_iff_primary_read_and_only_confirmed_may_be_stated(
+    cfg: GradingConfig, status: str, eg: Any, prim: bool, synth: bool, internal: bool, sec: bool
+) -> None:
+    grade, _ = product_grade(
+        ProductInputs(
+            status, eg, prim, synthesis=synth, internal_only=internal, secondary_only=sec
+        ),
+        cfg,
+    )  # type: ignore[arg-type]
     if grade == "confirmed":
         assert prim
     if prim and status == "graded" and not internal:
@@ -283,7 +365,9 @@ def test_unknown_precedence_rule_and_fallback(cfg: GradingConfig) -> None:
 
 
 def _ve(**kw: Any) -> VerifiedEvidence:
-    base = dict(url_normalized="u", tier="T1", call_ref="c1", fetch_url_normalized="u", span_verified=True)
+    base = dict(
+        url_normalized="u", tier="T1", call_ref="c1", fetch_url_normalized="u", span_verified=True
+    )
     base.update(kw)
     return VerifiedEvidence(**base)  # type: ignore[arg-type]
 
@@ -304,8 +388,12 @@ def _ve(**kw: Any) -> VerifiedEvidence:
         (dict(fetch_url_normalized="other"), {}, "fetched_url_differs"),
     ],
 )
-def test_primary_read_requires_every_condition(ev: dict[str, Any], fetch_update: dict[str, Any], reason: str) -> None:
-    fetch = replace(_fetch("c1", "scrape_job_page", "full_page_read", "job_board", "p_scrape"), **fetch_update)
+def test_primary_read_requires_every_condition(
+    ev: dict[str, Any], fetch_update: dict[str, Any], reason: str
+) -> None:
+    fetch = replace(
+        _fetch("c1", "scrape_job_page", "full_page_read", "job_board", "p_scrape"), **fetch_update
+    )
     r = read_in_primary_this_run([_ve(**ev)], {"c1": fetch}, RUN_INFO, conflicting=False)
     assert (r.value, r.reasons) == (False, (reason,))
 
@@ -313,9 +401,11 @@ def test_primary_read_requires_every_condition(ev: dict[str, Any], fetch_update:
 def test_primary_read_true_path_and_conflict_and_empty() -> None:
     fetch = _fetch("c1", "scrape_job_page", "full_page_read", "job_board", "p_scrape")
     assert read_in_primary_this_run([_ve()], {"c1": fetch}, RUN_INFO, conflicting=False).value
-    assert read_in_primary_this_run([_ve()], {"c1": fetch}, RUN_INFO, conflicting=True).reasons == ("conflicting",)
+    assert read_in_primary_this_run([_ve()], {"c1": fetch}, RUN_INFO, conflicting=True).reasons == (
+        "conflicting",
+    )
     assert read_in_primary_this_run([], {}, RUN_INFO, conflicting=False).reasons == ("no_evidence",)
-    assert RUN == RUN_INFO.run_id
+    assert RUN_INFO.run_id == RUN
 
 
 # ------------------------------------------------------------------ spans
@@ -334,7 +424,9 @@ def test_spans_helpers(cfg: GradingConfig) -> None:
         verify_span("short", matches, cfg)
     with pytest.raises(SpanNotFound):
         verify_span("x" * 700, matches, cfg)
-    assert figure_in_text("$40 million", "raised $40 million in") and not figure_in_text("$40 million", "raised $40 billion")
+    assert figure_in_text("$40 million", "raised $40 million in") and not figure_in_text(
+        "$40 million", "raised $40 billion"
+    )
     value_support("$40 million", "Acme raised $40 million.", "number")
     with pytest.raises(ValueNotInSentence):
         value_support("$41 million", "Acme raised $40 million.", "number")
@@ -352,17 +444,45 @@ def test_spans_helpers(cfg: GradingConfig) -> None:
 def test_lineage_profiles(cfg: GradingConfig) -> None:
     w = world()
     by = {s.call_ref: profile_for(s, RUN_INFO, cfg) for s in w.sources}
-    assert (by["c1"].tier, by["c1"].lineage_group, by["c1"].live_state) == ("T1", "account_primary", True)
+    assert (by["c1"].tier, by["c1"].lineage_group, by["c1"].live_state) == (
+        "T1",
+        "account_primary",
+        True,
+    )
     assert by["c2"].lineage_group == "account_primary"  # same upstream as the careers host
-    assert (by["c3"].tier, by["c3"].lineage_group, by["c3"].lineage_known) == ("T2", "host:news.example.org", True)
-    assert (by["c4"].tier, by["c4"].lineage_known, by["c4"].flags) == ("T4", False, ("unclassified_source",))
-    assert (by["c5"].lineage_group, by["c5"].lineage_known, by["c5"].flags) == ("provider:p_org", False, ("aggregator",))
+    assert (by["c3"].tier, by["c3"].lineage_group, by["c3"].lineage_known) == (
+        "T2",
+        "host:news.example.org",
+        True,
+    )
+    assert (by["c4"].tier, by["c4"].lineage_known, by["c4"].flags) == (
+        "T4",
+        False,
+        ("unclassified_source",),
+    )
+    assert (by["c5"].lineage_group, by["c5"].lineage_known, by["c5"].flags) == (
+        "provider:p_org",
+        False,
+        ("aggregator",),
+    )
     unknown_provider = replace(w.sources[4], provider_code="p_zzz")
     assert profile_for(unknown_provider, RUN_INFO, cfg).flags == ("unclassified_source",)
     from account_intelligence.grading.config import RegistryEntry
 
-    reg = cfg.registry.model_copy(update={"domains": (RegistryEntry(domain="blog.example.net", tier="T3", is_aggregator=True,
-                                                                     lineage_group="blog", live_state=False, source="test"),)})
+    reg = cfg.registry.model_copy(
+        update={
+            "domains": (
+                RegistryEntry(
+                    domain="blog.example.net",
+                    tier="T3",
+                    is_aggregator=True,
+                    lineage_group="blog",
+                    live_state=False,
+                    source="test",
+                ),
+            )
+        }
+    )
     p = profile_for(w.sources[3], RUN_INFO, cfg.model_copy(update={"registry": reg}))
     assert (p.tier, p.lineage_group, p.flags) == ("T3", "blog", ("aggregator",))
     assert LEADERSHIP and NEWS

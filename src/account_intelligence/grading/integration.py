@@ -23,16 +23,24 @@ from sqlalchemy import text
 
 from account_intelligence.grading import repo
 from account_intelligence.grading.config import GradingConfig
-from account_intelligence.grading.judge import ensure_judge_differs, model_profile
 from account_intelligence.grading.errors import ConfigError
+from account_intelligence.grading.judge import ensure_judge_differs, model_profile
 from account_intelligence.grading.pipeline import grade_claims, load_inputs
-from account_intelligence.grading.ports import Clock, FetchLedgerPort, RunInfo, SourceTextPort, SupportJudgePort
+from account_intelligence.grading.ports import (
+    Clock,
+    FetchLedgerPort,
+    RunInfo,
+    SourceTextPort,
+    SupportJudgePort,
+)
 from account_intelligence.grading.repo import TxnFactory
 from account_intelligence.grading.schema import GradedClaim
 
 
 class ProposalSource(Protocol):
-    async def load(self, tenant_id: UUID, run_id: UUID, reference: str) -> Sequence[str | Mapping[str, Any]]:
+    async def load(
+        self, tenant_id: UUID, run_id: UUID, reference: str
+    ) -> Sequence[str | Mapping[str, Any]]:
         """The extractor's proposals for this run, from its store (never the checkpoint)."""
         ...
 
@@ -55,13 +63,17 @@ async def load_run_info(txn: TxnFactory, tenant_id: UUID, run_id: UUID) -> RunIn
     if row.careers_url and row.careers_url_verified_at is not None:
         host = (urlsplit(row.careers_url).hostname or "").lower()
         hosts = frozenset({host}) if host else frozenset()
-    return RunInfo(tenant_id, UUID(str(row.account_id)), run_id, row.created_at, row.domain, row.name, hosts)
+    return RunInfo(
+        tenant_id, UUID(str(row.account_id)), run_id, row.created_at, row.domain, row.name, hosts
+    )
 
 
 def judge_profile_ok(cfg: GradingConfig) -> bool:
     """True only when the configured judge model differs from the generator (G12)."""
     try:
-        ensure_judge_differs(cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task))
+        ensure_judge_differs(
+            cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task)
+        )
     except ConfigError:
         return False
     return True
@@ -84,15 +96,23 @@ def make_distill_grade_handler(deps: DistillGradeDeps) -> Any:
         tenant_id, run_id = UUID(str(state["tenant_id"])), UUID(str(state["run_id"]))
         reference = (state.get("references") or {}).get(deps.proposals_reference_key)
         if reference is None:
-            return {"coverage_updates": {}, "counters": {"claims_graded": 0, "claims_dropped": 0},
-                    "loop_exits": {"distill_grade": "no_progress"}}
+            return {
+                "coverage_updates": {},
+                "counters": {"claims_graded": 0, "claims_dropped": 0},
+                "loop_exits": {"distill_grade": "no_progress"},
+            }
         run = await load_run_info(deps.txn, tenant_id, run_id)
         await repo.pin_config(deps.txn, run, deps.cfg.content_hash)
         inputs = await load_inputs(run, deps.sources, deps.ledger)
         proposals = await deps.proposals.load(tenant_id, run_id, reference)
         result = await grade_claims(
-            proposals, run, inputs, deps.cfg, deps.clock.now(),
-            judge=deps.judge, judge_profile_ok=deps.judge is not None and judge_profile_ok(deps.cfg),
+            proposals,
+            run,
+            inputs,
+            deps.cfg,
+            deps.clock.now(),
+            judge=deps.judge,
+            judge_profile_ok=deps.judge is not None and judge_profile_ok(deps.cfg),
         )
         for claim in result.graded:
             await repo.record_graded_fact(deps.txn, run, claim)
@@ -102,7 +122,11 @@ def make_distill_grade_handler(deps: DistillGradeDeps) -> Any:
         counters = {"claims_graded": len(result.graded), "claims_dropped": len(result.dropped)}
         counters.update({f"grade_{k}": v for k, v in result.grade_counts.items()})
         counters.update({f"drop_{k}": v for k, v in result.drop_counts.items()})
-        return {"coverage_updates": {}, "counters": counters, "loop_exits": {"distill_grade": "converged"}}
+        return {
+            "coverage_updates": {},
+            "counters": counters,
+            "loop_exits": {"distill_grade": "converged"},
+        }
 
     return handler
 
@@ -124,8 +148,10 @@ class GradingFactRepo:
             rows = (
                 await s.execute(
                     text(
-                        "SELECT id, attribute_key, value_text, product_grade, engine_grade, lead_status,"
-                        " may_state_to_prospect, superseded_at FROM facts WHERE run_id = :r ORDER BY id"
+                        "SELECT id, attribute_key, value_text, product_grade, engine_grade,"
+                        " lead_status,"
+                        " may_state_to_prospect, superseded_at FROM facts WHERE run_id = :r ORDER"
+                        " BY id"
                     ),
                     {"r": UUID(run_id)},
                 )

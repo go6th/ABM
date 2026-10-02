@@ -19,8 +19,12 @@ from account_intelligence.connectors.obs import run_trace_context
 _logger = logging.getLogger("account_intelligence.grading")
 _tracer = trace.get_tracer("account_intelligence.grading")
 _meter = metrics.get_meter("account_intelligence.grading")
-_graded = _meter.create_counter("grading_claims_graded", description="claims graded by product grade")
-_dropped = _meter.create_counter("grading_claims_dropped", description="claims dropped by reason code")
+_graded = _meter.create_counter(
+    "grading_claims_graded", description="claims graded by product grade"
+)
+_dropped = _meter.create_counter(
+    "grading_claims_dropped", description="claims dropped by reason code"
+)
 
 
 @contextmanager
@@ -36,4 +40,9 @@ def record_batch(grades: Mapping[str, int], drops: Mapping[str, int]) -> None:
         _graded.add(n, {"product_grade": grade})
     for reason, n in drops.items():
         _dropped.add(n, {"reason": reason})
-    _logger.info(json.dumps({"event": "grading.batch", "graded": dict(grades), "dropped": dict(drops)}, sort_keys=True))
+    _logger.info(
+        json.dumps(
+            {"event": "grading.batch", "graded": dict(grades), "dropped": dict(drops)},
+            sort_keys=True,
+        )
+    )

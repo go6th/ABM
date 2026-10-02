@@ -74,7 +74,7 @@ _TIER_RANK = {t: i for i, t in enumerate(TIERS)}
 def check_tier(tier: str) -> Tier:
     if tier not in _TIER_RANK:
         raise UnknownTier(f"unknown source tier {tier!r}")
-    return tier  # type: ignore[return-value]
+    return tier
 
 
 def attribute_class(attribute_key: str, cfg: GradingConfig) -> str:
@@ -152,7 +152,9 @@ def _a_eligible(groups: Sequence[GroupStrength], cfg: GradingConfig) -> bool:
     )
 
 
-def engine_grade(groups: Sequence[GroupStrength], cfg: GradingConfig) -> tuple[EngineGrade, tuple[str, ...]]:
+def engine_grade(
+    groups: Sequence[GroupStrength], cfg: GradingConfig
+) -> tuple[EngineGrade, tuple[str, ...]]:
     """Grade from the groups, with the D-14 (unknown date) and D-11 (unknown lineage) caps."""
     t = cfg.thresholds
     c = quantise(confidence(groups), cfg)

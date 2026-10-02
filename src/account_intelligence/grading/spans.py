@@ -29,7 +29,13 @@ from account_intelligence.grading.ports import RunSource
 from account_intelligence.urls import normalize_url
 
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f​-‏  ﻿]")
-_ORIGIN_RANK = {"full_page_read": 0, "cached_copy": 1, "search_snippet": 2, "feed_item": 3, "broker_record": 4}
+_ORIGIN_RANK = {
+    "full_page_read": 0,
+    "cached_copy": 1,
+    "search_snippet": 2,
+    "feed_item": 3,
+    "broker_record": 4,
+}
 
 
 def normalise_ws(text: str) -> str:

@@ -1,4 +1,5 @@
-"""Calibration harness: metric maths (always run) and the eval gate (marker eval, skipped by default)."""
+"""Calibration harness: metric maths (always run) and the eval gate (marker eval, skipped
+by default)."""
 
 from __future__ import annotations
 
@@ -7,12 +8,20 @@ from pathlib import Path
 import pytest
 
 from account_intelligence.grading.config import GradingConfig
-from evals.grading_calibration import GoldenItem, evaluate, expected_calibration_error, load_golden, main
+from evals.grading_calibration import (
+    GoldenItem,
+    evaluate,
+    expected_calibration_error,
+    load_golden,
+    main,
+)
 
 GOLDEN = Path(__file__).resolve().parents[2] / "evals" / "golden" / "synthetic.jsonl"
 
 
-def item(grade: str, conf: float, correct: bool, synthetic: bool = False, key: str = "jobs.a.b") -> GoldenItem:
+def item(
+    grade: str, conf: float, correct: bool, synthetic: bool = False, key: str = "jobs.a.b"
+) -> GoldenItem:
     return GoldenItem("acct", key, grade, conf, correct, True, synthetic)
 
 
@@ -22,7 +31,9 @@ def test_metric_maths(cfg: GradingConfig) -> None:
     assert expected_calibration_error([]) is None
     r = evaluate([item("A", 0.9, True), item("B", 0.8, True)], {"acct": ["jobs.a.b"]}, cfg)
     assert (r.precision_a, r.precision_b, r.coverage, r.citation_validity) == (1.0, 1.0, 1.0, 1.0)
-    assert r.status == "fail" and not r.gates["calibration_error"]  # 0.85 average confidence vs 100% correct
+    assert (
+        r.status == "fail" and not r.gates["calibration_error"]
+    )  # 0.85 average confidence vs 100% correct
     assert evaluate([], {}, cfg).status == "blocked"
 
 

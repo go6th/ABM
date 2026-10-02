@@ -216,11 +216,13 @@ def _thresholds(engine: dict[str, Any]) -> Thresholds:
     return Thresholds(
         a=Decimal(a.group(1)),
         a_min_groups=int(a.group(2)),
-        a_required_tiers=(a.group(3), a.group(4)),  # type: ignore[arg-type]
+        a_required_tiers=(a.group(3), a.group(4)),
         b=Decimal(_match(_GE_RULE, g["B"]["rule"], "grade B rule").group(1)),
         c=Decimal(_match(_GE_RULE, g["C"]["rule"], "grade C rule").group(1)),
         d_below=Decimal(_match(_LT_RULE, g["D"]["rule"], "grade D rule").group(1)),
-        conflict_above=Decimal(_match(_CONFLICT, engine["conflicting"], "conflicting rule").group(1)),
+        conflict_above=Decimal(
+            _match(_CONFLICT, engine["conflicting"], "conflicting rule").group(1)
+        ),
     )
 
 
@@ -239,19 +241,21 @@ def load_grading_config(config_dir: Path | None = None) -> GradingConfig:
     routing = _read(root / "routing.yaml")
     try:
         engine = grading["engine"]
-        weights = {t.split("_", 1)[0]: float(v["weight"]) for t, v in engine["source_tiers"].items()}
+        weights = {
+            t.split("_", 1)[0]: float(v["weight"]) for t, v in engine["source_tiers"].items()
+        }
         product = grading["product_grades"]
         attrs = policy["attributes"]
         cfg = GradingConfig(
             version=str(grading["version"]),
-            weights=weights,  # type: ignore[arg-type]
+            weights=weights,
             half_lives={k: float(v) for k, v in engine["half_life_days"].items()},
             thresholds=_thresholds(engine),
             lead_rule=LeadRule(**product["lead"]["stays_lead_only_if"]),
-            may_state={k: bool(v["may_state_to_prospect"]) for k, v in product.items()},  # type: ignore[misc]
+            may_state={k: bool(v["may_state_to_prospect"]) for k, v in product.items()},
             requires_question=tuple(
                 k for k, v in product.items() if v.get("requires_confirming_question")
-            ),  # type: ignore[arg-type]
+            ),
             eval_gates=EvalGates(**engine["eval_gates"]),
             precedence=Precedence(**policy["product_precedence"]),
             judge=JudgeCfg(**policy["judge"]),

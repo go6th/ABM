@@ -12,7 +12,13 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from account_intelligence.grading.config import load_grading_config
-from account_intelligence.grading.leads import account_terms, new_lead, query_tokens, similarity, submit_query
+from account_intelligence.grading.leads import (
+    account_terms,
+    new_lead,
+    query_tokens,
+    similarity,
+    submit_query,
+)
 from account_intelligence.grading.ports import FetchRecord
 from account_intelligence.tracker.model import CallRecord
 
@@ -27,11 +33,23 @@ def is_differently_worded(q1: str, q2: str, threshold: float | None = None) -> b
     return similarity(query_tokens(q1, (), cfg), query_tokens(q2, (), cfg)) < limit
 
 
-def verify_lead_proof(calls: list[CallRecord], account_domain: str = "", account_name: str | None = None) -> bool:
+def verify_lead_proof(
+    calls: list[CallRecord], account_domain: str = "", account_name: str | None = None
+) -> bool:
     """True when the calls prove the Lead rule (grading.leads.evaluate semantics)."""
     cfg = load_grading_config()
     fetches = {
-        c.call_ref: FetchRecord(c.call_ref, _NIL, "", "", "search_snippet", c.tool_category, _EPOCH, c.success, c.queries)
+        c.call_ref: FetchRecord(
+            c.call_ref,
+            _NIL,
+            "",
+            "",
+            "search_snippet",
+            c.tool_category,
+            _EPOCH,
+            c.success,
+            c.queries,
+        )
         for c in calls
     }
     terms = account_terms(account_domain, account_name) if account_domain else frozenset()

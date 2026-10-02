@@ -22,6 +22,8 @@ from account_intelligence.grading import obs
 from account_intelligence.grading.config import GradingConfig
 from account_intelligence.grading.engine import (
     AttributeGrade,
+    AttributeStatus,
+    DateKind,
     EngineEvidence,
     ValueScore,
     attribute_class,
@@ -30,7 +32,12 @@ from account_intelligence.grading.engine import (
     score_value,
 )
 from account_intelligence.grading.errors import GradingError, SchemaViolation, require_aware
-from account_intelligence.grading.judge import Judged, apply_support_verdict, call_judge, needs_judge
+from account_intelligence.grading.judge import (
+    Judged,
+    apply_support_verdict,
+    call_judge,
+    needs_judge,
+)
 from account_intelligence.grading.leads import LeadVerification, evaluate_lead, new_lead
 from account_intelligence.grading.lineage import profile_for
 from account_intelligence.grading.ports import (
@@ -104,7 +111,9 @@ class GradingInputs:
     fetches: Mapping[str, FetchRecord]
 
 
-async def load_inputs(run: RunInfo, sources: SourceTextPort, ledger: FetchLedgerPort) -> GradingInputs:
+async def load_inputs(
+    run: RunInfo, sources: SourceTextPort, ledger: FetchLedgerPort
+) -> GradingInputs:
     loaded = tuple(s for s in await sources.sources(run) if s.run_id == run.run_id)
     fetches = {k: f for k, f in (await ledger.fetches(run)).items() if f.run_id == run.run_id}
     return GradingInputs(loaded, fetches)
@@ -118,7 +127,11 @@ class _Drop(Exception):
 
 
 def _hash(raw: Any) -> str:
-    text = raw if isinstance(raw, str) else json.dumps(raw, sort_keys=True, separators=(",", ":"), default=str)
+    text = (
+        raw
+        if isinstance(raw, str)
+        else json.dumps(raw, sort_keys=True, separators=(",", ":"), default=str)
+    )
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -144,17 +157,23 @@ class _Sourced:
 
 def _clean(p: ProposedSourced | ProposedSynthesis | ProposedAbsence, cfg: GradingConfig) -> None:
     s = cfg.spans
-    texts = [p.value, getattr(p, "reasoning", None) or "", getattr(p, "confirming_question", None) or ""]
+    texts = [
+        p.value,
+        getattr(p, "reasoning", None) or "",
+        getattr(p, "confirming_question", None) or "",
+    ]
     for t in texts:
         check_hostile(t, cfg)
     bounded(p.value, s.max_value_chars, "value")
-    if getattr(p, "reasoning", None):
-        bounded(p.reasoning or "", s.max_reasoning_chars, "reasoning")
-    if getattr(p, "confirming_question", None):
-        bounded(p.confirming_question or "", s.max_question_chars, "confirming question")
+    reasoning: str | None = getattr(p, "reasoning", None)
+    question: str | None = getattr(p, "confirming_question", None)
+    if reasoning:
+        bounded(reasoning, s.max_reasoning_chars, "reasoning")
+    if question:
+        bounded(question, s.max_question_chars, "confirming question")
 
 
-def _evidence_date(source: RunSource, live_state: bool) -> tuple[datetime, str]:
+def _evidence_date(source: RunSource, live_state: bool) -> tuple[datetime, DateKind]:
     if live_state:
         return source.fetched_at, "observed"
     if source.published_at is not None:
@@ -162,7 +181,9 @@ def _evidence_date(source: RunSource, live_state: bool) -> tuple[datetime, str]:
     return source.fetched_at, "unknown"
 
 
-def _check_sourced(p: ProposedSourced, claim_hash: str, run: RunInfo, inputs: GradingInputs, cfg: GradingConfig) -> _Sourced:
+def _check_sourced(
+    p: ProposedSourced, claim_hash: str, run: RunInfo, inputs: GradingInputs, cfg: GradingConfig
+) -> _Sourced:
     _clean(p, cfg)
     attribute_class(p.attribute_key, cfg)
     norm_kind = normaliser_for(p.attribute_key, cfg)
@@ -185,18 +206,31 @@ def _check_sourced(p: ProposedSourced, claim_hash: str, run: RunInfo, inputs: Gr
             out.flags.add("date_unknown")
         if profile.tier == "T1" and not profile.is_aggregator:
             out.secondary_only = False
-        out.engine.append(EngineEvidence(profile.tier, profile.lineage_group, when, kind, norm_value, profile.lineage_known))  # type: ignore[arg-type]
-        out.evidence.append(
-            GradedEvidence(
-                evidence_kind="source", url=url, supporting_sentence=sentence,
-                span_sha256=hashlib.sha256(sentence.encode("utf-8")).hexdigest(),
-                source_ref=source.source_ref, call_ref=source.call_ref, origin=source.origin,
-                tier=profile.tier, lineage_group=profile.lineage_group,
-                is_aggregator=profile.is_aggregator, date_kind=kind,  # type: ignore[arg-type]
-                evidence_date=when, provider_code=source.provider_code,
+        out.engine.append(
+            EngineEvidence(
+                profile.tier, profile.lineage_group, when, kind, norm_value, profile.lineage_known
             )
         )
-        out.verified.append(VerifiedEvidence(url, profile.tier, source.call_ref, source.url_normalized, True))
+        out.evidence.append(
+            GradedEvidence(
+                evidence_kind="source",
+                url=url,
+                supporting_sentence=sentence,
+                span_sha256=hashlib.sha256(sentence.encode("utf-8")).hexdigest(),
+                source_ref=source.source_ref,
+                call_ref=source.call_ref,
+                origin=source.origin,
+                tier=profile.tier,
+                lineage_group=profile.lineage_group,
+                is_aggregator=profile.is_aggregator,
+                date_kind=kind,
+                evidence_date=when,
+                provider_code=source.provider_code,
+            )
+        )
+        out.verified.append(
+            VerifiedEvidence(url, profile.tier, source.call_ref, source.url_normalized, True)
+        )
     return out
 
 
@@ -207,7 +241,8 @@ def _reasoning(score: ValueScore | None, prim: bool, given: str | None) -> str:
         return "Graded by the evidence engine."
     return (
         f"Supported by {len(score.groups)} independent source group(s) at confidence "
-        f"{float(score.confidence):.2f}; {'read' if prim else 'not read'} in a primary source this run."
+        f"{float(score.confidence):.2f}; {'read' if prim else 'not read'} in a primary source"
+        f" this run."
     )
 
 
@@ -228,11 +263,15 @@ async def _judge_all(
     statement = f"{claim.attribute_key} = {claim.value}"
     result = None
     for ev in claim.evidence:
-        result = await call_judge(port if judge_ok else None, statement, ev.supporting_sentence, cfg)
+        result = await call_judge(
+            port if judge_ok else None, statement, ev.supporting_sentence, cfg
+        )
         if result.outcome != "supported":
             break
     assert result is not None
-    return apply_support_verdict(claim.engine_grade or "D", claim.product_grade, claim.flags, result, cfg)
+    return apply_support_verdict(
+        claim.engine_grade or "D", claim.product_grade, claim.flags, result, cfg
+    )
 
 
 async def grade_claims(
@@ -258,11 +297,21 @@ async def grade_claims(
     others: list[tuple[str, ProposedSynthesis | ProposedAbsence]] = []
     hostile: set[str] = set()
 
-    def drop(reason: str, h: str, p: Any = None, raw: Any = None, hostile_url: str | None = None) -> None:
-        excerpt_src = getattr(p, "value", None) or (raw if isinstance(raw, str) else json.dumps(raw, default=str))
+    def drop(
+        reason: str, h: str, p: Any = None, raw: Any = None, hostile_url: str | None = None
+    ) -> None:
+        excerpt_src = getattr(p, "value", None) or (
+            raw if isinstance(raw, str) else json.dumps(raw, default=str)
+        )
         dropped.append(
-            Dropped(reason, h, getattr(p, "local_id", None), getattr(p, "attribute_key", None),
-                    sanitise(str(excerpt_src), cfg.spans.max_excerpt_chars), hostile_url)
+            Dropped(
+                reason,
+                h,
+                getattr(p, "local_id", None),
+                getattr(p, "attribute_key", None),
+                sanitise(str(excerpt_src), cfg.spans.max_excerpt_chars),
+                hostile_url,
+            )
         )
         if hostile_url:
             hostile.add(hostile_url)
@@ -298,18 +347,36 @@ async def grade_claims(
             cls = attribute_class(key, cfg)
             norm_kind = normaliser_for(key, cfg)
             ev_all = [e for s in group for e in s.engine]
-            attr: AttributeGrade = grade_attribute(ev_all, cls, now, cfg, normaliser=norm_kind, blocked_reason=blocked.get(key))
+            attr: AttributeGrade = grade_attribute(
+                ev_all, cls, now, cfg, normaliser=norm_kind, blocked_reason=blocked.get(key)
+            )
             for s in sorted(group, key=lambda x: x.claim_hash):
                 p = s.proposal
-                conflict_values = {v.value: v for v in attr.values} if attr.status == "conflicting" else {}
+                conflict_values = (
+                    {v.value: v for v in attr.values} if attr.status == "conflicting" else {}
+                )
                 conflicting = s.norm_value in conflict_values
-                score = conflict_values.get(s.norm_value) or score_value(s.norm_value, s.engine, cls, now, cfg)
-                flags = set(s.flags) | set(score.flags) | set(attr.flags if (conflicting or attr.status != "conflicting") else ())
-                prim = read_in_primary_this_run(s.verified, inputs.fetches, run, conflicting=conflicting)
-                status = "conflicting" if conflicting else ("blocked" if attr.status == "blocked" else "graded")
+                score = conflict_values.get(s.norm_value) or score_value(
+                    s.norm_value, s.engine, cls, now, cfg
+                )
+                flags = (
+                    set(s.flags)
+                    | set(score.flags)
+                    | set(attr.flags if (conflicting or attr.status != "conflicting") else ())
+                )
+                prim = read_in_primary_this_run(
+                    s.verified, inputs.fetches, run, conflicting=conflicting
+                )
+                status: AttributeStatus = (
+                    "conflicting"
+                    if conflicting
+                    else ("blocked" if attr.status == "blocked" else "graded")
+                )
                 inputs_ = ProductInputs(
-                    status=status, engine_grade=score.engine_grade if status != "blocked" else "BLOCKED",  # type: ignore[arg-type]
-                    read_in_primary=prim.value, internal_only=key in internal_only_keys,
+                    status=status,
+                    engine_grade=score.engine_grade if status != "blocked" else "BLOCKED",
+                    read_in_primary=prim.value,
+                    internal_only=key in internal_only_keys,
                     internal_authoritative=cfg.precedence.internal_authoritative_default,
                     secondary_only=s.secondary_only,
                 )
@@ -322,37 +389,60 @@ async def grade_claims(
                     state = lead_states.get(lk) or new_lead(lk)
                     out_leads[lk] = state
                     lead_rec = LeadRecord(
-                        status=evaluate_lead(state, cfg), reason=state.reason,
-                        accepted_queries=len(state.accepted), tool_categories=tuple(sorted(state.categories)),
+                        status=evaluate_lead(state, cfg),
+                        reason=state.reason,
+                        accepted_queries=len(state.accepted),
+                        tool_categories=tuple(sorted(state.categories)),
                     )
                 question = p.confirming_question
                 try:
                     claim = GradedClaim(
-                        schema_version=SCHEMA_VERSION, config_hash=cfg.content_hash, claim_hash=s.claim_hash,
-                        claim_kind="sourced", attribute_key=key, value=sanitise(p.value, cfg.spans.max_value_chars),
-                        normalised_value=s.norm_value, product_grade=grade,
+                        schema_version=SCHEMA_VERSION,
+                        config_hash=cfg.content_hash,
+                        claim_hash=s.claim_hash,
+                        claim_kind="sourced",
+                        attribute_key=key,
+                        value=sanitise(p.value, cfg.spans.max_value_chars),
+                        normalised_value=s.norm_value,
+                        product_grade=grade,
                         engine_grade=score.engine_grade if status != "blocked" else "BLOCKED",
-                        confidence=float(score.confidence), read_in_primary_this_run=prim.value,
-                        may_state_to_prospect=statement_policy(grade, cfg), precedence_rule=rule,
-                        evidence=tuple(s.evidence), confirming_question=question,
-                        reasoning=_reasoning(score, prim.value, p.reasoning) if grade == "probable" else p.reasoning,
-                        flags=tuple(flags), lead=lead_rec,
+                        confidence=float(score.confidence),
+                        read_in_primary_this_run=prim.value,
+                        may_state_to_prospect=statement_policy(grade, cfg),
+                        precedence_rule=rule,
+                        evidence=tuple(s.evidence),
+                        confirming_question=question,
+                        reasoning=_reasoning(score, prim.value, p.reasoning)
+                        if grade == "probable"
+                        else p.reasoning,
+                        flags=tuple(flags),
+                        lead=lead_rec,
                     )
                     judged = await _judge_all(claim, judge, judge_profile_ok, cfg)
                     if not judged.keep:
                         drop(judged.drop_reason or "unsupported_by_judge", s.claim_hash, p)
                         continue
-                    if (judged.engine_grade, judged.product_grade, judged.flags) != (claim.engine_grade, claim.product_grade, claim.flags):
+                    if (judged.engine_grade, judged.product_grade, judged.flags) != (
+                        claim.engine_grade,
+                        claim.product_grade,
+                        claim.flags,
+                    ):
                         downgraded = judged.product_grade != claim.product_grade
                         claim = claim.model_copy(
                             update={
                                 "engine_grade": judged.engine_grade,
                                 "product_grade": judged.product_grade,
                                 "read_in_primary_this_run": claim.read_in_primary_this_run,
-                                "may_state_to_prospect": statement_policy(judged.product_grade, cfg),
+                                "may_state_to_prospect": statement_policy(
+                                    judged.product_grade, cfg
+                                ),
                                 "flags": tuple(sorted(set(judged.flags))),
-                                "reasoning": _reasoning(score, prim.value, p.reasoning) if downgraded else claim.reasoning,
-                                "precedence_rule": f"{rule}+judge_cap" if downgraded or "unjudged" in judged.flags else rule,
+                                "reasoning": _reasoning(score, prim.value, p.reasoning)
+                                if downgraded
+                                else claim.reasoning,
+                                "precedence_rule": f"{rule}+judge_cap"
+                                if downgraded or "unjudged" in judged.flags
+                                else rule,
                             }
                         )
                         claim = GradedClaim.model_validate(claim.model_dump())  # re-run every rule
@@ -369,9 +459,14 @@ async def grade_claims(
                     if any(b is None for b in basis):
                         raise _Drop("synthesis_basis_unresolved")
                     inherited = tuple(
-                        e.model_copy(update={"evidence_kind": "inherited"}) for b in basis if b for e in b.evidence
+                        e.model_copy(update={"evidence_kind": "inherited"})
+                        for b in basis
+                        if b
+                        for e in b.evidence
                     )
-                    grade, rule = product_grade(ProductInputs("graded", None, False, synthesis=True), cfg)
+                    grade, rule = product_grade(
+                        ProductInputs("graded", None, False, synthesis=True), cfg
+                    )
                     evidence = inherited
                 else:
                     proofs = [inputs.fetches.get(c) for c in p.tracker_proof_call_refs]
@@ -379,24 +474,45 @@ async def grade_claims(
                         raise _Drop("absence_proof_invalid")
                     evidence = tuple(
                         GradedEvidence(
-                            evidence_kind="search_proof", url=None,
-                            supporting_sentence=f"No supporting source found by {f.operation} ({f.tool_category})"
+                            evidence_kind="search_proof",
+                            url=None,
+                            supporting_sentence=f"No supporting source found by {f.operation}"
+                            f" ({f.tool_category})"
                             + (f": {'; '.join(f.queries)}" if f.queries else ""),
-                            span_sha256=None, source_ref=None, call_ref=f.call_ref, origin=f.origin, tier=None,
-                            lineage_group=None, is_aggregator=False, date_kind=None, evidence_date=None,
+                            span_sha256=None,
+                            source_ref=None,
+                            call_ref=f.call_ref,
+                            origin=f.origin,
+                            tier=None,
+                            lineage_group=None,
+                            is_aggregator=False,
+                            date_kind=None,
+                            evidence_date=None,
                             provider_code=f.provider_code,
                         )
-                        for f in proofs if f is not None
+                        for f in proofs
+                        if f is not None
                     )
                     grade, rule = product_grade(ProductInputs("no_evidence", None, False), cfg)
                 claim = GradedClaim(
-                    schema_version=SCHEMA_VERSION, config_hash=cfg.content_hash, claim_hash=h,
-                    claim_kind=p.claim_kind, attribute_key=p.attribute_key, value=sanitise(p.value, cfg.spans.max_value_chars),
+                    schema_version=SCHEMA_VERSION,
+                    config_hash=cfg.content_hash,
+                    claim_hash=h,
+                    claim_kind=p.claim_kind,
+                    attribute_key=p.attribute_key,
+                    value=sanitise(p.value, cfg.spans.max_value_chars),
                     normalised_value=normalise_value(p.value, normaliser_for(p.attribute_key, cfg)),
-                    product_grade=grade, engine_grade=None, confidence=None, read_in_primary_this_run=False,
-                    may_state_to_prospect=statement_policy(grade, cfg), precedence_rule=rule, evidence=evidence,
-                    confirming_question=p.confirming_question, reasoning=getattr(p, "reasoning", None),
-                    flags=("absence",) if isinstance(p, ProposedAbsence) else ("synthesis",), lead=None,
+                    product_grade=grade,
+                    engine_grade=None,
+                    confidence=None,
+                    read_in_primary_this_run=False,
+                    may_state_to_prospect=statement_policy(grade, cfg),
+                    precedence_rule=rule,
+                    evidence=evidence,
+                    confirming_question=p.confirming_question,
+                    reasoning=getattr(p, "reasoning", None),
+                    flags=("absence",) if isinstance(p, ProposedAbsence) else ("synthesis",),
+                    lead=None,
                 )
                 graded[h] = claim
             except _Drop as d:
@@ -418,4 +534,11 @@ async def grade_claims(
     return result
 
 
-__all__ = ["BatchResult", "Dropped", "GradingInputs", "SchemaViolation", "grade_claims", "load_inputs"]
+__all__ = [
+    "BatchResult",
+    "Dropped",
+    "GradingInputs",
+    "SchemaViolation",
+    "grade_claims",
+    "load_inputs",
+]

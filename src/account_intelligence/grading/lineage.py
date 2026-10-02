@@ -48,26 +48,40 @@ def profile_for(source: RunSource, run: RunInfo, cfg: GradingConfig) -> SourcePr
         hint = _host(source.lineage_hint)
         if entry is None:
             return SourceProfile(
-                reg.unlisted_tier, reg.unlisted_is_aggregator, f"provider:{source.provider_code}",
-                False, False, (reg.unlisted_flag,),
+                reg.unlisted_tier,
+                reg.unlisted_is_aggregator,
+                f"provider:{source.provider_code}",
+                False,
+                False,
+                (reg.unlisted_flag,),
             )
         flags = ("aggregator",) if entry.is_aggregator else ()
         if hint is not None:
-            return SourceProfile(entry.tier, entry.is_aggregator, f"host:{hint}", True, False, flags)
+            return SourceProfile(
+                entry.tier, entry.is_aggregator, f"host:{hint}", True, False, flags
+            )
         return SourceProfile(
             entry.tier, entry.is_aggregator, entry.lineage_group, entry.lineage_known, False, flags
         )
     host = source.host.lower().rstrip(".")
     if is_primary_host(host, run):
         return SourceProfile(reg.account_tier, False, reg.account_lineage_group, True, True)
-    for entry in reg.domains:
-        if _under(host, entry.domain):
-            flags = ("aggregator",) if entry.is_aggregator else ()
+    for dom in reg.domains:
+        if _under(host, dom.domain):
+            flags = ("aggregator",) if dom.is_aggregator else ()
             return SourceProfile(
-                entry.tier, entry.is_aggregator, entry.lineage_group, entry.lineage_known,
-                entry.live_state, flags,
+                dom.tier,
+                dom.is_aggregator,
+                dom.lineage_group,
+                dom.lineage_known,
+                dom.live_state,
+                flags,
             )
     return SourceProfile(
-        reg.unlisted_tier, reg.unlisted_is_aggregator, f"host:{host}", False, False,
+        reg.unlisted_tier,
+        reg.unlisted_is_aggregator,
+        f"host:{host}",
+        False,
+        False,
         (reg.unlisted_flag,),
     )

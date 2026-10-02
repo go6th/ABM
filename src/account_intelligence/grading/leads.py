@@ -32,7 +32,9 @@ from account_intelligence.grading.errors import LeadRuleViolation
 from account_intelligence.grading.ports import FetchRecord
 
 LeadStatus = Literal["pending", "complete", "upgraded", "incomplete"]
-ExitReason = Literal["converged", "cap_reached", "no_progress", "budget", "deadline", "source_blocked", "upgraded"]
+ExitReason = Literal[
+    "converged", "cap_reached", "no_progress", "budget", "deadline", "source_blocked", "upgraded"
+]
 
 
 @dataclass(frozen=True)
@@ -92,12 +94,21 @@ def new_lead(lead_key: str) -> LeadVerification:
     return LeadVerification(lead_key=lead_key)
 
 
-def _reject(state: LeadVerification, text: str, category: str, call_ref: str, reason: str, cfg: GradingConfig) -> LeadVerification:
+def _reject(
+    state: LeadVerification,
+    text: str,
+    category: str,
+    call_ref: str,
+    reason: str,
+    cfg: GradingConfig,
+) -> LeadVerification:
     record = QueryRecord(text, category, call_ref, False, reason, ())
     rejected = state.rejected_this_pass + 1
     nxt = replace(state, queries=(*state.queries, record), rejected_this_pass=rejected)
     if rejected >= cfg.similarity.max_rejected_proposals:
-        return replace(nxt, status="incomplete", reason="no_distinct_query", exit_reason="cap_reached")
+        return replace(
+            nxt, status="incomplete", reason="no_distinct_query", exit_reason="cap_reached"
+        )
     return nxt
 
 
@@ -140,12 +151,17 @@ def submit_query(
         return _reject(state, query, tool_category, call_ref, "needs_new_category", cfg)
     record = QueryRecord(query, tool_category, call_ref, True, None, tuple(sorted(tokens)))
     nxt = replace(state, queries=(*state.queries, record))
-    if len(nxt.accepted) >= rule.min_distinct_queries and len(nxt.categories) >= rule.min_distinct_tool_categories:
+    if (
+        len(nxt.accepted) >= rule.min_distinct_queries
+        and len(nxt.categories) >= rule.min_distinct_tool_categories
+    ):
         return replace(nxt, status="complete", exit_reason="converged")
     return nxt
 
 
-def mark_upgraded(state: LeadVerification, call_ref: str, fetches: Mapping[str, FetchRecord]) -> LeadVerification:
+def mark_upgraded(
+    state: LeadVerification, call_ref: str, fetches: Mapping[str, FetchRecord]
+) -> LeadVerification:
     """A verification call produced a supporting source: the claim must be re-graded through
     the normal pipeline (never edited by hand)."""
     fetch = fetches.get(call_ref)
@@ -154,8 +170,12 @@ def mark_upgraded(state: LeadVerification, call_ref: str, fetches: Mapping[str, 
     return replace(state, status="upgraded", upgraded_by=call_ref, exit_reason="upgraded")
 
 
-def mark_incomplete(state: LeadVerification, reason: Literal["budget", "source_blocked", "deadline"]) -> LeadVerification:
-    exit_reason: ExitReason = "budget" if reason == "budget" else "deadline" if reason == "deadline" else "source_blocked"
+def mark_incomplete(
+    state: LeadVerification, reason: Literal["budget", "source_blocked", "deadline"]
+) -> LeadVerification:
+    exit_reason: ExitReason = (
+        "budget" if reason == "budget" else "deadline" if reason == "deadline" else "source_blocked"
+    )
     return replace(state, status="incomplete", reason=reason, exit_reason=exit_reason)
 
 
@@ -166,8 +186,12 @@ def repass(state: LeadVerification, cfg: GradingConfig) -> LeadVerification:
     if state.repasses_used >= cfg.similarity.max_repass:
         raise LeadRuleViolation("re-pass budget used")
     return replace(
-        state, status="pending", reason=None, exit_reason=None,
-        repasses_used=state.repasses_used + 1, rejected_this_pass=0,
+        state,
+        status="pending",
+        reason=None,
+        exit_reason=None,
+        repasses_used=state.repasses_used + 1,
+        rejected_this_pass=0,
     )
 
 
@@ -176,6 +200,9 @@ def evaluate_lead(state: LeadVerification, cfg: GradingConfig) -> LeadStatus:
     accepted queries; a stored 'complete' that the rule does not support is refused."""
     if state.status == "complete":
         rule = cfg.lead_rule
-        if len(state.accepted) < rule.min_distinct_queries or len(state.categories) < rule.min_distinct_tool_categories:
+        if (
+            len(state.accepted) < rule.min_distinct_queries
+            or len(state.categories) < rule.min_distinct_tool_categories
+        ):
             raise LeadRuleViolation("lead marked complete without the required distinct queries")
     return state.status
