@@ -18,6 +18,15 @@ if config.config_file_name is not None:
 # drift between the models and the migrations in `alembic check`.
 target_metadata = Base.metadata
 
+
+def include_object(
+    obj: object, name: str | None, type_: str, reflected: bool, compare_to: object
+) -> bool:
+    """Compare only modelled tables. Starter, library (LangGraph checkpoints) and
+    partitioned vector tables exist only in SQL migrations and are not drift."""
+    return not (type_ == "table" and reflected and compare_to is None)
+
+
 url = os.environ.get("MIGRATOR_DATABASE_URL")
 if not url:
     raise RuntimeError("MIGRATOR_DATABASE_URL must be set for migrations")
@@ -33,6 +42,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         compare_type=True,
         compare_server_default=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -46,6 +56,7 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             compare_type=True,
             compare_server_default=True,
+            include_object=include_object,
         )
         with context.begin_transaction():
             context.run_migrations()

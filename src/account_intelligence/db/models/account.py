@@ -35,6 +35,7 @@ class Account(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "accounts"
     __table_args__ = (
         UniqueConstraint("tenant_id", "domain"),
+        UniqueConstraint("tenant_id", "id"),  # target of composite tenant-scoped FKs
         CheckConstraint(DOMAIN_SHAPE_CHECK, name="domain_shape"),
         Index("ix_accounts_tenant_id_name", "tenant_id", "name"),
     )

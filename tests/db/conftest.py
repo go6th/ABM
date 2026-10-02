@@ -74,3 +74,35 @@ def make_account(conn: psycopg.Connection, tenant: UUID, domain: str | None = No
     ).fetchone()
     assert row is not None
     return UUID(str(row[0]))
+
+
+def make_run(
+    conn: psycopg.Connection,
+    tenant: UUID,
+    account: UUID,
+    status: str = "queued",
+    *,
+    run_type: str = "full",
+    parent: UUID | None = None,
+    credit_cap: int | None = 100,
+) -> UUID:
+    """Insert a run whose timestamps and error are consistent with ``status``."""
+    started = None if status in ("queued", "failed") else "now()"
+    finished = "now()" if status in ("completed", "failed") else None
+    row = conn.execute(
+        "INSERT INTO runs (tenant_id, account_id, run_type, status, config_version, credit_cap,"
+        " parent_run_id, started_at, finished_at, error)"
+        f" VALUES (%s, %s, %s, %s, 'cfg-test', %s, %s, {started or 'NULL'}, {finished or 'NULL'},"
+        " %s) RETURNING id",
+        (
+            tenant,
+            account,
+            run_type,
+            status,
+            credit_cap,
+            parent,
+            "synthetic failure" if status == "failed" else None,
+        ),
+    ).fetchone()
+    assert row is not None
+    return UUID(str(row[0]))

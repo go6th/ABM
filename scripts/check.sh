@@ -35,6 +35,7 @@ export ADMIN_DSN="$scratch_url"
 export ADMIN_MAINT_DSN="${ADMIN_MAINT_DSN:-$maintenance_url}"
 
 uv run --frozen alembic upgrade head
+uv run --frozen alembic check  # models and migrations must agree
 violations="$(psql "$scratch_url" -v ON_ERROR_STOP=1 -tA -f "$skill/scripts/check_rls_catalog.sql")"
 if [[ -n "$violations" ]]; then
     printf '%s\n' "$violations" >&2

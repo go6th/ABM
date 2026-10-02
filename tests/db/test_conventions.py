@@ -121,3 +121,16 @@ def test_create_index_name_follows_convention() -> None:
     assert str(CreateIndex(ix).compile(dialect=postgresql.dialect())) == (
         "CREATE INDEX ix_scratch_conventions_name ON scratch_conventions (name)"
     )
+
+
+def test_multi_column_constraint_names_join_columns_with_underscores() -> None:
+    """Rendered names must match the names the SQL migrations create (alembic check)."""
+    from sqlalchemy import UniqueConstraint
+    from sqlalchemy.schema import ForeignKeyConstraint
+
+    from account_intelligence.db.models import Account, Run
+
+    uniques = {c.name for c in Account.__table__.constraints if isinstance(c, UniqueConstraint)}
+    assert {"uq_accounts_tenant_id_domain", "uq_accounts_tenant_id_id"} <= uniques
+    fks = {c.name for c in Run.__table__.constraints if isinstance(c, ForeignKeyConstraint)}
+    assert "fk_runs_tenant_id_account_id_accounts" in fks

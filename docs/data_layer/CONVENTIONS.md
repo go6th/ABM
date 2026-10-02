@@ -34,8 +34,8 @@ constraint and index names:
 | Object | Pattern | Example |
 | --- | --- | --- |
 | Primary key | `pk_%(table_name)s` | `pk_sources` |
-| Foreign key | `fk_%(table_name)s_%(column_0N_name)s_%(referred_table_name)s` | `fk_facts_source_id_sources` |
-| Unique | `uq_%(table_name)s_%(column_0N_name)s` | `uq_accounts_tenant_id_domain` |
+| Foreign key | `fk_%(table_name)s_%(column_0_N_name)s_%(referred_table_name)s` | `fk_facts_source_id_sources` |
+| Unique | `uq_%(table_name)s_%(column_0_N_name)s` | `uq_accounts_tenant_id_domain` |
 | Check | `ck_%(table_name)s_%(constraint_name)s` | `ck_sources_source_code_format` |
 | Index | `ix_%(table_name)s_%(column_0_name)s` | `ix_facts_run_id` |
 

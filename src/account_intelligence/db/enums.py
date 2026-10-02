@@ -57,6 +57,17 @@ class RunStatus(StrEnum):
     COMPLETED = "completed"
 
 
+# Allowed run status changes. Terminal states (failed, completed) have no exits.
+# Mirrored by the runs_guard_status trigger (migration 0004) and tested pair by pair.
+RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
+    RunStatus.QUEUED: frozenset({RunStatus.RUNNING, RunStatus.FAILED}),
+    RunStatus.RUNNING: frozenset({RunStatus.PAUSED, RunStatus.FAILED, RunStatus.COMPLETED}),
+    RunStatus.PAUSED: frozenset({RunStatus.RUNNING, RunStatus.FAILED}),
+    RunStatus.FAILED: frozenset(),
+    RunStatus.COMPLETED: frozenset(),
+}
+
+
 class JobClass(StrEnum):
     """Posting classification (PRD 3.3/3.4)."""
 
