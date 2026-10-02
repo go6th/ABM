@@ -67,6 +67,14 @@ enforces it: no import contract, no grep test.
 
 ### F-10 Local and third-party runtime assumptions (see inventory below)
 
+### F-11 Tracker row ownership is not enforced
+`TrackerService.record_outcome` treats any `Actor.STAGE` caller as the row's owner; the checklist's
+`owner_stage` is read and ignored. Any stage can upgrade any row.
+
+### F-12 Gap-loop progress assumes a changed proof hash is more proof
+`tracker/gap.py`: same status plus a different proof hash counts as progress; nothing proves the new proof
+is a superset. A stage that rewrites proof could keep the gap loop "progressing" (the loop cap still bounds it).
+
 ## Local-service inventory and GCP replacement (D-20 proposal)
 
 | Found | Where | Replacement |

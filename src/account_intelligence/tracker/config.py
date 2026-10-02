@@ -50,7 +50,7 @@ def load_tracker_config() -> TrackerConfig:
         _TRACKER_CONFIG = TrackerConfig.model_validate(data)
         return _TRACKER_CONFIG
     except Exception as e:
-        raise ConfigError(f"Failed to load tracker config: {e}")
+        raise ConfigError(f"Failed to load tracker config: {e}") from e
 
 
 def load_checklist_config() -> tuple[ChecklistConfig, str]:
@@ -65,4 +65,4 @@ def load_checklist_config() -> tuple[ChecklistConfig, str]:
         _CHECKLIST_CONFIG = ChecklistConfig.model_validate(data)
         return _CHECKLIST_CONFIG, _CHECKLIST_HASH
     except Exception as e:
-        raise ConfigError(f"Failed to load checklist config: {e}")
+        raise ConfigError(f"Failed to load checklist config: {e}") from e

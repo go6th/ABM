@@ -1,10 +1,11 @@
 import pytest
 
-from account_intelligence.tracker.model import Status, Actor, ReasonCode, Proof, CallRecord
+from account_intelligence.tracker.completion import RowState, evaluate
+from account_intelligence.tracker.derive import Outcome, derive_outcome
 from account_intelligence.tracker.errors import IllegalTransition, ProofIncomplete
 from account_intelligence.tracker.machine import transition_row
-from account_intelligence.tracker.derive import derive_outcome, Outcome
-from account_intelligence.tracker.completion import evaluate, RowState
+from account_intelligence.tracker.model import Actor, CallRecord, Proof, ReasonCode, Status
+from account_intelligence.tracker.tally import completeness, sort_for_rendering, tally
 
 
 def test_machine_transition_table():
@@ -112,7 +113,6 @@ def test_evaluate():
     assert len(verdict2.blockers) == 1
     assert verdict2.blockers[0]["key"] == "P1.02"
 
-from account_intelligence.tracker.tally import tally, completeness, sort_for_rendering
 
 def test_tally():
     rows = [
@@ -131,7 +131,8 @@ def test_tally():
     assert t["high_base"] == 19
     assert t["medium_base"] == 7
     assert t["optional_base"] == 7
-    
+
+
 def test_completeness():
     rows = [
         RowState("prior_customer_status", "high", Status.DONE, None, "hash", False),
@@ -141,6 +142,7 @@ def test_completeness():
     ratio, base = completeness(rows)
     assert base == 3
     assert ratio == (2 / 3)
+
 
 def test_sort_for_rendering():
     rows = [

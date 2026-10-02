@@ -1,8 +1,8 @@
-from typing import Any
-
 """Tracker rendering."""
 
 from __future__ import annotations
+
+from typing import Any
 
 from account_intelligence.tracker.config import load_tracker_config
 from account_intelligence.tracker.gap import TrackerRowState
@@ -26,7 +26,7 @@ def render_client_view(rows: list[TrackerRowState]) -> dict[str, Any]:
                 "status": r.status.value if r.status else "unset",
                 "priority": r.priority,
                 "reason": reason_text,
-                # we don't have tool category in TrackerRowState right now unless we extract it from proof
+                # tool category is not on TrackerRowState; it would come from the proof
             }
         )
 

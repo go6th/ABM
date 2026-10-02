@@ -55,7 +55,6 @@ class TrackerService:
             raise UnknownRow(row_key)
 
         expected_calls = row_cfg.get("expected_calls", 1)
-        owner = row_cfg.get("owner_stage")
         # In reality actor check depends on context, assuming Actor.STAGE is the owner.
         # "Only the row's owning stage ... may upgrade it"
         is_owner = actor == Actor.STAGE
@@ -66,7 +65,7 @@ class TrackerService:
                 record = self.ledger.get_call_record(tenant_id, run_id, ref)
                 calls.append(record)
             except KeyError:
-                raise ProofMismatch(f"Call {ref} not found for this run/tenant")
+                raise ProofMismatch(f"Call {ref} not found for this run/tenant") from None
 
         lane = row_cfg.get("lane")
         in_scope = True
@@ -172,9 +171,10 @@ class TrackerService:
             if r.status is None:
                 # Terminal sweep
                 row_state, version, curr_proof = await self.repo.get_row(run_id, r.key)
-                # "T12 Terminal sweep. At any terminal state a row still unset is set to Not done with swept = true and a swept_* reason."
+                # T12 terminal sweep: at a terminal state an unset row becomes Not done,
+                # swept = true, with a swept_* reason.
                 try:
-                    res = transition_row(
+                    transition_row(  # validates the sweep transition (raises if illegal)
                         None,
                         None,
                         Status.NOT_DONE,

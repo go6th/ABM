@@ -1,6 +1,9 @@
 """Synthetic in-memory job adapters for deterministic pipeline checks."""
+
 from datetime import date
+
 from jobs.models import Posting, RawPosting
+
 
 class FakePostingSource:
     def __init__(self, rows: list[RawPosting]) -> None:
@@ -14,6 +17,7 @@ class FakePostingSource:
     async def pull_window(self, lane: str, start: date, end: date) -> list[RawPosting]:
         self.calls += 1
         return list(self.rows)
+
 
 class FakePostingRepo:
     def __init__(self) -> None:

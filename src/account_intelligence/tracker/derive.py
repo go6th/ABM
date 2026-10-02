@@ -34,9 +34,8 @@ def derive_outcome(
     out_of_scope_reasons = config.d_13_tracker_rules.get("out_of_scope_reasons", [])
 
     # 1. Scope out
-    if not scope:
-        if not_attempted_reason and not_attempted_reason.value in out_of_scope_reasons:
-            return Outcome(Status.NONE, ReasonCode.OUT_OF_SCOPE)
+    if not scope and not_attempted_reason and not_attempted_reason.value in out_of_scope_reasons:
+        return Outcome(Status.NONE, ReasonCode.OUT_OF_SCOPE)
 
     calls_list = list(calls)
 

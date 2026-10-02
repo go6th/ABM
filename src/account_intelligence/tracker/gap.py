@@ -66,12 +66,10 @@ def gap_pass_result(before: list[RowState], after: list[RowState]) -> bool:
         if score_after > score_before:
             return True
 
-        if score_after == score_before:
-            # strictly more proof
-            if r_after.proof_hash != r_before.proof_hash:
-                # Assuming the engine enforces cumulative proof, if hash changed it's strictly more
-                # Wait, "strictly more proof". If the hash changes, it's more proof.
-                # Is that enough? We will assume yes.
-                return True
+        # Same status with a different proof hash counts as progress. ASSUMPTION (AUDIT F-12):
+        # a changed hash is treated as strictly more proof; the engine does not prove the new
+        # proof is a superset of the old one.
+        if score_after == score_before and r_after.proof_hash != r_before.proof_hash:
+            return True
 
     return False

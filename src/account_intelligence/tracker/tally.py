@@ -1,11 +1,9 @@
+"""Tracker tally logic."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
-
-"""Tracker tally logic."""
-
-
-from typing import Any
+from typing import Any, TypeVar
 
 from account_intelligence.tracker.completion import RowState
 from account_intelligence.tracker.config import load_checklist_config
@@ -71,13 +69,11 @@ def completeness(rows: Sequence[RowState]) -> tuple[float, int]:
     return (high_done_or_none / high_rows) if high_rows > 0 else 1.0, high_rows
 
 
-from typing import TypeVar
-
 T = TypeVar("T", bound=RowState)
 
 
 def sort_for_rendering(rows: Sequence[T]) -> Sequence[T]:
-    """Sort order: open work first (unset, not_done, blocked, partial) by priority then checklist order."""
+    """Sort open work first (unset, not_done, blocked, partial), then priority, then checklist."""
     checklist, _ = load_checklist_config()
     checklist_order = {r["key"]: i for i, r in enumerate(checklist.rows)}
 

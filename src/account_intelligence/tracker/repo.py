@@ -1,10 +1,9 @@
-from typing import Any
-
 """Tracker repository using tenant_txn."""
 
 from __future__ import annotations
 
 import json
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -36,7 +35,8 @@ class CoverageRepo:
 
         await self.session.execute(
             text("""
-            INSERT INTO run_coverage_meta (run_id, tenant_id, checklist_version, checklist_hash, seeded_row_count, pinned_policy)
+            INSERT INTO run_coverage_meta (run_id, tenant_id, checklist_version, checklist_hash,
+                seeded_row_count, pinned_policy)
             VALUES (:run_id, :tenant_id, :version, :hash, :count, :policy)
             """),
             {
@@ -70,7 +70,8 @@ class CoverageRepo:
     ) -> tuple[TrackerRowState, int, Proof | None]:
         res = await self.session.execute(
             text(
-                "SELECT priority, status, reason_code, proof, proof_hash, swept, attempts, version FROM coverage_rows WHERE run_id = :run_id AND row_key = :row_key"
+                "SELECT priority, status, reason_code, proof, proof_hash, swept, attempts,"
+                " version FROM coverage_rows WHERE run_id = :run_id AND row_key = :row_key"
             ),
             {"run_id": run_id, "row_key": row_key},
         )
@@ -96,7 +97,8 @@ class CoverageRepo:
     async def get_all_rows(self, run_id: UUID) -> list[TrackerRowState]:
         res = await self.session.execute(
             text(
-                "SELECT row_key, priority, status, reason_code, proof_hash, swept, attempts FROM coverage_rows WHERE run_id = :run_id"
+                "SELECT row_key, priority, status, reason_code, proof_hash, swept, attempts FROM"
+                " coverage_rows WHERE run_id = :run_id"
             ),
             {"run_id": run_id},
         )
@@ -120,7 +122,8 @@ class CoverageRepo:
     async def get_meta(self, run_id: UUID) -> dict[str, Any]:
         res = await self.session.execute(
             text(
-                "SELECT checklist_version, pinned_policy, seeded_row_count FROM run_coverage_meta WHERE run_id = :run_id"
+                "SELECT checklist_version, pinned_policy, seeded_row_count FROM run_coverage_meta"
+                " WHERE run_id = :run_id"
             ),
             {"run_id": run_id},
         )
@@ -155,8 +158,9 @@ class CoverageRepo:
         res = await self.session.execute(
             text("""
             UPDATE coverage_rows 
-            SET status = :status, reason_code = :reason_code, proof = :proof, proof_hash = :proof_hash,
-                version = version + 1, attempts = attempts + :bump, swept = :swept, last_checked_at = now()
+            SET status = :status, reason_code = :reason_code, proof = :proof,
+                proof_hash = :proof_hash, version = version + 1, attempts = attempts + :bump,
+                swept = :swept, last_checked_at = now()
             WHERE run_id = :run_id AND row_key = :row_key AND version = :version
             """),
             {
@@ -176,8 +180,11 @@ class CoverageRepo:
 
         await self.session.execute(
             text("""
-            INSERT INTO coverage_row_events (tenant_id, run_id, row_key, from_status, to_status, actor, proof_hash, reason_code)
-            VALUES (:tenant_id, :run_id, :row_key, (SELECT status FROM coverage_rows WHERE run_id = :run_id AND row_key = :row_key), :to_status, :actor, :proof_hash, :reason_code)
+            INSERT INTO coverage_row_events (tenant_id, run_id, row_key, from_status, to_status,
+                actor, proof_hash, reason_code)
+            VALUES (:tenant_id, :run_id, :row_key, 
+                (SELECT status FROM coverage_rows WHERE run_id = :run_id AND row_key = :row_key),
+                :to_status, :actor, :proof_hash, :reason_code)
             """),
             {
                 "tenant_id": tenant_id,

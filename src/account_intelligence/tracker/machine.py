@@ -93,10 +93,12 @@ def transition_row(
         elif cond == "new_proof_with_results":
             if is_new_proof and has_results:
                 valid = True
-        elif cond in ("judge_or_gate_downgrade", "judge_or_gate_downgrade_only"):
-            if actor in (Actor.JUDGE, Actor.GATE):
-                valid = True
-                is_downgrade = True
+        elif cond in ("judge_or_gate_downgrade", "judge_or_gate_downgrade_only") and actor in (
+            Actor.JUDGE,
+            Actor.GATE,
+        ):
+            valid = True
+            is_downgrade = True
 
     if not valid:
         raise IllegalTransition(f"Transition {c_stat} -> {t_stat} failed conditions {allowed}.")

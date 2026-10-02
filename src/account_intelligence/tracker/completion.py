@@ -88,7 +88,7 @@ def evaluate(rows: Sequence[RowState], policy: dict[str, Any]) -> CompletionVerd
 
     level = "cannot_complete"
     if can_complete:
-        # Check if there are any gaps (open rows) that aren't high priority, or if high rows have gaps allowed by policy
+        # Gaps: open rows that are not high priority, or high rows whose gaps policy allows
         has_gaps = any(
             r.status in (Status.PARTIAL, Status.NOT_DONE, Status.BLOCKED)
             for r in rows
