@@ -54,3 +54,44 @@ Last updated: 2026-10-01
 - `pytest tests/isolation -x` and `pytest -m "not eval" -q` — blocked at the shared database fixture because PostgreSQL is unavailable at localhost:5432. No RLS or database durability claim is made.
 - `bash .claude/skills/account-intelligence-platform/scripts/selftest.sh` — pass (`selftest OK`).
 - Not run: catalog RLS query (`psql` is unavailable), full adversarial FakeLlm matrix, whole-run/resume matrix, settlement property/concurrency harness, and Inngest timeout path.
+
+## Tracker state machine (2026-10-02)
+
+- Plan: Build WP for Tracker state machine (`src/account_intelligence/tracker/`).
+- Files touched: `src/account_intelligence/tracker/*`, `migrations/0008_tracker.sql`, `tests/tracker/*`, `tests/isolation/test_rls.py`, `src/account_intelligence/workflow/coverage.py`.
+- Acceptance tests: Full coverage of transition logic, derivation, completion, isolation, lying-stage, resume matrix, and rendering.
+- Open decisions: Propose D-12 (completion policy) and D-13 (tracker transition rules).
+- VERIFY: None right now.
+
+## WP 1.4 broker connector layer (2026-10-02, branch `feat/broker-connectors`)
+
+Plan (5 lines): WP 1.4 connectors behind one interface; files `src/account_intelligence/connectors/` (the repo's package root, adapted from the brief's `src/connectors/` as the data layer did), migration 0007, `config/providers.yaml`, `docs/providers/`, ADR-0006/0007, `tests/connectors/`; acceptance = contract/golden, kill/resume, two workers, 50 concurrent calls, budget caps, SSRF, leak scan, defect-3 xfail removed; decisions touched D-03 (both people providers kept), D-11 (lineage only when the provider states it); [VERIFY] V7 broker prices and limits.
+
+Built:
+- Provider facts sourced from first-party docs fetched 2026-10-02 (`docs/providers/sources/`, SHA-256 in `INDEX.md`); five spec files and `docs/providers/CLAIMS.md`. Nothing taken from memory.
+- Connectors: p_search (web_search, read_page), p_scrape (plain scrape_job_page), p_signals (news, jobs, tech feeds, paged), p_org (org_resolve, org_tech_stack, people_by_technology async start+poll). p_people: transport sourced but both operations raise `NotSupportedYet` (grid output is workspace-defined; see `docs/providers/p_people.md`). p_org org_teams not specified.
+- Ledger v2 (defect 3): `run_leases` lease row plus insert-only `tool_call_events` intent log, budget reservation in the same transaction as the intent, true-up with the terminal event; stale attempts abandoned and re-issued once with `possible_duplicate`; async jobs resumed by polling. `agents/graph.py` `ledgered_call` now runs on it; `test_concurrent_identical_calls_pay_once` xfail removed.
+- Budget columns on `account_runs` (`budget_usd`, `spent_usd`, `tool_calls_used`, `tool_call_cap`); credits and dollars never share a column (defect 4); unknown dollar cost charges a configured reserve and is flagged, never 0.
+- Errors, retry: connector classifies and paces (shared cooldown), node `RetryPolicy` is the only retry owner (ADR-0007); `fetch_branch` maps final failures to Blocked coverage and the run to PARTIAL.
+- Router with playbook routes and fallbacks; builtin fallbacks treated as unavailable (open item); sink guard for hosted files and p_org to client.
+- Security: https only, no userinfo, private/loopback/link-local/metadata refused, DNS checked, page hosts allow-listed, provider-reported redirects re-checked; secrets wrapped, redacted, never stored.
+- Deviations: the connector protocol is `build_request`/`parse` instead of `execute`/`normalise` so the pipeline owns HTTP and can ledger each page; the breaker is checked after the claim so replays work while a circuit is open.
+
+Commands and results (PostgreSQL 16 + pgvector in compose, Redis 7):
+
+| Command | Result |
+|---|---|
+| `bash .claude/skills/account-intelligence-platform/scripts/selftest.sh` | `selftest OK` |
+| `python .../scripts/validate_assets.py` | `OK: 33 coverage rows, 5 product grades, 8 routes, 10 alert rules` |
+| `python .../scripts/lint_migrations.py migrations` | `OK: 14 file(s)` |
+| `psql ai_test -f .../scripts/check_rls_catalog.sql` (via `docker compose exec db`) | no rows |
+| `alembic check`; downgrade 0006 then upgrade head | no drift; both directions ran |
+| `ruff check` on connectors, agents, tests/connectors, tests/isolation, tests/integration, migrations | pass except `migrations/versions/0008_tracker.py` (not this WP) |
+| `mypy --strict src/account_intelligence/connectors` | no issues in 26 files |
+| `pytest tests/isolation -x` | 15 passed (4 new connector-ledger checks) |
+| `pytest tests/connectors --cov` | 207 passed, 12 skipped (`test_verify_*`); connectors 96%; ledger, budget, ratelimit, paginate, security 100% |
+| `pytest -m "not eval" --cov` (whole suite, once) | 404 passed, 12 skipped, 1 xfailed (defect 5) |
+| same, excluding tests/tracker and tests/workflow (being edited concurrently) | 387 passed; project coverage 84% |
+| `mutmut` | not run |
+
+Not done or open: p_people operations (need grid contract), dollar prices per credit for p_scrape/p_signals/p_org, plan rate limits for p_scrape/p_signals, builtin fallback decision, runner should `release_lease` at slice end (WP 1.5), live smoke test not written (no credentials; nothing to run against).
