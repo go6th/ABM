@@ -62,14 +62,14 @@ def test_spec_rejects_invalid_stage_dependencies_and_budget_fields() -> None:
         _topological(cycle)
     duplicate_coverage = (
         *load_spec().stages,
-        StageSpec("extra", "Extra", (), (), 0, 0, ("P2.01",)),
+        StageSpec("extra", "Extra", (), (), 0, 0, ("company_news",)),
     )
     with pytest.raises(ValueError, match="multiple owners"):
         _coverage_owners(duplicate_coverage, load_spec().coverage_rows)
     with pytest.raises(ValueError, match="unknown"):
         _coverage_owners((StageSpec("extra", "Extra", (), (), 0, 0, ("bad",)),), frozenset())
     with pytest.raises(ValueError, match="missing"):
-        _coverage_owners((), frozenset({"P1.01"}))
+        _coverage_owners((), frozenset({"prior_customer_status"}))
 
 
 @pytest.mark.asyncio
@@ -103,9 +103,9 @@ async def test_spec_driven_graph_executes_all_stages_in_order() -> None:
 def test_coverage_requires_proof_and_terminal_high_rows() -> None:
     ledger = CoverageLedger.from_config()
     with pytest.raises(ValueError, match="proof"):
-        ledger.set_status("P2.01", "done", CoverageProof())
+        ledger.set_status("company_news", "done", CoverageProof())
     ledger.set_status(
-        "P2.01",
+        "company_news",
         "blocked",
         CoverageProof(
             queries=("company newsroom",),
@@ -124,13 +124,13 @@ def test_coverage_requires_proof_and_terminal_high_rows() -> None:
     with pytest.raises(KeyError, match="unknown"):
         ledger.set_status("bad-row", "none", CoverageProof(reason="n/a"))
     with pytest.raises(ValueError, match="reason"):
-        ledger.set_status("P1.01", "blocked", CoverageProof(source_refs=("S-001",)))
+        ledger.set_status("prior_customer_status", "blocked", CoverageProof(source_refs=("S-001",)))
     with pytest.raises(ValueError, match="blank"):
         CoverageProof(reason="  ").validate()
     with pytest.raises(ValueError, match="blocked"):
-        ledger.set_status("P1.01", "blocked", CoverageProof(source_refs=("S-001",)))
-    complete = CoverageLedger({"P1.01": "high"})
-    complete.set_status("P1.01", "none", CoverageProof(reason="not applicable"))
+        ledger.set_status("prior_customer_status", "blocked", CoverageProof(source_refs=("S-001",)))
+    complete = CoverageLedger({"prior_customer_status": "high"})
+    complete.set_status("prior_customer_status", "none", CoverageProof(reason="not applicable"))
     assert complete.high_rows_resolved()
 
 
