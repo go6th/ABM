@@ -106,3 +106,25 @@ def make_run(
     ).fetchone()
     assert row is not None
     return UUID(str(row[0]))
+
+
+def make_source(
+    conn: psycopg.Connection,
+    tenant: UUID,
+    account: UUID,
+    run: UUID,
+    code: str = "S-0001",
+    url: str | None = None,
+    kind: str = "primary",
+) -> UUID:
+    """Insert a source; the hash is computed by the database from the normalized URL."""
+    url = url or f"https://news.example.com/{uuid4().hex[:8]}"
+    row = conn.execute(
+        "INSERT INTO sources (tenant_id, account_id, source_code, url, url_normalized, url_hash,"
+        " kind, first_seen_run_id, last_seen_run_id)"
+        " VALUES (%s, %s, %s, %s, %s, encode(sha256(convert_to(%s, 'UTF8')), 'hex'), %s, %s, %s)"
+        " RETURNING id",
+        (tenant, account, code, url, url, url, kind, run, run),
+    ).fetchone()
+    assert row is not None
+    return UUID(str(row[0]))
