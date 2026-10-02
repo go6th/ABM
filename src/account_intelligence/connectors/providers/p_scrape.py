@@ -72,8 +72,13 @@ class ScrapeConnector:
                 provider_code=CODE,
                 operation=op,
             )
+        # maxAge 0: "If a cached version of the page is older than this value, the page will be
+        # scraped" (v2 OpenAPI ScrapeOptions.maxAge; default is 2 days). A live read this run is
+        # what lets grading treat this fetch as a full page read (G5).
         return PageRequest(
-            "POST", "/v2/scrape", json_body={"url": args.url, "formats": [{"type": "markdown"}]}
+            "POST",
+            "/v2/scrape",
+            json_body={"url": args.url, "formats": [{"type": "markdown"}], "maxAge": 0},
         )
 
     def poll_request(self, op: Operation, job_id: str) -> PageRequest:

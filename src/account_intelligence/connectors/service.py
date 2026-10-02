@@ -374,7 +374,7 @@ async def _fetch_page(
             if isinstance(error, SchemaDriftError):
                 error.raw_ref = ref
             await _finalize_done(
-                rt, ctx, key, claim, provider, op, args, raw, ref, retrieved_at, None
+                rt, ctx, key, claim, provider, op, args, raw, ref, retrieved_at, None, cursor
             )
             await rt.breaker.record_neutral(provider)
             obs.record_call(provider, op, type(error).__name__, raw.latency_ms)
@@ -425,7 +425,7 @@ async def _fetch_page(
         raise
 
     figure = await _finalize_done(
-        rt, ctx, key, claim, provider, op, args, raw, ref, retrieved_at, parsed
+        rt, ctx, key, claim, provider, op, args, raw, ref, retrieved_at, parsed, cursor
     )
     await rt.breaker.record_success(provider)
     costs.append(_PageCost(figure, replayed=False, possible_duplicate=claim.possible_duplicate))
@@ -515,6 +515,7 @@ async def _finalize_done(
     ref: str,
     retrieved_at: datetime,
     parsed: ParsedPage | None,
+    cursor: str | None = None,
 ) -> CostFigure:
     figure = rt.cost.actual(
         provider,
@@ -540,6 +541,9 @@ async def _finalize_done(
                 "retrieved_at": retrieved_at.isoformat(),
                 "content_type": raw.content_type,
                 "http_status": raw.status_code,
+                # what was asked, so the stored payload can be re-parsed (grading adapters)
+                "args": args.model_dump(mode="json"),
+                "cursor": cursor,
             },
             response_ref=ref,
         ),

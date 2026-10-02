@@ -26,6 +26,7 @@ Paths below are relative to `docs/providers/sources/`.
 | S12 | Extract $0.001 per URL | config `usd` | p_search/pricing.md "Extract API" |
 | S13 | **[VERIFY]** Retry-After on 429 | default cooldown | not documented |
 | S14 | **[VERIFY]** failed Search/Extract calls billed or not | `bill_on_failure: false` | not documented |
+| S15 | Extract fetch policy: `max_age_seconds` minimum 600 s; default "dynamic policy" may return index-cached content | grading origin of read_page is `cached_copy` (cannot prove a read this run) | p_search/extract.openapi.md `FetchPolicy`, `AdvancedExtractSettings.fetch_policy` |
 
 ## p_scrape
 
@@ -42,6 +43,7 @@ Paths below are relative to `docs/providers/sources/`.
 | C9 | **[VERIFY]** plan rate limit | config placeholder 1/s | p_scrape/rate-limits.md (plan tables) |
 | C10 | **[VERIFY]** `x-request-id` idempotency for plain scrapes | not used | documented only for `alexandria` |
 | C11 | **[VERIFY]** dollars per credit | `usd_per_credit: null` | plan-dependent |
+| C12 | `maxAge` (ms): a cached copy younger than it may be returned, otherwise the page is scraped; default 2 days. Sent as 0 to force a live read | build_request; grading origin `full_page_read` | same, `ScrapeOptions.maxAge` (**[VERIFY]** that 0 always bypasses the cache, by a live smoke test) |
 
 ## p_signals
 
