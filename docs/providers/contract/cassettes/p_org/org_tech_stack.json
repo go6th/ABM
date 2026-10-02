@@ -1,0 +1,44 @@
+{
+ "response": {
+  "body": {
+   "business_functions": [
+    {
+     "business_function": "Engineering & R&D",
+     "categories": [
+      {
+       "category_name": "Cloud",
+       "category_name_full": "Cloud Vendor",
+       "category_slug": "cloud-vendor",
+       "evidence": [
+        {
+         "job_post_used_count": 42,
+         "name": "Amazon Web Services"
+        },
+        {
+         "job_post_used_count": 3,
+         "name": "Google Cloud Platform"
+        }
+       ],
+       "technologies": [
+        {
+         "domain": "aws.amazon.com",
+         "job_post_used_count": 42,
+         "name": "Amazon Web Services",
+         "slug": "aws"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "credits_remaining": 999,
+   "credits_used": 1,
+   "id": "019c2a87-11f0-78b3-b82d-cdd178cf4018",
+   "organization_id": 1726684,
+   "organization_slug": "vanta"
+  },
+  "content_type": "application/json",
+  "status": 200
+ },
+ "source": "docs/providers/sources/p_org/v9-openapi.extract.json /v9/organizations/{id}/techs 200 example"
+}

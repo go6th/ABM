@@ -92,6 +92,15 @@ Commands and results (PostgreSQL 16 + pgvector in compose, Redis 7):
 | `pytest tests/connectors --cov` | 207 passed, 12 skipped (`test_verify_*`); connectors 96%; ledger, budget, ratelimit, paginate, security 100% |
 | `pytest -m "not eval" --cov` (whole suite, once) | 404 passed, 12 skipped, 1 xfailed (defect 5) |
 | same, excluding tests/tracker and tests/workflow (being edited concurrently) | 387 passed; project coverage 84% |
+
+| `python .../scripts/lint_migrations.py migrations` | `OK: 12 file(s)` |
+| `psql ai_test -f .../scripts/check_rls_catalog.sql` (via `docker compose exec db`) | no rows |
+| `alembic check`; downgrade 0006 then upgrade head | no drift; both directions ran |
+| `ruff check .`, `ruff format --check .`, `mypy` (project) on this branch | pass |
+| `mypy --strict src/account_intelligence/connectors` | no issues in 26 files |
+| `pytest tests/isolation -x` | 15 passed (4 new connector-ledger checks) |
+| `pytest tests/connectors --cov` | 207 passed, 12 skipped (`test_verify_*`); connectors 96%; ledger, budget, ratelimit, paginate, security 100% |
+| `pytest -m "not eval" --cov` on this branch alone (clean worktree) | 387 passed, 12 skipped, 1 xfailed (defect 5); project coverage 94.62% |
 | `mutmut` | not run |
 
 Not done or open: p_people operations (need grid contract), dollar prices per credit for p_scrape/p_signals/p_org, plan rate limits for p_scrape/p_signals, builtin fallback decision, runner should `release_lease` at slice end (WP 1.5), live smoke test not written (no credentials; nothing to run against).

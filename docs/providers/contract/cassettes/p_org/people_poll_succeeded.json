@@ -1,0 +1,80 @@
+{
+ "response": {
+  "body": {
+   "credits_remaining": 69156,
+   "credits_used": 8,
+   "id": "019980d2-bc85-7571-9d60-7bc1d3084249",
+   "people": [
+    {
+     "attributes": {
+      "country": "United States",
+      "current_employer": {
+       "name": "Sumble",
+       "organization_id": 1726684,
+       "start_date": "2024-08",
+       "sumble_url": "https://sumble.com/l/org/xhXARFaWtJL"
+      },
+      "job_function": "Software Engineer",
+      "job_level": "Individual Contributor",
+      "job_title": "Software Engineer",
+      "linkedin_url": "https://www.linkedin.com/in/akashagajjar",
+      "location": "Gainesville, Florida, United States",
+      "name": "Akash Gajjar",
+      "person_score": {
+       "job_function_contribution": 28.2,
+       "matched_features": [
+        {
+         "contribution": 28.2,
+         "match_type": "job_function",
+         "name": "Software Engineer",
+         "slug": "software-engineer"
+        },
+        {
+         "contribution": 9.1,
+         "match_type": "technology",
+         "name": "Kubernetes",
+         "slug": "kubernetes"
+        }
+       ],
+       "seniority_contribution": 29.4,
+       "skill_contribution": 14.8,
+       "value": 72.4
+      },
+      "technologies": [
+       {
+        "name": "Kubernetes",
+        "slug": "kubernetes"
+       },
+       {
+        "name": "Python",
+        "slug": "python"
+       }
+      ]
+     },
+     "person_id": 181438858,
+     "related_people": {
+      "direct_reports": [],
+      "managers": [
+       {
+        "attributes": {
+         "job_title": "Business Operations Specialist",
+         "name": "Jared Nightingale"
+        },
+        "person_id": 169860318,
+        "sumble_url": "https://sumble.com/l/person/yxGWeupK3yPj"
+       }
+      ]
+     },
+     "sumble_url": "https://sumble.com/l/person/MBwjfWREd8Pz"
+    }
+   ],
+   "request_id": "019d...",
+   "source_data_url": "https://sumble.com/l/org/xhXARFaWtJL/people",
+   "status": "succeeded",
+   "total": 113
+  },
+  "content_type": "application/json",
+  "status": 200
+ },
+ "source": "OpenAPI /v9/people 200 example + {request_id, status: succeeded} per people.md 'Asynchronous requests'"
+}

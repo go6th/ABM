@@ -1,0 +1,30 @@
+{
+ "items_read": 1,
+ "next_cursor": null,
+ "provider_credits": null,
+ "records": [
+  {
+   "excerpts_text": [
+    "Excerpted text ..."
+   ],
+   "full_content_text": "Full content ...",
+   "kind": "web_page",
+   "lineage_hint": null,
+   "provenance": {
+    "index": 0,
+    "operation": "read_page",
+    "page": 1,
+    "provider_code": "p_search",
+    "raw_ref": "golden/p_search/read_page",
+    "retrieved_at": "2026-10-02T12:00:00Z",
+    "source_url": "https://www.example.com"
+   },
+   "publish_date": null,
+   "title_text": "Example Title",
+   "url": "https://www.example.com"
+  }
+ ],
+ "warnings": [
+  "page_error:fetch_error:500"
+ ]
+}

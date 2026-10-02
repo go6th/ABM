@@ -1,0 +1,301 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.firecrawl.dev/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Billing
+
+> How Firecrawl billing, credits, and plans work
+
+## Overview
+
+Firecrawl billing is **credit-based**. Every API call that you make consumes credits. The number of credits depends on the endpoint and the options that you use. Your plan gives you a monthly credit allotment. Pay-as-you-go adds more credits when the allotment runs out.
+
+For current plan pricing, visit the [Firecrawl pricing page](https://www.firecrawl.dev/pricing).
+
+<Note>
+  All Firecrawl invoices are billed in **US Dollars (USD)**, regardless of your billing address or payment method.
+</Note>
+
+## Credits
+
+Credits are the unit of usage in Firecrawl. Each plan includes a monthly credit allotment that resets at the start of each billing cycle. Different API endpoints consume different amounts of credits.
+
+### Credit costs per endpoint
+
+| Endpoint | Credit Cost | Notes |
+| - | - | - |
+| **Scrape** | 1 credit / page | Convert a single URL into clean markdown, HTML, or structured data. Additional credits apply when using scrape options (see below). |
+| **Crawl** | 1 credit / page | Scrape an entire website by following links from a starting URL. The same per-page scrape option costs apply to each page crawled. |
+| **Map** | 1 credit / call | Discover all URLs on a website without scraping their content. |
+| **Search** | 2 credits / 10 results | Search the web and optionally scrape the results. Rounded up per 10 results (e.g., 11 results = 4 credits). Additional per-page scrape costs apply to each result that is scraped. See [here](/features/search#zero-data-retention-zdr) for enterprise ZDR search pricing. |
+| **Interact** | 2–7 credits / browser minute | Interactive browser sandbox session, billed per browser minute with a one-minute minimum. Sessions that use a `prompt` bill at 7 credits / browser minute; sessions without a prompt (Playwright `code` only) bill at 2 credits / browser minute. |
+| **Agent** | Dynamic | Autonomous web research agent. 5 daily runs free; usage-based pricing beyond that. |
+
+### Additional credit costs for scrape options
+
+Certain scrape options add credits on top of the base cost per page:
+
+| Option | Additional Cost | Description |
+| - | - | - |
+| PDF parsing | +1 credit / PDF page | Extract content from PDF documents |
+| JSON format (LLM extraction) | +4 credits / page | Use an LLM to extract structured JSON data from the page |
+| Prompt injection check | +4 credits / page | Opt-in `checkPromptInjection` guard for JSON format (see [Prompt injection detection](/features/llm-extract#prompt-injection-detection)). If the scrape fails after the check has run, 5 credits are billed. See [When credits are charged](#when-credits-are-charged). |
+| Zero Data Retention (ZDR) | +1 credit / page | Ensures no data is persisted beyond the request (see [Scrape ZDR](/features/scrape#zero-data-retention-zdr)) |
+| `question` or `query` format | +4 credits / page | LLM-generated answer to a question about the page (see [Scrape](/features/scrape)) |
+| `highlights` format | +4 credits / page | LLM-selected relevant passages from the page (see [Scrape](/features/scrape)) |
+| `audio` format | +4 credits / page | Transcribe audio found on the page (see [Scrape](/features/scrape)) |
+| `video` format | +4 credits / page | Transcribe video found on the page (see [Scrape](/features/scrape)) |
+| PII redaction (`redactPII`) | +4 credits / page | Redact personal data from the returned markdown. Each additional PDF page adds another +4 on top of its +1 parsing cost (see [PII redaction](/features/pii-redaction)) |
+| `lockdown` (cache hit) | +4 credits / page | Serve from cache only, never fetching the target. A cache miss returns no document and bills 1 credit (see [Lockdown](/features/lockdown) and the table below) |
+| Enhanced proxy (`proxy: "enhanced"` or `auto` escalation) | +0 | Billed at the same 1 credit as a basic request. An escalated retry is not charged separately (see [Enhanced Mode](/features/enhanced-mode)) |
+
+These modifiers stack. For example, scraping a page with both JSON format and Zero Data Retention costs **1 + 4 + 1 = 6 credits** per page, and JSON format with PII redaction costs **1 + 4 + 4 = 9 credits**. These same modifiers apply to the Crawl and Search endpoints since they use scrape internally for each page.
+
+Requests to `x.com` and other X/Twitter URLs use the Grok API and have separate pricing. See [X (x.com) billing](#x-xcom-billing) at the bottom of this page.
+
+### When credits are charged
+
+What decides the charge is whether Firecrawl returned a document, not whether the target site returned a successful HTTP status code.
+
+* **Firecrawl returned a document: 1 credit per page**, plus any of the option costs above. This includes pages that come back with an error status such as 403 Forbidden or 404 Not Found. The target responded, Firecrawl captured that response, and you get it back as a document. Check the `metadata.statusCode` field in the response to spot these cases and stop retrying URLs that are consistently blocked.
+* **Firecrawl returned no document: 0 credits.** A scrape that fails outright, for example because the site never responded or every rendering attempt failed, is not charged.
+
+A few cases still charge when no document comes back. They cover work that Firecrawl already performed on your behalf before the scrape ended.
+
+| Case | What is charged |
+| - | - |
+| Threat protection scan | 2 credits per scanned URL, including a scrape that the scan itself blocked |
+| Prompt injection check | 5 credits, once the `checkPromptInjection` guard has run |
+| FIRE-1 agent | Usage-based, for the navigation the agent already did |
+| `lockdown` cache miss | 1 credit |
+| Monitor check | A page that errors during a check is charged the base 1 credit per page |
+| Interact and Browser sessions | Charged per browser minute of session time, with a one-minute minimum, whether or not the session got what you wanted |
+
+For **batch scrape** and **crawl** jobs, credits are billed asynchronously as each page completes processing, not when the job is submitted. This means there can be a delay between submitting a job and seeing the full credit cost reflected on your account. If a batch contains many URLs or pages are queued during high-traffic periods, credits may continue to appear minutes or hours after submission. Polling or checking batch status does not consume credits.
+
+<Note>
+  **Crawl pre-flight credit check:** When you pass an explicit `limit`, Firecrawl checks whether the request is allowed for that amount. If it is allowed, including through overage, the limit is not reduced to your remaining balance. If it is denied, Firecrawl attempts to lower the limit to the remaining balance and checks the adjusted request again. A 402 is returned if no positive limit can be used or the adjusted request is denied, including by a per-API-key spend limit.
+
+  Omitting `limit` does not require **10,000** credits up front. The initial credit check uses **1 credit**; it does not reserve credits for the full crawl. If the request is allowed, the default limit of **10,000** is not reduced to fit the balance, although other crawl options can change the effective limit. Pages are billed as they are processed. Pass an explicit `limit` when you want to set a maximum number of pages (e.g., `limit: 100`).
+</Note>
+
+### Tracking your usage
+
+You can monitor your credit usage in two ways:
+
+* **Dashboard**: View your current and historical usage at [firecrawl.dev/app](https://www.firecrawl.dev/app)
+* **API**: Use the [Credit Usage](/api-reference/endpoint/credit-usage) and [Credit Usage Historical](/api-reference/endpoint/credit-usage-historical) endpoints to programmatically check your usage
+
+<Note>
+  We are actively working on improvements to make credit usage easier to understand. Stay tuned for updates.
+</Note>
+
+## Plans
+
+Subscription plans bill monthly or yearly. Paid self-serve plans can also use pay-as-you-go. Pay-as-you-go adds credits when your plan allotment runs out. See [Pay-as-you-go](#pay-as-you-go).
+
+### Paid plans
+
+| Plan | Monthly Credits | Concurrent Browsers |
+| - | - | -: |
+| **Hobby** | 5,000 | 5 |
+| **Standard** | 100,000 | 25 |
+| **Growth** | 500,000 | 50 |
+| **Scale** | 1,000,000 | 100 |
+
+<Note>
+  For needs beyond Scale, Firecrawl offers **Enterprise** plans with custom credits, dedicated support, SLAs, bulk discounts, zero-data retention, and SSO. Visit the [Enterprise page](https://www.firecrawl.dev/enterprise) for details.
+</Note>
+
+All paid plans are available with **monthly** or **yearly** billing. Yearly billing offers a discount compared to paying month-to-month. For current pricing on each plan, visit the [pricing page](https://www.firecrawl.dev/pricing).
+
+### Free plan
+
+New accounts start on the free plan. It costs nothing and does not need a card. Here is what it includes:
+
+* **1,000 credits per month.** The allotment resets at the start of each monthly cycle. Unused free credits do not roll over.
+* **2 concurrent browsers**, with the same 50,000 maximum queued jobs as the paid self-serve plans.
+* **Rate limits of 10 requests per minute** on `/scrape`, `/map` and `/search`, and **2 requests per minute** on `/crawl`, `/agent` and `/interact`. Batch scrape shares the scrape limit and extract shares the agent limit. See [Rate Limits](/rate-limits) for the full table.
+* **Every core product endpoint.** Scrape, crawl, map, search, extract, batch scrape, interact and monitor all work on the free plan. Some team administration and enterprise features are enabled per team rather than by plan, including threat protection, SIEM logging and zero data retention search. Credit costs are the same on every plan, so the [credit costs per endpoint](#credit-costs-per-endpoint) table above applies unchanged.
+
+The free plan does not include pay-as-you-go, so requests return an HTTP 402 once the monthly allotment runs out. See [Running Out of Credits](#running-out-of-credits). It also does not include credit rollover, a Data Processing Agreement, or Slack support. Support is community support.
+
+Scrape, Search and Interact also work with no API key at all, through the keyless free tier, which is capped per IP address per day rather than by a credit allotment. See [Keyless (no API key)](/rate-limits#keyless-no-api-key).
+
+### Billing cycle
+
+* **Monthly plans**: Credits reset on your monthly renewal date
+* **Yearly plans**: You are billed annually, but credits still reset each month on your virtual monthly renewal date
+* **Unused plan credits do not roll over by default**: your monthly allotment resets each month. **Annual Scale plans roll unused plan credits over 1 month**, and **annual Enterprise plans roll them over 2 months**.
+
+### Concurrent browsers
+
+Concurrent browsers represent how many web pages Firecrawl can process for you simultaneously. Your plan determines this limit. If you exceed it, additional jobs wait in a queue until a slot opens. See [Rate Limits](/rate-limits) for full details on concurrency and API rate limits.
+
+<a id="auto-reload" />
+
+<h2 id="pay-as-you-go">
+  Pay-as-you-go
+</h2>
+
+Pay-as-you-go keeps your requests running when your plan credits run out. It adds credits to your account automatically.
+
+You buy credits in increments of 5 USD. When your credit balance reaches zero, we add one increment to your account and charge your card on file.
+
+Pay-as-you-go needs a paid self-serve plan. You cannot use pay-as-you-go on the free plan.
+
+You can also buy credits yourself at any time. Use **Load more credits** in your [billing settings](https://www.firecrawl.dev/app/settings?tab=billing). Enter a multiple of 5 USD, and pay with your card on file. This works whether pay-as-you-go is on or off.
+
+<h3 id="credits-in-a-batch">
+  Credits in an increment
+</h3>
+
+The credits in an increment depend on your plan. Pay-as-you-go and manual purchases use the same rate.
+
+| Plan | Credits per 5 USD |
+| - | - |
+| **Hobby** | 1,000 |
+| **Standard** | 2,000 |
+| **Growth** | 2,500 |
+| **Scale** | 5,000 |
+
+<h3 id="set-the-monthly-auto-reload-limit">
+  Set the monthly pay-as-you-go limit
+</h3>
+
+Set your **Monthly pay-as-you-go limit** in either of these two places:
+
+* In your [billing settings](https://www.firecrawl.dev/app/settings?tab=billing), on the **Billing** tab.
+* On the [pricing page](https://www.firecrawl.dev/pricing), when you pick a plan.
+
+### How the limit caps your monthly spend
+
+Your limit is the most that pay-as-you-go can spend in one month. It rounds down to whole 5 USD increments.
+
+For example, a limit of 25 USD allows five increments each month. A limit of 22 USD allows four increments, because 22 USD rounds down to 20 USD.
+
+Credits that you buy manually do not count toward this limit.
+
+<h2 id="api-key-spend-limits">
+  API key spend limits
+</h2>
+
+A spend limit caps the credits that one API key can use. The cap applies to that key alone, whatever your team balance is. Use it to stop one key from spending the whole team balance.
+
+You can also rename any API key. This includes the key named **Default** that Firecrawl creates with your team.
+
+The key owner or a team admin can do both. Open the [API keys page](https://www.firecrawl.dev/app/api-keys) in the dashboard, then open the menu on the key.
+
+* Click **Rename** to change the **Key Name**.
+* Click **Set limit** to open **Set a spend limit**. Enter a **Credit limit**, pick **per day**, **per week** or **per month**, then click **Save**.
+
+A limit is a number of credits, not an amount of money. A limit of `1` means one credit per period. Click **Remove limit** to clear the limit.
+
+## Upgrading and Downgrading
+
+* **Upgrades** take effect immediately. You are charged the full new-plan price today (no proration), and your billing cycle resets. Your next renewal is one month or one year from the upgrade date. Any unused credits from your previous plan carry over, and your new credit allotment and concurrency limits apply right away.
+* **Downgrades** are scheduled to take effect at your next renewal date. You keep your current plan's credits and limits until then, and unused time on your current plan is not credited or refunded. You can undo a scheduled downgrade from your [billing settings](https://www.firecrawl.dev/app/settings?tab=billing) any time before the effective date.
+
+### Switching between monthly and yearly billing
+
+* **Monthly → Yearly** at the same or higher credit tier is treated as an immediate upgrade.
+* **Yearly → Monthly** is treated as an immediate upgrade only if you move to a strictly higher credit tier.
+
+## Running Out of Credits
+
+What happens when your balance reaches zero depends on your plan and on your pay-as-you-go setting.
+
+| Plan | Pay-as-you-go | At zero balance |
+| - | - | - |
+| **Free** | Not available | Requests that consume credits return **HTTP 402 (Payment Required)** until the monthly reset. |
+| **Hobby, Standard, Growth, Scale** | Off (limit set to `0`) | Requests that consume credits return **HTTP 402**. Your card is not charged. |
+| **Hobby, Standard, Growth, Scale** | On | Firecrawl charges your card for one 5 USD increment and adds its credits. Your requests continue. This repeats each time the balance reaches zero, until your **monthly pay-as-you-go limit** is reached. Leave the limit blank for no cap. |
+
+While pay-as-you-go is on, requests are not cut off at exactly zero. Your plan carries an overage allowance so that a burst of requests keeps running while a top-up settles: **1,500 credits on Hobby, 30,000 on Standard, 150,000 on Growth, and 600,000 on Scale**. Once the monthly limit is reached and the allowance is used, requests return **HTTP 402** until the next billing cycle. The allowance is headroom, not extra credits you keep.
+
+Manually purchased credits (**Load more credits**) are spent before any of this applies and do not count toward the monthly pay-as-you-go limit.
+
+To resume usage after a hard stop, you can:
+
+1. Set a **Monthly pay-as-you-go limit** to buy credits automatically. See [Pay-as-you-go](#pay-as-you-go).
+2. Upgrade to a higher plan manually
+3. Wait for your credits to reset at the next billing cycle
+
+## Coupons
+
+Firecrawl supports two types of coupons:
+
+* **Subscription coupons** apply a discount to your plan subscription (e.g. a percentage off your monthly or yearly price). These can **only** be applied during the Stripe checkout flow when you first subscribe to a paid plan or change plans. You cannot apply a subscription coupon after checkout has completed.
+* **Credit coupons** add bonus credits to your account. These can be redeemed from the **Billing** section of your dashboard at [firecrawl.dev/app/billing](https://www.firecrawl.dev/app/billing). Look for the coupon input field on the billing page to apply your code. Bonus credits from credit coupons are separate from your plan's monthly allotment and persist even if you upgrade or downgrade your plan.
+
+## FAQs
+
+<AccordionGroup>
+  <Accordion title="Do unused credits roll over to the next month?">
+    **Plan credits** do not roll over by default: your monthly allotment resets each month. **Annual Scale plans roll unused plan credits over 1 month**, and **annual Enterprise plans roll them over 2 months**.
+  </Accordion>
+
+  <Accordion title="Do pay-as-you-go credits expire?">
+    Credits you buy stay on your account until you use them. They expire if you cancel your subscription, so use them before you leave. The expiry lands at the end of your current billing period, and a renewal does not touch them.
+  </Accordion>
+
+  <Accordion title="How does the monthly pay-as-you-go limit work?">
+    Your limit caps what pay-as-you-go spends each month. It rounds down to whole 5 USD increments. A limit of 25 USD allows five increments each month. Leave your limit blank, and pay-as-you-go has no monthly limit. Set your limit to `0`, and pay-as-you-go turns off.
+  </Accordion>
+
+  <Accordion title="How do I know how many credits I have left?">
+    Check the dashboard at [firecrawl.dev/app](https://www.firecrawl.dev/app), or call the [Credit Usage API endpoint](/api-reference/endpoint/credit-usage) programmatically.
+  </Accordion>
+
+  <Accordion title="Where do I apply a coupon code?">
+    It depends on the coupon type. Apply a **credit coupon** in the Billing section of your dashboard. You can apply a **subscription coupon** (a discount on your plan price) only at the Stripe checkout page, when you subscribe or change plans.
+  </Accordion>
+
+  <Accordion title="I need more concurrency or a custom plan. Who do I contact?">
+    Reach out to [help@firecrawl.dev](mailto:help@firecrawl.dev), or visit the [Enterprise page](https://www.firecrawl.dev/enterprise) to learn more about custom plans.
+  </Accordion>
+
+  <Accordion title="What currency are invoices billed in?">
+    All Firecrawl invoices are billed in **US Dollars (USD)**, regardless of your billing address or payment method.
+  </Accordion>
+
+  <Accordion title="How do I manage my subscription, change plans, or cancel?">
+    Go to your [billing settings](https://www.firecrawl.dev/app/settings?tab=billing). Team admins can manage everything there. Click **Manage Subscription** to open the billing portal and update your payment method, billing address, company name, or VAT number.
+
+    To change plans, click **Change Plan** and pick a new tier. Upgrades take effect immediately. Downgrades take effect at the end of your current billing period, and you can undo one until then. See [Upgrading and Downgrading](#upgrading-and-downgrading).
+
+    To cancel, click **Cancel Subscription**. Your plan stays active until the end of your current billing period, and you can resume it before then. When your plan ends, the credits you bought expire with it, so use them before you leave.
+  </Accordion>
+
+  <Accordion title="How do I add a VAT number, company name, or billing address to my invoices?">
+    Go to your [billing settings](https://www.firecrawl.dev/app/settings?tab=billing), click **Manage Subscriptions**, and update your billing address, company name, and VAT number in the Stripe portal. Future invoices will automatically include the updated details.
+
+    To regenerate a past paid invoice with the new information:
+
+    1. Update your billing details in the Stripe portal first (see above).
+    2. Open the **Invoice history** tab in the Stripe portal and download the PDF for the invoice you want; Stripe re-renders it against your current billing info.
+    3. If an invoice doesn't pick up the updated details, email [help@firecrawl.dev](mailto:help@firecrawl.dev) with the invoice numbers and we'll regenerate them for you.
+  </Accordion>
+</AccordionGroup>
+
+## X (x.com) billing
+
+Firecrawl uses the official **Grok API** from [xAI](https://x.ai/) to provide AI-powered summarization, structured extraction, and real-time access to public X content. Requests to `x.com`, `twitter.com`, and `mobile.twitter.com` profile and post URLs are handled through Grok's authorized internal tools (`x_search`, thread fetch, and web search restricted to x.com) rather than traditional web scraping.
+
+### Credit costs
+
+| Component | Credit Cost | Description |
+| - | - | - |
+| **Base cost** | 1 credit / request | Standard scrape request processing |
+| **Grok X Query** | +29 credits / request | Grok API usage (tokens + tool calls) for X content |
+
+For example, processing a typical post or thread request costs **30 credits** (`1` base + `29` Grok X Query) and returns Grok-generated structured data, thread context, and summaries. If JSON format (LLM extraction) is also enabled, the total is **34 credits** per request.
+
+This method complies with X's published interfaces via xAI's partnership and provides higher-quality, reasoned output instead of raw page scraping.
+
+<Note>
+  **Capabilities differ from standard scraping.** Grok returns AI-processed results, which may include summaries, key metrics, thread context, and more. For raw structured data at scale, use the [official X Enterprise API](https://developer.x.com/).
+</Note>
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.

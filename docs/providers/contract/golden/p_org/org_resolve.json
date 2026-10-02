@@ -1,0 +1,30 @@
+{
+ "items_read": 1,
+ "next_cursor": null,
+ "provider_credits": 73.0,
+ "records": [
+  {
+   "employee_count": 120,
+   "headquarters_country": "US",
+   "industry": "Information",
+   "input_domain": "sumble.com",
+   "kind": "organization",
+   "lineage_hint": null,
+   "matched": true,
+   "name": "Sumble",
+   "organization_id": 1726684,
+   "provenance": {
+    "index": 0,
+    "operation": "org_resolve",
+    "page": 1,
+    "provider_code": "p_org",
+    "raw_ref": "golden/p_org/org_resolve",
+    "retrieved_at": "2026-10-02T12:00:00Z",
+    "source_url": "https://sumble.com/l/org/TH2y9mGkRr1q"
+   },
+   "slug": "sumble",
+   "url": "sumble.com"
+  }
+ ],
+ "warnings": []
+}

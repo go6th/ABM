@@ -93,12 +93,8 @@ async def test_ledger_replays_a_completed_call_without_paying_again(tenant_a: UU
     assert a == b and len(calls) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="defect 3: no per-run lease and no intent row, and the paid call sits between two "
-    "transactions, so two concurrent identical calls both pay. Remove this xfail when "
-    "a lease plus an intent row (or a provider idempotency key) closes the window.",
-)
+# Defect 3 (skill reference 13) was an xfail here; fixed by the run lease and intent log
+# (ADR-0006). Kill/resume and two-worker proofs: tests/connectors/test_kill_resume.py.
 async def test_concurrent_identical_calls_pay_once(tenant_a: UUID):
     calls = []
 

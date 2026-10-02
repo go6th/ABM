@@ -1,0 +1,29 @@
+{
+ "response": {
+  "body": {
+   "errors": [
+    {
+     "content": "Error fetching content from https://www.example.com",
+     "error_type": "fetch_error",
+     "http_status_code": 500,
+     "url": "https://www.example.com"
+    }
+   ],
+   "extract_id": "extract_8a911eb27c7a4afaa20d0d9dc98d07c0",
+   "results": [
+    {
+     "excerpts": [
+      "Excerpted text ..."
+     ],
+     "full_content": "Full content ...",
+     "title": "Example Title",
+     "url": "https://www.example.com"
+    }
+   ],
+   "session_id": "session_8a911eb27c7a4afaa20d0d9dc98d07c0"
+  },
+  "content_type": "application/json",
+  "status": 200
+ },
+ "source": "docs/providers/sources/p_search/extract.openapi.md paths./v1/extract.post.responses.200.example"
+}
