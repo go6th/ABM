@@ -12,6 +12,7 @@ product owner signs it; config blocks for proposals say `status: proposal`.
 | D-13 | Tracker transition table, actor rules, outcome derivation, added reason codes (its `lead_proof` numbers are superseded by ADR-0013) | spec 5.2 and 5.3 with the additions in ADR-0015 | ADR-0015, `config/tracker_v1.yaml` |
 | D-14 | Evidence dating (observed, published, unknown) and read origin per operation | as stated; p_search reads are `cached_copy` | ADR-0011 |
 | D-15 | Source registry: tiers by domain and provider code, aggregator flags, lineage groups | unlisted = T4 flagged; brokers T2 TODO | ADR-0012, `config/source_registry.yaml` |
-| D-16, D-17 | Job pipeline (classification scope; lane keywords) | see jobs work | ADR-0008 |
+| D-16 | Posting class definitions and cues; full-text scope | rubric proposals; full text for build and admin_owner | ADR-0008, `config/posting_rubric.yaml` |
+| D-17 | Lane keywords and platform aliases | platform names as board keywords; no aliases; Data and AI has no terms | ADR-0008, `config/job_lanes.yaml` |
 | (new) | "Differently worded": metric, threshold 0.5, stopwords | Jaccard token set | ADR-0013 |
 | (new) | Judge model profile distinct from the generator | none configured: every A/B/Confirmed capped | `config/models.yaml`, ADR-0010 |

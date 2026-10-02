@@ -1,4 +1,11 @@
-"""Immutable job pipeline contracts and row-derived result models."""
+"""Immutable job pipeline contracts. Counts are never typed: ``PostingCounts`` is built only by
+``jobs.counts.compute_counts`` from posting rows.
+
+``RawPosting`` is the contract the connector adapter fills from the normalised connector record
+(``JobOpeningRecord`` for the feed, ``WebPageRecord`` for live board hits, ``ScrapedPageRecord``
+for an escalation read). The provider response shape behind those records is the connector
+layer's sourced contract; nothing here guesses it.
+"""
 
 from __future__ import annotations
 
@@ -7,10 +14,16 @@ from datetime import date
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+PostingClass = Literal["build", "admin_owner", "working_tool", "user", "unclassified"]
+PostingStatus = Literal["open", "closed", "unknown"]
+WindowBucket = Literal["in_window", "out_of_window", "undated"]
 
 
 class ClassificationLabel(StrEnum):
+    """What the extractor may answer (the four classes or ``unclear``)."""
+
     BUILD = "build"
     ADMIN_OWNER = "admin_owner"
     WORKING_TOOL = "working_tool"
@@ -18,10 +31,13 @@ class ClassificationLabel(StrEnum):
     UNCLEAR = "unclear"
 
 
-class RawPosting(BaseModel):
-    """Connector-independent contract; provider payload shape remains [VERIFY]."""
-
+class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class RawPosting(_Frozen):
+    """One posting as a source returned it, with provenance (J10). Text is untrusted."""
+
     source_id: str | None = None
     title: str
     description: str | None = None
@@ -35,31 +51,67 @@ class RawPosting(BaseModel):
     status: str | None = None
     text_complete: bool | None = None
     live_board_present: bool = False
+    location: str | None = None
+    call_ref: str | None = None
 
 
-class PlatformSentence(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+class SourceBatch(_Frozen):
+    """What one logical source step returned: postings, the ledger keys behind them, and why
+    it stopped. ``failed_refs`` are calls that failed (tracker proof of a failure)."""
+
+    postings: tuple[RawPosting, ...] = ()
+    call_refs: tuple[str, ...] = ()
+    failed_refs: tuple[str, ...] = ()
+    complete: bool = True
+    exit_reason: str = "exhausted"
+    reported_count: int | None = None
+
+
+class PageText(_Frozen):
+    """An escalation read of one posting URL."""
+
+    text: str
+    complete: bool
+    call_ref: str
+
+
+class PlatformSentence(_Frozen):
+    """A verbatim span of the stored posting text naming a platform (J3).
+
+    ``start``/``end`` index the stored text; ``sha256`` hashes that verbatim span; ``text`` is the
+    span with email addresses and phone numbers removed (derived field, PII proposal)."""
+
     platform: str
     text: str
-    start: int
+    start: int = Field(ge=0)
     end: int
     sha256: str
 
+    @model_validator(mode="after")
+    def _ordered(self) -> PlatformSentence:
+        if self.end <= self.start:
+            raise ValueError("sentence end must follow start")
+        return self
 
-class Classification(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-    label: ClassificationLabel
+
+class Classification(_Frozen):
+    """How a posting's class was decided (J4). Never from the title alone."""
+
+    label: PostingClass
+    classified_by: Literal["rule", "extractor", "none"]
     reason: str
     rule_id: str | None = None
     evidence_sentence: str | None = None
+    second_pass_label: str | None = None
 
 
-class Posting(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+class Posting(_Frozen):
+    """One deduplicated posting of this run, with everything the counts are computed from."""
+
     posting_key: str
     weak_key: bool = False
     title: str
-    description: str | None
+    location: str | None = None
     url: str
     urls: tuple[str, ...]
     provider_code: str
@@ -67,92 +119,82 @@ class Posting(BaseModel):
     retrieved_at: str
     posted_at: date | None = None
     first_seen_at: date | None = None
-    status: Literal["open", "closed", "unknown"] = "unknown"
-    status_source: str = "unknown"
+    status: PostingStatus = "unknown"
+    status_source: Literal["live_board", "feed", "unknown"] = "unknown"
+    text_ref: str | None = None
+    text_sha256: str | None = None
     text_complete: bool | None = None
+    read: bool = False
     full_text_read: bool = False
-    window_bucket: Literal["in_window", "out_of_window", "undated"]
+    full_text_missing: bool = False
+    window_bucket: WindowBucket
     platforms: tuple[str, ...] = ()
+    title_platforms: tuple[str, ...] = ()
+    lanes: tuple[str, ...] = ()
     sentences: tuple[PlatformSentence, ...] = ()
     classification: Classification | None = None
     hostile: bool = False
-    lane: str | None = None
+    call_refs: tuple[str, ...] = ()
 
-    @classmethod
-    def from_raw(cls, raw: RawPosting, as_of: date) -> Posting:
-        from datetime import date as parse_date
+    @property
+    def matched(self) -> bool:
+        """Names a platform in its description or title (title-only is a Lead candidate)."""
+        return bool(self.platforms or self.title_platforms)
 
-        from jobs.normalise import canonical_url, normalise_status, posting_key
-        from jobs.window import classify_window
+    @property
+    def title_only(self) -> bool:
+        """A title match with no description match: never classified (D-16)."""
+        return bool(self.title_platforms) and not self.platforms
 
-        def parsed(value: str | None) -> date | None:
-            if not value:
-                return None
-            try:
-                return parse_date.fromisoformat(value[:10])
-            except ValueError:
-                return None
-
-        posted = parsed(raw.posted_at)
-        first = parsed(raw.first_seen_at)
-        key = str(posting_key(raw))
-        weak = not bool(raw.source_id or canonical_url(raw.url))
-        status = "open" if raw.live_board_present else normalise_status(raw.status)
-        src = (
-            "live_board"
-            if raw.live_board_present
-            else ("feed" if status != "unknown" else "unknown")
-        )
-        return cls(
-            posting_key=key,
-            weak_key=weak,
-            title=raw.title,
-            description=raw.description,
-            url=canonical_url(raw.url),
-            urls=tuple(
-                sorted({canonical_url(raw.url), *(canonical_url(u) for u in raw.other_urls)})
-            ),
-            provider_code=raw.provider_code,
-            raw_ref=raw.raw_ref,
-            retrieved_at=raw.retrieved_at,
-            posted_at=posted,
-            first_seen_at=first,
-            status=status,
-            status_source=src,
-            text_complete=raw.text_complete,
-            full_text_read=raw.text_complete is True and bool(raw.description),
-            window_bucket=classify_window(posted or first, as_of),
-        )
+    @property
+    def posting_class(self) -> PostingClass:
+        """The class used in counts; anything not decided is ``unclassified``."""
+        return self.classification.label if self.classification else "unclassified"
 
 
-class CountGroup(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-    base: str
+class StatusCounts(_Frozen):
+    """Open, closed and unknown over a named base; the three always sum to the base."""
+
+    base: Literal["matched", "read"]
+    total: int
     open: int
     closed: int
     unknown_status: int
 
 
-class PostingCounts(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-    pulled: int
-    deduped: int
-    in_window: int
-    out_of_window: int
-    undated: int
+class CountBlock(_Frozen):
+    """All counts for one platform (or for the distinct set)."""
+
     matched: int
     read: int
-    matched_status: CountGroup
-    read_status: CountGroup
+    matched_status: StatusCounts
+    read_status: StatusCounts
     by_class: dict[str, int]
     with_platform_sentence: int
     full_text_read: int
     full_text_missing: int
     title_only: int
+
+
+class NotSearched(_Frozen):
+    """A platform or lane that was not searched: shown with its reason, never as 0 (J9)."""
+
+    reason: str
+
+
+class PostingCounts(_Frozen):
+    """The count chain, the distinct block and the per-platform blocks."""
+
+    pulled: int
+    deduped: int
+    in_window: int
+    out_of_window: int
+    undated: int
     hostile: int
-    per_platform: dict[str, int] = Field(default_factory=dict)
+    distinct: CountBlock
+    per_platform: dict[str, CountBlock | NotSearched] = Field(default_factory=dict)
 
 
 def digest_text(text: str) -> str:
-    """Return a stable SHA-256 digest of UTF-8 text."""
+    """Stable SHA-256 of UTF-8 text."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()

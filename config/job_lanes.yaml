@@ -1,5 +1,13 @@
-version: 1
+version: "2026-10-02.1"
 source: PRD section 3.3 inputs and section 4.2 jobs
+# D-17: lane keywords and aliases are not in any source. Until the product owner supplies them,
+# the live board search uses the lane's PRD-named platform names as its keywords (a proposal,
+# so the High row job_board_by_lane is searchable rather than blocked). Set keyword_fallback to
+# "none" to make lanes without keywords end Not done with reason not_available_yet.
+keyword_fallback:
+  value: platform_names
+  status: proposal
+  source: "D-17 proposal; platform names are from PRD section 3.3"
 lanes:
   - id: salesforce
     label: Salesforce including field service such as ServiceMax
@@ -28,6 +36,10 @@ lanes:
     keyword_source: TODO, needs product owner
   - id: data_ai
     label: Data and AI
-    platforms: [{name: Data, aliases: [], source: PRD section 3.3}, {name: AI, aliases: [], source: PRD section 3.3}]
+    # "Data and AI" is a category in the PRD, not a platform name; matching the words "Data" or "AI"
+    # would match nearly every posting. No platform terms until the product owner supplies them
+    # (D-17); the lane's counts show "not searched" with a reason, never 0.
+    platforms: []
+    platforms_source: "TODO, needs product owner (D-17)"
     keywords: []
     keyword_source: TODO, needs product owner

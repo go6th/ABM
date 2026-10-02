@@ -69,25 +69,37 @@ Rebuilt after this check; the table shows the state after the rebuild commit.
 
 ## Job posting pipeline (`build_job_posting_pipeline.md`)
 
-| Section | Requirement | Status | Note |
+Rebuilt after this check; the table shows the state after the rebuild commit. Defects the
+hand-written oracle caught during the rebuild: a strict Enum made every real extractor answer
+schema-invalid; out-of-window postings were still classified and claimed; a live-board hit and
+its feed record never merged; a dot inside a word ended a sentence.
+
+| Section | Requirement | Status | Evidence |
 |---|---|---|---|
-| 2.2 | Lexicon seeded from PRD names, aliases TODO | Met | `config/job_lanes.yaml` |
-| 2.3 | Rubric with positive and negative examples | Partial | examples present; not tested |
-| 2.4 | D-16 default `full_text_required_classes: [build, admin_owner]` | Defect | `selected: null` |
-| J1 | Counts from rows with invariants | Defect | `with_platform_sentence` is compared with itself (always true); `title_only` counted from the wrong set |
-| J2 | Read means complete text | Met | `counts.py` |
-| J3 | Verbatim platform sentence with offsets | Defect | offsets are taken from the whitespace-collapsed, PII-redacted text, so they are not offsets into the description |
-| J4 | Rules first, extractor second pass on another tier | Defect | cue match is a substring test ("build" matches "building"); no second pass |
-| J5 | Full-text escalation, one read, run cap | Partial | `escalate_once` exists; no cap; not wired |
-| J6 | Window from `as_of` | Met | |
-| J8 | Dedupe by stable key | Met | |
-| J9 | Not searched is not zero | Missing | |
-| J11 | Claims templated to the grading schema | Partial | ad hoc dict, not `ProposedClaim` |
-| J12 | Canary, hostile exclusion | Partial | extractor checks the canary; nothing marks a posting hostile |
-| 4 | `repo.py` | Missing | |
-| 5 | Steps 1, 4 to 9 in `pipeline.py` | Missing | only pull, dedupe and persist |
-| 6 | Append-only sentence, classification, observation and run-record tables | Missing | migration 0010 added `job_postings` only |
-| 9 | Corpus, oracle, lying-model, property, resume tests | Partial | `tests/jobs/test_core.py` covers the pure pieces |
+| 2.2 | Lexicon from PRD names only; every entry sourced | Met | `test_every_config_entry_carries_a_source_or_status` |
+| 2.3 | Rubric rules with positive and negative examples | Met | `test_every_rubric_rule_has_a_passing_positive_and_negative_example` |
+| 2.4 | D-16 default superset; D-17 proposal | Met | ADR-0008, register |
+| J1 | Counts from rows, invariants, no count parameters | Met | `counts.py`; property tests; `test_no_function_in_counts_accepts_a_count` |
+| J2 | Read means complete text this run | Met | `test_minimum_text_length_makes_short_text_unread`, golden |
+| J3 | Verbatim sentence per named platform | Met | `test_platform_sentences_are_verbatim_spans_of_the_stored_text` |
+| J4 | Rules first; extractor validated; second pass for build and admin_owner | Met | `test_lying_model.py` (12 cases) |
+| J5 | One bounded escalation per posting, run cap | Met | `test_caps_bound_escalation_and_extractor_calls` |
+| J6 | Window from `as_of` to the day | Met | `test_calendar_window_boundaries_to_the_day`, property |
+| J7 | Live board beats feed status; unknown stays unknown | Met | golden `status` |
+| J8 | Dedupe by id or URL, never title | Met | `test_dedupe_*` |
+| J9 | Not searched is never zero | Met | `test_all_lanes_off_is_not_searched_never_zero`, golden |
+| J10 | URL and provenance on every row; no-URL rejected and counted | Met | golden `rejected_no_url`, DB CHECK |
+| J11 | Claims templated to the grading schema | Met | `ProposedSourced`; golden claim count |
+| J12 | Untrusted text: hostile excluded and counted | Met | golden (`j15`, `j16`) |
+| J13 | No constructed URLs | Met | `test_no_url_is_constructed_from_a_domain` |
+| J14 | Pull once; replay makes zero calls | Met | `test_rerun_makes_zero_paid_calls_*`, DB round trip |
+| J15 | Export scanned; no provider code or refs | Met | `test_export_and_count_sentence_are_client_safe` |
+| 6 | Expand-only storage, append-only, RLS | Met | migration 0012; `test_repo_db.py` |
+| 7 | Gap re-entry processes only the remainder | Partial | re-entry replays the stored record; a remainder-only gap pass is not built (open item OI-JOBS-3) |
+| 8.1 | Read row None when nothing matches | Deviation | OI-JOBS-1 (tracker derives from ledger counts) |
+| 9.7 | Resume matrix with kills | Partial | idempotent replay tested; subprocess kill matrix is in the system tests work item |
+| 9.11 | Mutation check | Pending | runs with the gates |
+| Coverage | 100% on window, counts, dedupe, match, sentences, classify, extractor | Met | job run: all at 100% (sentences 97% branch) |
 
 ## Connectors and grading
 

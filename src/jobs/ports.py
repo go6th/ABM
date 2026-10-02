@@ -1,49 +1,93 @@
-"""Typed I/O boundaries for the job pipeline; no adapter guesses."""
+"""Typed I/O boundaries for the job pipeline. Adapters never guess: a missing production adapter
+raises ``NotConfigured`` and the affected rows end Not done with ``not_available_yet``.
 
+Production adapters: ``jobs.adapters`` (connector-backed source and page reads, Postgres repo,
+tracker evidence, grading). Fakes: ``tests/fakes/jobs.py``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
 from datetime import date
-from typing import Protocol
+from typing import Any, Protocol
 
-from jobs.models import Posting, RawPosting
+from jobs.models import PageText, Posting, SourceBatch
+
+
+class SourceUnavailable(Exception):
+    """A source call failed (typed connector error). ``call_ref`` is the failed attempt's ledger
+    key, cited as tracker proof of the failure (T6)."""
+
+    def __init__(self, reason: str, call_ref: str | None = None):
+        super().__init__(reason)
+        self.reason = reason
+        self.call_ref = call_ref
 
 
 class PostingSourcePort(Protocol):
-    async def search_board(self, lane: str, keyword: str) -> list[RawPosting]: ...
-    async def pull_window(self, lane: str, start: date, end: date) -> list[RawPosting]: ...
+    """Live board search (one call per lane keyword) and the 12-month feed pull (pulled once)."""
+
+    async def search_board(self, lane: str, keyword: str) -> SourceBatch: ...
+
+    async def pull_window(self, start: date, end: date) -> SourceBatch: ...
 
 
 class PageReadPort(Protocol):
-    async def read(self, url: str, *, max_chars: int) -> RawPosting | None: ...
+    """One bounded read of a posting URL as returned by a source (never a constructed URL)."""
+
+    async def read(self, url: str, *, max_chars: int) -> PageText: ...
 
 
 class PayloadStore(Protocol):
-    async def get(self, run_id: str, reference: str) -> bytes | None: ...
-    async def put(self, run_id: str, reference: str, payload: bytes) -> None: ...
+    """Stores posting text under a neutral key; returns the reference."""
+
+    async def put_text(self, run_id: str, text: str) -> str: ...
 
 
 class PostingRepo(Protocol):
-    async def list_for_run(self, run_id: str) -> list[Posting]: ...
-    async def upsert(self, run_id: str, postings: list[Posting]) -> None: ...
+    """Persistence for one run's postings and its pipeline record (append-only side tables)."""
+
+    async def load_run(self, run_id: str) -> PipelineRecordLike | None: ...
+
+    async def save_run(self, run_id: str, record: PipelineRecordLike) -> None: ...
+
+
+class PipelineRecordLike(Protocol):
+    """What the repo persists: postings, counts, exit reasons (``jobs.pipeline.PipelineResult``)."""
+
+    @property
+    def postings(self) -> Sequence[Posting]: ...
 
 
 class CoverageEvidencePort(Protocol):
-    async def record_evidence(self, run_id: str, row: str, evidence: dict[str, object]) -> None: ...
+    """Hands row evidence to the tracker (``record_outcome``); never writes a status (spec 0.3)."""
+
+    async def record(
+        self,
+        row_key: str,
+        call_refs: Sequence[str],
+        *,
+        expected_calls: int,
+        cap_hit: bool,
+        not_attempted_reason: str | None,
+    ) -> None: ...
 
 
 class GradingPort(Protocol):
-    async def submit_claims(self, run_id: str, claims: list[dict[str, object]]) -> None: ...
+    """Submits templated claims to ``grade_claims``; the pipeline never sets a grade (J11)."""
+
+    async def submit_claims(self, claims: Sequence[Any]) -> None: ...
 
 
 class ExtractorPort(Protocol):
-    async def extract(self, posting_id: str, text: str) -> dict[str, object]: ...
+    """The tool-less extractor (first pass): ``(posting_id, text, canary) -> raw output``."""
 
-
-class JudgePort(Protocol):
-    async def judge(self, posting_id: str, text: str) -> dict[str, object]: ...
+    async def __call__(self, posting_id: str, text: str, canary: str) -> object: ...
 
 
 class RunInputPort(Protocol):
-    async def get_inputs(self, run_id: str) -> tuple[dict[str, object], str, date]: ...
+    """Lanes switched off for this run, the verified careers host and the ``as_of`` date."""
 
+    async def lanes_off(self) -> frozenset[str]: ...
 
-class Clock(Protocol):
-    def today(self) -> date: ...
+    async def as_of(self) -> date: ...

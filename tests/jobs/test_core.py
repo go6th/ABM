@@ -1,106 +1,123 @@
+"""Pure-logic tests (spec 9.3): window, keys, dedupe, matching, sentences, rubric, counts."""
+
+from __future__ import annotations
+
 from datetime import date
 
 import pytest
 
 from jobs.classify import classify_rules
-from jobs.counts import compute_counts, render_count_sentence
-from jobs.dedupe import dedupe
+from jobs.config import load_jobs_config
+from jobs.dedupe import dedupe, dedupe_counted
 from jobs.match import match_platforms
-from jobs.models import ClassificationLabel, Posting, RawPosting
-from jobs.normalise import canonical_url, posting_key
-from jobs.sentences import extract_platform_sentences
+from jobs.models import ClassificationLabel, RawPosting
+from jobs.normalise import canonical_url, normalise_status, posting_key, stored_text, strip_pii
+from jobs.sentences import extract_platform_sentences, sentence_spans
 from jobs.window import classify_window, window_start
 
 
-def raw(key: str, *, description: str = "Salesforce admin.", complete: bool = True) -> RawPosting:
-    return RawPosting(
+def raw(key: str | None, url: str = "", **kw: object) -> RawPosting:
+    base: dict[str, object] = dict(
         source_id=key,
-        title="Admin",
-        description=description,
-        url=f"https://example.org/{key}",
-        provider_code="p_test",
+        title="Role",
+        description="Synthetic text.",
+        url=url or f"https://example.org/{key}",
+        provider_code="p_signals",
         raw_ref=f"raw:{key}",
         retrieved_at="2026-01-01T00:00:00Z",
-        posted_at="2025-10-01",
-        first_seen_at="2025-10-01",
-        text_complete=complete,
+        text_complete=True,
     )
+    base.update(kw)
+    return RawPosting(**base)  # type: ignore[arg-type]
 
 
-def post(key: str, **kwargs: object) -> Posting:
-    r = raw(key, **kwargs)  # type: ignore[arg-type]
-    return Posting.from_raw(r, as_of=date(2026, 10, 1))
-
-
-def test_calendar_window_clamps_month_end_and_boundaries() -> None:
-    assert window_start(date(2024, 2, 29)) == date(2023, 2, 28)
+def test_calendar_window_boundaries_to_the_day() -> None:
+    assert window_start(date(2026, 10, 1)) == date(2025, 10, 1)
+    assert window_start(date(2024, 2, 29)) == date(2023, 2, 28)  # month end clamps
+    assert window_start(date(2026, 3, 31)) == date(2025, 3, 31)
     assert classify_window(date(2025, 10, 1), date(2026, 10, 1)) == "in_window"
     assert classify_window(date(2025, 9, 30), date(2026, 10, 1)) == "out_of_window"
+    assert classify_window(date(2026, 10, 2), date(2026, 10, 1)) == "out_of_window"  # future
     assert classify_window(None, date(2026, 10, 1)) == "undated"
 
 
-def test_url_key_and_dedupe_are_stable() -> None:
-    assert canonical_url("https://EXAMPLE.org/a/?utm_source=x") == "https://example.org/a"
-    a, b = raw("source-a"), raw("source-b")
-    assert posting_key(a) != posting_key(b)
-    b = b.model_copy(update={"source_id": a.source_id})
-    assert len(dedupe([a, b])) == 1
-    assert dedupe(dedupe([a, b])) == dedupe([a, b])
+def test_url_canonicalisation_and_keys() -> None:
+    assert canonical_url("https://EXAMPLE.org/a/?utm_source=x#f") == "https://example.org/a"
+    assert canonical_url("ftp://example.org/a") == "" and canonical_url("not a url") == ""
+    assert posting_key(raw("a")) == "id:a"
+    assert posting_key(raw(None, "https://example.org/x")) == "url:https://example.org/x"
+    assert posting_key(raw(None, "bad"), with_strength=True)[1] is True  # weak fingerprint
 
 
-def test_description_match_and_verbatim_platform_sentence() -> None:
-    text = "Build Salesforce workflows. Work with SAP teams."
-    matches = match_platforms("Salesforce jobs", text, {"Salesforce": (), "SAP": (), "Tableau": ()})
-    assert matches.description == ("SAP", "Salesforce")
-    assert matches.title_only == ()
-    spans = extract_platform_sentences(text, matches.description, {"Salesforce": (), "SAP": ()})
-    assert [s.text for s in spans] == ["Build Salesforce workflows.", "Work with SAP teams."]
-    assert text[spans[0].start : spans[0].end] == spans[0].text
+def test_dedupe_merges_board_hit_and_feed_record_and_counts_rejects() -> None:
+    board = raw(None, "https://careers.example/j1", live_board_present=True, text_complete=False)
+    feed = raw("j1", "https://careers.example/j1", status="closed")
+    other = raw("j2")
+    broken = raw("j3", "not a url")
+    result = dedupe_counted([board, feed, other, broken, feed])
+    assert result.rejected == 1
+    assert [r.source_id for r in result.rows] == ["j1", "j2"]
+    merged = result.rows[0]
+    assert merged.live_board_present and merged.text_complete is True
+    assert dedupe(dedupe([board, feed])) == dedupe([feed, board])  # idempotent, order free
 
 
-def test_title_only_is_lead_not_classification() -> None:
-    matches = match_platforms(
-        "Salesforce administrator", "Manage CRM workflows", {"Salesforce": ()}
+def test_dedupe_never_merges_on_title() -> None:
+    a = raw("a", title="Salesforce Developer")
+    b = raw("b", title="Salesforce Developer")
+    assert len(dedupe([a, b])) == 2
+
+
+def test_status_only_from_explicit_values() -> None:
+    assert normalise_status("Active") == "open" and normalise_status("filled") == "closed"
+    assert normalise_status(None) == normalise_status("maybe") == "unknown"
+
+
+def test_stored_text_strips_markup_and_keeps_lines_and_pii_is_derived_only() -> None:
+    text = stored_text("<p>One &amp; two.</p><script>x</script><li>Three\x00</li>")
+    assert text == "One & two.\nx\nThree"
+    assert strip_pii("mail a.b@example.com or +1 555 010 9999") == "mail [redacted] or [redacted]"
+
+
+def test_whole_word_lexicon_matching() -> None:
+    lexicon = {"SAP": (), "Salesforce": ("Service Cloud",)}
+    m = match_platforms("Role", "We use Service Cloud; sapphire is not a platform.", lexicon)
+    assert m.description == ("Salesforce",)  # alias matched; SAP never matches inside a word
+    m = match_platforms("SAP Lead", "No platform here.", lexicon)
+    assert (m.description, m.title_only) == ((), ("SAP",))
+
+
+def test_sentence_spans_are_verbatim_with_offsets() -> None:
+    text = "Use Salesforce.com daily! Contact a.b@example.com now.\nSAP basis"
+    spans = sentence_spans(text)
+    assert [text[a:b] for a, b in spans] == [
+        "Use Salesforce.com daily!",
+        "Contact a.b@example.com now.",
+        "SAP basis",
+    ]
+    found = extract_platform_sentences(text, ("SAP", "Salesforce"), {"SAP": (), "Salesforce": ()})
+    assert [(s.platform, text[s.start : s.end]) for s in found] == [
+        ("SAP", "SAP basis"),
+        ("Salesforce", "Use Salesforce.com daily!"),
+    ]
+
+
+def test_every_rubric_rule_has_a_passing_positive_and_negative_example() -> None:
+    cfg = load_jobs_config()
+    for rule in cfg.rules:
+        assert classify_rules(rule.positive, cfg.rules).label == rule.label, rule.rule_id
+        assert classify_rules(rule.negative, cfg.rules).label != rule.label, rule.rule_id
+
+
+def test_conflicting_cues_are_ambiguous_and_cues_are_whole_words() -> None:
+    cfg = load_jobs_config()
+    assert classify_rules("The developer and the administrator", cfg.rules).reason == (
+        "ambiguous_rules"
     )
-    assert matches.title_only == ("Salesforce",)
-    assert matches.description == ()
+    assert classify_rules("Developers wanted", cfg.rules).reason == "no_rule_match"
 
 
-def test_conflicting_proposal_cues_are_ambiguous() -> None:
-    result = classify_rules(
-        "Build and administer the platform",
-        [
-            {"rule_id": "build", "label": "build", "cues": ["build"]},
-            {"rule_id": "admin", "label": "admin_owner", "cues": ["administer"]},
-        ],
-    )
-    assert result.label == "unclear"
-    assert result.reason == "ambiguous_rules"
-
-
-def test_counts_are_row_derived_and_render_base() -> None:
-    p = post("one")
-    p = p.model_copy(
-        update={
-            "platforms": ("Salesforce",),
-            "sentences": extract_platform_sentences(
-                p.description or "", ("Salesforce",), {"Salesforce": ()}
-            ),
-        }
-    )
-    counts = compute_counts([p], matched_keys={p.posting_key}, minimum_text_length=1)
-    assert counts.read == 1
-    assert counts.with_platform_sentence == 1
-    assert "1 postings read of 1 matched" in render_count_sentence(counts)
-
-
-def test_incomplete_text_is_not_read() -> None:
-    p = post("excerpt", description="Salesforce excerpt", complete=False)
-    counts = compute_counts([p], matched_keys={p.posting_key}, minimum_text_length=1)
-    assert counts.read == 0
-
-
-def test_unknown_text_completeness_and_class_vocab() -> None:
-    assert ClassificationLabel("unclear") == ClassificationLabel.UNCLEAR
+def test_class_vocabulary() -> None:
+    assert ClassificationLabel("unclear") is ClassificationLabel.UNCLEAR
     with pytest.raises(ValueError):
         ClassificationLabel("manager")
