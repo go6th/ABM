@@ -227,7 +227,7 @@ async def test_drops_are_counted_once_and_leads_are_snapshotted(
     )
 
 
-def test_sql_lead_rule_numbers_equal_the_config(cfg: GradingConfig) -> None:
+async def test_sql_lead_rule_numbers_equal_the_config(cfg: GradingConfig) -> None:
     sql = (REPO / "migrations" / "0009_grading.sql").read_text()
     rule = cfg.lead_rule
     assert (
