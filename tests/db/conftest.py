@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from src.db.session import make_sync_url
+from account_intelligence.db.session import make_sync_url
 
 
 @pytest.fixture(scope="session")

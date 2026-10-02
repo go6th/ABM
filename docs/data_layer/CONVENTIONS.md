@@ -1,6 +1,6 @@
 # Data layer conventions
 
-How every table in the v1 data layer is built. Enforced by `src/db/base.py`
+How every table in the v1 data layer is built. Enforced by `src/account_intelligence/db/base.py`
 and tested in `tests/db/test_conventions.py`.
 
 ## Identity
@@ -43,7 +43,7 @@ Named checks let later migrations drop or alter them by name safely.
 
 ## Types
 
-- `JSONB` (from `src/db/types.py`) for list-shaped and policy payloads (proof
+- `JSONB` (from `src/account_intelligence/db/types.py`) for list-shaped and policy payloads (proof
   queries, certifications, prior employers). Never `JSON`.
 - `SHA256_HEX` (`char(64)`) for digests: `url_hash`, `request_hash`,
   `content_sha256`.

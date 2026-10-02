@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 from uuid import UUID
 
@@ -13,17 +12,16 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.rows import dict_row
 from sqlalchemy import text
 
-from src.agents.graph import BudgetExceeded, RunState, build_graph
-from src.db.session import tenant_txn
-
-SLICE_SECONDS = int(os.getenv("SLICE_SECONDS", "240"))
+from account_intelligence.agents.graph import BudgetExceeded, RunState, build_graph
+from account_intelligence.config import get_settings
+from account_intelligence.db.session import tenant_txn
 
 
 async def _dedicated_tenant_conn(
     tenant_id: UUID,
 ) -> psycopg.AsyncConnection[dict[str, Any]]:
     conn = await psycopg.AsyncConnection.connect(
-        os.environ["CHECKPOINT_DATABASE_URL"],  # app_rw, direct to writer (no txn-mode proxy)
+        get_settings().checkpoint_database_url,
         autocommit=True,
         row_factory=dict_row,
         prepare_threshold=0,
@@ -73,7 +71,7 @@ async def execute_slice(tenant_id: UUID, run_id: UUID) -> dict[str, Any]:
             }
         )
         try:
-            async with asyncio.timeout(SLICE_SECONDS):
+            async with asyncio.timeout(get_settings().slice_seconds):
                 await graph.ainvoke(initial, config)  # None => resume from last checkpoint
         except TimeoutError:
             return {"done": False}  # next slice resumes; ledger prevents re-billing

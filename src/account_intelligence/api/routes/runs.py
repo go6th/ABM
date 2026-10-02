@@ -1,9 +1,8 @@
-"""src/api/runs.py - create a run: idempotent, credit-reserving, outbox-safe."""
+"""POST /v1/runs: create a run. Idempotent, credit-reserving, outbox-safe."""
 
 from __future__ import annotations
 
 import json
-import os
 from typing import Literal
 from uuid import uuid4
 
@@ -12,14 +11,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from src.agents.graph import GRAPH_VERSION
-from src.api.auth import Identity, require_role
-from src.db.session import tenant_txn
-from src.orchestrator.functions import client as inngest_client
+from account_intelligence.agents.graph import GRAPH_VERSION
+from account_intelligence.api.auth import Identity, require_role
+from account_intelligence.config import get_settings
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.orchestrator.functions import client as inngest_client
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(prefix="/runs", tags=["runs"])
 COST = {"standard": 6.0, "deep": 18.0}  # credits reserved up front (calibrate with data)
-RUN_BUDGET_USD = float(os.getenv("RUN_BUDGET_USD", "5.0"))
 
 
 class RunRequest(BaseModel):
@@ -27,7 +26,7 @@ class RunRequest(BaseModel):
     depth: Literal["standard", "deep"] = "standard"
 
 
-@router.post("/runs", status_code=202)
+@router.post("", status_code=202)
 async def create_run(
     body: RunRequest,
     idem: str = Header(alias="Idempotency-Key", min_length=8, max_length=64),
@@ -52,7 +51,7 @@ async def create_run(
                 {
                     "id": run_id,
                     "gv": GRAPH_VERSION,
-                    "b": json.dumps({"usd": RUN_BUDGET_USD}),
+                    "b": json.dumps({"usd": get_settings().run_budget_usd}),
                     "est": est,
                     "k": idem,
                     "d": body.domain,

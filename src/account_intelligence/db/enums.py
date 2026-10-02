@@ -119,12 +119,12 @@ _ENUMS: tuple[type[StrEnum], ...] = (
 )
 
 
-def values[E: StrEnum](enum_cls: type[E]) -> tuple[str, ...]:
+def values(enum_cls: type[StrEnum]) -> tuple[str, ...]:
     """Stored (lowercase) values of an enum, in declaration order."""
     return tuple(member.value for member in enum_cls)
 
 
-def sql_in_values[E: StrEnum](enum_cls: type[E]) -> str:
+def sql_in_values(enum_cls: type[StrEnum]) -> str:
     """SQL fragment for CHECK constraints, e.g. ('confirmed', 'probable', ...)."""
     return "(" + ", ".join(f"'{value}'" for value in values(enum_cls)) + ")"
 

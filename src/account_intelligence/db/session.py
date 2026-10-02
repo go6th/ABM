@@ -1,8 +1,7 @@
-"""src/db/session.py - tenant-scoped database access. All tenant queries go through tenant_txn()."""
+"""Tenant-scoped database access. All tenant queries go through tenant_txn()."""
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import UUID
@@ -11,11 +10,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-# DATABASE_URL = postgresql+asyncpg://app_rw:***@aurora-writer/ai (role is NOBYPASSRLS, not owner)
+from account_intelligence.config import get_settings
+
+_settings = get_settings()
 engine = create_async_engine(
-    os.environ["DATABASE_URL"],
-    pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
-    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "5")),
+    _settings.database_url,
+    pool_size=_settings.db_pool_size,
+    max_overflow=_settings.db_max_overflow,
     pool_pre_ping=True,
     connect_args={"server_settings": {"application_name": "ai-api"}},
 )
@@ -38,7 +39,7 @@ def get_sync_engine() -> Engine:
     global _sync_engine
     if _sync_engine is None:
         _sync_engine = create_engine(
-            make_sync_url(os.environ["DATABASE_URL"]),
+            make_sync_url(get_settings().database_url),
             pool_pre_ping=True,
         )
     return _sync_engine

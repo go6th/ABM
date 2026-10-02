@@ -12,8 +12,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from src.db.base import NAMING_CONVENTION, Base, TimestampMixin, UuidPkMixin
-from src.db.types import JSONB as JSONB_TYPE
+from account_intelligence.db.base import NAMING_CONVENTION, Base, TimestampMixin, UuidPkMixin
+from account_intelligence.db.types import JSONB as JSONB_TYPE
 
 
 class _ScratchBase(DeclarativeBase):
@@ -72,8 +72,7 @@ def test_server_defaults_and_onupdate_roundtrip(sync_engine, admin) -> None:  # 
         with engine.begin() as conn:
             row = conn.execute(
                 text(
-                    "SELECT created_at, updated_at, payload FROM scratch_conventions "
-                    "WHERE id = :i"
+                    "SELECT created_at, updated_at, payload FROM scratch_conventions WHERE id = :i"
                 ),
                 {"i": row_id},
             ).one()

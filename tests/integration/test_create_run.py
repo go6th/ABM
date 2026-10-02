@@ -8,8 +8,8 @@ import psycopg
 import pytest
 from fastapi import HTTPException
 
-import src.api.runs as runs
-from src.api.auth import Identity
+from account_intelligence.api.auth import Identity
+from account_intelligence.api.routes import runs
 from tests.conftest import ADMIN_DSN
 
 pytestmark = pytest.mark.asyncio

@@ -7,8 +7,9 @@ export APP_RW_PASSWORD="${APP_RW_PASSWORD:-local-dev-only}"
 bash "$skill/scripts/selftest.sh"
 uv run --frozen python "$skill/scripts/validate_assets.py"
 uv run --frozen python "$skill/scripts/lint_migrations.py" migrations
+uv run --frozen ruff format --check .
 uv run --frozen ruff check .
-uv run --frozen mypy src
+uv run --frozen mypy
 
 database_url="${MIGRATOR_DATABASE_URL:-postgresql://postgres:dev@localhost:5432/ai}"
 scratch_db="ai_check_$$"
@@ -43,4 +44,4 @@ printf '%s\n' "RLS catalog: no violations"
 export DATABASE_URL="$runtime_url"
 export CHECKPOINT_DATABASE_URL="$checkpoint_runtime_url"
 uv run --frozen pytest tests/isolation -x
-uv run --frozen pytest -m "not eval" --cov=src --cov-fail-under=80
+uv run --frozen pytest -m "not eval" --cov

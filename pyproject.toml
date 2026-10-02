@@ -1,7 +1,7 @@
 [project]
 name = "account-intelligence"
 version = "0.1.0"
-description = "Account Intelligence platform foundation"
+description = "Multi-tenant account research platform: sourced, graded briefs, people lists and alerts"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "alembic>=1.13",
@@ -13,17 +13,26 @@ dependencies = [
     "langgraph-checkpoint-postgres>=2.0",
     "psycopg[binary,pool]>=3.2",
     "pydantic>=2.7",
+    "pydantic-settings>=2.4",
     "pyjwt[crypto]>=2.9",
     "pyyaml>=6.0",
     "sqlalchemy[asyncio]>=2.0",
     "uvicorn[standard]>=0.30",
 ]
 
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/account_intelligence"]
+
 [dependency-groups]
 dev = [
     "boto3-stubs[s3]>=1.35",
     "hypothesis>=6.100",
     "mypy>=1.11",
+    "pre-commit>=3.7",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
@@ -33,31 +42,34 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
-exclude = [".claude/skills/**", "ABM Generator.worktrees/**", "account-intelligence-platform/**"]
+target-version = "py311"
+src = ["src", "."]
+extend-exclude = [".claude", "_review"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/api/*.py" = ["B008"]
+"src/account_intelligence/api/**/*.py" = ["B008"]  # FastAPI Depends()/Header() defaults
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 mypy_path = "src"
+files = ["src"]
 strict = true
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 markers = [
-    "eval: evaluation tests excluded from the standard check",
-    "requires_postgres: requires the isolated PostgreSQL test database",
+    "eval: agent evaluation tests (golden set); run only in the eval gate",
+    "requires_postgres: requires the scratch PostgreSQL test database",
 ]
 
 [tool.coverage.run]
-source = ["src"]
+source_pkgs = ["account_intelligence"]
 branch = true
 
 [tool.coverage.report]

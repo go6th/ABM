@@ -5,14 +5,14 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from src.agents.grading import (
+from account_intelligence.agents.grading import (
     Evidence,
     confidence,
     grade_attribute,
     load_config,
     recency,
 )
-from src.agents.grading import (
+from account_intelligence.agents.grading import (
     grade as engine_grade,
 )
 

@@ -1,4 +1,4 @@
-"""src/agents/graph.py - research graph (reduced to the load-bearing structure)."""
+"""Research graph: baseline, parallel branch fetches, distill."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy, Send
 from sqlalchemy import text
 
-from src.db.session import tenant_txn
+from account_intelligence.db.session import tenant_txn
 
 GRAPH_VERSION = "2026-10-01.1"  # pinned on account_runs.graph_version at creation
 BRANCHES = ["news", "jobs", "people", "tech"]
@@ -26,9 +26,7 @@ class RunState(TypedDict, total=False):
     domain: str
     branch: str
     budget_usd: float
-    spent_usd: Annotated[
-        float, operator.add
-    ]  # FIX (defect 1): parallel branches write it; needs a reducer
+    spent_usd: Annotated[float, operator.add]  # parallel branches write it: needs a reducer
     facts: Annotated[list[dict[str, Any]], operator.add]  # reducer: branches append in parallel
     status: str
 

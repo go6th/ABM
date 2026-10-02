@@ -6,7 +6,7 @@ import psycopg
 import pytest
 from sqlalchemy import text
 
-from src.db.session import SessionLocal, tenant_txn
+from account_intelligence.db.session import SessionLocal, tenant_txn
 
 pytestmark = pytest.mark.asyncio
 

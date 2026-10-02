@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from account_intelligence.config import CONFIG_DIR
+
 
 @dataclass(frozen=True)
 class Evidence:
@@ -20,7 +22,7 @@ class Evidence:
 
 def load_config(path: Path | None = None) -> tuple[dict[str, float], dict[str, float]]:
     """Load source weights and recency half-lives from the versioned grading asset."""
-    config_path = path or Path(__file__).resolve().parents[2] / "config" / "grading.yaml"
+    config_path = path or CONFIG_DIR / "grading.yaml"
     raw: dict[str, Any] = yaml.safe_load(config_path.read_text())
     engine = raw["engine"]
     weights = {

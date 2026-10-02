@@ -1,18 +1,18 @@
-"""src/orchestrator/functions.py - Inngest is only the outer loop: trigger, slice, wait, notify."""
+"""Inngest functions. Inngest is only the outer loop: trigger, slice, wait, notify."""
 
 from __future__ import annotations
 
 import datetime
-import os
 from uuid import UUID
 
 import inngest
 from pydantic import BaseModel, ValidationError
 
-from src.agents.runner import execute_slice
+from account_intelligence.agents.runner import execute_slice
+from account_intelligence.config import get_settings
 
-client = inngest.Inngest(app_id="ai-saas", is_production=os.getenv("ENV") == "prod")
-MAX_SLICES = int(os.getenv("MAX_SLICES", "60"))  # 60 x 240 s = 4 h hard ceiling
+settings = get_settings()
+client = inngest.Inngest(app_id="ai-saas", is_production=settings.env == "prod")
 
 
 class RunEvent(BaseModel):
@@ -25,9 +25,7 @@ class RunEvent(BaseModel):
     trigger=inngest.TriggerEvent(event="research/run.requested"),
     retries=2,  # infrastructure failures only; node retries live in LangGraph
     concurrency=[
-        inngest.Concurrency(
-            limit=int(os.getenv("TENANT_CONCURRENCY", "5")), key="event.data.tenant_id"
-        )
+        inngest.Concurrency(limit=settings.tenant_concurrency, key="event.data.tenant_id")
     ],  # per-tenant fairness
 )
 async def run_research(ctx: inngest.Context) -> dict[str, object]:
@@ -37,7 +35,7 @@ async def run_research(ctx: inngest.Context) -> dict[str, object]:
         raise ValueError("invalid research run event") from error
     step = ctx.step
     out: dict[str, object] = {"done": False}
-    for i in range(MAX_SLICES):
+    for i in range(settings.max_slices):
         out = await step.run(
             f"slice-{i}",
             lambda: execute_slice(event.tenant_id, event.run_id),

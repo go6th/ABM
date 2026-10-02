@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from uuid import UUID
 
 import jwt
 from fastapi import Depends, Header, HTTPException
 from jwt import PyJWKClient
 
-_jwks = PyJWKClient(os.environ["JWKS_URL"], cache_keys=True)
+from account_intelligence.config import get_settings
+
+
+@lru_cache
+def _jwks() -> PyJWKClient:
+    return PyJWKClient(get_settings().jwks_url, cache_keys=True)
 
 
 @dataclass(frozen=True)
@@ -22,15 +27,16 @@ class Identity:
 
 
 async def identity(authorization: str = Header(...)) -> Identity:
+    settings = get_settings()
     token = authorization.removeprefix("Bearer ").strip()
     try:
-        key = _jwks.get_signing_key_from_jwt(token).key
+        key = _jwks().get_signing_key_from_jwt(token).key
         claims = jwt.decode(
             token,
             key,
             algorithms=["RS256"],
-            audience=os.environ["JWT_AUDIENCE"],
-            issuer=os.environ["JWT_ISSUER"],
+            audience=settings.jwt_audience,
+            issuer=settings.jwt_issuer,
             options={"require": ["exp", "iat", "sub"]},
         )
         return Identity(claims["sub"], UUID(claims["tenant_id"]), claims["role"])

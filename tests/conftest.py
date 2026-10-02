@@ -24,7 +24,7 @@ ADMIN_MAINT_DSN = os.getenv("ADMIN_DSN", f"postgresql://{ADMIN_USER}@{HOST}:{POR
 ADMIN_DSN = f"postgresql://{ADMIN_USER}@{HOST}:{PORT}/{TEST_DB}"
 APP_DSN = f"postgresql://app_rw:{APP_PASSWORD}@{HOST}:{PORT}/{TEST_DB}"
 
-# src.db.session reads these at import time, so set them before any test module is imported.
+# Settings are read at import time; set them before any test module is imported.
 os.environ.setdefault(
     "DATABASE_URL", f"postgresql+asyncpg://app_rw:{APP_PASSWORD}@{HOST}:{PORT}/{TEST_DB}"
 )
@@ -149,7 +149,7 @@ def tenant_a_dsn(tenant_a: UUID) -> str:
     return f"{APP_DSN}?options=-c%20app.tenant_id%3D{tenant_a}"
 
 
-# src.api.auth reads these at import time
+# Required by Settings (JWT verification)
 os.environ.setdefault("JWKS_URL", "http://localhost:9/jwks.json")
 os.environ.setdefault("JWT_AUDIENCE", "ai-saas")
 os.environ.setdefault("JWT_ISSUER", "https://idp.example.com/")

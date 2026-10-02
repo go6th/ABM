@@ -1,4 +1,4 @@
-from src.api.main import app
+from account_intelligence.api.main import app
 
 
 def test_foundation_api_routes_are_registered() -> None:

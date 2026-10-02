@@ -11,7 +11,7 @@ import psycopg
 import pytest
 from sqlalchemy import text
 
-from src.db.session import tenant_txn
+from account_intelligence.db.session import tenant_txn
 from tests.conftest import ADMIN_DSN
 
 pytestmark = pytest.mark.asyncio

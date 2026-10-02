@@ -11,10 +11,10 @@ import psycopg
 import pytest
 from sqlalchemy import text
 
-import src.agents.graph as graph_mod
-from src.agents.graph import ledgered_call
-from src.agents.runner import execute_slice
-from src.db.session import tenant_txn
+from account_intelligence.agents import graph as graph_mod
+from account_intelligence.agents.graph import ledgered_call
+from account_intelligence.agents.runner import execute_slice
+from account_intelligence.db.session import tenant_txn
 from tests.conftest import ADMIN_DSN
 
 pytestmark = pytest.mark.asyncio

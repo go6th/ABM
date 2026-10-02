@@ -6,15 +6,15 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from src.db import models  # noqa: F401  imported for the metadata side effect
-from src.db.base import Base
+from account_intelligence.db import models  # noqa: F401  imported for the metadata side effect
+from account_intelligence.db.base import Base
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Autogenerate sees every model through Base.metadata and emits names that follow
-# src/db/base.py NAMING_CONVENTION. compare_type/compare_server_default catch column
+# account_intelligence.db.base NAMING_CONVENTION. compare_type/compare_server_default catch column
 # drift between the models and the migrations in `alembic check`.
 target_metadata = Base.metadata
 

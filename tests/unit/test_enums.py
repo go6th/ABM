@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from src.db.enums import (
+from account_intelligence.db.enums import (
     CoverageStatus,
     Grade,
     Lane,
