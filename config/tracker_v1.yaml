@@ -10,16 +10,40 @@ d_13_tracker_rules:
     similarity_threshold:
       value: 0.8
       source: "TODO, needs product owner"
+  # T4(b): only a verified lane switch-off yields None. waiting_on_account_owner is NOT here: a
+  # relationship row with no pursuing client is Not done with that reason (nobody searched).
   out_of_scope_reasons:
     - "lane_not_in_scope"
-    - "waiting_on_account_owner"
+  # Most severe first; a Blocked row's reason comes from its most severe failed call (5.3 rule 3).
+  # Names are the connector layer's typed error classes (connectors/errors.py).
   error_severity_order:
-    - "auth_error"
-    - "rate_limit"
-    - "timeout"
-    - "server_error"
-    - "not_found"
-    - "unknown"
+    - "AuthError"
+    - "CreditsExhausted"
+    - "BudgetExceeded"
+    - "SecurityError"
+    - "PolicyRefused"
+    - "SchemaDriftError"
+    - "CircuitOpen"
+    - "RateLimited"
+    - "RetryableProviderError"
+    - "ProviderJobTimeout"
+    - "NonRetryableProviderError"
+  # error class -> reason code; anything unlisted maps to source_failed.
+  error_reason_map:
+    AuthError: "source_unavailable"
+    CreditsExhausted: "source_unavailable"
+    BudgetExceeded: "budget_cap"
+    CircuitOpen: "source_unavailable"
+    RateLimited: "source_rate_limited"
+    RetryableProviderError: "source_unavailable"
+    ProviderJobTimeout: "source_unavailable"
+    LeaseUnavailable: "source_unavailable"
+    CallInFlight: "source_unavailable"
+  # T7: the verifier may report these rows (besides the row's owning stage). Rows "holding Leads"
+  # beyond lead_verification need the Lead-to-row mapping (open item OI-TRK-1).
+  verifier_rows: ["lead_verification"]
+  # T9: internal-only detail, never rendered to a client.
+  detail_max_chars: 500
 reason_codes:
   waiting_on_account_owner: "Waiting on account owner"
   lane_not_in_scope: "Lane not in scope for this run"
@@ -40,6 +64,7 @@ reason_codes:
   cap_reached: "Execution cap reached"
   source_failed: "Source failed during execution"
   fewer_than_expected: "Fewer results than expected"
+  result_count_unknown: "Result count not reported by the source"
   out_of_scope: "Out of scope"
 transitions:
   unset:

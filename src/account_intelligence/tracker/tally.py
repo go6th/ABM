@@ -1,4 +1,8 @@
-"""Tracker tally logic."""
+"""Tally and completeness, recomputed from rows on every read (T11). Pure.
+
+No function here accepts a count: each is derived from the rows given and the checklist. Every
+rendered count names its base ("15 of 19 High rows Done").
+"""
 
 from __future__ import annotations
 
@@ -6,81 +10,70 @@ from collections.abc import Sequence
 from typing import Any, TypeVar
 
 from account_intelligence.tracker.completion import RowState
-from account_intelligence.tracker.config import load_checklist_config
+from account_intelligence.tracker.config import load_checklist
 from account_intelligence.tracker.model import Status
+
+_ORDER = ("done", "partial", "not_done", "blocked", "none", "unset")
 
 
 def tally(rows: Sequence[RowState]) -> dict[str, Any]:
-    checklist, _ = load_checklist_config()
-
-    counts: dict[str, int] = {
-        "done": 0,
-        "partial": 0,
-        "not_done": 0,
-        "blocked": 0,
-        "none": 0,
-        "unset": 0,
-    }
-    priorities = {"high": 0, "medium": 0, "optional": 0}
-
-    # Pre-compute bases
-    priority_bases = {"high": 0, "medium": 0, "optional": 0}
-    for crow in checklist.rows:
-        p = crow.get("priority", "optional").lower()
-        if p in priority_bases:
-            priority_bases[p] += 1
-
-    total_base = sum(priority_bases.values())
-
-    high_done = 0
-
+    """Status counts overall and per priority, with the checklist bases."""
+    checklist = load_checklist()
+    bases = {"high": 0, "medium": 0, "optional": 0}
+    for row in checklist.rows:
+        bases[row.priority] += 1
+    counts = dict.fromkeys(_ORDER, 0)
+    by_priority = {p: dict.fromkeys(_ORDER, 0) for p in bases}
     for r in rows:
-        if r.status:
-            counts[r.status.value] += 1
-        else:
-            counts["unset"] += 1
-
-        if r.priority in priorities:
-            priorities[r.priority] += 1
-
-        if r.priority == "high" and r.status == Status.DONE:
-            high_done += 1
-
+        status = r.status.value if r.status else "unset"
+        counts[status] += 1
+        by_priority.setdefault(r.priority, dict.fromkeys(_ORDER, 0))[status] += 1
+    high_done = by_priority["high"]["done"]
     return {
         "status_counts": counts,
+        "by_priority": by_priority,
         "total_rows": len(rows),
-        "total_base": total_base,
-        "high_base": priority_bases["high"],
-        "medium_base": priority_bases["medium"],
-        "optional_base": priority_bases["optional"],
+        "total_base": sum(bases.values()),
+        "high_base": bases["high"],
+        "medium_base": bases["medium"],
+        "optional_base": bases["optional"],
         "high_done": high_done,
-        "high_rows_done_str": f"{high_done} of {priority_bases['high']} High rows Done",
+        "high_rows_done_str": f"{high_done} of {bases['high']} High rows Done",
+        "sentences": tally_sentences(by_priority, bases),
     }
+
+
+def tally_sentences(by_priority: dict[str, dict[str, int]], bases: dict[str, int]) -> list[str]:
+    """One sentence per priority, every figure with its base."""
+    out = []
+    for priority, base in bases.items():
+        c = by_priority.get(priority, {})
+        out.append(
+            f"{priority.capitalize()} rows: {c.get('done', 0)} Done, {c.get('none', 0)} None,"
+            f" {c.get('partial', 0)} Partial, {c.get('blocked', 0)} Blocked,"
+            f" {c.get('not_done', 0)} Not done, {c.get('unset', 0)} not yet reported,"
+            f" of {base}"
+        )
+    return out
 
 
 def completeness(rows: Sequence[RowState]) -> tuple[float, int]:
-    high_rows = 0
-    high_done_or_none = 0
-    for r in rows:
-        if r.priority == "high":
-            high_rows += 1
-            if r.status in (Status.DONE, Status.NONE):
-                high_done_or_none += 1
-    return (high_done_or_none / high_rows) if high_rows > 0 else 1.0, high_rows
+    """High rows Done or None over High rows, with the base."""
+    high = [r for r in rows if r.priority == "high"]
+    ok = sum(r.status in (Status.DONE, Status.NONE) for r in high)
+    return (ok / len(high)) if high else 1.0, len(high)
 
 
 T = TypeVar("T", bound=RowState)
 
 
 def sort_for_rendering(rows: Sequence[T]) -> Sequence[T]:
-    """Sort open work first (unset, not_done, blocked, partial), then priority, then checklist."""
-    checklist, _ = load_checklist_config()
-    checklist_order = {r["key"]: i for i, r in enumerate(checklist.rows)}
+    """Open work first (unset, Not done, Blocked, Partial), then priority, then checklist order."""
+    order = {r.key: i for i, r in enumerate(load_checklist().rows)}
+    rank = {"high": 0, "medium": 1, "optional": 2}
 
-    def sort_key(r: T) -> tuple[int, int, int]:
+    def key(r: T) -> tuple[int, int, int, str]:
         is_open = r.status in (None, Status.NOT_DONE, Status.BLOCKED, Status.PARTIAL)
-        prio = 0 if r.priority == "high" else (1 if r.priority == "medium" else 2)
-        idx = checklist_order.get(r.key, 999)
-        return (0 if is_open else 1, prio, idx)
+        return (0 if is_open else 1, rank.get(r.priority, 3), order.get(r.key, 999), r.key)
 
-    return sorted(rows, key=sort_key)
+    return sorted(rows, key=key)

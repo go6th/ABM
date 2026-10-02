@@ -6,36 +6,40 @@ class TrackerError(Exception):
 
 
 class IllegalTransition(TrackerError):
-    pass
+    """The transition table refuses this move (5.2)."""
 
 
 class NotOwner(TrackerError):
-    pass
+    """The actor may not write this row (T7)."""
 
 
 class ProofMismatch(TrackerError):
-    pass
+    """A call reference is not a call of this tenant and run, or its record disagrees (T2)."""
 
 
 class ProofIncomplete(TrackerError):
-    pass
+    """Evidence is missing something the rule needs (no calls and no reason)."""
 
 
 class UnknownRow(TrackerError):
-    pass
+    """The run has no row with this key."""
 
 
 class VersionConflict(TrackerError):
-    pass
+    """Another writer changed the row; re-read and re-evaluate (bounded)."""
 
 
 class RunNotSeeded(TrackerError):
-    pass
+    """The run has no seeded tracker."""
 
 
 class CompletionBlocked(TrackerError):
-    pass
+    """The verdict forbids COMPLETED."""
 
 
 class ConfigError(TrackerError):
-    pass
+    """Tracker configuration is missing or invalid (fail fast at startup)."""
+
+
+class UnsafeDetail(TrackerError):
+    """Internal detail text names a broker, a credit figure or another account (T9)."""

@@ -8,8 +8,8 @@ product owner signs it; config blocks for proposals say `status: proposal`.
 |---|---|---|---|
 | D-01 ext | Product grade precedence; product grade of Conflicting (at most Probable) and Blocked (Hypothesis); judge-unavailable cap (engine C, Probable, `unjudged`) | as stated | ADR-0010, `config/grading_policy.yaml` |
 | D-11 ext | Unknown-lineage group may count but not lift a claim to A (cap B, `needs_lineage_review`) | as stated | ADR-0012 |
-| D-12 | Tracker completion policy | see tracker work | `config/tracker_v1.yaml` |
-| D-13 | Tracker transition rules (its `lead_proof` numbers are superseded by ADR-0013) | see tracker work | `config/tracker_v1.yaml` |
+| D-12 | Tracker completion policy | High rows must be Done or None for COMPLETED; pinned per run | ADR-0015, `config/tracker_v1.yaml` |
+| D-13 | Tracker transition table, actor rules, outcome derivation, added reason codes (its `lead_proof` numbers are superseded by ADR-0013) | spec 5.2 and 5.3 with the additions in ADR-0015 | ADR-0015, `config/tracker_v1.yaml` |
 | D-14 | Evidence dating (observed, published, unknown) and read origin per operation | as stated; p_search reads are `cached_copy` | ADR-0011 |
 | D-15 | Source registry: tiers by domain and provider code, aggregator flags, lineage groups | unlisted = T4 flagged; brokers T2 TODO | ADR-0012, `config/source_registry.yaml` |
 | D-16, D-17 | Job pipeline (classification scope; lane keywords) | see jobs work | ADR-0008 |
