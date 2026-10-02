@@ -3,7 +3,11 @@ name: ci
 on:
   pull_request:
   push:
-    branches: ["**"]
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   foundation:
@@ -42,6 +46,6 @@ jobs:
           test -n "$version"
           test "$(printf '%s\n' "$version" 0.7.0 | sort -V | head -n1)" = "0.7.0"
           echo "pgvector $version"
-      - run: uv sync --frozen
+      - run: uv sync --frozen --python ${{ matrix.python-version }}
       - run: make check
       - run: docker build -t account-intelligence:ci .

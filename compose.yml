@@ -25,10 +25,10 @@ services:
     depends_on: { db: { condition: service_healthy }, redis: { condition: service_started } }
     env_file: .env
     environment:
-       DATABASE_URL: postgresql+asyncpg://app_rw:dev@db/ai
-       CHECKPOINT_DATABASE_URL: postgresql://app_rw:dev@db/ai
-       REDIS_URL: redis://redis:6379/0
-       ENV: dev
+      DATABASE_URL: postgresql+asyncpg://app_rw:local-dev-only@db/ai
+      CHECKPOINT_DATABASE_URL: postgresql://app_rw:local-dev-only@db/ai
+      REDIS_URL: redis://redis:6379/0
+      ENV: dev
     ports: ["8080:8080"]
   inngest:
     image: inngest/inngest
