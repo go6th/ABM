@@ -7,7 +7,7 @@ import json
 import operator
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, TypedDict
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy, Send
@@ -37,6 +37,10 @@ class BudgetExceeded(Exception):
     pass
 
 
+class ToolCallOutcomeUnknown(RuntimeError):
+    """A prior paid call may have completed; automatic re-execution is unsafe."""
+
+
 async def ledgered_call(
     tenant_id: str,
     run_id: str,
@@ -44,7 +48,11 @@ async def ledgered_call(
     args: dict[str, Any],
     fn: Callable[..., Awaitable[dict[str, Any]]],
 ) -> dict[str, Any]:
-    """Exactly-once *billing* for paid calls: replay from the ledger if this call already ran."""
+    """Persist intent before a paid call and block ambiguous retries to avoid double billing.
+
+    This is at-most-once dispatch, not exactly-once execution: a crash after dispatch but before
+    the response is committed requires provider-side reconciliation or an idempotency key.
+    """
     h = hashlib.sha256(
         json.dumps([tool, args], sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -59,13 +67,59 @@ async def ledgered_call(
             if not isinstance(row.response, dict):
                 raise TypeError("stored tool response must be a JSON object")
             return row.response
-    result = await fn(**args)  # the paid call (broker or LLM)
+        intent = (
+            await s.execute(
+                text(
+                    "SELECT status FROM tool_call_intents "
+                    "WHERE tenant_id = (SELECT app_tenant()) AND run_id = :run_id "
+                    "AND args_hash = :args_hash"
+                ),
+                {"run_id": run_id, "args_hash": h},
+            )
+        ).one_or_none()
+        if intent is not None:
+            if intent.status == "COMPLETED":
+                raise RuntimeError("completed tool-call intent has no persisted response")
+            raise ToolCallOutcomeUnknown(
+                "prior paid call has an unresolved intent; reconcile before retrying"
+            )
+        intent_token = uuid4()
+        claimed = (
+            await s.execute(
+                text(
+                    "INSERT INTO tool_call_intents "
+                    "(tenant_id, run_id, tool, args_hash, intent_token, lease_expires_at) "
+                    "VALUES ((SELECT app_tenant()), :run_id, :tool, :args_hash, :token, "
+                    "now() + interval '15 minutes') ON CONFLICT DO NOTHING RETURNING id"
+                ),
+                {"run_id": run_id, "tool": tool, "args_hash": h, "token": intent_token},
+            )
+        ).first()
+        if claimed is None:
+            raise ToolCallOutcomeUnknown(
+                "another worker claimed the paid call; automatic retry is blocked"
+            )
+
+    try:
+        result = await fn(**args)
+    except Exception:
+        async with tenant_txn(UUID(tenant_id)) as s:
+            await s.execute(
+                text(
+                    "UPDATE tool_call_intents SET status = 'UNKNOWN', finished_at = now() "
+                    "WHERE tenant_id = (SELECT app_tenant()) AND run_id = :run_id "
+                    "AND args_hash = :args_hash AND intent_token = :token "
+                    "AND status = 'IN_FLIGHT'"
+                ),
+                {"run_id": run_id, "args_hash": h, "token": intent_token},
+            )
+        raise
+
     async with tenant_txn(UUID(tenant_id)) as s:
         await s.execute(
             text(
                 "INSERT INTO tool_calls (tenant_id, run_id, tool, args_hash, response, cost_usd) "
-                "VALUES ((SELECT app_tenant()), :r, :t, :h, CAST(:resp AS jsonb), :c) "
-                "ON CONFLICT (run_id, args_hash) DO NOTHING"
+                "VALUES ((SELECT app_tenant()), :r, :t, :h, CAST(:resp AS jsonb), :c)"
             ),
             {
                 "r": run_id,
@@ -75,6 +129,26 @@ async def ledgered_call(
                 "c": result.get("cost_usd", 0),
             },
         )
+        await s.execute(
+            text(
+                "UPDATE tool_call_intents SET status = 'COMPLETED', finished_at = now() "
+                "WHERE tenant_id = (SELECT app_tenant()) AND run_id = :run_id "
+                "AND args_hash = :args_hash AND intent_token = :token AND status = 'IN_FLIGHT'"
+            ),
+            {"run_id": run_id, "args_hash": h, "token": intent_token},
+        )
+        completed_status = (
+            await s.execute(
+                text(
+                    "SELECT status FROM tool_call_intents "
+                    "WHERE tenant_id = (SELECT app_tenant()) AND run_id = :run_id "
+                    "AND args_hash = :args_hash AND intent_token = :token"
+                ),
+                {"run_id": run_id, "args_hash": h, "token": intent_token},
+            )
+        ).scalar_one_or_none()
+        if completed_status != "COMPLETED":
+            raise RuntimeError("paid call response could not be committed to its intent")
     return result
 
 
