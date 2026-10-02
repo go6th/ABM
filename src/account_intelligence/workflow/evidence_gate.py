@@ -1,17 +1,23 @@
-"""Deterministic validation between extraction and repository writes."""
+"""Deterministic validation between extraction and repository writes.
+
+The quote, URL and figure checks delegate to ``account_intelligence.grading.spans`` (one
+implementation per rule). The authoritative path is ``grading.pipeline.grade_claims``, which
+also recomputes ``read_in_primary_this_run`` in code; this gate's caller-supplied flag is a
+pre-check only (G5: no caller parameter can set the real flag).
+"""
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import urlparse
 
+from account_intelligence.grading.spans import casefold_text, figure_in_text, normalise_ws
+
 
 def normalize_text(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value)
-    return " ".join(normalized.split()).casefold()
+    """Case-folded comparison form (kept for callers); quotes are checked verbatim."""
+    return casefold_text(value)
 
 
 @dataclass(frozen=True)
@@ -71,8 +77,8 @@ class EvidenceGate:
                     or claimed.query != actual.query
                 ):
                     return GateResult(False, "untrusted_url")
-            quote = normalize_text(item.quote)
-            if not quote or quote not in normalize_text(stored):
+            quote = normalise_ws(item.quote)
+            if not quote or quote not in normalise_ws(stored):
                 return GateResult(False, "unverifiable_quote")
             if fact.figure and not self._figure_in_source(fact.figure, stored):
                 return GateResult(False, "unverifiable_figure")
@@ -81,12 +87,4 @@ class EvidenceGate:
 
     @staticmethod
     def _figure_in_source(figure: str, text: str) -> bool:
-        # Exact numeric tokens plus adjacent unit tokens after Unicode/whitespace normalization.
-        def tokens(value: str) -> tuple[str, ...]:
-            return tuple(re.findall(r"\d+(?:[.,]\d+)?|[a-z%$€£]+", normalize_text(value)))
-
-        claim = tokens(figure)
-        body = tokens(text)
-        return bool(claim) and any(
-            body[index : index + len(claim)] == claim for index in range(len(body))
-        )
+        return figure_in_text(figure, text)
