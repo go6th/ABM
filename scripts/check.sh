@@ -4,7 +4,7 @@ set -euo pipefail
 skill=".claude/skills/account-intelligence-platform"
 export APP_RW_PASSWORD="${APP_RW_PASSWORD:-local-dev-only}"
 
-bash "$skill/scripts/selftest.sh"
+uv run --frozen bash "$skill/scripts/selftest.sh"  # project venv provides PyYAML
 uv run --frozen python "$skill/scripts/validate_assets.py"
 uv run --frozen python "$skill/scripts/lint_migrations.py" migrations
 uv run --frozen ruff format --check .
