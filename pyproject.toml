@@ -6,6 +6,7 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
     "alembic>=1.13",
     "asyncpg>=0.29",
+    "boto3>=1.35",
     "fastapi>=0.115",
     "inngest>=0.4",
     "langgraph>=1.0",
@@ -20,6 +21,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "boto3-stubs[s3]>=1.35",
     "hypothesis>=6.100",
     "mypy>=1.11",
     "pytest>=8.0",

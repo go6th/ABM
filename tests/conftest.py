@@ -71,7 +71,7 @@ def database(request: pytest.FixtureRequest):
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
-        if item.nodeid.startswith(("tests/isolation/", "tests/integration/")):
+        if item.nodeid.startswith(("tests/isolation/", "tests/integration/", "tests/db/")):
             item.add_marker(pytest.mark.requires_postgres)
 
 
