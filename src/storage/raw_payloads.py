@@ -18,7 +18,7 @@ import yaml
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.data_layer import DataLayerError
+from src.db.errors import DataLayerError
 
 ROOT = Path(__file__).resolve().parents[2]
 DENYLIST_PATH = (

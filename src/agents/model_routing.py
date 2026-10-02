@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from src.db.data_layer import DataLayerError
+from src.db.errors import DataLayerError
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "model_routing.yaml"
 ROLES = {"planner", "extractor", "judge"}

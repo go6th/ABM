@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from src.agents.graph import GRAPH_VERSION
 from src.api.auth import Identity, require_role
-from src.db.data_layer import seed_coverage_rows
+from src.db.repositories.coverage import seed_coverage_rows
 from src.db.session import tenant_txn
 from src.orchestrator.functions import client as inngest_client
 

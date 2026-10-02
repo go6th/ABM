@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from src.db.data_layer import DataLayerError
+from src.db.errors import DataLayerError
 
 
 @dataclass(frozen=True)

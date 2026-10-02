@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.db.data_layer import DataLayerError
+from src.db.errors import DataLayerError
 
 ARMS = ("single", "split")
 METRIC_KEYS = ("coverage", "citation_validity", "cost_usd", "elapsed_seconds")
