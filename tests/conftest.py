@@ -20,7 +20,7 @@ PORT = os.getenv("PGPORT", "5432")
 TEST_DB = os.getenv("TEST_DB", "ai_test")
 ADMIN_USER = os.getenv("PGADMINUSER", "postgres")
 APP_PASSWORD = os.getenv("APP_RW_PASSWORD", "local-dev-only")
-ADMIN_MAINT_DSN = os.getenv("ADMIN_DSN", f"postgresql://{ADMIN_USER}@{HOST}:{PORT}/postgres")
+ADMIN_MAINT_DSN = os.getenv("ADMIN_MAINT_DSN", f"postgresql://{ADMIN_USER}@{HOST}:{PORT}/postgres")
 ADMIN_DSN = f"postgresql://{ADMIN_USER}@{HOST}:{PORT}/{TEST_DB}"
 APP_DSN = f"postgresql://app_rw:{APP_PASSWORD}@{HOST}:{PORT}/{TEST_DB}"
 
