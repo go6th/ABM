@@ -46,10 +46,9 @@ STARTER_TABLES = {"tenants"}
 
 
 def test_uuid_pk_and_timestamps_on_every_registered_model() -> None:
-    """Every v1 model carries a UUID pk and both timestamps (tightens as models land)."""
+    """Every v1 model has a single-column UUID pk and both timestamps."""
     for table in Base.metadata.tables.values():
-        pk = table.columns["id"]
-        assert pk.primary_key, table.name
+        (pk,) = table.primary_key.columns  # single-column UUID key (id, or account_id for counters)
         assert pk.type.python_type is UUID, table.name
         if table.name in STARTER_TABLES:
             continue
