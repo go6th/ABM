@@ -1,0 +1,80 @@
+version: "2026-10-02.1"
+status: "proposal"
+d_12_completion_policy:
+  high_rows_allowed_for_completed: ["done", "none"]
+d_13_tracker_rules:
+  attempts_per_row: 3
+  lead_proof:
+    min_queries: 3
+    min_tool_categories: 2
+    similarity_threshold:
+      value: 0.8
+      source: "TODO, needs product owner"
+  out_of_scope_reasons:
+    - "lane_not_in_scope"
+    - "waiting_on_account_owner"
+  error_severity_order:
+    - "auth_error"
+    - "rate_limit"
+    - "timeout"
+    - "server_error"
+    - "not_found"
+    - "unknown"
+reason_codes:
+  waiting_on_account_owner: "Waiting on account owner"
+  lane_not_in_scope: "Lane not in scope for this run"
+  source_unavailable: "Source unavailable"
+  source_rate_limited: "Source rate limited"
+  budget_cap: "Budget cap reached"
+  tool_call_cap: "Tool call cap reached"
+  page_cap: "Page cap reached"
+  deadline: "Deadline reached"
+  not_available_yet: "Not available yet"
+  claims_dropped: "Claims dropped by verification"
+  hostile_source_dropped: "Hostile source dropped"
+  swept_failed: "Swept due to run failure"
+  swept_canceled: "Swept due to run cancellation"
+  swept_budget: "Swept due to budget cap"
+  swept_deadline: "Swept due to deadline"
+  swept_unreported: "Swept unreported"
+  cap_reached: "Execution cap reached"
+  source_failed: "Source failed during execution"
+  fewer_than_expected: "Fewer results than expected"
+  out_of_scope: "Out of scope"
+transitions:
+  unset:
+    done: ["stage", "verifier"]
+    partial: ["stage", "verifier"]
+    not_done: ["stage", "finalizer"]
+    blocked: ["stage"]
+    none: ["stage", "verifier"]
+  not_done:
+    done: ["new_proof"]
+    partial: ["new_proof"]
+    not_done: ["unchanged_only"]
+    blocked: ["new_proof_with_failed_call"]
+    none: ["new_proof"]
+  blocked:
+    done: ["new_proof_successful_call"]
+    partial: ["new_proof_successful_call"]
+    not_done: ["no"]
+    blocked: ["new_proof"]
+    none: ["new_proof_successful_call"]
+  partial:
+    done: ["new_proof"]
+    partial: ["extend_proof"]
+    not_done: ["judge_or_gate_downgrade_only"]
+    blocked: ["no"]
+    none: ["no"]
+  none:
+    done: ["new_proof_with_results"]
+    partial: ["new_proof_with_results"]
+    not_done: ["no"]
+    blocked: ["no"]
+    none: ["extend_proof"]
+  done:
+    done: ["extend_proof"]
+    partial: ["judge_or_gate_downgrade"]
+    not_done: ["judge_or_gate_downgrade"]
+    blocked: ["no"]
+    none: ["no"]

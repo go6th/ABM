@@ -1,9 +1,12 @@
 """Legacy coverage implementation moved from workflow."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
+
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.enums import CoverageStatus
+
 
 @dataclass(frozen=True)
 class CoverageProof:
@@ -25,6 +28,7 @@ class CoverageProof:
         if self.reason is not None and not self.reason.strip():
             raise ValueError("reason cannot be blank")
 
+
 @dataclass
 class CoverageLedger:
     priorities: dict[str, str]
@@ -34,6 +38,7 @@ class CoverageLedger:
     @classmethod
     def from_config(cls) -> CoverageLedger:
         import yaml
+
         data = yaml.safe_load((CONFIG_DIR / "checklist.yaml").read_text())
         priorities = {
             str(row.get("key", row.get("id"))): str(row["priority"]).lower() for row in data["rows"]
