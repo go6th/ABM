@@ -212,6 +212,7 @@ async def test_judge_outcomes(cfg: GradingConfig) -> None:
         ("A", "probable", "unsupported", (False, "A", "probable", False)),
         ("C", "hypothesis", "unavailable", (True, "C", "hypothesis", False)),
         ("D", "lead", "unsupported", (True, "D", "lead", False)),
+        ("A", "internal", "unavailable", (True, "C", "internal", True)),
     ],
 )
 def test_apply_support_verdict(cfg: GradingConfig, engine: str, product: ProductGrade, outcome: str, expect: tuple[Any, ...]) -> None:
