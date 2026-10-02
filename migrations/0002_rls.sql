@@ -4,8 +4,16 @@
 --   * RLS added for the 0001 tables the listing never covered; wallet_ledger and tool_calls are insert-only
 --   * ORDER: run 0001, then the LangGraph checkpointer setup() as the migrator, then this file
 --     (the checkpoint block below fails if those tables do not exist)
-CREATE ROLE app_rw         LOGIN NOINHERIT NOBYPASSRLS; -- API + workers
-CREATE ROLE public_reader NOLOGIN;                       -- used by render_public only
+-- Roles are cluster-global objects: a bare CREATE ROLE fails on the second database in a
+-- cluster (reproduced when the isolation suite's scratch database shares the dev cluster).
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_rw') THEN
+    CREATE ROLE app_rw         LOGIN NOINHERIT NOBYPASSRLS; -- API + workers
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'public_reader') THEN
+    CREATE ROLE public_reader NOLOGIN;                     -- used by render_public only
+  END IF;
+END $$;
 GRANT public_reader TO app_rw;                           -- switched with SET LOCAL ROLE in txn
 
 -- Fail-closed accessor: unset or empty setting -> NULL -> every policy matches zero rows.

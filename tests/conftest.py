@@ -48,8 +48,9 @@ def database(request: pytest.FixtureRequest):
         c.execute(
             sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(TEST_DB))
         )
-        c.execute("DROP ROLE IF EXISTS app_rw")
-        c.execute("DROP ROLE IF EXISTS public_reader")
+        # Roles are cluster-global and survive across scratch databases; migration 0002
+        # creates them only when missing (a DROP here would fail once the dev database
+        # has granted privileges to them).
         c.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(TEST_DB)))
     env = os.environ | {
         "MIGRATOR_DATABASE_URL": os.getenv(
