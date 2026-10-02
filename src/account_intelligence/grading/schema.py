@@ -148,7 +148,7 @@ class GradedClaim(_Strict):
         if self.product_grade == "lead" and self.lead is None:
             raise ValueError("a lead needs its verification record (G9)")
         if "conflicting" in self.flags and not self.confirming_question:
-            raise ValueError("a conflicting value needs a question (G13)")
+            raise ValueError("a conflicting value needs a confirming question (G13)")
         return self
 
 
