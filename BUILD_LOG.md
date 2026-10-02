@@ -104,3 +104,39 @@ Commands and results (PostgreSQL 16 + pgvector in compose, Redis 7):
 | `mutmut` | not run |
 
 Not done or open: p_people operations (need grid contract), dollar prices per credit for p_scrape/p_signals/p_org, plan rate limits for p_scrape/p_signals, builtin fallback decision, runner should `release_lease` at slice end (WP 1.5), live smoke test not written (no credentials; nothing to run against).
+
+## Grading engine (2026-10-02, branch `feat/grading-engine`)
+
+Base: `feat/tracker-state-machine` with `feat/broker-connectors` merged (the tracker's 0008 chains onto 0007). Fixed a committed SyntaxError in `tracker/completion.py` (misplaced import) so `tests/tracker` collects.
+
+Plan (5 lines): grading engine WP (1.6 scope plus G1 to G15); files `src/account_intelligence/grading/`, facade `agents/grading.py`, migration 0009, `config/grading_policy.yaml`, `config/source_registry.yaml`, `docs/grading/`, ADR-0010 to 0014, `tests/grading/`, `evals/`; acceptance = reference parity, F1 to F5 failing-first tests, lying-generator tests for every G-rule, DB rule mirrors as app_rw, kill/replay, isolation; decisions D-01 and D-11 extensions, D-14, D-15 (all proposals); [VERIFY] p_scrape `maxAge: 0` bypasses cache (C12).
+
+Built:
+- Pure engine (config-driven; thresholds parsed strictly from `grading.yaml` rule strings) with fixes F1 to F5 (`docs/grading/reference-findings.md`).
+- Schema: `ProposedClaim` (no grade fields, `extra='forbid'`), `GradedClaim` validators (G2, G5, G6, G8, G9, G13) whoever constructs it; JSON Schema exported.
+- Rules: URL and verbatim-sentence checks, value support, hostile-content drop (G3, G4, G14); primary read computed from the ledger (G5); product precedence (D-01 proposal); Lead rule with ledger-checked queries and bounded loops (G9); judge with one re-ask and an unavailable cap (G12); lineage registry with unknown-lineage and unknown-date caps (G11, D-11, D-14).
+- Pipeline `grade_claims` (per-claim isolation, every drop counted, order-independent output hash); single write path `record_graded_fact` (idempotent; DB mirrors confirmed-needs-primary-read, only-confirmed-stated, product grade present, append-only, no fact without evidence at commit); `supersede`, `record_drops`, `record_lead`, `pin_config`.
+- Adapters over the connector ledger (sources and fetch records re-parsed from stored payloads; the ledger now stores call arguments); p_scrape now requests a live read (`maxAge: 0`).
+- Integration: Workflow `distill_grade` handler and `FactRepo`; evidence gate delegates to `grading.spans` (quotes now verbatim, case preserved); tracker Lead check delegates to `grading.leads`.
+- Migration 0009 (expand only): grading columns on `facts`, `fact_evidence`, `grade_events`, `claim_drops`, `lead_verifications`, `lead_verification_queries`, `account_runs.grading_config_hash`. The facts fixture in `tests/conftest.py` now writes a graded fact with evidence (the new invariants require it).
+
+Commands and results (PostgreSQL 16 + pgvector in compose):
+
+| Command | Result |
+|---|---|
+| `bash .../scripts/selftest.sh` | `selftest OK` |
+| `python .../scripts/grading_reference.py --selftest` | `selftest OK` |
+| `python .../scripts/validate_assets.py` | `OK: 33 coverage rows, 5 product grades, 8 routes, 10 alert rules` |
+| `python .../scripts/lint_migrations.py migrations` | `OK: 16 file(s)` |
+| `check_rls_catalog.sql` on the migrated test DB | no rows |
+| `alembic check`; downgrade 0008 then upgrade head | no drift; both ran |
+| `mypy --strict src/account_intelligence/grading`; `mypy` (project) | no issues (17 and 95 files) |
+| `ruff check` on all files this WP touched | pass; whole-repo `ruff check .` fails only in tracker files and `0008` (not this WP) |
+| `pytest tests/isolation -x` | 19 passed |
+| `pytest tests/grading` with coverage | 163 passed (eval deselected); `src/grading` 99%; engine, product, primary, leads, spans, judge 100% |
+| `pytest -m "not eval" --cov` | 573 passed, 12 skipped, 1 xfailed (defect 5); 95.25% |
+| `python -m account_intelligence.grading.docs --check` | current |
+| mutmut 3.8 on engine, product, primary, leads | 840 of 850 killed; 10 survivors all equivalent (`docs/grading/mutation.md`) |
+| calibration harness (`evals/grading_calibration.py`) | Blocked: needs analyst-reviewed golden accounts (synthetic labels only) |
+
+Open: every proposal (ADR-0010 to 0013, `docs/decisions/open-decisions.md`); no distinct judge model is configured, so every A, B and Confirmed is capped (`unjudged`); p_search reads are `cached_copy`, so only job pages read through p_scrape can be Confirmed; source registry has no domain entries; the data-layer plan's rename of `facts` will move migration 0009's constraints.

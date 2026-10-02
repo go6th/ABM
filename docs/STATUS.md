@@ -58,3 +58,17 @@ Status: built on branch `feat/broker-connectors`, not merged. Code in
 Verified locally against PostgreSQL: isolation suite, RLS catalog, kill/resume in a
 subprocess, two workers, 50 concurrent calls, budget caps, spend equals ledger. Open
 items: `docs/providers/README.md`.
+
+## Grading engine
+
+Status: built on branch `feat/grading-engine` (stacked on the tracker and connector branches), not merged.
+Code in `src/account_intelligence/grading/` with the public facade `agents/grading.py`; rules in
+`docs/grading/rules.md` (generated); decisions ADR-0010 to ADR-0014 and `docs/decisions/open-decisions.md`.
+
+Proven by tests: no model-set grade; Confirmed only from a code-verified live T1 page read in this run
+(also refused by the database for the runtime role); no Lead finalised without three ledger-backed,
+differently worded queries across two categories; no fact without a URL and a verbatim sentence (or a
+search proof for absence), and none without evidence at commit; deterministic output.
+
+Needs decisions: D-01 and D-11 extensions, D-14 (dating and read origin), D-15 (source registry),
+the similarity threshold, and a judge model distinct from the generator.
