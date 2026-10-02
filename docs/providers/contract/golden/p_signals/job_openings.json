@@ -1,0 +1,36 @@
+{
+ "items_read": 1,
+ "next_cursor": null,
+ "provider_credits": null,
+ "records": [
+  {
+   "categories": [
+    "software_development",
+    "data_analysis"
+   ],
+   "description_text": "# AI Engineer\n\n$50K - $120K•0.10% - 0.50%•London, England, GB\n\n**Job type**\n\nFull-time\n\n**Role**\n\nEngineering, Machine learning\n\n**Experience**\n\nAny (new grads ok)\n\n**Visa**\n\nUS citizenship/visa not required\n\nApply to Terra API and hundreds of other fast-growing YC startups with a single profile.\n\nApply to role ›\n\n## About the role\n\nWe work in super small teams, with extremely high velocity.\n\nWe are building multiple AI products, such as OdinAI, Graph API, and many more\n\nAs an AI engineer, you'll work in a small team, with maximum autonomy.\n\n* Be behind the curtain, creating, testing, and implementing AI models\n* Engage in data analysis, machine learning, and natural language processing.\n* Fine-tuning the AI's performance\n  and many more\n\nPreferred background:\n\nBachelor's or Master's degree in STEM.\nStrong technical skills (e.g. familiarity with a programming language such as Python, JavaScript, or Ruby)\nExperience with growth marketing, product development, and user acquisition/retention\n\n**Must haves.**\n\n-Must have done this before, or be willing to learn fast.\n\n-Must be fast. We operate at 200mph, and so do you.\n\n-Must be relentless. We never stop, so you are even faster than us.\n\n-Must have customer driven. We think customers first and so should you.\n\n-Must be driven and go above and beyond.\n\n-Must be able to explain and communicate clearly.\n\n-Must be prepared to challenge us and disagree. We are thinking and acting as a team.\n\n-Must be able to work autonomously.\n\n-Must want to work hard.\n\n-Last but not least, you are genuinely a nice person.\n\n**Big plus** You are an athlete, or care about quantifying your data\n\n## About Terra API\n\n## What we do\n\nTerra is the infrastructure layer for health data access.\n\nHealth data is trapped across hundreds of siloed sources: wearables, sensors, health apps, medical devices, blood tests, team systems, and clinical platforms. Every source has its own authentication, permissions, schema, latency, edge cases, and reliability problems.\n\nTerra abstracts all of that into one platform.\n\nWe give companies a single way to connect to health data, normalize it, stream it, analyze it, and build products on top of it. Today, Terra powers some of the top health companies in the world, as well as leading AI labs building the next generation of health intelligence.\n\nWe deliver more than 30 billion activities per year through infrastructure built for scale, security, and reliability.\n\n## Vision\n\nThe future of health is extreme personalization.\n\nHealth will move from care plans to goal setting: living to 120, winning the Olympics, becoming sharper, reversing disease, or performing at the top of any field.\n\nAI will help people understand themselves, predict outcomes 10 years ahead, and choose what they want to become.\n\nTo do that, AI needs continuous, permissioned, real-world health data from every source.\n\nTerra is building the infrastructure that makes this possible.\n\nTerra API\n\nFounded:2021\n\nBatch:W21\n\nTeam Size:25\n\nStatus:Active\n\nLocation:London, United Kingdom",
+   "first_seen_at": "2025-10-17T19:11:22Z",
+   "job_id": "4d5ac23c-5824-427d-96c6-4e8d50a4241a",
+   "kind": "job_opening",
+   "last_seen_at": "2026-10-01T18:31:01Z",
+   "lineage_hint": null,
+   "location": "London, United Kingdom, Northern Europe, Europe",
+   "normalized_title": "AI Engineer",
+   "posted_at": null,
+   "provenance": {
+    "index": 0,
+    "operation": "job_openings",
+    "page": 1,
+    "provider_code": "p_signals",
+    "raw_ref": "golden/p_signals/job_openings",
+    "retrieved_at": "2026-10-02T12:00:00Z",
+    "source_url": "https://www.ycombinator.com/companies/terra-api/jobs/0f5CP0r-ai-engineer"
+   },
+   "seniority": "mid_senior",
+   "status": "closed",
+   "title_text": "AI Engineer",
+   "url": "https://www.ycombinator.com/companies/terra-api/jobs/0f5CP0r-ai-engineer"
+  }
+ ],
+ "warnings": []
+}
