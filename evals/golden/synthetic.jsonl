@@ -1,0 +1,11 @@
+{"account": "synthetic-a.example", "attribute_key": "jobs.role_0.open", "citation_valid": true, "confidence": 0.95, "correct": true, "engine_grade": "A", "synthetic": true}
+{"account": "synthetic-a.example", "attribute_key": "jobs.role_1.open", "citation_valid": true, "confidence": 0.78, "correct": true, "engine_grade": "B", "synthetic": true}
+{"account": "synthetic-a.example", "attribute_key": "jobs.role_2.open", "citation_valid": true, "confidence": 0.72, "correct": true, "engine_grade": "B", "synthetic": true}
+{"account": "synthetic-a.example", "attribute_key": "jobs.role_3.open", "citation_valid": true, "confidence": 0.6, "correct": true, "engine_grade": "C", "synthetic": true}
+{"account": "synthetic-a.example", "attribute_key": "jobs.role_4.open", "citation_valid": true, "confidence": 0.4, "correct": false, "engine_grade": "D", "synthetic": true}
+{"account": "synthetic-b.example", "attribute_key": "jobs.role_0.open", "citation_valid": true, "confidence": 0.95, "correct": true, "engine_grade": "A", "synthetic": true}
+{"account": "synthetic-b.example", "attribute_key": "jobs.role_1.open", "citation_valid": true, "confidence": 0.78, "correct": false, "engine_grade": "B", "synthetic": true}
+{"account": "synthetic-b.example", "attribute_key": "jobs.role_2.open", "citation_valid": true, "confidence": 0.72, "correct": true, "engine_grade": "B", "synthetic": true}
+{"account": "synthetic-b.example", "attribute_key": "jobs.role_3.open", "citation_valid": true, "confidence": 0.6, "correct": true, "engine_grade": "C", "synthetic": true}
+{"account": "synthetic-b.example", "attribute_key": "jobs.role_4.open", "citation_valid": true, "confidence": 0.4, "correct": true, "engine_grade": "D", "synthetic": true}
+{"expected": {"synthetic-a.example": ["jobs.role_0.open", "jobs.role_1.open", "jobs.role_2.open", "jobs.role_3.open", "jobs.role_4.open", "jobs.role_5.open"], "synthetic-b.example": ["jobs.role_0.open", "jobs.role_1.open", "jobs.role_2.open", "jobs.role_3.open", "jobs.role_4.open"]}}
