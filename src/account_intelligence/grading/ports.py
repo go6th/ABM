@@ -59,13 +59,13 @@ class FetchRecord:
 
 
 class SourceTextPort(Protocol):
-    def sources(self, run: RunInfo) -> Sequence[RunSource]:
+    async def sources(self, run: RunInfo) -> Sequence[RunSource]:
         """All stored source records of this run (never another run or tenant)."""
         ...
 
 
 class FetchLedgerPort(Protocol):
-    def fetches(self, run: RunInfo) -> Mapping[str, FetchRecord]:
+    async def fetches(self, run: RunInfo) -> Mapping[str, FetchRecord]:
         """Every ledgered call of this run keyed by call_ref, including failed calls."""
         ...
 
@@ -73,7 +73,7 @@ class FetchLedgerPort(Protocol):
 class SupportJudgePort(Protocol):
     model_task: str
 
-    def judge(self, claim: str, sentence: str) -> Any:
+    async def judge(self, claim: str, sentence: str) -> Any:
         """Return raw judge output (validated by ``judge.JudgeVerdict``) or raise."""
         ...
 
