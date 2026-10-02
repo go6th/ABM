@@ -174,3 +174,12 @@ async def test_kill_mid_transaction_leaves_nothing_and_replay_writes_once(tenant
     assert _admin_count("SELECT count(*) FROM facts WHERE run_id = %s", run) == 1
     assert _admin_count("SELECT count(*) FROM fact_evidence WHERE fact_id = %s", replay) == 1
     assert uuid4()
+
+
+async def test_grading_config_hash_is_pinned_once_on_the_run(tenant_a: UUID, cfg: GradingConfig) -> None:
+    account, run, _ = make_run(tenant_a)
+    info = run_info(tenant_a, account, run)
+    assert await repo.pin_config(tenant_txn, info, cfg.content_hash) == cfg.content_hash
+    assert await repo.pin_config(tenant_txn, info, "f" * 64) == cfg.content_hash
+    with pytest.raises(LookupError):
+        await repo.pin_config(tenant_txn, run_info(tenant_a, account, uuid4()), cfg.content_hash)

@@ -20,3 +20,4 @@ ALTER TABLE facts
    DROP COLUMN IF EXISTS config_hash, DROP COLUMN IF EXISTS schema_version, DROP COLUMN IF EXISTS lead_status,
    DROP COLUMN IF EXISTS may_state_to_prospect, DROP COLUMN IF EXISTS superseded_by;
 ALTER TABLE facts DROP CONSTRAINT IF EXISTS uq_facts_tenant_id_id;
+ALTER TABLE account_runs DROP COLUMN IF EXISTS grading_config_hash;

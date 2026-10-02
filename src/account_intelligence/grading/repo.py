@@ -153,6 +153,22 @@ async def supersede(
         return new_id
 
 
+async def pin_config(txn: TxnFactory, run: RunInfo, config_hash: str) -> str:
+    """Pin the grading config hash on the run once; return the pinned hash. A later call with a
+    different hash leaves the first one (a run is always graded with one configuration)."""
+    async with txn(run.tenant_id) as s:
+        await s.execute(
+            text("UPDATE account_runs SET grading_config_hash = :h WHERE id = :r AND grading_config_hash IS NULL"),
+            {"h": config_hash, "r": run.run_id},
+        )
+        pinned = (
+            await s.execute(text("SELECT grading_config_hash FROM account_runs WHERE id = :r"), {"r": run.run_id})
+        ).scalar_one_or_none()
+    if pinned is None:
+        raise LookupError("run not found for this tenant")
+    return str(pinned)
+
+
 async def record_drops(txn: TxnFactory, run: RunInfo, drops: Sequence[Dropped]) -> int:
     """Every drop is counted (insert-only, idempotent per run, claim and reason)."""
     written = 0

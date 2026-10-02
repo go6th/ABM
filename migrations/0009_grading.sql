@@ -60,6 +60,10 @@ END $$;
 CREATE TRIGGER facts_guard_append_only BEFORE UPDATE ON facts
    FOR EACH ROW EXECUTE FUNCTION facts_guard_append_only();
 
+-- The grading configuration a run was graded with, pinned beside graph_version (set once).
+ALTER TABLE account_runs ADD COLUMN grading_config_hash text,
+   ADD CONSTRAINT ck_account_runs_grading_config_hash CHECK (grading_config_hash ~ '^[0-9a-f]{64}$');
+
 CREATE TABLE fact_evidence (
    id                  uuid NOT NULL DEFAULT gen_random_uuid(),
    tenant_id           uuid NOT NULL DEFAULT app_tenant(),
