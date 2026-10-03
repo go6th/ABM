@@ -286,3 +286,18 @@ def test_pipeline_terminates_and_keeps_invariants_for_any_outage(
     c = result.counts
     assert c.found == c.distinct + c.merged_away
     assert corpus.ledger.paid <= 60
+
+
+@pytest.mark.asyncio
+async def test_a_lane_switched_off_is_not_a_shortfall() -> None:
+    cfg = load_people_config()
+    corpus = Corpus()
+    corpus.lanes_off = frozenset(lane for lane in cfg.lane_ids() if lane != "servicenow")
+    result = await Kit(corpus).run()
+    ev = next(e for e in result.evidence if e.row_key == "people_by_platform")
+    assert set(result.lanes_not_searched.values()) == {"lane_not_in_scope"}
+    assert not ev.cap_hit and ev.expected_calls == 2  # two passes, both complete
+    corpus = Corpus()
+    corpus.lanes_off = frozenset(lane for lane in cfg.lane_ids() if lane != "data_ai")
+    ev = next(e for e in (await Kit(corpus).run()).evidence if e.row_key == "people_by_platform")
+    assert ev.cap_hit is True or ev.not_attempted_reason == "not_available_yet"

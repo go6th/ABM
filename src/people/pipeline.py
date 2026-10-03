@@ -550,7 +550,10 @@ class PeoplePipeline:
                 )
                 if reason not in ("not_available_yet", "budget_cap", "deadline"):
                     reason = "source_unavailable"
-        cap = any(o.cap_hit or not o.complete for o in w.outcomes) or bool(not_searched)
+        # a lane switched off is out of scope, not a shortfall; a lane left unsearched for any
+        # other reason (no titles configured) is
+        shortfall = any(why != "lane_not_in_scope" for why in not_searched.values())
+        cap = any(o.cap_hit or not o.complete for o in w.outcomes) or shortfall
         people_ev = RowEvidence(ROW_PEOPLE, refs, max(searched, 1), cap, reason)
         profile_refs = tuple(dict.fromkeys((*prof.call_refs, *prof.failed_refs)))
         in_scope = [p for p in people if p.status == "in_scope"]
