@@ -478,3 +478,49 @@ def test_counts_alias_and_failed_profiles(cfg: PeopleConfig) -> None:
         lanes=cfg.lanes,
     )
     assert (c.alumni.count, c.profiles_failed, c.profiles_requested) == (1, 1, 2)
+
+
+def test_counts_accumulate_not_overwrite(cfg: PeopleConfig) -> None:
+    from people.models import Post
+
+    people = [person(k, lanes=["sap"], profile_state="read") for k in ("a", "b", "c")]
+    common = {
+        "join_date": PartialDate(year=2010),
+        "certifications": ("SAP Certified",),
+        "prior_employers": ("Ref Co",),
+    }
+    profiles = {
+        "a": _profile("a", **common),
+        "b": _profile("b", **common),
+        "c": _profile("c", hostile=True, **common),
+    }
+    posts = [
+        Post(
+            person_key="a",
+            post_url="https://www.example.org/p/1",
+            excerpt="",
+            excerpt_sha256="0" * 64,
+            raw_ref="r",
+            call_ref="c",
+            hostile=True,
+        )
+    ]
+    c = compute_counts(
+        people,
+        profiles,
+        posts,
+        reference_employers=("Ref Co",),
+        alumni_aliases={},
+        as_of=date(2026, 10, 3),
+        buckets=cfg.tenure_buckets,
+        lanes=cfg.lanes,
+    )
+    assert c.tenure_buckets["5y_plus"] == 3 and c.certified_by_lane["sap"] == 3
+    assert c.alumni.count == 3 and c.hostile == 2
+
+
+def test_stable_plan_passes_the_threshold() -> None:
+    t1, t2 = frozenset({"director", "crm"}), frozenset({"director", "crm", "ops"})
+    items = [_i("a", U1, "Jo Bo", title_tokens=t1), _i("m", None, "Jo Bo", title_tokens=t2)]
+    assert stable_plan(items, 0.6, 2).merged_into("m") == "a"
+    assert stable_plan(items, 0.7, 2).merged_into("m") is None
