@@ -2,17 +2,21 @@
 
 | Package | Imports (first-party packages) |
 |---|---|
-| `account_intelligence.agents` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.grading` |
-| `account_intelligence.api` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.orchestrator` |
+| `account_intelligence.agents` | `account_intelligence.grading` |
+| `account_intelligence.api` | `account_intelligence.app`, `account_intelligence.config`, `account_intelligence.config_files`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.tracker`, `account_intelligence.workflow` |
+| `account_intelligence.app` | `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.workflow` |
 | `account_intelligence.config` | - |
-| `account_intelligence.connectors` | `account_intelligence.config` |
+| `account_intelligence.config_files` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.tracker`, `account_intelligence.workflow`, `jobs` |
+| `account_intelligence.connectors` | `account_intelligence.config`, `account_intelligence.platform` |
 | `account_intelligence.db` | `account_intelligence.config`, `account_intelligence.urls` |
-| `account_intelligence.grading` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.urls` |
-| `account_intelligence.orchestrator` | `account_intelligence.agents`, `account_intelligence.config` |
-| `account_intelligence.tracker` | `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.grading` |
+| `account_intelligence.grading` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.platform`, `account_intelligence.urls` |
+| `account_intelligence.platform` | `account_intelligence.config` |
+| `account_intelligence.runs` | `account_intelligence.tracker` |
+| `account_intelligence.safety` | `account_intelligence.config` |
+| `account_intelligence.tracker` | `account_intelligence.config`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety` |
 | `account_intelligence.urls` | - |
-| `account_intelligence.workflow` | `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.tracker` |
-| `jobs` | - |
+| `account_intelligence.workflow` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.safety`, `account_intelligence.tracker`, `jobs` |
+| `jobs` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker` |
 
 ## Package-level cycles
 
@@ -21,28 +25,9 @@ None.
 ## Modules no first-party module imports (entry points, scripts or dead code)
 
 * `account_intelligence.agents.grading`
-* `account_intelligence.connectors.factory`
 * `account_intelligence.connectors.registry_internal`
 * `account_intelligence.db.source_ids`
-* `account_intelligence.grading.adapters`
-* `account_intelligence.grading.integration`
-* `account_intelligence.storage`
-* `account_intelligence.tracker.guard`
 * `account_intelligence.tracker.leads`
-* `account_intelligence.tracker.render`
-* `account_intelligence.tracker.service`
-* `account_intelligence.workflow.engine`
 * `account_intelligence.workflow.evidence_gate`
-* `account_intelligence.workflow.stages`
-* `account_intelligence.workflow.stages.s05_jobs`
-* `account_intelligence.workflow.transitions`
-* `jobs.claims`
-* `jobs.classify`
-* `jobs.config`
-* `jobs.counts`
-* `jobs.escalate`
+* `account_intelligence.workflow.ports`
 * `jobs.export`
-* `jobs.extractor`
-* `jobs.match`
-* `jobs.pipeline`
-* `jobs.sentences`

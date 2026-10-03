@@ -1,25 +1,25 @@
 # Project status
 
-## The 13 roadmap items (audit pass 1, 2026-10-02, branch `feat/integrate-gcp-production`)
+## The 13 roadmap items (audit pass 2, 2026-10-03, branch `feat/integrate-gcp-production`)
 
-"Substitute evidence" = the work package's own committed tests, used because its spec prompt is not yet
-in `docs/prompts/` (see `docs/prompts/README.md`).
+"Blocked" means the code and its harness exist and the remaining step needs something only the
+owner can supply (named in the last column). Evidence is a test or command run on this branch.
 
-| # | Item | Status | Evidence | Missing / Blocked |
+| # | Item | Status | Evidence | Remaining / Blocked |
 |---|---|---|---|---|
-| P0-1 | Workflow engine decision | Partial | connector kill/resume and two-worker tests (`tests/connectors/test_kill_resume.py`, `test_ledger_budget.py::test_two_workers_on_one_run_never_both_pay`) | no orchestration spike on the target scheduler; no D-18 ADR; sign-off Blocked: needs Tech lead |
-| P0-2 | Model split benchmark | Partial | `config/models.yaml` (profiles, arms, no model IDs in `src/`: grep) | no benchmark harness, no results table; run Blocked: needs September account outputs |
-| P0-3 | People source decision | Missing | none | adapter switch and comparison protocol; Blocked: needs real accounts, credits, analyst |
-| P0-4 | Golden accounts | Partial | `evals/grading_calibration.py` (claim-level, synthetic) | golden-account format and loader; Blocked: needs 3 to 5 analyst-reviewed runs |
-| P0-5 | Checklist to config | Partial | `config/checklist.yaml`, `grading.yaml`, `output_spec.yaml`; `validate_assets.py` OK; `tests/unit/test_enums.py` | no test that loads and validates `output_spec.yaml` and the checklist through one typed loader |
-| P0-6 | Environments and CI | Missing | `.github/workflows/ci.yml` (GitHub, local Postgres service) | GCP as code, three environments, WIF, deploy; apply Blocked: needs GCP project |
-| P0-7 | Data protection review | Missing | none | `docs/data-handling-people-data.md`; sign-off Blocked: needs counsel |
-| P1-1 | Data layer v1 | Partial | migrations 0001 to 0009; `tests/db`, `tests/isolation` (19 passed); RLS catalog clean | `job_postings`, `people`, `tech_detections`; two run tables unlinked (AUDIT F-2); payload store has no cloud adapter |
-| P1-2 | Broker connectors | Done (p_people Blocked) | `pytest tests/connectors` 207 passed; spec gates in BUILD_LOG | p_people Blocked: needs workspace grid contract |
-| P1-3 | Workflow v1 | Partial (substitute evidence) | `tests/workflow` | 13 stage handlers `NotConfigured`; the runner executes the starter graph (AUDIT F-1) |
-| P1-4 | Tracker state machine | Partial (substitute evidence); **defect** | `tests/tracker` (pure logic) | completion guard never fires (AUDIT F-3, reproduced); no DB tests |
-| P1-5 | Grading engine | Done | `pytest tests/grading` 163 passed; DB refuses Confirmed without primary read (`test_db_refuses_confirmed_without_primary_read_for_app_rw`) | proposals need sign-off (D-01 ext, D-11 ext, D-14, D-15) |
-| P1-6 | Job posting pipeline | Partial (substitute evidence) | `tests/jobs` (9 tests) | no `job_postings` table or repo; ports unwired; no counts-equal-oracle test found |
+| P0-1 | Workflow engine decision (D-18) | Done hermetically; sign-off Blocked | ADR-0018; `tests/system/test_kill_resume.py` (5 kills, two workers); approval and timeout tests | real-queue spike (V-TASKS-1); tech lead sign-off |
+| P0-2 | Model split benchmark | Harness done; run Blocked | `evals/model_benchmark.py`, `docs/benchmarks/model-split.md`, `tests/unit/test_evals_harnesses.py` | September outputs and reviewed golden accounts |
+| P0-3 | People source decision | Switch and protocol done; decision Blocked | `config/people_sources.yaml`, `evals/people_compare.py`, `docs/people-source-comparison.md` | real accounts, credits, analyst, p_people contract |
+| P0-4 | Golden accounts | Format and loader done; content Blocked | `evals/golden_accounts.py`, `evals/golden/accounts/synthetic-acme.yaml` | 3 to 5 analyst-reviewed accounts |
+| P0-5 | Checklist and output spec to config | Done | `config_files.load_all`, `tests/unit/test_config_files.py`, `tests/workflow/test_stage_map.py` | |
+| P0-6 | Environments and CI | Done as code; apply Blocked | `infra/` (fmt and validate pass), `Dockerfile` (smoke), `.github/workflows/ci.yml` (actionlint), `make deploy-staging`, `docs/runbooks/` | owner's GCP projects, billing, WIF variables |
+| P0-7 | Data protection review | Draft done; review Blocked | `docs/data-handling-people-data.md` (Draft for counsel) | counsel |
+| P1-1 | Data layer v1 | Done | migrations 0001 to 0012; `tests/db`, `tests/isolation` 20 passed; RLS catalog clean | |
+| P1-2 | Broker connectors | Done (p_people Blocked) | `tests/connectors` | p_people grid contract |
+| P1-3 | Workflow v1 | Done (builders and gate `NotConfigured`) | `tests/system/test_whole_run.py`, `test_failure_injection.py`, `tests/workflow` | deliverable builders (OI-BLD-1) |
+| P1-4 | Tracker state machine | Done | `tests/tracker` (lying stages, DB defences, races, SIGKILL, stateful) | D-12, D-13 sign-off |
+| P1-5 | Grading engine | Done | `tests/grading`; lying-generator whole run | D-01 ext, D-11 ext, D-14, D-15 sign-off |
+| P1-6 | Job posting pipeline | Done (deviations listed) | `tests/jobs` (oracle, lying model, properties, DB) | D-16, D-17; OI-JOBS-1 to 3 |
 
 ## Earlier work-package notes
 

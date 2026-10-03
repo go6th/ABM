@@ -156,3 +156,15 @@ ignore-nested-functions = true
 ignore-nested-classes = true
 ignore-overloaded-functions = true
 exclude = ["src/account_intelligence/agents/prompts"]
+
+# Security scan. Skipped with reasons: B101 asserts are type narrowing after validated routing and
+# the image never runs with -O (PYTHONOPTIMIZE unset); B311 random is backoff jitter, never a
+# secret. Everything else must be clean or carry a line-level '# nosec <id>' with its reason.
+[tool.bandit]
+skips = ["B101", "B311"]
+
+[[tool.importlinter.contracts]]
+name = "runs never imports the workflow (one-way dependency; the runner calls the lifecycle)"
+type = "forbidden"
+source_modules = ["account_intelligence.runs"]
+forbidden_modules = ["account_intelligence.workflow"]

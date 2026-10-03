@@ -90,3 +90,61 @@ is a superset. A stage that rewrites proof could keep the gap loop "progressing"
 ## Comment-free files
 
 Measured in pass 2 by `scripts/check_comments.py` (added in Step B).
+
+---
+
+# Audit pass 2 (2026-10-03)
+
+Every row was rechecked against the code on `feat/integrate-gcp-production`, in the single project
+folder `/home/sakib/ABM Generator`, with the commands in the gates table.
+
+## Gates at pass 2
+
+| Gate | Command | Result |
+|---|---|---|
+| Skill self-test | `bash .claude/skills/.../selftest.sh` | `selftest OK` |
+| Assets | `validate_assets.py` | `OK: 33 coverage rows, 5 product grades, 8 routes, 10 alert rules` |
+| Migration lint | `lint_migrations.py migrations` | `OK: 22 file(s)` |
+| RLS catalog | `check_rls_catalog.sql` after `alembic upgrade head` | no rows |
+| Lint, format | `ruff check .`, `ruff format --check .` | clean |
+| Types | `mypy` (strict, `src`) | no issues |
+| Import contracts (W1) | `lint-imports` | 7 kept, 0 broken |
+| Single write paths (W1) | `tests/system/test_single_write_paths.py` | pass |
+| Docstrings, comments, guarantees | `interrogate src`, `check_comments.py`, `check_guarantees.py` | 100%; all files; 0 dangling, 0 untagged guards |
+| Loop inventory (W8) | `gen_loops.py --check` | current; no unannotated loop |
+| Security, dead code | `bandit -c pyproject.toml`, `vulture` (whitelist) | clean |
+| Isolation (hard gate) | `pytest tests/isolation -x` | 20 passed |
+| Everything except evals | `pytest -m "not eval" --cov --cov-fail-under=90` | 1074 passed, 12 skipped (live/eval), 94.41% |
+| Terraform | `make infra-fmt infra-validate` (Docker) | fmt clean; dev, staging, production valid (google 6.50.0) |
+| Image | `docker build`, `scripts/smoke_image.sh` | non-root uid 10001, `/readyz` 200, SIGTERM exit 0 |
+| CI workflow | `actionlint` | clean |
+| Port contracts | fake-gcs-server and Cloud Tasks emulator | GCS and Cloud Tasks adapters pass |
+| Clean clone | fresh `git clone`, `uv sync --frozen`, every gate on a new scratch database | see BUILD_LOG 2026-10-03 |
+
+## Findings at pass 2
+
+| ID | Pass 1 | Pass 2 | Evidence |
+|---|---|---|---|
+| F-1 | runtime ran the starter graph | **Fixed**: the starter graph, runner and Inngest functions are removed; the worker runs Workflow v1 (13 stages) | `workflow/runner.py`, `tests/system/test_whole_run.py` |
+| F-2 | two unlinked run tables | **Fixed**: one id, both rows created together by `runs.lifecycle` | ADR-0016, `tests/runs` |
+| F-3 | completion guard never fired | **Fixed** (0010) | `tests/db/test_run_completion_guard.py` |
+| F-4 | built components unwired | **Fixed**: connectors, tracker, grading, jobs all on the run path; remaining unimported modules are entry points or spec ports (module map) | `docs/architecture/module-map.md` |
+| F-5 | ports without adapters | **Fixed**: LLM, scheduler, payloads, secrets, database, checkpointer adapters; builders and gate remain `NotConfigured` by design (OI-BLD-1) | `platform/` |
+| F-6 | duplicate ports | **Fixed**: one `PayloadStore`, `Clock`, `NotConfigured` | `platform/ports.py` |
+| F-7 | rule duplicates merged | no action | |
+| F-8 | missing tables | **Fixed** (0010, 0012) | |
+| F-9 | guard bypass paths | **Fixed**: single write paths enforced (W1) | `test_single_write_paths.py` |
+| F-10 | local runtime pieces | **Fixed**: Inngest, boto3, S3 store, SeaweedFS removed; GCP adapters behind `container.py`; `assert_gcp_runtime` (W4) | ADR-0017 |
+| F-11 | tracker ownership not enforced | **Fixed**: owner pinned at seeding; T7 tests | `tests/tracker/test_lying_stages.py` |
+| F-12 | gap progress by hash | **Fixed**: progress counts proof calls | `tracker/gap.py`, `tests/tracker/test_edges.py` |
+
+New findings during pass 2, all fixed in this pass: the rate limiter spun on sub-microsecond waits;
+a canary echo was dropped without being counted; the cloud container never built the connector
+runtime; the SIGTERM handler replaced uvicorn's; two slice deliveries could run one run at once
+(run lease now taken per slice); a `runs` <-> `workflow` package cycle; bidirectional characters in
+a regex literal (bandit B613).
+
+## Spec compliance
+
+`docs/audit/SPEC-COMPLIANCE.md` (tracker, workflow, jobs) is current; remaining partial items are
+the open items in `docs/open-items.md`.

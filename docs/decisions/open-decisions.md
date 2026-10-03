@@ -16,3 +16,6 @@ product owner signs it; config blocks for proposals say `status: proposal`.
 | D-17 | Lane keywords and platform aliases | platform names as board keywords; no aliases; Data and AI has no terms | ADR-0008, `config/job_lanes.yaml` |
 | (new) | "Differently worded": metric, threshold 0.5, stopwords | Jaccard token set | ADR-0013 |
 | (new) | Judge model profile distinct from the generator | none configured: every A/B/Confirmed capped | `config/models.yaml`, ADR-0010 |
+| D-18 | Orchestration on Google Cloud | Cloud Tasks behind RunScheduler; named slice tasks; approval-timeout task | ADR-0018 |
+| D-19 | LLM access path | Claude on Vertex AI by default, the Anthropic API as the alternative; model ids in config | ADR-0019 |
+| D-20 | Projects, region and egress | one project per environment; asia-south1; direct VPC egress through Cloud NAT | ADR-0020 |
