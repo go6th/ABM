@@ -41,6 +41,13 @@ PAD = (
     " This synthetic posting text exists only to test the pipeline and describes no real role." * 3
 )
 CANARY = "CANARY-7f3a9e"
+LEDGER_SUM = (
+    "SELECT COALESCE(SUM(e.charged_usd) FILTER (WHERE e.event IN ('done', 'failed', 'abandoned')),"
+    " 0) + COALESCE(SUM(e.reserved_usd) FILTER (WHERE e.event = 'started' AND NOT EXISTS (SELECT 1"
+    " FROM tool_call_events t WHERE t.run_id = e.run_id AND t.args_hash = e.args_hash AND"
+    " t.attempt = e.attempt AND t.event IN ('done', 'failed', 'abandoned'))), 0)"
+    " FROM tool_call_events e WHERE e.run_id = %s"
+)  # connectors.ledger.Ledger.ledger_sum: abandoned (possibly paid) attempts count as spend
 # The production node RetryPolicy shape (retry_on RetryableProviderError, 3 attempts) with
 # millisecond intervals so tests do not sleep.
 FAST_RETRY = RetryPolicy(
@@ -357,3 +364,82 @@ async def noop() -> AsyncIterator[None]:
 
 
 Unused = Callable[[], None]
+
+
+async def drive(
+    harness: Harness,
+    script: Script,
+    tenant_id: UUID,
+    run_id: UUID,
+    *,
+    worker_id: str = "worker-a",
+    after_response_hook: Any = None,
+    settings: SliceSettings | None = None,
+) -> InProcessScheduler:
+    """Run an EXISTING run's slices to the end with this harness (kill/resume and concurrency
+    tests). The payload store is the harness's (a shared LocalPayloadStore across processes)."""
+    from tests.conftest import APP_DSN
+
+    install(harness)
+    llm = ScriptedLlm(script)
+    overrides: dict[str, Any] = {}
+    if after_response_hook is not None:
+        overrides["after_response_hook"] = after_response_hook
+    runtime = harness.runtime(worker_id=worker_id, **overrides)
+    spec = load_spec()
+
+    async def deps_factory(t: UUID, r: UUID) -> RunDeps:
+        async with tenant_txn(t) as s:
+            from sqlalchemy import text
+
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT r.account_id, a.domain, r.run_input FROM account_runs r"
+                        " JOIN accounts a ON a.id = r.account_id WHERE r.id = :r"
+                    ),
+                    {"r": r},
+                )
+            ).one()
+        return RunDeps(
+            tenant_id=t,
+            run_id=r,
+            account_id=row.account_id,
+            domain=row.domain,
+            txn=tenant_txn,
+            llm=llm,
+            payloads=harness.payloads,
+            clock=harness.clock,
+            spec=spec,
+            connectors=runtime,
+            canary=CANARY,
+            extra_allowed_hosts=frozenset({DOMAIN, f"news.{DOMAIN}"}),
+            run_input=dict(row.run_input or {}),
+        )
+
+    scheduler = InProcessScheduler()
+    saver = checkpointer_factory(APP_DSN)
+
+    async def run_slice(t: UUID, r: UUID, n: int) -> None:
+        await execute_slice(
+            deps_factory, saver, scheduler, t, r, n, settings=settings, retry_policy=FAST_RETRY
+        )
+
+    scheduler.runner = run_slice
+    await scheduler.enqueue_slice(tenant_id, run_id, 0)
+    await scheduler.drain()
+    return scheduler
+
+
+async def create_only(harness: Harness, auto_approve: bool = True) -> tuple[UUID, UUID]:
+    """A tenant with a wallet and a created run (nothing executed)."""
+    t = tenant(auto_approve=auto_approve)
+    async with tenant_txn(t) as s:
+        created = await create_run(
+            s,
+            t,
+            RunRequest(DOMAIN, "standard", f"k-{t}", {}),
+            RunLimits("v1", Decimal("5.00"), 60, Decimal("6.0")),
+            tracker(s),
+        )
+    return t, created.run_id

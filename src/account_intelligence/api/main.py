@@ -21,9 +21,15 @@ from fastapi import FastAPI
 from account_intelligence.api.routes import health, tasks, v1_router
 
 
-def _on_sigterm(app: FastAPI) -> Any:
+def _on_sigterm(app: FastAPI, previous: Any) -> Any:
+    """SIGTERM: flip /readyz to 503 (no new work), then hand over to the server's own graceful
+    shutdown (uvicorn finishes in-flight requests and exits)."""
+
     def handler(signum: int, frame: Any) -> None:
+        """Mark draining, then call the previous handler so the process still exits."""
         app.state.draining = True
+        if callable(previous):
+            previous(signum, frame)
 
     return handler
 
@@ -46,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         bind_engine(engine)
     previous = signal.getsignal(signal.SIGTERM)
-    signal.signal(signal.SIGTERM, _on_sigterm(app))
+    signal.signal(signal.SIGTERM, _on_sigterm(app, previous))
     try:
         yield
     finally:

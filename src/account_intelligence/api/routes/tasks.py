@@ -80,6 +80,8 @@ async def run_slice(
         )
     except LookupError:
         raise HTTPException(404, "run not found") from None
+    if outcome.outcome == "busy":  # another worker holds the run: Cloud Tasks redelivers later
+        raise HTTPException(503, "run is being processed by another worker")
     return {"outcome": outcome.outcome, "status": outcome.status}
 
 

@@ -29,14 +29,9 @@ async def _database() -> None:
 
 
 def _config() -> None:
-    from account_intelligence.grading.config import load_grading_config
-    from account_intelligence.tracker.config import load_checklist, load_tracker_config
-    from account_intelligence.workflow.spec import load_spec
+    from account_intelligence.config_files import load_all
 
-    load_spec()
-    load_checklist()
-    load_tracker_config()
-    load_grading_config()
+    load_all()
 
 
 @router.get("/readyz")

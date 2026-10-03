@@ -34,6 +34,7 @@ PROD_ENV = {
     "PAYLOAD_BUCKET": "synthetic-payloads",
     "CHECKPOINT_DATABASE_URL": "postgresql://app_rw@/ai?host=/cloudsql/x",
     "LLM_ACCESS": "vertex_ai",
+    "REDIS_HOST": "10.0.0.3",
 }
 
 
@@ -79,6 +80,12 @@ def test_assert_gcp_runtime_refuses_hermetic_adapters_w4(monkeypatch: pytest.Mon
     assert isinstance(prod.scheduler, CloudTasksScheduler)
     assert isinstance(prod.payloads, GcsPayloadStore)
     assert prod.verify_task_token is not None
+    assert prod.connectors is not None and prod.extras["retry_policy"] is not None
+    from account_intelligence.connectors.ratelimit import RedisRateStore
+
+    assert isinstance(prod.connectors.limiter._store, RedisRateStore)  # shared across instances
+    with pytest.raises(RuntimeMisconfigured, match="connector"):
+        assert_gcp_runtime(Container(**{**prod.__dict__, "connectors": None}))
     with pytest.raises(RuntimeMisconfigured, match="LLM_ACCESS"):
         build_container({**PROD_ENV, "LLM_ACCESS": "local_model"})
 
@@ -106,12 +113,12 @@ async def test_readyz_fails_closed_w5(monkeypatch: pytest.MonkeyPatch) -> None:
     app.state.draining = True
     assert (await _get(app, "/readyz")).status_code == 503  # SIGTERM received
     app.state.draining = False
-    from account_intelligence.workflow import spec as spec_mod
+    from account_intelligence import config_files
 
     def broken(*a: Any, **k: Any) -> Any:
         raise ValueError("config broken")
 
-    monkeypatch.setattr(spec_mod, "load_spec", broken)
+    monkeypatch.setattr(config_files, "load_all", broken)
     bad = await _get(app, "/readyz")
     assert bad.status_code == 503 and bad.json()["checks"]["config"].startswith("failed")
     app.state.container = None
@@ -185,3 +192,16 @@ def test_every_stage_is_wired_to_a_production_handler() -> None:
         "__end__",
     ]
     assert edges == set(zip(chain, chain[1:], strict=False))  # one sequential path, every stage
+
+
+def test_sigterm_drains_then_hands_over_to_the_server() -> None:
+    import signal
+
+    from account_intelligence.api.main import _on_sigterm, create_app
+
+    app = create_app()
+    app.state.draining = False
+    called: list[int] = []
+    handler = _on_sigterm(app, lambda signum, frame: called.append(signum))
+    handler(signal.SIGTERM, None)
+    assert app.state.draining is True and called == [signal.SIGTERM]

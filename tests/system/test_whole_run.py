@@ -16,7 +16,7 @@ from decimal import Decimal
 import pytest
 
 from tests.connectors.conftest import Harness
-from tests.system.world import Script, admin, start_run
+from tests.system.world import LEDGER_SUM, Script, admin, start_run
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
@@ -43,7 +43,7 @@ async def test_golden_run_ends_partial_with_every_row_reported(harness: Harness)
         run.run,
     )[0][0]
     assert facts > 0
-    ledger = admin("SELECT coalesce(sum(cost_usd), 0) FROM tool_calls WHERE run_id = %s", run.run)
+    ledger = admin(LEDGER_SUM, run.run)
     spent = admin("SELECT spent_usd FROM account_runs WHERE id = %s", run.run)[0][0]
     assert Decimal(ledger[0][0]) == Decimal(spent)  # ledger sum equals the run's spend
     entries = dict(admin("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s", run.run))

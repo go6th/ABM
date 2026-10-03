@@ -28,7 +28,10 @@ from account_intelligence.grading.errors import (
 from account_intelligence.grading.ports import RunSource
 from account_intelligence.urls import normalize_url
 
-_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f​-‏  ﻿]")
+# Control, zero-width and bidirectional characters, written as escapes (never literally in source).
+_CONTROL = re.compile(
+    "[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f\u200b-\u200f\u2028\u2029\ufeff]"
+)
 _ORIGIN_RANK = {
     "full_page_read": 0,
     "cached_copy": 1,

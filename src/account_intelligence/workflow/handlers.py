@@ -37,6 +37,16 @@ def _bind(fn: Any, deps: RunDeps) -> StageHandler:
     return handler
 
 
+def people_operations() -> frozenset[str]:
+    """Operations of the active people source (P0-3 switch, ``config/people_sources.yaml``)."""
+    import yaml
+
+    from account_intelligence.config import CONFIG_DIR
+
+    data = yaml.safe_load((CONFIG_DIR / "people_sources.yaml").read_text())
+    return frozenset(data["sources"][data["active"]]["operations"])
+
+
 def build_handlers(deps: RunDeps) -> dict[str, StageHandler]:
     """Every stage id in ``config/workflow_v1.yaml`` mapped to its production handler."""
     labels = {r.key: r.label for r in load_checklist().rows}
@@ -51,7 +61,8 @@ def build_handlers(deps: RunDeps) -> dict[str, StageHandler]:
             if stage_id == "pass1_relationship"
             else {}
         )
-        handlers[stage_id] = ResearchStage(specs[stage_id], deps, labels, prefix, fixed)
+        only = people_operations() if stage_id == "people" else None
+        handlers[stage_id] = ResearchStage(specs[stage_id], deps, labels, prefix, fixed, only)
     grading = GradingStages(deps, specs)
     handlers["setup"] = _bind(core.setup, deps)
     handlers["jobs"] = _bind(core.jobs_stage, deps)

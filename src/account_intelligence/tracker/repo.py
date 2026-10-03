@@ -109,7 +109,8 @@ class CoverageRepo:
         """One row; ``UnknownRow`` when the run has no such row."""
         row = (
             await self.session.execute(
-                text(f"SELECT {_COLUMNS} FROM coverage_rows WHERE run_id = :r AND row_key = :k"),
+                # _COLUMNS is a module constant; all values are bound parameters.
+                text(f"SELECT {_COLUMNS} FROM coverage_rows WHERE run_id = :r AND row_key = :k"),  # nosec B608
                 {"r": run_id, "k": row_key},
             )
         ).first()
@@ -126,7 +127,8 @@ class CoverageRepo:
     async def get_all_rows(self, run_id: UUID) -> list[TrackerRowState]:
         """Every row of the run, in key order."""
         result = await self.session.execute(
-            text(f"SELECT {_COLUMNS} FROM coverage_rows WHERE run_id = :r ORDER BY row_key"),
+            # _COLUMNS is a module constant; all values are bound parameters.
+            text(f"SELECT {_COLUMNS} FROM coverage_rows WHERE run_id = :r ORDER BY row_key"),  # nosec B608
             {"r": run_id},
         )
         return [_state(r) for r in result]

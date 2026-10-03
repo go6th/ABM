@@ -32,10 +32,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_intelligence.runs.transitions import TERMINAL, RunStatus, transition
 from account_intelligence.tracker.guard import finish_run
 from account_intelligence.tracker.model import ReasonCode
 from account_intelligence.tracker.service import TrackerService
-from account_intelligence.workflow.transitions import TERMINAL, RunStatus, transition
 
 SWEEP_REASON = {
     RunStatus.PARTIAL: ReasonCode.SWEPT_UNREPORTED,

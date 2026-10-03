@@ -70,13 +70,18 @@ class ResearchStage:
         labels: Mapping[str, str],
         attribute_prefix: str,
         fixed_reasons: Mapping[str, str] | None = None,
+        only_operations: frozenset[str] | None = None,
     ) -> None:
         self.spec = spec
         self.deps = deps
         self.labels = labels
         self.prefix = attribute_prefix
         self.fixed = dict(fixed_reasons or {})  # rows never researched here, with their reason
-        self.operations = operations_for(spec.allowed_tools)
+        self.operations = {
+            op: cat
+            for op, cat in operations_for(spec.allowed_tools).items()
+            if only_operations is None or op in only_operations
+        }
         self.proposals = ProposalStore(deps.payloads, deps.payload_key)
 
     def _limit(self, state: RunState) -> int:

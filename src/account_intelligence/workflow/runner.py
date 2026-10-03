@@ -31,6 +31,7 @@ from uuid import UUID
 from langgraph.types import Command, RetryPolicy
 
 from account_intelligence.agents.prompts import prompts_hash
+from account_intelligence.connectors.errors import LeaseUnavailable
 from account_intelligence.platform.ports import RunScheduler
 from account_intelligence.runs import lifecycle
 from account_intelligence.workflow.deps import RunDeps
@@ -50,7 +51,7 @@ PHASE = {
 @dataclass(frozen=True)
 class SliceOutcome:
     """What one slice did: ``continue`` (next slice queued), ``awaiting``, ``done``,
-    ``canceled`` or ``noop`` (nothing to do)."""
+    ``canceled``, ``noop`` (nothing to do) or ``busy`` (another worker holds the run)."""
 
     outcome: str
     status: str
@@ -122,6 +123,38 @@ async def execute_slice(
     """Run one slice of one run (see the module docstring)."""
     settings = settings or SliceSettings()
     deps = await deps_factory(tenant_id, run_id)
+    owner: str | None = None
+    if deps.connectors is not None:
+        # One worker per run (D-18): the run lease is the mutex for the whole slice, not only for
+        # paid calls. A second delivery of a slice (redelivery, overlap) yields; the worker
+        # endpoint answers 503 so Cloud Tasks redelivers it later.
+        try:
+            await deps.connectors.ledger.acquire_lease(
+                deps.call_context(), deps.connectors.worker_id
+            )
+        except LeaseUnavailable:
+            return SliceOutcome("busy", (await _status(deps)).value)
+        owner = deps.connectors.worker_id
+    try:
+        return await _slice(
+            deps, checkpointer, scheduler, tenant_id, run_id, slice_no, settings, retry_policy
+        )
+    finally:
+        if owner is not None and deps.connectors is not None:
+            await deps.connectors.ledger.release_lease(deps.call_context(), owner)
+
+
+async def _slice(
+    deps: RunDeps,
+    checkpointer: Checkpointer,
+    scheduler: RunScheduler,
+    tenant_id: UUID,
+    run_id: UUID,
+    slice_no: int,
+    settings: SliceSettings,
+    retry_policy: RetryPolicy | None,
+) -> SliceOutcome:
+    """The slice body, run while holding the run lease."""
     early = await _begin(deps, settings)
     if early is not None:
         return early

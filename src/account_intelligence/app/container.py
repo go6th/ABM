@@ -116,6 +116,31 @@ class Container:
         )
 
 
+def build_connectors(
+    env: Mapping[str, str], payloads: PayloadStore, redis_host: str | None
+) -> tuple[Any, Any]:
+    """The connector runtime and the node RetryPolicy (the single retry owner for provider 429
+    and 5xx, W6). Provider credentials come from the environment (Cloud Run injects them from
+    Secret Manager). With ``redis_host`` the rate limiter shares its buckets and cooldowns across
+    instances (Memorystore). VERIFY(V-REDIS-1): Memorystore in-transit encryption needs the
+    instance's server CA; the TLS settings are checked against a real instance at bootstrap."""
+    from account_intelligence.connectors.factory import build_runtime
+    from account_intelligence.connectors.ratelimit import RedisRateStore
+    from account_intelligence.connectors.service import retry_policy_for
+    from account_intelligence.connectors.settings import load_providers_config
+
+    config = load_providers_config()
+    rate_store = None
+    if redis_host:
+        import redis.asyncio as redis
+
+        rate_store = RedisRateStore(redis.Redis(host=redis_host, port=6379, ssl=True))
+    runtime = build_runtime(
+        config, txn=tenant_txn, payloads=payloads, rate_store=rate_store, env=env
+    )
+    return runtime, retry_policy_for(config)
+
+
 def _limits(spec: WorkflowSpec, env: Mapping[str, str]) -> RunLimits:
     settings = spec.settings
     return RunLimits(
@@ -167,8 +192,13 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         llm = AnthropicLlm(
             anthropic_api_client(env["ANTHROPIC_API_KEY"]), load_routes(), "anthropic_api"
         )
+    connectors, retry = (None, None)
+    if app_env == "dev" and env.get("CONNECTORS") == "on":
+        connectors, retry = build_connectors(env, payloads, env.get("REDIS_HOST"))
     return Container(
         env=app_env,
+        connectors=connectors,
+        extras={"retry_policy": retry} if retry is not None else {},
         scheduler=InProcessScheduler(),
         payloads=payloads,
         secrets=EnvSecrets(),
@@ -225,8 +255,11 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         )
     else:
         raise RuntimeMisconfigured("LLM_ACCESS must be vertex_ai or anthropic_api (D-19)")
+    connectors, retry = build_connectors(env, payloads, _require(env, "REDIS_HOST"))
     return Container(
         env=app_env,
+        connectors=connectors,
+        extras={"retry_policy": retry},
         scheduler=scheduler,
         payloads=payloads,
         secrets=secrets,
@@ -257,5 +290,7 @@ def assert_gcp_runtime(container: Container) -> None:
         raise RuntimeMisconfigured(f"hermetic adapters wired in {container.env}: {bad}")
     if container.verify_task_token is None or not container.task_audience:
         raise RuntimeMisconfigured("worker task authentication is not configured")
+    if container.connectors is None or container.extras.get("retry_policy") is None:
+        raise RuntimeMisconfigured("the connector runtime and the node RetryPolicy are not wired")
     if not container.checkpoint_dsn:
         raise NotConfigured("checkpoint database is not configured")
