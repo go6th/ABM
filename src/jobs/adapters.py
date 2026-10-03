@@ -38,6 +38,7 @@ class _Calls:
         self.deps = deps
 
     async def call(self, op: Operation, args: Any) -> Any:
+        """One connector call with the retry-ownership rule (re-raise below the node budget)."""
         if self.deps.connectors is None:
             raise SourceUnavailable("not_available_yet")
         try:
@@ -58,6 +59,7 @@ class ConnectorPostingSource(_Calls):
         self.careers_host = careers_host
 
     async def search_board(self, lane: str, keyword: str) -> SourceBatch:
+        """One live board search for a lane keyword on the verified careers host."""
         if not self.careers_host:
             raise SourceUnavailable("careers_host_not_verified")
         result = await self.call(
@@ -90,6 +92,7 @@ class ConnectorPostingSource(_Calls):
         )
 
     async def pull_window(self, start: date, end: date) -> SourceBatch:
+        """The job openings feed, pulled once (replayed from the ledger on re-entry)."""
         result = await self.call(Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain))
         rows = []
         for record in result.records:
@@ -124,6 +127,7 @@ class ConnectorPageReader(_Calls):
     """``PageReadPort``: one plain scrape of a posting URL."""
 
     async def read(self, url: str, *, max_chars: int) -> PageText:
+        """One plain scrape of a posting URL as returned."""
         result = await self.call(
             Operation.SCRAPE_JOB_PAGE, ScrapeJobPageArgs(url=url, page_kind="job_page")
         )
@@ -142,6 +146,7 @@ class RunPayloads:
         self.count = 0
 
     async def put_text(self, run_id: str, text: str) -> str:
+        """Store posting text under a content-addressed neutral key."""
         import hashlib
 
         name = hashlib.sha256(text.encode()).hexdigest() + ".txt.gz"
@@ -165,6 +170,7 @@ class TrackerEvidence:
         cap_hit: bool,
         not_attempted_reason: str | None,
     ) -> None:
+        """Report one owned row to the tracker (statuses are derived there)."""
         async with self.deps.txn(self.deps.tenant_id) as session:
             await self.deps.tracker(session).record_outcome(
                 self.deps.tenant_id,
@@ -189,6 +195,7 @@ class ProposalSink:
         self.reference: str | None = None
 
     async def submit_claims(self, claims: Sequence[Any]) -> None:
+        """Store the templated claims as the jobs stage's proposals."""
         if claims:
             self.reference = await self.store.put_stage(
                 "jobs", [c.model_dump(mode="json") for c in claims]
@@ -202,9 +209,11 @@ class RunJobsInput:
         self._off, self._as_of = lanes_off, as_of
 
     async def lanes_off(self) -> frozenset[str]:
+        """Lanes switched off in the run input."""
         return self._off
 
     async def as_of(self) -> date:
+        """The run's as_of date (its creation date)."""
         return self._as_of
 
 
@@ -217,8 +226,8 @@ class LlmPostingClassifier:
     async def __call__(self, posting_id: str, text: str, canary: str) -> object:
         import json
 
+        from account_intelligence.agents.output import parse_json
         from account_intelligence.agents.prompts import prompt
-        from account_intelligence.workflow.stages.research import parse_json
 
         system = prompt(self.prompt_name).replace("{canary}", canary)
         user = json.dumps({"posting_id": posting_id, "text": text[:20_000]})

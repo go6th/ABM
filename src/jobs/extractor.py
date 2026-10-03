@@ -90,7 +90,10 @@ async def classify_with_extractor(
     budget.remaining -= 1
 
     async def ask(call: Call) -> ExtractorResult:
+        """One extractor call with one re-ask on a schema failure."""
         last: SchemaViolation | None = None
+        # LOOP(posting extractor re-ask): cap=1 re-ask, run cap max_extractor_calls; exit=verified,
+        # unclassified(reason), hostile
         for _ in range(2):  # one re-ask, only for a schema failure
             raw = await call(posting_id, text, canary)
             try:

@@ -22,6 +22,8 @@ def normalize_text(value: str) -> str:
 
 @dataclass(frozen=True)
 class EvidenceItem:
+    """One cited source item: source code, quote, retrieval time, optional URL."""
+
     source_code: str
     quote: str
     retrieved_at: datetime
@@ -30,6 +32,8 @@ class EvidenceItem:
 
 @dataclass(frozen=True)
 class ProposedFact:
+    """A fact a stage proposes, with its evidence (pre-check before grading)."""
+
     claim: str
     evidence: tuple[EvidenceItem, ...]
     product_grade: str | None = None
@@ -40,6 +44,8 @@ class ProposedFact:
 
 @dataclass(frozen=True)
 class GateResult:
+    """Whether the fact passed, and the drop reason when not."""
+
     accepted: bool
     drop_reason: str | None = None
     product_grade: str | None = None
@@ -55,6 +61,7 @@ class EvidenceGate:
         raw_text: dict[str, str],
         source_urls: dict[str, str],
     ) -> GateResult:
+        """Evidence-or-drop, verbatim quote, URL and figure checks (delegating to grading.spans)."""
         if not fact.evidence:
             return GateResult(False, "missing_evidence")
         if fact.product_grade == "hypothesis" and not (fact.confirming_question or "").strip():

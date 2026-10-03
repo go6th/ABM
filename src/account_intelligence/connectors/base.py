@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 
 
 class ProviderCode(StrEnum):
+    """Neutral provider codes; vendor names live only in registry_internal."""
+
     P_SEARCH = "p_search"
     P_SCRAPE = "p_scrape"
     P_SIGNALS = "p_signals"
@@ -28,6 +30,8 @@ class ProviderCode(StrEnum):
 
 
 class Operation(StrEnum):
+    """Every connector operation; each maps to one provider and one typed argument model."""
+
     # p_search (sourced: docs/providers/p_search.md)
     WEB_SEARCH = "web_search"
     READ_PAGE = "read_page"
@@ -66,15 +70,24 @@ OPERATION_PROVIDER: Mapping[Operation, ProviderCode] = {
 class Clock(Protocol):
     """Injected time source. ``now`` is aware UTC; ``monotonic`` is for deadlines."""
 
-    def now(self) -> datetime: ...
-    def monotonic(self) -> float: ...
+    def now(self) -> datetime:
+        """Current aware UTC time."""
+        ...
+
+    def monotonic(self) -> float:
+        """Monotonic seconds for deadlines and pacing."""
+        ...
 
 
 class SystemClock:
+    """The real clock (the only place connectors read time)."""
+
     def now(self) -> datetime:
+        """Current aware UTC time."""
         return datetime.now(UTC)
 
     def monotonic(self) -> float:
+        """Monotonic seconds from the operating system."""
         return time.monotonic()
 
 
@@ -82,6 +95,7 @@ Sleep = Callable[[float], Awaitable[None]]
 
 
 async def real_sleep(seconds: float) -> None:
+    """Sleep for real (production pacing; tests inject a fake)."""
     await asyncio.sleep(seconds)
 
 
@@ -114,6 +128,8 @@ class RawResponse:
 
 @dataclass(frozen=True)
 class Cost:
+    """Cost of one call: credits and dollars kept separate (known defect 4), with their source."""
+
     credits: float | None
     usd: float | None
     cost_source: str  # 'documented', 'provider_reported', 'unknown'
@@ -137,6 +153,9 @@ class Counts:
 
 @dataclass(frozen=True)
 class ConnectorResult:
+    """What call_operation returns: normalised records, ledger keys, counts with their base and
+    cost."""
+
     status: ResultStatus
     records: tuple[Record, ...] = ()
     raw_refs: tuple[str, ...] = ()
@@ -187,15 +206,21 @@ class ParsedPage:
 
 
 class Connector(Protocol):
+    """One provider adapter: builds requests, parses responses, classifies errors (no retries)."""
+
     code: ProviderCode
 
-    def supports(self, op: Operation) -> bool: ...
+    def supports(self, op: Operation) -> bool:
+        """Whether this provider implements the operation with a sourced contract."""
+        ...
 
-    def build_request(
-        self, op: Operation, args: OperationArgs, cursor: str | None
-    ) -> PageRequest: ...
+    def build_request(self, op: Operation, args: OperationArgs, cursor: str | None) -> PageRequest:
+        """The HTTP request for one page of an operation (cursor None for the first page)."""
+        ...
 
-    def poll_request(self, op: Operation, job_id: str) -> PageRequest: ...
+    def poll_request(self, op: Operation, job_id: str) -> PageRequest:
+        """The request that polls an asynchronous provider job."""
+        ...
 
     def parse(
         self,
@@ -208,4 +233,6 @@ class Connector(Protocol):
         """Pure and deterministic: same raw response, same records."""
         ...
 
-    def classify_error(self, op: Operation, raw: RawResponse) -> Exception: ...
+    def classify_error(self, op: Operation, raw: RawResponse) -> Exception:
+        """Map a non-success response to the typed error hierarchy (the node decides retries)."""
+        ...

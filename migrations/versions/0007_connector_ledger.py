@@ -1,3 +1,7 @@
+"""Alembic revision 0007: upgrade runs
+``0007_connector_ledger.sql``; downgrade runs its ``.down.sql`` (where one exists).
+The SQL files hold the schema and its comments."""
+
 from pathlib import Path
 
 from alembic import op

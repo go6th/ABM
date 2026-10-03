@@ -14,7 +14,6 @@ dependencies = [
     "google-cloud-storage>=2.18",
     "google-cloud-tasks>=2.16",
     "httpx>=0.27",
-    "inngest>=0.4",
     "langgraph>=1.0",
     "langgraph-checkpoint-postgres>=2.0",
     "opentelemetry-api>=1.25",
@@ -39,7 +38,10 @@ packages = ["src/account_intelligence", "src/jobs"]
 
 [dependency-groups]
 dev = [
+    "bandit>=1.7",
     "hypothesis>=6.100",
+    "import-linter>=2.1",
+    "interrogate>=1.7",
     "mypy>=1.11",
     "pre-commit>=3.7",
     "pytest>=8.0",
@@ -47,6 +49,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "types-PyYAML>=6.0",
+    "vulture>=2.11",
 ]
 
 [tool.ruff]
@@ -84,3 +87,72 @@ branch = true
 [tool.coverage.report]
 fail_under = 80
 show_missing = true
+
+# W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports
+[tool.importlinter]
+root_packages = ["account_intelligence", "jobs"]
+
+[[tool.importlinter.contracts]]
+name = "platform ports and adapters depend on nothing above them"
+type = "forbidden"
+source_modules = ["account_intelligence.platform"]
+forbidden_modules = [
+    "account_intelligence.connectors", "account_intelligence.tracker", "account_intelligence.grading",
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app", "jobs",
+]
+
+[[tool.importlinter.contracts]]
+name = "connectors never import the tracker, grading, workflow, runs, api or app"
+type = "forbidden"
+source_modules = ["account_intelligence.connectors"]
+forbidden_modules = [
+    "account_intelligence.tracker", "account_intelligence.grading", "account_intelligence.workflow",
+    "account_intelligence.runs", "account_intelligence.api", "account_intelligence.app", "jobs",
+]
+
+[[tool.importlinter.contracts]]
+name = "grading never imports the tracker, workflow, runs, jobs, api or app"
+type = "forbidden"
+source_modules = ["account_intelligence.grading"]
+forbidden_modules = [
+    "account_intelligence.tracker", "account_intelligence.workflow", "account_intelligence.runs",
+    "account_intelligence.api", "account_intelligence.app", "jobs",
+]
+
+[[tool.importlinter.contracts]]
+name = "tracker never imports the workflow, runs, jobs, api or app"
+type = "forbidden"
+source_modules = ["account_intelligence.tracker"]
+forbidden_modules = [
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app", "jobs",
+]
+
+[[tool.importlinter.contracts]]
+name = "jobs never imports the workflow, runs, api or app"
+type = "forbidden"
+source_modules = ["jobs"]
+forbidden_modules = [
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app",
+]
+
+[[tool.importlinter.contracts]]
+name = "workflow and runs never import the api or app"
+type = "forbidden"
+source_modules = ["account_intelligence.workflow", "account_intelligence.runs"]
+forbidden_modules = ["account_intelligence.api", "account_intelligence.app"]
+
+# Section 10: every public module, class, function and method has a docstring (100%).
+[tool.interrogate]
+fail-under = 100
+ignore-init-method = true
+ignore-init-module = false
+ignore-magic = true
+ignore-private = true
+ignore-semiprivate = true
+ignore-nested-functions = true
+ignore-nested-classes = true
+ignore-overloaded-functions = true
+exclude = ["src/account_intelligence/agents/prompts"]

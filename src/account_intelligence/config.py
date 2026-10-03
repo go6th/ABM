@@ -15,6 +15,8 @@ CONFIG_DIR = Path(os.getenv("CONFIG_DIR", Path(__file__).resolve().parents[2] / 
 
 
 class Settings(BaseSettings):
+    """Process settings read once from the environment (database, token issuer, run limits)."""
+
     model_config = SettingsConfigDict(extra="ignore", frozen=True)
 
     env: Literal["dev", "staging", "prod"] = "dev"
@@ -37,4 +39,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """The cached settings for this process."""
     return Settings()

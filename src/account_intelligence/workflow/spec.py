@@ -14,6 +14,8 @@ from account_intelligence.config import CONFIG_DIR
 
 @dataclass(frozen=True)
 class StageSpec:
+    """One configured stage: dependencies, allowed tool categories, budget share, loop cap, rows."""
+
     id: str
     name: str
     depends_on: tuple[str, ...]
@@ -25,6 +27,8 @@ class StageSpec:
 
 @dataclass(frozen=True)
 class WorkflowSpec:
+    """The validated, acyclic workflow with its row ownership and settings."""
+
     version: str
     stages: tuple[StageSpec, ...]
     coverage_owners: Mapping[str, str]
@@ -49,6 +53,8 @@ def _topological(stages: tuple[StageSpec, ...]) -> tuple[str, ...]:
             raise ValueError(f"stage {stage.id} loop_cap cannot be negative")
     incoming = {stage.id: set(stage.depends_on) for stage in stages}
     result: list[str] = []
+    # LOOP(topological sort): cap=number of stages (each pass removes at least one or raises);
+    # exit=ordered, cycle error
     while incoming:
         ready = sorted(key for key, dependencies in incoming.items() if not dependencies)
         if not ready:

@@ -74,6 +74,7 @@ class LlmJudge:
         self.deps = deps
 
     async def judge(self, claim: str, sentence: str) -> Any:
+        """Ask the judge tier whether the sentence supports the claim."""
         answer = await ask_json(
             self.deps,
             "judge",
@@ -125,6 +126,8 @@ class GradingStages:
         terms = account_terms(run.account_domain, run.account_name)
         for key in sorted(leads):
             state_l = leads[key] or new_lead(key)
+            # LOOP(lead verification): cap=3 query rounds per Lead and MAX_LEADS Leads;
+            # exit=complete, incomplete (budget, no distinct query), no_progress
             for _ in range(spec.loop_cap or 3):
                 if state_l.status != "pending" or budget:
                     break

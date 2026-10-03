@@ -6,6 +6,8 @@ from enum import StrEnum
 
 
 class RunStatus(StrEnum):
+    """The run states of skill reference 04."""
+
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     AWAITING_APPROVAL = "AWAITING_APPROVAL"

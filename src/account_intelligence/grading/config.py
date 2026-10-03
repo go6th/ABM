@@ -38,6 +38,8 @@ class _M(BaseModel):
 
 
 class Thresholds(_M):
+    """Engine grade thresholds as Decimals (F4)."""
+
     a: Decimal
     a_min_groups: int
     a_required_tiers: tuple[Tier, ...]
@@ -48,11 +50,15 @@ class Thresholds(_M):
 
 
 class LeadRule(_M):
+    """The Lead rule numbers: distinct queries and tool categories."""
+
     min_distinct_queries: int = Field(ge=1)
     min_distinct_tool_categories: int = Field(ge=1)
 
 
 class EvalGates(_M):
+    """Calibration gates from assets/grading.yaml."""
+
     precision_grade_A_min: float
     precision_grade_B_min: float
     coverage_expected_attributes_min: float
@@ -62,12 +68,16 @@ class EvalGates(_M):
 
 
 class Cap(_M):
+    """A grade cap applied after precedence (judge, lineage, dating)."""
+
     engine_grade: EngineGrade
     flag: str
     product_grade: ProductGrade | None = None
 
 
 class Precedence(_M):
+    """Product grade precedence (D-01 proposal)."""
+
     status: Literal["proposal", "decided"]
     decision: str
     order: tuple[str, ...]
@@ -77,6 +87,8 @@ class Precedence(_M):
 
 
 class JudgeCfg(_M):
+    """Judge settings: which task is the judge, which the generator, and the re-ask cap."""
+
     status: Literal["proposal", "decided"]
     decision: str
     required_for_engine_grades: tuple[EngineGrade, ...]
@@ -88,6 +100,8 @@ class JudgeCfg(_M):
 
 
 class SimilarityCfg(_M):
+    """The differently-worded detector: stopwords, threshold and the rejected-proposal cap."""
+
     status: Literal["proposal", "decided"]
     source: str
     metric: Literal["jaccard_token_set"]
@@ -98,6 +112,8 @@ class SimilarityCfg(_M):
 
 
 class SpansCfg(_M):
+    """Supporting-sentence bounds and the canary and instruction markers (G4, G14)."""
+
     status: Literal["proposal", "decided"]
     min_sentence_chars: int
     max_sentence_chars: int
@@ -110,6 +126,8 @@ class SpansCfg(_M):
 
 
 class RegistryEntry(_M):
+    """One source domain's tier, aggregator flag and lineage group (D-15)."""
+
     domain: str
     tier: Tier
     is_aggregator: bool
@@ -120,6 +138,8 @@ class RegistryEntry(_M):
 
 
 class ProviderEntry(_M):
+    """A provider code's tier and lineage (never a vendor name)."""
+
     tier: Tier
     is_aggregator: bool
     lineage_group: str
@@ -128,6 +148,8 @@ class ProviderEntry(_M):
 
 
 class Registry(_M):
+    """The source registry; unlisted domains default to T4 and are flagged."""
+
     unlisted_tier: Tier
     unlisted_is_aggregator: bool
     unlisted_flag: str
@@ -145,6 +167,8 @@ class Registry(_M):
 
 
 class GradingConfig(_M):
+    """The validated grading configuration and its content hash (pinned on the run)."""
+
     version: str
     weights: dict[Tier, float]
     half_lives: dict[str, float]

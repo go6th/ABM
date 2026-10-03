@@ -20,6 +20,8 @@ from account_intelligence.connectors.settings import ProvidersConfig
 
 @dataclass(frozen=True)
 class CostFigure:
+    """A cost in credits and dollars with its source; unknown cost is None, never 0."""
+
     credits: float | None  # provider units ('credit' or 'request'); None when unknown
     unit: str
     usd: float | None  # documented or derived dollars; None when unknown
@@ -30,6 +32,8 @@ class CostFigure:
 
 
 class CostModel:
+    """Per-operation cost estimates and actuals from config/providers.yaml."""
+
     def __init__(self, config: ProvidersConfig) -> None:
         self._config = config
 
@@ -104,6 +108,7 @@ class CostModel:
         provider_credits: float | None,
         document_returned: bool,
     ) -> CostFigure:
+        """The actual cost of a finished call (provider-reported credits when present)."""
         spec = self._config.op_cost(code, op)
         match spec.cost_model:
             case "provider_reported_credits":

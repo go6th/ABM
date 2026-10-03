@@ -1,3 +1,7 @@
+"""Alembic revision 0012: upgrade runs
+``0012_job_pipeline.sql``; downgrade runs its ``.down.sql`` (where one exists).
+The SQL files hold the schema and its comments."""
+
 from pathlib import Path
 
 from alembic import op

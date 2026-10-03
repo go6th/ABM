@@ -17,6 +17,7 @@ OUT = ROOT / "docs" / "grading"
 
 
 def rules_markdown(cfg: GradingConfig) -> str:
+    """docs/grading/rules.md rendered from the configuration."""
     t = cfg.thresholds
     lines = [
         "# Grading rules (generated; do not edit)",
@@ -88,11 +89,13 @@ def rules_markdown(cfg: GradingConfig) -> str:
 
 
 def render() -> dict[Path, str]:
+    """Every generated grading document by path."""
     cfg = load_grading_config()
     return {OUT / "schema.json": export_json_schema(), OUT / "rules.md": rules_markdown(cfg)}
 
 
 def main(argv: list[str]) -> int:
+    """Write the documents, or with --check exit 1 when any is stale."""
     stale = [
         p
         for p, content in render().items()

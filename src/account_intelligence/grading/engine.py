@@ -43,6 +43,8 @@ class EngineEvidence:
 
 @dataclass(frozen=True)
 class GroupStrength:
+    """One lineage group's strongest contribution and its tier."""
+
     group: str
     strength: float
     tier: Tier
@@ -52,6 +54,8 @@ class GroupStrength:
 
 @dataclass(frozen=True)
 class ValueScore:
+    """A candidate value's confidence, engine grade and evidence groups."""
+
     value: str
     confidence: Decimal
     engine_grade: EngineGrade
@@ -61,6 +65,8 @@ class ValueScore:
 
 @dataclass(frozen=True)
 class AttributeGrade:
+    """An attribute's outcome: graded, conflicting or blocked, with the best value."""
+
     status: AttributeStatus
     best: ValueScore | None
     values: tuple[ValueScore, ...]
@@ -72,6 +78,7 @@ _TIER_RANK = {t: i for i, t in enumerate(TIERS)}
 
 
 def check_tier(tier: str) -> Tier:
+    """The tier, or UnknownTier (F2: never a silent default)."""
     if tier not in _TIER_RANK:
         raise UnknownTier(f"unknown source tier {tier!r}")
     return tier
@@ -87,6 +94,7 @@ def attribute_class(attribute_key: str, cfg: GradingConfig) -> str:
 
 
 def normaliser_for(attribute_key: str, cfg: GradingConfig) -> Normaliser:
+    """The configured normaliser for an attribute's class (opaque when none)."""
     return cfg.normalisers.get(attribute_key.split(".", 1)[0], "opaque")
 
 
@@ -139,6 +147,7 @@ def confidence(groups: Sequence[GroupStrength]) -> float:
 
 
 def quantise(value: float, cfg: GradingConfig) -> Decimal:
+    """Round a confidence to the configured decimals before threshold comparison (F4)."""
     step = Decimal(1).scaleb(-cfg.confidence_decimals)
     return Decimal(repr(value)).quantize(step, rounding=ROUND_HALF_EVEN)
 
@@ -175,6 +184,7 @@ def engine_grade(
 def score_value(
     value: str, items: Sequence[EngineEvidence], attr_class: str, now: datetime, cfg: GradingConfig
 ) -> ValueScore:
+    """Confidence and engine grade of one value from its evidence (pure, order independent)."""
     groups = group_strengths(items, attr_class, now, cfg)
     grade, flags = engine_grade(groups, cfg)
     unknown = [g.group for g in groups if not g.lineage_known]

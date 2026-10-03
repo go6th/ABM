@@ -39,6 +39,8 @@ ExitReason = Literal[
 
 @dataclass(frozen=True)
 class QueryRecord:
+    """One offered verification query and whether it was accepted."""
+
     text: str
     tool_category: str
     call_ref: str
@@ -49,6 +51,8 @@ class QueryRecord:
 
 @dataclass(frozen=True)
 class LeadVerification:
+    """A Lead's verification state (pending, complete, upgraded, incomplete)."""
+
     lead_key: str
     status: LeadStatus = "pending"
     queries: tuple[QueryRecord, ...] = ()
@@ -60,10 +64,12 @@ class LeadVerification:
 
     @property
     def accepted(self) -> tuple[QueryRecord, ...]:
+        """The accepted queries."""
         return tuple(q for q in self.queries if q.accepted)
 
     @property
     def categories(self) -> frozenset[str]:
+        """Tool categories of the accepted queries."""
         return frozenset(q.tool_category for q in self.accepted)
 
 
@@ -78,6 +84,7 @@ def account_terms(account_domain: str, account_name: str | None = None) -> froze
 
 
 def query_tokens(text: str, terms: Iterable[str], cfg: GradingConfig) -> frozenset[str]:
+    """Normalised token set of a query (stopwords and account terms removed)."""
     words = _WORD.findall(unicodedata.normalize("NFKC", text).lower())
     drop = set(cfg.similarity.stopwords) | set(terms)
     return frozenset(w for w in words if w not in drop)
@@ -91,6 +98,7 @@ def similarity(a: frozenset[str], b: frozenset[str]) -> float:
 
 
 def new_lead(lead_key: str) -> LeadVerification:
+    """A fresh pending Lead."""
     return LeadVerification(lead_key=lead_key)
 
 
@@ -173,6 +181,7 @@ def mark_upgraded(
 def mark_incomplete(
     state: LeadVerification, reason: Literal["budget", "source_blocked", "deadline"]
 ) -> LeadVerification:
+    """Park a Lead as incomplete with its reason (budget, blocked source, deadline)."""
     exit_reason: ExitReason = (
         "budget" if reason == "budget" else "deadline" if reason == "deadline" else "source_blocked"
     )

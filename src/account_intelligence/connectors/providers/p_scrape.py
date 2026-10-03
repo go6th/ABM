@@ -55,12 +55,16 @@ class _ScrapeResponse(Strict):
 
 
 class ScrapeConnector:
+    """The p_scrape adapter: plain scrapes of job pages only (adapter rule)."""
+
     code = CODE
 
     def supports(self, op: Operation) -> bool:
+        """Only scrape_job_page."""
         return op is Operation.SCRAPE_JOB_PAGE
 
     def build_request(self, op: Operation, args: OperationArgs, cursor: str | None) -> PageRequest:
+        """A plain markdown scrape with maxAge 0 (a live read this run, for G5)."""
         if op is not Operation.SCRAPE_JOB_PAGE:
             raise NotSupportedYet(provider_code=CODE, operation=op)
         assert isinstance(args, ScrapeJobPageArgs)
@@ -82,9 +86,11 @@ class ScrapeConnector:
         )
 
     def poll_request(self, op: Operation, job_id: str) -> PageRequest:
+        """No asynchronous jobs for plain scrapes."""
         raise NotSupportedYet("no async jobs", provider_code=CODE, operation=op)
 
     def classify_error(self, op: Operation, raw: RawResponse) -> Exception:
+        """Map documented statuses to typed errors."""
         # v2 OpenAPI /scrape responses: 400, 402 (insufficient credits), 403 (feature or
         # terms not enabled), 404, 409, 429, 500, 503.
         # VERIFY(p_scrape): plan rate limit (config placeholder) and whether x-request-id
@@ -99,6 +105,7 @@ class ScrapeConnector:
         base: Mapping[str, Any],
         cursor: str | None,
     ) -> ParsedPage:
+        """Validate and normalise a scrape response into one ScrapedPageRecord."""
         assert isinstance(args, ScrapeJobPageArgs)
         response = validate(_ScrapeResponse, decode_json(raw, CODE, op), CODE, op)
         if not response.success:

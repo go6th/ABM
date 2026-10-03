@@ -122,6 +122,7 @@ async def jobs_stage(deps: RunDeps, state: RunState) -> dict[str, Any]:
     gcfg = load_grading_config()
 
     def hostile(body: str) -> bool:
+        """True when the text echoes a canary or an instruction (the grading check, G14)."""
         try:
             check_hostile(body, gcfg)
         except HostileContent:
@@ -211,6 +212,8 @@ async def gate(deps: RunDeps, state: RunState) -> dict[str, Any]:
         }
     cycles = int(deps.spec.settings.get("gate_cycles", 3))
     failing: dict[str, list[str]] = {}
+    # LOOP(gate fix loop): cap=gate_cycles (3) build, gate, rebuild; exit=converged (passed),
+    # cap_reached (PARTIAL with failing checks)
     for _ in range(cycles):
         failing = await deps.gate.check(str(deps.tenant_id), str(deps.run_id))
         if not any(failing.values()):
@@ -276,6 +279,7 @@ def not_configured(stage: str) -> Any:
     """A handler for a stage with no production adapter (fails closed)."""
 
     async def handler(state: RunState) -> dict[str, Any]:
+        """Raise NotConfigured: the stage has no production adapter."""
         raise NotConfigured(f"stage {stage} has no production adapter")
 
     return handler

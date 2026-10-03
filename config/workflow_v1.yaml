@@ -1,3 +1,4 @@
+# Workflow v1: the 13 stages, dependencies, tool categories, caps and coverage-row ownership.
 version: "2026-10-02.1"
 settings:
   execution_mode: sequential

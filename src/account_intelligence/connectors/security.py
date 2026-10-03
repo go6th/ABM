@@ -31,6 +31,7 @@ Resolver = Callable[[str], Awaitable[list[str]]]
 
 
 async def system_resolver(host: str) -> list[str]:
+    """Resolve a host to its addresses (for the SSRF check)."""
     loop = asyncio.get_running_loop()
     infos = await loop.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     return sorted({str(info[4][0]) for info in infos})
@@ -76,6 +77,7 @@ def check_url_shape(url: str) -> None:
 
 
 def host_of(url: str) -> str:
+    """Lower-case host of a URL without a trailing dot."""
     return (urlsplit(url).hostname or "").rstrip(".").lower()
 
 
@@ -89,6 +91,8 @@ def host_allowed(host: str, account_domain: str, extra_allowed: Iterable[str]) -
 
 @dataclass(frozen=True)
 class UrlPolicy:
+    """SSRF policy: https only, public addresses only, no userinfo, metadata address refused."""
+
     resolver: Resolver = system_resolver
     resolve_timeout_s: float = 3.0
 
@@ -149,6 +153,7 @@ class Secret:
         self._value = value
 
     def reveal(self) -> str:
+        """The secret value (only for building a request header)."""
         return self._value
 
     def __repr__(self) -> str:
@@ -186,10 +191,12 @@ KEY_LIKE = re.compile(
 
 
 def redact(text: str, secrets: Iterable[Secret] = ()) -> str:
+    """Replace secret values in text (exceptions and recorded cassettes)."""
     for secret in secrets:
         text = text.replace(secret.reveal(), "[REDACTED]")
     return KEY_LIKE.sub("[REDACTED]", text)
 
 
 def safe_headers(headers: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """Headers with sensitive values redacted (for logs and cassettes)."""
     return {k.lower(): ("[REDACTED]" if k.lower() in SENSITIVE_HEADERS else v) for k, v in headers}

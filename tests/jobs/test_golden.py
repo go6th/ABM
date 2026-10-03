@@ -122,7 +122,8 @@ async def test_two_identical_runs_are_deterministic(corpus: Corpus) -> None:
 
 
 async def test_export_and_count_sentence_are_client_safe(corpus: Corpus) -> None:
-    """J15 and spec 9.10: scanned; no provider code, ref or contact data; numbers from counts."""
+    """J15 and spec 9.10: scanned; no provider code, ref or contact data; numbers from counts.
+    GUARANTEE(test_export_and_count_sentence_are_client_safe) (W7: export is leak-scanned)"""
     import json
     import re
 

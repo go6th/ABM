@@ -18,6 +18,8 @@ from account_intelligence.grading.engine import AttributeStatus
 
 @dataclass(frozen=True)
 class ProductInputs:
+    """Everything product_grade needs (status, engine grade, primary read, origin)."""
+
     status: AttributeStatus
     engine_grade: EngineGrade | None
     read_in_primary: bool

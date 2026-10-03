@@ -1,3 +1,7 @@
+"""Alembic revision 0008: upgrade runs
+``0008_tracker.sql``; downgrade runs its ``.down.sql`` (where one exists).
+The SQL files hold the schema and its comments."""
+
 from pathlib import Path
 
 from alembic import op

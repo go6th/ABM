@@ -219,6 +219,20 @@ async def current_status(session: AsyncSession, run_id: UUID) -> RunStatus:
     return RunStatus(status)
 
 
+async def begin_slice(session: AsyncSession, run_id: UUID) -> int:
+    """Count one more slice for the run (the slice ceiling is checked by the runner)."""
+    used: int = (
+        await session.execute(
+            text(
+                "UPDATE account_runs SET slices_used = slices_used + 1 WHERE id = :r"
+                " RETURNING slices_used"
+            ),
+            {"r": run_id},
+        )
+    ).scalar_one()
+    return used
+
+
 async def move(
     session: AsyncSession,
     run_id: UUID,

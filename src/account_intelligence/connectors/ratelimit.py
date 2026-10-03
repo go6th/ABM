@@ -19,6 +19,8 @@ from account_intelligence.connectors.errors import RateLimited
 
 @dataclass(frozen=True)
 class BucketLimit:
+    """Token bucket limits for one provider: sustained rate and burst."""
+
     rate_per_s: float  # sustained tokens per second
     burst: float  # bucket capacity
 
@@ -28,6 +30,8 @@ class BucketLimit:
 
 
 class RateStore(Protocol):
+    """Where buckets and cooldowns live (memory per instance, or Redis shared)."""
+
     async def take(self, key: str, limit: BucketLimit, now: float) -> float:
         """Atomically take one token. Return 0.0 when granted, else seconds until one is."""
         ...
@@ -36,7 +40,9 @@ class RateStore(Protocol):
         """Extend (never shorten) the cooldown deadline for ``key``."""
         ...
 
-    async def cooldown_until(self, key: str) -> float: ...
+    async def cooldown_until(self, key: str) -> float:
+        """When the provider's shared cooldown ends (epoch seconds; 0 when none)."""
+        ...
 
 
 class InMemoryRateStore:
@@ -47,6 +53,7 @@ class InMemoryRateStore:
         self._cooldowns: dict[str, float] = {}
 
     async def take(self, key: str, limit: BucketLimit, now: float) -> float:
+        """Take a token; return seconds to wait when none is available."""
         tokens, last = self._buckets.get(key, (limit.burst, now))
         if now > last:
             tokens = min(limit.burst, tokens + (now - last) * limit.rate_per_s)
@@ -58,9 +65,11 @@ class InMemoryRateStore:
         return (1.0 - tokens) / limit.rate_per_s
 
     async def set_cooldown(self, key: str, until: float) -> None:
+        """Extend the provider's cooldown (never shortens it)."""
         self._cooldowns[key] = max(self._cooldowns.get(key, 0.0), until)
 
     async def cooldown_until(self, key: str) -> float:
+        """When the provider's cooldown ends."""
         return self._cooldowns.get(key, 0.0)
 
 
@@ -101,6 +110,7 @@ class RedisRateStore:
         self._prefix = prefix
 
     async def take(self, key: str, limit: BucketLimit, now: float) -> float:
+        """Take a token atomically (Lua); return seconds to wait when none is available."""
         ttl_ms = int(max(1.0, limit.burst / limit.rate_per_s) * 2000) + 1000
         raw = await self._client.eval(  # type: ignore[attr-defined]
             _TAKE_LUA, 1, self._prefix + "bucket:" + key, limit.rate_per_s, limit.burst, now, ttl_ms
@@ -108,12 +118,14 @@ class RedisRateStore:
         return float(raw)
 
     async def set_cooldown(self, key: str, until: float) -> None:
+        """Extend the shared cooldown atomically (never shortens it)."""
         ttl_ms = 3_600_000
         await self._client.eval(  # type: ignore[attr-defined]
             _COOLDOWN_LUA, 1, self._prefix + "cooldown:" + key, until, ttl_ms
         )
 
     async def cooldown_until(self, key: str) -> float:
+        """When the shared cooldown ends."""
         raw = await self._client.get(self._prefix + "cooldown:" + key)  # type: ignore[attr-defined]
         return float(raw) if raw is not None else 0.0
 
@@ -122,6 +134,8 @@ MIN_SLEEP_S = 0.001
 
 
 class RateLimiter:
+    """Per-provider pacing with a shared cooldown; bounded waits, then RateLimited for the node."""
+
     def __init__(
         self,
         store: RateStore,
@@ -150,6 +164,8 @@ class RateLimiter:
         """Wait for a token; return seconds waited. Raise RateLimited past ``max_wait_s``."""
         limit = self._limits[provider]
         waited = 0.0
+        # LOOP(pacing): cap=max_iterations and max_wait_s; exit=token granted, RateLimited (the node
+        # RetryPolicy owns the retry)
         for _ in range(self.max_iterations):
             now = self._now()
             cooldown = await self._store.cooldown_until(provider) - now

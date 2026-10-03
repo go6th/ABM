@@ -38,6 +38,8 @@ from account_intelligence.grading.schema import GradedClaim
 
 
 class ProposalSource(Protocol):
+    """Where the extractor's proposals are loaded from (by reference, never the checkpoint)."""
+
     async def load(
         self, tenant_id: UUID, run_id: UUID, reference: str
     ) -> Sequence[str | Mapping[str, Any]]:
@@ -46,6 +48,7 @@ class ProposalSource(Protocol):
 
 
 async def load_run_info(txn: TxnFactory, tenant_id: UUID, run_id: UUID) -> RunInfo:
+    """RunInfo from the database under the run's tenant (domain, name, verified careers host)."""
     async with txn(tenant_id) as s:
         row = (
             await s.execute(
@@ -81,6 +84,8 @@ def judge_profile_ok(cfg: GradingConfig) -> bool:
 
 @dataclass(frozen=True)
 class DistillGradeDeps:
+    """Dependencies of the standalone distill_grade handler."""
+
     txn: TxnFactory
     sources: SourceTextPort
     ledger: FetchLedgerPort
@@ -92,7 +97,10 @@ class DistillGradeDeps:
 
 
 def make_distill_grade_handler(deps: DistillGradeDeps) -> Any:
+    """A distill_grade stage handler over one proposals reference."""
+
     async def handler(state: Mapping[str, Any]) -> dict[str, Any]:
+        """Grade the run's proposals and persist facts, drops and Lead states."""
         tenant_id, run_id = UUID(str(state["tenant_id"])), UUID(str(state["run_id"]))
         reference = (state.get("references") or {}).get(deps.proposals_reference_key)
         if reference is None:
@@ -138,12 +146,14 @@ class GradingFactRepo:
     txn: TxnFactory
 
     async def write_with_evidence(self, tenant_id: str, run_id: str, fact: dict[str, Any]) -> str:
+        """Persist one validated GradedClaim through the single write path."""
         # JSON-mode validation: the workflow passes JSON-shaped dicts; every rule still applies.
         claim = GradedClaim.model_validate_json(json.dumps(fact, default=str))
         run = await load_run_info(self.txn, UUID(tenant_id), UUID(run_id))
         return str(await repo.record_graded_fact(self.txn, run, claim))
 
     async def list_for_run(self, tenant_id: str, run_id: str) -> list[dict[str, Any]]:
+        """The run's current facts."""
         async with self.txn(UUID(tenant_id)) as s:
             rows = (
                 await s.execute(

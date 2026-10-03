@@ -74,6 +74,8 @@ from account_intelligence.grading.spans import (
 
 @dataclass(frozen=True)
 class Dropped:
+    """A claim that did not survive, with its counted reason."""
+
     reason: str
     claim_hash: str
     local_id: str | None
@@ -84,6 +86,8 @@ class Dropped:
 
 @dataclass(frozen=True)
 class BatchResult:
+    """A graded batch: claims, drops with counts, grade counts and Lead states."""
+
     graded: tuple[GradedClaim, ...]
     dropped: tuple[Dropped, ...]
     drop_counts: Mapping[str, int]
@@ -92,6 +96,7 @@ class BatchResult:
     leads: Mapping[str, LeadVerification] = field(default_factory=dict)
 
     def output_hash(self) -> str:
+        """Hash of the graded output (determinism checks)."""
         blob = json.dumps(
             {
                 "graded": [g.model_dump(mode="json") for g in self.graded],
@@ -114,6 +119,7 @@ class GradingInputs:
 async def load_inputs(
     run: RunInfo, sources: SourceTextPort, ledger: FetchLedgerPort
 ) -> GradingInputs:
+    """This run's stored sources and fetch records (loaded once per batch)."""
     loaded = tuple(s for s in await sources.sources(run) if s.run_id == run.run_id)
     fetches = {k: f for k, f in (await ledger.fetches(run)).items() if f.run_id == run.run_id}
     return GradingInputs(loaded, fetches)
@@ -300,6 +306,7 @@ async def grade_claims(
     def drop(
         reason: str, h: str, p: Any = None, raw: Any = None, hostile_url: str | None = None
     ) -> None:
+        """Record one dropped claim with its counted reason and a sanitised excerpt."""
         excerpt_src = getattr(p, "value", None) or (
             raw if isinstance(raw, str) else json.dumps(raw, default=str)
         )

@@ -36,18 +36,24 @@ MISSING = (
 
 # VERIFY(p_people): the grid output contract (column UUIDs, names, types) and cost per run.
 class PeopleConnector:
+    """The p_people adapter: every operation is NotSupportedYet until the grid contract arrives."""
+
     code = CODE
 
     def supports(self, op: Operation) -> bool:
+        """Always False until the contract is sourced."""
         return False
 
     def build_request(self, op: Operation, args: OperationArgs, cursor: str | None) -> PageRequest:
+        """Raise NotSupportedYet with what must be supplied."""
         raise NotSupportedYet(MISSING, provider_code=CODE, operation=op)
 
     def poll_request(self, op: Operation, job_id: str) -> PageRequest:
+        """Raise NotSupportedYet with what must be supplied."""
         raise NotSupportedYet(MISSING, provider_code=CODE, operation=op)
 
     def classify_error(self, op: Operation, raw: RawResponse) -> Exception:
+        """Map statuses to typed errors (auth on 401 and 403)."""
         # api-reference.md section 7: 401 INVALID_API_KEY, 403 FEATURE_DISABLED or
         # GRID_NOT_FOUND, 404, 429 RATE_LIMIT_EXCEEDED (Retry-After), 500 RUN_FAILED.
         return classify_status(raw, CODE, op, auth=frozenset({401, 403}))
@@ -60,4 +66,5 @@ class PeopleConnector:
         base: Mapping[str, Any],
         cursor: str | None,
     ) -> ParsedPage:
+        """Raise NotSupportedYet with what must be supplied."""
         raise NotSupportedYet(MISSING, provider_code=CODE, operation=op)

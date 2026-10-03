@@ -29,6 +29,8 @@ def sum_counters(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
 
 
 class RunState(TypedDict, total=False):
+    """The checkpoint state: ids, counters, references and exit reasons only (no text)."""
+
     schema_version: int
     tenant_id: str
     run_id: str
@@ -70,6 +72,7 @@ def migrate(state: dict[str, Any]) -> RunState:
 
 
 def validate_small_state(state: dict[str, Any]) -> None:
+    """Refuse a checkpoint over 64 KiB or holding text or payload fields."""
     import json
 
     encoded = json.dumps(state, sort_keys=True, separators=(",", ":")).encode()

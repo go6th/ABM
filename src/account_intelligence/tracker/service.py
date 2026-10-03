@@ -70,6 +70,7 @@ class RecordResult:
 
 class _ConfigChecklist:
     def get_checklist(self) -> ChecklistConfig:
+        """The checklist from config."""
         return load_checklist()
 
 
@@ -170,6 +171,8 @@ class TrackerService:
         row_cfg = self.checklist.get_checklist().row(row_key)
         floor = self.expected_calls.get(row_key, 1)
         expected = max(floor, expected_calls or 1)
+        # LOOP(tracker version conflict): cap=3 re-reads, rules re-checked each time; exit=written,
+        # unchanged, VersionConflict
         for _ in range(MAX_CONFLICT_ATTEMPTS):
             stored = await self.repo.get_row(run_id, row_key)
             self._authorise(actor, stage, stored.owner_stage, row_key)
@@ -238,6 +241,8 @@ class TrackerService:
         """Judge or gate downgrade (5.2, T14): keeps the old proof, adds a note and the reason."""
         if actor not in (Actor.JUDGE, Actor.GATE):
             raise NotOwner("only the judge and the gate may downgrade")
+        # LOOP(tracker downgrade conflict): cap=3 re-reads per row; exit=written, VersionConflict
+        # (sweep skips the row)
         for _ in range(MAX_CONFLICT_ATTEMPTS):
             stored = await self.repo.get_row(run_id, row_key)
             if stored.state.swept:
@@ -313,6 +318,8 @@ class TrackerService:
         for row in await self.repo.get_all_rows(run_id):
             if row.status is not None:
                 continue
+            # LOOP(tracker sweep conflict): cap=3 re-reads per row; exit=written, VersionConflict
+            # (sweep skips the row)
             for _ in range(MAX_CONFLICT_ATTEMPTS):
                 stored = await self.repo.get_row(run_id, row.key)
                 if stored.state.status is not None:

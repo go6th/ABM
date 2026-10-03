@@ -184,7 +184,7 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
 def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Container:
     """Google Cloud adapters (no network call happens while building them)."""
     from google.cloud import secretmanager, tasks_v2
-    from google.cloud import storage  # type: ignore[attr-defined]
+    from google.cloud import storage as gcs  # type: ignore[attr-defined]  # noqa: I001
 
     from account_intelligence.platform.gcp.adapters import (
         CloudTasksScheduler,
@@ -211,7 +211,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         _require(env, "TASKS_SERVICE_ACCOUNT"),
         _require(env, "TASKS_AUDIENCE"),
     )
-    payloads = GcsPayloadStore(storage.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
+    payloads = GcsPayloadStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
     access = env.get("LLM_ACCESS", "vertex_ai")
     if access == "vertex_ai":
         llm: LlmPort = AnthropicLlm(

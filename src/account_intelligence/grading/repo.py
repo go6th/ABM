@@ -35,6 +35,7 @@ def fingerprint(account_id: UUID, attribute_key: str, normalised_value: str) -> 
 
 
 def write_key(run: RunInfo, claim: GradedClaim) -> str:
+    """Idempotency key of a graded fact (a replay after a crash writes no duplicate)."""
     blob = json.dumps(
         [str(run.run_id), claim.model_dump(mode="json")], sort_keys=True, separators=(",", ":")
     )

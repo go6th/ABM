@@ -26,6 +26,8 @@ from account_intelligence.connectors.errors import (
 
 @dataclass(frozen=True)
 class HttpSettings:
+    """One provider's HTTP limits: base URL, timeouts, pool size, body cap, content type."""
+
     base_url: str
     connect_s: float = 5.0
     read_s: float = 30.0
@@ -45,6 +47,7 @@ def make_client(
     transport: httpx.AsyncBaseTransport | None = None,
     env: Mapping[str, str] | None = None,
 ) -> httpx.AsyncClient:
+    """An httpx client with TLS verification on, no redirects, explicit timeouts and the proxy."""
     if not settings.base_url.startswith("https://"):
         raise SecurityError("provider base URL must be https")
     source = env if env is not None else os.environ

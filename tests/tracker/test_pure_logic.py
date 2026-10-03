@@ -1,3 +1,5 @@
+"""Tracker pure logic: transitions, derivation, completion, tally and rendering order."""
+
 import pytest
 
 from account_intelligence.tracker.completion import RowState, evaluate

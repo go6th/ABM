@@ -22,6 +22,8 @@ from account_intelligence.connectors.models import Record
 
 @dataclass(frozen=True)
 class PageLimits:
+    """Pagination caps: pages, items and bytes."""
+
     max_pages: int
     max_items: int
     max_bytes: int
@@ -33,6 +35,8 @@ class PageLimits:
 
 @dataclass(frozen=True)
 class FetchedPage:
+    """One fetched page: parsed records, body size and digest, payload reference."""
+
     parsed: ParsedPage
     body_size: int
     body_digest: str  # sha256 of the raw body: identical pages mean a loop
@@ -41,6 +45,8 @@ class FetchedPage:
 
 @dataclass
 class PaginationResult:
+    """Records across pages, counts and why the loop stopped."""
+
     records: list[Record] = field(default_factory=list)
     raw_refs: list[str] = field(default_factory=list)
     pages: int = 0
@@ -50,6 +56,7 @@ class PaginationResult:
 
     @property
     def complete(self) -> bool:
+        """True only when the provider said there is nothing more."""
         return self.stop_reason == "exhausted"
 
 
@@ -71,6 +78,8 @@ async def paginate(
     seen_cursors: set[str | None] = set()
     seen_digests: set[str] = set()
     cursor = start_cursor
+    # LOOP(pagination): cap=max_pages, max_items, max_bytes, slice deadline; exit=exhausted,
+    # max_pages, max_items, max_bytes, deadline, loop_detected
     for page_number in range(1, limits.max_pages + 1):
         if deadline is not None and clock.monotonic() >= deadline:
             result.stop_reason = "deadline"
@@ -110,11 +119,14 @@ async def paginate(
 
 
 def digest(body: bytes) -> str:
+    """SHA-256 of a page body (repeat-page detection)."""
     return hashlib.sha256(body).hexdigest()
 
 
 @dataclass(frozen=True)
 class PollLimits:
+    """Polling caps for an asynchronous provider job: interval and number of polls."""
+
     interval_s: float
     jitter_s: float
     max_polls: int
@@ -137,6 +149,8 @@ async def poll_job(
     stop_at = started + limits.total_timeout_s
     if deadline is not None:
         stop_at = min(stop_at, deadline)
+    # LOOP(provider job poll): cap=max_polls with a bounded interval; exit=succeeded, failed,
+    # ProviderJobTimeout
     for _ in range(limits.max_polls):
         page = await poll()
         if page is not None:

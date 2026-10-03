@@ -37,6 +37,7 @@ class ConnectorError(Exception):
 
     @property
     def blocked_reason(self) -> str:
+        """Neutral reason text for a Blocked coverage row (provider code and operation only)."""
         where = f"{self.provider_code}.{self.operation}" if self.provider_code else "provider"
         return f"{where}: {self.reason}"
 
@@ -48,6 +49,8 @@ class RetryableProviderError(ConnectorError):
 
 
 class RateLimited(RetryableProviderError):
+    """429 or Retry-After: the shared cooldown is set, then the node retries."""
+
     reason = "provider rate limit reached"
 
     def __init__(
@@ -64,10 +67,14 @@ class NonRetryableProviderError(ConnectorError):
 
 
 class ResponseTooLarge(NonRetryableProviderError):
+    """The body passed the size cap while streaming."""
+
     reason = "provider response exceeded the size cap"
 
 
 class UnexpectedContentType(NonRetryableProviderError):
+    """The response content type is not the documented one."""
+
     reason = "provider returned an unexpected content type"
 
 
@@ -100,6 +107,8 @@ class BudgetExceeded(ConnectorError):
 
 
 class CircuitOpen(ConnectorError):
+    """The provider's breaker is open; routing may fall back."""
+
     reason = "provider circuit open after repeated failures"
 
 
@@ -122,6 +131,8 @@ class NotSupportedYet(ConnectorError):
 
 
 class PaginationLoopDetected(ConnectorError):
+    """A provider repeated a cursor or a page; the pull ends partial."""
+
     reason = "provider pagination repeated a cursor or page"
 
 
@@ -132,6 +143,8 @@ class LeaseUnavailable(ConnectorError):
 
 
 class LeaseLost(LeaseUnavailable):
+    """Another worker took the run lease; this worker must stop paying."""
+
     reason = "this worker no longer holds the run lease"
 
 
@@ -142,6 +155,8 @@ class CallInFlight(RetryableProviderError):
 
 
 class ProviderJobTimeout(RetryableProviderError):
+    """An asynchronous provider job did not finish within its deadline."""
+
     reason = "provider job did not finish within its deadline"
 
 

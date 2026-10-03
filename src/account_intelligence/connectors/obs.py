@@ -61,6 +61,7 @@ _latency = _meter.create_histogram("connector_latency_ms", unit="ms")
 
 
 def log_event(event: str, level: int = logging.INFO, **fields: Any) -> None:
+    """Structured JSON log through the field allow-list (no prompts, text or secrets)."""
     payload = {"event": event}
     payload.update({k: _scalar(v) for k, v in fields.items() if k in LOG_FIELDS})
     _logger.log(level, json.dumps(payload, sort_keys=True, default=str))
@@ -73,6 +74,7 @@ def _scalar(value: Any) -> Any:
 
 
 def record_call(provider_code: str, operation: str, outcome: str, latency_ms: int | None) -> None:
+    """Count one call by provider code, operation and outcome (no tenant label)."""
     labels = {"provider_code": provider_code, "operation": operation, "outcome": outcome}
     _calls.add(1, labels)
     if latency_ms is not None:
@@ -80,6 +82,7 @@ def record_call(provider_code: str, operation: str, outcome: str, latency_ms: in
 
 
 def record_unknown_cost(provider_code: str, operation: str) -> None:
+    """Count a call whose cost is unknown (a warning metric; never charged as zero)."""
     _unknown_cost.add(1, {"provider_code": provider_code, "operation": operation})
 
 
@@ -97,6 +100,7 @@ def run_trace_context(run_id: UUID) -> Context:
 
 @contextmanager
 def call_span(run_id: UUID, attributes: Mapping[str, Any]) -> Iterator[trace.Span]:
+    """One OpenTelemetry span per call; the run id is the trace id; allow-listed attributes only."""
     clean = {k: _scalar(v) for k, v in attributes.items() if v is not None and k in SPAN_FIELDS}
     with _tracer.start_as_current_span(
         "connector.call", context=run_trace_context(run_id), attributes=clean

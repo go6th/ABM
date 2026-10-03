@@ -29,6 +29,7 @@ _dropped = _meter.create_counter(
 
 @contextmanager
 def batch_span(run_id: UUID, size: int) -> Iterator[trace.Span]:
+    """One span per grade_claims batch (no claim text)."""
     with _tracer.start_as_current_span(
         "grading.batch", context=run_trace_context(run_id), attributes={"batch_size": size}
     ) as span:
@@ -36,6 +37,7 @@ def batch_span(run_id: UUID, size: int) -> Iterator[trace.Span]:
 
 
 def record_batch(grades: Mapping[str, int], drops: Mapping[str, int]) -> None:
+    """Grade and drop counters (no tenant label)."""
     for grade, n in grades.items():
         _graded.add(n, {"product_grade": grade})
     for reason, n in drops.items():

@@ -1,3 +1,4 @@
+# Tracker rules: D-12 completion policy and D-13 transitions and derivation (all proposals; ADR-0015).
 version: "2026-10-02.1"
 status: "proposal"
 d_12_completion_policy:

@@ -95,6 +95,7 @@ def group_strengths(
     weights: dict[str, float] | None = None,
     half_lives: dict[str, float] | None = None,
 ) -> dict[str, tuple[float, str]]:
+    """Per lineage group strength of the evidence (max within a group, never the sum; G11)."""
     groups = _group_strengths(_engine(evidence), attr_class, now, _cfg(weights, half_lives))
     return {g.group: (g.strength, g.tier) for g in groups}
 
@@ -106,6 +107,7 @@ def _groups(strengths: dict[str, tuple[float, str]]) -> list[GroupStrength]:
 
 
 def confidence(strengths: dict[str, tuple[float, str]]) -> float:
+    """Noisy-OR confidence over group strengths (pure; facade over grading.engine)."""
     return _confidence(_groups(strengths))
 
 

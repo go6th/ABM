@@ -65,13 +65,17 @@ class _ExtractResponse(Strict):
 
 
 class SearchConnector:
+    """The p_search adapter: open web search and known-page reads."""
+
     code = CODE
     _SUPPORTED = frozenset({Operation.WEB_SEARCH, Operation.READ_PAGE})
 
     def supports(self, op: Operation) -> bool:
+        """web_search and read_page."""
         return op in self._SUPPORTED
 
     def build_request(self, op: Operation, args: OperationArgs, cursor: str | None) -> PageRequest:
+        """The search or extract request from typed arguments."""
         if op is Operation.WEB_SEARCH:
             assert isinstance(args, WebSearchArgs)
             body: dict[str, Any] = {"search_queries": list(args.queries), "mode": args.mode}
@@ -96,9 +100,11 @@ class SearchConnector:
         raise NotSupportedYet(provider_code=CODE, operation=op)
 
     def poll_request(self, op: Operation, job_id: str) -> PageRequest:
+        """No asynchronous jobs."""
         raise NotSupportedYet("no async jobs", provider_code=CODE, operation=op)
 
     def classify_error(self, op: Operation, raw: RawResponse) -> Exception:
+        """Map documented statuses to typed errors."""
         # resources/warnings-and-errors.md: 401 auth, 402 credits, 403 forbidden (not
         # retryable), 408 retry, 422 validation, 429 rate limited, 500/502/503 retry.
         # VERIFY(p_search): Retry-After on 429 is not documented; the default cooldown applies.
@@ -113,6 +119,7 @@ class SearchConnector:
         base: Mapping[str, Any],
         cursor: str | None,
     ) -> ParsedPage:
+        """Validate and normalise search or extract results into WebPageRecords."""
         data = decode_json(raw, CODE, op)
         if op is Operation.WEB_SEARCH:
             search = validate(_SearchResponse, data, CODE, op)

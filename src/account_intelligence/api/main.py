@@ -30,6 +30,7 @@ def _on_sigterm(app: FastAPI) -> Any:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Build the container, bind the Cloud SQL engine in the cloud, install the SIGTERM drain."""
     from account_intelligence.app.container import build_container
 
     app.state.draining = False
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
+    """The FastAPI application with probes, the /v1 routes and the /tasks worker routes."""
     app = FastAPI(title="Account Intelligence API", lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(v1_router)

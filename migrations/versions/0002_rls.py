@@ -1,3 +1,7 @@
+"""Alembic revision 0002: upgrade runs
+``0002_rls.sql``; downgrade runs its ``.down.sql`` (where one exists).
+The SQL files hold the schema and its comments."""
+
 import os
 from pathlib import Path
 

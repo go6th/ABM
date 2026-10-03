@@ -32,6 +32,8 @@ DOMAIN_SHAPE_CHECK = (
 
 
 class Account(UuidPkMixin, TimestampMixin, Base):
+    """A tenant's target account (domain, name, verified careers URL)."""
+
     __tablename__ = "accounts"
     __table_args__ = (
         UniqueConstraint("tenant_id", "domain"),

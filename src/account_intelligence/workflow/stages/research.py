@@ -19,6 +19,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from account_intelligence.agents.output import parse_json
 from account_intelligence.agents.prompts import prompt
 from account_intelligence.grading.adapters import record_text
 from account_intelligence.platform.ports import NotConfigured
@@ -40,22 +41,12 @@ MAX_RECORD_CHARS = 4000
 MAX_RECORDS = 40
 
 
-def parse_json(text: str) -> Any:
-    """The first JSON object in a model answer, or ``None`` (never repaired)."""
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    try:
-        return json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-
-
 async def ask_json(
     deps: RunDeps, tier: str, system: str, user: Mapping[str, Any], max_tokens: int = 2000
 ) -> Any:
     """One model call with ONE bounded re-ask on unparseable output (workflow spec 3.7)."""
     body = json.dumps(user, sort_keys=True)
+    # LOOP(model re-ask): cap=1 re-ask on unparseable output; exit=parsed, None (item blocked)
     for attempt in range(2):
         note = (
             ""
@@ -192,6 +183,8 @@ class ResearchStage:
         passes = 1 + int(self.deps.spec.settings.get("planner_gap_passes", 2))
         exit_reason = "converged"
         open_rows = list(researched)
+        # LOOP(planner gap loop): cap=1 + planner_gap_passes (2); exit=converged, no_progress,
+        # budget, cap_reached
         for pass_no in range(passes):
             before = list((await self._rows()).values())
             limit = (

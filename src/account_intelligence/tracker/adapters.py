@@ -47,6 +47,7 @@ class LedgerCallAdapter:
         return self.category_by_operation[operation]
 
     async def get_call_record(self, tenant_id: UUID, run_id: UUID, call_ref: str) -> CallRecord:
+        """The ledger record of one call of this tenant and run (KeyError otherwise)."""
         done = (
             await self.session.execute(
                 text(

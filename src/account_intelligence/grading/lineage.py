@@ -18,6 +18,8 @@ from account_intelligence.grading.ports import RunInfo, RunSource
 
 @dataclass(frozen=True)
 class SourceProfile:
+    """A source's tier, aggregator flag and lineage group."""
+
     tier: Tier
     is_aggregator: bool
     lineage_group: str
@@ -38,10 +40,12 @@ def _under(host: str, domain: str) -> bool:
 
 
 def is_primary_host(host: str, run: RunInfo) -> bool:
+    """Whether a host is the account's own (or its verified careers host)."""
     return _under(host, run.account_domain) or host in run.primary_hosts
 
 
 def profile_for(source: RunSource, run: RunInfo, cfg: GradingConfig) -> SourceProfile:
+    """A stored source's profile from the registry (unknown provenance is its own flagged group)."""
     reg = cfg.registry
     if source.origin in ("broker_record", "feed_item"):
         entry = reg.provider_codes.get(source.provider_code)

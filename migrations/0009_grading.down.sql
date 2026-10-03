@@ -1,3 +1,4 @@
+-- Rollback of 0009_grading.sql: drops what it adds, in reverse order.
 DROP TABLE IF EXISTS lead_verification_queries;
 DROP TABLE IF EXISTS lead_verifications;
 DROP TABLE IF EXISTS claim_drops;

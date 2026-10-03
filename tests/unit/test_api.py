@@ -1,3 +1,5 @@
+"""The API exposes the run, task and probe routes (and no Inngest mount)."""
+
 from account_intelligence.api.main import app
 
 

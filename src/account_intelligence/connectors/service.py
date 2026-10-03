@@ -127,6 +127,8 @@ async def call_operation(
     route: str | None = None,
     fell_back_from: ProviderCode | None = None,
 ) -> ConnectorResult:
+    """The only entry the graph uses: validate, route, breaker, budget, ledger, pace, call, store,
+    normalise."""
     provider = OPERATION_PROVIDER[op]
     expected = ARGS_FOR[op]
     if type(args) is not expected:
@@ -143,6 +145,7 @@ async def call_operation(
     warnings: list[str] = []
 
     async def fetch(cursor: str | None, page_number: int) -> FetchedPage:
+        """Fetch one page through the ledger (replay, claim, call, finalise)."""
         return await _fetch_page(
             op, args, ctx, rt, connector, provider, cursor, route, fell_back_from, costs, warnings
         )
@@ -240,6 +243,8 @@ async def _claim(
 ) -> Replay | Claimed:
     cfg = rt.config.defaults.ledger
     waited = 0.0
+    # LOOP(in-flight wait): cap=in_flight_wait_s (polls every in_flight_poll_s); exit=claimed,
+    # replayed, CallInFlight
     while True:
         claim = await rt.ledger.claim(ctx, rt.worker_id, key, estimate)
         if not isinstance(claim, InFlight):

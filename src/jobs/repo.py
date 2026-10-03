@@ -48,6 +48,7 @@ class PgPostingRepo:
         self.account_id = account_id
 
     async def load_run(self, run_id: str) -> PipelineResult | None:
+        """The stored pipeline record of the run, or None."""
         async with self.txn(self.tenant_id) as s:
             row = (
                 await s.execute(
@@ -58,6 +59,8 @@ class PgPostingRepo:
         return result_from_json(row.record_json) if row is not None else None
 
     async def save_run(self, run_id: str, record: PipelineResult) -> None:
+        """Write postings, sentences, classifications, observations and the record in one
+        transaction."""
         run = UUID(run_id)
         async with self.txn(self.tenant_id) as s:
             for p in record.postings:

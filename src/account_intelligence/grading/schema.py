@@ -27,11 +27,15 @@ class _Strict(BaseModel):
 
 
 class ProposedEvidence(_Strict):
+    """A URL and the exact supporting sentence the model claims."""
+
     url: Annotated[str, Field(min_length=8, max_length=2048)]
     supporting_sentence: Annotated[str, Field(min_length=1, max_length=2000)]
 
 
 class ProposedSourced(_Strict):
+    """A claim from sources (no grade field can exist, G1)."""
+
     claim_kind: Literal["sourced"]
     local_id: LocalId
     attribute_key: AttributeKey
@@ -42,6 +46,8 @@ class ProposedSourced(_Strict):
 
 
 class ProposedSynthesis(_Strict):
+    """The system's own inference over sourced claims, with a confirming question."""
+
     claim_kind: Literal["synthesis"]
     local_id: LocalId
     attribute_key: AttributeKey
@@ -52,6 +58,8 @@ class ProposedSynthesis(_Strict):
 
 
 class ProposedAbsence(_Strict):
+    """A hypothesis from absence of evidence, citing the tracker proof and a question."""
+
     claim_kind: Literal["absence"]
     local_id: LocalId
     attribute_key: AttributeKey
@@ -72,6 +80,8 @@ DateKind = Literal["observed", "published", "unknown"]
 
 
 class GradedEvidence(_Strict):
+    """One evidence item as graded: URL, verified sentence, origin, tier, lineage, date."""
+
     evidence_kind: EvidenceKind
     url: str | None
     supporting_sentence: Annotated[str, Field(min_length=1, max_length=2000)]
@@ -102,6 +112,8 @@ class GradedEvidence(_Strict):
 
 
 class LeadRecord(_Strict):
+    """A Lead's verification summary on its graded claim."""
+
     status: Literal["pending", "complete", "upgraded", "incomplete"]
     reason: str | None
     accepted_queries: int
@@ -109,6 +121,8 @@ class LeadRecord(_Strict):
 
 
 class GradedClaim(_Strict):
+    """A claim with its computed grades (built only by grade_claims)."""
+
     schema_version: int
     config_hash: str
     claim_hash: str

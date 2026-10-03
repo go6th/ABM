@@ -48,6 +48,8 @@ TRANSLATIONS: dict[tuple[str, Operation], Translate] = {
 
 
 class Sink(StrEnum):
+    """Where a provider's output may be stored (p_org output never to a hosted file)."""
+
     INTERNAL_RAW = "internal_raw"  # neutral-key raw payload store
     INTERNAL_TABLE = "internal_table"  # internal ledger and fact tables
     CLIENT_EXPORT = "client_export"  # anything a client can download or view
@@ -83,6 +85,8 @@ async def call_need(
     *,
     operation: Operation | None = None,
 ) -> ConnectorResult:
+    """Run a routed need: first provider, then the configured fallback on credits, circuit or
+    outage."""
     route = rt.config.route(need)
     if route.first.builtin is not None or route.first.provider is None:
         return _blocked(

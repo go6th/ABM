@@ -17,6 +17,7 @@ router = APIRouter(tags=["health"])
 
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
+    """Liveness: the process answers."""
     return {"status": "ok"}
 
 
@@ -40,6 +41,7 @@ def _config() -> None:
 
 @router.get("/readyz")
 async def readyz(request: Request) -> JSONResponse:
+    """Readiness that fails closed (W5): 200 only when every check passes, else 503 naming it."""
     checks: dict[str, str] = {}
     container: Any = getattr(request.app.state, "container", None)
     if getattr(request.app.state, "draining", False):

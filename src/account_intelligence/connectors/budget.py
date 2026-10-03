@@ -21,17 +21,23 @@ from account_intelligence.connectors.errors import BudgetExceeded, ConnectorErro
 
 @dataclass(frozen=True)
 class BudgetDefaults:
+    """Skill defaults for a run's broker budget ($5.00) and call cap (60)."""
+
     run_budget_usd: float
     tool_call_cap: int
 
 
 @dataclass(frozen=True)
 class Reservation:
+    """The run's spend and call count after a successful atomic reservation."""
+
     spent_usd: Decimal
     tool_calls_used: int
 
 
 class RunNotFound(ConnectorError):
+    """The run is not visible to this tenant (RLS) or does not exist."""
+
     reason = "run not found for this tenant"
 
 
@@ -42,6 +48,8 @@ def _money(value: float) -> Decimal:
 async def reserve(
     session: AsyncSession, run_id: UUID, estimate_usd: float, defaults: BudgetDefaults
 ) -> Reservation:
+    """Atomically reserve an estimate against the run's budget and call cap; BudgetExceeded
+    otherwise."""
     if estimate_usd < 0:
         raise ValueError("estimate must not be negative")
     row = (

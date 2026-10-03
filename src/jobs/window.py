@@ -11,6 +11,7 @@ def window_start(as_of: date) -> date:
     """Return the inclusive date twelve calendar months before as_of."""
     month = as_of.month - 12
     year = as_of.year
+    # LOOP(month normalisation): cap=one iteration (month - 12 >= -11); exit=month in 1..12
     while month <= 0:
         month += 12
         year -= 1

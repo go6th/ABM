@@ -54,6 +54,7 @@ def dedupe_counted(rows: Iterable[RawPosting]) -> DedupeResult:
 
     def find(x: str) -> str:
         parent.setdefault(x, x)
+        # LOOP(union-find path walk): cap=number of identities (path halving); exit=root found
         while parent[x] != x:
             parent[x] = parent[parent[x]]
             x = parent[x]

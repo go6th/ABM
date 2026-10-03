@@ -29,7 +29,6 @@ from typing import Any
 from uuid import UUID
 
 from langgraph.types import Command, RetryPolicy
-from sqlalchemy import text
 
 from account_intelligence.agents.prompts import prompts_hash
 from account_intelligence.platform.ports import RunScheduler
@@ -87,15 +86,9 @@ async def _begin(deps: RunDeps, settings: SliceSettings) -> SliceOutcome | None:
             return SliceOutcome("noop", status.value)
         if status is RunStatus.AWAITING_APPROVAL:
             return SliceOutcome("awaiting", status.value)
-        used: int = (
-            await s.execute(
-                text(
-                    "UPDATE account_runs SET slices_used = slices_used + 1 WHERE id = :r"
-                    " RETURNING slices_used"
-                ),
-                {"r": deps.run_id},
-            )
-        ).scalar_one()
+        # LOOP(slice loop): cap=max_slices (60) slices of slice_seconds (240); exit=done, awaiting,
+        # canceled, slice ceiling (FAILED, full refund)
+        used = await lifecycle.begin_slice(s, deps.run_id)
         if status is RunStatus.QUEUED:
             await lifecycle.move(s, deps.run_id, RunStatus.QUEUED, RunStatus.RUNNING)
     if used > settings.max_slices:
@@ -134,6 +127,7 @@ async def execute_slice(
         return early
 
     async def on_enter(stage_id: str) -> None:
+        """Move the run to DISTILLING or VERIFYING as the graph reaches those stages."""
         if stage_id in PHASE:
             expected, new = PHASE[stage_id]
             async with deps.txn(deps.tenant_id) as s:

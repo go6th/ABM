@@ -35,6 +35,7 @@ class GcsPayloadStore:
         self._bucket = client.bucket(bucket)
 
     async def put(self, key: str, body: bytes) -> str:
+        """Create-only upload of the gzipped body (an existing key already holds the same bytes)."""
         from google.api_core.exceptions import PreconditionFailed
 
         blob = self._bucket.blob(key)
@@ -49,6 +50,7 @@ class GcsPayloadStore:
         return key
 
     async def get(self, key: str) -> bytes:
+        """Download and decompress one payload."""
         blob = self._bucket.blob(key)
         data: bytes = await asyncio.to_thread(blob.download_as_bytes)
         return gzip.decompress(data)
@@ -108,6 +110,7 @@ class CloudTasksScheduler:
     async def enqueue_slice(
         self, tenant_id: UUID, run_id: UUID, slice_no: int, delay_s: float = 0.0
     ) -> None:
+        """Create the named slice task (duplicate names are success)."""
         from datetime import UTC, timedelta
 
         at = datetime.now(UTC) + timedelta(seconds=delay_s) if delay_s > 0 else None
@@ -117,6 +120,7 @@ class CloudTasksScheduler:
         )
 
     async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
+        """Create the run's approval-timeout task at the deadline."""
         payload = {"tenant_id": str(tenant_id), "run_id": str(run_id)}
         await self._create(
             self._task(f"run-{run_id}-approval-timeout", "/tasks/approval-timeout", payload, at)
@@ -132,6 +136,7 @@ class SecretManagerSecrets:
         self._cache: dict[str, str] = {}
 
     def get(self, name: str) -> str:
+        """The latest version of a secret (cached per instance)."""
         if name not in self._cache:
             path = self.client.secret_version_path(self.project, name, "latest")
             try:
@@ -168,6 +173,7 @@ async def cloud_sql_engine(instance: str, user: str, database: str) -> tuple[Any
     connector = await create_async_connector(ip_type=IPTypes.PRIVATE, enable_iam_auth=True)
 
     async def creator() -> Any:
+        """Open one asyncpg connection through the connector (IAM auth, private IP)."""
         return await connector.connect_async(instance, "asyncpg", user=user, db=database)
 
     engine = create_async_engine("postgresql+asyncpg://", async_creator=creator)

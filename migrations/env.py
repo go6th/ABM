@@ -1,3 +1,5 @@
+"""Alembic environment: runs the SQL migrations as the migrator role (MIGRATOR_DATABASE_URL)."""
+
 from __future__ import annotations
 
 import os

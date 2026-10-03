@@ -140,6 +140,8 @@ class _Envelope(Strict):
 
 
 class SignalsConnector:
+    """The p_signals adapter: news, technology and job feeds, pulled once per run and paged."""
+
     code = CODE
 
     def __init__(self, page_limit: int) -> None:
@@ -148,9 +150,11 @@ class SignalsConnector:
         self.page_limit = page_limit
 
     def supports(self, op: Operation) -> bool:
+        """The three company feeds."""
         return op in _PATHS
 
     def build_request(self, op: Operation, args: OperationArgs, cursor: str | None) -> PageRequest:
+        """One feed page for the account's domain (since makes a delta pull)."""
         if op not in _PATHS:
             raise NotSupportedYet(provider_code=CODE, operation=op)
         assert isinstance(args, FeedArgs)
@@ -162,9 +166,11 @@ class SignalsConnector:
         return PageRequest("GET", path, params=params)
 
     def poll_request(self, op: Operation, job_id: str) -> PageRequest:
+        """No asynchronous jobs."""
         raise NotSupportedYet("no async jobs", provider_code=CODE, operation=op)
 
     def classify_error(self, op: Operation, raw: RawResponse) -> Exception:
+        """Map statuses to typed errors (403 and 429 are rate limits here)."""
         # OpenAPI responses: 401 credentials or subscription, 402 monthly request limit,
         # 403 "Request rate over limit", 404 record not found, 422, 429 (Retry-After
         # seconds), 500, 503.
@@ -179,6 +185,7 @@ class SignalsConnector:
         base: Mapping[str, Any],
         cursor: str | None,
     ) -> ParsedPage:
+        """Validate the envelope and normalise one feed page into records."""
         envelope = validate(_Envelope, decode_json(raw, CODE, op), CODE, op)
         page = int(cursor) if cursor is not None else 1
         included = {(i.type, i.id): i.attributes for i in envelope.included}

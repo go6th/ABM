@@ -339,6 +339,8 @@ class JobsPipeline:
         postings: list[Posting] = []
         texts: dict[str, str] = {}
         batch_size = max(self.cfg.caps["batch_size"], 1)
+        # LOOP(posting batch loop): cap=postings pulled (bounded by the pull caps), batch_size per
+        # batch; exit=all processed (one failure is isolated)
         for i in range(0, len(merged.rows), batch_size):
             for item in merged.rows[i : i + batch_size]:
                 refs = merged.call_refs.get(group_key(item), ())

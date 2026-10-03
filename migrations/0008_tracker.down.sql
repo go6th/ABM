@@ -1,3 +1,4 @@
+-- Rollback of 0008_tracker.sql: drops what it adds, in reverse order.
 DROP TRIGGER IF EXISTS check_run_completion_trg ON runs;
 DROP FUNCTION IF EXISTS check_run_completion;
 

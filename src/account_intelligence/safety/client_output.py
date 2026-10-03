@@ -7,6 +7,8 @@ accounts' names, client staff names and internal source ids from the redaction m
 
 This is the same rule set as ``scripts/scan_client_output.py`` (the CI and operator tool), which
 also opens docx, xlsx, pptx and zip members; this module scans text the service is about to emit.
+GUARANTEE(test_export_and_count_sentence_are_client_safe)
+GUARANTEE(test_client_view_is_allow_listed_scanned_and_ordered)
 """
 
 from __future__ import annotations

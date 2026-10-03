@@ -45,6 +45,7 @@ TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
 
 
 def canonical_json(value: Any) -> str:
+    """Canonical JSON (sorted keys, fixed separators) for stable hashing."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
@@ -57,6 +58,8 @@ def args_hash(provider_code: str, operation: str, args: Any) -> str:
 
 @dataclass(frozen=True)
 class CallKey:
+    """The ledger identity of one paid call: run and args_hash plus routing metadata."""
+
     args_hash: str
     tool: str  # neutral label stored in tool_calls.tool, e.g. 'p_signals:news_events'
     provider_code: str | None = None
@@ -67,6 +70,8 @@ class CallKey:
 
 @dataclass(frozen=True)
 class Replay:
+    """A finished call: its stored response is replayed and nothing is paid again."""
+
     response: dict[str, Any] | None
     response_ref: str | None
     attempt: int
@@ -79,6 +84,8 @@ class Replay:
 
 @dataclass(frozen=True)
 class Claimed:
+    """This worker may make the call; the intent row and the reservation are written."""
+
     attempt: int
     lease_epoch: int
     reserved_usd: float
@@ -88,6 +95,8 @@ class Claimed:
 
 @dataclass(frozen=True)
 class InFlight:
+    """Another attempt of the same key is in progress; wait, never pay twice."""
+
     attempt: int
 
 
@@ -121,6 +130,7 @@ class _Attempt:
 
 
 def summarise_attempts(rows: Sequence[Any]) -> list[_Attempt]:
+    """Group intent events by attempt (started, submitted, done, failed, abandoned)."""
     by: dict[int, dict[str, Any]] = {}
     for row in rows:
         entry = by.setdefault(
@@ -143,6 +153,8 @@ TERMINAL = frozenset({"done", "failed", "abandoned"})
 
 
 class Ledger:
+    """The paid-call ledger: per-run lease, insert-only intent log and pull-once replay."""
+
     def __init__(
         self,
         txn: TxnFactory,
@@ -192,6 +204,7 @@ class Ledger:
             return await self._upsert_lease(s, ctx.run_id, owner)
 
     async def release_lease(self, ctx: CallContext, owner: str) -> None:
+        """Give up this worker's lease on the run."""
         async with self._txn(ctx.tenant_id) as s:
             await s.execute(
                 text("UPDATE run_leases SET expires_at = :now WHERE run_id = :r AND owner = :o"),
@@ -209,6 +222,7 @@ class Ledger:
         *,
         charge_budget: bool = True,
     ) -> ClaimResult:
+        """Replay a done call, wait for one in flight, or claim a new attempt and reserve."""
         async with self._txn(ctx.tenant_id) as s:
             epoch = await self._upsert_lease(s, ctx.run_id, owner)  # also the run mutex
             done = (
@@ -302,6 +316,7 @@ class Ledger:
     async def mark_submitted(
         self, ctx: CallContext, owner: str, key: CallKey, claim: Claimed, job_id: str
     ) -> None:
+        """Record a provider job id so a resumed worker polls the same job."""
         async with self._txn(ctx.tenant_id) as s:
             await self._insert_event(
                 s,
@@ -407,6 +422,7 @@ class Ledger:
         *,
         charge_budget: bool = True,
     ) -> None:
+        """Close a failed attempt with its error class and what was charged."""
         async with self._txn(ctx.tenant_id) as s:
             abandoned = await self._lock_and_abandoned(s, ctx, key, claim.attempt)
             charged = 0.0 if abandoned else outcome.charged_usd

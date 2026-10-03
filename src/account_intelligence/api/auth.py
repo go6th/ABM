@@ -21,12 +21,16 @@ def _jwks() -> PyJWKClient:
 
 @dataclass(frozen=True)
 class Identity:
+    """The caller as the verified token states it: user, tenant and role (W3: the only tenant
+    source)."""
+
     user_id: str
     tenant_id: UUID
     role: str
 
 
 async def identity(authorization: str = Header(...)) -> Identity:
+    """Verify the bearer JWT against the JWKS and return the caller; 401 on any failure."""
     settings = get_settings()
     token = authorization.removeprefix("Bearer ").strip()
     try:
@@ -45,7 +49,10 @@ async def identity(authorization: str = Header(...)) -> Identity:
 
 
 def require_role(*roles: str) -> Callable[..., Awaitable[Identity]]:
+    """A dependency that admits only the listed roles (admin, seller, viewer); 403 otherwise."""
+
     async def dep(ident: Identity = Depends(identity)) -> Identity:
+        """Resolve the caller and refuse roles outside the allowed set."""
         if ident.role not in roles:  # also re-check membership in DB for revocation (cached 60 s)
             raise HTTPException(status_code=403, detail="forbidden")
         return ident

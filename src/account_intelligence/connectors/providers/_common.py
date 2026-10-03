@@ -32,6 +32,7 @@ class Strict(BaseModel):
 
 
 def decode_json(raw: RawResponse, code: ProviderCode, op: Operation) -> Any:
+    """Decode a JSON body or raise SchemaDriftError (never repaired)."""
     try:
         return json.loads(raw.body)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -41,6 +42,7 @@ def decode_json(raw: RawResponse, code: ProviderCode, op: Operation) -> Any:
 
 
 def validate(model: type[M], data: Any, code: ProviderCode, op: Operation) -> M:
+    """Validate data against the sourced model or raise SchemaDriftError."""
     try:
         return model.model_validate(data)
     except ValidationError as error:
@@ -53,6 +55,7 @@ def validate(model: type[M], data: Any, code: ProviderCode, op: Operation) -> M:
 def provenance(
     base: Mapping[str, Any], *, source_url: str | None, page: int, index: int
 ) -> Provenance:
+    """Provenance for one record (provider code, operation, URL, time, payload ref, page, index)."""
     return Provenance(
         provider_code=base["provider_code"],
         operation=base["operation"],

@@ -21,6 +21,8 @@ from account_intelligence.grading.ports import SupportJudgePort
 
 
 class JudgeVerdict(BaseModel):
+    """The only shape a judge answer may take (supported, reason)."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     supported: bool
     reason: str = Field(min_length=1, max_length=300)
@@ -31,6 +33,8 @@ Outcome = Literal["supported", "unsupported", "unavailable", "not_required"]
 
 @dataclass(frozen=True)
 class JudgeResult:
+    """The judge outcome after at most one re-ask."""
+
     outcome: Outcome
     attempts: int
     reason: str | None = None
@@ -48,6 +52,7 @@ class Judged:
 
 
 def model_profile(task: str, models_path: Path | None = None) -> str:
+    """The model profile a task routes to in config/models.yaml."""
     raw = yaml.safe_load((models_path or CONFIG_DIR / "models.yaml").read_text(encoding="utf-8"))
     arm = raw["arms"][raw["active_arm"]]
     return str(raw["profiles"][arm["routes"][task]]["model"])
@@ -63,6 +68,7 @@ def ensure_judge_differs(cfg: GradingConfig, judge_profile: str, generator_profi
 
 
 def needs_judge(engine_grade: EngineGrade, product_grade: ProductGrade, cfg: GradingConfig) -> bool:
+    """Whether a claim must be judged (engine A or B, or Confirmed)."""
     return (
         engine_grade in cfg.judge.required_for_engine_grades
         or product_grade in cfg.judge.required_for_product_grades
@@ -76,6 +82,8 @@ async def call_judge(
     if port is None:
         return JudgeResult("unavailable", 0, "not_configured")
     attempts = 0
+    # LOOP(judge re-ask): cap=max_reasks (1); exit=supported, unsupported, unavailable (claim
+    # capped, G12)
     for _ in range(cfg.judge.max_reasks + 1):
         attempts += 1
         try:

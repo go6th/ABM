@@ -23,6 +23,7 @@ def checkpointer_factory(dsn: str):  # type: ignore[no-untyped-def]
 
     @asynccontextmanager
     async def open_saver(tenant_id: UUID) -> AsyncIterator[AsyncPostgresSaver]:
+        """A saver on a fresh connection bound to the tenant, closed when the slice ends."""
         conn = await psycopg.AsyncConnection.connect(
             dsn, autocommit=True, row_factory=dict_row, prepare_threshold=0
         )

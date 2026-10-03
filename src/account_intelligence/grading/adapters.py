@@ -62,6 +62,7 @@ def record_text(r: Record) -> str:
 
 
 def record_published(r: Record) -> datetime | None:
+    """The published date a record states, if any (D-14 dating)."""
     raw: str | None = None
     if isinstance(r, NewsEventRecord):
         raw = r.article_published_at or r.found_at
@@ -87,6 +88,8 @@ def call_queries(operation: str, args: Mapping[str, Any]) -> tuple[str, ...]:
 
 @dataclass
 class LedgerAdapter:
+    """Grading's SourceTextPort and FetchLedgerPort over the connector ledger and payload store."""
+
     txn: TxnFactory
     payloads: PayloadStore
     connectors: Mapping[ProviderCode, Connector]
@@ -109,6 +112,7 @@ class LedgerAdapter:
             )
 
     async def fetches(self, run: RunInfo) -> Mapping[str, FetchRecord]:
+        """How each call of this run was obtained (origin, category, success, queries)."""
         out: dict[str, FetchRecord] = {}
         for row in await self._rows(run):
             meta = row.response or {}
@@ -156,6 +160,7 @@ class LedgerAdapter:
         return out
 
     async def sources(self, run: RunInfo) -> Sequence[RunSource]:
+        """Every stored source text of this run, re-parsed from its payload."""
         out: list[RunSource] = []
         for row in await self._rows(run):
             meta = row.response or {}

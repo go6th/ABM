@@ -120,6 +120,8 @@ class _PeopleResponse(Strict):
 
 
 class OrgConnector:
+    """The p_org adapter: organizations, tech stack, people by technology (async job), teams."""
+
     code = CODE
     _SUPPORTED = frozenset(
         {Operation.ORG_RESOLVE, Operation.ORG_TECH_STACK, Operation.PEOPLE_BY_TECHNOLOGY}
@@ -143,9 +145,11 @@ class OrgConnector:
         self.page_url_field = page_url_field
 
     def supports(self, op: Operation) -> bool:
+        """Whether the operation has a sourced p_org contract."""
         return op in self._SUPPORTED
 
     def build_request(self, op: Operation, args: OperationArgs, cursor: str | None) -> PageRequest:
+        """The request for one operation; never asks for a hosted file (adapter rule)."""
         if op is Operation.ORG_RESOLVE:
             assert isinstance(args, OrgResolveArgs)
             org_body: dict[str, Any] = {
@@ -175,6 +179,7 @@ class OrgConnector:
         raise NotSupportedYet(provider_code=CODE, operation=op)
 
     def poll_request(self, op: Operation, job_id: str) -> PageRequest:
+        """Poll the people-by-technology job by its request id."""
         if op is not Operation.PEOPLE_BY_TECHNOLOGY:
             raise NotSupportedYet("no async jobs", provider_code=CODE, operation=op)
         return PageRequest("POST", "/v9/people", json_body={"request_id": job_id})
@@ -191,6 +196,7 @@ class OrgConnector:
         return data
 
     def classify_error(self, op: Operation, raw: RawResponse) -> Exception:
+        """Map p_org statuses to typed errors (202 means the job is still running)."""
         # api-overview.md error table: 202 accepted/in progress (retry soon), 400, 401,
         # 402 insufficient credits, 429, 500, 504 timed out (no credits charged).
         if raw.status_code == 202:
@@ -208,6 +214,7 @@ class OrgConnector:
         base: Mapping[str, Any],
         cursor: str | None,
     ) -> ParsedPage:
+        """Validate and normalise a p_org response into records with provenance."""
         data = self._neutral_keys(decode_json(raw, CODE, op))
         if op is Operation.ORG_RESOLVE:
             assert isinstance(args, OrgResolveArgs)

@@ -14,6 +14,8 @@ from account_intelligence.grading.config import Origin
 
 @dataclass(frozen=True)
 class RunInfo:
+    """The run as grading sees it: tenant, account, start time, domain and primary hosts."""
+
     tenant_id: UUID
     account_id: UUID
     run_id: UUID
@@ -59,18 +61,24 @@ class FetchRecord:
 
 
 class SourceTextPort(Protocol):
+    """Stored text of this run's sources (the only way grading reads page text)."""
+
     async def sources(self, run: RunInfo) -> Sequence[RunSource]:
         """All stored source records of this run (never another run or tenant)."""
         ...
 
 
 class FetchLedgerPort(Protocol):
+    """How and when each source was obtained this run (G5, G9)."""
+
     async def fetches(self, run: RunInfo) -> Mapping[str, FetchRecord]:
         """Every ledgered call of this run keyed by call_ref, including failed calls."""
         ...
 
 
 class SupportJudgePort(Protocol):
+    """The judge: sees only a claim and a sentence; must not be the generator's model."""
+
     model_task: str
 
     async def judge(self, claim: str, sentence: str) -> Any:
@@ -79,4 +87,8 @@ class SupportJudgePort(Protocol):
 
 
 class Clock(Protocol):
-    def now(self) -> datetime: ...
+    """Injected time."""
+
+    def now(self) -> datetime:
+        """Current aware UTC time."""
+        ...

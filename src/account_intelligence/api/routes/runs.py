@@ -55,6 +55,7 @@ async def create_run(
     idem: str = Header(alias="Idempotency-Key", min_length=8, max_length=64),
     ident: Identity = Depends(require_role("admin", "seller")),
 ) -> dict[str, Any]:
+    """Create a run (both rows, reservation, tracker in one transaction) and enqueue slice 0."""
     container = _container(request)
     run_input = {"lanes_off": sorted(set(body.lanes_off)), "pursuing_client": body.pursuing_client}
     req = RunRequest(body.domain, body.depth, idem, run_input)
@@ -95,6 +96,7 @@ async def get_run(
     request: Request,
     ident: Identity = Depends(require_role("admin", "seller", "viewer")),
 ) -> dict[str, Any]:
+    """The run's status, end reason and client-safe coverage view (leak-scanned)."""
     container = _container(request)
     async with tenant_txn(ident.tenant_id) as s:
         row = (
@@ -118,6 +120,7 @@ async def get_run(
 async def approve(
     run_id: UUID, request: Request, ident: Identity = Depends(require_role("admin", "seller"))
 ) -> dict[str, str]:
+    """Approve a run waiting at the approval gate and enqueue its next slice."""
     container = _container(request)
     try:
         async with tenant_txn(ident.tenant_id) as s:
@@ -137,6 +140,7 @@ async def approve(
 async def cancel(
     run_id: UUID, request: Request, ident: Identity = Depends(require_role("admin", "seller"))
 ) -> dict[str, str]:
+    """Cancel a run: it ends CANCELED, unset rows are swept and the spend so far is settled."""
     container = _container(request)
     try:
         async with tenant_txn(ident.tenant_id) as s:

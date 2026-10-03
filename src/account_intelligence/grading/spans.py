@@ -44,6 +44,7 @@ def normalise_ws(text: str) -> str:
 
 
 def casefold_text(text: str) -> str:
+    """NFKC, whitespace-collapsed, case-folded comparison form."""
     return normalise_ws(text).casefold()
 
 
@@ -54,6 +55,7 @@ def sanitise(text: str, max_chars: int) -> str:
 
 
 def check_hostile(text: str, cfg: GradingConfig) -> None:
+    """Raise HostileContent when a canary or instruction marker appears (G14)."""
     folded = casefold_text(text)
     for marker in cfg.spans.canary_markers:
         if marker.casefold() in folded:
@@ -136,6 +138,7 @@ def normalise_value(value: str, normaliser: Normaliser) -> str:
 
 
 def bounded(text: str, max_chars: int, what: str) -> str:
+    """Sanitised text within a length bound, or SchemaViolation."""
     clean = sanitise(text, max_chars + 1)
     if len(clean) > max_chars:
         raise SchemaViolation(f"{what} longer than {max_chars} characters")

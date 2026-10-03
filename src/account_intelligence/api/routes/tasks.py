@@ -35,6 +35,8 @@ class SliceTask(BaseModel):
 
 
 class TimeoutTask(BaseModel):
+    """The approval-timeout task body: ids only."""
+
     model_config = ConfigDict(extra="forbid")
     tenant_id: UUID
     run_id: UUID
@@ -61,6 +63,7 @@ def _authorise(request: Request, authorization: str | None) -> Any:
 async def run_slice(
     task: SliceTask, request: Request, authorization: str | None = Header(default=None)
 ) -> dict[str, str]:
+    """Run one slice of one run for an OIDC-verified Cloud Tasks call."""
     container = _authorise(request, authorization)
     from account_intelligence.platform.checkpoint import checkpointer_factory
 
@@ -84,6 +87,7 @@ async def run_slice(
 async def approval_timeout(
     task: TimeoutTask, request: Request, authorization: str | None = Header(default=None)
 ) -> dict[str, bool]:
+    """Expire a run's approval past its deadline: cancel and refund (known defect 8)."""
     container = _authorise(request, authorization)
     deps = await container.deps_for(task.tenant_id, task.run_id)
     async with tenant_txn(task.tenant_id) as s:

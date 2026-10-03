@@ -102,10 +102,14 @@ class FeedArgs(_Args):
 
 
 class OrgResolveArgs(_Args):
+    """Resolve the account's organization (p_org) by its domain."""
+
     domain: Domain
 
 
 class OrgTechStackArgs(_Args):
+    """The technology stack of one resolved organization (p_org)."""
+
     organization_id: int = Field(ge=1)
 
 
@@ -117,15 +121,22 @@ class PeopleByTechnologyArgs(_Args):
 
 
 class PeopleByTitleArgs(_Args):
+    """People at the account's domain by title (p_people; unsupported until the grid contract is
+    supplied)."""
+
     domain: Domain
     titles: tuple[QueryText, ...] = Field(min_length=1, max_length=20)
 
 
 class ProfileEnrichmentArgs(_Args):
+    """One profile's enrichment by its returned URL (p_people; unsupported until supplied)."""
+
     profile_url: HttpsUrl
 
 
 class OrgTeamsArgs(_Args):
+    """Teams at the account's domain (p_org)."""
+
     domain: Domain
 
 
@@ -198,10 +209,13 @@ class Record(BaseModel):
     lineage_hint: str | None
 
     def dedupe_key(self) -> str:
+        """Stable key for de-duplicating records across pages."""
         raise NotImplementedError
 
 
 class WebPageRecord(Record):
+    """A search hit or page read: URL, title, excerpts and optional full content."""
+
     kind: Literal["web_page"]
     url: str
     title_text: str | None
@@ -210,10 +224,13 @@ class WebPageRecord(Record):
     full_content_text: str | None
 
     def dedupe_key(self) -> str:
+        """The page URL."""
         return self.url
 
 
 class ScrapedPageRecord(Record):
+    """A plain scrape of a job page: requested and final URL, status and markdown text."""
+
     kind: Literal["scraped_page"]
     requested_url: str | None
     final_url: str | None
@@ -222,10 +239,13 @@ class ScrapedPageRecord(Record):
     title_text: str | None
 
     def dedupe_key(self) -> str:
+        """The final URL, else the requested URL, else the payload reference."""
         return self.final_url or self.requested_url or self.provenance.raw_ref
 
 
 class NewsEventRecord(Record):
+    """A structured news event from the company feed, with its article sentence."""
+
     kind: Literal["news_event"]
     event_id: str
     category: str
@@ -241,10 +261,13 @@ class NewsEventRecord(Record):
     article_published_at: str | None
 
     def dedupe_key(self) -> str:
+        """The provider's event id."""
         return self.event_id
 
 
 class JobOpeningRecord(Record):
+    """One job opening from the company feed (description completeness is not stated)."""
+
     kind: Literal["job_opening"]
     job_id: str
     title_text: str
@@ -260,10 +283,13 @@ class JobOpeningRecord(Record):
     categories: tuple[str, ...]
 
     def dedupe_key(self) -> str:
+        """The provider's job id."""
         return self.job_id
 
 
 class TechDetectionRecord(Record):
+    """A technology detection with first and last seen dates (a date range alone is a Lead)."""
+
     kind: Literal["tech_detection"]
     detection_id: str
     technology_id: str | None
@@ -276,10 +302,13 @@ class TechDetectionRecord(Record):
     evidence_urls: tuple[str, ...]
 
     def dedupe_key(self) -> str:
+        """The provider's detection id."""
         return self.detection_id
 
 
 class OrganizationRecord(Record):
+    """A resolved organization (id, name, industry, headquarters country)."""
+
     kind: Literal["organization"]
     input_domain: str
     matched: bool
@@ -292,10 +321,13 @@ class OrganizationRecord(Record):
     headquarters_country: str | None
 
     def dedupe_key(self) -> str:
+        """The organization id, else the input domain."""
         return str(self.organization_id) if self.organization_id is not None else self.input_domain
 
 
 class TechStackRecord(Record):
+    """One technology in an organization's stack, by business function and category."""
+
     kind: Literal["tech_stack_item"]
     organization_id: int
     business_function: str
@@ -306,10 +338,13 @@ class TechStackRecord(Record):
     job_post_used_count: int
 
     def dedupe_key(self) -> str:
+        """Business function, category and technology slugs."""
         return f"{self.business_function}/{self.category_slug}/{self.technology_slug}"
 
 
 class PersonRecord(Record):
+    """A person returned by a people search (profile URL first, provider id second)."""
+
     kind: Literal["person"]
     provider_person_id: str
     profile_url: str | None  # dedupe key for people (PRD); None when the provider has none
@@ -320,4 +355,5 @@ class PersonRecord(Record):
     location: str | None
 
     def dedupe_key(self) -> str:
+        """The profile URL, else the provider person id."""
         return self.profile_url or f"provider:{self.provider_person_id}"

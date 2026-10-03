@@ -4,6 +4,7 @@
   "$defs": {
    "GradedEvidence": {
     "additionalProperties": false,
+    "description": "One evidence item as graded: URL, verified sentence, origin, tier, lineage, date.",
     "properties": {
      "call_ref": {
       "anyOf": [
@@ -174,6 +175,7 @@
    },
    "LeadRecord": {
     "additionalProperties": false,
+    "description": "A Lead's verification summary on its graded claim.",
     "properties": {
      "accepted_queries": {
       "title": "Accepted Queries",
@@ -219,6 +221,7 @@
    }
   },
   "additionalProperties": false,
+  "description": "A claim with its computed grades (built only by grade_claims).",
   "properties": {
    "attribute_key": {
     "maxLength": 120,
@@ -391,6 +394,7 @@
   "$defs": {
    "ProposedAbsence": {
     "additionalProperties": false,
+    "description": "A hypothesis from absence of evidence, citing the tracker proof and a question.",
     "properties": {
      "attribute_key": {
       "maxLength": 120,
@@ -443,6 +447,7 @@
    },
    "ProposedEvidence": {
     "additionalProperties": false,
+    "description": "A URL and the exact supporting sentence the model claims.",
     "properties": {
      "supporting_sentence": {
       "maxLength": 2000,
@@ -466,6 +471,7 @@
    },
    "ProposedSourced": {
     "additionalProperties": false,
+    "description": "A claim from sources (no grade field can exist, G1).",
     "properties": {
      "attribute_key": {
       "maxLength": 120,
@@ -539,6 +545,7 @@
    },
    "ProposedSynthesis": {
     "additionalProperties": false,
+    "description": "The system's own inference over sourced claims, with a confirming question.",
     "properties": {
      "attribute_key": {
       "maxLength": 120,

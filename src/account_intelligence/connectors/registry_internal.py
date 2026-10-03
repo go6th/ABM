@@ -13,4 +13,5 @@ from account_intelligence.connectors.settings import ProvidersConfig
 
 
 def vendor_names(config: ProvidersConfig) -> dict[ProviderCode, str]:
+    """Provider code to vendor display name (internal tooling only; never client output)."""
     return {code: cfg.display_name for code, cfg in config.providers.items()}

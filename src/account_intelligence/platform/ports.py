@@ -18,15 +18,21 @@ class NotConfigured(RuntimeError):
 class Clock(Protocol):
     """Injected time; pure modules never read the wall clock."""
 
-    def now(self) -> datetime: ...
+    def now(self) -> datetime:
+        """Current aware UTC time."""
+        ...
 
 
 class PayloadStore(Protocol):
     """Raw payloads under neutral keys (no provider name in any key). One atomic put."""
 
-    async def put(self, key: str, body: bytes) -> str: ...
+    async def put(self, key: str, body: bytes) -> str:
+        """Store a body under a neutral key; returns the key."""
+        ...
 
-    async def get(self, key: str) -> bytes: ...
+    async def get(self, key: str) -> bytes:
+        """The stored body (an error when missing, never empty bytes)."""
+        ...
 
 
 class RunScheduler(Protocol):
@@ -37,9 +43,13 @@ class RunScheduler(Protocol):
 
     async def enqueue_slice(
         self, tenant_id: UUID, run_id: UUID, slice_no: int, delay_s: float = 0.0
-    ) -> None: ...
+    ) -> None:
+        """Start a run's slice once, optionally after a delay."""
+        ...
 
-    async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None: ...
+    async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
+        """Arm the run's approval-timeout task once."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -67,12 +77,14 @@ class LlmPort(Protocol):
     """One model call. ``tier`` (planner, extractor, judge...) resolves to a model in config;
     no model id appears in code."""
 
-    async def complete(
-        self, tier: str, system: str, user: str, *, max_tokens: int
-    ) -> LlmResult: ...
+    async def complete(self, tier: str, system: str, user: str, *, max_tokens: int) -> LlmResult:
+        """One model call for a tier: system and user text in, raw text and usage out."""
+        ...
 
 
 class SecretSource(Protocol):
     """Secrets by name; values are never logged."""
 
-    def get(self, name: str) -> str: ...
+    def get(self, name: str) -> str:
+        """A secret by name."""
+        ...

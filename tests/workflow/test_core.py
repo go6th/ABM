@@ -1,3 +1,5 @@
+"""Workflow core: spec validation, state reducers, transitions, stage contract, evidence gate."""
+
 from __future__ import annotations
 
 from dataclasses import replace

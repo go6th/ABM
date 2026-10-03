@@ -17,6 +17,8 @@ from account_intelligence.grading.ports import FetchRecord, RunInfo
 
 @dataclass(frozen=True)
 class VerifiedEvidence:
+    """Evidence whose sentence was verified in a stored source (G4 passed)."""
+
     url_normalized: str
     tier: str
     call_ref: str  # the fetch whose stored text contains the verified sentence
@@ -26,6 +28,8 @@ class VerifiedEvidence:
 
 @dataclass(frozen=True)
 class PrimaryRead:
+    """Whether a claim was read in a primary source this run, and why not."""
+
     value: bool
     reasons: tuple[str, ...]  # why each evidence item did not qualify (empty when true)
 
@@ -58,6 +62,7 @@ def read_in_primary_this_run(
     *,
     conflicting: bool,
 ) -> PrimaryRead:
+    """Compute the primary-read flag from the fetch ledger (G5; no caller can set it)."""
     if conflicting:
         return PrimaryRead(False, ("conflicting",))
     reasons: list[str] = []

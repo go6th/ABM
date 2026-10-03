@@ -1,3 +1,4 @@
+-- Rollback of 0007_connector_ledger.sql: drops what it adds, in reverse order.
 DROP TABLE IF EXISTS tool_call_events;
 DROP TABLE IF EXISTS run_leases;
 ALTER TABLE account_runs

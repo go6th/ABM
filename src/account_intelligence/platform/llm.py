@@ -73,6 +73,7 @@ class AnthropicLlm:
         self.provider = provider
 
     async def complete(self, tier: str, system: str, user: str, *, max_tokens: int) -> LlmResult:
+        """One messages call for the tier's configured model; returns text and usage."""
         route = self.routes.get(tier)
         if route is None or route.provider != "anthropic":
             raise NotConfigured(f"tier {tier} has no anthropic route")

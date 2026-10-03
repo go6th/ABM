@@ -44,6 +44,7 @@ from account_intelligence.connectors.settings import ProviderCfg, ProvidersConfi
 
 
 def build_connectors(config: ProvidersConfig) -> dict[ProviderCode, Connector]:
+    """One connector per provider code from config."""
     org = config.provider(ProviderCode.P_ORG)
     signals = config.provider(ProviderCode.P_SIGNALS)
     return {
@@ -61,6 +62,7 @@ def build_connectors(config: ProvidersConfig) -> dict[ProviderCode, Connector]:
 
 
 def http_settings(cfg: ProviderCfg) -> HttpSettings:
+    """Timeouts, limits and size caps for one provider's HTTP client."""
     return HttpSettings(
         base_url=cfg.base_url,
         connect_s=cfg.http.connect_s,
@@ -73,6 +75,7 @@ def http_settings(cfg: ProviderCfg) -> HttpSettings:
 
 
 def auth_headers(cfg: ProviderCfg, env: Mapping[str, str] | None) -> dict[str, str]:
+    """Authentication headers from the environment or mounted secrets (never logged)."""
     source = dict(env) if env is not None else None
     secret = load_secret(source, cfg.auth.env)
     headers = {"accept": "application/json", "user-agent": "account-intelligence-connectors/1"}
@@ -105,6 +108,7 @@ def build_runtime(
     url_policy: UrlPolicy | None = None,
     worker_id: str | None = None,
 ) -> ConnectorRuntime:
+    """Assemble the connector runtime: clients, limiter, breaker, ledger, cost model, policies."""
     clock = clock or SystemClock()
     sleep = sleep or real_sleep
     d = config.defaults
