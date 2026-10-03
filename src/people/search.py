@@ -140,16 +140,17 @@ async def page_source(
                 out.exit_reason, out.complete = "deadline", False
                 break
             try:
-                out.live_calls += 1
                 page = await call(cursor)
             except SourceUnavailable as error:
-                if error.call_ref:
+                if error.call_ref:  # a call was made and failed (no ref: never called)
+                    out.live_calls += 1
                     out.failed_refs.append(error.call_ref)
                 if page_no == 0 and not error.call_ref:
                     out.unavailable = error.reason
                 out.exit_reason = "budget" if error.reason in BUDGET_REASONS else "no_progress"
                 out.stop_detail, out.complete = error.reason, False
                 break
+            out.live_calls += 1
             await save(page_no, cursor, page)
         cursors.add(cursor)
         page_no += 1

@@ -116,6 +116,7 @@ class PipelineResult:
     source_codes: dict[str, str]
     drops: dict[str, int]
     flags: dict[str, bool]
+    findings_hostile: tuple[str, ...] = ()
     calls_made: int = 0
     replayed: bool = False
 
@@ -462,7 +463,12 @@ class PeoplePipeline:
             url: pr.model_copy(update={"hostile": True}) if pr.person_key in found.hostile else pr
             for url, pr in prof.profiles.items()
         }
-        all_posts = tuple(post for group in posts_out.posts.values() for post in group)
+        all_posts = tuple(
+            sorted(
+                (post for group in posts_out.posts.values() for post in group),
+                key=lambda post: (post.person_key, post.post_url),
+            )
+        )
         counts: PeopleCounts | None = None
         error: str | None = None
         try:
@@ -519,6 +525,7 @@ class PeoplePipeline:
                 "posts_cost_unknown": posts_out.cost_unknown,
                 "profiles_cap_hit": prof.cap_hit,
             },
+            findings_hostile=tuple(sorted(found.hostile)),
             calls_made=calls,
         )
 
@@ -596,6 +603,7 @@ def result_to_json(result: PipelineResult) -> dict[str, object]:
         "source_codes": dict(result.source_codes),
         "drops": dict(result.drops),
         "flags": dict(result.flags),
+        "findings_hostile": list(result.findings_hostile),
     }
 
 
@@ -630,6 +638,7 @@ def result_from_json(data: dict[str, object]) -> PipelineResult:
         source_codes=dict(d["source_codes"]),
         drops=dict(d["drops"]),
         flags=dict(d["flags"]),
+        findings_hostile=tuple(d["findings_hostile"]),
     )
 
 

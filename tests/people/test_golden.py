@@ -3,114 +3,13 @@ both people-source modes (spec 9.5)."""
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
-from account_intelligence.grading.config import load_grading_config
-from account_intelligence.grading.errors import HostileContent
-from account_intelligence.grading.spans import check_hostile
-from people.config import PeopleConfig, load_people_config
-from people.pipeline import PeoplePipeline, PipelineResult
-from people.stage import run_people
-from tests.fakes.people import (
-    Corpus,
-    FakeCosts,
-    FakeLlm,
-    FakeMentions,
-    FakePosts,
-    FakeProfiles,
-    FakeRepo,
-    FakeResolver,
-    FakeRunInput,
-    FakeSearch,
-    Recorder,
-    oracle,
-)
-
-CANARY = "CANARY-7f3a9e"
-pytestmark = pytest.mark.asyncio
+from tests.fakes.people import Corpus, FakeRepo, oracle
+from tests.people.kit import Kit, by_record
 
 
-def is_hostile(text: str) -> bool:
-    """The grading layer's one hostile-content check (G14), reused."""
-    try:
-        check_hostile(text, load_grading_config())
-    except HostileContent:
-        return True
-    return False
-
-
-def markers() -> tuple[str, ...]:
-    return tuple(load_grading_config().spans.instruction_markers)
-
-
-class Kit:
-    """A pipeline over the corpus fakes, with handles on every fake."""
-
-    def __init__(
-        self,
-        corpus: Corpus,
-        *,
-        cfg: PeopleConfig | None = None,
-        repo: FakeRepo | None = None,
-        extractor: FakeLlm | None = None,
-        post_cost: float | None = 0.02,
-        profile_provider: str = "p_people",
-        search: dict[str, Any] | None = None,
-        out_of_time: Any = None,
-        mentions_configured: bool = True,
-        activity_known: bool = True,
-    ) -> None:
-        d = corpus.data
-        self.corpus = corpus
-        self.ledger = corpus.ledger
-        self.search = FakeSearch(search if search is not None else d["search"], self.ledger)
-        self.resolver = FakeResolver(d["resolver"], self.ledger)
-        self.profiles = FakeProfiles(d["profiles"], self.ledger, profile_provider)
-        self.posts = FakePosts(d["posts"], self.ledger, post_cost, activity_known)
-        self.llm = extractor or FakeLlm(d["extractor"])
-        self.repo = repo or FakeRepo()
-        self.rec = Recorder()
-        self.pipeline = PeoplePipeline(
-            cfg or load_people_config(),
-            self.search,
-            FakeMentions(corpus.mentions(), mentions_configured),
-            self.resolver,
-            self.profiles,
-            self.posts,
-            FakeCosts(self.ledger),
-            self.llm,
-            self.repo,
-            canary=CANARY,
-            hostile_markers=markers(),
-            is_hostile=is_hostile,
-            **({"out_of_time": out_of_time} if out_of_time else {}),
-        )
-
-    async def run(self, run_input: FakeRunInput | None = None) -> PipelineResult:
-        return await run_people(
-            "00000000-0000-0000-0000-000000000001",
-            self.corpus.account,
-            self.pipeline,
-            self.repo,
-            self.rec,
-            self.rec,
-            self.rec,
-            run_input or FakeRunInput(self.corpus),
-        )
-
-
-def by_record(result: PipelineResult) -> dict[str, Any]:
-    out = {}
-    for p in result.people:
-        label = p.source_record_id
-        if p.origin == "mention" and p.source_record_id.startswith("mention:"):
-            label = f"mention:{p.name}"
-        out[label] = p
-    return out
-
-
+@pytest.mark.asyncio
 async def test_golden_run_matches_the_oracle() -> None:
     kit = Kit(Corpus())
     result = await kit.run()
@@ -159,6 +58,7 @@ async def test_golden_run_matches_the_oracle() -> None:
     assert set(result.source_codes) == in_scope_urls
 
 
+@pytest.mark.asyncio
 async def test_contact_fields_never_reach_rows_or_record() -> None:
     from people.pipeline import result_to_json
 
@@ -173,6 +73,7 @@ async def test_contact_fields_never_reach_rows_or_record() -> None:
     assert jane.fields_dropped == 2
 
 
+@pytest.mark.asyncio
 async def test_stage_is_idempotent_and_reentry_makes_no_paid_call() -> None:
     corpus = Corpus()
     kit = Kit(corpus)
@@ -198,6 +99,7 @@ async def test_stage_is_idempotent_and_reentry_makes_no_paid_call() -> None:
     }
 
 
+@pytest.mark.asyncio
 async def test_a_person_already_pulled_for_the_account_is_not_pulled_again() -> None:
     corpus = Corpus()
     kit = Kit(corpus)
@@ -210,6 +112,7 @@ async def test_a_person_already_pulled_for_the_account_is_not_pulled_again() -> 
     assert len(reused) == 6
 
 
+@pytest.mark.asyncio
 async def test_both_people_source_modes_reach_the_oracle_statuses() -> None:
     """Dual mode: the association source is another provider (internal-only); the merged list and
     statuses do not depend on which provider answered, only the distribution flag does."""
