@@ -311,13 +311,13 @@ class LlmPeopleExtractor:
     def __init__(self, deps: Any, prompt_name: str = "people_findings.v1") -> None:
         self.deps, self.prompt_name = deps, prompt_name
 
-    async def __call__(self, person_key: str, text_in: str, canary: str) -> object:
+    async def __call__(self, person_key: str, text: str, canary: str) -> object:
         """One model call; the raw (untrusted) answer is validated by ``people.findings``."""
         from account_intelligence.agents.output import parse_json
         from account_intelligence.agents.prompts import prompt
 
         system = prompt(self.prompt_name).replace("{canary}", canary)
-        user = json.dumps({"person_key": person_key, "text": text_in})
+        user = json.dumps({"person_key": person_key, "text": text})
         result = await self.deps.llm.complete("extractor", system, user, max_tokens=800)
         parsed = parse_json(result.text)
         return parsed if parsed is not None else result.text
