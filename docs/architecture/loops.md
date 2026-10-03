@@ -18,7 +18,7 @@ unannotated (the generator's check fails otherwise).
 | month normalisation | `src/jobs/window.py:15` | one iteration (month - 12 >= -11) | month in 1..12 |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
-| people gap passes | `src/people/pipeline.py:344` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
+| people gap passes | `src/people/pipeline.py:343` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
 | people search paging | `src/people/search.py:127` | max_pages_per_source and max_people_per_run | converged, no_progress (no new person, cursor repeat, failed call), cap_reached, budget, deadline |
 | planner gap loop | `src/account_intelligence/workflow/stages/research.py:193` | 1 + planner_gap_passes (2) | converged, no_progress, budget, cap_reached |
 | posting batch loop | `src/jobs/pipeline.py:344` | postings pulled (bounded by the pull caps), batch_size per batch | all processed (one failure is isolated) |
