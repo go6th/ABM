@@ -105,9 +105,13 @@ async def test_scanner_passes_on_the_written_export(tmp_path: Path) -> None:
 async def test_a_broker_name_in_a_title_blocks_the_export() -> None:
     corpus = Corpus()
     page = corpus.data["search"]["title:servicenow:1"]["pages"][0]
+    import yaml
+
+    routing = ROOT / ".claude/skills/account-intelligence-platform/assets/routing.yaml"
+    broker = yaml.safe_load(routing.read_text())["providers"]["p_people"]["name"]  # internal
     page["records"][0] = {
         **page["records"][0],
-        "title": "Chief Information Officer, BitScale programme",
+        "title": f"Chief Information Officer, {broker} programme",
     }
     result = await Kit(corpus).run()
     assert result.counts is not None
