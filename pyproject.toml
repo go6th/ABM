@@ -168,3 +168,23 @@ name = "runs never imports the workflow (one-way dependency; the runner calls th
 type = "forbidden"
 source_modules = ["account_intelligence.runs"]
 forbidden_modules = ["account_intelligence.workflow"]
+
+# Mutation check (section 9): the pure rule modules whose boundaries decide statuses and counts.
+# Run: uv run --with "mutmut>=3.2,<4" mutmut run   (keys verified in mutmut 3.8.0 configuration)
+[tool.mutmut]
+paths_to_mutate = [
+    "src/account_intelligence/tracker/derive.py",
+    "src/account_intelligence/tracker/machine.py",
+    "src/account_intelligence/tracker/completion.py",
+    "src/jobs/counts.py",
+    "src/jobs/window.py",
+]
+tests_dir = [
+    "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
+    "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
+]
+also_copy = ["config/", "scripts/", ".claude/", "evals/", "tests/", "docs/", "src/"]
+pytest_add_cli_args_test_selection = [
+    "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
+    "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
+]

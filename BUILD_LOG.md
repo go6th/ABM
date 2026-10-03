@@ -1,8 +1,8 @@
 # Build log
 
-Current phase: 0 (Prove)  
-Current work package: foundation repository integration  
-Last updated: 2026-10-01
+Current phase: 0 (Prove) and 1 (Build), integrated on Google Cloud  
+Current work package: integration on `feat/integrate-gcp-production` (audit pass 2 green)  
+Last updated: 2026-10-03
 
 ## Built
 
@@ -152,3 +152,51 @@ Built:
 - Gates: skill self-test, asset validation, and migration lint passed. Job tests: 9 passed; measured jobs package coverage 72% (target 90%, not met). Ruff and strict mypy passed. Isolation suite blocked because the configured local PostgreSQL connection rejected authentication (`fe_sendauth: no password supplied`). Full suite blocked during collection by an existing `SyntaxError` in `src/account_intelligence/tracker/completion.py` (future import is not first). Catalog RLS, mutation testing, resume matrix were not run. No migration or production repository was added.
 - Not proven: production idempotency across process crashes, full-text completeness from a real adapter, two-pass extractor/judge integration, per-run loop caps, counts against the full requested oracle corpus, DB RLS, coverage evidence integration. The stage raises `NotConfigured`, so no coverage row is falsely successful.
 - Outstanding inputs: lane search keywords and aliases; rubric definitions/cues; full-text scope; sample records for board, feed, page-read; PostgreSQL test DB for expand-only schema and RLS validation. D-06 PII approach remains for legal review.
+
+## Integration on Google Cloud (2026-10-02 to 2026-10-03, branch `feat/integrate-gcp-production`)
+
+Plan (5 lines): audit the 13 items against the six spec prompts; finish what was partial (tracker,
+job pipeline, workflow stages, run lifecycle); wire one run path through one wiring point
+(`app/container.py`); move the runtime to Google Cloud behind ports (ADR-0017, C11) with Terraform,
+image, CI and runbooks; prove it with system tests, static guards W1 to W8 and audit pass 2.
+
+Built (commits on the branch, newest last): spec-compliance audit and single coverage key space;
+connector results carry ledger keys; tracker rebuilt (ledger-read proof, owner check, DB tests,
+0011); job pipeline rebuilt against a hand-written oracle (0012); run lifecycle with one-transaction
+creation and the single settlement (ADR-0016); platform ports and Google Cloud adapters with a
+contract suite on emulators; all 13 stages and runner v2 with whole-run tests; container, worker
+endpoints, `/readyz` fails closed, Inngest and the starter graph retired; static guards and the
+comment sweep; Terraform (three environments), image, CI with WIF; D-18 spike tests; P0 harnesses;
+ADRs 0017 to 0020; open items; runbooks; audit pass 2. The two project folders were merged into
+`/home/sakib/ABM Generator` (2026-10-03).
+
+Defects found and fixed during the work (each with a test): tracker completion guard never fired;
+judge or gate could upgrade a row; unknown result counts counted as zero; any stage could write any
+row; events recorded from = to; app_rw could not write events; swept rows could be upgraded; strict
+Enum rejected every extractor answer; out-of-window postings were classified; board hits never
+merged with feed records; dots inside words ended sentences; the rate limiter spun below clock
+resolution; a canary echo was dropped uncounted; the cloud container never built the connector
+runtime; SIGTERM replaced uvicorn's handler; two slice deliveries could run one run at once; a
+package cycle; bidirectional characters in a regex literal; known defect 5 (idempotency key reuse).
+
+Gates (working folder, 2026-10-03): see `docs/audit/AUDIT.md` pass 2. After the mutation tests were
+added: `make lint` pass (ruff, mypy 137 files); `pytest -m "not eval" --cov-fail-under=90`: 1145
+passed, 12 skipped, coverage 94.41%.
+
+Clean clone (fresh `git clone` of the branch, fresh venv, fresh database `ai_clone`): every static
+gate passed; isolation suite 20 passed; RLS catalog check 0 rows; full suite 1074 passed, 12 skipped,
+coverage 94.41% (run before the 71 mutation tests were added).
+
+Mutation check (mutmut 3.8.0, config in `pyproject.toml [tool.mutmut]`, run in the clean clone):
+tracker derive, machine, completion; jobs counts, window; 600 mutants. First run: 424 killed, 175
+survived. Added `tests/tracker/test_mutation_kills.py` (71 tests: reason oracle over 64 cases,
+exact verdict blockers and tally, result fields, severity ordering not alphabetical, window end day).
+Final: 562 killed, 1 timeout (detected), 37 survived. Survivors reviewed: error message text only,
+dict defaults with identical truthiness (`[]` vs `None`, `False` vs `None`), the `""` default for a
+missing error class (any unlisted class maps the same way), the downgrade guard the table makes
+unreachable (`pragma: no cover`), and defensive invariants in `jobs.counts` that cannot fail because
+the counts are computed from the same rows. No production defect found by this pass.
+
+Not proven (needs the owner): anything on real Google Cloud (no apply, no gcloud create, no real
+provider or LLM call was made); every VERIFY item in `docs/open-items.md`; the sign-offs for D-01
+ext to D-20.

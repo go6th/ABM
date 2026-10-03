@@ -43,3 +43,4 @@ infra/envs/*/.terraform/
 infra/envs/*/terraform.tfvars
 *.tfstate
 *.tfstate.*
+mutants/
