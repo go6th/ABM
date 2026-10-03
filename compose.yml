@@ -1,39 +1,30 @@
+# Local development stack. Production runs on Google Cloud (infra/); locally the same ports are
+# served by hermetic stand-ins: Postgres with pgvector, the Cloud Storage and Cloud Tasks
+# emulators (port contract tests run against them), and Redis for the shared rate limiter.
 services:
   db:
     image: pgvector/pgvector:pg16
     environment: { POSTGRES_PASSWORD: dev, POSTGRES_DB: ai }
     ports: ["5432:5432"]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, retries: 10 }
-  # S3-compatible object storage for raw provider payloads. SeaweedFS instead of MinIO because
-  # MinIO removed its community images from Docker Hub in 2025 (minio/minio no longer resolves)
-  # and dl.min.io returns 410. SeaweedFS serves the same S3 API; the client is boto3 either way.
-  objectstore:
-    image: chrislusf/seaweedfs:latest
-    command: server -s3 -dir=/data
-    ports: ["9000:8333", "9001:9333"]
-    volumes: [objectstore_data:/data]
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9333/cluster/status"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+  gcs:
+    image: fsouza/fake-gcs-server:latest
+    command: -scheme http -port 4443 -public-host localhost:4443
+    ports: ["4443:4443"]
+  tasks:
+    image: ghcr.io/aertje/cloud-tasks-emulator:latest
+    command: -host 0.0.0.0 -port 8123 -initial-queue projects/dev/locations/here/queues/runs
+    ports: ["8123:8123"]
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
   api:
     build: .
-    depends_on: { db: { condition: service_healthy }, redis: { condition: service_started } }
+    depends_on: { db: { condition: service_healthy } }
     env_file: .env
     environment:
+      APP_ENV: dev
       DATABASE_URL: postgresql+asyncpg://app_rw:local-dev-only@db/ai
       CHECKPOINT_DATABASE_URL: postgresql://app_rw:local-dev-only@db/ai
-      REDIS_URL: redis://redis:6379/0
-      ENV: dev
+      ALLOW_UNAUTHENTICATED_TASKS: "1"
     ports: ["8080:8080"]
-  inngest:
-    image: inngest/inngest
-    command: inngest dev -u http://api:8080/api/inngest
-    ports: ["8288:8288"]
-
-volumes:
-  objectstore_data:

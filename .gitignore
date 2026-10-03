@@ -36,3 +36,10 @@ crash.log
 # Tool state
 .hypothesis/
 .freebuff/
+
+# Terraform working files (provider cache, state); lock files ARE committed
+infra/.tfcache/
+infra/envs/*/.terraform/
+infra/envs/*/terraform.tfvars
+*.tfstate
+*.tfstate.*
