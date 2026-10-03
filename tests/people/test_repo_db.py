@@ -122,6 +122,26 @@ async def test_resume_on_real_tables_after_a_crash_mid_profiles() -> None:
     )
 
 
+def _second_run(first: World) -> World:
+    """Another run on the same account (as make_world writes runs, with the same tenant)."""
+    from tests.tracker.world import admin_dsn
+
+    run = uuid4()
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        c.execute(
+            "INSERT INTO runs (id, tenant_id, account_id, run_type, status, config_version,"
+            " credit_cap, started_at) VALUES (%s, %s, %s, 'full', 'running', 'cfg', 100, now())",
+            (run, first.tenant, first.account),
+        )
+        c.execute(
+            "INSERT INTO account_runs (id, tenant_id, account_id, status, graph_version,"
+            " budget_json, reserved_credits, idempotency_key, budget_usd, tool_call_cap)"
+            " VALUES (%s, %s, %s, 'RUNNING', 'test', '{}', 1, %s, 5, 60)",
+            (run, first.tenant, first.account, "k-" + uuid4().hex),
+        )
+    return World(first.tenant, first.account, run, first.domain)
+
+
 def _person_sql(w: World, **cols: object) -> tuple[str, list[object]]:
     base: dict[str, object] = {
         "tenant_id": w.tenant,
@@ -373,3 +393,42 @@ async def test_unmerge_is_recorded_and_reversible() -> None:
         merged.person_key,
     )
     assert kinds == [("merge", "pipeline"), ("unmerge", "operator")]
+
+
+@pytest.mark.asyncio
+async def test_profiles_are_reused_across_runs_and_posts_resume() -> None:
+    first = make_world()
+    await _run(first, _repo(first))
+    second = _second_run(first)
+    repo = _repo(second)
+    corpus = Corpus()
+    result, kit = await _run(second, repo, corpus)
+    assert kit.profiles.pulled == []  # every readable profile was pulled by the first run
+    loaded = await repo.load_run(str(second.run))
+    assert loaded is not None and loaded.profiles == result.profiles
+    assert {p.profile_state for p in result.people if p.status == "in_scope"} == {
+        "reused",
+        "failed",
+    }
+
+    w3 = make_world()
+    payloads = MemoryPayloadStore()
+    crashing_repo = _repo(w3, payloads)
+    real = crashing_repo.save_posts
+    seen = {"n": 0}
+
+    async def crash_on_second(run_id: str, url: str, posts: Sequence[Any]) -> None:
+        seen["n"] += 1
+        await real(run_id, url, posts)
+        if seen["n"] == 2:
+            raise Crash("killed after the second posts pull was stored")
+
+    crashing_repo.save_posts = crash_on_second  # type: ignore[method-assign]
+    corpus3 = Corpus()
+    with pytest.raises(Crash):
+        await _run(w3, crashing_repo, corpus3)
+    stored = await _repo(w3, payloads).stored_posts(str(w3.run))
+    assert len(stored) == 2 and any(stored.values())
+    resumed, kit3 = await _run(w3, _repo(w3, payloads), corpus3)
+    assert kit3.posts.pulled == [u for u in kit3.posts.pulled if u not in stored]
+    assert resumed.counts is not None and resumed.counts.posts_pulled == 2

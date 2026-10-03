@@ -423,3 +423,9 @@ def test_person_key_is_stable_and_attribute_safe() -> None:
     key = person_key("r01")
     assert key == person_key("r01") and key != person_key("r02")
     assert key.startswith("p") and len(key) == 25 and key.isalnum()
+
+
+def test_three_corroborated_url_less_records_form_one_group() -> None:
+    t = frozenset({"director", "crm"})
+    plan = plan_merge([_item(k, None, "Ann Lee", title_tokens=t) for k in ("x1", "x2", "x3")], 0.5)
+    assert plan.merged_away == 2 and plan.merged_into("x3") == "x1"

@@ -71,14 +71,19 @@ class _UnionFind:
         self.parent = {k: k for k in keys}
 
     def find(self, key: str) -> str:
+        """The root of ``key``'s set."""
         root = key
+        # LOOP(union-find root walk): cap=number of records (each step moves to a parent; unions
+        # always point the larger root at the smaller, so there is no cycle); exit=root reached
         while self.parent[root] != root:
             root = self.parent[root]
-        while self.parent[key] != root:  # path compression
+        # LOOP(union-find path compression): cap=the same path length; exit=root reached
+        while self.parent[key] != root:
             self.parent[key], key = root, self.parent[key]
         return root
 
     def union(self, a: str, b: str) -> None:
+        """Join the sets of ``a`` and ``b`` (the smaller root wins: order independent)."""
         ra, rb = self.find(a), self.find(b)
         if ra != rb:
             low, high = sorted((ra, rb))

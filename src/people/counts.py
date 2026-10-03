@@ -76,11 +76,13 @@ def compute_counts(
     in_scope = sum(1 for p in distinct_rows if p.status == "in_scope")
     out, excl, review = (_by_reason(people, s) for s in ("out_of_scope", "excluded", "review"))
     unresolved = sum(1 for p in distinct_rows if p.status == "unresolved")
-    if found != distinct + merged_away:
+    # Both identities hold by construction (every row is merged or in exactly one of the five
+    # other statuses); they are asserted so a future status cannot slip past the counts.
+    if found != distinct + merged_away:  # pragma: no cover - identity by construction
         raise InvariantViolation("found != distinct + merged_away")
     if distinct != in_scope + sum(out.values()) + sum(excl.values()) + sum(review.values()) + (
         unresolved
-    ):
+    ):  # pragma: no cover - identity by construction
         raise InvariantViolation("distinct != sum of statuses")
     for p in distinct_rows:
         if p.status == "in_scope" and not p.profile_url:

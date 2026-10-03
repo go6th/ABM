@@ -40,6 +40,7 @@ class PostsOutcome:
     not_recent: set[str] = field(default_factory=set)
     call_refs: list[str] = field(default_factory=list)
     failed_refs: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)  # reasons of failed pulls, in order
     candidates: int = 0
     cost_unknown: bool = False
     projected_usd: float | None = None
@@ -138,6 +139,7 @@ async def pull_posts(
         try:
             batch = await port.pull(url, since)
         except SourceUnavailable as error:
+            out.failures.append(error.reason)
             if error.call_ref:
                 out.failed_refs.append(error.call_ref)
             if error.reason in BUDGET_REASONS:

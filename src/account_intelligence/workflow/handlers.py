@@ -14,6 +14,7 @@ from account_intelligence.tracker.config import load_checklist
 from account_intelligence.workflow.deps import RunDeps
 from account_intelligence.workflow.stage import StageHandler
 from account_intelligence.workflow.stages import core
+from account_intelligence.workflow.stages import people as people_stage
 from account_intelligence.workflow.stages.grading_stages import GradingStages
 from account_intelligence.workflow.stages.research import ResearchStage
 from account_intelligence.workflow.state import RunState
@@ -24,7 +25,6 @@ RESEARCH_PREFIX = {
     "baseline": "baseline",
     "news": "news",
     "tech": "tech",
-    "people": "people",
     "name_searches": "content",
 }
 
@@ -61,11 +61,25 @@ def build_handlers(deps: RunDeps) -> dict[str, StageHandler]:
             if stage_id == "pass1_relationship"
             else {}
         )
-        only = people_operations() if stage_id == "people" else None
-        handlers[stage_id] = ResearchStage(specs[stage_id], deps, labels, prefix, fixed, only)
+        handlers[stage_id] = ResearchStage(specs[stage_id], deps, labels, prefix, fixed)
     grading = GradingStages(deps, specs)
     handlers["setup"] = _bind(core.setup, deps)
     handlers["jobs"] = _bind(core.jobs_stage, deps)
+    # Step 7: the people pipeline owns its three rows; any other people row stays with the
+    # generic research stage restricted to that row (people_stage.research_spec_without_owned_rows).
+    rest = people_stage.research_spec_without_owned_rows(specs["people"])
+    research = (
+        ResearchStage(rest, deps, labels, "people", {}, people_operations())
+        if rest.coverage
+        else None
+    )
+
+    async def people_handler(state: RunState) -> dict[str, Any]:
+        """The people stage bound to this run."""
+        result: dict[str, Any] = await people_stage.people_stage(deps, state, research)
+        return result
+
+    handlers["people"] = people_handler
     handlers["verification"] = grading.verification
     handlers["distill_grade"] = grading.distill_grade
     handlers["build"] = _bind(core.build, deps)

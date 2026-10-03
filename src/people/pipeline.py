@@ -19,11 +19,10 @@ no retry (the node ``RetryPolicy`` owns retries).
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import Any, cast
+from typing import Any
 
 from account_intelligence.grading.schema import ProposedSourced
 from jobs.normalise import strip_pii
@@ -561,7 +560,7 @@ class PeoplePipeline:
             profile_refs,
             max(prof.pulled, 1),
             unread,
-            None if profile_refs else "not_planned",
+            None if profile_refs else _not_attempted(why for _, why in prof.state.values()),
         )
         post_refs = tuple(dict.fromkeys((*posts_out.call_refs, *posts_out.failed_refs)))
         posts_ev = RowEvidence(
@@ -569,9 +568,20 @@ class PeoplePipeline:
             post_refs,
             max(posts_out.candidates, 1),
             posts_out.cap_hit or posts_out.exit_reason != "converged",
-            None if post_refs else "not_planned",
+            None if post_refs else _not_attempted(posts_out.failures),
         )
         return (people_ev, profiles_ev, posts_ev)
+
+
+def _not_attempted(reasons: Any) -> str:
+    """The tracker reason for a row with no call: the first failure reason the tracker knows,
+    else ``not_planned`` (nothing needed a call)."""
+    for reason in reasons:
+        if reason in ("not_available_yet", "budget_cap", "deadline"):
+            return str(reason)
+        if reason:
+            return "source_unavailable"
+    return "not_planned"
 
 
 def replayed(result: PipelineResult) -> PipelineResult:
@@ -607,41 +617,6 @@ def result_to_json(result: PipelineResult) -> dict[str, object]:
     }
 
 
-def result_from_json(data: dict[str, object]) -> PipelineResult:
-    """Inverse of ``result_to_json`` (validated through the models)."""
-    d = cast(dict[str, Any], data)
-    return PipelineResult(
-        run_id=d["run_id"],
-        as_of=date.fromisoformat(d["as_of"]),
-        config_hash=d["config_hash"],
-        people=tuple(Person.model_validate(p) for p in d["people"]),
-        profiles=tuple(Profile.model_validate(p) for p in d["profiles"]),
-        posts=tuple(Post.model_validate(p) for p in d["posts"]),
-        findings=tuple(Finding.model_validate(f) for f in d["findings"]),
-        merge_events=tuple(MergeEvent(**e) for e in d["merge_events"]),
-        counts=PeopleCounts.model_validate(d["counts"]) if d["counts"] else None,
-        count_sentences=tuple(d["count_sentences"]),
-        invariant_error=d["invariant_error"],
-        exit_reasons=dict(d["exit_reasons"]),
-        evidence=tuple(
-            RowEvidence(
-                e["row_key"],
-                tuple(e["call_refs"]),
-                e["expected_calls"],
-                e["cap_hit"],
-                e["not_attempted_reason"],
-            )
-            for e in d["evidence"]
-        ),
-        claims=tuple(ProposedSourced.model_validate_json(json.dumps(c)) for c in d["claims"]),
-        lanes_not_searched=dict(d["lanes_not_searched"]),
-        source_codes=dict(d["source_codes"]),
-        drops=dict(d["drops"]),
-        flags=dict(d["flags"]),
-        findings_hostile=tuple(d["findings_hostile"]),
-    )
-
-
 __all__ = [
     "OWNED_ROWS",
     "Classification",
@@ -653,7 +628,6 @@ __all__ = [
     "SourceUnavailable",
     "person_key",
     "replayed",
-    "result_from_json",
     "result_to_json",
     "top_people",
 ]
