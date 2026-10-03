@@ -35,7 +35,8 @@ All of the following are **proposals** (`status: proposal` in `config/tracker_v1
    hashed canonically without timestamps or notes; gap-loop progress counts proof calls, not hash
    changes (audit F-12).
 5. **Reason codes added** beyond the spec's list (5.4): `cap_reached`, `source_failed`,
-   `fewer_than_expected`, `out_of_scope`, `result_count_unknown`. Each has client text that passes
+   `fewer_than_expected`, `out_of_scope`, `result_count_unknown`, `not_planned` (the planner chose
+   no call for the row; Not done, never a failure). Each has client text that passes
    the client-output denylist (tested).
 6. **Run-table mapping.** `account_runs` is the orchestration run; `runs` is the data-layer row with
    the same id (created together, see the run lifecycle). `runs.status` cannot be widened

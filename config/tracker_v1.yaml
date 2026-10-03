@@ -65,6 +65,7 @@ reason_codes:
   source_failed: "Source failed during execution"
   fewer_than_expected: "Fewer results than expected"
   result_count_unknown: "Result count not reported by the source"
+  not_planned: "No search was planned for this row in this run"
   out_of_scope: "Out of scope"
 transitions:
   unset:

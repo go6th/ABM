@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from account_intelligence.workflow.coverage import CoverageLedger, CoverageProof
 from account_intelligence.workflow.engine import build_graph
 from account_intelligence.workflow.evidence_gate import EvidenceGate, EvidenceItem, ProposedFact
 from account_intelligence.workflow.ports import NotConfigured
@@ -81,10 +80,7 @@ async def test_spec_driven_graph_executes_all_stages_in_order() -> None:
         async def handle(_state):  # type: ignore[no-untyped-def]
             seen.append(stage_id)
             return {
-                "coverage_updates": {
-                    row: {"status": "none", "proof": {"reason": "synthetic no-result fixture"}}
-                    for row in rows
-                },
+                "coverage_reports": {row: {"status": "none"} for row in rows},
                 "references": {f"{stage_id}_result": f"synthetic:{stage_id}"},
             }
 
@@ -100,38 +96,13 @@ async def test_spec_driven_graph_executes_all_stages_in_order() -> None:
     assert len(final["references"]) == len(spec.stages)
 
 
-def test_coverage_requires_proof_and_terminal_high_rows() -> None:
-    ledger = CoverageLedger.from_config()
-    with pytest.raises(ValueError, match="proof"):
-        ledger.set_status("company_news", "done", CoverageProof())
-    ledger.set_status(
-        "company_news",
-        "blocked",
-        CoverageProof(
-            queries=("company newsroom",),
-            tool_category="web_search",
-            result_count=0,
-            reason="source unavailable",
-        ),
-    )
-    assert ledger.high_rows_resolved() is False
-    with pytest.raises(ValueError, match="tool category"):
-        CoverageProof(queries=("query",)).validate()
-    with pytest.raises(ValueError, match="negative"):
-        CoverageProof(reason="no results", result_count=-1).validate()
-    with pytest.raises(ValueError, match="result count"):
-        CoverageProof(tool_category="web_search").validate()
-    with pytest.raises(KeyError, match="unknown"):
-        ledger.set_status("bad-row", "none", CoverageProof(reason="n/a"))
-    with pytest.raises(ValueError, match="reason"):
-        ledger.set_status("prior_customer_status", "blocked", CoverageProof(source_refs=("S-001",)))
-    with pytest.raises(ValueError, match="blank"):
-        CoverageProof(reason="  ").validate()
-    with pytest.raises(ValueError, match="blocked"):
-        ledger.set_status("prior_customer_status", "blocked", CoverageProof(source_refs=("S-001",)))
-    complete = CoverageLedger({"prior_customer_status": "high"})
-    complete.set_status("prior_customer_status", "none", CoverageProof(reason="not applicable"))
-    assert complete.high_rows_resolved()
+def test_stage_contract_takes_statuses_only_from_tracker_reports() -> None:
+    """The legacy caller-typed coverage ledger is gone (finding SC-4): statuses come only from the
+    tracker, which derives them from ledger proof (tests/tracker). Here: the wrapper insists every
+    owned row is reported with a tracker status."""
+    from account_intelligence.workflow.stage import STATUSES
+
+    assert {"done", "partial", "not_done", "blocked", "none"} == STATUSES
 
 
 def test_evidence_gate_drops_missing_or_unverifiable_evidence() -> None:
@@ -236,11 +207,7 @@ async def test_stage_replay_is_noop_and_owned_coverage_must_be_complete() -> Non
     async def handler(_state):  # type: ignore[no-untyped-def]
         nonlocal calls
         calls += 1
-        return {
-            "coverage_updates": {
-                row: {"status": "none", "proof": {"reason": "not found"}} for row in spec.coverage
-            }
-        }
+        return {"coverage_reports": {row: {"status": "none"} for row in spec.coverage}}
 
     stage = Stage(spec, handler)
     state = {"tenant_id": "trusted", "run_id": "run-1", "completed_stages": []}
@@ -249,7 +216,7 @@ async def test_stage_replay_is_noop_and_owned_coverage_must_be_complete() -> Non
     assert calls == 1
 
     async def incomplete(_state):  # type: ignore[no-untyped-def]
-        return {"coverage_updates": {}}
+        return {"coverage_reports": {}}
 
     with pytest.raises(ValueError, match="each owned"):
         await Stage(spec, incomplete).run(state)
@@ -259,16 +226,16 @@ async def test_stage_replay_is_noop_and_owned_coverage_must_be_complete() -> Non
         await Stage(spec).run(state)
 
     async def protected(_state):  # type: ignore[no-untyped-def]
-        return {"tenant_id": "forged", "coverage_updates": {}}
+        return {"tenant_id": "forged", "coverage_reports": {}}
 
     with pytest.raises(ValueError, match="protected"):
         await Stage(spec, protected).run(state)
 
-    async def bad_proof(_state):  # type: ignore[no-untyped-def]
-        return {"coverage_updates": {row: {"status": "done", "proof": {}} for row in spec.coverage}}
+    async def bad_status(_state):  # type: ignore[no-untyped-def]
+        return {"coverage_reports": {row: {"status": "pending"} for row in spec.coverage}}
 
-    with pytest.raises(ValueError, match="lacks status or proof"):
-        await Stage(spec, bad_proof).run(state)
+    with pytest.raises(ValueError, match="no tracker status"):
+        await Stage(spec, bad_status).run(state)
 
 
 def test_engine_rejects_parallel_mode_until_enabled_by_design() -> None:

@@ -41,6 +41,7 @@ class RunState(TypedDict, total=False):
     counters: Annotated[dict[str, int], sum_counters]
     loop_exits: Annotated[dict[str, str], merge_maps]
     spent_usd: float
+    approved: bool
 
 
 CURRENT_SCHEMA_VERSION = 1

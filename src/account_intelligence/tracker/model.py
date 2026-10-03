@@ -69,6 +69,7 @@ class ReasonCode(StrEnum):
     FEWER_THAN_EXPECTED = "fewer_than_expected"
     OUT_OF_SCOPE = "out_of_scope"
     RESULT_COUNT_UNKNOWN = "result_count_unknown"
+    NOT_PLANNED = "not_planned"
 
 
 SWEEP_REASONS = frozenset(

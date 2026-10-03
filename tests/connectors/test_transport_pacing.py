@@ -139,6 +139,21 @@ async def test_wait_beyond_the_cap_raises_rate_limited_for_the_node() -> None:
     assert caught.value.retry_after == pytest.approx(10)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rate", [10.0, 7.0, 3.3])
+async def test_back_to_back_acquires_never_spin_below_clock_resolution(rate: float) -> None:
+    """Found by the whole-run system test: after a 0.1 s wait the bucket was short by ~1e-7 of a
+    token (float error), the computed wait was below the clock's microsecond resolution, sleeping
+    it never moved the clock, and the loop hit its iteration cap (RateLimited). The limiter now
+    sleeps at least 1 ms, so every acquire at the configured rate succeeds."""
+    clock = FakeClock()
+    sleep = FakeSleep(clock)
+    limiter = RateLimiter(InMemoryRateStore(), {P: BucketLimit(rate, 1)}, clock, sleep)
+    for _ in range(100):
+        await limiter.acquire(P)
+    assert all(s >= 0.001 for s in sleep.calls)
+
+
 @settings(max_examples=60, deadline=None)
 @given(
     rate=st.floats(0.2, 20),

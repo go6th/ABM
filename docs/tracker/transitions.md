@@ -26,6 +26,7 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 | `hostile_source_dropped` | Hostile source dropped |
 | `lane_not_in_scope` | Lane not in scope for this run |
 | `not_available_yet` | Not available yet |
+| `not_planned` | No search was planned for this row in this run |
 | `out_of_scope` | Out of scope |
 | `page_cap` | Page cap reached |
 | `result_count_unknown` | Result count not reported by the source |

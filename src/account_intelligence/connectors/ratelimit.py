@@ -118,6 +118,9 @@ class RedisRateStore:
         return float(raw) if raw is not None else 0.0
 
 
+MIN_SLEEP_S = 0.001
+
+
 class RateLimiter:
     def __init__(
         self,
@@ -157,6 +160,9 @@ class RateLimiter:
                 raise RateLimited(
                     "local pacing wait over cap", retry_after=wait, provider_code=provider
                 )
+            # Never sleep less than MIN_SLEEP_S: float error can leave the bucket short by ~1e-7
+            # of a token, and a wait below the clock's resolution would never move the clock.
+            wait = max(wait, MIN_SLEEP_S)
             await self._sleep(wait)
             waited += wait
         raise RateLimited("pacing loop cap reached", retry_after=None, provider_code=provider)

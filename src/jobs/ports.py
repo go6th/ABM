@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any, Protocol
 
-from jobs.models import PageText, Posting, SourceBatch
+from jobs.models import PageText, SourceBatch
 
 
 class SourceUnavailable(Exception):
@@ -47,16 +47,9 @@ class PayloadStore(Protocol):
 class PostingRepo(Protocol):
     """Persistence for one run's postings and its pipeline record (append-only side tables)."""
 
-    async def load_run(self, run_id: str) -> PipelineRecordLike | None: ...
+    async def load_run(self, run_id: str) -> Any: ...
 
-    async def save_run(self, run_id: str, record: PipelineRecordLike) -> None: ...
-
-
-class PipelineRecordLike(Protocol):
-    """What the repo persists: postings, counts, exit reasons (``jobs.pipeline.PipelineResult``)."""
-
-    @property
-    def postings(self) -> Sequence[Posting]: ...
+    async def save_run(self, run_id: str, record: Any) -> None: ...
 
 
 class CoverageEvidencePort(Protocol):
