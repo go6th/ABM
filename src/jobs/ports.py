@@ -51,16 +51,24 @@ class PayloadStore(Protocol):
         """Store posting text; returns its reference."""
         ...
 
+    async def get_text(self, ref: str) -> str:
+        """The stored text behind a reference (a gap pass re-reads it; no paid call)."""
+        ...
+
 
 class PostingRepo(Protocol):
     """Persistence for one run's postings and its pipeline record (append-only side tables)."""
 
     async def load_run(self, run_id: str) -> Any:
-        """The stored pipeline record of the run, or None."""
+        """The latest stored pipeline record of the run (last gap pass, else first), or None."""
         ...
 
     async def save_run(self, run_id: str, record: Any) -> None:
-        """Persist the pipeline record and its rows."""
+        """Persist the first pass's record and its rows."""
+        ...
+
+    async def save_pass(self, run_id: str, pass_no: int, record: Any) -> None:
+        """Persist a gap pass (append-only: new classifications and sentences, the pass record)."""
         ...
 
 

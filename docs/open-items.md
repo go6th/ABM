@@ -14,6 +14,7 @@ Everything below is unverified or undecided. Nothing in this list is claimed to 
 | V-REDIS-1 | Memorystore in-transit encryption: the client needs the instance server CA | app/container.py build_connectors | staging rate-limit test |
 | V-LLM-2 | Claude model id format on Vertex AI and enabled models in the region | platform/llm.py, config/models.yaml | one call from staging with the chosen ids |
 | V-JOBS-1 | Whether the job feed's description is complete (today treated as unknown, so escalated) | jobs/adapters.py | a recorded sample (docs/providers) |
+| V-JOBS-2 | Real PostgreSQL behaviour of the 0013 rollback under concurrent pass writers (the down path drops `pass_no` columns) | migrations/0013 | run `alembic downgrade 0012` on a staging copy with live rows |
 | p_* | Provider facts tagged in docs/providers/CLAIMS.md | connectors/providers | per CLAIMS.md |
 
 ## Open items (behaviour decisions)
@@ -25,7 +26,6 @@ Everything below is unverified or undecided. Nothing in this list is claimed to 
 | OI-TRK-2 | A run with no Leads cannot report `lead_verification` as Done or None (no calls to cite) | Not done `not_planned`: such runs end PARTIAL |
 | OI-JOBS-1 | `job_postings_read_classified` is derived from ledger counts, so "nothing matched" is Done, not the spec's None | tracker derivation |
 | OI-JOBS-2 | The live board search is a web search restricted to the careers host (no keyword job-board operation) | web_search per keyword |
-| OI-JOBS-3 | Gap re-entry of the jobs stage replays the stored record; a remainder-only pass is not built | replay |
 | OI-RUN-1 | `runs.status` cannot be widened expand-only; non-COMPLETED ends map to `failed` with the state in `error` (ADR-0015) | mapping |
 | OI-BLD-1 | No deliverable builder or production quality gate exists: every run ends PARTIAL `builders_not_configured` | NotConfigured |
 | OI-PPL-1 | p_people unsupported until the grid contract is supplied; people stage uses p_org | config/people_sources.yaml |

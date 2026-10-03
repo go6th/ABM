@@ -100,7 +100,8 @@ async def setup(deps: RunDeps, state: RunState) -> dict[str, Any]:
 
 
 async def jobs_stage(deps: RunDeps, state: RunState) -> dict[str, Any]:
-    """Step 5 through the job pipeline (pull once; re-entry replays the stored record)."""
+    """Step 5 through the job pipeline: pull once, then at most ``max_gap_passes`` passes over the
+    remainder; re-entry replays the latest stored pass and continues after it."""
     from account_intelligence.grading.config import load_grading_config
     from account_intelligence.grading.errors import HostileContent
     from account_intelligence.grading.spans import check_hostile

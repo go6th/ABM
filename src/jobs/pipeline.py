@@ -15,7 +15,7 @@ tool-less extractor and is never logged.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date
 
@@ -27,6 +27,7 @@ from jobs.counts import compute_counts
 from jobs.dedupe import dedupe_counted, group_key
 from jobs.errors import InvariantViolation, JobsError
 from jobs.extractor import Call, ExtractorBudget, classify_with_extractor
+from jobs.gap import gap_remainder, progress
 from jobs.match import match_platforms
 from jobs.models import (
     Classification,
@@ -88,6 +89,36 @@ class PipelineResult:
     claims_skipped_pii: int
     calls_made: int = 0
     replayed: bool = False
+    # provenance of every record pulled (rejected ones included): ``pulled`` is its length, so a
+    # gap pass recomputes the counts from records, never from a stored number (J1)
+    pulled_refs: tuple[str, ...] = ()
+    # run-level cap accounting across passes (spec 7: the caps bound the run, not a pass)
+    page_reads_used: int = 0
+    extractor_calls_used: int = 0
+    pass_no: int = 0
+
+
+@dataclass(frozen=True)
+class _Frame:
+    """What a pass's record inherits from the first pass (never changed by a gap pass)."""
+
+    run_id: str
+    as_of: date
+    start: date
+    pulled: tuple[str, ...]
+    rejected: int
+    pull_complete: bool
+    lanes_off: frozenset[str]
+
+
+@dataclass(frozen=True)
+class _Used:
+    """Run-level cap accounting: used before this pass and what was left when it started."""
+
+    page_reads: int
+    extractor_calls: int
+    reads_left_at_start: int
+    budget_left_at_start: int
 
 
 @dataclass
@@ -99,6 +130,7 @@ class _Run:
     page_reads_left: int = 0
     escalation_cap_hit: bool = False
     escalation_refs: list[str] = field(default_factory=list)
+    escalated: set[str] = field(default_factory=set)
 
 
 class JobsPipeline:
@@ -233,10 +265,12 @@ class JobsPipeline:
 
     async def _escalate(self, posting: Posting, text: str, w: _Run) -> tuple[Posting, str]:
         """J5: one bounded page read of the posting URL for an unread matched posting."""
+        missing = {"full_text_missing": True, "escalation": "failed"}
         if w.page_reads_left <= 0:
             w.escalation_cap_hit = True
-            return posting.model_copy(update={"full_text_missing": True}), text
+            return posting.model_copy(update={**missing, "escalation": "cap"}), text
         w.page_reads_left -= 1
+        w.escalated.add(posting.posting_key)
         try:
             page: PageText = await self.pages.read(
                 posting.url, max_chars=self.cfg.caps["max_description_chars"]
@@ -245,14 +279,15 @@ class JobsPipeline:
             if error.call_ref:
                 w.failed.append(error.call_ref)
                 w.escalation_refs.append(error.call_ref)
-            return posting.model_copy(update={"full_text_missing": True}), text
+            return posting.model_copy(update=missing), text
         w.calls.append(page.call_ref)
         w.escalation_refs.append(page.call_ref)
         new_text = stored_text(page.text, self.cfg.caps["max_description_chars"])
         if not (page.complete and len(new_text) >= self.cfg.caps["minimum_text_length"]):
-            return posting.model_copy(update={"full_text_missing": True}), text
+            return posting.model_copy(update=missing), text
         refs = (*posting.call_refs, page.call_ref)
-        return posting.model_copy(update={"text_complete": True, "call_refs": refs}), new_text
+        update = {"text_complete": True, "call_refs": refs, "escalation": "read"}
+        return posting.model_copy(update=update), new_text
 
     async def _process(
         self,
@@ -265,7 +300,8 @@ class JobsPipeline:
         hostile = bool(text) and self.is_hostile(text)
         matches = match_platforms(posting.title, text, lexicon)
         matched = bool(matches.description or matches.title_only)
-        if matched and not hostile and not self._is_read(posting.text_complete, text, False):
+        unread = not self._is_read(posting.text_complete, text, False)
+        if matched and not hostile and unread and posting.escalation == "none":
             posting, text = await self._escalate(posting, text, w)
             hostile = bool(text) and self.is_hostile(text)
             matches = match_platforms(posting.title, text, lexicon)
@@ -350,63 +386,159 @@ class JobsPipeline:
                     postings.append(base)
                     texts[base.posting_key] = ""
                     continue
-                try:
-                    done, text = await self._process(base, text, lexicon, budget, w)
-                except (JobsError, ValueError):  # isolate one posting's failure (spec 7)
-                    done = base.model_copy(
-                        update={
-                            "classification": Classification(
-                                label="unclassified", classified_by="none", reason="error"
-                            )
-                        }
-                    )
+                done, text = await self._isolated(base, text, lexicon, budget, w)
                 postings.append(done)
                 texts[done.posting_key] = text
         self.last_texts = texts
+        pulled = tuple(r.raw_ref for r in raw)
+        exits = {
+            "board": "converged",
+            "pull": _STOP_TO_EXIT.get(feed.exit_reason, "no_progress"),
+        }
         return self._finish(
-            run_id,
-            as_of,
-            start,
-            raw,
-            merged.rejected,
+            _Frame(run_id, as_of, start, pulled, merged.rejected, feed.complete, lanes_off),
             postings,
             texts,
             w,
             budget,
-            feed,
             (board_ev, pull_ev),
-            lanes_off,
+            (),
+            exits,
             lanes_not_searched,
             reported,
+            _Used(0, 0, self.cfg.caps["max_page_reads"], self.cfg.caps["max_extractor_calls"]),
+            0,
+        )
+
+    async def _isolated(
+        self,
+        posting: Posting,
+        text: str,
+        lexicon: dict[str, tuple[str, ...]],
+        budget: ExtractorBudget,
+        w: _Run,
+    ) -> tuple[Posting, str]:
+        """``_process`` with one posting's typed failure isolated (spec 7): it ends
+        ``unclassified(error)`` and never aborts the batch. A page read it already spent is kept
+        as ``failed`` so no later pass reads the posting again (one read per posting, J5)."""
+        try:
+            return await self._process(posting, text, lexicon, budget, w)
+        except (JobsError, ValueError):
+            spent = posting.posting_key in w.escalated
+            return (
+                posting.model_copy(
+                    update={
+                        "classification": Classification(
+                            label="unclassified", classified_by="none", reason="error"
+                        ),
+                        "escalation": "failed" if spent else posting.escalation,
+                    }
+                ),
+                text,
+            )
+
+    # ---- gap pass (spec 7) -------------------------------------------------------------------
+
+    async def gap_pass(
+        self, prior: PipelineResult, texts: dict[str, str], lanes_off: frozenset[str]
+    ) -> PipelineResult:
+        """Re-process only the remainder of ``prior`` (``jobs.gap``): no source call, no re-pull,
+        within what is left of the RUN-level page-read and extractor caps. ``texts`` holds the
+        stored text of every posting with a ``text_ref`` (read back from the payload store, no
+        paid call). Returns the next pass's record with ``exit_reasons["gap"]`` set:
+        ``converged`` (no remainder left), ``budget`` (no progress and a cap is spent),
+        ``no_progress`` (no progress otherwise) or ``pending`` (progress, remainder left)."""
+        caps = self.cfg.caps
+        w = _Run(page_reads_left=max(caps["max_page_reads"] - prior.page_reads_used, 0))
+        budget = ExtractorBudget(max(caps["max_extractor_calls"] - prior.extractor_calls_used, 0))
+        start_reads, start_budget = w.page_reads_left, budget.remaining
+        eligible = set(gap_remainder(prior.postings))
+        lexicon = self._platforms_in_scope(lanes_off)
+        postings: list[Posting] = []
+        changed: dict[str, str] = {}
+        # LOOP(gap pass over the remainder): cap=postings of the prior pass, run-level read and
+        # extractor caps; exit=all remainder postings processed (one failure is isolated)
+        for posting in prior.postings:
+            if posting.posting_key not in eligible:
+                postings.append(posting)
+                continue
+            reset = posting.model_copy(
+                update={
+                    "classification": None,
+                    "read": False,
+                    "full_text_read": False,
+                    "full_text_missing": False,
+                    "sentences": (),
+                    "escalation": "none" if posting.escalation == "cap" else posting.escalation,
+                }
+            )
+            done, text = await self._isolated(
+                reset, texts.get(posting.posting_key, ""), lexicon, budget, w
+            )
+            postings.append(done)
+            changed[done.posting_key] = text
+        self.last_texts = changed
+        all_texts = {**texts, **changed}
+        moved = progress(prior.postings, postings)
+        left = gap_remainder(postings)
+        if not left:
+            gap = "converged"
+        elif moved:
+            gap = "pending"
+        else:
+            gap = "budget" if start_reads == 0 or start_budget == 0 else "no_progress"
+        frame = _Frame(
+            prior.run_id,
+            prior.as_of,
+            prior.window_start,
+            prior.pulled_refs,
+            prior.rejected_no_url,
+            prior.exit_reasons.get("pull") == "converged",
+            lanes_off,
+        )
+        board_ev, pull_ev = (e for e in prior.evidence if e.row_key != ROW_READ)
+        read_prior = next(e.call_refs for e in prior.evidence if e.row_key == ROW_READ)
+        exits = {**prior.exit_reasons, "gap": gap}
+        return self._finish(
+            frame,
+            postings,
+            all_texts,
+            w,
+            budget,
+            (board_ev, pull_ev),
+            read_prior,
+            exits,
+            prior.lanes_not_searched,
+            prior.board_reported,
+            _Used(prior.page_reads_used, prior.extractor_calls_used, start_reads, start_budget),
+            prior.pass_no + 1,
         )
 
     def _finish(
         self,
-        run_id: str,
-        as_of: date,
-        start: date,
-        raw: Sequence[RawPosting],
-        rejected: int,
+        frame: _Frame,
         postings: list[Posting],
         texts: dict[str, str],
         w: _Run,
         budget: ExtractorBudget,
-        feed: SourceBatch,
         evidence: tuple[RowEvidence, RowEvidence],
-        lanes_off: frozenset[str],
+        read_prior: tuple[str, ...],
+        exits: dict[str, str],
         lanes_not_searched: dict[str, str],
         reported: dict[str, int | None],
+        used: _Used,
+        pass_no: int,
     ) -> PipelineResult:
         not_searched = {
             name: lanes_not_searched.get(lane.id, "lane_not_in_scope")
             for lane in self.cfg.lanes
-            if lane.id in lanes_off
+            if lane.id in frame.lanes_off
             for name in lane.platforms
         }
         counts: PostingCounts | None = None
         error: str | None = None
         try:
-            counts = compute_counts(raw, postings, list(self.cfg.lexicon), not_searched)
+            counts = compute_counts(frame.pulled, postings, list(self.cfg.lexicon), not_searched)
         except InvariantViolation as exc:
             error = str(exc)
         analysed = [p for p in postings if p.window_bucket != "out_of_window" and p.matched]
@@ -414,12 +546,12 @@ class JobsPipeline:
             not p.hostile and (not p.read or (p.platforms and p.posting_class == "unclassified"))
             for p in analysed
         )
-        read_refs = tuple(dict.fromkeys((*evidence[1].call_refs, *w.escalation_refs)))
+        read_refs = tuple(dict.fromkeys((*evidence[1].call_refs, *read_prior, *w.escalation_refs)))
         read_ev = RowEvidence(
             ROW_READ,
             read_refs,
             1,
-            shortfall or error is not None or not feed.complete,
+            shortfall or error is not None or not frame.pull_complete,
             None if read_refs else "source_unavailable",
         )
         claims: list[ProposedSourced] = []
@@ -429,15 +561,14 @@ class JobsPipeline:
             claims.extend(made)
             skipped += n
         exits = {
-            "board": "converged",
-            "pull": _STOP_TO_EXIT.get(feed.exit_reason, "no_progress"),
+            **exits,
             "escalation": "cap_reached" if w.escalation_cap_hit else "converged",
             "extractor": "cap_reached" if budget.remaining <= 0 else "converged",
         }
         return PipelineResult(
-            run_id=run_id,
-            as_of=as_of,
-            window_start=start,
+            run_id=frame.run_id,
+            as_of=frame.as_of,
+            window_start=frame.start,
             config_hash=self.cfg.config_hash,
             postings=tuple(postings),
             counts=counts,
@@ -447,9 +578,15 @@ class JobsPipeline:
             claims=tuple(claims),
             lanes_not_searched=lanes_not_searched,
             board_reported=reported,
-            rejected_no_url=rejected,
+            rejected_no_url=frame.rejected,
             claims_skipped_pii=skipped,
             calls_made=len(w.calls) + len(w.failed),
+            pulled_refs=frame.pulled,
+            page_reads_used=used.page_reads + used.reads_left_at_start - w.page_reads_left,
+            extractor_calls_used=used.extractor_calls
+            + used.budget_left_at_start
+            - budget.remaining,
+            pass_no=pass_no,
         )
 
 
@@ -493,6 +630,10 @@ def result_to_json(result: PipelineResult) -> dict[str, object]:
         "board_reported": dict(result.board_reported),
         "rejected_no_url": result.rejected_no_url,
         "claims_skipped_pii": result.claims_skipped_pii,
+        "pulled_refs": list(result.pulled_refs),
+        "page_reads_used": result.page_reads_used,
+        "extractor_calls_used": result.extractor_calls_used,
+        "pass_no": result.pass_no,
     }
 
 
@@ -525,4 +666,8 @@ def result_from_json(data: dict[str, object]) -> PipelineResult:
         board_reported=dict(d["board_reported"]),
         rejected_no_url=d["rejected_no_url"],
         claims_skipped_pii=d["claims_skipped_pii"],
+        pulled_refs=tuple(d["pulled_refs"]),
+        page_reads_used=d["page_reads_used"],
+        extractor_calls_used=d["extractor_calls_used"],
+        pass_no=d["pass_no"],
     )

@@ -18,9 +18,9 @@ from tests.tracker.world import World, fetch, make_world
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
 
-async def _saved(w: World) -> tuple[PgPostingRepo, object]:
+async def _saved(w: World, **kw: object) -> tuple[PgPostingRepo, object]:
     corpus = Corpus()
-    pipeline, source, *_ = build(corpus)
+    pipeline, source, *_ = build(corpus, **kw)  # type: ignore[arg-type]
     rec = Recorder()
     repo = PgPostingRepo(tenant_txn, w.tenant, w.account)
     result = await run_jobs(
@@ -81,6 +81,8 @@ async def test_db_refuses_bad_rows_and_any_update_or_delete() -> None:
         "UPDATE job_posting_classifications SET posting_class = 'build' WHERE run_id = %s",
         "DELETE FROM job_posting_observations WHERE run_id = %s",
         "DELETE FROM job_pipeline_runs WHERE run_id = %s",
+        "UPDATE job_pipeline_passes SET gap_exit = 'converged' WHERE run_id = %s",
+        "DELETE FROM job_pipeline_passes WHERE run_id = %s",
     ):
         with pytest.raises(errors.InsufficientPrivilege):
             _as_app_rw(w.tenant, sql, w.run)
@@ -97,6 +99,7 @@ async def test_two_tenants_with_the_same_domain_never_cross() -> None:
         "job_posting_classifications",
         "job_posting_observations",
         "job_pipeline_runs",
+        "job_pipeline_passes",
     ):
         async with tenant_txn(b.tenant) as s:
             from sqlalchemy import text
@@ -116,3 +119,36 @@ async def test_two_tenants_with_the_same_domain_never_cross() -> None:
             a.tenant,
             a.account,
         )
+
+
+async def test_gap_pass_appends_a_reclassification_and_resumes_from_the_last_pass() -> None:
+    from jobs.errors import JobsError
+    from tests.jobs.test_gap_and_resume import J5, _extractor, _flaky_once
+
+    w = make_world()
+    first = _extractor(Corpus(), **{"id:j5": _flaky_once(JobsError, J5)})
+    repo, (result, source) = await _saved(w, extractor=first)
+    assert result.pass_no == 1  # type: ignore[attr-defined]
+    passes = fetch("SELECT pass_no, gap_exit FROM job_pipeline_passes WHERE run_id = %s", w.run)
+    assert passes == [(1, "converged")]
+    history = fetch(
+        "SELECT pass_no, posting_class, reason FROM job_posting_classifications"
+        " WHERE run_id = %s AND posting_key = 'id:j5' ORDER BY pass_no",
+        w.run,
+    )
+    assert history == [(0, "unclassified", "error"), (1, "build", "extractor_verified")]
+    # only the re-processed posting got new side rows
+    assert fetch(
+        "SELECT count(*) FROM job_posting_classifications WHERE run_id = %s AND pass_no = 1", w.run
+    ) == [(1,)]
+    loaded = await repo.load_run(str(w.run))
+    assert loaded is not None and loaded.pass_no == 1  # type: ignore[attr-defined]
+    assert loaded.counts == result.counts  # type: ignore[attr-defined]
+    corpus = Corpus()
+    pipeline, again, *_ = build(corpus)
+    rec = Recorder()
+    replay = await run_jobs(
+        str(w.run), pipeline, repo, rec, rec, rec, FakeRunInput(corpus.lanes_off, corpus.as_of)
+    )
+    assert replay.replayed and again.calls == [] and replay.calls_made == 0
+    assert fetch("SELECT count(*) FROM job_pipeline_passes WHERE run_id = %s", w.run) == [(1,)]

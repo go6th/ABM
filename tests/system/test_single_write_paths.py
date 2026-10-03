@@ -36,6 +36,7 @@ OWNERS: dict[str, set[str]] = {
     "job_posting_classifications": {"jobs/repo.py"},
     "job_posting_observations": {"jobs/repo.py"},
     "job_pipeline_runs": {"jobs/repo.py"},
+    "job_pipeline_passes": {"jobs/repo.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {

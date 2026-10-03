@@ -178,13 +178,18 @@ paths_to_mutate = [
     "src/account_intelligence/tracker/completion.py",
     "src/jobs/counts.py",
     "src/jobs/window.py",
+    "src/jobs/dedupe.py",
+    "src/jobs/classify.py",
+    "src/jobs/gap.py",
 ]
 tests_dir = [
     "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
     "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
+    "tests/jobs/test_gap_and_resume.py", "tests/jobs/test_gap_rules.py",
 ]
 also_copy = ["config/", "scripts/", ".claude/", "evals/", "tests/", "docs/", "src/"]
 pytest_add_cli_args_test_selection = [
     "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
     "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
+    "tests/jobs/test_gap_and_resume.py", "tests/jobs/test_gap_rules.py",
 ]

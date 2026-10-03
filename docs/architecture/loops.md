@@ -6,9 +6,11 @@ unannotated (the generator's check fails otherwise).
 
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
-| gate fix loop | `src/account_intelligence/workflow/stages/core.py:217` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
+| gap pass over the remainder | `src/jobs/pipeline.py:461` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
+| gate fix loop | `src/account_intelligence/workflow/stages/core.py:218` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
 | in-flight wait | `src/account_intelligence/connectors/service.py:248` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:119` | limit (1000) | queue empty, limit |
+| jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
 | judge re-ask | `src/account_intelligence/grading/judge.py:87` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:131` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:50` | 1 re-ask on unparseable output | parsed, None (item blocked) |
@@ -16,7 +18,7 @@ unannotated (the generator's check fails otherwise).
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
 | planner gap loop | `src/account_intelligence/workflow/stages/research.py:193` | 1 + planner_gap_passes (2) | converged, no_progress, budget, cap_reached |
-| posting batch loop | `src/jobs/pipeline.py:344` | postings pulled (bounded by the pull caps), batch_size per batch | all processed (one failure is isolated) |
+| posting batch loop | `src/jobs/pipeline.py:380` | postings pulled (bounded by the pull caps), batch_size per batch | all processed (one failure is isolated) |
 | posting extractor re-ask | `src/jobs/extractor.py:97` | 1 re-ask, run cap max_extractor_calls | verified, unclassified(reason), hostile |
 | provider job poll | `src/account_intelligence/connectors/paginate.py:154` | max_polls with a bounded interval | succeeded, failed, ProviderJobTimeout |
 | slice loop | `src/account_intelligence/workflow/runner.py:92` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
@@ -24,4 +26,4 @@ unannotated (the generator's check fails otherwise).
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:246` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
 | tracker sweep conflict | `src/account_intelligence/tracker/service.py:323` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
 | tracker version conflict | `src/account_intelligence/tracker/service.py:176` | 3 re-reads, rules re-checked each time | written, unchanged, VersionConflict |
-| union-find path walk | `src/jobs/dedupe.py:58` | number of identities (path halving) | root found |
+| union-find path walk | `src/jobs/dedupe.py:60` | number of identities (path halving) | root found |

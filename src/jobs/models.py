@@ -19,6 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 PostingClass = Literal["build", "admin_owner", "working_tool", "user", "unclassified"]
 PostingStatus = Literal["open", "closed", "unknown"]
 WindowBucket = Literal["in_window", "out_of_window", "undated"]
+# J5 escalation of an unread matched posting: never tried, read, failed (the one read is spent),
+# or skipped because the run-level page-read cap was reached (a gap pass may still read it)
+Escalation = Literal["none", "read", "failed", "cap"]
 
 
 class ClassificationLabel(StrEnum):
@@ -127,6 +130,7 @@ class Posting(_Frozen):
     read: bool = False
     full_text_read: bool = False
     full_text_missing: bool = False
+    escalation: Escalation = "none"
     window_bucket: WindowBucket
     platforms: tuple[str, ...] = ()
     title_platforms: tuple[str, ...] = ()
