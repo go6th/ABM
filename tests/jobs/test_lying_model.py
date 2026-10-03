@@ -88,7 +88,7 @@ async def test_extractor_cap_is_respected() -> None:
     assert result.reason == "cap" and first.calls == []
 
 
-def test_validation_requires_exact_identity_and_verbatim_evidence() -> None:
+async def test_validation_requires_exact_identity_and_verbatim_evidence() -> None:
     assert validate_extractor_output(
         ok("user"), posting_id=PID, text=TEXT, canary=CANARY
     ).label == ("user")

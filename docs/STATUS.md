@@ -98,14 +98,19 @@ the similarity threshold, and a judge model distinct from the generator.
 
 ## Job posting pipeline
 
-Status: partial core on branch `feat/job-posting-pipeline`. Deterministic pure logic and
-synthetic tests are available in `src/jobs/` and `tests/jobs/`. The workflow adapter fails
-closed with `NotConfigured`; posting persistence, coverage evidence integration, and
-production connector composition are not implemented. No posting-table migration was
-added because PostgreSQL behavior could not be checked against a test database.
+Status: built on branch `feat/job-posting-pipeline` (rebuild plus the gap-pass work package,
+2026-10-03). `src/jobs/` holds the pure pipeline, the bounded gap passes (`jobs.gap`, at most
+`max_gap_passes` = 2 passes over the remainder, no re-pull, run-level caps), the fail-closed
+workflow adapter, and the Postgres repo; migration 0013 adds the append-only
+`job_pipeline_passes` table and the `pass_no` columns (expand only, forced RLS).
 
-D-16 and D-17 are open in ADR-0008. Search keywords and aliases are empty; full-text scope
-is unselected. Connector completeness and posting response shapes remain `[VERIFY]` until
-recorded samples are supplied. Job test result: 9 passed; measured package coverage 72%, below the requested target. Ruff and strict mypy pass. Isolation was blocked by local PostgreSQL authentication; the full suite failed collection on a pre-existing tracker syntax error. No DB or RLS claim is made.
+Proven by tests (`tests/jobs`, 77 passed on the branch): counts equal the hand-written oracle with
+the invariants; every J-rule has a lying-model test; the gap pass re-processes only the remainder
+and never re-pulls; the resume matrix (board, feed, mid-batch, after persist, after a gap persist)
+resumes to the same rows hash with no call paid twice; the DB round trip, append-only refusals and
+tenant isolation are tested against real Postgres. Package coverage 90.34% (target 90).
 
-See `BUILD_LOG.md` and `docs/jobs/` for scope and gate results.
+Needs decisions: D-16 (class definitions and full-text scope) and D-17 (lane keywords and aliases)
+are open in ADR-0008. Open items OI-JOBS-1 and OI-JOBS-2 remain; OI-JOBS-3 (gap passes) is closed.
+`[VERIFY]`: connector completeness and posting response shapes (recorded samples); V-JOBS-2, the
+0013 rollback under concurrent writers, untested against staging data.

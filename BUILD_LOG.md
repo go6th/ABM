@@ -1,8 +1,54 @@
 # Build log
 
 Current phase: 0 (Prove) and 1 (Build), integrated on Google Cloud  
-Current work package: integration on `feat/integrate-gcp-production` (audit pass 2 green)  
+Current work package: job pipeline gap passes on `feat/job-posting-pipeline`  
 Last updated: 2026-10-03
+
+## Job pipeline gap passes (2026-10-03, branch `feat/job-posting-pipeline`)
+
+Plan (5 lines): finish spec sections 7 and 9.7 for the jobs WP. Files: `src/jobs/gap.py`,
+`pipeline.py` (gap pass), `stage.py` (bounded pass loop), `repo.py` (`job_pipeline_passes`),
+`dedupe.py` (canonical-URL keys), migration 0013, `tests/jobs/test_gap_rules.py`,
+`test_gap_and_resume.py`, `tests/isolation/test_jobs_isolation.py`; acceptance = remainder-only
+passes, run-level caps, resume matrix, DB append-only and RLS; decisions: none new (D-16/D-17 stay
+open); [VERIFY] V-JOBS-2 (rollback under concurrent writers).
+
+Built:
+- `jobs.gap` (pure): the remainder is the retryable residue only — unescalated because of the
+  page-read cap, unclassified under the extractor cap or an isolated error. Verdicts (disagreement,
+  unverified, unclear, hostile) and out-of-window postings are final; `progress()` counts a new
+  read or a new class and nothing else.
+- `JobsPipeline.gap_pass`: re-processes only the remainder, texts re-read from the payload store,
+  no source call, inside what is left of the RUN-level caps; exits `converged`, `pending`,
+  `budget` or `no_progress`; `stage.run_jobs` bounds it at `max_gap_passes` (2, sourced) and
+  persists every pass before the next starts, so a resume continues after the last stored pass.
+- Escalation is now an explicit state (`none`, `read`, `failed`, `cap`); a read spent on a posting
+  whose processing failed is kept as `failed` so no later pass re-reads it (one read per posting).
+- Dedupe keys are the smallest provider id, else the smallest canonical URL; records without a
+  canonical URL are rejected and counted, so the weak fingerprint is never a group key.
+- Migration 0013 (expand only): `job_pipeline_passes` (insert-only, forced RLS, `TO app_rw`),
+  `pass_no` on classifications and sentences, a `(tenant_id, run_id)` unique constraint on
+  `job_pipeline_runs`; classifications re-added per pass, never updated.
+
+Commands and results (PostgreSQL 16 + pgvector in compose; test DB `ai_test`):
+
+| Command | Result |
+|---|---|
+| `pytest tests/jobs -q` | 77 passed |
+| `pytest tests/jobs --cov=jobs --cov-config=/dev/null --cov-fail-under=90` | 90.34%; `gap.py`, `counts.py`, `dedupe.py` 100% |
+| `pytest tests/isolation -x` | 22 passed (new `test_jobs_isolation.py`) |
+| `pytest -m "not eval" -q` | 1167 passed, 15 skipped |
+| `ruff check` and `ruff format --check` (touched files and whole repo) | pass |
+| `mypy --strict src/jobs`; `mypy` (project) | pass (20 files; 138 files) |
+| selftest.sh; validate_assets.py; lint_migrations.py | `selftest OK`; `OK: 33 rows...`; `OK: 24 file(s)` |
+| `check_rls_catalog.sql` on the migrated `ai_test` | no rows |
+| `alembic downgrade 0012` then `upgrade head` then `check` | both directions ran; no drift |
+| lint-imports, interrogate, check_comments, check_guarantees, gen_loops --check, bandit, vulture, compileall | pass |
+| mutmut | not run on this change (config extended; last clean-clone numbers stand) |
+
+Not done or open: D-16/D-17 product inputs; V-JOBS-1 (feed text completeness sample) and V-JOBS-2
+(staging-data rollback test); mutmut rerun; the tech-stage cross-check has no consumer yet
+(`platform_posting_evidence` is exposed but the tech stage does not read it).
 
 ## Built
 
