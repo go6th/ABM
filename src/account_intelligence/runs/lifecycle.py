@@ -137,7 +137,7 @@ async def create_run(
         if prior.request_hash != digest:
             raise IdempotencyConflict("idempotency key reused with a different request body")
         return CreatedRun(prior.id, prior.status, True)
-    account = (
+    account: UUID = (
         await session.execute(
             text(
                 "INSERT INTO accounts (tenant_id, domain) VALUES (:t, :d)"
@@ -327,7 +327,7 @@ async def settle_once(
     platform_fault = refund_all or RunStatus(run.status) is RunStatus.FAILED
     committed = Decimal(0) if platform_fault else _credits(reserved * used)
     refunded = reserved - committed
-    balance = (
+    balance: Decimal = (
         await session.execute(
             text(
                 "UPDATE wallets SET balance = balance + :refund WHERE tenant_id = :t"
