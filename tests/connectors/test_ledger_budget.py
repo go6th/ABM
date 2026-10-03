@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from sqlalchemy import text
@@ -144,24 +144,8 @@ async def test_two_workers_on_one_run_never_both_pay(harness: Harness, tenant_a:
     assert len(started) == 1 and len({e["owner"] for e in started}) == 1
 
 
-async def test_the_original_starter_ledger_call_now_pays_once(tenant_a: UUID) -> None:
-    from account_intelligence.agents.graph import ledgered_call
-
-    calls: list[dict[str, object]] = []
-
-    async def paid(**kw: object) -> dict[str, object]:
-        calls.append(kw)
-        await asyncio.sleep(0.05)
-        return {"facts": [], "cost_usd": 0.5}
-
-    run_id = str(uuid4())
-    out = await asyncio.gather(
-        *[
-            ledgered_call(str(tenant_a), run_id, "broker:jobs", {"domain": "y.com"}, paid)
-            for _ in range(10)
-        ]
-    )
-    assert len(calls) == 1 and all(o == out[0] for o in out)
+# The starter's ledgered_call is retired with the starter graph; the same guarantee on the one
+# run path is test_fifty_concurrent_identical_calls_make_one_provider_call above.
 
 
 # ------------------------------------------------------------------ crash reconciliation

@@ -22,8 +22,10 @@ from uuid import UUID
 
 import httpx
 import psycopg
+from langgraph.types import RetryPolicy
 
 from account_intelligence.connectors.base import ProviderCode
+from account_intelligence.connectors.errors import RetryableProviderError
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.checkpoint import checkpointer_factory
 from account_intelligence.platform.hermetic import InProcessScheduler, ScriptedLlm
@@ -39,6 +41,16 @@ PAD = (
     " This synthetic posting text exists only to test the pipeline and describes no real role." * 3
 )
 CANARY = "CANARY-7f3a9e"
+# The production node RetryPolicy shape (retry_on RetryableProviderError, 3 attempts) with
+# millisecond intervals so tests do not sleep.
+FAST_RETRY = RetryPolicy(
+    initial_interval=0.001,
+    backoff_factor=1.0,
+    max_interval=0.001,
+    max_attempts=3,
+    jitter=False,
+    retry_on=RetryableProviderError,
+)
 
 
 def _cassette(code: str, name: str) -> dict[str, Any]:
@@ -319,7 +331,14 @@ async def start_run(
 
     async def run_slice(tenant_id: UUID, run_id: UUID, slice_no: int) -> None:
         await execute_slice(
-            deps_factory, saver, scheduler, tenant_id, run_id, slice_no, settings=settings
+            deps_factory,
+            saver,
+            scheduler,
+            tenant_id,
+            run_id,
+            slice_no,
+            settings=settings,
+            retry_policy=FAST_RETRY,
         )
 
     scheduler.runner = run_slice

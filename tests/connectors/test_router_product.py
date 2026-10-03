@@ -12,9 +12,6 @@ import pytest
 
 from account_intelligence.connectors.base import Operation, ProviderCode
 from account_intelligence.connectors.errors import (
-    CircuitOpen,
-    ConnectorError,
-    CreditsExhausted,
     NonRetryableProviderError,
     PolicyRefused,
     RetryableProviderError,
@@ -212,68 +209,10 @@ def test_routes_match_the_skill_playbook() -> None:
         assert fb == r["fallback"]
 
 
-# ------------------------------------------------------------------ failure to product (graph)
-
-
-def test_node_decision_retries_only_retryable_errors_within_budget() -> None:
-    from account_intelligence.agents.graph import blocked_or_retry
-
-    assert blocked_or_retry(RetryableProviderError(attempt=1), 3) is None
-    assert blocked_or_retry(RetryableProviderError(attempt=2), 3) is None
-    assert blocked_or_retry(RetryableProviderError(attempt=3), 3) is not None
-    for error in (
-        CreditsExhausted(),
-        CircuitOpen(),
-        SchemaDriftError(),
-        NonRetryableProviderError(),
-    ):
-        assert blocked_or_retry(error, 3) is not None
-
-
-@pytest.mark.requires_postgres
-@pytest.mark.asyncio
-async def test_outage_and_drift_give_blocked_rows_and_a_partial_run(
-    tenant_a: UUID, monkeypatch
-) -> None:  # type: ignore[no-untyped-def]
-    from account_intelligence.agents import graph as graph_mod
-    from account_intelligence.agents.runner import execute_slice
-    from tests.integration.test_graph_and_ledger import _make_run
-
-    failures: dict[str, ConnectorError] = {
-        "news": RetryableProviderError(
-            "http 503", provider_code="p_signals", operation="news_events", attempt=3
-        ),
-        "tech": SchemaDriftError("drift", provider_code="p_signals", operation="tech_detections"),
-        "people": CreditsExhausted(provider_code="p_org", operation="people_by_technology"),
-    }
-
-    async def fake(tenant_id, run_id, tool, args, fn):  # type: ignore[no-untyped-def]
-        if args["branch"] in failures:
-            raise failures[args["branch"]]
-        return {"facts": [{"branch": args["branch"]}], "cost_usd": 0.1}
-
-    monkeypatch.setattr(graph_mod, "ledgered_call", fake)
-    run_id = _make_run(tenant_a)
-    out = await execute_slice(tenant_a, run_id)
-    assert out == {"done": True, "status": "PARTIAL"}  # never FAILED
-
-    import psycopg
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-    from tests.conftest import ADMIN_DSN
-
-    async with await psycopg.AsyncConnection.connect(ADMIN_DSN, autocommit=True) as conn:
-        state = (
-            await graph_mod.build_graph()
-            .compile(checkpointer=AsyncPostgresSaver(conn))
-            .aget_state({"configurable": {"thread_id": f"{tenant_a}:{run_id}"}})
-        )
-    rows = {r["branch"]: r for r in state.values["coverage"]}
-    assert rows["jobs"]["status"] == "DONE"
-    for branch in failures:
-        assert rows[branch]["status"] == "BLOCKED" and rows[branch]["reason"]
-        assert not _leaks(rows[branch]["reason"])
-    assert [f["branch"] for f in state.values["facts"]] == ["jobs"]  # drift gave no data
+# ------------------------------------------------------------------ failure to product
+# The starter graph is retired. Its node decision and its outage-to-PARTIAL proof moved to the
+# Workflow v1 path: tests/workflow/test_calls.py (retry ownership per attempt) and
+# tests/system/test_failure_injection.py (outage and drift give Blocked rows, the run is PARTIAL).
 
 
 # ------------------------------------------------------------------ leak scanning

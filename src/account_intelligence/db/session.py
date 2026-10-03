@@ -8,7 +8,12 @@ from uuid import UUID
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from account_intelligence.config import get_settings
 
@@ -21,6 +26,18 @@ engine = create_async_engine(
     connect_args={"server_settings": {"application_name": "ai-api"}},
 )
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+_BOUND: list[async_sessionmaker[AsyncSession]] = []
+
+
+def bind_engine(new_engine: AsyncEngine) -> None:
+    """Use ``new_engine`` for every ``tenant_txn`` (``app.container`` calls this once at startup
+    with the Cloud SQL connector engine in staging and production)."""
+    _BOUND.clear()
+    _BOUND.append(async_sessionmaker(new_engine, expire_on_commit=False))
+
+
+def _sessions() -> async_sessionmaker[AsyncSession]:
+    return _BOUND[0] if _BOUND else SessionLocal
 
 
 def make_sync_url(url: str) -> str:
@@ -53,7 +70,7 @@ async def tenant_txn(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
     so a pooled connection can never carry tenant A into tenant B's request. (A bare SET LOCAL
     outside an explicit transaction is a no-op, which is why v1's middleware was unsafe.)
     """
-    async with SessionLocal() as session, session.begin():
+    async with _sessions()() as session, session.begin():
         await session.execute(
             text("SELECT set_config('app.tenant_id', :tid, true)"),
             {"tid": str(tenant_id)},
