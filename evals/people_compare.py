@@ -11,31 +11,35 @@ kept, excluded functions removed). Every figure names its base.
 from __future__ import annotations
 
 import json
-import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from account_intelligence.config import CONFIG_DIR
+from people.config import load_people_config
+from people.exclusion import check_exclusion
+from people.level import classify_level
+from people.names import normalise_name
+from people.urls import canonical_profile_url
 
 
 def _key(person: dict[str, Any]) -> str:
-    url = str(person.get("profile_url") or "").rstrip("/").lower()
-    return url or "name:" + re.sub(r"\W+", " ", str(person.get("name", "")).lower()).strip()
+    """The pipeline's merge keys: canonical profile URL, else the normalised name."""
+    url = canonical_profile_url(
+        str(person.get("profile_url") or ""), load_people_config().profile_url
+    )
+    return url or "name:" + normalise_name(str(person.get("name", "")))
 
 
-def in_scope(title: str, scope: dict[str, Any]) -> bool:
-    """Seniority kept and no excluded function in the title (people_scope.yaml)."""
-    t = title.lower()
-    if any(term in t for term in scope["excluded_title_terms"]):
+def in_scope(title: str) -> bool:
+    """The people pipeline's own title rules (one implementation, ``people.exclusion`` and
+    ``people.level``): no exclusion or review cue, and a level in scope."""
+    cfg = load_people_config()
+    if check_exclusion(title, cfg.exclusion_rules, cfg.review_rules).outcome != "include":
         return False
-    levels = [lv.lower() for lv in scope["levels_in_scope"]]
-    aliases = {"c-level": ("chief", "cto", "cio", "ceo", "cfo", "coo")}
-    return any(lv in t or any(a in t for a in aliases.get(lv, ())) for lv in levels)
+    level = classify_level(title, cfg.level_rules, cfg.level_order)
+    return level is not None and level.level in cfg.levels_in_scope
 
 
 @dataclass(frozen=True)
@@ -53,7 +57,6 @@ class Comparison:
 
 def compare(a: Sequence[dict[str, Any]], b: Sequence[dict[str, Any]]) -> Comparison:
     """Compare two lists for one account."""
-    scope = yaml.safe_load((CONFIG_DIR / "people_scope.yaml").read_text())
     ka = {_key(p): p for p in a}
     kb = {_key(p): p for p in b}
     both = ka.keys() & kb.keys()
@@ -63,8 +66,8 @@ def compare(a: Sequence[dict[str, Any]], b: Sequence[dict[str, Any]]) -> Compari
         len(both),
         len(ka.keys() - both),
         len(kb.keys() - both),
-        sum(in_scope(str(p.get("title", "")), scope) for p in ka.values()),
-        sum(in_scope(str(p.get("title", "")), scope) for p in kb.values()),
+        sum(in_scope(str(p.get("title", ""))) for p in ka.values()),
+        sum(in_scope(str(p.get("title", ""))) for p in kb.values()),
     )
 
 
