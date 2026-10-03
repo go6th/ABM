@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Protocol
 
-
-class NotConfigured(RuntimeError):
-    """A required production adapter has not been implemented."""
-
-
-class Clock(Protocol):
-    def now(self) -> datetime: ...
+# One definition of each (audit F-6); re-exported for existing imports.
+from account_intelligence.platform.ports import Clock as Clock
+from account_intelligence.platform.ports import LlmPort as LlmPort
+from account_intelligence.platform.ports import NotConfigured as NotConfigured
+from account_intelligence.platform.ports import PayloadStore as PayloadStore
 
 
 class ConnectorPort(Protocol):
@@ -19,12 +16,6 @@ class ConnectorPort(Protocol):
         self, category: str, operation: str, arguments: dict[str, Any]
     ) -> dict[str, Any]: ...
     def retry_policy_for(self, operation: str) -> Any: ...
-
-
-class LlmPort(Protocol):
-    async def generate(
-        self, tier: str, prompt_id: str, input_data: dict[str, Any], output_schema: type[Any]
-    ) -> Any: ...
 
 
 class SourceRepo(Protocol):
@@ -59,13 +50,6 @@ class DetectionRepo(Protocol):
 class CoverageRepo(Protocol):
     async def write_status(
         self, tenant_id: str, run_id: str, row: str, status: str, proof: dict[str, Any]
-    ) -> None: ...
-
-
-class PayloadStore(Protocol):
-    async def get(self, tenant_id: str, run_id: str, reference: str) -> dict[str, Any] | None: ...
-    async def put(
-        self, tenant_id: str, run_id: str, reference: str, value: dict[str, Any]
     ) -> None: ...
 
 

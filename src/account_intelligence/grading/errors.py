@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
+
 
 class GradingError(Exception):
     """Base class. ``reason_code`` is stable and neutral (stored in claim_drops)."""
@@ -57,7 +59,7 @@ class JudgeUnavailable(GradingError):
     reason_code = "judge_unavailable"
 
 
-class NotConfigured(GradingError):
+class NotConfigured(GradingError, PlatformNotConfigured):
     """A production adapter that does not exist yet. The claim is never granted A, B or
     Confirmed on its behalf (G12)."""
 

@@ -1,5 +1,7 @@
 """Typed failures for the job research pipeline."""
 
+from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
+
 
 class JobsError(RuntimeError):
     """Base class for expected job pipeline failures."""
@@ -21,5 +23,5 @@ class ConfigError(JobsError):
     """Pipeline configuration is invalid or incomplete."""
 
 
-class NotConfigured(JobsError):
+class NotConfigured(JobsError, PlatformNotConfigured):
     """The production adapter has not been configured."""

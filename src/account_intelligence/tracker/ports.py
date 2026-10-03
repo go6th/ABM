@@ -6,12 +6,9 @@ import datetime
 from typing import Protocol
 from uuid import UUID
 
+from account_intelligence.platform.ports import NotConfigured as NotConfigured  # F-6
 from account_intelligence.tracker.config import ChecklistConfig
 from account_intelligence.tracker.model import CallRecord
-
-
-class NotConfigured(Exception):
-    """A production adapter is missing; the row ends Not done with ``not_available_yet``."""
 
 
 class CallLedgerPort(Protocol):

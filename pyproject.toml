@@ -7,7 +7,6 @@ dependencies = [
     "alembic>=1.13",
     "anthropic>=0.40",
     "asyncpg>=0.29",
-    "boto3>=1.35",
     "cloud-sql-python-connector[asyncpg]>=1.12",
     "fastapi>=0.115",
     "google-auth>=2.30",
@@ -40,7 +39,6 @@ packages = ["src/account_intelligence", "src/jobs"]
 
 [dependency-groups]
 dev = [
-    "boto3-stubs[s3]>=1.35",
     "hypothesis>=6.100",
     "mypy>=1.11",
     "pre-commit>=3.7",
