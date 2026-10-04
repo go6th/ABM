@@ -1,0 +1,12 @@
+{
+ "_label": "SYNTHETIC tenant spend view produced by spend.report.tenant_view from a synthetic rollup (tests/spend/test_mutation_kills.py); scanned by scripts/scan_client_output.py",
+ "view": {
+  "amounts_shown": false,
+  "categories": {
+   "pages_read": 4
+  },
+  "run_id": "r1",
+  "status": "BUDGET_EXCEEDED",
+  "total_calls": 4
+ }
+}

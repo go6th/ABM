@@ -21,6 +21,7 @@ owner can supply (named in the last column). Evidence is a test or command run o
 | P1-5 | Grading engine | Done | `tests/grading`; lying-generator whole run | D-01 ext, D-11 ext, D-14, D-15 sign-off |
 | P1-6 | Job posting pipeline | Done (deviations listed) | `tests/jobs` (oracle, lying model, properties, DB) | D-16, D-17; OI-JOBS-1 to 3 |
 | P1-7 | People pipeline (branch `feat/people-pipeline`) | Done hermetically; providers Blocked | `tests/people` (oracle, lying tests per P-rule, properties, resume matrix, DB), `tests/isolation/test_people_isolation.py` | D-21 to D-23; V-PEOPLE-1 to 3; OI-PPL-2 to 5 |
+| P1-9 | Credit cap v1 (branch `feat/credit-cap`) | Done hermetically and on Postgres; prices and balances Blocked | `tests/spend` (hand oracles, lying input per K-rule, properties, kill and resume, fault injection), `tests/isolation/test_spend_isolation.py`, `tests/system/test_credit_cap_run.py`, ADR-0030 to 0035 | D-27 to D-31; provider cost table and credit rates (V7); balance endpoints (V-SPEND-1); approver roles, timeouts, limits |
 
 ## Earlier work-package notes
 
@@ -110,3 +111,21 @@ is unselected. Connector completeness and posting response shapes remain `[VERIF
 recorded samples are supplied. Job test result: 9 passed; measured package coverage 72%, below the requested target. Ruff and strict mypy pass. Isolation was blocked by local PostgreSQL authentication; the full suite failed collection on a pre-existing tracker syntax error. No DB or RLS claim is made.
 
 See `BUILD_LOG.md` and `docs/jobs/` for scope and gate results.
+
+## Credit cap v1
+
+Status: built on branch `feat/credit-cap` (2026-10-04). One cap per run in USD (integer
+micro-dollars), proposed in code after a free balance preflight, approved by a person bound to its
+hash (or a tenant policy within its limit), enforced inside the connector's ledger claim before
+every paid call, spend derived from the insert-only ledger, and an internal report stored once per
+terminal state in the finishing transaction; the tenant sees categories and call counts only.
+
+Proven by tests: no paid call without an approved cap (directly at the connector); the cap is never
+exceeded under 200 parallel calls, two workers or ten runs over two tenants, and `spent <= cap +
+overshoot` after any reserve and true-up sequence; unknown cost is never zero; integer money;
+derived spend reconciles or the report is stamped; replays cost nothing; one settlement and one
+report per terminal run, across kills, racing finalisations and duplicate deliveries; no spend in
+client output. Coverage 99% (100% on money, gate, priority, approval, report, reconcile).
+
+Not proven: real prices, credit rates and balance endpoints; Cloud SQL concurrency; the operator
+console and notifier.

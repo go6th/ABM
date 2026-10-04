@@ -1,7 +1,7 @@
 -- Migration 0015: credit cap v1 (expand only; no existing column dropped or altered).
 -- Spec docs/prompts/build_credit_cap.md section 6. down_revision 0014 (people pipeline).
 --
--- Table naming (ADR-0026): the workflow, the connector reserve and settlement all use
+-- Table naming (ADR-0030): the workflow, the connector reserve and settlement all use
 -- account_runs.budget_usd and spent_usd; runs.credit_cap (0004, integer) is the data-layer mirror
 -- and is not used for enforcement. No third cap column is created: the approved cap is written to
 -- account_runs.budget_usd and the version that set it to account_runs.cap_version.
@@ -17,7 +17,8 @@
 -- and CHECK spent_usd <= budget_usd + cap_overshoot_usd (added NOT VALID, then validated).
 --
 -- Insert-only tables (INSERT and SELECT for app_rw, no UPDATE, no DELETE): run_cap_versions,
--- run_cap_events, balance_snapshots, spend_reports, prepulled_files. Forced RLS TO app_rw on all.
+-- run_cap_events, balance_snapshots, spend_reports, prepulled_files, spend_defects. Forced RLS
+-- TO app_rw on all. The ledger's cost_source CHECKs are widened with 'prepulled' (D-31).
 -- One decision per cap version is enforced by a partial unique index (double approval, approve
 -- versus expire races). The tenant view of spend_reports is readable by public_reader through a
 -- column grant that excludes operator_json.
@@ -172,6 +173,42 @@ CREATE POLICY tenant_isolation ON prepulled_files TO app_rw
    USING (tenant_id = (SELECT app_tenant())) WITH CHECK (tenant_id = (SELECT app_tenant()));
 GRANT SELECT, INSERT ON prepulled_files TO app_rw;
 GRANT USAGE ON SEQUENCE prepulled_files_id_seq TO app_rw;
+
+-- K14: a "free" operation that returned a cost is a defect; the gate refuses it from then on.
+CREATE TABLE spend_defects (
+   id            bigserial NOT NULL,
+   tenant_id     uuid NOT NULL DEFAULT app_tenant(),
+   run_id        uuid NOT NULL,
+   provider_code text NOT NULL,
+   operation     text NOT NULL,
+   kind          text NOT NULL,
+   charged_usd   numeric(14,6) NOT NULL,
+   at            timestamptz NOT NULL DEFAULT now(),
+   CONSTRAINT pk_spend_defects PRIMARY KEY (id),
+   CONSTRAINT fk_spend_defects_tenant_id_tenants FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+   CONSTRAINT ck_spend_defects_provider CHECK (provider_code ~ '^p_[a-z]+$'),
+   CONSTRAINT ck_spend_defects_kind CHECK (kind IN ('free_operation_charged')),
+   CONSTRAINT ck_spend_defects_charged CHECK (charged_usd > 0)
+);
+CREATE INDEX ix_spend_defects_op ON spend_defects (provider_code, operation);
+ALTER TABLE spend_defects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE spend_defects FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON spend_defects TO app_rw
+   USING (tenant_id = (SELECT app_tenant())) WITH CHECK (tenant_id = (SELECT app_tenant()));
+GRANT SELECT, INSERT ON spend_defects TO app_rw;
+GRANT USAGE ON SEQUENCE spend_defects_id_seq TO app_rw;
+
+-- D-31: a registered pre-pulled file consumed instead of a paid call is recorded in the ledger as
+-- a done call at zero cost with cost_source 'prepulled'. The two CHECKs are WIDENED (every value
+-- valid before stays valid; no column is altered): dropped, re-added NOT VALID, validated.
+ALTER TABLE tool_calls DROP CONSTRAINT ck_tool_calls_cost_source;
+ALTER TABLE tool_calls ADD CONSTRAINT ck_tool_calls_cost_source CHECK (cost_source IN
+   ('documented', 'provider_reported', 'credits_only', 'unknown', 'prepulled')) NOT VALID;
+ALTER TABLE tool_calls VALIDATE CONSTRAINT ck_tool_calls_cost_source;
+ALTER TABLE tool_call_events DROP CONSTRAINT ck_tool_call_events_cost_source;
+ALTER TABLE tool_call_events ADD CONSTRAINT ck_tool_call_events_cost_source CHECK (cost_source IN
+   ('documented', 'provider_reported', 'credits_only', 'unknown', 'prepulled')) NOT VALID;
+ALTER TABLE tool_call_events VALIDATE CONSTRAINT ck_tool_call_events_cost_source;
 
 -- Spend by provider derived from the insert-only ledger events (the same definition as the
 -- connector's ledger_sum). security_invoker: the caller's RLS applies.

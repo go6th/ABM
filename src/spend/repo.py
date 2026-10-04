@@ -1,5 +1,5 @@
-"""Spend persistence on one tenant transaction (``tenant_txn``). Insert-only tables; the only
-UPDATE is the conditional write of the run's enforcement columns when a cap version is approved
+"""Spend persistence on one tenant transaction (``tenant_txn``). Insert-only tables; the one
+conditional update writes the run's enforcement columns when a cap version is approved
 (``apply_cap``), which never lowers the cap below what is spent and never goes back a version.
 
 Every state change is an insert or one conditional ``UPDATE ... WHERE``, so a duplicate delivery

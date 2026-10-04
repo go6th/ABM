@@ -18,7 +18,9 @@ def cfg() -> SpendConfig:
     return load_spend_config()
 
 
-def capped_run(tenant: UUID, *, budget: str = "5.00", attended: bool = False, cap_required: bool = True) -> tuple[UUID, UUID, str]:
+def capped_run(
+    tenant: UUID, *, budget: str = "5.00", attended: bool = False, cap_required: bool = True
+) -> tuple[UUID, UUID, str]:
     """An account and a run that requires a cap (the default for new rows); budget_usd holds the
     created budget. Returns (account, run, domain)."""
     from tests.conftest import ADMIN_DSN
@@ -26,7 +28,8 @@ def capped_run(tenant: UUID, *, budget: str = "5.00", attended: bool = False, ca
     domain = f"synthetic-{uuid4().hex[:8]}.example.com"
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         account = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id", (tenant, domain)
+            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+            (tenant, domain),
         ).fetchone()[0]
         run = c.execute(
             "INSERT INTO account_runs (tenant_id, account_id, status, graph_version, budget_json,"

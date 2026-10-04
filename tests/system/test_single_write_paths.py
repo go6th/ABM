@@ -44,6 +44,12 @@ OWNERS: dict[str, set[str]] = {
     "person_post_pulls": {"people/repo.py"},
     "person_events": {"people/repo.py"},
     "people_pipeline_runs": {"people/repo.py"},
+    "run_cap_versions": {"spend/repo.py"},
+    "run_cap_events": {"spend/repo.py"},
+    "balance_snapshots": {"spend/repo.py"},
+    "spend_reports": {"spend/repo.py"},
+    "prepulled_files": {"spend/prepulled.py"},
+    "spend_defects": {"connectors/ledger.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {
@@ -51,6 +57,8 @@ OWNERS: dict[str, set[str]] = {
         "tracker/guard.py",
         "connectors/budget.py",
         "grading/repo.py",
+        "spend/repo.py",  # the approved cap's enforcement columns (one conditional UPDATE)
+        "spend/reconcile.py",  # unreconciled_usd (stale reserves, K9)
     },
 }
 IGNORED = {"statements", "or"}  # words matched in comments and docstrings, not tables

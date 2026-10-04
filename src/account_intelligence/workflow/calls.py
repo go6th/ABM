@@ -11,6 +11,13 @@
 * Non-retryable connector errors that reached the ledger are failed calls (proof of a failure);
   errors before the ledger (unsupported operation, policy refusal) are "not attempted" with a
   configured reason. ``BudgetExceeded`` stops further calls for the run.
+* Credit cap K10 (the budget node of each stage wave): when the batch's upper-bound cost exceeds
+  what remains of the approved cap, ``spend.priority.fund_indexed`` funds High rows first, then
+  Medium, then Optional, with a fixed tie-break; every row left unfunded is not attempted
+  (``budget_cap``, the tracker's reason for the cap: Blocked with its proof) and the run ends
+  BUDGET_EXCEEDED with partial results. Nothing is dropped silently.
+* Credit cap D-31: provider credits exhausted is a failed call (the row ends Blocked
+  ``credits_exhausted``) and the operator is prompted to supply a pre-pulled file.
 """
 
 from __future__ import annotations
@@ -18,14 +25,17 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy import text
 
 from account_intelligence.connectors.base import Operation
 from account_intelligence.connectors.errors import (
     BudgetExceeded,
     ConnectorError,
+    CreditsExhausted,
     NotSupportedYet,
     RetryableProviderError,
 )
@@ -95,6 +105,60 @@ def validate_plan(
     return calls, refused
 
 
+async def fund_wave(
+    deps: RunDeps, calls: list[tuple[str, Operation, Any]]
+) -> tuple[list[tuple[str, Operation, Any]], tuple[str, ...]]:
+    """K10 for one wave: the calls to run (in funding order) and the rows left unfunded. A run
+    without an approved cap requirement, or whose batch fits, runs every call in plan order."""
+    if deps.connectors is None or not calls or getattr(deps, "txn", None) is None:
+        return calls, ()
+    from account_intelligence.connectors.base import OPERATION_PROVIDER
+    from account_intelligence.tracker.config import load_checklist
+    from spend.money import usd_to_micros
+    from spend.priority import Candidate, fund_indexed
+
+    async with deps.txn(deps.tenant_id) as s:
+        run = (
+            await s.execute(
+                text(
+                    "SELECT cap_required, cap_version, budget_usd, spent_usd FROM account_runs"
+                    " WHERE id = :r"
+                ),
+                {"r": deps.run_id},
+            )
+        ).first()
+    if run is None or not run.cap_required or run.cap_version is None or run.budget_usd is None:
+        return calls, ()  # legacy runs, and runs with no cap (the connector gate refuses them)
+    remaining = usd_to_micros(run.budget_usd) - usd_to_micros(run.spent_usd)
+    priority = {r.key: r.priority.capitalize() for r in load_checklist().rows}
+    candidates = [
+        Candidate(
+            row_key=row,
+            priority=priority.get(row, "Optional"),
+            stage_index=0,
+            operation=str(op),
+            cost_micros=usd_to_micros(
+                Decimal(
+                    str(
+                        round(
+                            deps.connectors.cost.estimate(
+                                OPERATION_PROVIDER[op], op, args
+                            ).charged_usd,
+                            6,
+                        )
+                    )
+                )
+            ),
+        )
+        for row, op, args in calls
+    ]
+    if sum(c.cost_micros for c in candidates) <= remaining:
+        return calls, ()
+    funded, unfunded = fund_indexed(candidates, remaining)
+    left_out = tuple(dict.fromkeys(calls[i][0] for i in unfunded))
+    return [calls[i] for i in funded], left_out
+
+
 async def execute(
     deps: RunDeps, calls: list[tuple[str, Operation, Any]], rows: Iterable[str]
 ) -> CallBatch:
@@ -104,6 +168,10 @@ async def execute(
         for row_calls in batch.rows.values():
             row_calls.unattempted = "not_available_yet"
         return batch
+    calls, unfunded = await fund_wave(deps, calls)
+    for row in unfunded:
+        batch.rows[row].unattempted = batch.rows[row].unattempted or "budget_cap"
+    batch.budget_exhausted = bool(unfunded)
     for row, op, args in calls:
         target = batch.rows[row]
         try:
@@ -121,6 +189,14 @@ async def execute(
             continue
         except NotSupportedYet:
             target.unattempted = target.unattempted or "not_available_yet"
+            continue
+        except CreditsExhausted as error:
+            if error.call_ref:
+                target.refs.append(error.call_ref)
+                batch.calls += 1
+            notifier = getattr(deps, "notifier", None)
+            if notifier is not None:  # D-31: ask for a pre-pulled file, never fall back
+                await notifier.prompt(str(deps.run_id), "credits_exhausted", 0)
             continue
         except ConnectorError as error:
             if error.call_ref:

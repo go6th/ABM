@@ -1,4 +1,12 @@
--- Rollback of 0015_credit_cap.sql.
+-- Rollback of 0015_credit_cap.sql (a failed deploy only: restoring the narrower cost_source
+-- CHECKs fails, by design, once a 'prepulled' ledger row exists).
+ALTER TABLE tool_call_events DROP CONSTRAINT ck_tool_call_events_cost_source;
+ALTER TABLE tool_call_events ADD CONSTRAINT ck_tool_call_events_cost_source
+   CHECK (cost_source IN ('documented', 'provider_reported', 'credits_only', 'unknown'));
+ALTER TABLE tool_calls DROP CONSTRAINT ck_tool_calls_cost_source;
+ALTER TABLE tool_calls ADD CONSTRAINT ck_tool_calls_cost_source
+   CHECK (cost_source IN ('documented', 'provider_reported', 'credits_only', 'unknown'));
+DROP TABLE spend_defects;
 DROP FUNCTION spend_runs_to_check(timestamptz);
 DROP VIEW run_spend_by_provider;
 DROP TABLE prepulled_files;

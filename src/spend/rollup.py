@@ -4,7 +4,9 @@ aggregation is pure (``aggregate``) so it is tested without a database.
 Definitions, the same as the connector's ``ledger_sum``: a group's spend is the charge of its
 ``done``, ``failed`` and ``abandoned`` events plus the reservation of every attempt still open
 (``started`` with no terminal event; counted until reconciled, K9). Replays are answered from
-the ledger without an event, so they are **not measured** here (``None``), never 0.
+the ledger without an event, so they are **not measured** here (``None``), never 0. A pre-pulled
+file consumed instead of a call (``cost_source='prepulled'``) is counted apart, never as paid;
+a paid call the provider reported at zero cost is counted (``zero_charge_calls``) for review.
 
 GUARANTEE(test_rollup_parts_sum_to_the_ledger_total): parts equal the whole exactly.
 """
@@ -58,7 +60,8 @@ def aggregate(rows: Sequence[EventRow], key: Callable[[EventRow], str]) -> tuple
     lines = []
     for name in sorted(groups):
         rs = groups[name]
-        done = [r for r in rs if r.event == "done"]
+        done = [r for r in rs if r.event == "done" and r.cost_source != "prepulled"]
+        prepulled = sum(1 for r in rs if r.event == "done" and r.cost_source == "prepulled")
         charged = sum(r.charged_micros for r in rs if r.event in TERMINAL)
         reserved = sum(r.reserved_micros for r in rs if id(r) in opened)
         dup = [r for r in rs if r.possible_duplicate and r.event in TERMINAL]
@@ -78,6 +81,8 @@ def aggregate(rows: Sequence[EventRow], key: Callable[[EventRow], str]) -> tuple
                 unknown_cost_calls=sum(1 for r in done if r.cost_source == "unknown"),
                 possible_duplicates=len(dup),
                 at_risk_micros=sum(r.charged_micros for r in dup),
+                prepulled_calls=prepulled,
+                zero_charge_calls=sum(1 for r in done if r.charged_micros == 0),
             )
         )
     return tuple(lines)

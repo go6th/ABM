@@ -215,8 +215,9 @@ def test_not_attempted_and_blocked_carry_their_reasons() -> None:
     assert blocked_reason([_fail(1, "RateLimited"), _fail(2, "SecurityError")], cfg) is (
         ReasonCode.SOURCE_FAILED
     )
+    # CreditsExhausted outranks BudgetExceeded; its reason is credits_exhausted (D-31)
     assert blocked_reason([_fail(1, "BudgetExceeded"), _fail(2, "CreditsExhausted")], cfg) is (
-        ReasonCode.SOURCE_UNAVAILABLE
+        ReasonCode.CREDITS_EXHAUSTED
     )
 
 

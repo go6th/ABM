@@ -17,6 +17,9 @@ Everything below is unverified or undecided. Nothing in this list is claimed to 
 | V-PEOPLE-1 | The title-search record shape (employer, current flag, headline) and whether a provider cursor can be exposed to the caller | people/adapters.py, people/models.py RawPerson | one recorded sample per people operation |
 | V-PEOPLE-2 | The full-profile record shape (prior employers, dates and their precision, certifications, own description, last activity) | people/adapters.py UnavailableProfiles | a recorded profile sample and the grid contract |
 | V-PEOPLE-3 | A posts and comments operation and its record shape (post URL, date, text, last activity) | people/adapters.py UnavailablePosts | a sourced operation and a recorded sample |
+| V7 | No provider credit-to-USD rate for the account's plan: credit-priced calls are held at the labelled $0.25 placeholder (`unknown_cost_reserve_usd`) | config/providers.yaml, config/spend.yaml | the plan's credit price from each provider, with a source |
+| V-SPEND-1 | Whether each provider offers a free balance endpoint (today every balance reads `unknown`; no provider is excluded for it unless the snapshot says so) | spend/balances.py, BalancePort | a sourced endpoint per provider, or a supplied balance file |
+| V-SPEND-2 | Real PostgreSQL concurrency on the target database (Cloud SQL): 200 parallel calls, two workers and ten runs were tested on local PostgreSQL 16 only | connectors/budget.py | the concurrency tests against staging |
 | p_* | Provider facts tagged in docs/providers/CLAIMS.md | connectors/providers | per CLAIMS.md |
 
 ## Open items (behaviour decisions)
@@ -42,3 +45,18 @@ Everything below is unverified or undecided. Nothing in this list is claimed to 
 D-01 ext, D-04 (settlement rule, ADR-0016), D-06, D-10, D-11 ext, D-12, D-13, D-14, D-15, D-16,
 D-17, D-18, D-19, D-20, D-21, D-22, D-23, the judge model profile (the active arm routes judge and generator to one
 model).
+
+## Credit cap (open items and follow-ups)
+
+| ID | Item | Default today |
+|---|---|---|
+| OI-SPEND-1 | Provider cost table: feed prices per call, credit rates (V7), profile enrichment cost | placeholders labelled in config; unknown costs need an approved sample line |
+| OI-SPEND-2 | Approver roles, approval and extension timeouts, headroom, rounding step, extension limit, variance threshold, snapshot age | `config/spend.yaml` proposals |
+| OI-SPEND-3 | Tenant daily cap and monthly refresh budgets (`CapPolicyPort` hook only) | not built |
+| OI-SPEND-4 | Wallet pricing and top-ups (D-04) | settlement commits `reserved * min(1, spent / cap)` (ADR-0016) |
+| OI-SPEND-5 | Operator console screens for proposals, approvals, extensions, pre-pulled uploads and the report | API routes only |
+| OI-SPEND-6 | Notifier adapter (operator prompt) in production | `None`: prompts are not sent; the run still waits in AWAITING_APPROVAL |
+| OI-SPEND-7 | Tenant-level `allow_fallback_on_exhaustion` and `auto_approve_within_reserve` have no settings API | set in `tenants.policy_json` |
+| OI-SPEND-8 | Replays and cache hits write no ledger event, so the report shows them as not measured; "avoided spend" is not estimated yet | `not measured` |
+| OI-SPEND-9 | The K10 budget node ranks within one stage wave; a cross-stage plan rank needs the planner to emit the whole plan first | per wave |
+| OI-SPEND-10 | The nightly invariant job needs its Cloud Scheduler and Cloud Run job resources in `infra/` | entry point `spend.jobs:main` |

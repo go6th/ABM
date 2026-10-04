@@ -174,6 +174,8 @@ class SpendLine(_Frozen):
     unknown_cost_calls: int
     possible_duplicates: int
     at_risk_micros: int
+    prepulled_calls: int = 0  # pre-pulled files consumed instead of a paid call (K8, D-31)
+    zero_charge_calls: int = 0  # paid calls the provider reported at no cost: listed, never hidden
 
 
 class Rollup(_Frozen):
