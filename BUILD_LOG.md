@@ -1,8 +1,74 @@
 # Build log
 
 Current phase: 0 (Prove) and 1 (Build), integrated on Google Cloud  
-Current work package: job pipeline gap passes on `feat/job-posting-pipeline`  
-Last updated: 2026-10-03
+Current work package: WP 1.8 export builders (builder half) on `feat/export-builders`  
+Last updated: 2026-10-04
+
+## Export builders, WP 1.8 builder half (2026-10-04, branch `feat/export-builders`)
+
+Plan (5 lines): WP 1.8 builders per `docs/prompts/build_export_builders.md` (the gate service is
+the next WP). Files: `src/exports/` (config, policy, numbers, citations, fingerprint, change note,
+readers, Excel, Word contract and sandboxed renderer, workspace, verify, store, builder, wiring),
+migration 0016, `tests/exports`, `tests/isolation/test_exports_isolation.py`, ADR-0026 to 0029.
+Acceptance: a lying test per B-rule, same-look fingerprints, byte-identical rebuilds, Postgres end
+to end. Decisions: D-01 (labels printed), D-06, D-10; proposals D-24, D-25, D-26. VERIFY:
+V-EXP-1 to 3.
+
+Preflight: the legacy Node docx library, the two workbook scripts, `rowcheck.py`, `doc_checks.py`,
+`third_party_scan.py`, `strip_tool_names.py` and a real delivered file set are not in the repository
+or on the machine. Stop rule applied: nothing was ported; everything else was built with a neutral
+labelled theme. `feat/people-pipeline` was merged into this branch first (the People List reads
+it; migration 0014 re-pointed to 0013 so Alembic keeps one head); the credit-cap work in progress
+was saved as a commit on `feat/credit-cap` and its worktree removed.
+
+Inventory (what existed): facts and `fact_evidence` (supporting sentence, URL, aggregator flag),
+`sources` with stable codes, `people` and its pipeline record and counts, `job_postings` and its
+record and counts, `tech_detections` (no writer), the tracker client view and tally, grading
+`statement_policy` and `display_label`, `BuilderPort` and `GatePort`, the payload store,
+`tenant_txn`, the isolation suite, the workflow `build` stage. Missing and added: `report_sections`,
+`deliverables`, `facts.lane` (migration 0016, expand only).
+
+Built: see ADR-0026 (port status, theme, snapshot, reuse), ADR-0027 (D-24 content rules), ADR-0028
+(D-25 workspace), ADR-0029 (D-26 renderer sandbox). Platform changes: `tenant_txn(snapshot=True)`;
+the client-output scanner compiles term patterns once (same behaviour); `jobs.export.is_exported`
+extracted; the workflow `build` stage maps `NotConfigured` and `BuildIncomplete` to PARTIAL
+reasons; the container wires the builder (Node renderer by default in staging and production,
+`NotConfigured` until ported); `src/people` and `src/exports` added to the wheel (people was
+missing).
+
+Defects found by the harness and fixed (each with a test): the renderer wrapper did not kill a
+child that passed the output cap, so a flooding renderer ran to the timeout; the stored manifest
+carried a field the model refused, so every redelivery failed to read the previous manifest; the
+PDF check found the 8 percent Ref column wrapped keys at the hyphen; hypothesis found a name made
+only of control characters raised a validation error instead of a typed refusal (now `name_missing`,
+and every required text is checked the same way); openpyxl numbered named styles in first-use
+order, so a sparse workbook's look differed (styles now registered up front); python-docx run and
+row construction and openpyxl per-cell styles were quadratic or slow (a 10,000-posting account went
+from 288 s to 58 s, measured with tracemalloc on).
+
+Gates (test databases `ai_exp`, `ai_gate`):
+
+| Command | Result |
+|---|---|
+| `bash .../scripts/selftest.sh` | `selftest OK` |
+| `python .../scripts/validate_assets.py` | `OK: 33 coverage rows, 5 product grades, 8 routes, 10 alert rules` |
+| `python .../scripts/lint_migrations.py migrations` | `OK: 28 file(s) pass the isolation migration lint` |
+| alembic upgrade head (twice), downgrade 0014, upgrade head, fresh database | all exit 0; `0016 (head)` |
+| `check_rls_catalog.sql` on the migrated database | 0 rows; `deliverables` and `report_sections` forced RLS, `app_rw` INSERT and SELECT only |
+| `ruff check .`; `ruff format --check .` | pass |
+| `mypy --strict src/exports`; `mypy` (src) | 39 files; 210 files, no issues |
+| `lint-imports`; `interrogate src`; loop register; `python -m exports.docs --check` | 9 contracts kept; 100%; current; current |
+| Node renderer lint and tests | not run: the library is not ported (Blocked) |
+| `pytest tests/isolation -x` | 56 passed |
+| `pytest tests/exports` (and the export isolation tests) with coverage | 368 passed after fixing one static-guard pattern; exports 97%, 100% on policy, numbers, citations, fingerprint, change_note, workspace |
+| `pytest -m "not eval" --cov=src` | 1763 passed, 1 failed, 14 skipped, coverage 96%; the failure was the static guard matching `def build_export` inside `def build_export_builder`, fixed and re-run (137 passed) |
+| mutmut (policy, numbers, citations, change_note, workspace) | 625 of 667 killed; 42 survivors reviewed as equivalent or cosmetic (`docs/exports/mutation.md`) |
+| scale smoke (10,000 postings, 10,001 sources) | complete; 58 s with tracemalloc, peak traced 138 MiB, RSS about 950 MB (measured, nothing asserted beyond a 2 GiB cap) |
+
+Not proven: the real look and legacy parity; the full gate; render checks in the production image;
+anything against real provider data. Needs the owner: the legacy library, workbook scripts and one
+real delivered file set; D-24, D-25, D-26; the stale-phrase and abbreviation lists, more partner
+framings, the RESTORE.md wording; follow-ups OI-EXP-1 to 14.
 
 ## Job pipeline gap passes (2026-10-03, branch `feat/job-posting-pipeline`)
 

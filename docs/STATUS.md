@@ -16,11 +16,12 @@ owner can supply (named in the last column). Evidence is a test or command run o
 | P0-7 | Data protection review | Draft done; review Blocked | `docs/data-handling-people-data.md` (Draft for counsel) | counsel |
 | P1-1 | Data layer v1 | Done | migrations 0001 to 0012; `tests/db`, `tests/isolation` 20 passed; RLS catalog clean | |
 | P1-2 | Broker connectors | Done (p_people Blocked) | `tests/connectors` | p_people grid contract |
-| P1-3 | Workflow v1 | Done (builders and gate `NotConfigured`) | `tests/system/test_whole_run.py`, `test_failure_injection.py`, `tests/workflow` | deliverable builders (OI-BLD-1) |
+| P1-3 | Workflow v1 | Done (gate `NotConfigured`; builders wired, Node renderer `NotConfigured` in production) | `tests/system/test_whole_run.py`, `test_failure_injection.py`, `tests/workflow` | deliverable builders (OI-BLD-1) |
 | P1-4 | Tracker state machine | Done | `tests/tracker` (lying stages, DB defences, races, SIGKILL, stateful) | D-12, D-13 sign-off |
 | P1-5 | Grading engine | Done | `tests/grading`; lying-generator whole run | D-01 ext, D-11 ext, D-14, D-15 sign-off |
 | P1-6 | Job posting pipeline | Done (deviations listed) | `tests/jobs` (oracle, lying model, properties, DB) | D-16, D-17; OI-JOBS-1 to 3 |
 | P1-7 | People pipeline (branch `feat/people-pipeline`) | Done hermetically; providers Blocked | `tests/people` (oracle, lying tests per P-rule, properties, resume matrix, DB), `tests/isolation/test_people_isolation.py` | D-21 to D-23; V-PEOPLE-1 to 3; OI-PPL-2 to 5 |
+| P1-8 | Export builders, WP 1.8 builder half (branch `feat/export-builders`) | Done hermetically and on Postgres with a neutral proposal look; legacy port and parity Blocked | `tests/exports` (hand-written oracle, lying content per B-rule, properties, same look, byte-identical rebuilds, LibreOffice PDF and recalculation checks, Postgres end to end), `tests/isolation/test_exports_isolation.py`, ADR-0026 to 0029 | legacy Node library, workbook scripts, one real delivered file set; D-24, D-25, D-26; OI-EXP-1 (distill writes `report_sections`), OI-EXP-2/3 (source registry for posting and post links) |
 
 ## Earlier work-package notes
 
@@ -115,3 +116,26 @@ Needs decisions: D-16 (class definitions and full-text scope) and D-17 (lane key
 are open in ADR-0008. Open items OI-JOBS-1 and OI-JOBS-2 remain; OI-JOBS-3 (gap passes) is closed.
 `[VERIFY]`: connector completeness and posting response shapes (recorded samples); V-JOBS-2, the
 0013 rollback under concurrent writers, untested against staging data.
+
+## Export builders (WP 1.8, builder half)
+
+Status: built on branch `feat/export-builders` (people pipeline merged in, 2026-10-04).
+`src/exports/` reads every row of a run from one `REPEATABLE READ, READ ONLY` snapshot, maps it to
+render models (pure), renders the Account Summary and Sources and Evidence (Word, sandboxed
+subprocess behind a JSON contract) and the People List, Job Postings and Tech Stack and Teams
+(openpyxl), verifies each file from its bytes (leak scan, row keys re-read), builds the workspace
+zip and stores the set append-only and versioned (migration 0016).
+
+Proven by tests: rows in equal rows out (re-read from the produced files, and in the PDF when
+LibreOffice is installed); one snapshot under a concurrent writer; byte-identical rebuilds; no
+model, network or clock in the builders (static test); every number registered with its base;
+no orphan citation; no leak (denylist, provider codes, internal hashes, other accounts, guarded
+people names) in any member of any file; formula-like text stored as text; long text continued and
+counted; safe zip; a failed build stores nothing; a repeat build writes nothing; a redelivery
+supersedes. Exports coverage 97% (100% on policy, numbers, citations, fingerprint, change note,
+workspace); mutation 625 of 667 killed, survivors reviewed (`docs/exports/mutation.md`).
+
+Not proven: the real look and legacy parity (the legacy files were not supplied; the theme is a
+labelled proposal); the full quality gate (next work package, behind `GatePort`); render checks in
+the production image (no LibreOffice there, V-EXP-2). Production builds end PARTIAL until the
+Node renderer is ported and OI-EXP-1 to 3 are closed.
