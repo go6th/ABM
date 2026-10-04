@@ -31,6 +31,21 @@ from account_intelligence.connectors.router import Sink, assert_sink_allowed, ca
 from account_intelligence.connectors.settings import load_providers_config
 from tests.connectors.conftest import Harness, Reply, context, ledger_rows, make_run
 
+
+def allow_fallback(tenant: UUID) -> None:
+    """D-31: a fallback on credit exhaustion only for a tenant whose policy allows it."""
+    import psycopg
+
+    from tests.conftest import ADMIN_DSN
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute(
+            'UPDATE tenants SET policy_json = policy_json || \'{"allow_fallback_on_exhaustion":'
+            " true}'::jsonb WHERE id = %s",
+            (tenant,),
+        )
+
+
 REPO = Path(__file__).resolve().parents[2]
 DENYLIST = REPO / ".claude/skills/account-intelligence-platform/assets/client_output_denylist.txt"
 
@@ -54,6 +69,7 @@ def _leaks(text: str) -> list[str]:
 async def test_fallback_on_empty_balance_is_taken_and_recorded(
     harness: Harness, tenant_a: UUID
 ) -> None:
+    allow_fallback(tenant_a)
     account, run, domain = make_run(tenant_a, domain="acme.com")
     ctx = context(tenant_a, account, run, domain)
     harness.providers[ProviderCode.P_SCRAPE].script(Reply(status=402, body={"success": False}))
@@ -72,6 +88,27 @@ async def test_fallback_on_empty_balance_is_taken_and_recorded(
         "p_scrape",
         "p_search",
     )
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_exhaustion_does_not_fall_back_unless_the_tenant_allows_it(
+    harness: Harness, tenant_a: UUID
+) -> None:
+    """D-31 default: credits exhausted makes the need Blocked; no weaker source is called."""
+    account, run, domain = make_run(tenant_a, domain="acme.com")
+    ctx = context(tenant_a, account, run, domain)
+    harness.providers[ProviderCode.P_SCRAPE].script(Reply(status=402, body={"success": False}))
+    result = await call_need(
+        "job_boards_and_pages",
+        ScrapeJobPageArgs(url="https://jobs.acme.com/1", page_kind="job_page"),
+        ctx,
+        harness.runtime(),
+    )
+    assert result.status == "blocked"
+    assert "no fallback on exhaustion" in (result.blocked_reason or "")
+    assert harness.providers[ProviderCode.P_SEARCH].calls == 0  # the fallback was never called
+    assert not any(r["provider_code"] == "p_search" for r in ledger_rows(run))
 
 
 @pytest.mark.requires_postgres
@@ -171,6 +208,7 @@ async def test_routes_without_an_available_provider_are_blocked(
     operation,
     fragment: str,  # type: ignore[no-untyped-def]
 ) -> None:
+    allow_fallback(tenant_a)  # the fallback branches are under test here
     account, run, domain = make_run(tenant_a, domain="acme.com")
     ctx = context(tenant_a, account, run, domain)
     harness.providers[ProviderCode.P_ORG].fallback = Reply(status=402, body={})

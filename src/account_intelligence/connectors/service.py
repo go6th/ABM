@@ -15,9 +15,10 @@ intent for reconciliation and never a half-written payload (puts are atomic).
 
 from __future__ import annotations
 
+import hashlib
 import random
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -170,9 +171,13 @@ async def call_operation(
             else sum(c.figure.credits or 0.0 for c in costs)
         )
         sources = {c.figure.cost_source for c in costs}
-        cost_source = next(
-            (s for s in ("unknown", "credits_only", "provider_reported") if s in sources),
-            "documented",
+        cost_source = (
+            "prepulled"
+            if sources == {"prepulled"}
+            else next(
+                (s for s in ("unknown", "credits_only", "provider_reported") if s in sources),
+                "documented",
+            )
         )
         status: ResultStatus = "done" if result.complete else "partial"
         span.set_attribute("outcome", status)
@@ -239,14 +244,21 @@ async def _policy_checks(
 
 
 async def _claim(
-    rt: ConnectorRuntime, ctx: CallContext, key: CallKey, estimate: float, cost_known: bool = True
+    rt: ConnectorRuntime,
+    ctx: CallContext,
+    key: CallKey,
+    estimate: float,
+    cost_known: bool = True,
+    charge_budget: bool = True,
 ) -> Replay | Claimed:
     cfg = rt.config.defaults.ledger
     waited = 0.0
     # LOOP(in-flight wait): cap=in_flight_wait_s (polls every in_flight_poll_s); exit=claimed,
     # replayed, CallInFlight
     while True:
-        claim = await rt.ledger.claim(ctx, rt.worker_id, key, estimate, cost_known=cost_known)
+        claim = await rt.ledger.claim(
+            ctx, rt.worker_id, key, estimate, cost_known=cost_known, charge_budget=charge_budget
+        )
         if not isinstance(claim, InFlight):
             return claim
         if waited >= cfg.in_flight_wait_s:
@@ -294,8 +306,18 @@ async def _fetch_page(
         route=route,
         fell_back_from=fell_back_from,
     )
+    # D-31: a pre-pulled file registered for this operation is consumed instead of the paid call
+    # (first page only; it is one complete page). No cap gate, no reservation, zero cost.
+    prepulled = await rt.ledger.prepulled_file(ctx, provider, op) if cursor is None else None
     estimate = rt.cost.estimate(provider, op, args)
-    claim = await _claim(rt, ctx, key, estimate.charged_usd, estimate.cost_source != "unknown")
+    claim = await _claim(
+        rt,
+        ctx,
+        key,
+        0.0 if prepulled is not None else estimate.charged_usd,
+        estimate.cost_source != "unknown",
+        charge_budget=prepulled is None,
+    )
 
     if isinstance(claim, Replay):
         meta = claim.response or {}
@@ -329,6 +351,11 @@ async def _fetch_page(
         warnings.extend(parsed.warnings)
         obs.record_call(provider, op, "replayed", None)
         return FetchedPage(parsed, len(body), digest(body), claim.response_ref)
+
+    if prepulled is not None:
+        return await _consume_prepulled(
+            op, args, ctx, rt, connector, provider, key, claim, prepulled, costs, warnings
+        )
 
     raw: RawResponse | None = None
     ref: str | None = None
@@ -463,6 +490,93 @@ async def _fetch_page(
         obs.record_unknown_cost(provider, op)
     obs.record_call(provider, op, "done", raw.latency_ms)
     return FetchedPage(parsed, len(raw.body), digest(raw.body), ref)
+
+
+async def _consume_prepulled(
+    op: Operation,
+    args: OperationArgs,
+    ctx: CallContext,
+    rt: ConnectorRuntime,
+    connector: Connector,
+    provider: ProviderCode,
+    key: CallKey,
+    claim: Claimed,
+    prepulled: Any,
+    costs: list[_PageCost],
+    warnings: list[str],
+) -> FetchedPage:
+    """Parse an operator-supplied file with the provider's own parser and record it in the ledger
+    as a done call at zero cost (``cost_source='prepulled'``). A file whose bytes do not match the
+    registered hash, or whose records do not match the registered count, is refused
+    (``SchemaDriftError``) and the attempt is closed at zero cost."""
+    try:
+        body = await rt.payloads.get(prepulled.object_ref)
+        if hashlib.sha256(body).hexdigest() != prepulled.sha256:
+            raise SchemaDriftError(
+                "pre-pulled file does not match its registered hash",
+                provider_code=provider,
+                operation=op,
+            )
+        retrieved_at = rt.clock.now()
+        raw = RawResponse(200, "application/json", body, {}, 0, "prepulled")
+        base = _provenance_base(provider, op, prepulled.object_ref, retrieved_at)
+        parsed = replace(connector.parse(op, args, raw, base, None), next_cursor=None)
+        if len(parsed.records) != prepulled.record_count:
+            raise SchemaDriftError(
+                "pre-pulled file does not hold its registered record count",
+                provider_code=provider,
+                operation=op,
+            )
+        _post_checks(op, args, parsed, ctx)
+    except Exception as error:
+        setattr(error, "call_ref", key.args_hash)  # noqa: B010 - foreign exception type
+        await rt.ledger.finalize_failed(
+            ctx,
+            rt.worker_id,
+            key,
+            claim,
+            Outcome(charged_usd=0.0, error_class=type(error).__name__),
+            charge_budget=False,
+        )
+        raise
+    await rt.ledger.finalize_done(
+        ctx,
+        rt.worker_id,
+        key,
+        claim,
+        Outcome(
+            charged_usd=0.0,
+            credits=0.0,
+            provider_cost_usd=0.0,
+            cost_source="prepulled",
+            http_status=200,
+            latency_ms=0,
+            bytes=len(body),
+            response={
+                "retrieved_at": retrieved_at.isoformat(),
+                "content_type": "application/json",
+                "http_status": 200,
+                "args": args.model_dump(mode="json"),
+                "cursor": None,
+                "record_count": len(parsed.records),
+                "error_class": None,
+                "prepulled_sha256": prepulled.sha256,
+            },
+            response_ref=prepulled.object_ref,
+        ),
+        charge_budget=False,
+    )
+    costs.append(
+        _PageCost(
+            CostFigure(0.0, "credit", 0.0, "prepulled", 0.0),
+            replayed=False,
+            possible_duplicate=False,
+            call_ref=key.args_hash,
+        )
+    )
+    warnings.extend(parsed.warnings)
+    obs.record_call(provider, op, "prepulled", None)
+    return FetchedPage(parsed, len(body), digest(body), prepulled.object_ref)
 
 
 def _check_response(

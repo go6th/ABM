@@ -1,6 +1,7 @@
 """Route a research need to its first provider and, when allowed, its fallback.
 
-Fallback happens only when the first provider is unavailable: ``CreditsExhausted``,
+Fallback happens only when the first provider is unavailable (on ``CreditsExhausted`` only when
+the tenant policy sets ``allow_fallback_on_exhaustion``, D-31): ``CreditsExhausted``,
 ``CircuitOpen`` (an outage: the breaker opens when a node's retries are exhausted,
 because its threshold equals the retry budget) or ``NotSupportedYet``. Never on
 ``SchemaDriftError`` or ``SecurityError``. Other errors go to the node's RetryPolicy.
@@ -99,6 +100,15 @@ async def call_need(
         return await call_operation(first_op, args, ctx, rt, route=need)
     except UNAVAILABLE as error:
         primary: ConnectorError = error
+    if isinstance(primary, CreditsExhausted) and not await rt.ledger.fallback_on_exhaustion(ctx):
+        # D-31: Blocked credits_exhausted (the operator may supply a pre-pulled file); a weaker
+        # fallback source only when the tenant policy allows it
+        return _blocked(
+            f"{primary.blocked_reason}; no fallback on exhaustion (tenant policy)",
+            need,
+            route.first.provider,
+            first_op,
+        )
     fallback = route.fallback
     if fallback is None:
         return _blocked(

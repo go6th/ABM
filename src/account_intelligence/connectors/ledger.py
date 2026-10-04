@@ -344,6 +344,15 @@ class Ledger:
         if row is None:
             raise budget_mod.RunNotFound()
         op_key = f"{key.provider_code}:{key.operation}"
+        defective: Any = (
+            await s.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM spend_defects WHERE provider_code = :p"
+                    " AND operation = :o)"
+                ),
+                {"p": str(key.provider_code), "o": str(key.operation)},
+            )
+        ).scalar_one()
         allowed = dict(row.cap_sample_ops or {})
         left: dict[str, int] = {}
         if op_key in allowed:
@@ -364,6 +373,7 @@ class Ledger:
             spent_micros=usd_to_micros(row.spent_usd),
             overshoot_micros=usd_to_micros(row.cap_overshoot_usd),
             sample_calls_left=left,
+            defective_free_ops=frozenset({op_key}) if defective else frozenset(),
         )
         decision = decide(
             state,
@@ -476,6 +486,48 @@ class Ledger:
             )
             if charge_budget and not abandoned:
                 await budget_mod.true_up(s, ctx.run_id, charged - claim.reserved_usd)
+            await self._free_defect(s, ctx, key, charged)
+
+    async def _free_defect(
+        self, s: AsyncSession, ctx: CallContext, key: CallKey, charged: float
+    ) -> None:
+        """Credit cap K14: an operation listed as free that returned a cost is a defect event;
+        the gate refuses that operation from then on."""
+        from spend.config import load_spend_config
+
+        if charged <= 0:
+            return
+        if f"{key.provider_code}:{key.operation}" not in load_spend_config().free_operations:
+            return
+        await s.execute(
+            text(
+                "INSERT INTO spend_defects (run_id, provider_code, operation, kind, charged_usd)"
+                " VALUES (:r, :p, :o, 'free_operation_charged', :c)"
+            ),
+            {
+                "r": ctx.run_id,
+                "p": str(key.provider_code),
+                "o": str(key.operation),
+                "c": Decimal(str(round(charged, 6))),
+            },
+        )
+
+    async def prepulled_file(self, ctx: CallContext, provider_code: str, operation: str) -> Any:
+        """The pre-pulled file registered for this operation of the run, or None (D-31)."""
+        from spend.prepulled import lookup
+
+        async with self._txn(ctx.tenant_id) as s:
+            return await lookup(s, ctx.run_id, provider_code, operation)
+
+    async def fallback_on_exhaustion(self, ctx: CallContext) -> bool:
+        """Whether this tenant allows a fallback provider when credits run out (D-31)."""
+        from spend.config import load_spend_config
+        from spend.prepulled import tenant_fallback_allowed
+
+        async with self._txn(ctx.tenant_id) as s:
+            return await tenant_fallback_allowed(
+                s, ctx.tenant_id, load_spend_config().allow_fallback_on_exhaustion
+            )
 
     async def finalize_failed(
         self,
