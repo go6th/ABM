@@ -1,0 +1,531 @@
+{
+ "$comment": "Generated from exports.word.contract.DocumentSpec; do not edit.",
+ "$defs": {
+  "BulletsBlock": {
+   "additionalProperties": false,
+   "description": "A bulleted list.",
+   "properties": {
+    "items": {
+     "items": {
+      "maxLength": 40000,
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Items",
+     "type": "array"
+    },
+    "type": {
+     "const": "bullets",
+     "title": "Type",
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "items"
+   ],
+   "title": "BulletsBlock",
+   "type": "object"
+  },
+  "Font": {
+   "additionalProperties": false,
+   "description": "One font: face, size, weight, slant and colour.",
+   "properties": {
+    "bold": {
+     "title": "Bold",
+     "type": "boolean"
+    },
+    "color": {
+     "title": "Color",
+     "type": "string"
+    },
+    "italic": {
+     "title": "Italic",
+     "type": "boolean"
+    },
+    "name": {
+     "minLength": 1,
+     "title": "Name",
+     "type": "string"
+    },
+    "size_pt": {
+     "exclusiveMinimum": 0,
+     "maximum": 72,
+     "title": "Size Pt",
+     "type": "number"
+    }
+   },
+   "required": [
+    "name",
+    "size_pt",
+    "bold",
+    "italic",
+    "color"
+   ],
+   "title": "Font",
+   "type": "object"
+  },
+  "HeadingBlock": {
+   "additionalProperties": false,
+   "description": "A section heading (level 1) or sub-heading (level 2).",
+   "properties": {
+    "level": {
+     "enum": [
+      1,
+      2
+     ],
+     "title": "Level",
+     "type": "integer"
+    },
+    "text": {
+     "maxLength": 40000,
+     "title": "Text",
+     "type": "string"
+    },
+    "type": {
+     "const": "heading",
+     "title": "Type",
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "level",
+    "text"
+   ],
+   "title": "HeadingBlock",
+   "type": "object"
+  },
+  "Margins": {
+   "additionalProperties": false,
+   "description": "Page margins in inches.",
+   "properties": {
+    "bottom": {
+     "maximum": 3,
+     "minimum": 0.25,
+     "title": "Bottom",
+     "type": "number"
+    },
+    "left": {
+     "maximum": 3,
+     "minimum": 0.25,
+     "title": "Left",
+     "type": "number"
+    },
+    "right": {
+     "maximum": 3,
+     "minimum": 0.25,
+     "title": "Right",
+     "type": "number"
+    },
+    "top": {
+     "maximum": 3,
+     "minimum": 0.25,
+     "title": "Top",
+     "type": "number"
+    }
+   },
+   "required": [
+    "top",
+    "bottom",
+    "left",
+    "right"
+   ],
+   "title": "Margins",
+   "type": "object"
+  },
+  "Page": {
+   "additionalProperties": false,
+   "description": "Page size and margins.",
+   "properties": {
+    "height_in": {
+     "exclusiveMinimum": 0,
+     "title": "Height In",
+     "type": "number"
+    },
+    "margins_in": {
+     "$ref": "#/$defs/Margins"
+    },
+    "source": {
+     "title": "Source",
+     "type": "string"
+    },
+    "width_in": {
+     "exclusiveMinimum": 0,
+     "title": "Width In",
+     "type": "number"
+    }
+   },
+   "required": [
+    "width_in",
+    "height_in",
+    "margins_in",
+    "source"
+   ],
+   "title": "Page",
+   "type": "object"
+  },
+  "ParagraphBlock": {
+   "additionalProperties": false,
+   "description": "A paragraph in one of the themed paragraph styles.",
+   "properties": {
+    "style": {
+     "enum": [
+      "body",
+      "quote",
+      "note"
+     ],
+     "title": "Style",
+     "type": "string"
+    },
+    "text": {
+     "maxLength": 40000,
+     "title": "Text",
+     "type": "string"
+    },
+    "type": {
+     "const": "paragraph",
+     "title": "Type",
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "style",
+    "text"
+   ],
+   "title": "ParagraphBlock",
+   "type": "object"
+  },
+  "Spacing": {
+   "additionalProperties": false,
+   "description": "Paragraph spacing in points.",
+   "properties": {
+    "heading_after_pt": {
+     "maximum": 72,
+     "minimum": 0,
+     "title": "Heading After Pt",
+     "type": "number"
+    },
+    "heading_before_pt": {
+     "maximum": 72,
+     "minimum": 0,
+     "title": "Heading Before Pt",
+     "type": "number"
+    },
+    "paragraph_after_pt": {
+     "maximum": 72,
+     "minimum": 0,
+     "title": "Paragraph After Pt",
+     "type": "number"
+    }
+   },
+   "required": [
+    "paragraph_after_pt",
+    "heading_before_pt",
+    "heading_after_pt"
+   ],
+   "title": "Spacing",
+   "type": "object"
+  },
+  "TableBlock": {
+   "additionalProperties": false,
+   "description": "A table: a header row, the theme proportions by name and the data rows. ``keys`` are the\nvisible row keys (the first cell of each row), checked by the row-presence verification.",
+   "properties": {
+    "headers": {
+     "items": {
+      "maxLength": 40000,
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Headers",
+     "type": "array"
+    },
+    "keys": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Keys",
+     "type": "array"
+    },
+    "name": {
+     "title": "Name",
+     "type": "string"
+    },
+    "rows": {
+     "items": {
+      "items": {
+       "maxLength": 40000,
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "title": "Rows",
+     "type": "array"
+    },
+    "type": {
+     "const": "table",
+     "title": "Type",
+     "type": "string"
+    },
+    "widths": {
+     "items": {
+      "type": "number"
+     },
+     "minItems": 1,
+     "title": "Widths",
+     "type": "array"
+    }
+   },
+   "required": [
+    "type",
+    "name",
+    "headers",
+    "widths",
+    "rows",
+    "keys"
+   ],
+   "title": "TableBlock",
+   "type": "object"
+  },
+  "TitleBlock": {
+   "additionalProperties": false,
+   "description": "The document title and its subtitle line.",
+   "properties": {
+    "subtitle": {
+     "maxLength": 40000,
+     "title": "Subtitle",
+     "type": "string"
+    },
+    "text": {
+     "maxLength": 40000,
+     "title": "Text",
+     "type": "string"
+    },
+    "type": {
+     "const": "title",
+     "title": "Type",
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "text",
+    "subtitle"
+   ],
+   "title": "TitleBlock",
+   "type": "object"
+  },
+  "WordFonts": {
+   "additionalProperties": false,
+   "description": "Every font the Word renderer may use; nothing else is ever set.",
+   "properties": {
+    "body": {
+     "$ref": "#/$defs/Font"
+    },
+    "footer": {
+     "$ref": "#/$defs/Font"
+    },
+    "header": {
+     "$ref": "#/$defs/Font"
+    },
+    "heading1": {
+     "$ref": "#/$defs/Font"
+    },
+    "heading2": {
+     "$ref": "#/$defs/Font"
+    },
+    "note": {
+     "$ref": "#/$defs/Font"
+    },
+    "quote": {
+     "$ref": "#/$defs/Font"
+    },
+    "subtitle": {
+     "$ref": "#/$defs/Font"
+    },
+    "table_body": {
+     "$ref": "#/$defs/Font"
+    },
+    "table_header": {
+     "$ref": "#/$defs/Font"
+    },
+    "title": {
+     "$ref": "#/$defs/Font"
+    }
+   },
+   "required": [
+    "body",
+    "title",
+    "subtitle",
+    "heading1",
+    "heading2",
+    "quote",
+    "note",
+    "table_header",
+    "table_body",
+    "header",
+    "footer"
+   ],
+   "title": "WordFonts",
+   "type": "object"
+  },
+  "WordTable": {
+   "additionalProperties": false,
+   "description": "Table styling.",
+   "properties": {
+    "border_color": {
+     "title": "Border Color",
+     "type": "string"
+    },
+    "border_size_eighth_pt": {
+     "maximum": 96,
+     "minimum": 2,
+     "title": "Border Size Eighth Pt",
+     "type": "integer"
+    },
+    "cell_margin_twips": {
+     "maximum": 1440,
+     "minimum": 0,
+     "title": "Cell Margin Twips",
+     "type": "integer"
+    },
+    "header_fill": {
+     "title": "Header Fill",
+     "type": "string"
+    },
+    "repeat_header_row": {
+     "title": "Repeat Header Row",
+     "type": "boolean"
+    },
+    "row_cant_split": {
+     "title": "Row Cant Split",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "header_fill",
+    "border_color",
+    "border_size_eighth_pt",
+    "cell_margin_twips",
+    "repeat_header_row",
+    "row_cant_split"
+   ],
+   "title": "WordTable",
+   "type": "object"
+  },
+  "WordTheme": {
+   "additionalProperties": false,
+   "description": "The Word look.",
+   "properties": {
+    "fonts": {
+     "$ref": "#/$defs/WordFonts"
+    },
+    "page": {
+     "$ref": "#/$defs/Page"
+    },
+    "spacing": {
+     "$ref": "#/$defs/Spacing"
+    },
+    "table": {
+     "$ref": "#/$defs/WordTable"
+    },
+    "tables": {
+     "additionalProperties": {
+      "items": {
+       "type": "number"
+      },
+      "type": "array"
+     },
+     "propertyNames": {
+      "enum": [
+       "lane",
+       "key_people",
+       "linkedin",
+       "tracker",
+       "sources",
+       "job_reads",
+       "news"
+      ]
+     },
+     "title": "Tables",
+     "type": "object"
+    }
+   },
+   "required": [
+    "page",
+    "fonts",
+    "table",
+    "tables",
+    "spacing"
+   ],
+   "title": "WordTheme",
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "description": "One Word document, fully described.",
+ "properties": {
+  "blocks": {
+   "items": {
+    "discriminator": {
+     "mapping": {
+      "bullets": "#/$defs/BulletsBlock",
+      "heading": "#/$defs/HeadingBlock",
+      "paragraph": "#/$defs/ParagraphBlock",
+      "table": "#/$defs/TableBlock",
+      "title": "#/$defs/TitleBlock"
+     },
+     "propertyName": "type"
+    },
+    "oneOf": [
+     {
+      "$ref": "#/$defs/TitleBlock"
+     },
+     {
+      "$ref": "#/$defs/HeadingBlock"
+     },
+     {
+      "$ref": "#/$defs/ParagraphBlock"
+     },
+     {
+      "$ref": "#/$defs/BulletsBlock"
+     },
+     {
+      "$ref": "#/$defs/TableBlock"
+     }
+    ]
+   },
+   "minItems": 1,
+   "title": "Blocks",
+   "type": "array"
+  },
+  "footer_text": {
+   "maxLength": 40000,
+   "title": "Footer Text",
+   "type": "string"
+  },
+  "header_text": {
+   "maxLength": 40000,
+   "title": "Header Text",
+   "type": "string"
+  },
+  "schema_version": {
+   "const": 1,
+   "default": 1,
+   "title": "Schema Version",
+   "type": "integer"
+  },
+  "theme": {
+   "$ref": "#/$defs/WordTheme"
+  }
+ },
+ "required": [
+  "theme",
+  "header_text",
+  "footer_text",
+  "blocks"
+ ],
+ "title": "DocumentSpec",
+ "type": "object"
+}

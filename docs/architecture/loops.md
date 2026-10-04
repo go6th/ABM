@@ -6,9 +6,11 @@ unannotated (the generator's check fails otherwise).
 
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
+| converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
+| export keyset pagination | `src/exports/readers/pg.py:76` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
 | findings extractor | `src/people/findings.py:103` | max_extractor_calls, one call per person | converged, cap_reached |
 | gap pass over the remainder | `src/jobs/pipeline.py:461` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
-| gate fix loop | `src/account_intelligence/workflow/stages/core.py:218` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
+| gate fix loop | `src/account_intelligence/workflow/stages/core.py:233` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
 | in-flight wait | `src/account_intelligence/connectors/service.py:248` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:119` | limit (1000) | queue empty, limit |
 | jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
@@ -28,6 +30,9 @@ unannotated (the generator's check fails otherwise).
 | posts pull | `src/people/posts.py:125` | cost_sample_size, then the budget-approved remainder or unknown_cost_post_cap | converged, budget, cap_reached, deadline |
 | profile batches | `src/people/profiles.py:139` | max_profiles_per_run, profile_batch_size per batch | converged, cap_reached, budget, deadline (one person's failure is isolated) |
 | provider job poll | `src/account_intelligence/connectors/paginate.py:154` | max_polls with a bounded interval | succeeded, failed, ProviderJobTimeout |
+| relationship target prefix strip | `src/exports/ooxml.py:71` | the target's length (each pass removes at least one character) | no leading "../" or "/" left |
+| renderer output drain | `src/exports/word/renderer.py:82` | the byte cap (max_output_bytes or max_stderr_bytes) in 64 KiB reads | end of stream, cap exceeded (the process is killed) |
+| renderer re-run | `src/exports/word/renderer.py:179` | 1 + reruns (1) attempts per document | converged (rendered), cap_reached (RenderError) |
 | slice loop | `src/account_intelligence/workflow/runner.py:92` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | topological sort | `src/account_intelligence/workflow/spec.py:58` | number of stages (each pass removes at least one or raises) | ordered, cycle error |
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:246` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |

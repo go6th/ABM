@@ -1,0 +1,89 @@
+# Export theme: the ONE place a style value may live (spec 2.4). A content hash of this file is
+# recorded on every deliverable; no renderer outside exports/config.py holds a style literal
+# (static test tests/exports/test_static_guards.py).
+#
+# The look is NOT sourced. The legacy Node docx library, the two openpyxl workbook scripts and a
+# real delivered file set were not supplied, so every value below is a labelled PROPOSAL chosen
+# to be neutral and legible (D-26). When the legacy files arrive, each value is replaced by the
+# value the legacy library defines and its `source` names that file and line.
+version: "1.0.0"
+status: proposal
+decision: D-26
+source: "TODO, needs product owner: neutral placeholder look; legacy library not supplied"
+
+word:
+  page:
+    # US Letter is sourced (PRD format rules, config/output_spec.yaml document_rules.page_size);
+    # the margins are a proposal ("proper margins" is the only wording in the PRD).
+    width_in: 8.5
+    height_in: 11.0
+    margins_in: {top: 1.0, bottom: 1.0, left: 1.0, right: 1.0}
+    source: "US Letter: PRD s3.4 format rules; margins: proposal"
+  fonts:
+    body:         {name: Calibri, size_pt: 11, bold: false, italic: false, color: "1A1A1A"}
+    title:        {name: Calibri, size_pt: 20, bold: true,  italic: false, color: "1F3864"}
+    subtitle:     {name: Calibri, size_pt: 12, bold: false, italic: false, color: "404040"}
+    heading1:     {name: Calibri, size_pt: 14, bold: true,  italic: false, color: "1F3864"}
+    heading2:     {name: Calibri, size_pt: 12, bold: true,  italic: false, color: "1F3864"}
+    quote:        {name: Calibri, size_pt: 11, bold: false, italic: true,  color: "404040"}
+    note:         {name: Calibri, size_pt: 9,  bold: false, italic: true,  color: "595959"}
+    table_header: {name: Calibri, size_pt: 9,  bold: true,  italic: false, color: "000000"}
+    table_body:   {name: Calibri, size_pt: 9,  bold: false, italic: false, color: "1A1A1A"}
+    header:       {name: Calibri, size_pt: 8,  bold: false, italic: false, color: "595959"}
+    footer:       {name: Calibri, size_pt: 8,  bold: false, italic: false, color: "595959"}
+  table:
+    header_fill: "D9E2F3"
+    border_color: "8EAADB"
+    border_size_eighth_pt: 4
+    cell_margin_twips: 60
+    repeat_header_row: true
+    row_cant_split: true
+  # Column proportions (percent of the text width) of each Word table; the headers are content
+  # and live in export_rules.yaml documents.tables (same order, checked at load).
+  tables:
+    # the Ref column (row keys such as JD-0001) is wide enough never to wrap at its hyphen: the
+    # PDF row-presence check found 8 percent too narrow
+    lane:        [10, 34, 14, 10, 20, 12]
+    key_people:  [10, 18, 20, 10, 12, 20, 10]
+    linkedin:    [10, 14, 24, 26, 16, 10]
+    tracker:     [10, 28, 10, 10, 18, 14, 10]
+    sources:     [10, 9, 27, 11, 10, 33]
+    job_reads:   [10, 40, 38, 12]
+    news:        [10, 38, 28, 10, 14]
+  spacing:
+    paragraph_after_pt: 6
+    heading_before_pt: 12
+    heading_after_pt: 4
+
+excel:
+  fonts:
+    title:  {name: Calibri, size_pt: 14, bold: true,  italic: false, color: "1F3864"}
+    header: {name: Calibri, size_pt: 11, bold: true,  italic: false, color: "000000"}
+    body:   {name: Calibri, size_pt: 11, bold: false, italic: false, color: "1A1A1A"}
+    note:   {name: Calibri, size_pt: 10, bold: false, italic: true,  color: "595959"}
+  header_fill: "D9E2F3"
+  summary_fill: "FFF2CC"
+  border_color: "8EAADB"
+  freeze_header: true
+  autofilter: true
+  # Column kinds: every workbook column names a kind (config/export_rules.yaml); the kind gives
+  # the width, the number format and wrapping. No sheet defines its own widths.
+  column_kinds:
+    ref:        {width: 9,  number_format: "@",          wrap: false}
+    code:       {width: 10, number_format: "@",          wrap: false}
+    label:      {width: 18, number_format: "@",          wrap: false}
+    text_short: {width: 30, number_format: "@",          wrap: true}
+    text_long:  {width: 80, number_format: "@",          wrap: true}
+    url:        {width: 45, number_format: "@",          wrap: false}
+    date:       {width: 12, number_format: "yyyy-mm-dd", wrap: false}
+    count:      {width: 12, number_format: "0",          wrap: false}
+  print:
+    orientation: landscape
+    paper: letter
+    fit_to_width: true
+
+zip:
+  compression: deflate
+  # Fixed entry time for every member of every package (B10). 1980-01-01 is the earliest time a
+  # zip entry can carry.
+  entry_time: [1980, 1, 1, 0, 0, 0]
