@@ -6,8 +6,8 @@
   requirement) passes unchanged.
 * ``after_approval`` (first stage after the approval gate): the careers lookup deferred by setup
   (conflict C12) runs once, now that a cap exists.
-* ``close`` (every terminal state, after the one settlement): reconciles and stores the spend
-  report once.
+* the end-of-run report is stored by ``runs.lifecycle.finish`` in the finishing transaction
+  (every terminal path, K12), not here.
 
 GUARANTEE(test_setup_without_policy_waits_and_makes_no_paid_call): fail closed.
 """
@@ -105,15 +105,5 @@ async def after_approval(deps: RunDeps, state: RunState) -> dict[str, Any]:
 
     if (state.get("references") or {}).get("careers") != "deferred_until_approval":
         return {}
-    return {"references": {"careers": await verify_careers(deps)}}
-
-
-async def close(deps: RunDeps) -> None:
-    """Store the end-of-run spend report once (after the settlement)."""
-    from spend import service
-
-    cfg = load_spend_config()
-    ttl = 60
-    if deps.connectors is not None:
-        ttl = int(deps.connectors.config.defaults.ledger.lease_ttl_s)
-    await service.close_run(deps.txn, deps.tenant_id, deps.run_id, cfg, deps.clock.now(), ttl)
+    # its own key: the reducer never lets a later write change setup's "careers" value
+    return {"references": {"careers_after_approval": await verify_careers(deps)}}

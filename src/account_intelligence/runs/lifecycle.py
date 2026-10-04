@@ -13,7 +13,8 @@ Guarantees (tests: ``tests/runs/test_lifecycle_db.py``):
 * every transition is ``UPDATE ... WHERE status = :expected`` validated against the pure table in
   ``workflow.transitions``; losing a race raises ``RunStateConflict`` and changes nothing.
 * ``finish`` sweeps unset rows at any non-COMPLETED end (T12), moves the run through
-  ``tracker.guard.finish_run`` (never COMPLETED with gaps), then settles exactly once.
+  ``tracker.guard.finish_run`` (never COMPLETED with gaps), then settles exactly once and stores
+  the spend report once (credit cap K12), all in the caller's transaction.
 * ``settle_once`` writes one commit and one refund entry per run (unique indexes, row lock);
   ``reserved = committed + refunded``; a replay is a no-op.
 """
@@ -278,7 +279,9 @@ async def finish(
     """End the run: sweep (non-COMPLETED), guarded terminal update, then the one settlement."""
     expected = await current_status(session, run_id)
     if expected in TERMINAL:
-        return expected.value, await settle_once(session, run_id, refund_all=refund_all)
+        settlement = await settle_once(session, run_id, refund_all=refund_all)
+        await close_spend(session, run_id)  # a re-delivery stores no second report
+        return expected.value, settlement
     transition(expected, target)
     final = target
     if target is RunStatus.COMPLETED and not (await tracker.verdict(run_id)).can_complete:
@@ -286,7 +289,23 @@ async def finish(
     if final is not RunStatus.COMPLETED:
         await tracker.sweep(run_id, (await _tenant(session, run_id)), SWEEP_REASON[final])
     result = await finish_run(session, tracker, run_id, expected.value, final.value, reason=reason)
-    return result.status, await settle_once(session, run_id, refund_all=refund_all)
+    settlement = await settle_once(session, run_id, refund_all=refund_all)
+    await close_spend(session, run_id)
+    return result.status, settlement
+
+
+async def close_spend(session: AsyncSession, run_id: UUID) -> None:
+    """The end-of-run spend report (credit cap K12), in the finishing transaction: the terminal
+    state, the one settlement and the one report commit together, on every terminal path
+    (COMPLETED, PARTIAL, FAILED, CANCELED, BUDGET_EXCEEDED, an approval timeout). Storing is
+    idempotent: the same ledger stores no second version. The clock is the transaction's."""
+    from account_intelligence.connectors.settings import load_providers_config
+    from spend.config import load_spend_config
+    from spend.service import close_in_session
+
+    now: datetime = (await session.execute(text("SELECT now()"))).scalar_one()
+    ttl = int(load_providers_config().defaults.ledger.lease_ttl_s)
+    await close_in_session(session, run_id, load_spend_config(), now, ttl)
 
 
 async def _tenant(session: AsyncSession, run_id: UUID) -> UUID:
