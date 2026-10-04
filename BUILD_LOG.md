@@ -1,8 +1,73 @@
 # Build log
 
 Current phase: 0 (Prove) and 1 (Build), integrated on Google Cloud  
-Current work package: integration on `feat/integrate-gcp-production` (audit pass 2 green)  
-Last updated: 2026-10-03
+Current work package: credit cap v1 on `feat/credit-cap`  
+Last updated: 2026-10-04
+
+## Credit cap v1 (2026-10-04, branch `feat/credit-cap`)
+
+Plan (5 lines): credit cap v1 per `docs/prompts/build_credit_cap.md` (one cap per run, per-provider
+spend from the ledger, end-of-run report). Files: `src/spend/`, connector ledger, service and
+router, `runs/lifecycle.py`, `workflow/calls.py` and `stages/spend.py`, migration 0015,
+`tests/spend`, `tests/isolation/test_spend_isolation.py`, `tests/system/test_credit_cap_run.py`,
+ADR-0030 to 0035. Acceptance: a lying test per K-rule, hand oracles, properties, kill and resume,
+isolation. Decisions: D-04, D-10; proposals D-27 to D-31. VERIFY: V7, V-SPEND-1, V-SPEND-2.
+
+Audit of the work in progress saved earlier (`40a2f26`): the gate inside the ledger claim, the
+approval binding, the proposal, the rollup, reconciliation, the report and the nightly job were in
+place and their tests passed. Gaps found and closed:
+
+* K12: the report was stored only on the runner's finish path, so a CANCELED run or an approval
+  timeout got a settlement and no report. Now `lifecycle.finish` stores it in the finishing
+  transaction (terminal state, one settlement and one report commit together on every path); a
+  pending cap version is expired with the run.
+* K10: `priority.fund` existed but nothing used it. The call wrapper's budget node now funds High
+  rows first when a wave does not fit; unfunded rows end Blocked (`budget_cap`, the tracker's code
+  for the spec's `cap_reached`).
+* D-31: pre-pulled files could be registered but were never consumed, and the router fell back on
+  exhaustion unconditionally. Now `call_operation` consumes a registered file (provider parser,
+  hash and record count checked, a zero-cost ledger row with `cost_source='prepulled'`, counted
+  apart from paid calls) and the router falls back only when the tenant allows it.
+* K14: a free operation that charged had no handling: now a `spend_defects` row and the gate
+  refuses it from then on.
+* A whole-run defect: the deferred careers lookup rewrote the `careers` reference and the state
+  reducer refused the conflicting write (the approval-gate system test failed); it now writes
+  `careers_after_approval`.
+* Report: `zero_charge_calls` and `prepulled_calls` per line; missing data stays `not measured`.
+* Static guards the work in progress had not run: table owners, loops register, tracker docs,
+  guarantee tags, long lines.
+
+Harness added: three hand-computed oracles (within the cap, cap reached, extension approved) through
+the real connector and ledger; hypothesis properties (money, priority, gate, report purity, approval
+binding, rollup sums); seeded call sequences on the database (`spent <= cap + overshoot`); two
+workers and ten runs over two tenants; racing finalisation; kill and resume in subprocesses (between
+reserve and finalise, during the report write); fault injection at every database step of propose,
+approve and close; whole runs (setup fails closed, one approval, no interrupt, approval timeout);
+the isolation suite for six tables; a 10,000-row scale smoke; mutation tests.
+
+Gates (test databases `ai_cap`, `ai_capgate`):
+
+| Command | Result |
+|---|---|
+| `bash .../scripts/selftest.sh` | `selftest OK` |
+| `python .../scripts/validate_assets.py` | `OK: 33 coverage rows, 5 product grades, 8 routes, 10 alert rules` |
+| `python .../scripts/lint_migrations.py migrations` | `OK: 26 file(s)` |
+| alembic upgrade head (twice), downgrade 0014, upgrade head, fresh database | all exit 0; `0015 (head)` |
+| `check_rls_catalog.sql` | 0 rows |
+| `ruff check .`; `ruff format --check .` | pass |
+| `mypy --strict src/spend`; `mypy` (src) | 21 files; 195 files, no issues |
+| `lint-imports`; `interrogate src`; loops; tracker docs | 8 contracts kept; 100%; current; current |
+| `pytest tests/isolation -x` | 74 passed |
+| `pytest -m "not eval" --cov=src` | 1523 passed, 1 failed, 14 skipped; coverage 95%. The failure was a dangling guarantee tag in another session's `feat/api-v1` commit that was checked out in the shared folder; on this branch's tree the guarantee check passes |
+| `src/spend` coverage | 99%; 100% on money, gate, priority, approval, report, reconcile |
+| `scan_client_output.py tests/fixtures/synthetic/spend/tenant_view.json` | `OK: 1 file(s) scanned, 0 hit(s)` |
+| mutmut (money, gate, priority, approval, report, reconcile) | 599 of 627 killed; 28 survivors reviewed as equivalent or cosmetic; 148 SQL-bound mutants of `reconcile_run` covered by the Postgres tests (`docs/spend/mutation.md`) |
+| scale smoke, 10,000 ledger rows | report in 1.83 s, peak traced memory 10.3 MiB (measured) |
+
+Not proven: real provider prices and credit rates (V7), a free balance endpoint per provider
+(V-SPEND-1), concurrency on Cloud SQL (V-SPEND-2), the operator console flow and the production
+notifier. Needs the owner: D-27 to D-31, the provider cost table, approver roles, timeouts,
+headroom and limits (OI-SPEND-1 to 10).
 
 ## Built
 
