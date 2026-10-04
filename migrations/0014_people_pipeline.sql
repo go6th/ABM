@@ -1,6 +1,6 @@
 -- Migration 0014: people pipeline storage (expand only; no column dropped or altered).
--- Spec docs/prompts/build_people_pipeline.md section 6. Numbered 0014 because 0013 is taken by
--- uncommitted work on another branch; down_revision is 0012 here and is re-pointed at merge.
+-- Spec docs/prompts/build_people_pipeline.md section 6. Follows 0013 (job gap passes); the
+-- down_revision was re-pointed from 0012 to 0013 when the people and jobs branches met.
 --
 -- `people` (created in 0010: one row per found record per run, insert-only) gains the pipeline
 -- columns. Conventions kept from 0010: `profile_url` is set only on a person's canonical row (so

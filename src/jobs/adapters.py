@@ -154,6 +154,11 @@ class RunPayloads:
         await self.deps.payloads.put(key, text.encode())
         return str(key)
 
+    async def get_text(self, ref: str) -> str:
+        """The stored text behind a reference (a gap pass re-reads it; no paid call)."""
+        body: bytes = await self.deps.payloads.get(ref)
+        return body.decode()
+
 
 class TrackerEvidence:
     """``CoverageEvidencePort`` over the tracker (stage ``jobs`` owns the three rows)."""

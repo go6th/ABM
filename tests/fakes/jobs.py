@@ -8,6 +8,7 @@ grading hand-offs.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -113,18 +114,32 @@ class Recorder:
     evidence: list[tuple[str, tuple[str, ...], int, bool, str | None]] = field(default_factory=list)
     claims: list[Any] = field(default_factory=list)
     saves: int = 0
+    passes: dict[int, Any] = field(default_factory=dict)
+    reads: list[str] = field(default_factory=list)
 
     async def load_run(self, run_id: str) -> Any:
+        """The latest stored record: the last gap pass, else the first pass."""
+        if self.passes:
+            return self.passes[max(self.passes)]
         return self.stored.get(run_id)
 
     async def save_run(self, run_id: str, record: Any) -> None:
         self.saves += 1
         self.stored[run_id] = record
 
+    async def save_pass(self, run_id: str, pass_no: int, record: Any) -> None:
+        assert pass_no not in self.passes, "a gap pass is stored once"
+        self.passes[pass_no] = record
+
     async def put_text(self, run_id: str, text: str) -> str:
-        ref = f"synthetic/{run_id}/{len(self.texts)}"
+        """Content-addressed like the production store (the same text gets the same ref)."""
+        ref = f"synthetic/{run_id}/" + hashlib.sha256(text.encode()).hexdigest()[:16]
         self.texts[ref] = text
         return ref
+
+    async def get_text(self, ref: str) -> str:
+        self.reads.append(ref)
+        return self.texts[ref]
 
     async def record(
         self,

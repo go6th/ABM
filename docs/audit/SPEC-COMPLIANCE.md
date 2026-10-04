@@ -95,10 +95,10 @@ its feed record never merged; a dot inside a word ended a sentence.
 | J14 | Pull once; replay makes zero calls | Met | `test_rerun_makes_zero_paid_calls_*`, DB round trip |
 | J15 | Export scanned; no provider code or refs | Met | `test_export_and_count_sentence_are_client_safe` |
 | 6 | Expand-only storage, append-only, RLS | Met | migration 0012; `test_repo_db.py` |
-| 7 | Gap re-entry processes only the remainder | Partial | re-entry replays the stored record; a remainder-only gap pass is not built (open item OI-JOBS-3) |
+| 7 | Gap re-entry processes only the remainder | Met | at most `max_gap_passes` (2) passes over `jobs.gap.gap_remainder` (retryable reasons only, verdicts final, no re-pull); progress rule, run-level caps and exits (`converged`, `no_progress`, `budget`, `cap_reached`) in `test_gap_rules.py` and `test_gap_and_resume.py`; `job_pipeline_passes` in migration 0013 |
 | 8.1 | Read row None when nothing matches | Deviation | OI-JOBS-1 (tracker derives from ledger counts) |
-| 9.7 | Resume matrix with kills | Partial | idempotent replay tested; subprocess kill matrix is in the system tests work item |
-| 9.11 | Mutation check | Pending | runs with the gates |
+| 9.7 | Resume matrix with kills | Met (jobs side) | kill points before the pull (board, feed), mid-batch, after persist, after a gap persist: same rows hash, no call paid twice, `LedgerSource`/`LedgerPages` stand in for the ledger contract (proven against Postgres in `tests/connectors`); the subprocess kill matrix lives in `tests/system/test_kill_resume.py` |
+| 9.11 | Mutation check | Met | `pyproject.toml [tool.mutmut]` includes `jobs/dedupe.py`, `classify.py`, `gap.py`; last run on the clean clone (tracker + jobs: 562 killed, survivors reviewed in `BUILD_LOG.md`) — rerun after the gap-pass change |
 | Coverage | 100% on window, counts, dedupe, match, sentences, classify, extractor | Met | job run: all at 100% (sentences 97% branch) |
 
 ## Connectors and grading

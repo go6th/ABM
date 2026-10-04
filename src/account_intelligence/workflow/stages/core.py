@@ -8,9 +8,10 @@
   own domain, stored as verified only after a successful read of exactly that URL) once the cap
   is approved: in setup when auto-approved, otherwise first thing after the approval.
 * ``jobs`` runs ``jobs.stage.run_jobs`` over the connector-backed adapters.
-* ``build`` and ``gate`` call ``BuilderPort`` and ``GatePort``. No production builder exists yet:
-  ``NotConfigured`` is recorded and the run ends PARTIAL with ``builders_not_configured``, never
-  COMPLETED with nothing built.
+* ``build`` and ``gate`` call ``BuilderPort`` and ``GatePort``. A missing adapter
+  (``NotConfigured``) ends the run PARTIAL ``builders_not_configured``; a set that failed its
+  checks (``BuildIncomplete``) ends it PARTIAL ``build_failed``; never COMPLETED with nothing
+  built.
 * ``deliver`` writes the delivery note once (what was found, what is open; spend is internal,
   D-30), runs it through the client-output scanner (W7) and stores it by reference.
 """
@@ -30,6 +31,7 @@ from account_intelligence.connectors.service import call_operation
 from account_intelligence.platform.ports import NotConfigured
 from account_intelligence.safety.client_output import assert_client_safe
 from account_intelligence.workflow.deps import RunDeps
+from account_intelligence.workflow.ports import BuildIncomplete
 from account_intelligence.workflow.state import RunState
 
 CAREER_HINTS = ("career", "jobs", "join")
@@ -109,7 +111,8 @@ async def setup(deps: RunDeps, state: RunState) -> dict[str, Any]:
 
 
 async def jobs_stage(deps: RunDeps, state: RunState) -> dict[str, Any]:
-    """Step 5 through the job pipeline (pull once; re-entry replays the stored record)."""
+    """Step 5 through the job pipeline: pull once, then at most ``max_gap_passes`` passes over the
+    remainder; re-entry replays the latest stored pass and continues after it."""
     from account_intelligence.grading.config import load_grading_config
     from account_intelligence.grading.errors import HostileContent
     from account_intelligence.grading.spans import check_hostile
@@ -202,7 +205,20 @@ async def build(deps: RunDeps, state: RunState) -> dict[str, Any]:
             "references": {"build": "builders_not_configured"},
             "loop_exits": {"build": "no_progress"},
         }
-    files = await deps.builder.build(str(deps.tenant_id), str(deps.run_id))
+    try:
+        files = await deps.builder.build(str(deps.tenant_id), str(deps.run_id))
+    except NotConfigured:
+        return {
+            "coverage_reports": {},
+            "references": {"build": "builders_not_configured"},
+            "loop_exits": {"build": "no_progress"},
+        }
+    except BuildIncomplete as failed:
+        return {
+            "coverage_reports": {},
+            "references": {"build": failed.reason},
+            "loop_exits": {"build": "no_progress"},
+        }
     return {
         "coverage_reports": {},
         "references": {"build": "built"},
@@ -232,7 +248,10 @@ async def gate(deps: RunDeps, state: RunState) -> dict[str, Any]:
                 "loop_exits": {"gate": "converged"},
             }
         if deps.builder is not None:
-            await deps.builder.build(str(deps.tenant_id), str(deps.run_id))
+            try:
+                await deps.builder.build(str(deps.tenant_id), str(deps.run_id))
+            except (NotConfigured, BuildIncomplete):
+                break  # the rebuild failed closed; the failing checks stand
     names = sorted(k for k, v in failing.items() if v)
     return {
         "coverage_reports": {},
@@ -267,8 +286,8 @@ async def deliver(deps: RunDeps, state: RunState) -> dict[str, Any]:
     assert_client_safe([body], others)
     key = deps.payload_key("delivery", "note.json")
     await deps.payloads.put(key, body.encode())
-    if refs.get("build") == "builders_not_configured":
-        reason = "builders_not_configured"
+    if refs.get("build") in ("builders_not_configured", "build_failed"):
+        reason = str(refs["build"])
     elif str(refs.get("gate", "")).startswith("failed"):
         reason = str(refs["gate"])
     else:

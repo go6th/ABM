@@ -3,11 +3,13 @@
 Two records are the same posting when they share a provider job id or any canonical URL (so a
 live-board hit, which has only a URL, merges with its feed record, which has an id and the same
 URL). Groups are found with union-find over those identities; titles never merge anything. A
-group's key is its provider id when any member has one, else its smallest canonical URL, else a
-weak content fingerprint (flagged ``weak_key``). Every returned URL is kept.
+group's key is its smallest provider id when any member has one, else its smallest canonical
+URL. Every returned URL is kept.
 
 A record whose URL is not an absolute http(s) URL is rejected and COUNTED, never dropped silently
-(J10). Output is sorted by key and does not depend on input order; within a group the record with
+(J10). So every kept record has a canonical URL, and the content fingerprint of
+``normalise.posting_key`` (``weak_key``) is never needed for a posting that survives dedupe.
+Output is sorted by key and does not depend on input order; within a group the record with
 complete text, then the longer description, then the later retrieval is kept, and a live-board
 observation anywhere in the group is kept (it decides open status, J7).
 """
@@ -18,7 +20,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from jobs.models import RawPosting
-from jobs.normalise import canonical_url, posting_key
+from jobs.normalise import canonical_url
 
 
 @dataclass(frozen=True)
@@ -28,7 +30,6 @@ class DedupeResult:
     rows: list[RawPosting]
     rejected: int
     call_refs: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    keys: dict[str, tuple[str, bool]] = field(default_factory=dict)
 
 
 def _rank(row: RawPosting) -> tuple[bool, int, str, str]:
@@ -36,6 +37,7 @@ def _rank(row: RawPosting) -> tuple[bool, int, str, str]:
 
 
 def _identities(row: RawPosting) -> list[str]:
+    """Provider id and every canonical URL; never empty for a kept record (it has a URL)."""
     ids = [f"id:{row.source_id}"] if row.source_id else []
     urls = {canonical_url(u) for u in (row.url, *row.other_urls)} - {""}
     return ids + [f"url:{u}" for u in sorted(urls)]
@@ -61,31 +63,21 @@ def dedupe_counted(rows: Iterable[RawPosting]) -> DedupeResult:
         return x
 
     for row in kept:
-        idents = _identities(row) or [str(posting_key(row))]
-        for other in idents[1:]:
-            a, b = find(idents[0]), find(other)
+        first, *others = _identities(row)
+        for other in others:
+            a, b = find(first), find(other)
             if a != b:
                 parent[max(a, b)] = min(a, b)
-        find(idents[0])
     groups: dict[str, list[RawPosting]] = {}
     for row in kept:
-        root = find((_identities(row) or [str(posting_key(row))])[0])
-        groups.setdefault(root, []).append(row)
+        groups.setdefault(find(_identities(row)[0]), []).append(row)
 
     out: list[RawPosting] = []
     refs: dict[str, tuple[str, ...]] = {}
-    keys: dict[str, tuple[str, bool]] = {}
     for members in groups.values():
         chosen = max(members, key=_rank)
         ids = sorted({m.source_id for m in members if m.source_id})
-        urls = sorted({u for m in members for u in _identities(m) if u.startswith("url:")})
-        if ids:
-            key, weak = f"id:{ids[0]}", False
-        elif urls:
-            key, weak = urls[0], False
-        else:  # pragma: no cover - every kept record has a canonical URL
-            key, weak = str(posting_key(chosen)), True
-        all_urls = {u[4:] for u in urls}
+        all_urls = {u[4:] for m in members for u in _identities(m) if u.startswith("url:")}
         merged = chosen.model_copy(
             update={
                 "source_id": ids[0] if ids else chosen.source_id,
@@ -95,17 +87,18 @@ def dedupe_counted(rows: Iterable[RawPosting]) -> DedupeResult:
             }
         )
         out.append(merged)
-        refs[key] = tuple(sorted({m.call_ref for m in members if m.call_ref}))
-        keys[key] = (key, weak)
-    out.sort(key=lambda r: _key_of(r))
-    return DedupeResult(out, rejected, refs, keys)
+        refs[_key_of(merged)] = tuple(sorted({m.call_ref for m in members if m.call_ref}))
+    out.sort(key=_key_of)
+    return DedupeResult(out, rejected, refs)
 
 
 def _key_of(row: RawPosting) -> str:
+    """The posting key of a merged record: smallest id, else smallest canonical URL. Every
+    kept record has a canonical URL, so no merged record needs the weak fingerprint."""
     if row.source_id:
         return f"id:{row.source_id}"
     urls = sorted({canonical_url(u) for u in (row.url, *row.other_urls)} - {""})
-    return f"url:{urls[0]}" if urls else str(posting_key(row))
+    return f"url:{urls[0]}"
 
 
 def group_key(row: RawPosting) -> str:

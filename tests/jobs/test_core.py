@@ -68,6 +68,68 @@ def test_dedupe_never_merges_on_title() -> None:
     assert len(dedupe([a, b])) == 2
 
 
+def test_dedupe_merges_on_a_shared_id_and_keeps_every_url_and_ref() -> None:
+    """Hand-written expectations (J8): same id, different URLs is one posting with both URLs."""
+    one = raw("j9", "https://careers.example/a", call_ref="ref-1", description="short")
+    two = raw("j9", "https://jobs.example/b?utm_source=x", call_ref="ref-2", description="longer")
+    result = dedupe_counted([one, two])
+    assert len(result.rows) == 1
+    merged = result.rows[0]
+    assert merged.source_id == "j9" and merged.url == "https://jobs.example/b?utm_source=x"
+    assert merged.other_urls == ("https://careers.example/a",)
+    assert result.call_refs == {"id:j9": ("ref-1", "ref-2")}
+
+
+def test_dedupe_keeps_id_less_records_apart_and_ignores_unusable_other_urls() -> None:
+    a = raw(None, "https://careers.example/a", other_urls=("not a url",), call_ref="r-a")
+    b = raw(None, "https://careers.example/b", other_urls=("",), call_ref="r-b")
+    result = dedupe_counted([a, b])
+    assert [r.url for r in result.rows] == [
+        "https://careers.example/a",
+        "https://careers.example/b",
+    ]
+    assert all(r.other_urls == () for r in result.rows)
+    assert result.call_refs == {
+        "url:https://careers.example/a": ("r-a",),
+        "url:https://careers.example/b": ("r-b",),
+    }
+
+
+def test_dedupe_takes_id_and_status_from_any_member_and_keys_by_the_smallest_url() -> None:
+    # the kept record (complete, longer text) has no id and no status; the feed record has both
+    board = raw(
+        None,
+        "https://careers.example/z",
+        description="a much longer complete description",
+        live_board_present=True,
+        call_ref="r-board",
+    )
+    feed = raw("j5", "https://careers.example/z", description="", status="closed", call_ref="r-f")
+    result = dedupe_counted([board, feed])
+    merged = result.rows[0]
+    assert merged.source_id == "j5" and merged.status == "closed" and merged.live_board_present
+    assert merged.description == "a much longer complete description"
+    assert result.call_refs == {"id:j5": ("r-board", "r-f")}
+    # id-less, linked through other_urls: the key is the smallest canonical URL
+    x = raw(None, "https://careers.example/y", other_urls=("https://careers.example/b",))
+    y = raw(None, "https://careers.example/b", call_ref="r-y")
+    linked = dedupe_counted([x, y])
+    assert len(linked.rows) == 1
+    assert list(linked.call_refs) == ["url:https://careers.example/b"]
+
+
+def test_group_key_ignores_unusable_other_urls() -> None:
+    from jobs.dedupe import group_key
+
+    row = raw(None, "https://careers.example/q", other_urls=("not a url",))
+    assert group_key(row) == "url:https://careers.example/q"
+
+
+def test_every_rejected_record_is_counted() -> None:
+    bad = [raw(f"b{i}", "not a url") for i in range(3)]
+    assert dedupe_counted([*bad, raw("ok")]).rejected == 3
+
+
 def test_status_only_from_explicit_values() -> None:
     assert normalise_status("Active") == "open" and normalise_status("filled") == "closed"
     assert normalise_status(None) == normalise_status("maybe") == "unknown"
@@ -102,11 +164,36 @@ def test_sentence_spans_are_verbatim_with_offsets() -> None:
     ]
 
 
+def test_punctuation_only_chunks_are_not_sentences() -> None:
+    """Hand-written offsets: a run of dots or a line of marks is never a span (J3)."""
+    assert sentence_spans("Hello. ... World.") == [(0, 6), (11, 17)]
+    assert sentence_spans("Use SAP!\n?!\nThen stop.") == [(0, 8), (12, 22)]
+    assert sentence_spans("  \n ... \n") == []
+
+
 def test_every_rubric_rule_has_a_passing_positive_and_negative_example() -> None:
     cfg = load_jobs_config()
     for rule in cfg.rules:
-        assert classify_rules(rule.positive, cfg.rules).label == rule.label, rule.rule_id
+        verdict = classify_rules(rule.positive, cfg.rules)
+        assert (verdict.label, verdict.reason) == (rule.label, "rule_match"), rule.rule_id
+        assert verdict.rule_id is not None  # the firing rule is recorded with the class
         assert classify_rules(rule.negative, cfg.rules).label != rule.label, rule.rule_id
+
+
+def test_a_single_rule_hit_records_its_rule_id() -> None:
+    from jobs.config import Rule
+
+    rules = (
+        Rule("r-build", "build", ("develop",), "x", "y"),
+        Rule("r-build-2", "build", ("code",), "x", "y"),
+        Rule("r-user", "user", ("uses",), "x", "y"),
+    )
+    hit = classify_rules("You will develop and code.", rules)
+    assert (hit.label, hit.reason, hit.rule_id) == ("build", "rule_match", "r-build")
+    both = classify_rules("You will develop what the team uses.", rules)
+    assert (both.label, both.reason, both.rule_id) == (None, "ambiguous_rules", None)
+    none = classify_rules("Nothing here.", rules)
+    assert (none.label, none.reason, none.rule_id) == (None, "no_rule_match", None)
 
 
 def test_conflicting_cues_are_ambiguous_and_cues_are_whole_words() -> None:

@@ -1,0 +1,61 @@
+{
+  "_label": "SYNTHETIC test fixture for the export builders. No real account, person or data. The tracker lines are added by the test from the tracker's own client view.",
+  "tenant_id": "00000000-0000-4000-8000-0000000000a1",
+  "account_id": "00000000-0000-4000-8000-00000000c0de",
+  "run_id": "00000000-0000-4000-8000-00000000a0de",
+  "account_name": "Synthetic Oracle Ltd",
+  "as_of": "2026-09-30",
+  "is_salesforce_partner": false,
+  "forbidden_terms": ["Synthetic Other Account Inc", "other.example"],
+  "sources": [
+    {"code": "S-0001", "url": "https://oracle.example/about", "published": "2026-09-01", "kind": "primary"},
+    {"code": "S-0002", "url": "https://oracle.example/news/one", "published": "2026-08-15", "kind": "secondary"},
+    {"code": "S-0003", "url": "https://agg.example/listing", "published": null, "kind": "aggregator"},
+    {"code": "S-0004", "url": "https://people.example/in/ann", "published": null, "kind": "secondary"},
+    {"code": "S-0005", "url": "https://people.example/in/bob", "published": null, "kind": "secondary"},
+    {"code": "S-0006", "url": "https://jobs.example/p/1", "published": "2026-03-01", "kind": "primary"},
+    {"code": "S-0007", "url": "https://jobs.example/p/2", "published": "2026-05-01", "kind": "primary"},
+    {"code": "S-0008", "url": "https://tech.example/d/1", "published": null, "kind": "aggregator"},
+    {"code": "S-0009", "url": "https://unused.example/x", "published": null, "kind": "secondary"},
+    {"code": "S-0010", "url": "https://people.example/in/ann/post/1", "published": "2026-09-10", "kind": "secondary"}
+  ],
+  "facts": [
+    {"id": "00000000-0000-4000-8000-0000000000f1", "attribute_key": "tech.crm", "value_text": "Runs Salesforce Service Cloud", "lane": "salesforce", "claim_kind": "sourced", "product_grade": "confirmed", "engine_grade": "A", "read_in_primary_this_run": true, "may_state_to_prospect": true, "confirming_question": null},
+    {"id": "00000000-0000-4000-8000-0000000000f2", "attribute_key": "exec.cio", "value_text": "A new CIO joined in 2025", "lane": null, "claim_kind": "sourced", "product_grade": "probable", "engine_grade": "B", "read_in_primary_this_run": false, "may_state_to_prospect": false, "confirming_question": "When did the CIO join?"},
+    {"id": "00000000-0000-4000-8000-0000000000f3", "attribute_key": "tech.sap", "value_text": "Considering SAP", "lane": "sap", "claim_kind": "sourced", "product_grade": "lead", "engine_grade": "D", "read_in_primary_this_run": false, "may_state_to_prospect": false, "confirming_question": "Is SAP being evaluated?", "lead_status": "complete"},
+    {"id": "00000000-0000-4000-8000-0000000000f4", "attribute_key": "hiring.data_team", "value_text": "No in-house data team was found", "lane": null, "claim_kind": "absence", "product_grade": "hypothesis", "engine_grade": null, "read_in_primary_this_run": false, "may_state_to_prospect": false, "confirming_question": "Is there an in-house data team?"}
+  ],
+  "evidence": [
+    {"id": "e1", "fact_id": "00000000-0000-4000-8000-0000000000f1", "evidence_kind": "source", "url": "https://oracle.example/about", "supporting_sentence": "We run Salesforce Service Cloud.", "source_code": "S-0001", "is_aggregator": false, "origin": "full_page_read", "evidence_date": "2026-09-01"},
+    {"id": "e2", "fact_id": "00000000-0000-4000-8000-0000000000f2", "evidence_kind": "source", "url": "https://oracle.example/news/one", "supporting_sentence": "The CIO joined in 2025.", "source_code": null, "is_aggregator": false, "origin": "search_snippet", "evidence_date": "2026-08-15"},
+    {"id": "e3", "fact_id": "00000000-0000-4000-8000-0000000000f3", "evidence_kind": "source", "url": "https://agg.example/listing", "supporting_sentence": "Lists SAP as under consideration.", "source_code": "S-0003", "is_aggregator": true, "origin": "search_snippet", "evidence_date": "2026-07-01"},
+    {"id": "e4", "fact_id": "00000000-0000-4000-8000-0000000000f4", "evidence_kind": "search_proof", "url": null, "supporting_sentence": "Three searches found no data team.", "source_code": null, "is_aggregator": false, "origin": null, "evidence_date": null}
+  ],
+  "sections": [
+    {"id": "n1", "kind": "narrative", "position": 0, "text": "Synthetic Oracle runs a service platform and lists 2 senior people on the People List.", "codes": ["S-0001"], "fact_ids": ["00000000-0000-4000-8000-0000000000f1"]},
+    {"id": "c1", "kind": "caveat", "position": 0, "text": "Findings are from public sources only.", "codes": []},
+    {"id": "h1", "kind": "hypothesis", "position": 0, "text": "The new CIO may review the platform.", "codes": ["S-0002"], "confirming_question": "Will the CIO review the platform this year?"},
+    {"id": "q1", "kind": "first_call_question", "position": 0, "text": "Who owns field service today?", "codes": []},
+    {"id": "d1", "kind": "decision_change", "position": 0, "text": "Would a platform review start this year?", "codes": ["S-0002"], "fact_ids": ["00000000-0000-4000-8000-0000000000f2"]},
+    {"id": "v1", "kind": "executive_voice", "position": 0, "text": "We are investing in service.", "codes": ["S-0001"], "speaker": "Synthetic CEO"}
+  ],
+  "people": [
+    {"id": "pk-ann", "name": "Ann Synthetic", "title": "VP Service", "level": "vp", "lanes": "salesforce", "priority": "A", "profile_url": "https://people.example/in/ann", "source_code": "S-0004"},
+    {"id": "pk-bob", "name": "Bob Synthetic", "title": "Director IT", "level": "director", "lanes": "sap", "priority": "B", "profile_url": "https://people.example/in/bob", "source_code": null}
+  ],
+  "people_names": [["Ann Synthetic", true], ["Bob Synthetic", true], ["Cal Excluded", false]],
+  "people_counts": {"summary": [["in scope", "", 2], ["excluded", "security function", 1]], "sentences": ["2 people in scope of 3 distinct people found"], "in_scope": 2},
+  "findings": [
+    {"person_id": "pk-ann", "claim": "Speaks about field service", "sentence": "I lead our field service programme.", "url": "https://people.example/in/ann/post/1"},
+    {"person_id": "pk-cal", "claim": "An excluded person's post", "sentence": "Never shown.", "url": "https://people.example/in/cal/post/9"}
+  ],
+  "postings": [
+    {"posting_key": "post-1", "title": "Salesforce Admin", "url": "https://jobs.example/p/1", "status": "open", "posting_class": "admin_owner", "platforms": ["Salesforce"], "platform_sentences": ["You will administer Salesforce."], "description": "Administer Salesforce. Contact hr@oracle.example for details.", "posted_at": "2026-03-01", "first_seen": "2026-03-02", "full_text_read": true},
+    {"posting_key": "post-2", "title": "SAP Analyst", "url": "https://jobs.example/p/2", "status": "closed", "posting_class": "user", "platforms": ["SAP"], "platform_sentences": ["Uses SAP."], "description": "Uses SAP daily.", "posted_at": "2026-05-01", "first_seen": null, "full_text_read": false}
+  ],
+  "jobs_counts": {"lines": [["pulled", "Records pulled", 3, "raw records before dedupe"]], "sentences": ["2 read of 2 matched"]},
+  "detections": [
+    {"id": "d-1", "technology": "Salesforce", "first_seen": "2024-02", "last_seen": "2026-08", "source_url": "https://tech.example/d/1", "source_code": null},
+    {"id": "d-2", "technology": "Synthetic Gizmo", "first_seen": null, "last_seen": null, "source_url": "https://tech.example/d/1", "source_code": null}
+  ]
+}

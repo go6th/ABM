@@ -36,6 +36,7 @@ OWNERS: dict[str, set[str]] = {
     "job_posting_classifications": {"jobs/repo.py"},
     "job_posting_observations": {"jobs/repo.py"},
     "job_pipeline_runs": {"jobs/repo.py"},
+    "job_pipeline_passes": {"jobs/repo.py"},
     "people": {"people/repo.py"},
     "person_search_pages": {"people/repo.py"},
     "person_sources": {"people/repo.py"},
@@ -50,6 +51,7 @@ OWNERS: dict[str, set[str]] = {
     "spend_reports": {"spend/repo.py"},
     "prepulled_files": {"spend/prepulled.py"},
     "spend_defects": {"connectors/ledger.py"},
+    "deliverables": {"exports/store.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {

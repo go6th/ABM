@@ -1,10 +1,13 @@
 """``PostingRepo`` on Postgres through ``tenant_txn`` (spec 6).
 
 ``save_run`` writes, in ONE tenant transaction: each posting row, its platform sentences, its
-classification (append-only; a reclassification in a later pass adds a row), an observation per
-posting (insert-only source of first and last seen), and the run-level record. ``load_run``
-returns the stored record, so a re-entered stage makes no paid call (J14). No UPDATE or DELETE is
-ever issued; the grants do not allow one.
+classification, an observation per posting (insert-only source of first and last seen), and the
+run-level record. ``save_pass`` writes a gap pass in one transaction: the sentences and
+classifications of the postings it re-processed (a reclassification ADDS a row tagged with the
+pass number) and the pass record. ``load_run`` returns the latest record (last pass, else the
+first), so a re-entered stage makes no paid call (J14) and a resume continues after the last
+stored pass. No UPDATE or DELETE is ever issued; the grants do not allow one. The current class of
+a posting is its latest classification row; ``job_postings.posting_class`` keeps the first pass.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from jobs.models import Classification, PlatformSentence
 from jobs.pipeline import PipelineResult, result_from_json, result_to_json
 
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
@@ -48,15 +52,111 @@ class PgPostingRepo:
         self.account_id = account_id
 
     async def load_run(self, run_id: str) -> PipelineResult | None:
-        """The stored pipeline record of the run, or None."""
+        """The latest stored pipeline record of the run (last gap pass, else first), or None."""
         async with self.txn(self.tenant_id) as s:
             row = (
                 await s.execute(
-                    text("SELECT record_json FROM job_pipeline_runs WHERE run_id = :r"),
+                    text(
+                        "SELECT record_json FROM job_pipeline_passes WHERE run_id = :r"
+                        " ORDER BY pass_no DESC LIMIT 1"
+                    ),
                     {"r": UUID(run_id)},
                 )
             ).first()
+            if row is None:
+                row = (
+                    await s.execute(
+                        text("SELECT record_json FROM job_pipeline_runs WHERE run_id = :r"),
+                        {"r": UUID(run_id)},
+                    )
+                ).first()
         return result_from_json(row.record_json) if row is not None else None
+
+    async def save_pass(self, run_id: str, pass_no: int, record: PipelineResult) -> None:
+        """Append one gap pass: side rows of the re-processed postings, then the pass record."""
+        run = UUID(run_id)
+        async with self.txn(self.tenant_id) as s:
+            previous = await self._latest_classes(s, run)
+            for p in record.postings:
+                c = p.classification
+                if c is None or previous.get(p.posting_key) == _class_row(c):
+                    continue  # untouched by this pass: nothing new to append
+                for sentence in p.sentences:
+                    await self._sentence(s, run, p.posting_key, sentence, pass_no)
+                await self._classification(s, run, p.posting_key, c, pass_no)
+            await s.execute(
+                text(
+                    "INSERT INTO job_pipeline_passes (tenant_id, run_id, pass_no, gap_exit,"
+                    " record_json) VALUES (:t, :r, :n, :gap, CAST(:rec AS jsonb))"
+                ),
+                {
+                    "t": self.tenant_id,
+                    "r": run,
+                    "n": pass_no,
+                    "gap": record.exit_reasons.get("gap", "pending"),
+                    "rec": json.dumps(result_to_json(record), sort_keys=True),
+                },
+            )
+
+    async def _latest_classes(self, s: AsyncSession, run: UUID) -> dict[str, tuple[object, ...]]:
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT DISTINCT ON (posting_key) posting_key, posting_class, classified_by,"
+                    " reason, rule_id, evidence_sentence, second_pass_label"
+                    " FROM job_posting_classifications WHERE run_id = :r"
+                    " ORDER BY posting_key, pass_no DESC, id DESC"
+                ),
+                {"r": run},
+            )
+        ).all()
+        return {row.posting_key: tuple(row[1:]) for row in rows}
+
+    async def _sentence(
+        self, s: AsyncSession, run: UUID, key: str, sentence: PlatformSentence, pass_no: int
+    ) -> None:
+        await s.execute(
+            text(
+                "INSERT INTO job_posting_platform_sentences (tenant_id, run_id,"
+                " posting_key, platform, sentence, start_offset, end_offset,"
+                " span_sha256, pass_no) VALUES (:t, :r, :k, :p, :s, :a, :b, :h, :n)"
+            ),
+            {
+                "t": self.tenant_id,
+                "r": run,
+                "k": key,
+                "p": sentence.platform,
+                "s": sentence.text,
+                "a": sentence.start,
+                "b": sentence.end,
+                "h": sentence.sha256,
+                "n": pass_no,
+            },
+        )
+
+    async def _classification(
+        self, s: AsyncSession, run: UUID, key: str, c: Classification, pass_no: int
+    ) -> None:
+        await s.execute(
+            text(
+                "INSERT INTO job_posting_classifications (tenant_id, run_id,"
+                " posting_key, posting_class, classified_by, reason, rule_id,"
+                " evidence_sentence, second_pass_label, pass_no)"
+                " VALUES (:t, :r, :k, :c, :by, :why, :rule, :ev, :second, :n)"
+            ),
+            {
+                "t": self.tenant_id,
+                "r": run,
+                "k": key,
+                "c": c.label,
+                "by": c.classified_by,
+                "why": c.reason,
+                "rule": c.rule_id,
+                "ev": c.evidence_sentence,
+                "second": c.second_pass_label,
+                "n": pass_no,
+            },
+        )
 
     async def save_run(self, run_id: str, record: PipelineResult) -> None:
         """Write postings, sentences, classifications, observations and the record in one
@@ -95,44 +195,9 @@ class PgPostingRepo:
                     },
                 )
                 for sentence in p.sentences:
-                    await s.execute(
-                        text(
-                            "INSERT INTO job_posting_platform_sentences (tenant_id, run_id,"
-                            " posting_key, platform, sentence, start_offset, end_offset,"
-                            " span_sha256) VALUES (:t, :r, :k, :p, :s, :a, :b, :h)"
-                        ),
-                        {
-                            "t": self.tenant_id,
-                            "r": run,
-                            "k": p.posting_key,
-                            "p": sentence.platform,
-                            "s": sentence.text,
-                            "a": sentence.start,
-                            "b": sentence.end,
-                            "h": sentence.sha256,
-                        },
-                    )
+                    await self._sentence(s, run, p.posting_key, sentence, 0)
                 if p.classification is not None:
-                    c = p.classification
-                    await s.execute(
-                        text(
-                            "INSERT INTO job_posting_classifications (tenant_id, run_id,"
-                            " posting_key, posting_class, classified_by, reason, rule_id,"
-                            " evidence_sentence, second_pass_label)"
-                            " VALUES (:t, :r, :k, :c, :by, :why, :rule, :ev, :second)"
-                        ),
-                        {
-                            "t": self.tenant_id,
-                            "r": run,
-                            "k": p.posting_key,
-                            "c": c.label,
-                            "by": c.classified_by,
-                            "why": c.reason,
-                            "rule": c.rule_id,
-                            "ev": c.evidence_sentence,
-                            "second": c.second_pass_label,
-                        },
-                    )
+                    await self._classification(s, run, p.posting_key, p.classification, 0)
                 await s.execute(
                     text(
                         "INSERT INTO job_posting_observations (tenant_id, account_id, run_id,"
@@ -180,3 +245,14 @@ class PgPostingRepo:
                 )
             ).first()
         return None if row is None or row.first is None else (row.first, row.last)
+
+
+def _class_row(c: Classification) -> tuple[object, ...]:
+    return (
+        c.label,
+        c.classified_by,
+        c.reason,
+        c.rule_id,
+        c.evidence_sentence,
+        c.second_pass_label,
+    )

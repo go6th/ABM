@@ -45,14 +45,17 @@ def load_patterns(path: Path | None = None) -> tuple[re.Pattern[str], ...]:
     return tuple(re.compile(x.strip(), re.I) for x in lines if x.strip() and not x.startswith("#"))
 
 
+@lru_cache(maxsize=64)
+def _term_patterns(terms: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
+    """Literal terms as word-bounded, case-insensitive patterns (compiled once per term set)."""
+    return tuple(
+        re.compile(r"(?<!\w)" + re.escape(t.strip()) + r"(?!\w)", re.I) for t in terms if t.strip()
+    )
+
+
 def scan_text(text: str, extra_terms: Iterable[str] = ()) -> tuple[Hit, ...]:
     """All hits in ``text``; literal ``extra_terms`` match on word boundaries, any case."""
-    patterns = list(load_patterns())
-    patterns += [
-        re.compile(r"(?<!\w)" + re.escape(t.strip()) + r"(?!\w)", re.I)
-        for t in extra_terms
-        if t and t.strip()
-    ]
+    patterns = load_patterns() + _term_patterns(tuple(t for t in extra_terms if t))
     return tuple(Hit(p.pattern, m.start()) for p in patterns for m in p.finditer(text))
 
 

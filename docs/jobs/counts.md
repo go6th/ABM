@@ -6,7 +6,8 @@ Counts computed from posting rows only (J1). Pure; no function here accepts a co
 
 Definitions (the contract in ``docs/jobs/counts.md``):
 
-* ``pulled``: raw records returned (live board plus feed), before dedupe; ``deduped``: postings.
+* ``pulled``: raw records returned (live board plus feed), before dedupe, given as the records or
+  their provenance references (a gap pass has only the references); ``deduped``: postings.
 * the ANALYSED set is in-window plus undated postings (undated are included and counted, a
   proposal); ``in_window`` counts the analysed set, ``undated`` is its undated part and
   ``out_of_window`` is excluded from everything below.

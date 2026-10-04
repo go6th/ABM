@@ -84,11 +84,19 @@ class CoverageRepo(Protocol):
         ...
 
 
+class BuildIncomplete(RuntimeError):
+    """The builder could not deliver a complete file set; ``reason`` ends the run PARTIAL
+    (``build_failed``). Raised by ``BuilderPort.build``; nothing was stored."""
+
+    reason = "build_failed"
+
+
 class BuilderPort(Protocol):
-    """Workflow spec port: deliverable builders (no production builder yet; NotConfigured)."""
+    """Workflow spec port: deliverable builders (``exports.builder.ExportBuilder``)."""
 
     async def build(self, tenant_id: str, run_id: str) -> list[str]:
-        """Generate the standing file set from stored rows."""
+        """Generate, verify and store the standing file set from stored rows; the stored ids.
+        Raises ``NotConfigured`` (an adapter is missing) or ``BuildIncomplete``."""
         ...
 
 
