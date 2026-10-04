@@ -45,6 +45,7 @@ OWNERS: dict[str, set[str]] = {
     "person_post_pulls": {"people/repo.py"},
     "person_events": {"people/repo.py"},
     "people_pipeline_runs": {"people/repo.py"},
+    "deliverables": {"exports/store.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {
