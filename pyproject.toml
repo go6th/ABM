@@ -34,7 +34,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/account_intelligence", "src/jobs"]
+packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend"]
 
 [dependency-groups]
 dev = [
@@ -81,7 +81,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source_pkgs = ["account_intelligence"]
+source_pkgs = ["account_intelligence", "spend"]
 branch = true
 
 [tool.coverage.report]
@@ -90,7 +90,7 @@ show_missing = true
 
 # W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports
 [tool.importlinter]
-root_packages = ["account_intelligence", "jobs"]
+root_packages = ["account_intelligence", "jobs", "people", "spend"]
 
 [[tool.importlinter.contracts]]
 name = "platform ports and adapters depend on nothing above them"
@@ -144,6 +144,16 @@ type = "forbidden"
 source_modules = ["account_intelligence.workflow", "account_intelligence.runs"]
 forbidden_modules = ["account_intelligence.api", "account_intelligence.app"]
 
+[[tool.importlinter.contracts]]
+name = "the credit cap never imports the api, app or runs; only its plan adapter reads the workflow spec"
+type = "forbidden"
+source_modules = ["spend"]
+forbidden_modules = [
+    "account_intelligence.api", "account_intelligence.app", "account_intelligence.runs",
+    "account_intelligence.workflow",
+]
+ignore_imports = ["spend.plan -> account_intelligence.workflow.spec"]
+
 # Section 10: every public module, class, function and method has a docstring (100%).
 [tool.interrogate]
 fail-under = 100
@@ -178,13 +188,23 @@ paths_to_mutate = [
     "src/account_intelligence/tracker/completion.py",
     "src/jobs/counts.py",
     "src/jobs/window.py",
+    "src/spend/money.py",
+    "src/spend/gate.py",
+    "src/spend/priority.py",
+    "src/spend/approval.py",
+    "src/spend/report.py",
+    "src/spend/reconcile.py",
 ]
 tests_dir = [
     "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
     "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
+    "tests/spend/test_core.py", "tests/spend/test_properties.py",
+    "tests/spend/test_mutation_kills.py",
 ]
 also_copy = ["config/", "scripts/", ".claude/", "evals/", "tests/", "docs/", "src/"]
 pytest_add_cli_args_test_selection = [
     "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
     "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
+    "tests/spend/test_core.py", "tests/spend/test_properties.py",
+    "tests/spend/test_mutation_kills.py",
 ]
