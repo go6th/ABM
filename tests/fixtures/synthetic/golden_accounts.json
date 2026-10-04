@@ -1,0 +1,59 @@
+{
+  "dataset_type": "synthetic_fixture",
+  "accounts": [
+    {
+      "account_id": "synthetic-alpha",
+      "account_name": "Synthetic Alpha Company",
+      "domain": "alpha.example.invalid",
+      "capture_date": "2026-09-01",
+      "analyst_review": {"reviewed": false, "reviewer": null, "reviewed_at": null},
+      "known_correct_facts": [
+        {
+          "attribute_key": "headquarters",
+          "value": "Synthetic City",
+          "grade": "confirmed",
+          "source_url": "https://alpha.example.invalid/about",
+          "source_code": "S-0001",
+          "quote": "Synthetic fixture: located in Synthetic City.",
+          "captured_at": "2026-09-01"
+        }
+      ]
+    },
+    {
+      "account_id": "synthetic-bravo",
+      "account_name": "Synthetic Bravo Company",
+      "domain": "bravo.example.invalid",
+      "capture_date": "2026-09-02",
+      "analyst_review": {"reviewed": false, "reviewer": null, "reviewed_at": null},
+      "known_correct_facts": [
+        {
+          "attribute_key": "headquarters",
+          "value": "Synthetic Town",
+          "grade": "confirmed",
+          "source_url": "https://bravo.example.invalid/about",
+          "source_code": "S-0001",
+          "quote": "Synthetic fixture: located in Synthetic Town.",
+          "captured_at": "2026-09-02"
+        }
+      ]
+    },
+    {
+      "account_id": "synthetic-charlie",
+      "account_name": "Synthetic Charlie Company",
+      "domain": "charlie.example.invalid",
+      "capture_date": "2026-09-03",
+      "analyst_review": {"reviewed": false, "reviewer": null, "reviewed_at": null},
+      "known_correct_facts": [
+        {
+          "attribute_key": "headquarters",
+          "value": "Synthetic Borough",
+          "grade": "confirmed",
+          "source_url": "https://charlie.example.invalid/about",
+          "source_code": "S-0001",
+          "quote": "Synthetic fixture: located in Synthetic Borough.",
+          "captured_at": "2026-09-03"
+        }
+      ]
+    }
+  ]
+}
