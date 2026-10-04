@@ -368,8 +368,12 @@ class _SyntheticBalances:
         from spend.models import BalanceSnapshot
 
         return BalanceSnapshot(
-            provider_code=provider_code, status="ok", balance=Decimal("1000"), unit="credit",
-            source="synthetic", taken_at=datetime.now(UTC),
+            provider_code=provider_code,
+            status="ok",
+            balance=Decimal("1000"),
+            unit="credit",
+            source="synthetic",
+            taken_at=datetime.now(UTC),
         )
 
 

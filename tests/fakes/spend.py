@@ -45,8 +45,15 @@ class FakeNotifier:
 
 def op(code: str, operation: str, low: int, expected: int, high: int, known: bool = True) -> OpCost:
     """A synthetic cost line in micro-dollars."""
-    return OpCost(provider_code=code, operation=operation, low_micros=low, expected_micros=expected,
-                  high_micros=high, known=known, cost_source="documented" if known else "unknown")
+    return OpCost(
+        provider_code=code,
+        operation=operation,
+        low_micros=low,
+        expected_micros=expected,
+        high_micros=high,
+        known=known,
+        cost_source="documented" if known else "unknown",
+    )
 
 
 COSTS: dict[tuple[str, str], OpCost] = {
@@ -56,13 +63,39 @@ COSTS: dict[tuple[str, str], OpCost] = {
 }
 
 PLAN: Sequence[PlanItem] = (
-    PlanItem(row_key="company_news", stage="news", priority="High", provider_code="p_search",
-             operation="web_search", calls=8, mandatory=True),
-    PlanItem(row_key="job_postings_12_months", stage="jobs", priority="High",
-             provider_code="p_signals", operation="job_openings", calls=1, mandatory=True),
-    PlanItem(row_key="full_profiles_senior_people", stage="people", priority="High",
-             provider_code="p_people", operation="profile_enrichment", calls=40),
-    PlanItem(row_key="research_papers", stage="news", priority="Optional", provider_code="p_search",
-             operation="web_search", calls=4),
+    PlanItem(
+        row_key="company_news",
+        stage="news",
+        priority="High",
+        provider_code="p_search",
+        operation="web_search",
+        calls=8,
+        mandatory=True,
+    ),
+    PlanItem(
+        row_key="job_postings_12_months",
+        stage="jobs",
+        priority="High",
+        provider_code="p_signals",
+        operation="job_openings",
+        calls=1,
+        mandatory=True,
+    ),
+    PlanItem(
+        row_key="full_profiles_senior_people",
+        stage="people",
+        priority="High",
+        provider_code="p_people",
+        operation="profile_enrichment",
+        calls=40,
+    ),
+    PlanItem(
+        row_key="research_papers",
+        stage="news",
+        priority="Optional",
+        provider_code="p_search",
+        operation="web_search",
+        calls=4,
+    ),
 )
 STAGES = ("setup", "news", "jobs", "people")

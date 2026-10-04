@@ -1,0 +1,27 @@
+{
+  "_label": "SYNTHETIC hand-written oracles for the credit cap. Every expected value was worked out by hand from config/spend.yaml (headroom 10%, rounding step $0.05, variance threshold 25%) and the documented p_search web_search price ($0.005 a call, advanced mode, 10 results), not produced by the code under test.",
+  "within_cap": {
+    "_work": "plan 10 calls x $0.005 expected = $0.050; +10% = $0.055; round up to $0.05 -> cap $0.10. 6 distinct paid calls = $0.030, plus 2 replays (free). advisory $0.050; variance -$0.020; |0.020| > 25% of 0.050 (0.0125) -> flag.",
+    "plan_calls": 10, "paid": 6, "replays": 2,
+    "cap_micros": 100000,
+    "totals": {"spent_usd": "$0.03", "ledger_usd": "$0.03", "cap_usd": "$0.10", "remaining_usd": "$0.07", "percent_of_cap": "30%", "overshoot_usd": "$0.00"},
+    "p_search": {"paid_calls": 6, "prepulled_calls": 0, "usd": "$0.03", "share": "100%", "advisory_usd": "$0.05", "variance": "-$0.02", "flag": true, "open_reserves": 0, "unknown_cost_calls": 0},
+    "status": "reconciled", "extensions": 0, "cap_versions": 1
+  },
+  "cap_reached": {
+    "_work": "plan 2 calls x $0.005 = $0.010; +10% = $0.011; round up -> cap $0.05. Each call reserves $0.005: the 10th fits exactly ($0.050 <= $0.050), the 11th is refused (BudgetExceeded). advisory $0.010; variance +$0.04 -> flag.",
+    "plan_calls": 2, "attempted": 11, "paid": 10,
+    "cap_micros": 50000,
+    "totals": {"spent_usd": "$0.05", "ledger_usd": "$0.05", "cap_usd": "$0.05", "remaining_usd": "$0.00", "percent_of_cap": "100%", "overshoot_usd": "$0.00"},
+    "p_search": {"paid_calls": 10, "prepulled_calls": 0, "usd": "$0.05", "share": "100%", "advisory_usd": "$0.01", "variance": "$0.04", "flag": true, "open_reserves": 0, "unknown_cost_calls": 0},
+    "status": "reconciled", "extensions": 0, "cap_versions": 1
+  },
+  "extension": {
+    "_work": "as cap_reached: cap $0.05, 10 paid calls; attended run requests an extension to $0.08, a person approves it (version 2). 4 more paid calls: spent $0.07; remaining $0.01; 70000 x 100 // 80000 = 87%. The extension version carries no breakdown, so the advisory figure is not measured.",
+    "plan_calls": 2, "paid_before": 10, "extension_micros": 80000, "paid_after": 4,
+    "totals": {"spent_usd": "$0.07", "ledger_usd": "$0.07", "cap_usd": "$0.08", "remaining_usd": "$0.01", "percent_of_cap": "87%", "overshoot_usd": "$0.00"},
+    "p_search": {"paid_calls": 14, "prepulled_calls": 0, "usd": "$0.07", "share": "100%", "advisory_usd": "not measured", "variance": "not measured", "flag": false, "open_reserves": 0, "unknown_cost_calls": 0},
+    "status": "reconciled", "extensions": 1, "cap_versions": 2,
+    "cap_version_amounts": ["$0.05", "$0.08"]
+  }
+}
