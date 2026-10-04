@@ -4,7 +4,8 @@
   reservation, seeded tracker, one transaction) and enqueues slice 0. Same key and body replays
   (200 with the first run); same key, other body: 409 (defect 5); no credits: 402.
 * ``GET /v1/runs/{id}``: status and the client-safe tracker view (leak-scanned).
-* ``POST /v1/runs/{id}/approve``: AWAITING_APPROVAL to RUNNING and the next slice is enqueued.
+* ``POST /v1/runs/{id}/approve``: AWAITING_APPROVAL to RUNNING and the next slice is enqueued
+  (a run that requires a credit cap needs ``/cap/approve`` first, ``api.routes.spend``).
 * ``POST /v1/runs/{id}/cancel``: ends the run CANCELED and settles the spend so far.
 No endpoint accepts a tenant id, and none sends outreach.
 """
@@ -120,10 +121,19 @@ async def get_run(
 async def approve(
     run_id: UUID, request: Request, ident: Identity = Depends(require_role("admin", "seller"))
 ) -> dict[str, str]:
-    """Approve a run waiting at the approval gate and enqueue its next slice."""
+    """Approve a run waiting at the approval gate and enqueue its next slice. A run that requires
+    a credit cap needs its cap approved first (``/cap/approve``, K2): 409 otherwise."""
     container = _container(request)
     try:
         async with tenant_txn(ident.tenant_id) as s:
+            cap = (
+                await s.execute(
+                    text("SELECT cap_required, cap_version FROM account_runs WHERE id = :r"),
+                    {"r": run_id},
+                )
+            ).first()
+            if cap is not None and cap.cap_required and cap.cap_version is None:
+                raise HTTPException(409, "approve the credit cap first (POST .../cap/approve)")
             await lifecycle.move(s, run_id, RunStatus.AWAITING_APPROVAL, RunStatus.RUNNING)
             used: int = (
                 await s.execute(

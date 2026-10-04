@@ -70,6 +70,9 @@ class ReasonCode(StrEnum):
     OUT_OF_SCOPE = "out_of_scope"
     RESULT_COUNT_UNKNOWN = "result_count_unknown"
     NOT_PLANNED = "not_planned"
+    # Added by credit cap v1 (D-28, D-31):
+    NO_CAP = "no_cap"
+    CREDITS_EXHAUSTED = "credits_exhausted"
 
 
 SWEEP_REASONS = frozenset(

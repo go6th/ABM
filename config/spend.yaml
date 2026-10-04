@@ -1,0 +1,73 @@
+# Credit cap v1 (one cap per run, per-provider spend from the ledger, end-of-run report).
+# INTERNAL. Every number has a `source` or a `status`. Prices live in config/providers.yaml (with
+# sources); nothing here is a price. Not given anywhere (V7): a provider credit-to-USD rate, the
+# per-call price of the feeds, free balance endpoints, headroom, extension limits, approval
+# timeouts, approver roles, the tenant auto-approval limit, the variance threshold.
+version: "2026-10-03.1"
+status: proposal
+decisions: [D-27, D-28, D-29, D-30, D-31]
+
+# D-27: the cap is one USD number per run (integer micro-dollars in code). Entering a cap in
+# credits is allowed only for a provider with a sourced rate below (none today).
+cap_unit: {value: usd, status: proposal}
+credit_usd_rates: {}
+credit_usd_rates_source: "TODO, needs product owner (V7): no provider publishes a credit price for the account's plan"
+
+# The skill's default broker cap per run, shown beside every proposal (references 04 and 08).
+default_cap_usd: {value: "5.00", source: "skill references/04 and 08: broker spend cap per run $5.00 hard"}
+default_tool_call_cap: {value: 60, source: "skill references/04: tool calls per run 60"}
+
+# Proposal arithmetic (proposals, D-29).
+headroom_pct: {value: 10, status: proposal}
+rounding_step_usd: {value: "0.05", status: proposal}
+
+# Approval (D-28). Who may approve and how long an approval waits are not in the sources.
+approver_roles: {value: [admin], status: proposal}
+approval_ttl_minutes: {value: 1440, status: proposal}   # matches the runner's 24 hour approval timeout
+# A tenant policy may auto-approve a proposal at or below the run's created budget (the run
+# reservation the tenant already agreed to); recorded as principal tenant_policy.
+auto_approve: {value: within_run_budget, status: proposal}
+
+# Extensions beyond the cap (D-28): attended runs only, at most this many, each freshly approved.
+max_extensions: {value: 1, status: proposal}
+extension_ttl_minutes: {value: 60, status: proposal}
+
+# Spend waves in the budget node (not the planner gap loop of ARCH).
+max_spend_waves: {value: 3, status: proposal}
+
+# Sample-estimate step for operations with unknown cost (PRD: "estimate on a sample first").
+sample_size: {value: 3, status: proposal}
+sample_hold_usd: {value: "0.25", source: "config/providers.yaml defaults.unknown_cost_reserve_usd (budget placeholder)"}
+
+# Balance snapshots (K15).
+max_snapshot_age_minutes: {value: 60, status: proposal}
+low_balance_credits: {value: null, source: "TODO, needs product owner"}
+
+# Reporting.
+variance_threshold_pct: {value: 25, status: proposal}
+
+# D-31: on credit exhaustion the row is Blocked and a pre-pulled file may be supplied; a fallback
+# provider is used only when the tenant sets this true.
+allow_fallback_on_exhaustion: {value: false, source: "PRD 3.5: supply a pre-pulled file rather than fall back to a weaker source"}
+
+# K14: operations that cost nothing, each with a source. None is proven free today (the PRD calls
+# open web search free; the provider's pricing page contradicts it: config/providers.yaml).
+free_operations: []
+free_operations_source: "none sourced"
+
+# Spend categories shown to the tenant (SaaS 6: credits and categories, never vendors).
+categories:
+  status: proposal
+  by_operation:
+    web_search: pages_read
+    read_page: pages_read
+    scrape_job_page: postings
+    news_events: news
+    job_openings: postings
+    tech_detections: technology
+    org_resolve: technology
+    org_tech_stack: technology
+    people_by_technology: people
+    people_by_title: people
+    profile_enrichment: people
+    org_teams: people

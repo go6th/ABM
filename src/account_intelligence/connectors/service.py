@@ -239,14 +239,14 @@ async def _policy_checks(
 
 
 async def _claim(
-    rt: ConnectorRuntime, ctx: CallContext, key: CallKey, estimate: float
+    rt: ConnectorRuntime, ctx: CallContext, key: CallKey, estimate: float, cost_known: bool = True
 ) -> Replay | Claimed:
     cfg = rt.config.defaults.ledger
     waited = 0.0
     # LOOP(in-flight wait): cap=in_flight_wait_s (polls every in_flight_poll_s); exit=claimed,
     # replayed, CallInFlight
     while True:
-        claim = await rt.ledger.claim(ctx, rt.worker_id, key, estimate)
+        claim = await rt.ledger.claim(ctx, rt.worker_id, key, estimate, cost_known=cost_known)
         if not isinstance(claim, InFlight):
             return claim
         if waited >= cfg.in_flight_wait_s:
@@ -295,7 +295,7 @@ async def _fetch_page(
         fell_back_from=fell_back_from,
     )
     estimate = rt.cost.estimate(provider, op, args)
-    claim = await _claim(rt, ctx, key, estimate.charged_usd)
+    claim = await _claim(rt, ctx, key, estimate.charged_usd, estimate.cost_source != "unknown")
 
     if isinstance(claim, Replay):
         meta = claim.response or {}

@@ -234,9 +234,11 @@ def make_run(
             (tenant, domain),
         ).fetchone()[0]
         run = c.execute(
+            # cap_required false: these tests exercise the ledger and the budget reserve under
+            # the legacy rule; the credit cap gate has its own tests (tests/spend).
             "INSERT INTO account_runs (tenant_id, account_id, graph_version, budget_json,"
-            " reserved_credits, idempotency_key, budget_usd, tool_call_cap)"
-            " VALUES (%s, %s, 'test', '{}', 1, %s, %s, %s) RETURNING id",
+            " reserved_credits, idempotency_key, budget_usd, tool_call_cap, cap_required)"
+            " VALUES (%s, %s, 'test', '{}', 1, %s, %s, %s, false) RETURNING id",
             (tenant, account, "k-" + uuid4().hex, budget_usd, call_cap),
         ).fetchone()[0]
     return account, run, domain

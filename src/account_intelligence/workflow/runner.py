@@ -76,6 +76,10 @@ async def _finish(deps: RunDeps, target: RunStatus, reason: str | None, refund_a
         status, _ = await lifecycle.finish(
             s, deps.tracker(s), deps.run_id, target, reason=reason, refund_all=refund_all
         )
+    # credit cap K12: after the one settlement, the spend report is reconciled and stored once
+    from account_intelligence.workflow.stages.spend import close as close_spend
+
+    await close_spend(deps)
     return status
 
 

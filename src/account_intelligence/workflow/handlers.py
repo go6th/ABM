@@ -62,6 +62,28 @@ def build_handlers(deps: RunDeps) -> dict[str, StageHandler]:
             else {}
         )
         handlers[stage_id] = ResearchStage(specs[stage_id], deps, labels, prefix, fixed)
+    # the careers lookup setup deferred until the cap was approved (credit cap, conflict C12)
+    # runs at the start of the first stage after the approval gate
+    from account_intelligence.workflow.stages import spend as spend_stage
+
+    first = next((s for s in deps.spec.topological_order if s not in ("setup",)), None)
+    if first is not None and first in handlers:
+        inner = handlers[first]
+
+        async def first_after_approval(state: RunState) -> dict[str, Any]:
+            """Deferred careers lookup, then the stage itself."""
+            extra = await spend_stage.after_approval(deps, state)
+            if extra:
+                state = {
+                    **state,
+                    "references": {**(state.get("references") or {}), **extra["references"]},
+                }
+            result: dict[str, Any] = await inner(state)
+            if extra:
+                result["references"] = {**extra["references"], **(result.get("references") or {})}
+            return result
+
+        handlers[first] = first_after_approval
     grading = GradingStages(deps, specs)
     handlers["setup"] = _bind(core.setup, deps)
     handlers["jobs"] = _bind(core.jobs_stage, deps)

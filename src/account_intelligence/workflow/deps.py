@@ -49,6 +49,10 @@ class RunDeps:
     extra_allowed_hosts: frozenset[str] = field(default_factory=frozenset)
     run_input: dict[str, Any] = field(default_factory=dict)
     deadline: float | None = None
+    # credit cap ports (spend.ports): free balance check and operator prompt; None in production
+    # until a balance endpoint and a notifier exist (balances then read ``unknown``)
+    balances: Any | None = None
+    notifier: Any | None = None
 
     def call_context(self) -> CallContext:
         """Connector call identity, from the run (never from arguments)."""

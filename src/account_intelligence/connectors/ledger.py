@@ -39,7 +39,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.connectors import budget as budget_mod
 from account_intelligence.connectors.base import CallContext, Clock
-from account_intelligence.connectors.errors import LeaseLost, LeaseUnavailable
+from account_intelligence.connectors.errors import (
+    BudgetExceeded,
+    CapRefused,
+    LeaseLost,
+    LeaseUnavailable,
+)
 
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
 
@@ -221,8 +226,11 @@ class Ledger:
         estimate_usd: float,
         *,
         charge_budget: bool = True,
+        cost_known: bool = True,
     ) -> ClaimResult:
-        """Replay a done call, wait for one in flight, or claim a new attempt and reserve."""
+        """Replay a done call, wait for one in flight, or claim a new attempt and reserve. A new
+        paid attempt first passes the credit cap gate (``spend.gate.decide``) in this same
+        transaction; a replay never does (it costs nothing)."""
         async with self._txn(ctx.tenant_id) as s:
             epoch = await self._upsert_lease(s, ctx.run_id, owner)  # also the run mutex
             done = (
@@ -292,6 +300,7 @@ class Ledger:
                     if charge_budget:
                         await budget_mod.true_up(s, ctx.run_id, float(charged - last.reserved_usd))
             if charge_budget:
+                await self._cap_gate(s, ctx, key, estimate_usd, cost_known)
                 await budget_mod.reserve(s, ctx.run_id, estimate_usd, self._budget_defaults)
             await self._insert_event(
                 s,
@@ -312,6 +321,62 @@ class Ledger:
                 possible_duplicate=possible_duplicate,
                 resume_job_id=resume_job,
             )
+
+    async def _cap_gate(
+        self, s: AsyncSession, ctx: CallContext, key: CallKey, estimate_usd: float, cost_known: bool
+    ) -> None:
+        """The credit cap decision for one new paid attempt (``CapRefused`` or ``BudgetExceeded``
+        when refused). Reads the run's enforcement columns under the run lease held by
+        ``claim``."""
+        from spend.config import load_spend_config
+        from spend.gate import RunCapState, decide
+        from spend.money import usd_to_micros
+
+        row = (
+            await s.execute(
+                text(
+                    "SELECT cap_required, cap_version, budget_usd, spent_usd, cap_overshoot_usd,"
+                    " cap_sample_ops FROM account_runs WHERE id = :r"
+                ),
+                {"r": ctx.run_id},
+            )
+        ).first()
+        if row is None:
+            raise budget_mod.RunNotFound()
+        op_key = f"{key.provider_code}:{key.operation}"
+        allowed = dict(row.cap_sample_ops or {})
+        left: dict[str, int] = {}
+        if op_key in allowed:
+            used: Any = (
+                await s.execute(
+                    text(
+                        "SELECT count(DISTINCT args_hash) FROM tool_call_events WHERE run_id = :r"
+                        " AND provider_code = :p AND operation = :o AND event = 'started'"
+                    ),
+                    {"r": ctx.run_id, "p": str(key.provider_code), "o": str(key.operation)},
+                )
+            ).scalar_one()
+            left[op_key] = int(allowed[op_key]) - int(used)
+        state = RunCapState(
+            cap_required=bool(row.cap_required),
+            cap_version=row.cap_version,
+            budget_micros=usd_to_micros(row.budget_usd) if row.budget_usd is not None else None,
+            spent_micros=usd_to_micros(row.spent_usd),
+            overshoot_micros=usd_to_micros(row.cap_overshoot_usd),
+            sample_calls_left=left,
+        )
+        decision = decide(
+            state,
+            op_key,
+            usd_to_micros(Decimal(str(round(estimate_usd, 6)))),
+            cost_known,
+            load_spend_config().free_operations,
+        )
+        if decision.allowed:
+            return
+        if decision.reason == "cap_reached":
+            raise BudgetExceeded(provider_code=key.provider_code, operation=key.operation)
+        raise CapRefused(decision.reason, provider_code=key.provider_code, operation=key.operation)
 
     async def mark_submitted(
         self, ctx: CallContext, owner: str, key: CallKey, claim: Claimed, job_id: str

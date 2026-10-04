@@ -296,7 +296,10 @@ async def start_run(
             s,
             t,
             RunRequest(DOMAIN, "standard", f"k-{t}", run_input or {}),
-            RunLimits("v1", Decimal("5.00"), 60, Decimal("6.0")),
+            # created budget $20: the credit cap proposal for the full workflow plan is about $9.75
+            # (credit-priced calls are held at the $0.25 reserve), and a tenant policy may only
+            # auto-approve a cap within the created budget (spend, proposal D-28)
+            RunLimits("v1", Decimal("20.00"), 60, Decimal("6.0")),
             tracker(s),
         )
     runtime = harness.runtime()
@@ -331,6 +334,7 @@ async def start_run(
             canary=CANARY,
             extra_allowed_hosts=hosts,
             run_input=dict(row.run_input or {}),
+            balances=SYNTHETIC_BALANCES,
         )
 
     scheduler = InProcessScheduler()
@@ -351,6 +355,25 @@ async def start_run(
     scheduler.runner = run_slice
     await scheduler.enqueue_slice(t, created.run_id, 0)
     return Run(t, created.run_id, scheduler, llm, script)
+
+
+class _SyntheticBalances:
+    """Every synthetic provider reports an ``ok`` balance (credit cap K15 preflight)."""
+
+    async def balance(self, provider_code: str) -> Any:
+        """An ``ok`` snapshot taken now on the harness clock's date."""
+        from datetime import UTC, datetime
+        from decimal import Decimal
+
+        from spend.models import BalanceSnapshot
+
+        return BalanceSnapshot(
+            provider_code=provider_code, status="ok", balance=Decimal("1000"), unit="credit",
+            source="synthetic", taken_at=datetime.now(UTC),
+        )
+
+
+SYNTHETIC_BALANCES = _SyntheticBalances()
 
 
 def admin(sql: str, *params: object) -> list[tuple[Any, ...]]:
@@ -415,6 +438,7 @@ async def drive(
             canary=CANARY,
             extra_allowed_hosts=frozenset({DOMAIN, f"news.{DOMAIN}"}),
             run_input=dict(row.run_input or {}),
+            balances=SYNTHETIC_BALANCES,
         )
 
     scheduler = InProcessScheduler()
@@ -439,7 +463,10 @@ async def create_only(harness: Harness, auto_approve: bool = True) -> tuple[UUID
             s,
             t,
             RunRequest(DOMAIN, "standard", f"k-{t}", {}),
-            RunLimits("v1", Decimal("5.00"), 60, Decimal("6.0")),
+            # created budget $20: the credit cap proposal for the full workflow plan is about $9.75
+            # (credit-priced calls are held at the $0.25 reserve), and a tenant policy may only
+            # auto-approve a cap within the created budget (spend, proposal D-28)
+            RunLimits("v1", Decimal("20.00"), 60, Decimal("6.0")),
             tracker(s),
         )
     return t, created.run_id

@@ -106,6 +106,18 @@ class BudgetExceeded(ConnectorError):
     reason = "run budget or call cap reached"
 
 
+class CapRefused(ConnectorError):
+    """The credit cap gate refused a paid call before any reservation (``spend.gate``):
+    ``no_cap`` (no approved cap, K2), ``unknown_cost`` (no hold and no sample line, K5) or
+    ``overshoot`` (a recorded overshoot stops further paid calls, K4). Never retried."""
+
+    reason = "paid call refused by the credit cap gate"
+
+    def __init__(self, cap_reason: str, **kw: object) -> None:
+        super().__init__(f"credit cap gate: {cap_reason}", **kw)  # type: ignore[arg-type]
+        self.cap_reason = cap_reason
+
+
 class CircuitOpen(ConnectorError):
     """The provider's breaker is open; routing may fall back."""
 

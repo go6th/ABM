@@ -81,10 +81,16 @@ async def reserve(
 
 
 async def true_up(session: AsyncSession, run_id: UUID, delta_usd: float) -> None:
-    """Apply (actual charge - reservation). Negative refunds the unused part."""
+    """Apply (actual charge - reservation). Negative refunds the unused part. The actual is never
+    clamped: a charge above the reservation (the call's declared upper bound) is also added to
+    ``cap_overshoot_usd`` (credit cap K4), which keeps ``spent <= budget + overshoot`` true and
+    stops further paid calls through the cap gate."""
     if delta_usd == 0:
         return
     await session.execute(
-        text("UPDATE account_runs SET spent_usd = spent_usd + :d WHERE id = :run"),
+        text(
+            "UPDATE account_runs SET spent_usd = spent_usd + :d,"
+            " cap_overshoot_usd = cap_overshoot_usd + GREATEST(:d, 0) WHERE id = :run"
+        ),
         {"d": _money(delta_usd), "run": run_id},
     )

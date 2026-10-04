@@ -1,17 +1,18 @@
 """The non-research stages: ``setup`` (1), ``jobs`` (5), ``build`` (11), ``gate`` (12) and
 ``deliver`` (13).
 
-* ``setup`` resolves the careers URL BY VISITING IT: candidate URLs come only from a search
-  restricted to the account's own domain, and one is stored as verified only after a successful
-  page read of exactly that URL (never constructed). It records whether approval is required:
-  the tenant policy may auto-approve within the reserved budget; otherwise the engine's approval
-  gate interrupts the graph (AWAITING_APPROVAL, 24 hour timeout).
+* ``setup`` proposes the run's credit cap (``spend``, PRD step 1) and records whether approval
+  is required: the tenant policy may auto-approve within the run's created budget; otherwise the
+  engine's approval gate interrupts the graph (AWAITING_APPROVAL, 24 hour timeout). It resolves
+  the careers URL BY VISITING IT (candidate URLs only from a search restricted to the account's
+  own domain, stored as verified only after a successful read of exactly that URL) once the cap
+  is approved: in setup when auto-approved, otherwise first thing after the approval.
 * ``jobs`` runs ``jobs.stage.run_jobs`` over the connector-backed adapters.
 * ``build`` and ``gate`` call ``BuilderPort`` and ``GatePort``. No production builder exists yet:
   ``NotConfigured`` is recorded and the run ends PARTIAL with ``builders_not_configured``, never
   COMPLETED with nothing built.
-* ``deliver`` writes the delivery note once (what was found, what is open, credits used against
-  the cap), runs it through the client-output scanner (W7) and stores it by reference.
+* ``deliver`` writes the delivery note once (what was found, what is open; spend is internal,
+  D-30), runs it through the client-output scanner (W7) and stores it by reference.
 """
 
 from __future__ import annotations
@@ -52,48 +53,56 @@ async def _call(deps: RunDeps, op: Operation, args: Any) -> Any:
         return None
 
 
+async def verify_careers(deps: RunDeps) -> str:
+    """Resolve the careers URL by visiting it (paid calls: only under an approved cap)."""
+    if deps.connectors is None:
+        return "not_available_yet"
+    found = await _call(
+        deps,
+        Operation.WEB_SEARCH,
+        WebSearchArgs(queries=(f"{deps.domain} careers",), include_domains=(deps.domain,)),
+    )
+    candidates = [
+        r.url
+        for r in (found.records if found else ())
+        if isinstance(r, WebPageRecord)
+        and _on_domain(r.url, deps.domain)
+        and any(h in r.url.lower() for h in CAREER_HINTS)
+    ]
+    careers = "not_found"
+    for url in candidates[:2]:
+        page = await _call(deps, Operation.READ_PAGE, ReadPageArgs(url=url))
+        if page is not None and page.records:
+            async with deps.txn(deps.tenant_id) as session:
+                await session.execute(
+                    text(
+                        "UPDATE accounts SET careers_url = :u, careers_url_verified_at = now()"
+                        " WHERE id = :a"
+                    ),
+                    {"u": url, "a": deps.account_id},
+                )
+            host = (urlsplit(url).hostname or "").lower()
+            deps.extra_allowed_hosts = deps.extra_allowed_hosts | {host}
+            careers = "verified"
+            break
+    return careers
+
+
 async def setup(deps: RunDeps, state: RunState) -> dict[str, Any]:
-    """Step 1 (see the module docstring)."""
-    careers = "not_available_yet"
-    if deps.connectors is not None:
-        found = await _call(
-            deps,
-            Operation.WEB_SEARCH,
-            WebSearchArgs(queries=(f"{deps.domain} careers",), include_domains=(deps.domain,)),
-        )
-        candidates = [
-            r.url
-            for r in (found.records if found else ())
-            if isinstance(r, WebPageRecord)
-            and _on_domain(r.url, deps.domain)
-            and any(h in r.url.lower() for h in CAREER_HINTS)
-        ]
-        careers = "not_found"
-        for url in candidates[:2]:
-            page = await _call(deps, Operation.READ_PAGE, ReadPageArgs(url=url))
-            if page is not None and page.records:
-                async with deps.txn(deps.tenant_id) as session:
-                    await session.execute(
-                        text(
-                            "UPDATE accounts SET careers_url = :u, careers_url_verified_at = now()"
-                            " WHERE id = :a"
-                        ),
-                        {"u": url, "a": deps.account_id},
-                    )
-                host = (urlsplit(url).hostname or "").lower()
-                deps.extra_allowed_hosts = deps.extra_allowed_hosts | {host}
-                careers = "verified"
-                break
-    async with deps.txn(deps.tenant_id) as session:
-        policy: dict[str, Any] | None = (
-            await session.execute(
-                text("SELECT policy_json FROM tenants WHERE id = :t"), {"t": deps.tenant_id}
-            )
-        ).scalar_one()
-    auto = bool((policy or {}).get("auto_approve_within_reserve", False))
+    """Step 1 (see the module docstring). The credit cap is proposed first (no paid call before
+    an approved cap, K2); the careers lookup runs now only when the tenant policy approved the
+    cap, otherwise right after the approval (conflict C12)."""
+    from account_intelligence.workflow.stages.spend import propose_and_gate
+
+    gate = await propose_and_gate(deps)
+    careers = await verify_careers(deps) if gate.approved else "deferred_until_approval"
     return {
         "coverage_reports": {},
-        "references": {"careers": careers, "approval": "auto" if auto else "required"},
+        "references": {
+            "careers": careers,
+            "approval": "auto" if gate.approved else "required",
+            "cap": gate.state,
+        },
         "counters": {},
         "loop_exits": {"setup": "converged"},
     }
@@ -237,12 +246,6 @@ async def deliver(deps: RunDeps, state: RunState) -> dict[str, Any]:
     async with deps.txn(deps.tenant_id) as session:
         tracker = deps.tracker(session)
         view = await tracker.view(deps.run_id, "client")
-        money = (
-            await session.execute(
-                text("SELECT spent_usd, budget_usd FROM account_runs WHERE id = :r"),
-                {"r": deps.run_id},
-            )
-        ).one()
         others = await tracker.run_input.other_account_names(deps.tenant_id, deps.run_id)
     refs = state.get("references") or {}
     counters = state.get("counters") or {}
@@ -254,7 +257,9 @@ async def deliver(deps: RunDeps, state: RunState) -> dict[str, Any]:
         "corrected_during_checking": {"claims_dropped": counters.get("claims_dropped", 0)},
         "still_open": [r for r in view["rows"] if r["status"] not in ("Done", "None")],
         "coverage": view["tally"],
-        "budget_used": f"{money.spent_usd} of {money.budget_usd} US dollars",
+        # D-30: spend figures are internal (the spend report); the tenant sees categories and
+        # call counts in its own view, never in a client file
+        "spend": "reported internally; categories and call counts in the tenant spend view",
         "deliverables": refs.get("build", "unknown"),
         "quality_gate": refs.get("gate", "unknown"),
     }
