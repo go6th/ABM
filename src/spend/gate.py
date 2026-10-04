@@ -4,7 +4,8 @@ The connector ledger calls ``decide`` inside the claim transaction, after a repl
 answered (a replay costs nothing, K8) and before the atomic reserve (the reserve stays the only
 place spend is incremented and the final word on the cap):
 
-1. an operation proven free (``free_operations`` with a source) passes without a cap (K14);
+1. an operation proven free (``free_operations`` with a source) passes without a cap (K14),
+   unless it once returned a cost: then it is a defect and refused ``free_defect`` from then on;
 2. a run created without the cap requirement (rows from before migration 0015) keeps the legacy
    budget rule;
 3. no approved cap: refused ``no_cap`` (K2);
@@ -17,6 +18,7 @@ place spend is incremented and the final word on the cap):
 GUARANTEE(test_gate_refuses_without_an_approved_cap): K2.
 GUARANTEE(test_gate_refuses_unknown_cost_without_a_sample_line): K5.
 GUARANTEE(test_gate_stops_after_an_overshoot): K4.
+GUARANTEE(test_gate_blocks_a_free_operation_that_charged): K14.
 """
 
 from __future__ import annotations
@@ -24,7 +26,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Reason = Literal["free", "legacy", "allowed", "no_cap", "overshoot", "unknown_cost", "cap_reached"]
+Reason = Literal[
+    "free", "free_defect", "legacy", "allowed", "no_cap", "overshoot", "unknown_cost", "cap_reached"
+]
 
 
 @dataclass(frozen=True)
@@ -37,6 +41,7 @@ class RunCapState:
     spent_micros: int
     overshoot_micros: int
     sample_calls_left: dict[str, int]  # op key -> sample calls the approved cap still allows
+    defective_free_ops: frozenset[str] = frozenset()  # "free" operations that returned a cost
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,8 @@ def decide(
     if estimate_micros < 0:
         raise ValueError("an estimate cannot be negative")
     if op_key in free_operations:
+        if op_key in state.defective_free_ops:
+            return Decision(False, "free_defect")
         return Decision(True, "free")
     if not state.cap_required:
         return Decision(True, "legacy")

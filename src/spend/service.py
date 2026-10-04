@@ -20,7 +20,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from spend import repo
+from spend import prepulled, repo
 from spend.approval import check_binding, check_principal, state_of
 from spend.balances import preflight
 from spend.config import SpendConfig
@@ -276,28 +276,11 @@ async def register_prepulled(
     supplied_by: str,
     object_ref: str,
 ) -> str:
-    """Register an operator-supplied file (D-31): hash, provenance, record count; it costs
-    nothing and is consumed instead of a call. Returns its SHA-256."""
-    digest = hashlib.sha256(body).hexdigest()
+    """Register an operator-supplied file (D-31, ``spend.prepulled``) in its own transaction."""
     async with txn(tenant_id) as s:
-        await s.execute(
-            text(
-                "INSERT INTO prepulled_files (run_id, provider_code, operation, sha256,"
-                " supplied_by,"
-                " object_ref, record_count) VALUES (:r, :p, :o, :h, :by, :ref, :n)"
-                " ON CONFLICT (run_id, provider_code, operation) DO NOTHING"
-            ),
-            {
-                "r": run_id,
-                "p": provider_code,
-                "o": operation,
-                "h": digest,
-                "by": supplied_by[:200],
-                "ref": object_ref,
-                "n": record_count,
-            },
+        return await prepulled.register(
+            s, run_id, provider_code, operation, body, record_count, supplied_by, object_ref
         )
-    return digest
 
 
 async def close_run(
@@ -310,94 +293,114 @@ async def close_run(
     balances_end: Sequence[BalanceSnapshot] = (),
     llm_micros: int | None = None,
 ) -> tuple[SpendReport, TenantSpendView, int]:
-    """Reconcile and store the end-of-run report once (same content, same stored version)."""
+    """``close_in_session`` in its own tenant transaction (operator tools and tests)."""
     async with txn(tenant_id) as s:
-        # lock the run first: racing finalisations serialise and store one report (K12)
-        run = await repo.run_money(s, run_id)
-        if run is None:
-            raise CapNotApproved("run not found for this tenant")
-        recon = await reconcile_run(s, run_id, now, lease_ttl_s)
-        rows = await ledger_events(s, run_id)
-        versions = (
-            await s.execute(
-                text(
-                    "SELECT v.version, v.cap_usd, e.principal, e.at FROM run_cap_versions v"
-                    " LEFT JOIN run_cap_events e ON e.run_id = v.run_id AND e.version = v.version"
-                    " AND e.event = 'approved' WHERE v.run_id = :r ORDER BY v.version"
-                ),
-                {"r": run_id},
-            )
-        ).all()
-        advisory: dict[str, int] = {}
-        if run.cap_version is not None:
-            stored = await repo.proposal_of(s, run_id, run.cap_version) or {}
-            for line in stored.get("lines", []):
-                code = str(line["provider_code"])
-                advisory[code] = advisory.get(code, 0) + int(line["expected_micros"])
-        blocked = (
-            await s.execute(
-                text(
-                    "SELECT reason_code, row_key FROM coverage_rows WHERE run_id = :r AND"
-                    " reason_code IN ('cap_reached', 'credits_exhausted', 'no_cap', 'budget_cap')"
-                    " ORDER BY reason_code, row_key"
-                ),
-                {"r": run_id},
-            )
-        ).all()
-        by_reason: dict[str, tuple[str, ...]] = {}
-        for b in blocked:
-            by_reason[b.reason_code] = (*by_reason.get(b.reason_code, ()), b.row_key)
-        extensions: Any = (
-            await s.execute(
-                text(
-                    "SELECT count(*) FROM run_cap_events WHERE run_id = :r AND event ="
-                    " 'extension_requested'"
-                ),
-                {"r": run_id},
-            )
-        ).scalar_one()
-        start = await repo.load_snapshots(s, run_id, "start")
-        if balances_end:
-            await repo.save_snapshots(s, run_id, "end", balances_end)
-        rollup = Rollup(
-            run_id=str(run_id),
-            account_domain=run.account_domain,
-            status=run.status,
-            attended=run.attended,
-            cap_micros=run.budget_micros if run.cap_version is not None else None,
-            cap_versions=tuple(
-                (
-                    v.version,
-                    usd_to_micros(v.cap_usd),
-                    v.principal,
-                    v.at.isoformat() if v.at else None,
-                )
-                for v in versions
+        return await close_in_session(s, run_id, cfg, now, lease_ttl_s, balances_end, llm_micros)
+
+
+async def close_in_session(
+    s: AsyncSession,
+    run_id: UUID,
+    cfg: SpendConfig,
+    now: datetime,
+    lease_ttl_s: int,
+    balances_end: Sequence[BalanceSnapshot] = (),
+    llm_micros: int | None = None,
+) -> tuple[SpendReport, TenantSpendView, int]:
+    """Reconcile and store the end-of-run report once (same content, same stored version), in
+    the caller's transaction: ``lifecycle.finish`` calls it right after the one settlement, so the
+    terminal state, the settlement and the report commit together or not at all (K12). Undecided
+    cap versions of the ended run are expired (one decision each, K3)."""
+    # lock the run first: racing finalisations serialise and store one report (K12)
+    run = await repo.run_money(s, run_id)
+    if run is None:
+        raise CapNotApproved("run not found for this tenant")
+    for version in range(1, await repo.latest_version(s, run_id) + 1):
+        record = await repo.version_record(s, run_id, version, run.tenant_id)
+        if record is not None and state_of(record.events) == "proposed":
+            await repo.add_event(s, run_id, version, "expired", None, "run_ended")
+    recon = await reconcile_run(s, run_id, now, lease_ttl_s)
+    rows = await ledger_events(s, run_id)
+    versions = (
+        await s.execute(
+            text(
+                "SELECT v.version, v.cap_usd, e.principal, e.at FROM run_cap_versions v"
+                " LEFT JOIN run_cap_events e ON e.run_id = v.run_id AND e.version = v.version"
+                " AND e.event = 'approved' WHERE v.run_id = :r ORDER BY v.version"
             ),
-            spent_micros=run.spent_micros,
-            ledger_micros=recon.ledger_micros,
-            overshoot_micros=run.overshoot_micros,
-            by_provider=recon.by_provider,
-            by_category=aggregate(rows, lambda r: cfg.category(r.operation)),
-            by_operation=aggregate(rows, lambda r: f"{r.operation}:{r.route or 'direct'}"),
-            advisory=advisory,
-            blocked_rows=by_reason,
-            extensions=int(extensions),
-            llm_micros=llm_micros,
-            balances_start=start,
-            balances_end=tuple(balances_end),
-            estimated_avoided_micros=None,
+            {"r": run_id},
         )
-        report = build_report(rollup, recon.problems, cfg.variance_threshold_pct)
-        view = tenant_view(rollup)
-        version = await repo.store_report(
-            s,
-            run_id,
-            report.status,
-            report.content_hash,
-            report.body,
-            view.model_dump(mode="json"),
+    ).all()
+    advisory: dict[str, int] = {}
+    if run.cap_version is not None:
+        stored = await repo.proposal_of(s, run_id, run.cap_version) or {}
+        for line in stored.get("lines", []):
+            code = str(line["provider_code"])
+            advisory[code] = advisory.get(code, 0) + int(line["expected_micros"])
+    blocked = (
+        await s.execute(
+            text(
+                "SELECT reason_code, row_key FROM coverage_rows WHERE run_id = :r AND"
+                " reason_code IN ('cap_reached', 'credits_exhausted', 'no_cap', 'budget_cap')"
+                " ORDER BY reason_code, row_key"
+            ),
+            {"r": run_id},
         )
+    ).all()
+    by_reason: dict[str, tuple[str, ...]] = {}
+    for b in blocked:
+        by_reason[b.reason_code] = (*by_reason.get(b.reason_code, ()), b.row_key)
+    extensions: Any = (
+        await s.execute(
+            text(
+                "SELECT count(*) FROM run_cap_events WHERE run_id = :r AND event ="
+                " 'extension_requested'"
+            ),
+            {"r": run_id},
+        )
+    ).scalar_one()
+    start = await repo.load_snapshots(s, run_id, "start")
+    if balances_end:
+        await repo.save_snapshots(s, run_id, "end", balances_end)
+    rollup = Rollup(
+        run_id=str(run_id),
+        account_domain=run.account_domain,
+        status=run.status,
+        attended=run.attended,
+        cap_micros=run.budget_micros if run.cap_version is not None else None,
+        cap_versions=tuple(
+            (
+                v.version,
+                usd_to_micros(v.cap_usd),
+                v.principal,
+                v.at.isoformat() if v.at else None,
+            )
+            for v in versions
+        ),
+        spent_micros=run.spent_micros,
+        ledger_micros=recon.ledger_micros,
+        overshoot_micros=run.overshoot_micros,
+        by_provider=recon.by_provider,
+        by_category=aggregate(rows, lambda r: cfg.category(r.operation)),
+        by_operation=aggregate(rows, lambda r: f"{r.operation}:{r.route or 'direct'}"),
+        advisory=advisory,
+        blocked_rows=by_reason,
+        extensions=int(extensions),
+        llm_micros=llm_micros,
+        balances_start=start,
+        balances_end=tuple(balances_end),
+        estimated_avoided_micros=None,
+    )
+    report = build_report(rollup, recon.problems, cfg.variance_threshold_pct)
+    view = tenant_view(rollup)
+    version = await repo.store_report(
+        s,
+        run_id,
+        report.status,
+        report.content_hash,
+        report.body,
+        view.model_dump(mode="json"),
+    )
     return report, view, version
 
 
@@ -405,6 +408,7 @@ __all__ = [
     "Proposed",
     "ProposalStale",
     "approve",
+    "close_in_session",
     "close_run",
     "expire_pending",
     "propose",

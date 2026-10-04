@@ -43,6 +43,8 @@ def _line(line: SpendLine, total: int, advisory: int | None, threshold: int) -> 
     return {
         "key": line.key,
         "paid_calls": line.paid_calls,
+        "prepulled_calls": line.prepulled_calls,
+        "zero_charge_calls": line.zero_charge_calls,
         "replays": NOT_MEASURED if line.replays is None else line.replays,
         "failed_after_charge": line.failed_after_charge,
         "open_reserves": line.open_reserves,
