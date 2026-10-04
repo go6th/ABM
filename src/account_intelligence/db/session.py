@@ -63,14 +63,22 @@ def get_sync_engine() -> Engine:
 
 
 @asynccontextmanager
-async def tenant_txn(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
+async def tenant_txn(tenant_id: UUID, *, snapshot: bool = False) -> AsyncIterator[AsyncSession]:
     """One transaction == one tenant context.
 
     set_config(..., true) is transaction-local: when the transaction ends, the setting is reset,
     so a pooled connection can never carry tenant A into tenant B's request. (A bare SET LOCAL
     outside an explicit transaction is a no-op, which is why v1's middleware was unsafe.)
+
+    ``snapshot=True`` makes the transaction ``REPEATABLE READ, READ ONLY`` (issued before any
+    query, as PostgreSQL requires): every read sees one consistent snapshot and nothing can be
+    written (the export builders' B1).
     """
     async with _sessions()() as session, session.begin():
+        if snapshot:
+            await session.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            )
         await session.execute(
             text("SELECT set_config('app.tenant_id', :tid, true)"),
             {"tid": str(tenant_id)},

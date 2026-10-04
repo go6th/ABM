@@ -14,6 +14,12 @@ from jobs.models import Posting
 from jobs.normalise import strip_pii
 
 
+def is_exported(p: Posting) -> bool:
+    """The Job Postings selection: read, classified-or-matched, non-hostile postings that name a
+    platform in their description (one definition, used by ``export_rows`` and the builders)."""
+    return p.read and not p.hostile and bool(p.platforms)
+
+
 def export_rows(
     postings: Sequence[Posting], texts: Mapping[str, str], extra_terms: Sequence[str] = ()
 ) -> list[dict[str, object]]:
@@ -32,7 +38,7 @@ def export_rows(
             "status": p.status,
         }
         for p in postings
-        if p.read and not p.hostile and p.platforms
+        if is_exported(p)
     ]
     assert_client_safe([str(rows)], extra_terms)
     return rows

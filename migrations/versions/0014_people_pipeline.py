@@ -1,7 +1,7 @@
 """Alembic revision 0014: upgrade runs
 ``0014_people_pipeline.sql``; downgrade runs its ``.down.sql``.
-The SQL files hold the schema and its comments. ``down_revision`` is 0013 (the job gap passes), re-pointed when
-the people and jobs branches met."""
+The SQL files hold the schema and its comments. ``down_revision`` is 0013 (the job gap passes),
+re-pointed when the people and jobs branches met."""
 
 from pathlib import Path
 
