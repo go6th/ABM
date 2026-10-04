@@ -45,6 +45,7 @@ from account_intelligence.runs.lifecycle import RunLimits
 from account_intelligence.workflow.deps import RunDeps
 from account_intelligence.workflow.runner import SliceSettings
 from account_intelligence.workflow.spec import WorkflowSpec, load_spec
+from exports.wiring import build_export_builder
 
 CLOUD_ENVS = frozenset({"staging", "production"})
 HERMETIC_TYPES = (
@@ -79,6 +80,7 @@ class Container:
     task_service_account: str = ""
     verify_task_token: Callable[[str, str, str], None] | None = None
     extras: dict[str, Any] = field(default_factory=dict)
+    builder: Any | None = None  # BuilderPort (exports.wiring); None ends builds PARTIAL
 
     async def deps_for(self, tenant_id: UUID, run_id: UUID) -> RunDeps:
         """One run's dependencies, loaded under the tenant (the run row is the identity)."""
@@ -111,6 +113,7 @@ class Container:
             clock=self.clock,
             spec=self.spec,
             connectors=self.connectors,
+            builder=self.builder,
             extra_allowed_hosts=frozenset(h for h in hosts if h),
             run_input=dict(row.run_input or {}),
         )
@@ -195,6 +198,7 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     connectors, retry = (None, None)
     if app_env == "dev" and env.get("CONNECTORS") == "on":
         connectors, retry = build_connectors(env, payloads, env.get("REDIS_HOST"))
+    clock = SystemClock()
     return Container(
         env=app_env,
         connectors=connectors,
@@ -203,7 +207,8 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         payloads=payloads,
         secrets=EnvSecrets(),
         llm=llm,
-        clock=SystemClock(),
+        clock=clock,
+        builder=build_export_builder(payloads, clock, env, default_renderer="python-interim"),
         spec=spec,
         limits=_limits(spec, env),
         slices=_slices(spec),
@@ -256,6 +261,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     else:
         raise RuntimeMisconfigured("LLM_ACCESS must be vertex_ai or anthropic_api (D-19)")
     connectors, retry = build_connectors(env, payloads, _require(env, "REDIS_HOST"))
+    clock = SystemClock()
     return Container(
         env=app_env,
         connectors=connectors,
@@ -264,7 +270,9 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         payloads=payloads,
         secrets=secrets,
         llm=llm,
-        clock=SystemClock(),
+        clock=clock,
+        # D-26: the Node renderer by default; NotConfigured until ported (runs end PARTIAL)
+        builder=build_export_builder(payloads, clock, env, default_renderer="node"),
         spec=spec,
         limits=_limits(spec, env),
         slices=_slices(spec),
