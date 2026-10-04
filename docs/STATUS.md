@@ -20,6 +20,7 @@ owner can supply (named in the last column). Evidence is a test or command run o
 | P1-4 | Tracker state machine | Done | `tests/tracker` (lying stages, DB defences, races, SIGKILL, stateful) | D-12, D-13 sign-off |
 | P1-5 | Grading engine | Done | `tests/grading`; lying-generator whole run | D-01 ext, D-11 ext, D-14, D-15 sign-off |
 | P1-6 | Job posting pipeline | Done (deviations listed) | `tests/jobs` (oracle, lying model, properties, DB) | D-16, D-17; OI-JOBS-1 to 3 |
+| P1-7 | People pipeline (branch `feat/people-pipeline`) | Done hermetically; providers Blocked | `tests/people` (oracle, lying tests per P-rule, properties, resume matrix, DB), `tests/isolation/test_people_isolation.py` | D-21 to D-23; V-PEOPLE-1 to 3; OI-PPL-2 to 5 |
 
 ## Earlier work-package notes
 

@@ -246,3 +246,54 @@ the counts are computed from the same rows. No production defect found by this p
 Not proven (needs the owner): anything on real Google Cloud (no apply, no gcloud create, no real
 provider or LLM call was made); every VERIFY item in `docs/open-items.md`; the sign-offs for D-01
 ext to D-20.
+
+## People pipeline (2026-10-03, branch `feat/people-pipeline`)
+
+Plan (5 lines): PRD step 7 as `src/people/` over typed ports (title search in two seniority
+passes, gap-only association search, mentions, merge, scope, profiles, priority A posts, counts);
+config `people_scope.yaml` (PRD defaults) and `people_rubric.yaml` (everything else `proposal`);
+one expand-only migration (0014) extending `people`; harness first (synthetic corpus with a
+hand-written oracle, lying tests per P-rule, properties, resume matrix, DB tests); decisions
+D-21 to D-23; [VERIFY] the real person, profile and post record shapes (V-PEOPLE-1 to 3).
+
+Built: config and pure core (canonical URLs, names, union-find merge with corroboration, level,
+lane, exclusion, priority, scope, tenure with precision, certifications, alumni, counts with
+bases); bounded loops (paging with cursor resume and no-progress, gap loop, mention resolution,
+pull-once profiles, cost-sample gate for posts); Findings extractor wrapper; templated claims;
+orchestrator and stage (pull once, idempotent hand-offs); export read model with the client
+output scanner; tombstone erasure; Postgres repo; production adapters (title and association
+search through `call_operation`, profiles, posts and mentions fail closed); workflow `people`
+stage (thin; `employee_content_github` stays with the generic research stage); generated docs;
+ADR-0021 to 0025; register D-21 to D-23; open items. The eval harness `people_compare` now uses
+the pipeline's URL, name and scope rules.
+
+Defects found by the harness and fixed (each with a test): strict mode refused every extractor
+answer (JSON array for a tuple); tenure band labels put non-count numbers in sentences; an
+unavailable call with no ledger key was counted as a call; the merge guard trigger used a
+`SELECT INTO` flag that stayed NULL, so a dangling or cross-tenant `merged_into` passed (fixed
+with `FOUND`, found on the test database); a lane switched off made `people_by_platform` Partial;
+the extractor adapter's parameter name did not match the port; counts overwrote instead of
+accumulating were not covered (mutation run).
+
+Gates (worktree `/home/sakib/ABM Generator-people`, test database `ai_people`):
+
+| Command | Result |
+|---|---|
+| `bash .../scripts/selftest.sh` | `selftest OK` |
+| `python .../scripts/validate_assets.py` | `OK: 33 coverage rows, 5 product grades, 8 routes, 10 alert rules` |
+| `python .../scripts/lint_migrations.py migrations` | `OK: 24 file(s)` |
+| alembic upgrade, downgrade 0012, upgrade (twice) | clean |
+| `check_rls_catalog.sql` on the migrated database | 0 rows |
+| `ruff check .`; `mypy --strict src/people`; `mypy` | pass; 32 files; 170 files |
+| `pytest tests/isolation` | 44 passed (20 before, 24 people tables) |
+| `pytest -m "not eval" --cov=src` | 1341 passed, 3 failed, 15 skipped; coverage 95%. The 3: two of this WP's (a broker name spelled in a test, a stale loop inventory), fixed after and re-run green (24 passed); one hypothesis deadline in `tests/connectors/test_transport_pacing.py` under the parallel mutation load, which passes alone |
+| `src/people` coverage | 95 to 100% per module; 100% on urls, names, merge, level, lane, exclusion, priority, scope, tenure, certs, alumni, counts |
+| `python -m people.docs --check` | current |
+| mutmut (merge, scope, exclusion, counts, tenure) | see `docs/people/mutation.md`: 941 of 1007 killed in run 2; survivors reviewed |
+
+Not proven: anything against a real provider (title search, profiles and posts have no sourced
+contract; the stage ends those rows Not done `not_available_yet`); real mentions from earlier
+stages (no structured source yet, OI-PPL-3); concurrency on the people tables beyond the run
+lease. Needs the owner: D-21, D-22, D-23 (and counsel for D-06), search titles, cues, reference
+employers, technology ids per lane, one recorded sample per people operation.
+
