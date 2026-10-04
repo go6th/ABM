@@ -1,0 +1,53 @@
+{
+  "_label": "SYNTHETIC hand-written oracle for oracle_account.json. Every value below was worked out by hand from the PRD rules and the fixture, not produced by the code under test.",
+  "filenames": {
+    "summary": "Synthetic_Oracle_Ltd_Account_Summary.docx",
+    "evidence": "Synthetic_Oracle_Ltd_Sources_and_Evidence.docx",
+    "people": "Synthetic_Oracle_Ltd_People_List.xlsx",
+    "jobs": "Synthetic_Oracle_Ltd_Job_Postings.xlsx",
+    "tech": "Synthetic_Oracle_Ltd_Tech_Stack_and_Teams.xlsx",
+    "workspace": "Synthetic_Oracle_Ltd_workspace.zip"
+  },
+  "rows_per_file": {"summary": 45, "evidence": 10, "people": 2, "jobs": 2, "tech": 2},
+  "lanes": [
+    {"lane": "Salesforce (including field service such as ServiceMax)", "rows": [
+      {"ref": "L-0001", "row_id": "00000000-0000-4000-8000-0000000000f1", "grade_label": "Confirmed", "use": "May be stated", "codes": ["S-0001"], "question": null}]},
+    {"lane": "SAP", "rows": [
+      {"ref": "L-0002", "row_id": "00000000-0000-4000-8000-0000000000f3", "grade_label": "Lead (aggregator source)", "use": "Ask, do not state", "codes": ["S-0003"], "question": "Is SAP being evaluated?"}]},
+    {"lane": "Findings not assigned to a lane", "rows": [
+      {"ref": "L-0003", "row_id": "00000000-0000-4000-8000-0000000000f2", "grade_label": "Probable", "use": "Ask, do not state", "codes": ["S-0002"], "question": "When did the CIO join?"}]}
+  ],
+  "absences": [{"row_id": "00000000-0000-4000-8000-0000000000f4", "question": "Is there an in-house data team?"}],
+  "key_people": [{"ref": "K-0001", "row_id": "pk-ann", "source_code": "S-0004"}],
+  "linkedin_findings": [{"ref": "F-0001", "person": "Ann Synthetic", "source_code": "S-0010", "withheld": false}],
+  "summary_ref_prefix": ["L-0001", "L-0002", "L-0003", "K-0001", "F-0001", "T-0001"],
+  "tracker_rows": 33,
+  "people": [
+    {"ref": "P-0001", "row_id": "pk-ann", "source_code": "S-0004"},
+    {"ref": "P-0002", "row_id": "pk-bob", "source_code": "S-0005"}
+  ],
+  "jobs": [
+    {"ref": "J-0001", "row_id": "post-1", "status": "Open", "posting_class": "Admin and owner role", "source_code": "S-0006", "description": "Administer Salesforce. Contact [redacted] for details."},
+    {"ref": "J-0002", "row_id": "post-2", "status": "Closed", "posting_class": "User role", "source_code": "S-0007", "description": "Uses SAP daily."}
+  ],
+  "tech": [
+    {"ref": "D-0001", "row_id": "d-1", "cross_check": "Named in 1 of 2 postings in the Job Postings file", "source_code": "S-0008"},
+    {"ref": "D-0002", "row_id": "d-2", "cross_check": "Named in 0 of 2 postings in the Job Postings file", "source_code": "S-0008", "first_seen": "Not given"}
+  ],
+  "evidence_codes": ["S-0001", "S-0002", "S-0003", "S-0004", "S-0005", "S-0006", "S-0007", "S-0008", "S-0010"],
+  "evidence_refs": ["E-0001", "E-0002", "E-0003", "E-0004", "E-0005", "E-0006", "E-0007", "E-0008", "E-0009", "JD-0001"],
+  "evidence_uses": {
+    "S-0001": [["Confirmed", "We run Salesforce Service Cloud."]],
+    "S-0002": [["Probable", "The CIO joined in 2025."]],
+    "S-0003": [["Lead (aggregator source)", "Lists SAP as under consideration."]],
+    "S-0004": [], "S-0005": [], "S-0006": [], "S-0007": [], "S-0008": [], "S-0010": []
+  },
+  "evidence_kinds": {"S-0001": "Primary", "S-0002": "Secondary", "S-0003": "Aggregator (labelled)"},
+  "job_descriptions_read": ["post-1"],
+  "numbers": {
+    "people.listed": 2, "jobs.file.rows": 2, "jobs.file.open": 1, "jobs.file.closed": 1,
+    "jobs.pipeline.pulled": 3, "tech.file.rows": 2, "tech.file.named": 1,
+    "summary.key_people": 1, "tracker.rows": 33, "evidence.sources": 9, "evidence.withheld": 0
+  },
+  "withheld_sentences": 0
+}
