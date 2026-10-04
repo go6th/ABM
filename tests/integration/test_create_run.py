@@ -1,14 +1,17 @@
 """Exercise POST /v1/runs against a real database with a stubbed event client."""
 
 import asyncio
+import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import psycopg
 import pytest
-from fastapi import HTTPException
+from starlette.requests import Request
 
 from account_intelligence.api.auth import Identity
+from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.routes import runs
 from tests.conftest import ADMIN_DSN
 
@@ -18,6 +21,15 @@ pytestmark = pytest.mark.asyncio
 @pytest.fixture(autouse=True)
 def stub_events(monkeypatch):
     monkeypatch.setattr(runs, "inngest_client", type("C", (), {"send": AsyncMock()})())
+    monkeypatch.setattr(
+        runs,
+        "get_settings",
+        lambda: SimpleNamespace(
+            run_credits_standard=6,
+            run_credits_deep=18,
+            run_budget_usd=5.0,
+        ),
+    )
 
 
 def _balance(tenant: UUID) -> float:
@@ -33,9 +45,23 @@ def _set_balance(tenant: UUID, amount: float) -> None:
 
 
 async def _create(tenant: UUID, domain: str, key: str):
-    return await runs.create_run(
-        runs.RunRequest(domain=domain), key, Identity("u1", tenant, "admin")
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            domain_resolver=SimpleNamespace(
+                resolve_public=AsyncMock(return_value=("93.184.216.34",))
+            ),
+            blocked_entity_port=SimpleNamespace(is_blocked=AsyncMock(return_value=False)),
+        )
     )
+    request = Request({"type": "http", "app": app})
+    response = await runs.create_run(
+        runs.RunRequest(domain=domain),
+        request,
+        key,
+        Identity("u1", tenant, "admin"),
+    )
+    assert response.status_code == 202
+    return json.loads(response.body)
 
 
 async def test_create_run_reserves_credits_in_the_same_transaction(tenant_a: UUID):
@@ -58,22 +84,18 @@ async def test_replay_with_the_same_key_returns_the_same_run_and_does_not_charge
     assert _balance(tenant_a) == 94.0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="defect 5: a replayed Idempotency-Key is not checked against the request body, "
-    "so the same key with a different domain silently returns the first run.",
-)
 async def test_same_key_with_a_different_domain_is_rejected(tenant_a: UUID):
     await _create(tenant_a, "acme.com", "idem-0003-aaaa")
-    with pytest.raises(HTTPException):
+    with pytest.raises(APIProblem) as error:
         await _create(tenant_a, "other.com", "idem-0003-aaaa")
+    assert error.value.status == 409
 
 
 async def test_insufficient_credits_returns_402_and_leaves_nothing_behind(tenant_a: UUID):
     _set_balance(tenant_a, 5)
-    with pytest.raises(HTTPException) as e:
+    with pytest.raises(APIProblem) as e:
         await _create(tenant_a, "poor.com", "idem-0004-aaaa")
-    assert e.value.status_code == 402
+    assert e.value.status == 402
     assert _balance(tenant_a) == 5.0
     with psycopg.connect(ADMIN_DSN) as c:
         n = c.execute(
@@ -93,6 +115,6 @@ async def test_ten_parallel_runs_cannot_overspend_the_wallet(tenant_a: UUID):
         return_exceptions=True,
     )
     ok = [r for r in res if isinstance(r, dict)]
-    denied = [r for r in res if isinstance(r, HTTPException) and r.status_code == 402]
+    denied = [r for r in res if isinstance(r, APIProblem) and r.status == 402]
     assert len(ok) == 5 and len(denied) == 5
     assert _balance(tenant_a) == 0.0

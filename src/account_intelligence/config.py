@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     jwt_issuer: str
 
     run_budget_usd: float = 5.0
+    # D-04 remains open; no credit price is assumed until a product owner sets it.
+    run_credits_standard: int | None = None
+    run_credits_deep: int | None = None
     slice_seconds: int = 240
     max_slices: int = 60  # 60 x 240 s = 4 h hard ceiling per run
     tenant_concurrency: int = 5
