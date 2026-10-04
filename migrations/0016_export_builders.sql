@@ -1,7 +1,6 @@
 -- Migration 0016: export builders storage (expand only; no column dropped or altered).
--- Spec docs/prompts/build_export_builders.md section 6. Numbered 0016 because 0015 (spend) is
--- committed on the unmerged credit-cap branch; down_revision is 0014 here and is re-pointed to
--- 0015 when that branch is merged.
+-- Spec docs/prompts/build_export_builders.md section 6. down_revision 0015 (spend): re-pointed
+-- from 0014 when the credit-cap and export-builder branches were merged on feat/api-v1.
 --
 -- * facts gains a nullable `lane` so the Summary can group graded rows lane by lane (written by
 --   grading's record_graded_fact once it carries the lane: a listed follow-up).
