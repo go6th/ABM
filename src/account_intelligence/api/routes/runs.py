@@ -12,10 +12,13 @@ No endpoint accepts a tenant id, and none sends outreach.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
@@ -95,8 +98,9 @@ async def _tracker_for(container: Any, session: Any) -> Any:
 async def get_run(
     run_id: UUID,
     request: Request,
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     ident: Identity = Depends(require_role("admin", "seller", "viewer")),
-) -> dict[str, Any]:
+) -> Response:
     """The run's status, end reason and client-safe coverage view (leak-scanned)."""
     container = _container(request)
     async with tenant_txn(ident.tenant_id) as s:
@@ -109,12 +113,17 @@ async def get_run(
         if row is None:
             raise HTTPException(404, "run not found")
         view = await (await _tracker_for(container, s)).view(run_id, "client")
-    return {
+    payload = {
         "run_id": str(run_id),
         "status": row.status,
         "reason": row.finished_reason,
         "coverage": view,
     }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    etag = '"' + hashlib.sha256(encoded.encode()).hexdigest() + '"'
+    if if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    return JSONResponse(payload, headers={"ETag": etag})
 
 
 @router.post("/{run_id}/approve")

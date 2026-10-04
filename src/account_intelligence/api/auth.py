@@ -41,8 +41,10 @@ async def identity(authorization: str = Header(...)) -> Identity:
             algorithms=["RS256"],
             audience=settings.jwt_audience,
             issuer=settings.jwt_issuer,
-            options={"require": ["exp", "iat", "sub"]},
+            options={"require": ["exp", "iat", "sub", "tenant_id", "role"]},
         )
+        if claims["role"] not in {"admin", "seller", "viewer"}:
+            raise ValueError("invalid role")
         return Identity(claims["sub"], UUID(claims["tenant_id"]), claims["role"])
     except (jwt.PyJWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="invalid token") from None
@@ -53,7 +55,27 @@ def require_role(*roles: str) -> Callable[..., Awaitable[Identity]]:
 
     async def dep(ident: Identity = Depends(identity)) -> Identity:
         """Resolve the caller and refuse roles outside the allowed set."""
-        if ident.role not in roles:  # also re-check membership in DB for revocation (cached 60 s)
+        # Membership is checked in the tenant transaction on every request. This fails closed
+        # during a database outage and makes revocation effective immediately; a bounded cache
+        # can be introduced once a shared cache adapter exists.
+        from sqlalchemy import text
+
+        from account_intelligence.db.session import tenant_txn
+
+        try:
+            async with tenant_txn(ident.tenant_id) as session:
+                stored_role = await session.execute(
+                    text("SELECT role FROM memberships WHERE user_id = :user_id"),
+                    {"user_id": ident.user_id},
+                )
+                member_role = stored_role.scalar_one_or_none()
+        except Exception as error:
+            from account_intelligence.api.problem import DependencyUnavailable
+
+            raise DependencyUnavailable() from error
+        if member_role is None or member_role != ident.role:
+            raise HTTPException(status_code=401, detail="invalid token")
+        if ident.role not in roles:
             raise HTTPException(status_code=403, detail="forbidden")
         return ident
 

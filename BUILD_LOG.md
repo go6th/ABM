@@ -1,5 +1,21 @@
 # Build log
 
+## API v1 foundation slice (2026-10-04)
+
+- Branch: `feat/api-v1`. The working tree contained pre-existing credit-cap edits before this
+  package; those files are not part of the API commit.
+- Added database membership role re-check to JWT role authorization, with fail-closed behavior;
+  added problem-details responses, request IDs and baseline security headers; added ETag/304 on
+  run status; added tenant/collection-bound HMAC cursors.
+- `ruff check src/account_intelligence/api tests/api`: pass.
+- `mypy --strict src/account_intelligence/api`: pass (10 files).
+- `pytest tests/api -q`: pass (3 tests).
+- `tests/integration/test_create_run.py tests/system/test_wiring.py tests/unit/test_api.py`: blocked
+  at database fixture; PostgreSQL authentication failed (`fe_sendauth: no password supplied`).
+- Migration lint invocation using `python` was unavailable in PATH and has not yet been rerun with
+  the project virtual environment. No migration was added. See `docs/api/STATUS.md` for scope,
+  missing components and unproven behavior.
+
 Current phase: 0 (Prove) and 1 (Build), integrated on Google Cloud  
 Current work package: integration on `feat/integrate-gcp-production` (audit pass 2 green)  
 Last updated: 2026-10-03
@@ -250,4 +266,3 @@ contract; the stage ends those rows Not done `not_available_yet`); real mentions
 stages (no structured source yet, OI-PPL-3); concurrency on the people tables beyond the run
 lease. Needs the owner: D-21, D-22, D-23 (and counsel for D-06), search titles, cues, reference
 employers, technology ids per lane, one recorded sample per people operation.
-
