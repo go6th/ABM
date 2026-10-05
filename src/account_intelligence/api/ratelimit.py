@@ -16,7 +16,11 @@ from account_intelligence.api.errors import APIProblem
 
 
 class RateLimitPort(Protocol):
-    def consume(self, key: str, cost: float = 1) -> tuple[bool, int]: ...
+    """Limiter contract so callers stay independent of the bucket implementation."""
+
+    def consume(self, key: str, cost: float = 1) -> tuple[bool, int]:
+        """Charge cost against the key; return (allowed, seconds until retry)."""
+        ...
 
 
 class TokenBucketLimiter:

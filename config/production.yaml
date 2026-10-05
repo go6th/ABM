@@ -1,3 +1,4 @@
+# Production overrides; the strictest slice and concurrency limits for deployed runs.
 environment: production
 log_level: INFO
 slice_seconds: 240

@@ -20,6 +20,7 @@ class UnconfiguredDomainResolver:
     """Fail closed until a production allow-listed resolver is supplied."""
 
     async def resolve_public(self, domain: str) -> tuple[str, ...]:
+        """Refuse to resolve without an allow-listed resolver so no rogue egress happens."""
         raise NotConfigured("allow-listed domain resolver")
 
 
@@ -27,6 +28,7 @@ class UnconfiguredBlockedEntityPort:
     """Fail closed until the blocked-entity policy is supplied."""
 
     async def is_blocked(self, domain: str) -> bool:
+        """Refuse to answer without the reviewed blocked-entity policy."""
         raise NotConfigured("blocked-entity policy")
 
 

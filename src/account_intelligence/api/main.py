@@ -113,6 +113,7 @@ def create_app() -> FastAPI:
             status_code=500,
             media_type="application/problem+json",
         )
+
     app.include_router(health.router)
     app.include_router(v1_router)
     app.include_router(tasks.router)

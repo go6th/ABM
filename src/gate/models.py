@@ -14,6 +14,8 @@ from uuid import UUID
 
 
 class GateStep(StrEnum):
+    """Gate stages in mandatory execution order; the pipeline runs S0 through S5."""
+
     INTAKE = "S0"
     RENDER = "S1"
     ROWCHECK = "S2"
@@ -23,11 +25,15 @@ class GateStep(StrEnum):
 
 
 class Verdict(StrEnum):
+    """Terminal package verdict: PASS may be delivered, FAIL blocks it."""
+
     PASS = "PASS"
     FAIL = "FAIL"
 
 
 class CheckStatus(StrEnum):
+    """Per-check outcome; NOT_RUN marks checks skipped after an earlier blocking failure."""
+
     PASSED = "passed"
     FAILED = "failed"
     NOT_RUN = "not_run"
@@ -35,12 +41,20 @@ class CheckStatus(StrEnum):
 
 @dataclass(frozen=True)
 class PackageFile:
+    """One immutable file in a build package, pinned by name and exact bytes."""
+
     name: str
     content: bytes
 
 
 @dataclass(frozen=True)
 class BuildManifest:
+    """Manifest binding a package id to its exact files and the files the gate must find.
+
+    ``previous_package_id`` links a redelivery to the package it replaces so verdicts
+    stay auditable across reruns.
+    """
+
     package_id: str
     files: tuple[PackageFile, ...]
     expected_files: tuple[str, ...]
@@ -51,6 +65,8 @@ class BuildManifest:
 
 @dataclass(frozen=True)
 class PackageSnapshot:
+    """Tenant-scoped manifest snapshot; the only package input a check may trust."""
+
     tenant_id: UUID
     run_id: UUID
     manifest: BuildManifest
@@ -58,12 +74,16 @@ class PackageSnapshot:
 
 @dataclass(frozen=True)
 class CheckExecution:
+    """A check's outcome plus the files it generated for consumption by later steps."""
+
     result: CheckResult
     generated_files: tuple[PackageFile, ...] = ()
 
 
 @dataclass(frozen=True)
 class CheckResult:
+    """One check's explicit outcome, bound to its step so results order deterministically."""
+
     step: GateStep
     check: str
     status: CheckStatus
@@ -73,6 +93,8 @@ class CheckResult:
 
 @dataclass(frozen=True)
 class Defect:
+    """Blocking defect with a redacted preview and the rerun step that must clear it."""
+
     defect_id: str
     code: str
     file: str | None
@@ -86,6 +108,8 @@ class Defect:
 
 @dataclass(frozen=True)
 class GateResult:
+    """Immutable verdict bound to the exact package and config hashes it was computed on."""
+
     tenant_id: UUID
     run_id: UUID
     package_hash: str

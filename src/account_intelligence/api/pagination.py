@@ -28,9 +28,7 @@ def encode_cursor(*, tenant_id: str, collection: str, position: list[str], secre
     return token.decode("ascii")
 
 
-def decode_cursor(
-    cursor: str, *, tenant_id: str, collection: str, secret: bytes
-) -> list[str]:
+def decode_cursor(cursor: str, *, tenant_id: str, collection: str, secret: bytes) -> list[str]:
     """Verify cursor integrity and scope before returning its keyset position."""
     try:
         raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))

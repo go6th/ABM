@@ -1,3 +1,4 @@
+# Local development overrides; never shipped or referenced by deployed environments.
 environment: dev
 log_level: DEBUG
 slice_seconds: 240

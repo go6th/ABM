@@ -22,13 +22,16 @@ from account_intelligence.db.session import tenant_txn
 class MembershipPort(Protocol):
     """Database-facing membership lookup contract."""
 
-    async def role_for(self, tenant_id: UUID, user_id: str) -> str | None: ...
+    async def role_for(self, tenant_id: UUID, user_id: str) -> str | None:
+        """Return the subject's current role in the tenant, or None when absent."""
+        ...
 
 
 class DatabaseMembershipPort(MembershipPort):
     """Membership lookup using the same tenant transaction/RLS boundary as API reads."""
 
     async def role_for(self, tenant_id: UUID, user_id: str) -> str | None:
+        """Look the role up inside the tenant transaction so RLS scopes the query."""
         async with tenant_txn(tenant_id) as session:
             return (
                 await session.execute(
@@ -40,6 +43,8 @@ class DatabaseMembershipPort(MembershipPort):
 
 @dataclass(frozen=True)
 class MembershipEntry:
+    """Cached role decision with the monotonic time it must be rechecked after."""
+
     role: str | None
     expires_at: float
 

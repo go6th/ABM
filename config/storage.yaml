@@ -1,3 +1,4 @@
+# Raw-payload storage backend selection; local root is for development only.
 version: "1.0.0"
 raw_payloads:
   backend: local

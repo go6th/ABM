@@ -1,3 +1,4 @@
+# Staging overrides; mirrors production limits so pre-deploy checks exercise the same paths.
 environment: staging
 log_level: INFO
 slice_seconds: 240

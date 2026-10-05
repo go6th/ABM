@@ -1,3 +1,4 @@
+# Model-tier routing (single arm for now); which agent step uses which model tier.
 version: "1.0.0"
 status: Proposed
 active_arm: single

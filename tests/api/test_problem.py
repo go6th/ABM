@@ -23,7 +23,7 @@ def test_known_auth_detail_is_safe() -> None:
     assert problem_body(401, "req-2", "invalid token")["detail"] == "invalid token"
 
 
-def test_signed_cursor_is_tenant_and_collection_bound() -> None:
+def test_signed_cursor_is_tenant_bound() -> None:
     """GUARANTEE(test_signed_cursor_is_tenant_bound): signed cursors cannot cross scope."""
     cursor = encode_cursor(
         tenant_id="tenant-a", collection="runs", position=["2026-01-01", "run-1"], secret=b"s" * 32

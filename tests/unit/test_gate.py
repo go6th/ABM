@@ -1,3 +1,7 @@
+"""Unit tests for the quality gate: fail-closed ports, deterministic verdicts, and input
+hash binding (mirrors the guarantees declared in ``gate.ports`` and ``gate.models``).
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -119,7 +123,7 @@ def pipeline(
     return runner, package, check_adapter, result_store
 
 
-def test_package_and_config_hashes_are_deterministic_and_bind_exact_bytes() -> None:
+def test_gate_is_deterministic_and_bound_to_input_hash() -> None:
     files = (("b.txt", b"second"), ("a.txt", b"first"))
     assert package_hash(files) == package_hash(tuple(reversed(files)))
     assert package_hash(files) != package_hash((("a.txt", b"firstsecond"),))
@@ -132,6 +136,16 @@ def test_defect_id_is_stable_and_scoped_to_check_identity() -> None:
     identity = ("check_failed", "S2", "report.pdf", "row-4")
     assert make_defect_id(*identity) == make_defect_id(*identity)
     assert make_defect_id(*identity) != make_defect_id("check_failed", "S2", "other.pdf", "row-4")
+
+
+def test_not_run_check_cannot_pass() -> None:
+    """GUARANTEE(test_not_run_check_cannot_pass): a skipped check never yields PASS."""
+
+    not_run = CheckResult(GateStep.INTAKE, "intake", CheckStatus.NOT_RUN)
+    passed = CheckResult(GateStep.INTAKE, "intake", CheckStatus.PASSED)
+    assert verdict_for((not_run,)) is Verdict.FAIL
+    assert verdict_for((passed, not_run)) is Verdict.FAIL
+    assert verdict_for(()) is Verdict.FAIL
 
 
 def test_verdict_requires_at_least_one_successful_check_and_all_passed() -> None:
@@ -231,7 +245,7 @@ def test_pipeline_fails_closed_and_bounds_defects_for_failed_checks() -> None:
     assert result.truncated
 
 
-def test_pipeline_records_unconfigured_checks_as_not_run_and_fails() -> None:
+def test_missing_legacy_checks_fail_closed() -> None:
     package = snapshot()
     runner, _, _, store = pipeline(package, checks=UnconfiguredGateCheckPort())
 
@@ -319,7 +333,7 @@ def test_pipeline_does_not_hide_check_or_store_failures() -> None:
         asyncio.run(runner.run(package.tenant_id, package.run_id))
 
 
-def test_unconfigured_adapters_raise_explicit_errors() -> None:
+def test_unconfigured_ports_are_explicit() -> None:
     package = snapshot()
     file = PackageFile("source.docx", b"document")
     result = GateResult(
