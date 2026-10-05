@@ -34,4 +34,36 @@ WHERE p.polroles = '{0}'
 UNION ALL
 -- 5. public_reader must have no grant on chunks
 SELECT 'public_reader can read chunks'
-WHERE has_table_privilege('public_reader', 'chunks', 'SELECT');
+WHERE has_table_privilege('public_reader', 'chunks', 'SELECT')
+UNION ALL
+-- 6. tenant-owned tables must have NOT NULL tenant_id.
+SELECT 'nullable tenant_id: ' || c.relname
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+  AND NOT a.attnotnull
+UNION ALL
+-- 7. Every tenant-owned table must have an app_rw-only policy with both predicates.
+SELECT 'missing app_rw USING/WITH CHECK policy: ' || c.relname
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+  AND NOT EXISTS (
+      SELECT 1
+      FROM pg_policy p
+      WHERE p.polrelid = c.oid
+        AND p.polroles = ARRAY[(SELECT oid FROM pg_roles WHERE rolname = 'app_rw')]
+        AND p.polqual IS NOT NULL
+        AND p.polwithcheck IS NOT NULL
+  )
+UNION ALL
+-- 8. App runtime must not have DELETE on append-only or retained records.
+SELECT 'app_rw can delete append-only table ' || t.table_name
+FROM unnest(ARRAY[
+    'sources', 'fact_evidence', 'people', 'raw_payloads', 'tool_call_intents',
+    'wallet_ledger', 'tool_calls'
+]) AS t(table_name)
+WHERE to_regclass(t.table_name) IS NOT NULL
+  AND has_table_privilege('app_rw', t.table_name, 'DELETE');

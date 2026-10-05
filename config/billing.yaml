@@ -1,0 +1,11 @@
+# Billing rules for run settlement. Prices are open decision D-04; nothing here is a price.
+version: "2026-10-03.1"
+status: proposal
+source: "D-04 open; proposal recorded in ADR-0016"
+# Credits reserved up front per depth (carried over from the starter, which said: calibrate with data).
+reserve_credits:
+  standard: {value: 6.0, status: proposal, source: "starter COST table; calibrate with data"}
+  deep: {value: 18.0, status: proposal, source: "starter COST table; calibrate with data"}
+# Settlement: commit reserved * min(1, spent_usd / budget_usd), refund the rest. A platform fault
+# (FAILED) or an approval timeout refunds everything.
+settlement_rule: {value: proportional_to_budget_used, status: proposal, source: "ADR-0016"}

@@ -1,0 +1,241 @@
+# Export content rules. Every entry carries `source` (a document and section, or a legacy file and
+# line) or `status: proposal` (a default proposed by the build, decision named) or
+# `source: "TODO, needs product owner"` (nobody defines it yet). A test fails on an entry with
+# none of these. Lists the sources do not give are EMPTY, never invented (spec 2.1).
+version: "1.0.0"
+status: proposal
+decision: D-24
+
+attribution:
+  # PRD s3.4 / SKILL rule 6: client-facing output is attributed to "6th agents".
+  name: "6th agents"
+  source: "PRD s3.4; skill rule 6"
+
+# Fixed document properties (B2, B10): nothing else is written into core or app properties.
+document_properties:
+  author: "6th agents"
+  company: "6th agents"
+  source: "PRD s3.4 attribution; spec B2 (no machine, user or tool names)"
+
+# PRD s3.4 research rules: "Sensitive findings ... are preparation, never openers, and the file
+# says so." The sentence is rendered in every Summary.
+sensitive_sentence:
+  text: "Sensitive findings, such as a breach, a layoff or a lawsuit, are preparation for the conversation and never an opener."
+  source: "PRD s3.4 research rules (the rule); wording: proposal D-24"
+  status: proposal
+
+banned_dashes:
+  # PRD s3.4 format rules: "no em dashes; no hyphens or dashes as punctuation". The em and en
+  # dash are listed in config/output_spec.yaml document_rules.banned_characters. The scope and the
+  # spaced-hyphen definition are D-24 proposals: authored prose only; verbatim quotes stay verbatim.
+  scope: authored_prose
+  characters: ["—", "–"]
+  characters_source: "config/output_spec.yaml document_rules.banned_characters (PRD s3.4)"
+  spaced_hyphen_is_punctuation: true
+  spaced_hyphen_status: proposal
+
+stale_phrases:
+  source: "TODO, needs product owner: the PRD names the check, not the list; the legacy doc_checks.py was not supplied"
+  phrases: []
+
+abbreviations:
+  # PRD s3.4: abbreviations written out on first use. The list is not given.
+  source: "TODO, needs product owner: the list lived in the legacy scripts, not supplied"
+  entries: []
+
+partner_rule:
+  # PRD s3.4: "For Salesforce partner clients, nothing is framed as a customer leaving
+  # Salesforce or as a Salesforce failure." The two framings below are the rule's own words;
+  # the full phrase list is TODO.
+  framings: ["leaving Salesforce", "Salesforce failure"]
+  framings_source: "PRD s3.4 research rules (the rule's own wording)"
+  more_framings_source: "TODO, needs product owner: the legacy phrase list was not supplied"
+
+quote_handling:
+  # D-24 proposal: a restricted term inside a verbatim source quote withholds the sentence,
+  # keeps the source link, counts and lists it. A quote is never altered.
+  policy: withhold_and_count
+  withheld_text: "Sentence withheld from this file by the distribution rules; the source link is kept."
+  status: proposal
+
+limits:
+  # Excel specifications and limits: total number of characters that a cell can contain is
+  # 32,767 [VERIFY V-EXP-1]. Longer text continues on the "Long text" sheet, counted.
+  excel_cell_chars: 32767
+  excel_cell_chars_source: "Microsoft Excel specifications and limits [VERIFY V-EXP-1]"
+  # Row caps fail the build (RowCapExceeded, B3); nothing is truncated. Proposal values.
+  row_caps: {summary_lane_rows: 5000, evidence_uses: 50000, people: 20000, postings: 50000, detections: 10000, sections: 500, tracker_rows: 200}
+  row_caps_status: proposal
+  keyset_batch: 500
+  keyset_batch_status: proposal
+  authored_text_chars: 8000
+
+renderer:
+  # D-26: the Word renderer runs as a subprocess behind a JSON contract.
+  timeout_s: 60
+  max_output_bytes: 104857600
+  max_stderr_bytes: 65536
+  reruns: 1
+  status: proposal
+
+# Plain-English headings. The names are the PRD's own (s3.4 Deliverables and Account Summary order).
+headings:
+  source: "PRD s3.4 deliverables and Account Summary order; config/output_spec.yaml"
+  summary:
+    narrative: "Account narrative"
+    caveats: "Caveats on interpretation"
+    lane_tables: "Graded findings by platform lane"
+    key_people: "Key people (priority A and senior)"
+    linkedin_findings: "Findings from LinkedIn"
+    executive_voice: "Executive voice"
+    hypotheses: "Hypotheses with confirming questions"
+    first_call_questions: "First call questions"
+    decision_changes: "What would change a decision"
+    coverage_tracker: "Coverage tracker"
+    # proposal D-24: facts the grading step stored without a lane
+    unassigned_lane: "Findings not assigned to a lane"
+    absence: "No evidence found (the search proof is in the coverage tracker)"
+  evidence:
+    sources: "Sources"
+    job_descriptions: "Job descriptions read"
+    news: "News items verified at source"
+
+# Word table headers (content). Proportions are in the theme (word.tables, same order).
+documents:
+  source: "PRD s3.4 deliverables (named contents); headers and order: proposal D-24"
+  tables:
+    lane: ["Ref", "Finding", "Grade", "Use", "Confirming question", "Sources"]
+    key_people: ["Ref", "Name", "Title", "Level", "Lane", "Profile link", "Source"]
+    linkedin: ["Ref", "Person", "Finding", "Their own words", "Link", "Source"]
+    tracker: ["Ref", "Coverage row", "Status", "Priority", "Reason", "Tools", "Results"]
+    sources: ["Ref", "Source", "Link", "Date", "Kind", "Sentences relied on, with the grade of each row"]
+    job_reads: ["Ref", "Posting", "Link", "Source"]
+    news: ["Ref", "Item", "Link", "Source", "Verified at source"]
+  labels:
+    sources_suffix: "Sources"
+    question_prefix: "Confirming question"
+    speaker_prefix: "Speaker"
+    no_sentence: "No sentence relied on; cited as the link of a row."
+    not_dated: "Not dated"
+    verified: "Yes"
+    feed_only: "Feed only"
+    as_of: "As of"
+    attribution_line: "Prepared by 6th agents"
+    sensitive_heading: "Sensitive findings"
+  status: proposal
+
+# The statement policy wording printed beside each graded row (D-01 labels come from the grading
+# engine's display_label; this is the column text). Proposal.
+statement_text:
+  may_state: "May be stated"
+  ask: "Ask, do not state"
+  status: proposal
+
+none_found:
+  # B3: an empty section renders an explicit note derived from the tracker proof, never a blank.
+  text: "None found. The coverage tracker records what was searched and with what result."
+  teams: "None recorded. No team data was stored for this run."
+  source: "PRD s3.4 (None with proof); spec B3"
+
+labels:
+  # PRD s3.4 step 5 names the four posting classes; "Unclassified" is the job pipeline's own
+  # value for anything not decided (src/jobs/counts.py). Status words are the stored values.
+  posting_class:
+    build: "Build role"
+    admin_owner: "Admin and owner role"
+    working_tool: "Working tool"
+    user: "User role"
+    unclassified: "Unclassified"
+  posting_status:
+    open: "Open"
+    closed: "Closed"
+    unknown: "Status unknown"
+  # sources.kind vocabulary (migration 0005); aggregator sources are labelled (PRD s3.4 gate)
+  source_kind:
+    primary: "Primary"
+    secondary: "Secondary"
+    aggregator: "Aggregator (labelled)"
+  # PRD s3.4 step 6: "A date range in a detection feed is a lead, not a finding."
+  detection_grade: "Lead (detection feed; a date range is not a finding)"
+  source: "PRD s3.4 steps 5 and 6; stored vocabularies; wording: proposal D-24"
+
+evidence:
+  # Facts whose attribute key starts with one of these prefixes are listed under "News items
+  # verified at source" when their evidence was read in full at the source.
+  news_attribute_prefixes: []
+  news_source: "TODO, needs product owner: no news attribute family is defined in config/grading_policy.yaml"
+
+# Workbook columns: key, header and kind (the kind gives width and format in the theme). The PRD
+# names title, level, lane, priority, profile URL and source for people; class, platform
+# sentence, full description and link for postings; first and last seen and the cross-check for
+# detections. Ref, status, dates, platforms and the order are D-24 proposals.
+workbooks:
+  source: "PRD s3.4 deliverables (named columns); order and the rest: proposal D-24"
+  people:
+    sheet: "People"
+    columns:
+      - {key: ref, header: "Ref", kind: ref}
+      - {key: name, header: "Name", kind: text_short}
+      - {key: title, header: "Title", kind: text_short}
+      - {key: level, header: "Level", kind: label}
+      - {key: lanes, header: "Lane", kind: label}
+      - {key: priority, header: "Priority", kind: label}
+      - {key: profile_url, header: "Profile link", kind: url}
+      - {key: source_code, header: "Source", kind: code}
+    summary_sheet: "Summary"
+  jobs:
+    sheet: "Postings"
+    columns:
+      - {key: ref, header: "Ref", kind: ref}
+      - {key: title, header: "Title", kind: text_short}
+      - {key: status, header: "Status", kind: label}
+      - {key: posting_class, header: "Class", kind: label}
+      - {key: platforms, header: "Platforms named", kind: label}
+      - {key: platform_sentence, header: "Platform sentence", kind: text_long}
+      - {key: description, header: "Full description", kind: text_long}
+      - {key: url, header: "Link", kind: url}
+      - {key: posted_at, header: "Posted", kind: date}
+      - {key: first_seen, header: "First seen", kind: date}
+      - {key: source_code, header: "Source", kind: code}
+    counts_sheet: "Counts"
+    long_text_sheet: "Long text"
+  tech:
+    sheet: "Detections"
+    columns:
+      - {key: ref, header: "Ref", kind: ref}
+      - {key: technology, header: "Technology", kind: text_short}
+      - {key: first_seen, header: "First seen", kind: label}
+      - {key: last_seen, header: "Last seen", kind: label}
+      - {key: cross_check, header: "Cross check with postings", kind: text_short}
+      - {key: grade, header: "Grade", kind: label}
+      - {key: source_code, header: "Source", kind: code}
+    teams_sheet: "Teams"
+    counts_sheet: "Counts"
+
+# Workspace zip (D-25 proposal). The PRD lists build scripts and raw data with neutral names; the
+# SaaS document says share graded facts and links, not raw exports; broker terms (D-10) are open.
+workspace:
+  decision: D-25
+  status: proposal
+  restore_text_source: "TODO, needs product owner: RESTORE.md wording not supplied; a neutral note is rendered"
+  restore_text: |
+    # Restore note
+
+    This archive holds the standing file set for one account, the data each file was built
+    from, and a manifest. Every member is listed in MANIFEST.json with its SHA-256 hash.
+
+    1. Check each member against MANIFEST.json before use.
+    2. The files in deliverables/ are the delivered set; data/ holds the render data behind them.
+    3. A later delivery adds a new archive; this one is never changed.
+  notes_text: |
+    # Notes
+
+    Prepared by 6th agents. Only Confirmed findings may be stated to a prospect; every other
+    grade is a question. Sensitive findings are preparation, never openers.
+  raw_payloads:
+    default: excluded
+    neutral_name_copy_enabled: false
+  max_members: 64
+  max_member_bytes: 104857600
+  max_total_bytes: 524288000
+  entry_name_max: 120

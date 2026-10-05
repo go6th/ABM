@@ -1,0 +1,286 @@
+{
+ "response": {
+  "body": {
+   "data": [
+    {
+     "attributes": {
+      "behind_firewall": false,
+      "department_onet_codes": [
+       "11-2021.00",
+       "15-1299.09",
+       "13-1161.00",
+       "15-2051.01",
+       "23-2011.00",
+       "15-1299.08",
+       "15-1252.00"
+      ],
+      "first_seen_at": "2022-05-14T10:18:57Z",
+      "last_seen_at": "2026-09-23T09:46:50Z",
+      "location_data": [
+       {
+        "city": "Bucharest",
+        "country": "Romania",
+        "state": null
+       },
+       {
+        "city": "San Jose",
+        "country": "United States",
+        "state": "California"
+       },
+       {
+        "city": "New York",
+        "country": "United States",
+        "state": "New York"
+       },
+       {
+        "city": "Sydney",
+        "country": "Australia",
+        "state": null
+       },
+       {
+        "city": null,
+        "country": "India",
+        "state": null
+       },
+       {
+        "city": "San Francisco",
+        "country": "United States",
+        "state": "California"
+       },
+       {
+        "city": "Lehi",
+        "country": "United States",
+        "state": "Utah"
+       }
+      ],
+      "score": 1.0,
+      "source_count": 37
+     },
+     "id": "91f24898-55ab-47a6-a31d-8f03d2a150e5",
+     "relationships": {
+      "company": {
+       "data": {
+        "id": "a1d5bfa7-3a65-5881-a0b5-5bb3a4a7fe87",
+        "type": "company"
+       }
+      },
+      "competitive_technology_detections": {
+       "data": [
+        {
+         "id": "4852ab0b-9744-4384-baa6-72b321ae8177",
+         "type": "technology_detection"
+        }
+       ],
+       "meta": {
+        "max_source_count": 1
+       }
+      },
+      "seen_on_connection": {
+       "data": null
+      },
+      "seen_on_dns_records": {
+       "data": []
+      },
+      "seen_on_job_openings": {
+       "data": [
+        {
+         "id": "72715ab0-f389-4063-a743-7a989224cb77",
+         "type": "job_opening"
+        },
+        {
+         "id": "6aa800ff-ce65-4b00-8db0-53d9d61f5e5d",
+         "type": "job_opening"
+        },
+        {
+         "id": "937ff6e2-d0c7-4f32-938d-cb0de1d55413",
+         "type": "job_opening"
+        },
+        {
+         "id": "6812a29e-1fb5-4d6f-82e9-3fd7c21bfa73",
+         "type": "job_opening"
+        },
+        {
+         "id": "b6e15132-ece3-4c88-85fb-916ed109ac39",
+         "type": "job_opening"
+        }
+       ]
+      },
+      "seen_on_reviews": {
+       "data": []
+      },
+      "seen_on_subpages": {
+       "data": [
+        {
+         "id": "8c3deefe-ce56-4b8c-9c73-c1d88dbec784",
+         "type": "detection_on_subpage"
+        },
+        {
+         "id": "92d4f3db-b40f-4612-9df9-6240d736c709",
+         "type": "detection_on_subpage"
+        },
+        {
+         "id": "2d620f63-a3a4-4a0c-8926-7a4715c2c552",
+         "type": "detection_on_subpage"
+        },
+        {
+         "id": "d5fe50d7-148a-4d44-80b0-7b5c7f9d162b",
+         "type": "detection_on_subpage"
+        },
+        {
+         "id": "2e2fa60e-3a6b-4da5-9ee2-c39821d58eb9",
+         "type": "detection_on_subpage"
+        }
+       ]
+      },
+      "technology": {
+       "data": {
+        "id": "f4cb1b99-53c2-5cf4-8801-4608a37727ac",
+        "type": "technology"
+       }
+      }
+     },
+     "type": "technology_detection"
+    }
+   ],
+   "included": [
+    {
+     "attributes": {
+      "name": "Qualtrics"
+     },
+     "id": "f4cb1b99-53c2-5cf4-8801-4608a37727ac",
+     "type": "technology"
+    },
+    {
+     "attributes": {
+      "company_name": "Adobe Inc.",
+      "domain": "adobe.com",
+      "ticker": "NASDAQ:ADBE"
+     },
+     "id": "a1d5bfa7-3a65-5881-a0b5-5bb3a4a7fe87",
+     "type": "company"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2025-04-27T10:24:42Z",
+      "last_seen_at": "2026-09-23T09:46:50Z",
+      "subpage_url": "https://www.adobe.com/trust.html?promoid=M7K4SSY3&mv=other"
+     },
+     "id": "8c3deefe-ce56-4b8c-9c73-c1d88dbec784",
+     "type": "detection_on_subpage"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2025-06-27T10:29:43Z",
+      "last_seen_at": "2026-09-23T09:44:56Z",
+      "subpage_url": "https://www.adobe.com/trust.html"
+     },
+     "id": "92d4f3db-b40f-4612-9df9-6240d736c709",
+     "type": "detection_on_subpage"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2025-04-27T10:24:47Z",
+      "last_seen_at": "2026-09-23T09:44:55Z",
+      "subpage_url": "https://www.adobe.com/trust/document-cloud-security.html"
+     },
+     "id": "2d620f63-a3a4-4a0c-8926-7a4715c2c552",
+     "type": "detection_on_subpage"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2026-07-25T02:07:44Z",
+      "last_seen_at": "2026-09-19T04:47:51Z",
+      "subpage_url": "https://www.adobe.com/creativecloud/social-media.html"
+     },
+     "id": "d5fe50d7-148a-4d44-80b0-7b5c7f9d162b",
+     "type": "detection_on_subpage"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2025-04-04T14:18:22Z",
+      "last_seen_at": "2026-09-08T01:06:06Z",
+      "subpage_url": "https://www.adobe.com/legal/terms.html"
+     },
+     "id": "2e2fa60e-3a6b-4da5-9ee2-c39821d58eb9",
+     "type": "detection_on_subpage"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2026-07-15T15:13:12Z",
+      "last_seen_at": "2026-08-05T00:48:45Z",
+      "url": "https://careers.adobe.com/us/en/job/R170443/Senior-Product-Manager-Adobe-GenStudio-Ad-Trafficking-and-Activation"
+     },
+     "id": "72715ab0-f389-4063-a743-7a989224cb77",
+     "type": "job_opening"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2026-06-17T04:38:17Z",
+      "last_seen_at": "2026-06-17T20:00:21Z",
+      "url": "https://careers.adobe.com/us/en/job/R169456/Product-Manager-Voice-of-Employee"
+     },
+     "id": "6aa800ff-ce65-4b00-8db0-53d9d61f5e5d",
+     "type": "job_opening"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2025-10-29T08:21:02Z",
+      "last_seen_at": "2026-05-27T08:06:13Z",
+      "url": "https://careers.adobe.com/us/en/job/R162016/Senior-Product-Manager-for-GenStudio"
+     },
+     "id": "937ff6e2-d0c7-4f32-938d-cb0de1d55413",
+     "type": "job_opening"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2025-11-08T08:29:26Z",
+      "last_seen_at": "2026-01-28T01:08:01Z",
+      "url": "https://careers.adobe.com/us/en/job/R158883/2026-Intern-Customer-Value-Strategy"
+     },
+     "id": "6812a29e-1fb5-4d6f-82e9-3fd7c21bfa73",
+     "type": "job_opening"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2025-10-25T07:24:47Z",
+      "last_seen_at": "2025-12-08T18:40:49Z",
+      "url": "https://careers.adobe.com/us/en/job/R161791/Senior-Business-Intelligence-Developer"
+     },
+     "id": "b6e15132-ece3-4c88-85fb-916ed109ac39",
+     "type": "job_opening"
+    },
+    {
+     "attributes": {
+      "name": "Medallia"
+     },
+     "id": "49c2ef7f-9e8a-508c-a614-be1796f3d7bb",
+     "type": "technology"
+    },
+    {
+     "attributes": {
+      "first_seen_at": "2023-06-16T07:08:17Z",
+      "last_seen_at": "2023-07-23T21:27:32Z",
+      "source_count": 1
+     },
+     "id": "4852ab0b-9744-4384-baa6-72b321ae8177",
+     "relationships": {
+      "technology": {
+       "data": {
+        "id": "49c2ef7f-9e8a-508c-a614-be1796f3d7bb",
+        "type": "technology"
+       }
+      }
+     },
+     "type": "technology_detection"
+    }
+   ],
+   "meta": {
+    "record_state": "active",
+    "schema_version": "3.3"
+   }
+  },
+  "content_type": "application/json",
+  "status": 200
+ },
+ "source": "docs/providers/sources/p_signals/v3-openapi.company-feeds-extract.json TechnologyDetectionsDataset.example"
+}

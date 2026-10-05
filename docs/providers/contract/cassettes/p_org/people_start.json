@@ -1,0 +1,13 @@
+{
+ "response": {
+  "body": {
+   "credits_remaining": 6571,
+   "credits_used": 0,
+   "request_id": "019d...",
+   "status": "pending"
+  },
+  "content_type": "application/json",
+  "status": 200
+ },
+ "source": "docs/providers/sources/p_org/people.md 'Example: start then poll' Start tab"
+}

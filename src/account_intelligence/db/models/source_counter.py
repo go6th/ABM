@@ -15,6 +15,8 @@ from account_intelligence.db.base import Base, TimestampMixin
 
 
 class AccountSourceCounter(TimestampMixin, Base):
+    """Next source number per account (stable codes across runs)."""
+
     __tablename__ = "account_source_counters"
     __table_args__ = (
         ForeignKeyConstraint(["tenant_id", "account_id"], ["accounts.tenant_id", "accounts.id"]),

@@ -1,0 +1,18 @@
+environment: staging
+log_level: INFO
+slice_seconds: 240
+max_slices: 60
+tenant_concurrency: 5
+raw_payload_backend: local
+raw_payload_root: local-db/staging-raw-payloads
+secrets_from_environment:
+  - DATABASE_URL
+  - MIGRATOR_DATABASE_URL
+  - CHECKPOINT_DATABASE_URL
+  - APP_RW_PASSWORD
+  - JWKS_URL
+  - JWT_AUDIENCE
+  - JWT_ISSUER
+cloud_deployment:
+  status: not_configured
+  requires: cloud_account, region_decision_D-05, container_registry, managed_database, object_store_adapter

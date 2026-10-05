@@ -1,0 +1,18 @@
+# SYNTHETIC golden account (format example and test fixture). Not analyst reviewed; never counts
+# toward an eval gate. The account and everything below are invented.
+account_domain: acme.example
+reviewed_by: synthetic-fixture
+reviewed_on: 2026-10-03
+synthetic: true
+coverage:
+  prior_customer_status: not_done
+  job_postings_12_months: done
+  technology_detections: done
+attributes:
+  - attribute_key: jobs.salesforce.build
+    value: Salesforce
+    min_grade: probable
+    source_url: https://acme.example/careers/jobs/s1
+people:
+  - profile_url: https://profiles.example/acme-cto
+    title: Chief Technology Officer

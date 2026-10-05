@@ -1,0 +1,13 @@
+# Patterns that must never appear in client-facing output (PRD 3.5 and 3.4 third-party scan).
+# One regex per line, case-insensitive. Lines starting with # are comments.
+# Broker names (internal only; only the DPA sub-processor list may name them)
+\bparallel\s+(search|fetch|ai|web)\b
+\bfirecrawl\b
+\bpredictleads\b
+\bbitscale\b
+\bsumble\b
+# Credit counts and cost language
+\b\d[\d,\.]*\s+credits?\b
+\bcredits?\s+(used|spent|remaining|balance)\b
+# Internal naming (tenant-specific names, emails and internal source IDs are added at runtime from the redaction map)
+\binternal\s+source\s+id\b

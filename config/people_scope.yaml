@@ -1,15 +1,29 @@
 # Default people scope. Source: PRD s3.3 inputs and s3.4 people; roadmap s7 people pipeline.
 # Per-tenant overrides arrive with tenant settings in Phase 3 (roadmap s9).
-version: "1.0.0"
+# Every entry carries a source or a status (people pipeline spec 2.1). The keys read by
+# evals/people_compare.py and tests/unit/test_enums.py (levels_in_scope, excluded_title_terms,
+# merge_keys) are unchanged.
+version: "1.1.0"
+source: "PRD s3.3 (people scope input) and s4.2 step 7"
 
 # Seniority kept (PRD s3.3: Director and above, Head, Senior Manager. Global).
+# "and above" is not enumerated by the PRD; C-level, EVP, SVP and VP are this file's reading of it.
 levels_in_scope: [C-level, EVP, SVP, VP, Head, Director, Senior Manager]
+levels_in_scope_source: "PRD s3.3; the levels above Director are a proposal (D-21)"
 
-# Functions excluded (PRD s3.3, roadmap s7). Matched case-insensitively against the title.
+# Functions excluded (PRD s3.3, roadmap s7). Matched as whole words against the title
+# (people.exclusion; rule ids in config/people_rubric.yaml).
 excluded_title_terms:
   - security
   - it compliance
   - it audit
+excluded_title_terms_source: "PRD s3.3: exclude security, IT compliance, IT audit"
 
 # Merge order (roadmap s7, s11.1): profile URL first, then name.
 merge_keys: [profile_url, name]
+merge_keys_source: "PRD s4.2 step 7: merge by profile URL first, name second"
+
+# Geography (PRD s3.3: global). A run may narrow it with run input `people_regions`.
+geography:
+  value: global
+  source: "PRD s3.3: people scope is global by default"

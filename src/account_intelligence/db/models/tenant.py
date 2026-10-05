@@ -17,6 +17,8 @@ from account_intelligence.db.types import JSONB
 
 
 class Tenant(UuidPkMixin, Base):
+    """A tenant (customer organization) and its policy."""
+
     __tablename__ = "tenants"
 
     name: Mapped[str] = mapped_column(Text)

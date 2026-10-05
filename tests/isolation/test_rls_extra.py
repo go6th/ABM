@@ -120,3 +120,15 @@ async def test_canary_vector_does_not_cross_tenants(tenant_a: UUID, tenant_b: UU
             )
         ).all()
     assert rows == []  # tenant A's nearest-neighbour search must not return tenant B's canary
+
+
+async def test_direct_access_to_a_chunk_partition_is_denied(tenant_a: UUID):
+    """Direct access to a child partition must be denied to app_rw (moved from the retired
+    starter-graph integration test)."""
+    from sqlalchemy import text
+
+    from account_intelligence.db.session import tenant_txn
+
+    with pytest.raises(Exception, match="permission denied"):
+        async with tenant_txn(tenant_a) as s:
+            await s.execute(text("SELECT count(*) FROM chunks_p0"))

@@ -1,0 +1,66 @@
+# Workflow v1: the 13 stages, dependencies, tool categories, caps and coverage-row ownership.
+version: "2026-10-02.1"
+settings:
+  execution_mode: sequential
+  concurrency: 1
+  slice_seconds: 240
+  max_slices: 60
+  max_calls: 60
+  max_budget_usd: 5.0
+  approval_timeout_hours: 24
+  planner_gap_passes: 2
+  gate_cycles: 3
+  verification_queries_per_lead: 3
+  verification_repasses: 1
+  graph_version: "2026-10-02.1"
+  soft_budget_shares_source: "TODO, needs product owner; configured shares are provisional allocations"
+  unsourced_loop_caps: "TODO, needs product owner or connector-specific cap; see individual stages"
+  judge_profile: "TODO, needs product owner; must resolve to a model distinct from the generator"
+stages:
+  - {id: setup, name: Setup, depends_on: [], allowed_tools: [web_search], budget_share: 0.03, loop_cap: 0, coverage: []}
+  - {id: pass1_relationship, name: Pass 1 relationship, depends_on: [setup], allowed_tools: [people_search, profile_enrichment], budget_share: 0.07, loop_cap: 0, coverage: [prior_customer_status, connections_alumni, platform_vendor_account_team, key_contact_profiles_posts, basic_fit_check, customers_partners_matched]}
+  - {id: baseline, name: Baseline, depends_on: [pass1_relationship], allowed_tools: [web_search, page_read], budget_share: 0.12, loop_cap: 8, coverage: [earnings_filings, leadership_changes, executive_voice_earnings, financial_baseline_verified, financial_position_peers, major_holders_activists]}
+  - {id: news, name: News, depends_on: [baseline], allowed_tools: [web_search, page_read, news_feed], budget_share: 0.12, loop_cap: 8, coverage: [company_news, regulatory_quality_events, competitor_moves, research_papers]}
+  - {id: jobs, name: Jobs, depends_on: [news], allowed_tools: [job_board], budget_share: 0.16, loop_cap: 12, coverage: [job_board_by_lane, job_postings_read_classified, job_postings_12_months]}
+  - {id: tech, name: Technology, depends_on: [jobs], allowed_tools: [tech_detection], budget_share: 0.07, loop_cap: 1, coverage: [technology_detections]}
+  - {id: people, name: People, depends_on: [tech], allowed_tools: [people_search, profile_enrichment], budget_share: 0.12, loop_cap: 12, coverage: [people_by_platform, full_profiles_senior_people, posts_priority_people, employee_content_github]}
+  - {id: name_searches, name: Person name searches, depends_on: [people], allowed_tools: [web_search, page_read], budget_share: 0.08, loop_cap: 10, coverage: [vendor_customer_stories, executive_speaking, podcasts, youtube, medium_substack, review_sites, vendor_communities, events_sponsored]}
+  - {id: verification, name: Lead verification, depends_on: [name_searches], allowed_tools: [web_search, page_read, job_board, news_feed, people_search], budget_share: 0.08, loop_cap: 3, coverage: [lead_verification]}
+  - {id: distill_grade, name: Distill and grade, depends_on: [verification], allowed_tools: [], budget_share: 0.03, loop_cap: 2, coverage: []}
+  - {id: build, name: Build deliverables, depends_on: [distill_grade], allowed_tools: [], budget_share: 0.04, loop_cap: 0, coverage: []}
+  - {id: gate, name: Quality gate, depends_on: [build], allowed_tools: [], budget_share: 0.04, loop_cap: 3, coverage: []}
+  - {id: deliver, name: Deliver, depends_on: [gate], allowed_tools: [], budget_share: 0.04, loop_cap: 0, coverage: []}
+coverage_basis:  # why each row has its owner; `proposed: true` needs product-owner confirmation
+  prior_customer_status: {basis: "Pass 1 relationship history", proposed: false}
+  connections_alumni: {basis: "Pass 1 overlap research", proposed: false}
+  platform_vendor_account_team: {basis: "Pass 1 vendor relationship", proposed: false}
+  key_contact_profiles_posts: {basis: "Pass 1 obvious contacts", proposed: false}
+  basic_fit_check: {basis: "Pass 1 fit check", proposed: false}
+  company_news: {basis: "Step 4 news", proposed: false}
+  earnings_filings: {basis: "Step 3 company baseline", proposed: false}
+  leadership_changes: {basis: "Step 3 leadership page", proposed: false}
+  job_board_by_lane: {basis: "Step 5 job boards", proposed: false}
+  job_postings_read_classified: {basis: "Step 5 postings", proposed: false}
+  job_postings_12_months: {basis: "Step 5 postings", proposed: false}
+  technology_detections: {basis: "Step 6 detections", proposed: false}
+  people_by_platform: {basis: "Step 7 title search", proposed: false}
+  full_profiles_senior_people: {basis: "Step 7 profile pulls", proposed: false}
+  posts_priority_people: {basis: "Step 7 priority A activity", proposed: false}
+  executive_voice_earnings: {basis: "Step 3 transcripts", proposed: false}
+  financial_baseline_verified: {basis: "Step 3 releases and filings", proposed: false}
+  vendor_customer_stories: {basis: "Step 8 name searches", proposed: false}
+  lead_verification: {basis: "Step 9 lead loop", proposed: false}
+  customers_partners_matched: {basis: "User confirmed this proposed owner on 2026-10-02; original Appendix A still unavailable", proposed: false}
+  executive_speaking: {basis: "Step 8 person-name searches", proposed: false}
+  podcasts: {basis: "Step 8 person-name searches", proposed: false}
+  youtube: {basis: "Step 8 person-name searches", proposed: false}
+  medium_substack: {basis: "Step 8 person-name searches", proposed: false}
+  review_sites: {basis: "Step 8 checks and explicit None outcome", proposed: false}
+  vendor_communities: {basis: "Step 8 checks and explicit None outcome", proposed: false}
+  regulatory_quality_events: {basis: "Closest explicit source work is step 4 news; confirm Appendix A assignment", proposed: true}
+  financial_position_peers: {basis: "Closest explicit work is step 3 financial baseline; confirm Appendix A assignment", proposed: true}
+  competitor_moves: {basis: "Closest explicit source work is step 4 news; confirm Appendix A assignment", proposed: true}
+  major_holders_activists: {basis: "Closest explicit work is step 3 financial baseline; confirm Appendix A assignment", proposed: true}
+  events_sponsored: {basis: "Closest explicit work is step 8 people/company name searches; confirm Appendix A assignment", proposed: true}
+  employee_content_github: {basis: "Closest explicit work is step 7 people activity; confirm Appendix A assignment", proposed: true}
+  research_papers: {basis: "Closest explicit source work is step 4 targeted search; confirm Appendix A assignment", proposed: true}

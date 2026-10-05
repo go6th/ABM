@@ -1,3 +1,5 @@
+"""Grading facade (agents/grading.py) unit tests."""
+
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 

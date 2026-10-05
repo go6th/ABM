@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 
 from account_intelligence.db.enums import RUN_TRANSITIONS, RunStatus
 from account_intelligence.db.models import Run
-from tests.db.conftest import make_account, make_run, make_tenant, set_tenant
+from tests.db.conftest import make_account, make_run, make_tenant, seed_complete_tracker, set_tenant
 
 STATUSES = [status.value for status in RunStatus]
 
@@ -48,6 +48,7 @@ def test_credit_cap_must_be_positive(admin, account) -> None:  # type: ignore[no
 
 def test_finished_at_cannot_precede_started_at(admin, account) -> None:  # type: ignore[no-untyped-def]
     run = make_run(admin, *account, "running")
+    seed_complete_tracker(admin, account[0], run)  # completion guard satisfied; tests the CHECK
     with pytest.raises(psycopg.errors.CheckViolation, match="ck_runs_finished_after_started"):
         admin.execute(
             "UPDATE runs SET status = 'completed', finished_at = started_at - interval '1 second'"
@@ -137,6 +138,10 @@ def test_status_transitions_match_run_transitions(admin, account, old, new) -> N
         " WHERE id = %(id)s"
     )
     allowed = new == old or RunStatus(new) in RUN_TRANSITIONS[RunStatus(old)]
+    if new == "completed":
+        seed_complete_tracker(
+            admin, account[0], run
+        )  # completion guard satisfied; tests transitions
     if allowed:
         admin.execute(update, {"new": new, "id": run})
     else:

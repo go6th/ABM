@@ -1,0 +1,69 @@
+# SYNTHETIC hand-written oracle for corpus.yaml (computed by hand, not by the code under test).
+label: synthetic
+# Each group: its records; the canonical record (smallest key among members with a URL) carries
+# the status, every other member is `merged`.
+groups:
+  - {members: [r01, r02], status: in_scope, level: director, lanes: [salesforce], priority: A, possible_duplicate: true}
+  - {members: [r03], status: excluded, reason: security}
+  - {members: [r04, r07, r08], status: in_scope, level: senior_manager, lanes: [salesforce], priority: B}
+  - {members: [r05, r18, r19], status: in_scope, level: vp, lanes: [salesforce], priority: A}
+  - {members: [r06], status: out_of_scope, reason: below_scope}
+  - {members: [r20], status: in_scope, level: senior_manager, lanes: [salesforce], priority: B}
+  - {members: [r09], status: in_scope, level: c_level, lanes: [servicenow], priority: A}
+  - {members: [r10], status: excluded, reason: it_audit}
+  - {members: [r11], status: review, reason: exclusion_ambiguous}
+  - {members: [r12], status: excluded, reason: it_compliance}
+  - {members: [r13], status: out_of_scope, reason: not_current}
+  - {members: [r14], status: out_of_scope, reason: not_current}
+  - {members: [r15], status: review, reason: level_unknown}
+  - {members: [r16], status: in_scope, level: director, lanes: [sap], priority: A, possible_duplicate: true}
+  - {members: [r17], status: in_scope, level: director, lanes: [tableau_analytics], priority: A, internal_only: true}
+  - {members: ["mention:Priya Nair"], status: unresolved}
+  - {members: ["mention:Sam Roe"], status: unresolved}
+  - {members: ["mention:Raj Patel"], status: unresolved, possible_duplicate: true}
+counts:
+  found: 23
+  distinct: 18
+  merged_away: 5
+  possible_duplicate: 3
+  in_scope: 7
+  out_of_scope: {below_scope: 1, not_current: 2}
+  excluded: {it_audit: 1, it_compliance: 1, security: 1}
+  review: {exclusion_ambiguous: 1, level_unknown: 1}
+  unresolved: 3
+  profiles_requested: 7
+  profiles_read: 6
+  profiles_partial: 0
+  profiles_failed: 1
+  alumni: {computed: true, count: 1, base: 6, not_computed_reason: null}
+  tenure_known: 2
+  tenure_unknown: 2
+  date_invalid: 2
+  tenure_buckets: {under_1y: 1, 1_to_3y: 0, 3_to_5y: 0, 5y_plus: 1}
+  cert_field_provided: 3
+  cert_field_absent: 3
+  certified_by_lane: {salesforce: 1, servicenow: 1, sap: 0, tableau_analytics: 0, veeva: 0, data_ai: 0}
+  posts_people: 2
+  posts_pulled: 2
+  activity_unfiltered: 1
+  hostile: 1
+  fields_dropped: 3
+  by_lane_in_scope: {salesforce: 4, servicenow: 1, sap: 1, tableau_analytics: 1, veeva: 0, data_ai: 0}
+  by_priority: {A: 5, B: 2, C: 0}
+# Mei's email is redacted at the boundary, so the extractor's sentence quoting it is not in her
+# stored text.
+drops: {sentence_not_in_text: 2, claim_not_in_sentence: 1, schema_invalid: 1, mentions_ambiguous: 1}
+findings: 1
+claims: 8
+lanes_not_searched: {veeva: lane_not_in_scope, data_ai: not_available_yet}
+exits:
+  "title:salesforce:1": no_progress     # cursor repeat
+  "title:salesforce:2": no_progress     # no new people
+  "title:sap:1": no_progress            # failed call
+  "title:servicenow:1": converged
+  gap_loop: no_progress
+  posts: converged
+evidence:
+  people_by_platform: {refs: 11, failed: 1, expected_calls: 10, cap_hit: true}
+  full_profiles_senior_people: {refs: 7, failed: 1, expected_calls: 7, cap_hit: true}
+  posts_priority_people: {refs: 3, failed: 0, expected_calls: 3, cap_hit: false}

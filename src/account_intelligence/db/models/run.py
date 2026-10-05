@@ -29,6 +29,8 @@ from account_intelligence.db.enums import RunStatus, RunType, sql_in_values
 
 
 class Run(UuidPkMixin, TimestampMixin, Base):
+    """The data-layer run row (same id as the orchestration run in account_runs)."""
+
     __tablename__ = "runs"
     __table_args__ = (
         UniqueConstraint("tenant_id", "account_id", "id"),

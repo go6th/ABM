@@ -1,6 +1,8 @@
 # Account Intelligence roadmap
 
-This roadmap follows the skill's `references/11-build-plan.md`. The project is currently assembling the foundation; it does not claim the Phase 0 exit gate or start product work packages.
+This roadmap follows the skill's `references/11-build-plan.md`. The repository has implemented the Phase 1 Data layer v1 foundation and local Phase 0 harnesses. Fresh PostgreSQL migration, catalog, isolation, integration and coverage checks now pass locally. The Phase 0 exit gate is not claimed: stakeholder sign-off, real September benchmarks and golden accounts, counsel review, an agreed Phase 1 backlog and cloud staging remain blocked.
+
+The current evidence-based item table is maintained in [STATUS.md](STATUS.md). Do not infer completion from this roadmap summary.
 
 ## Phase 0: Prove (weeks 1 to 3)
 
@@ -46,7 +48,7 @@ Private-context connectors and quarantine, redaction, chunking and retrieval, in
 
 ## Known early gaps and deferred decisions
 
-- **First Phase 0 blocker:** the starter's billing ledger permits duplicate paid calls during concurrent execution and the crash window. Add a per-run lease and intent/reconciliation design; do not claim exactly-once billing yet.
+- **Durability follow-up:** the local test now covers concurrent workers, ambiguous-call blocking and five process-kill/resume cycles. It establishes at-most-once dispatch through the starter ledger, not exactly-once provider billing; provider idempotency/reconciliation terms and stakeholder sign-off remain open.
 - **First Phase 1 blocker:** an idempotency-key replay is not checked against the request body; a different domain with the same key currently replays the earlier run.
 - D-01 to D-11 remain open until answered in the source skill's decision register. They block the dependent work packages listed in `references/12-open-decisions-and-verification.md`.
 - GitHub Actions in `.github/workflows/ci.yml` are pinned to verified commit SHAs; verify and refresh them when updating actions.

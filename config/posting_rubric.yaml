@@ -1,0 +1,44 @@
+# Posting classification rubric (spec build_job_posting_pipeline.md 2.3; decision D-16).
+# The sources name the four classes but do not define them. Every rule below is a PROPOSAL derived
+# from the class names only; the product owner extends it. Cues match whole words in the posting
+# DESCRIPTION (never the title alone). Conflicting hits make a posting ambiguous; only the ambiguous
+# remainder goes to the tool-less extractor (with a second pass for build and admin_owner).
+version: "2026-10-02.1"
+status: proposal
+source: "TODO, needs product owner (D-16); cues derived from the class names only"
+classes: [build, admin_owner, working_tool, user]
+rules:
+  - rule_id: proposed_build_developer
+    label: build
+    cues: ["developer", "engineer", "architect"]
+    status: proposal
+    source: "class name 'Build role'"
+    positive: "We are hiring a Salesforce developer to extend our org."
+    negative: "Sales representatives use Salesforce every day."
+  - rule_id: proposed_admin_owner
+    label: admin_owner
+    cues: ["administrator", "admin", "platform owner", "product owner"]
+    status: proposal
+    source: "class name 'Admin and owner role'"
+    positive: "The ServiceNow administrator owns platform configuration."
+    negative: "Engineers build integrations for ServiceNow."
+  - rule_id: proposed_working_tool
+    label: working_tool
+    cues: ["analyst"]
+    status: proposal
+    source: "class name 'Working tool' (the platform is a tool the role works in)"
+    positive: "As a financial analyst you report in SAP."
+    negative: "The SAP administrator maintains roles."
+  - rule_id: proposed_user
+    label: user
+    cues: ["representative", "agent", "coordinator"]
+    status: proposal
+    source: "class name 'User role'"
+    positive: "A sales representative logs calls in Salesforce."
+    negative: "The Salesforce architect designs the data model."
+# D-16 full-text scope. The PRD rules say "every role where the platform is the job", step 5 says
+# "every build role". Default is the superset; one line narrows it to [build].
+full_text_required_classes:
+  value: [build, admin_owner]
+  status: proposal
+  source: "D-16; spec default is the superset"

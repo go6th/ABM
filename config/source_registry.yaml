@@ -1,0 +1,25 @@
+# INTERNAL. Source registry (D-15, proposal). Tier by source domain and by provider code
+# (never a vendor name), aggregator flag, and upstream lineage group.
+# T1 for the run's own account domain and its verified careers host is derived from run input,
+# not listed here. Every other entry needs the product owner: none are guessed from memory.
+version: "2026-10-02.1"
+status: proposal
+decision: D-15
+
+# Unlisted domains: lowest tier and flagged for review.
+unlisted_domain: {tier: T4, is_aggregator: false, flag: unclassified_source}
+
+# Account-derived primary hosts: one lineage group (the company is the single upstream).
+account_primary: {tier: T1, lineage_group: account_primary, live_state: true}
+
+domains: []
+# Example shape (add real entries only with a source):
+#   - {domain: example-news.com, tier: T3, is_aggregator: false, lineage_group: example-news,
+#      live_state: false, source: "TODO, needs product owner"}
+
+# Broker records (origin broker_record), keyed by provider code. Upstream lineage of broker
+# datasets is not documented, so each is its own group with lineage_known: false.
+provider_codes:
+  p_signals: {tier: T2, is_aggregator: true, lineage_group: "provider:p_signals", lineage_known: false, source: "TODO, needs product owner"}
+  p_org:     {tier: T2, is_aggregator: true, lineage_group: "provider:p_org", lineage_known: false, source: "TODO, needs product owner"}
+  p_people:  {tier: T2, is_aggregator: true, lineage_group: "provider:p_people", lineage_known: false, source: "TODO, needs product owner"}

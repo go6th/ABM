@@ -5,17 +5,28 @@ description = "Multi-tenant account research platform: sourced, graded briefs, p
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "alembic>=1.13",
+    "anthropic>=0.40",
     "asyncpg>=0.29",
-    "boto3>=1.35",
+    "cloud-sql-python-connector[asyncpg]>=1.12",
     "fastapi>=0.115",
-    "inngest>=0.4",
+    "google-auth>=2.30",
+    "google-cloud-secret-manager>=2.20",
+    "google-cloud-storage>=2.18",
+    "google-cloud-tasks>=2.16",
+    "httpx>=0.27",
     "langgraph>=1.0",
     "langgraph-checkpoint-postgres>=2.0",
+    "openpyxl>=3.1.5",
+    "opentelemetry-api>=1.25",
+    "opentelemetry-exporter-gcp-trace>=1.6",
+    "opentelemetry-sdk>=1.25",
     "psycopg[binary,pool]>=3.2",
     "pydantic>=2.7",
     "pydantic-settings>=2.4",
     "pyjwt[crypto]>=2.9",
+    "python-docx>=1.2.0",
     "pyyaml>=6.0",
+    "redis>=5.0",
     "sqlalchemy[asyncio]>=2.0",
     "uvicorn[standard]>=0.30",
 ]
@@ -25,26 +36,31 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/account_intelligence"]
+packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/gate"]
 
 [dependency-groups]
 dev = [
-    "boto3-stubs[s3]>=1.35",
+    "bandit>=1.7",
     "hypothesis>=6.100",
+    "import-linter>=2.1",
+    "interrogate>=1.7",
+    "lxml-stubs>=0.5.1",
     "mypy>=1.11",
     "pre-commit>=3.7",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
     "ruff>=0.6",
+    "types-openpyxl>=3.1.5.20260827",
     "types-PyYAML>=6.0",
+    "vulture>=2.11",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 src = ["src", "."]
-extend-exclude = [".claude", "_review"]
+extend-exclude = [".claude", "_review", "docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
@@ -69,9 +85,163 @@ markers = [
 ]
 
 [tool.coverage.run]
-source_pkgs = ["account_intelligence"]
+source_pkgs = ["account_intelligence", "spend", "exports", "gate"]
 branch = true
 
 [tool.coverage.report]
 fail_under = 80
 show_missing = true
+
+# W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports
+[tool.importlinter]
+root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "gate"]
+
+[[tool.importlinter.contracts]]
+name = "platform ports and adapters depend on nothing above them"
+type = "forbidden"
+source_modules = ["account_intelligence.platform"]
+forbidden_modules = [
+    "account_intelligence.connectors", "account_intelligence.tracker", "account_intelligence.grading",
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app", "jobs",
+]
+
+[[tool.importlinter.contracts]]
+name = "connectors never import the tracker, grading, workflow, runs, api or app"
+type = "forbidden"
+source_modules = ["account_intelligence.connectors"]
+forbidden_modules = [
+    "account_intelligence.tracker", "account_intelligence.grading", "account_intelligence.workflow",
+    "account_intelligence.runs", "account_intelligence.api", "account_intelligence.app", "jobs",
+]
+
+[[tool.importlinter.contracts]]
+name = "grading never imports the tracker, workflow, runs, jobs, api or app"
+type = "forbidden"
+source_modules = ["account_intelligence.grading"]
+forbidden_modules = [
+    "account_intelligence.tracker", "account_intelligence.workflow", "account_intelligence.runs",
+    "account_intelligence.api", "account_intelligence.app", "jobs",
+]
+
+[[tool.importlinter.contracts]]
+name = "tracker never imports the workflow, runs, jobs, api or app"
+type = "forbidden"
+source_modules = ["account_intelligence.tracker"]
+forbidden_modules = [
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app", "jobs",
+]
+
+[[tool.importlinter.contracts]]
+name = "jobs never imports the workflow, runs, api or app"
+type = "forbidden"
+source_modules = ["jobs"]
+forbidden_modules = [
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app",
+]
+
+[[tool.importlinter.contracts]]
+name = "workflow and runs never import the api or app"
+type = "forbidden"
+source_modules = ["account_intelligence.workflow", "account_intelligence.runs"]
+forbidden_modules = ["account_intelligence.api", "account_intelligence.app"]
+
+[[tool.importlinter.contracts]]
+name = "the credit cap never imports the api, app or runs; only its plan adapter reads the workflow spec"
+type = "forbidden"
+source_modules = ["spend"]
+forbidden_modules = [
+    "account_intelligence.api", "account_intelligence.app", "account_intelligence.runs",
+    "account_intelligence.workflow",
+]
+ignore_imports = ["spend.plan -> account_intelligence.workflow.spec"]
+
+[[tool.importlinter.contracts]]
+name = "export builders never import the api, app or runs (they are the BuilderPort adapter)"
+type = "forbidden"
+source_modules = ["exports"]
+forbidden_modules = [
+    "account_intelligence.api", "account_intelligence.app", "account_intelligence.runs",
+]
+
+[[tool.importlinter.contracts]]
+name = "nothing below the builders imports them (platform, connectors, grading, tracker, jobs, people)"
+type = "forbidden"
+source_modules = [
+    "account_intelligence.platform", "account_intelligence.connectors",
+    "account_intelligence.grading", "account_intelligence.tracker", "jobs", "people",
+]
+forbidden_modules = ["exports"]
+
+# Section 10: every public module, class, function and method has a docstring (100%).
+[tool.interrogate]
+fail-under = 100
+ignore-init-method = true
+ignore-init-module = false
+ignore-magic = true
+ignore-private = true
+ignore-semiprivate = true
+ignore-nested-functions = true
+ignore-nested-classes = true
+ignore-overloaded-functions = true
+exclude = ["src/account_intelligence/agents/prompts"]
+
+# Security scan. Skipped with reasons: B101 asserts are type narrowing after validated routing and
+# the image never runs with -O (PYTHONOPTIMIZE unset); B311 random is backoff jitter, never a
+# secret. Everything else must be clean or carry a line-level '# nosec <id>' with its reason.
+[tool.bandit]
+skips = ["B101", "B311"]
+
+[[tool.importlinter.contracts]]
+name = "runs never imports the workflow (one-way dependency; the runner calls the lifecycle)"
+type = "forbidden"
+source_modules = ["account_intelligence.runs"]
+forbidden_modules = ["account_intelligence.workflow"]
+
+# Mutation check (section 9): the pure rule modules whose boundaries decide statuses and counts.
+# Run: uv run --with "mutmut>=3.2,<4" mutmut run   (keys verified in mutmut 3.8.0 configuration)
+[tool.mutmut]
+paths_to_mutate = [
+    "src/account_intelligence/tracker/derive.py",
+    "src/account_intelligence/tracker/machine.py",
+    "src/account_intelligence/tracker/completion.py",
+    "src/jobs/counts.py",
+    "src/jobs/window.py",
+    "src/spend/money.py",
+    "src/spend/gate.py",
+    "src/spend/priority.py",
+    "src/spend/approval.py",
+    "src/spend/report.py",
+    "src/spend/reconcile.py",
+    "src/jobs/dedupe.py",
+    "src/jobs/classify.py",
+    "src/jobs/gap.py",
+    "src/exports/policy.py",
+    "src/exports/numbers.py",
+    "src/exports/citations.py",
+    "src/exports/change_note.py",
+    "src/exports/workspace.py",
+]
+tests_dir = [
+    "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
+    "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
+    "tests/spend/test_core.py", "tests/spend/test_properties.py",
+    "tests/spend/test_mutation_kills.py",
+    "tests/jobs/test_gap_and_resume.py", "tests/jobs/test_gap_rules.py",
+    "tests/exports/test_policy.py", "tests/exports/test_pure_rules.py",
+    "tests/exports/test_workspace.py", "tests/exports/test_mapping_edges.py",
+    "tests/exports/test_mutation_kills.py",
+]
+also_copy = ["config/", "scripts/", ".claude/", "evals/", "tests/", "docs/", "src/"]
+pytest_add_cli_args_test_selection = [
+    "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
+    "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
+    "tests/spend/test_core.py", "tests/spend/test_properties.py",
+    "tests/spend/test_mutation_kills.py",
+    "tests/jobs/test_gap_and_resume.py", "tests/jobs/test_gap_rules.py",
+    "tests/exports/test_policy.py", "tests/exports/test_pure_rules.py",
+    "tests/exports/test_workspace.py", "tests/exports/test_mapping_edges.py",
+    "tests/exports/test_mutation_kills.py",
+]

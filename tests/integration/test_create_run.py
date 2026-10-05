@@ -1,7 +1,10 @@
-"""Exercise POST /v1/runs against a real database with a stubbed event client."""
+"""Exercise POST /v1/runs against a real database with the test container (in-process scheduler).
+
+The route now creates runs through ``runs.lifecycle.create_run`` and enqueues on the
+``RunScheduler`` (Inngest retired, conflict row C11)."""
 
 import asyncio
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
 from uuid import UUID
 
 import psycopg
@@ -16,8 +19,15 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture(autouse=True)
-def stub_events(monkeypatch):
-    monkeypatch.setattr(runs, "inngest_client", type("C", (), {"send": AsyncMock()})())
+def container():
+    from account_intelligence.app.container import build_container
+
+    c = build_container({"APP_ENV": "test"})
+    REQUEST.app.state.container = c
+    return c
+
+
+REQUEST = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(container=None)))
 
 
 def _balance(tenant: UUID) -> float:
@@ -34,7 +44,10 @@ def _set_balance(tenant: UUID, amount: float) -> None:
 
 async def _create(tenant: UUID, domain: str, key: str):
     return await runs.create_run(
-        runs.RunRequest(domain=domain), key, Identity("u1", tenant, "admin")
+        runs.RunBody(domain=domain),
+        REQUEST,
+        key,
+        Identity("u1", tenant, "admin"),  # type: ignore[arg-type]
     )
 
 
@@ -58,15 +71,22 @@ async def test_replay_with_the_same_key_returns_the_same_run_and_does_not_charge
     assert _balance(tenant_a) == 94.0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="defect 5: a replayed Idempotency-Key is not checked against the request body, "
-    "so the same key with a different domain silently returns the first run.",
-)
 async def test_same_key_with_a_different_domain_is_rejected(tenant_a: UUID):
+    """Known defect 5, fixed by the request hash (ADR-0016); this was a strict xfail."""
     await _create(tenant_a, "acme.com", "idem-0003-aaaa")
-    with pytest.raises(HTTPException):
+    with pytest.raises(HTTPException) as e:
         await _create(tenant_a, "other.com", "idem-0003-aaaa")
+    assert e.value.status_code == 409
+
+
+async def test_created_run_has_its_tracker_and_slice_zero_is_queued(tenant_a: UUID, container):
+    out = await _create(tenant_a, "seeded.com", "idem-0005-aaaa")
+    with psycopg.connect(ADMIN_DSN) as c:
+        rows = c.execute(
+            "SELECT count(*) FROM coverage_rows WHERE run_id = %s", (out["run_id"],)
+        ).fetchone()[0]
+    assert rows == 33
+    assert container.scheduler.queued[-1][1:] == (UUID(out["run_id"]), 0)
 
 
 async def test_insufficient_credits_returns_402_and_leaves_nothing_behind(tenant_a: UUID):

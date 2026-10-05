@@ -1,0 +1,233 @@
+# INTERNAL ENGINEERING CONFIG. Never shown in client-facing material.
+# Per-provider transport, pacing and cost data for the connector layer
+# (src/account_intelligence/connectors). Costs and limits are DATA, not code:
+# every number carries a `source`. Unknown is null with `source: unknown`, never 0.
+# Source snapshots and hashes: docs/providers/sources/INDEX.md. Claims: docs/providers/CLAIMS.md.
+version: "2026-10-02.1"
+
+defaults:
+  run_budget_usd: 5.00          # skill reference 04: broker spend cap per run (hard)
+  tool_call_cap: 60             # skill reference 04: tool calls per run
+  retry:                        # owned by the LangGraph node RetryPolicy (ADR-0007)
+    max_attempts: 3
+    initial_interval_s: 1.0
+    backoff_factor: 2.0
+    max_interval_s: 30.0
+    jitter: true
+  ratelimit:
+    max_wait_s: 10.0            # beyond this the connector raises RateLimited
+    max_cooldown_s: 60.0        # cap on an honoured Retry-After
+    default_cooldown_s: 5.0     # 429 without Retry-After
+  breaker:
+    failure_threshold: 3        # equal to retry.max_attempts: an exhausted retry opens it
+    window_s: 120.0
+    cooldown_s: 60.0
+    half_open_probes: 1
+  pagination:
+    max_pages: 20
+    max_items: 2000
+    max_bytes: 50000000
+  provider_jobs:                # async provider jobs (start, then poll)
+    poll_interval_s: 3.0        # p_people doc: poll every 2 to 5 seconds
+    poll_jitter_s: 1.0
+    max_polls: 40
+    total_timeout_s: 150.0
+  ledger:
+    lease_ttl_s: 300            # longer than one 240 s slice
+    in_flight_wait_s: 30.0      # wait for an identical call by this worker
+    in_flight_poll_s: 0.25
+  # Charged against the run's dollar cap when a call's dollar cost is unknown, so an
+  # unknown cost is never treated as free. A placeholder for budget safety, not a price.
+  unknown_cost_reserve_usd: 0.25
+
+providers:
+  p_search:
+    display_name: "Parallel"    # internal display field only
+    base_url: "https://api.parallel.ai"
+    auth: {header: "x-api-key", scheme: "raw", env: "P_SEARCH_API_KEY",
+           source: "docs/providers/sources/p_search/search.openapi.md securitySchemes.ApiKeyAuth"}
+    http: {connect_s: 5, read_s: 30, write_s: 10, pool_s: 5, total_s: 45, max_bytes: 10000000}
+    rate_limit:
+      rate_per_s: 10.0
+      burst: 10
+      source: "docs/providers/sources/p_search/rate-limits.md: Search 600 per min, Extract 600 per min"
+    usd_per_credit: null
+    unknown_cost_reserve_usd: null
+    bill_on_failure: false
+    bill_on_failure_source: "[VERIFY] pricing.md states 'only charged for successfully completed runs' for Task and Responses only; Search/Extract failure billing not stated"
+    operations:
+      web_search:
+        cost_model: usd_per_call_by_mode
+        usd_by_mode: {turbo: 0.001, fast: 0.001, basic: 0.005, advanced: 0.005}
+        usd_per_additional_result: 0.001
+        included_results: 10
+        source: "docs/providers/sources/p_search/pricing.md Search API table and cost formulas"
+        prd_hint: "PRD tools playbook says free, one session per run; contradicted by current pricing page"
+      read_page:
+        cost_model: usd_per_call
+        usd: 0.001
+        source: "docs/providers/sources/p_search/pricing.md Extract API: $1 per 1,000 URLs (one URL per call here)"
+
+  p_scrape:
+    display_name: "Firecrawl"
+    base_url: "https://api.firecrawl.dev"
+    auth: {header: "authorization", scheme: "bearer", env: "P_SCRAPE_API_KEY",
+           source: "docs/providers/sources/p_scrape/v2-openapi.scrape-extract.json securitySchemes.bearerAuth"}
+    # scrape `timeout` default 60000 ms, max 300000 ms; read timeout must exceed it
+    http: {connect_s: 5, read_s: 75, write_s: 10, pool_s: 5, total_s: 90, max_bytes: 10000000}
+    rate_limit:
+      rate_per_s: 1.0
+      burst: 2
+      source: "[VERIFY] plan-dependent (rate-limits.md: per-plan tables); conservative placeholder until the plan is known"
+    usd_per_credit: null
+    usd_per_credit_source: "unknown: plan-dependent; [VERIFY] against the account's plan"
+    unknown_cost_reserve_usd: null
+    bill_on_failure: false
+    bill_on_failure_source: "docs/providers/sources/p_scrape/billing.md 'Firecrawl returned no document: 0 credits'"
+    operations:
+      scrape_job_page:
+        cost_model: credits_per_document
+        credits: 1
+        source: "docs/providers/sources/p_scrape/billing.md: Scrape 1 credit / page"
+        prd_hint: "PRD tools playbook: 1 credit per plain scrape; JSON extraction about 5; search with scrape 20 or more (source: PRD tools playbook, verify against current plan)"
+        refused_modes:
+          json_extraction: "billing.md: JSON format +4 credits / page (5 total); response schema not sourced"
+          search_with_scrape: "billing.md: Search 2 credits / 10 results plus per-page scrape costs"
+
+  p_signals:
+    display_name: "PredictLeads"
+    base_url: "https://predictleads.com/api/v3"
+    auth: {header: "x-api-key", scheme: "raw", env: "P_SIGNALS_API_KEY",
+           extra_header: "x-api-token", extra_env: "P_SIGNALS_API_TOKEN",
+           source: "docs/providers/sources/p_signals/v3-openapi.company-feeds-extract.json security [api_key + api_token]"}
+    http: {connect_s: 5, read_s: 30, write_s: 10, pool_s: 5, total_s: 45, max_bytes: 20000000}
+    rate_limit:
+      rate_per_s: 1.0
+      burst: 2
+      source: "[VERIFY] rate not published in the OpenAPI (403 'Request rate over limit', 429 with Retry-After seconds); conservative placeholder"
+    page_limit: 100
+    page_limit_source: "OpenAPI: limit default 100, maximum 1000"
+    usd_per_credit: null
+    usd_per_credit_source: "unknown: monthly request quota by plan (info.description 'Request Limits'); [VERIFY]"
+    unknown_cost_reserve_usd: null
+    bill_on_failure: false
+    bill_on_failure_source: "[VERIFY] not stated"
+    operations:
+      news_events: &signals_cost
+        cost_model: requests_per_page
+        credits: 1
+        unit: request
+        source: "OpenAPI info.description: requests per month limited by plan; each paged GET is one request"
+        prd_hint: "PRD tools playbook: credits per call; pull once per run and save"
+      job_openings: *signals_cost
+      tech_detections: *signals_cost
+
+  p_people:
+    display_name: "BitScale"
+    base_url: "https://api.bitscale.ai/api/v1"
+    auth: {header: "x-api-key", scheme: "raw", env: "P_PEOPLE_API_KEY",
+           source: "docs/providers/sources/p_people/api-reference.md section 2 Authentication"}
+    http: {connect_s: 5, read_s: 30, write_s: 10, pool_s: 5, total_s: 45, max_bytes: 10000000}
+    rate_limit:
+      rate_per_s: 5.0
+      burst: 5
+      source: "docs/providers/sources/p_people/api-reference.md section 3: 5 requests per second per workspace"
+    usd_per_credit: null
+    unknown_cost_reserve_usd: null
+    bill_on_failure: false
+    bill_on_failure_source: "[VERIFY] grid enrichment credit use is not stated in the API reference"
+    operations:
+      people_by_title:
+        cost_model: unknown
+        credits: null
+        source: unknown
+        prd_hint: "PRD tools playbook: no visible credit cost on the current plan (source: PRD tools playbook, verify against current plan)"
+      profile_enrichment:
+        cost_model: unknown
+        credits: null
+        source: unknown
+        prd_hint: "PRD tools playbook: estimate on a sample first, then confirm"
+
+  p_org:
+    display_name: "Sumble"
+    base_url: "https://api.sumble.com"
+    auth: {header: "authorization", scheme: "bearer", env: "P_ORG_API_KEY",
+           source: "docs/providers/sources/p_org/api-overview.md 'Authenticate'"}
+    # api-overview.md Timeouts: requests run up to 55 s; set client timeout to 65 s or more;
+    # a client that disconnects earlier is still charged if the request completes.
+    http: {connect_s: 5, read_s: 70, write_s: 10, pool_s: 5, total_s: 75, max_bytes: 20000000}
+    rate_limit:
+      rate_per_s: 10.0
+      burst: 10
+      source: "docs/providers/sources/p_org/api-overview.md 'Rate limits': 10 requests per second per user"
+    usd_per_credit: null
+    usd_per_credit_source: "unknown: credit price by plan; [VERIFY]"
+    unknown_cost_reserve_usd: null
+    bill_on_failure: false
+    bill_on_failure_source: "api-overview.md: 504 timeout 'No credits were charged'; people.md: failed jobs cost nothing"
+    org_attributes: [id, slug, name, url, sumble_url, employee_count, industry, headquarters_country]
+    org_free_attributes: [id, name, slug, url, sumble_url]
+    people_attributes: [name, linkedin_url, job_title, job_function, job_level, location]
+    people_free_attributes: [name]
+    people_page_limit: 50
+    # Response field holding the provider's own profile-page URL (organizations attributes and
+    # people rows). Source: docs/providers/sources/p_org/v9-openapi.extract.json PersonRow, Attributes.
+    page_url_field: "sumble_url"
+    operations:
+      org_resolve:
+        cost_model: provider_reported_credits
+        estimate_credits_formula: "1 base + 1 per paid attribute"
+        source: "docs/providers/sources/p_org/organizations.md 'Credit cost'; response field credits_used"
+      org_tech_stack:
+        cost_model: provider_reported_credits
+        estimate_credits: 100
+        estimate_source: "budget placeholder: 1 credit per technology returned and the count is unknown before the call"
+        source: "docs/providers/sources/p_org/api-overview.md Credits: Organization tech stack 1 credit per technology returned"
+      people_by_technology:
+        cost_model: provider_reported_credits
+        estimate_credits_formula: "page limit x (1 base + 1 per paid attribute)"
+        source: "docs/providers/sources/p_org/people.md 'Credit cost'; charged once on the first succeeded poll; polling is free"
+        prd_hint: "PRD tools playbook: 1 credit per person plus per attribute (source: PRD tools playbook, verify against current plan)"
+      org_teams:
+        cost_model: unknown
+        credits: null
+        source: unknown
+
+# Routes from the routing playbook (skill assets/routing.yaml, version 2026-10-01.1).
+# `first` and `fallback` name provider operations. `builtin:*` fallbacks refer to the chat
+# skill's built-in web tools, which do not exist in this service: they are unavailable here
+# and recorded as an open item (docs/providers/README.md). Translations between providers
+# are code (router.py); a fallback without a translation is unavailable, never improvised.
+routes:
+  - need: open_web_search
+    first: {provider: p_search, operation: web_search}
+    fallback: {builtin: web_search_builtin}
+    cost: "playbook: free, one session per run (current pricing page says otherwise; see p_search.md)"
+  - need: read_known_page
+    first: {provider: p_search, operation: read_page}
+    fallback: {builtin: fetch_builtin}
+    cost: "playbook: free, rate limits after a few calls"
+  - need: job_boards_and_pages
+    first: {provider: p_scrape, operation: scrape_job_page}
+    fallback: {provider: p_search, operation: read_page}
+    cost: "1 credit per plain scrape; avoid JSON extraction (5) and search-with-scrape (20+)"
+  - need: news_tech_job_feeds
+    first: {provider: p_signals}            # operation chosen by the caller: news, jobs or tech
+    fallback: {provider: p_search, operation: web_search}
+    cost: "credits per call; pull once per run and save"
+  - need: people_by_title
+    first: {provider: p_people, operation: people_by_title}
+    fallback: {provider: p_org, operation: people_by_technology}
+    cost: "no visible credit cost on current plan"
+  - need: people_by_technology
+    first: {provider: p_org, operation: people_by_technology}
+    fallback: {provider: p_people, operation: people_by_title}
+    cost: "1 credit per person plus per attribute"
+  - need: profiles_posts_comments
+    first: {provider: p_people, operation: profile_enrichment}
+    fallback: null
+    cost: "estimate on a sample first, then confirm"
+  - need: client_history
+    first: {builtin: tenant_connectors}
+    fallback: null
+    cost: "Phase B tenant connectors; not part of the broker layer"

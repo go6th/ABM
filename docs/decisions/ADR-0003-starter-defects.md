@@ -8,11 +8,11 @@
 1. Parallel LangGraph branches reduce `spent_usd` rather than writing an unreduced shared value.
 2. Tenant and public-reader RLS policies name their roles; this prevents permissive-policy OR behavior from exposing private facts to the public renderer.
 
-## Known defects retained as strict expected failures
+## Progress on known defects
 
-1. Two workers can execute and bill the same call concurrently; the starter has no per-run lease or intent row. Agree on a guarantee and close the crash/replay gap before claiming exact-once charging.
-2. An `Idempotency-Key` replay with a different request body currently returns the earlier run without rejecting the mismatch.
+1. **Paid-call duplicate dispatch:** Phase 0 implementation now adds a per-run worker lease and a durable per-call intent (`migrations/0003_data_layer_v1.sql`, `src/agents/runner.py`, `src/agents/graph.py`). An unresolved intent blocks automatic retry. This is at-most-once dispatch, not exactly-once provider execution. A killed-process spike and PostgreSQL validation remain blocked on local database tooling; see ADR-0004.
+2. **Idempotency-Key/body mismatch:** still open. The API returns the earlier run on a repeated key without validating the new request body. Keep its existing strict expected-failure test.
 
 ## Consequences
 
-Keep both `xfail(strict=True)` tests and their reasons until the defects are fixed. Remove the markers only when the corresponding regression tests pass and the original failing behavior is no longer possible.
+Do not claim exactly-once billing. A provider call that times out or whose worker dies after dispatch but before response persistence remains unresolved and needs reconciliation; automatic retries are blocked to avoid accidental double billing.

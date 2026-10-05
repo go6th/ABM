@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars (not committed) and fill in. Values below are placeholders.
+project_id        = "REPLACE-WITH-THE-staging-PROJECT-ID"
+github_repository = "OWNER/REPO"
+image             = "REGION-docker.pkg.dev/PROJECT/ai-staging-images/account-intelligence@sha256:DIGEST"
+db_tier           = "REPLACE-WITH-A-TIER-YOU-CHOSE"

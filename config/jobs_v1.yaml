@@ -1,0 +1,18 @@
+# Job pipeline caps and templates (spec build_job_posting_pipeline.md 2.4). All proposals.
+version: "2026-10-02.1"
+status: proposal
+caps:
+  max_page_reads: {value: 20, status: proposal, source: "needs product owner; escalation reads per run"}
+  max_extractor_calls: {value: 20, status: proposal, source: "needs product owner; first-pass extractor calls per run"}
+  batch_size: {value: 25, status: proposal, source: needs product owner}
+  max_description_chars: {value: 100000, status: proposal, source: needs product owner}
+  minimum_text_length: {value: 200, status: proposal, source: "needs product owner; shorter text is treated as an excerpt"}
+  max_sentence_chars: {value: 600, status: proposal, source: needs product owner}
+  max_title_chars: {value: 300, status: proposal, source: needs product owner}
+  max_gap_passes: {value: 2, status: sourced, source: "build_job_posting_pipeline.md section 7 (at most 2 passes); matches workflow planner_gap_passes"}
+templates:
+  # PRD example: "14 postings read of 31 matched (9 open and 5 closed of the 14 read)"
+  count_sentence:
+    value: "{read} postings read of {matched} matched ({open} open and {closed} closed of the {read} read)"
+    status: proposal
+    source: "PRD section 3.4 example wording"

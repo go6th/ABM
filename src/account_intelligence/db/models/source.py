@@ -31,6 +31,8 @@ SOURCE_CODE_PATTERN = r"^S-[0-9]{4,}$"
 
 
 class Source(UuidPkMixin, TimestampMixin, Base):
+    """A source URL with its stable per-account code (S-0001...)."""
+
     __tablename__ = "sources"
     __table_args__ = (
         UniqueConstraint("account_id", "source_code"),

@@ -1,0 +1,66 @@
+"""Wiring of the export builders (the ``BuilderPort`` adapter) for the app container.
+
+``EXPORT_RENDERER`` chooses the Word renderer:
+
+* ``node`` (the default in staging and production, D-26): the ported Node docx library. Until the
+  legacy library is supplied and ported it is ``NotConfigured``: the builder has no renderer, every
+  build returns ``not_configured`` and the run ends PARTIAL ``builders_not_configured``. Nothing is
+  delivered with an unsourced look by default.
+* ``python-interim`` (the default in dev and test): the neutral python-docx renderer behind the same
+  contract and sandbox. Staging or production use it only when an operator sets it explicitly.
+
+``EXPORT_RENDER_CHECKS=on`` adds the LibreOffice PDF row-presence and recalculation checks to every
+build (the converter must be installed in the image; the full gate stays behind ``GatePort``).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from account_intelligence.db.session import tenant_txn
+from account_intelligence.grading.config import load_grading_config
+from account_intelligence.platform.ports import Clock, PayloadStore
+from exports.builder import ExportBuilder
+from exports.config import default_export_config
+from exports.errors import ConfigError, NotConfigured
+from exports.readers.pg import PgContentReader
+from exports.store import PgDeliverableStore
+from exports.verify import LibreOffice
+from exports.word.renderer import (
+    RendererCommand,
+    SubprocessWordRenderer,
+    node_renderer,
+    python_renderer,
+)
+
+RENDERERS = ("node", "python-interim")
+
+
+def renderer_command(choice: str) -> RendererCommand | None:
+    """The renderer command for ``choice``; None when it is not configured (Node not ported)."""
+    if choice not in RENDERERS:
+        raise ConfigError(f"EXPORT_RENDERER must be one of {RENDERERS}")
+    if choice == "python-interim":
+        return python_renderer()
+    try:
+        return node_renderer()
+    except NotConfigured:
+        return None
+
+
+def build_export_builder(
+    payloads: PayloadStore, clock: Clock, env: Mapping[str, str], default_renderer: str
+) -> ExportBuilder:
+    """The production ``BuilderPort`` over Postgres, the payload store and the chosen renderer."""
+    cfg = default_export_config()
+    command = renderer_command(env.get("EXPORT_RENDERER", default_renderer))
+    checks = LibreOffice() if env.get("EXPORT_RENDER_CHECKS") == "on" else None
+    return ExportBuilder(
+        PgContentReader(payloads, batch=cfg.rules.limits.keyset_batch),
+        PgDeliverableStore(tenant_txn, payloads, clock, cfg.rules_hash),
+        SubprocessWordRenderer(command, cfg.rules.renderer) if command else None,
+        cfg,
+        load_grading_config(),
+        pdf=checks,
+        recalc=checks,
+    )

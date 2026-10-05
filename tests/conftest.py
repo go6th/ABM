@@ -124,23 +124,33 @@ def run_of_b(tenant_b: UUID, account_of_b: UUID) -> UUID:
         ).fetchone()[0]
 
 
+def _insert_fact(
+    c: psycopg.Connection, tenant: UUID, acct: UUID, value: str, fp: str, visibility: str
+) -> UUID:
+    """A graded fact plus its evidence in one transaction (migration 0009: product grade
+    required, no fact without evidence at commit)."""
+    with c.transaction():
+        fact = c.execute(
+            "INSERT INTO facts (tenant_id, account_id, attribute_key, value_json, fingerprint, "
+            "visibility, product_grade) VALUES (%s, %s, 'internal.note', %s, %s, %s, 'hypothesis') "
+            "RETURNING id",
+            (tenant, acct, value, fp, visibility),
+        ).fetchone()[0]
+        c.execute(
+            "INSERT INTO fact_evidence (tenant_id, fact_id, evidence_kind, supporting_sentence,"
+            " call_ref) "
+            "VALUES (%s, %s, 'search_proof', 'synthetic fixture evidence', 'fixture-call')",
+            (tenant, fact),
+        )
+    return UUID(str(fact))
+
+
 @pytest.fixture
 def private_fact_of_a(tenant_a: UUID) -> UUID:
     acct = _make_account(tenant_a, f"a-{uuid4().hex[:6]}.example.com")
     with _admin() as c:
-        c.execute(
-            "INSERT INTO facts "
-            "(tenant_id, account_id, attribute_key, value_json, fingerprint, visibility) "
-            "VALUES (%s, %s, 'internal.note', '{}', 'fp-public', 'public')",
-            (tenant_a, acct),
-        )
-        return c.execute(
-            "INSERT INTO facts "
-            "(tenant_id, account_id, attribute_key, value_json, fingerprint, visibility) "
-            "VALUES (%s, %s, 'internal.note', '{\"secret\": true}', 'fp-private', 'private') "
-            "RETURNING id",
-            (tenant_a, acct),
-        ).fetchone()[0]
+        _insert_fact(c, tenant_a, acct, "{}", "fp-public", "public")
+        return _insert_fact(c, tenant_a, acct, '{"secret": true}', "fp-private", "private")
 
 
 @pytest.fixture

@@ -1,0 +1,110 @@
+# Tracker rules: D-12 completion policy and D-13 transitions and derivation (all proposals; ADR-0015).
+version: "2026-10-02.1"
+status: "proposal"
+d_12_completion_policy:
+  high_rows_allowed_for_completed: ["done", "none"]
+d_13_tracker_rules:
+  attempts_per_row: 3
+  lead_proof:
+    min_queries: 3
+    min_tool_categories: 2
+    similarity_threshold:
+      value: 0.8
+      source: "TODO, needs product owner"
+  # T4(b): only a verified lane switch-off yields None. waiting_on_account_owner is NOT here: a
+  # relationship row with no pursuing client is Not done with that reason (nobody searched).
+  out_of_scope_reasons:
+    - "lane_not_in_scope"
+  # Most severe first; a Blocked row's reason comes from its most severe failed call (5.3 rule 3).
+  # Names are the connector layer's typed error classes (connectors/errors.py).
+  error_severity_order:
+    - "AuthError"
+    - "CreditsExhausted"
+    - "BudgetExceeded"
+    - "SecurityError"
+    - "PolicyRefused"
+    - "SchemaDriftError"
+    - "CircuitOpen"
+    - "RateLimited"
+    - "RetryableProviderError"
+    - "ProviderJobTimeout"
+    - "NonRetryableProviderError"
+  # error class -> reason code; anything unlisted maps to source_failed.
+  error_reason_map:
+    AuthError: "source_unavailable"
+    CreditsExhausted: "credits_exhausted"   # D-31: Blocked credits_exhausted, never a fallback by default
+    BudgetExceeded: "budget_cap"
+    CircuitOpen: "source_unavailable"
+    RateLimited: "source_rate_limited"
+    RetryableProviderError: "source_unavailable"
+    ProviderJobTimeout: "source_unavailable"
+    LeaseUnavailable: "source_unavailable"
+    CallInFlight: "source_unavailable"
+  # T7: the verifier may report these rows (besides the row's owning stage). Rows "holding Leads"
+  # beyond lead_verification need the Lead-to-row mapping (open item OI-TRK-1).
+  verifier_rows: ["lead_verification"]
+  # T9: internal-only detail, never rendered to a client.
+  detail_max_chars: 500
+reason_codes:
+  waiting_on_account_owner: "Waiting on account owner"
+  lane_not_in_scope: "Lane not in scope for this run"
+  source_unavailable: "Source unavailable"
+  source_rate_limited: "Source rate limited"
+  budget_cap: "Budget cap reached"
+  tool_call_cap: "Tool call cap reached"
+  page_cap: "Page cap reached"
+  deadline: "Deadline reached"
+  not_available_yet: "Not available yet"
+  claims_dropped: "Claims dropped by verification"
+  hostile_source_dropped: "Hostile source dropped"
+  swept_failed: "Swept due to run failure"
+  swept_canceled: "Swept due to run cancellation"
+  swept_budget: "Swept due to budget cap"
+  swept_deadline: "Swept due to deadline"
+  swept_unreported: "Swept unreported"
+  cap_reached: "Execution cap reached"
+  source_failed: "Source failed during execution"
+  fewer_than_expected: "Fewer results than expected"
+  result_count_unknown: "Result count not reported by the source"
+  not_planned: "No search was planned for this row in this run"
+  out_of_scope: "Out of scope"
+  # credit cap v1 (D-28, D-31): no approved cap; provider credits exhausted
+  no_cap: "No approved spending cap"
+  credits_exhausted: "Provider credits exhausted"
+transitions:
+  unset:
+    done: ["stage", "verifier"]
+    partial: ["stage", "verifier"]
+    not_done: ["stage", "finalizer"]
+    blocked: ["stage"]
+    none: ["stage", "verifier"]
+  not_done:
+    done: ["new_proof"]
+    partial: ["new_proof"]
+    not_done: ["unchanged_only"]
+    blocked: ["new_proof_with_failed_call"]
+    none: ["new_proof"]
+  blocked:
+    done: ["new_proof_successful_call"]
+    partial: ["new_proof_successful_call"]
+    not_done: ["no"]
+    blocked: ["new_proof"]
+    none: ["new_proof_successful_call"]
+  partial:
+    done: ["new_proof"]
+    partial: ["extend_proof"]
+    not_done: ["judge_or_gate_downgrade_only"]
+    blocked: ["no"]
+    none: ["no"]
+  none:
+    done: ["new_proof_with_results"]
+    partial: ["new_proof_with_results"]
+    not_done: ["no"]
+    blocked: ["no"]
+    none: ["extend_proof"]
+  done:
+    done: ["extend_proof"]
+    partial: ["judge_or_gate_downgrade"]
+    not_done: ["judge_or_gate_downgrade"]
+    blocked: ["no"]
+    none: ["no"]

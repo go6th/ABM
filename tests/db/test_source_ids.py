@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from account_intelligence.db.enums import SourceKind
 from account_intelligence.db.models import AccountSourceCounter, Source
 from account_intelligence.db.source_ids import format_source_code, get_or_create_source
-from tests.db.conftest import make_account, make_run, make_tenant, set_tenant
+from tests.db.conftest import make_account, make_run, make_tenant, seed_complete_tracker, set_tenant
 
 
 @pytest.fixture
@@ -82,6 +82,7 @@ def test_codes_are_per_account(db, admin, ctx) -> None:  # type: ignore[no-untyp
 def test_refresh_reuses_codes_and_moves_last_seen(db, admin, ctx) -> None:  # type: ignore[no-untyped-def]
     tenant, account, run = ctx
     admin.execute("UPDATE runs SET status = 'running', started_at = now() WHERE id = %s", (run,))
+    seed_complete_tracker(admin, tenant, run)  # completion guard satisfied (migration 0010)
     admin.execute("UPDATE runs SET status = 'completed', finished_at = now() WHERE id = %s", (run,))
     refresh = make_run(admin, tenant, account, run_type="refresh", parent=run)
     set_tenant(db, tenant)

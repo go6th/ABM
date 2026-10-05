@@ -1,0 +1,61 @@
+# SYNTHETIC oracle for corpus.yaml, written by hand from the posting list (spec 9.2). Not computed
+# by the code under test. Reasoning per posting is in the comments.
+synthetic: true
+chain:
+  pulled: 24          # 1 board hit + 23 feed records (j2 twice)
+  deduped: 21         # board j1 merges with feed j1 (same URL); j2 duplicate merges; j22 rejected
+  rejected_no_url: 1  # j22
+  in_window: 20       # 21 minus j10 (2025-09-30 is one day before the window); j12 undated included
+  out_of_window: 1    # j10
+  undated: 1          # j12
+  hostile: 2          # j15 injection; j16 canary echoed by the extractor
+distinct:
+  matched: 19         # j1-9, j11-13, j15-21 (j14 is Veeva: lane off, not in the lexicon)
+  read: 16            # matched minus j9 (escalation failed), j15, j16 (hostile)
+  title_only: 1       # j7
+  with_platform_sentence: 15   # read minus j7 (title only)
+  full_text_read: 16
+  full_text_missing: 1         # j9
+  matched_status: {open: 13, closed: 4, unknown_status: 2}
+  read_status: {open: 10, closed: 4, unknown_status: 2}
+  by_class: {build: 7, admin_owner: 3, working_tool: 1, user: 2, unclassified: 3}
+  # build: j1 j8 j11 j13 j18 j20 (rule) + j5 (extractor, second pass agrees)
+  # admin_owner: j2 j19 j21; working_tool: j3; user: j4 j12
+  # unclassified: j6 (second pass disagrees), j7 (title only), j17 (extractor unclear)
+per_platform:
+  Salesforce: {matched: 9, read: 8}   # j1 j4 j6 j7 j13 j15 j17 j19 j20; read drops j15
+  ServiceNow: {matched: 5, read: 4}   # j2 j12 j16 j18 j21; read drops j16
+  SAP: {matched: 4, read: 4}          # j3 j8 j11 j13
+  Tableau: {matched: 2, read: 1}      # j5 j9; read drops j9
+  Veeva: {not_searched: lane_not_in_scope}
+lanes_not_searched: {veeva: lane_not_in_scope, data_ai: not_available_yet}
+classes:
+  "id:j1": build
+  "id:j2": admin_owner
+  "id:j3": working_tool
+  "id:j4": user
+  "id:j5": build
+  "id:j6": unclassified
+  "id:j7": unclassified
+  "id:j8": build
+  "id:j11": build
+  "id:j12": user
+  "id:j13": build
+  "id:j17": unclassified
+  "id:j18": build
+  "id:j19": admin_owner
+  "id:j20": build
+  "id:j21": admin_owner
+sentences:
+  "id:j13": [["Salesforce", "The developer connects Salesforce and SAP through middleware."], ["SAP", "The developer connects Salesforce and SAP through middleware."]]
+  "id:j18": [["ServiceNow", "The ServiceNow developer builds & tests flows."]]
+  "id:j19": [["Salesforce", "The Salesforce administrator manages users."]]
+status:
+  "id:j1": [open, live_board]    # the feed says closed; the live board this run says open (J7)
+  "id:j4": [unknown, unknown]
+  "id:j17": [unknown, unknown]    # an unrecognised provider value stays unknown
+claims: 14            # one per classified posting and named platform; j13 names two
+board_calls: 4        # Salesforce, ServiceNow, SAP, Tableau (Veeva off; Data and AI has no terms)
+extractor_first_pass: 4   # j5 j6 j16 j17
+page_reads: 2             # j8 ok, j9 failed
+count_sentence: "16 postings read of 19 matched (10 open and 4 closed of the 16 read)"

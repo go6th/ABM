@@ -1,0 +1,33 @@
+{
+ "items_read": 1,
+ "next_cursor": null,
+ "provider_credits": null,
+ "records": [
+  {
+   "amount_normalized_usd": null,
+   "article_published_at": "2021-10-19T04:00:00Z",
+   "article_sentence_text": "San Francisco and Lagos-based cross-border technology company Klasha is further expanding its presence in Africa with the launch of its services in Ghana.",
+   "article_title_text": "Company news Archives",
+   "article_url": "https://www.electronicpaymentsinternational.com/news/company-news/",
+   "category": "expands_offices_in",
+   "confidence": 0.6872,
+   "effective_date": null,
+   "event_id": "f096ea55-f81b-4f6a-83bd-d5c1cdc10143",
+   "found_at": "2021-10-19T22:00:00Z",
+   "kind": "news_event",
+   "lineage_hint": "https://www.electronicpaymentsinternational.com/news/company-news/",
+   "planning": false,
+   "provenance": {
+    "index": 0,
+    "operation": "news_events",
+    "page": 1,
+    "provider_code": "p_signals",
+    "raw_ref": "golden/p_signals/news_events",
+    "retrieved_at": "2026-10-02T12:00:00Z",
+    "source_url": "https://www.electronicpaymentsinternational.com/news/company-news/"
+   },
+   "summary_text": "Klasha, Inc. expands offices in Ghana, Western Africa, Africa."
+  }
+ ],
+ "warnings": []
+}

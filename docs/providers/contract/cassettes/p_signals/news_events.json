@@ -1,0 +1,102 @@
+{
+ "response": {
+  "body": {
+   "data": [
+    {
+     "attributes": {
+      "amount": null,
+      "amount_normalized": null,
+      "article_sentence": "San Francisco and Lagos-based cross-border technology company Klasha is further expanding its presence in Africa with the launch of its services in Ghana.",
+      "assets": null,
+      "assets_tags": [],
+      "award": null,
+      "category": "expands_offices_in",
+      "confidence": 0.6872,
+      "contact": null,
+      "division": null,
+      "effective_date": null,
+      "event": null,
+      "financing_type": null,
+      "financing_type_normalized": null,
+      "financing_type_tags": [],
+      "found_at": "2021-10-19T22:00:00Z",
+      "headcount": null,
+      "job_title": null,
+      "job_title_tags": [],
+      "location": "Ghana, Western Africa, Africa",
+      "location_data": [
+       {
+        "city": null,
+        "continent": "Africa",
+        "country": "Ghana",
+        "fuzzy_match": false,
+        "region": "Western Africa",
+        "state": null,
+        "zip_code": null
+       }
+      ],
+      "planning": false,
+      "product": null,
+      "product_data": {
+       "full_text": null,
+       "fuzzy_match": null,
+       "name": null,
+       "release_type": null,
+       "release_version": null
+      },
+      "product_tags": [],
+      "recognition": null,
+      "summary": "Klasha, Inc. expands offices in Ghana, Western Africa, Africa.",
+      "vulnerability": null
+     },
+     "id": "f096ea55-f81b-4f6a-83bd-d5c1cdc10143",
+     "relationships": {
+      "company1": {
+       "data": {
+        "id": "0db9ccc3-0c5f-5481-89da-b08e2a4195b8",
+        "type": "company"
+       }
+      },
+      "most_relevant_source": {
+       "data": {
+        "id": "797aa0af-c7f3-4b77-8a04-3f8bb39b315a",
+        "type": "news_article"
+       }
+      }
+     },
+     "type": "news_event"
+    }
+   ],
+   "included": [
+    {
+     "attributes": {
+      "company_name": "Klasha, Inc.",
+      "domain": "klasha.com",
+      "ticker": null
+     },
+     "id": "0db9ccc3-0c5f-5481-89da-b08e2a4195b8",
+     "type": "company"
+    },
+    {
+     "attributes": {
+      "author": null,
+      "body": "Payfare, which offers banking solutions for gig workforce, has announced that it is integrating with Plaid, a data transfer network that powers fintech and digital finance products. The integration will… Technology company TraQiQ has introduced its online payment solution 'TraQPayments' in Latin America. TraQPayments is… American Express has partnered with Goldman Sachs Transaction Banking (TxB) to offer an integrated payments solution to large corporate clients. Barclaycard Payments and SAP is expanding their cooperation in a bid to boost payment acceptance capabilities and enhance procure-to-pay processes. UK-based fintech firm Previse has tapped Mastercard to provide instant payments to suppliers in more than 100 markets globally. Latin America-based payment processor PayRetailers has entered into an alliance with European payment giant Worldline. Buy now pay later (BNPL) firm Klarna has introduced ‘pay now’ option in the UK. Western Union International Bank (WUIB) has expanded its real-time payment capabilities in Europe by joining the Single Euro Payments Area (SEPA) Instant Credit Transfer scheme (SCT Inst). San Francisco and Lagos-based cross-border technology company Klasha is further expanding its presence in Africa with the launch of its services in Ghana.",
+      "image_url": null,
+      "published_at": "2021-10-19T04:00:00Z",
+      "title": "Company news Archives",
+      "url": "https://www.electronicpaymentsinternational.com/news/company-news/"
+     },
+     "id": "797aa0af-c7f3-4b77-8a04-3f8bb39b315a",
+     "type": "news_article"
+    }
+   ],
+   "meta": {
+    "record_state": "active",
+    "schema_version": "3.1"
+   }
+  },
+  "content_type": "application/json",
+  "status": 200
+ },
+ "source": "docs/providers/sources/p_signals/v3-openapi.company-feeds-extract.json NewsEventsDataset.example"
+}

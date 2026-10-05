@@ -1,0 +1,13 @@
+# People source decision (P0-3). Which provider the people stage uses; the comparison protocol is
+# docs/people-source-comparison.md. A proposal until the comparison on real accounts is signed.
+version: "2026-10-03.1"
+status: proposal
+source: "P0-3; p_people is NotSupportedYet until its grid contract is supplied (docs/providers)"
+active: p_org
+sources:
+  p_org:
+    operations: [people_by_technology, org_teams]
+    note: "Sourced contract; people by technology are one credit per person plus attributes"
+  p_people:
+    operations: [people_by_title, profile_enrichment]
+    note: "Blocked: needs the workspace grid contract (docs/providers/p_people.md)"

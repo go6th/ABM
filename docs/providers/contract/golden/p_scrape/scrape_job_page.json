@@ -1,0 +1,26 @@
+{
+ "items_read": 1,
+ "next_cursor": null,
+ "provider_credits": null,
+ "records": [
+  {
+   "final_url": null,
+   "kind": "scraped_page",
+   "lineage_hint": null,
+   "markdown_text": "Launch Week I is here! [See our Day 2 Release 🚀](https://www.firecrawl.dev/blog/launch-week-i-day-2-doubled-rate-limits)[💥 Get 2 months free...",
+   "provenance": {
+    "index": 0,
+    "operation": "scrape_job_page",
+    "page": 1,
+    "provider_code": "p_scrape",
+    "raw_ref": "golden/p_scrape/scrape_job_page",
+    "retrieved_at": "2026-10-02T12:00:00Z",
+    "source_url": "https://firecrawl.dev"
+   },
+   "requested_url": "https://firecrawl.dev",
+   "target_status": 200,
+   "title_text": "Home - Firecrawl"
+  }
+ ],
+ "warnings": []
+}

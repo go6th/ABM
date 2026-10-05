@@ -1,0 +1,113 @@
+"""The production handler for every Workflow v1 stage, bound to one run's dependencies.
+
+This is the single place that maps stage ids to code; ``engine.build_graph`` takes the result.
+Relationship rows that need the client history port (Phase B) are not researched: they end Not
+done with ``waiting_on_account_owner`` when the run has no pursuing client (recorded once, never
+asked again), otherwise ``not_available_yet``. Nothing is guessed.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from account_intelligence.tracker.config import load_checklist
+from account_intelligence.workflow.deps import RunDeps
+from account_intelligence.workflow.stage import StageHandler
+from account_intelligence.workflow.stages import core
+from account_intelligence.workflow.stages import people as people_stage
+from account_intelligence.workflow.stages.grading_stages import GradingStages
+from account_intelligence.workflow.stages.research import ResearchStage
+from account_intelligence.workflow.state import RunState
+
+CLIENT_HISTORY_ROWS = ("prior_customer_status", "connections_alumni", "customers_partners_matched")
+RESEARCH_PREFIX = {
+    "pass1_relationship": "relationship",
+    "baseline": "baseline",
+    "news": "news",
+    "tech": "tech",
+    "name_searches": "content",
+}
+
+
+def _bind(fn: Any, deps: RunDeps) -> StageHandler:
+    async def handler(state: RunState) -> dict[str, Any]:
+        result: dict[str, Any] = await fn(deps, state)
+        return result
+
+    return handler
+
+
+def people_operations() -> frozenset[str]:
+    """Operations of the active people source (P0-3 switch, ``config/people_sources.yaml``)."""
+    import yaml
+
+    from account_intelligence.config import CONFIG_DIR
+
+    data = yaml.safe_load((CONFIG_DIR / "people_sources.yaml").read_text())
+    return frozenset(data["sources"][data["active"]]["operations"])
+
+
+def build_handlers(deps: RunDeps) -> dict[str, StageHandler]:
+    """Every stage id in ``config/workflow_v1.yaml`` mapped to its production handler."""
+    labels = {r.key: r.label for r in load_checklist().rows}
+    specs = {s.id: s for s in deps.spec.stages}
+    reason = (
+        "not_available_yet" if deps.run_input.get("pursuing_client") else "waiting_on_account_owner"
+    )
+    handlers: dict[str, StageHandler] = {}
+    for stage_id, prefix in RESEARCH_PREFIX.items():
+        fixed = (
+            {row: reason for row in CLIENT_HISTORY_ROWS if row in specs[stage_id].coverage}
+            if stage_id == "pass1_relationship"
+            else {}
+        )
+        handlers[stage_id] = ResearchStage(specs[stage_id], deps, labels, prefix, fixed)
+    # the careers lookup setup deferred until the cap was approved (credit cap, conflict C12)
+    # runs at the start of the first stage after the approval gate
+    from account_intelligence.workflow.stages import spend as spend_stage
+
+    first = next((s for s in deps.spec.topological_order if s not in ("setup",)), None)
+    if first is not None and first in handlers:
+        inner = handlers[first]
+
+        async def first_after_approval(state: RunState) -> dict[str, Any]:
+            """Deferred careers lookup, then the stage itself."""
+            extra = await spend_stage.after_approval(deps, state)
+            if extra:
+                state = {
+                    **state,
+                    "references": {**(state.get("references") or {}), **extra["references"]},
+                }
+            result: dict[str, Any] = await inner(state)
+            if extra:
+                result["references"] = {**extra["references"], **(result.get("references") or {})}
+            return result
+
+        handlers[first] = first_after_approval
+    grading = GradingStages(deps, specs)
+    handlers["setup"] = _bind(core.setup, deps)
+    handlers["jobs"] = _bind(core.jobs_stage, deps)
+    # Step 7: the people pipeline owns its three rows; any other people row stays with the
+    # generic research stage restricted to that row (people_stage.research_spec_without_owned_rows).
+    rest = people_stage.research_spec_without_owned_rows(specs["people"])
+    research = (
+        ResearchStage(rest, deps, labels, "people", {}, people_operations())
+        if rest.coverage
+        else None
+    )
+
+    async def people_handler(state: RunState) -> dict[str, Any]:
+        """The people stage bound to this run."""
+        result: dict[str, Any] = await people_stage.people_stage(deps, state, research)
+        return result
+
+    handlers["people"] = people_handler
+    handlers["verification"] = grading.verification
+    handlers["distill_grade"] = grading.distill_grade
+    handlers["build"] = _bind(core.build, deps)
+    handlers["gate"] = _bind(core.gate, deps)
+    handlers["deliver"] = _bind(core.deliver, deps)
+    missing = set(specs) - set(handlers)
+    if missing:  # pragma: no cover - guarded by tests/system/test_wiring.py
+        raise RuntimeError(f"stages without a handler: {sorted(missing)}")
+    return handlers

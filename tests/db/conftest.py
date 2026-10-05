@@ -128,3 +128,21 @@ def make_source(
     ).fetchone()
     assert row is not None
     return UUID(str(row[0]))
+
+
+def seed_complete_tracker(conn: psycopg.Connection, tenant: UUID, run: UUID) -> None:
+    """Seed a one-row tracker whose row is done, so the run may complete (migration 0010 guard).
+
+    Tests that exercise run lifecycle rules other than completion use this to satisfy the
+    completion guard; the guard itself is tested in tests/db/test_run_completion_guard.py.
+    """
+    conn.execute(
+        "INSERT INTO run_coverage_meta (run_id, tenant_id, checklist_version, checklist_hash,"
+        " seeded_row_count, pinned_policy) VALUES (%s, %s, 'test', 'test', 1, '{}')",
+        (run, tenant),
+    )
+    conn.execute(
+        "INSERT INTO coverage_rows (run_id, row_key, tenant_id, priority, status, proof)"
+        " VALUES (%s, 'P1.01', %s, 'high', 'done', '{}')",
+        (run, tenant),
+    )
