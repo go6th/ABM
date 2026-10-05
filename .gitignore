@@ -36,6 +36,8 @@ crash.log
 # Tool state
 .hypothesis/
 .freebuff/
+.kilo/
+*.worktrees/
 
 # Terraform working files (provider cache, state); lock files ARE committed
 infra/.tfcache/
