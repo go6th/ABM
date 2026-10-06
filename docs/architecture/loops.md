@@ -43,8 +43,10 @@ unannotated (the generator's check fails otherwise).
 | scheduler loop | `src/parallel/executor.py:250` | 10 iterations per unit plus 100 (each launches, blocks, awaits a completion or waits a bounded stall) | converged, deadline, budget, paused, cancelled, retryable, no_progress (SchedulerDeadlock) |
 | schema re-ask | `src/llm/port.py:126` | schema_reasks (1) | valid, SchemaInvalid |
 | simulation | `src/parallel/simulate.py:193` | sum of units over runs times 4 plus 1000 steps | all runs drained |
-| slice loop | `src/account_intelligence/workflow/runner.py:95` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
+| slice loop | `src/account_intelligence/workflow/runner.py:121` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | spend invariant pass | `src/spend/jobs.py:62` | batch_size runs | converged, cap_reached |
+| stuck scan | `src/obs/stuck.py:73` | keyset pages of `page` runs until none remain | all scanned |
+| telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
 | topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |
 | topological sort | `src/account_intelligence/workflow/spec.py:58` | number of stages (each pass removes at least one or raises) | ordered, cycle error |
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:246` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
