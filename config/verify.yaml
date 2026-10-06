@@ -1,0 +1,25 @@
+# Verifier agents (D-49). INTERNAL. The verifier re-reads the stored source BLIND (it is never
+# shown the claimed value); code compares; authority is downgrade only. Values are proposals.
+version: "2026-10-06.1"
+status: proposal
+decisions: [D-49]
+enabled: {value: true, status: proposal}
+# V9: verification may spend at most this share of the run's model token cap; High-row claims first.
+token_share_pct: {value: 20, status: proposal}
+max_claims_per_run: {value: 500, status: proposal}
+max_source_chars: {value: 20000, status: "proposal: the same bound the extractor reads"}
+# what a disagreement does (code, never the model): every outcome other than `confirmed` takes the
+# G12 cap of config/grading_policy.yaml (judge.unavailable_cap) and is recorded as a finding.
+outcome_actions:
+  status: proposal
+  value:
+    confirmed: keep
+    value_mismatch: downgrade
+    not_found: downgrade
+    unreadable: downgrade
+    unavailable: downgrade
+    not_independent: downgrade
+# V6: narrative verdicts and the code action for each.
+narrative_actions:
+  status: proposal
+  value: {supported: keep, overstated: rephrase, unsupported: remove, contradicted: remove}

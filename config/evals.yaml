@@ -1,0 +1,27 @@
+# Eval harness (D-50). INTERNAL. Gate thresholds are the ARCH initial values ("tune on data");
+# everything else is a proposal. A required mode that did not run blocks the merge (E5).
+version: "2026-10-06.1"
+status: proposal
+decisions: [D-50]
+thresholds:
+  source: "ARCH eval gates (initial values, tune on data)"
+  value:
+    precision_grade_a: {op: ">=", value: 0.95}
+    precision_grade_b: {op: ">=", value: 0.85}
+    coverage: {op: ">=", value: 0.80}
+    citation_validity: {op: ">=", value: 0.97}
+    calibration_error: {op: "<=", value: 0.05}
+    security_pass_rate: {op: ">=", value: 1.0}
+    cost_vs_baseline: {op: "<=", value: 1.10}
+    p95_duration_vs_baseline: {op: "<=", value: 1.15}
+primary_metrics: {value: [coverage, citation_validity, precision_grade_a, unsupported_claim_rate], status: proposal}
+alpha: {value: 0.05, status: "proposal: family-wise, Holm corrected"}
+bootstrap_resamples: {value: 2000, status: proposal}
+seed: {value: 20261006, status: proposal}
+repeats_k: {value: 3, status: proposal}
+calibration_bins: {value: 10, status: proposal}
+label_max_age_days: {value: 92, source: "ARCH: every label re-verified quarterly"}
+judge_agreement_floor: {value: 0.8, status: "proposal: an LLM judge gates only above this agreement with humans"}
+a_a_false_block_rate_max: {value: 0.05, status: proposal}
+live_budget_usd: {value: "0.00", status: "proposal: live mode is off until a budget is set (E9)"}
+required_modes: {value: {pull_request: [replay], prompt_or_model_change: [replay, live], nightly: [replay, live, nightly]}, status: proposal}
