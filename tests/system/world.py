@@ -283,8 +283,10 @@ async def start_run(
     auto_approve: bool = True,
     run_input: dict[str, Any] | None = None,
     settings: SliceSettings | None = None,
+    spec: Any | None = None,
 ) -> Run:
-    """Create a run through the lifecycle and wire an in-process scheduler to ``execute_slice``."""
+    """Create a run through the lifecycle and wire an in-process scheduler to ``execute_slice``.
+    ``spec`` overrides the workflow spec (for example ``execution_mode: parallel``)."""
     from tests.conftest import APP_DSN
 
     install(harness)
@@ -303,7 +305,7 @@ async def start_run(
             tracker(s),
         )
     runtime = harness.runtime()
-    spec = load_spec()
+    spec = spec or load_spec()
 
     async def deps_factory(tenant_id: UUID, run_id: UUID) -> RunDeps:
         async with tenant_txn(tenant_id) as s:

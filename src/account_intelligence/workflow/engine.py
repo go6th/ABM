@@ -9,6 +9,11 @@
   retry owner for that failure class (W6); nothing else retries.
 * ``on_enter(stage_id)`` lets the runner move the run to DISTILLING or VERIFYING as the graph
   reaches those stages.
+* ``execution_mode: parallel`` (Parallel execution v1): after the approval gate one ``research``
+  node runs the research stages as units on the dependency-aware scheduler
+  (``workflow.parallel_phase``), a ``cap_gate`` node waits for a pause decision (D-45), then the
+  sequential tail (distill, build, gate, deliver) follows unchanged. The research node carries the
+  phase ``RetryPolicy`` (still the single retry owner; built in ``connectors.service``).
 """
 
 from __future__ import annotations
@@ -53,11 +58,20 @@ def build_graph(
     *,
     retry_policy: RetryPolicy | None = None,
     on_enter: OnEnter | None = None,
+    research: Callable[[RunState], Awaitable[dict[str, Any]]] | None = None,
+    phase_retry_policy: RetryPolicy | None = None,
 ) -> Any:
-    """Construct the sequential graph (uncompiled)."""
+    """Construct the graph (uncompiled): sequential, or parallel with a research node."""
     workflow = spec or load_spec()
-    if workflow.settings.get("execution_mode") != "sequential":
-        raise ValueError("workflow v1 supports sequential execution only")
+    mode = workflow.settings.get("execution_mode")
+    if mode == "parallel":
+        if research is None:
+            raise ValueError("parallel execution needs the research node")
+        return _parallel_graph(
+            handlers, workflow, retry_policy, phase_retry_policy, on_enter, research
+        )
+    if mode != "sequential":
+        raise ValueError(f"unknown execution_mode {mode!r}")
     graph = StateGraph(RunState)
     by_id = {stage.id: stage for stage in workflow.stages}
     order = list(workflow.topological_order)
@@ -73,4 +87,57 @@ def build_graph(
     for previous, following in zip(nodes, nodes[1:], strict=False):
         graph.add_edge(previous, following)
     graph.add_edge(nodes[-1], END)
+    return graph
+
+
+def _parallel_graph(
+    handlers: dict[str, StageHandler],
+    workflow: WorkflowSpec,
+    retry_policy: RetryPolicy | None,
+    phase_retry_policy: RetryPolicy | None,
+    on_enter: OnEnter | None,
+    research: Callable[[RunState], Awaitable[dict[str, Any]]],
+) -> Any:
+    """setup, approval gate, research (with the cap gate loop), then the sequential tail."""
+    from account_intelligence.workflow.parallel_phase import (
+        CAP_GATE_NODE,
+        RESEARCH_NODE,
+        after_research,
+        cap_gate,
+        research_stages,
+    )
+
+    by_id = {stage.id: stage for stage in workflow.stages}
+    phase = set(research_stages())
+    unknown = phase - by_id.keys()
+    if unknown:
+        raise ValueError(f"parallel bodies name unknown stages: {sorted(unknown)}")
+    tail = [s for s in workflow.topological_order if s not in phase and s != "setup"]
+    if not tail or "setup" not in by_id:
+        raise ValueError("parallel execution needs setup and a sequential tail")
+    graph = StateGraph(RunState)
+    graph.add_node(
+        "setup",
+        cast(Any, _node(Stage(by_id["setup"], handlers.get("setup")), on_enter)),
+        retry_policy=retry_policy,
+    )
+    graph.add_node(APPROVAL_NODE, approval_gate)
+    graph.add_node(RESEARCH_NODE, cast(Any, research), retry_policy=phase_retry_policy)
+    graph.add_node(CAP_GATE_NODE, cap_gate)
+    for stage_id in tail:
+        graph.add_node(
+            stage_id,
+            cast(Any, _node(Stage(by_id[stage_id], handlers.get(stage_id)), on_enter)),
+            retry_policy=retry_policy,
+        )
+    graph.add_edge(START, "setup")
+    graph.add_edge("setup", APPROVAL_NODE)
+    graph.add_edge(APPROVAL_NODE, RESEARCH_NODE)
+    graph.add_conditional_edges(
+        RESEARCH_NODE, after_research, {CAP_GATE_NODE: CAP_GATE_NODE, "next": tail[0]}
+    )
+    graph.add_edge(CAP_GATE_NODE, RESEARCH_NODE)
+    for previous, following in zip(tail, tail[1:], strict=False):
+        graph.add_edge(previous, following)
+    graph.add_edge(tail[-1], END)
     return graph

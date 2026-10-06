@@ -23,6 +23,7 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 | `claims_dropped` | Claims dropped by verification |
 | `credits_exhausted` | Provider credits exhausted |
 | `deadline` | Deadline reached |
+| `dependency_failed` | A step this row depends on did not finish |
 | `fewer_than_expected` | Fewer results than expected |
 | `hostile_source_dropped` | Hostile source dropped |
 | `lane_not_in_scope` | Lane not in scope for this run |

@@ -73,6 +73,8 @@ class ReasonCode(StrEnum):
     # Added by credit cap v1 (D-28, D-31):
     NO_CAP = "no_cap"
     CREDITS_EXHAUSTED = "credits_exhausted"
+    # Added by parallel execution (P2):
+    DEPENDENCY_FAILED = "dependency_failed"
 
 
 SWEEP_REASONS = frozenset(

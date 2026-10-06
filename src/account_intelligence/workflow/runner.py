@@ -10,7 +10,9 @@ One slice:
 2. the graph runs under ``asyncio.timeout(slice_seconds)``; between supersteps the run status is
    re-read and a CANCELED run stops cleanly (its settlement was made by the cancel path);
 3. an approval interrupt moves the run to AWAITING_APPROVAL and arms the 24 hour timeout task
-   (defect 8: the timeout cancels and refunds, it never loops into the same interrupt);
+   (defect 8: the timeout cancels and refunds, it never loops into the same interrupt); a cap
+   pause interrupt (parallel execution, D-45) waits the same way with ``awaiting_kind = 'cap'``,
+   and its timeout records the decline and resumes the run to end BUDGET_EXCEEDED;
 4. a slice that runs out of time enqueues the next slice (named task, idempotent);
 5. a finished graph ends the run through ``lifecycle.finish``: BUDGET_EXCEEDED when the cap was
    hit, PARTIAL with the reason when builders or the gate did not pass, else COMPLETED (which the
@@ -171,8 +173,25 @@ async def _slice(
     config = {"configurable": {"thread_id": f"{tenant_id}:{run_id}"}, "recursion_limit": 100}
     try:
         async with checkpointer(tenant_id) as saver:
+            handlers = build_handlers(deps)
+            research = None
+            phase_policy = None
+            if deps.spec.settings.get("execution_mode") == "parallel":
+                from account_intelligence.connectors.service import phase_retry_policy
+                from account_intelligence.workflow.parallel_phase import research_node
+
+                research = research_node(handlers, deps)
+                if retry_policy is not None:
+                    phase_policy = phase_retry_policy(
+                        retry_policy, int(deps.spec.settings.get("max_calls", 60))
+                    )
             graph = build_graph(
-                build_handlers(deps), deps.spec, retry_policy=retry_policy, on_enter=on_enter
+                handlers,
+                deps.spec,
+                retry_policy=retry_policy,
+                on_enter=on_enter,
+                research=research,
+                phase_retry_policy=phase_policy,
             ).compile(checkpointer=saver)
             snap = await graph.aget_state(config)
             pending = bool(snap.next) and any(t.interrupts for t in snap.tasks)
@@ -207,8 +226,19 @@ async def _slice(
         if (await _status(deps)) not in TERMINAL:
             await _finish(deps, RunStatus.FAILED, type(error).__name__, True)
         raise
-    if snap.next:  # interrupted at the approval gate
-        deadline = deps.clock.now() + timedelta(hours=settings.approval_hours)
+    if snap.next:  # interrupted at the approval gate or at a cap pause (D-45)
+        kind = "approval"
+        for task in snap.tasks:
+            for pending_interrupt in task.interrupts:
+                value = pending_interrupt.value
+                if isinstance(value, dict) and value.get("awaiting") == "cap":
+                    kind = "cap"
+        hours = settings.approval_hours
+        if kind == "cap":
+            from spend.config import load_v2_config
+
+            hours = float(load_v2_config().pause_timeout_hours)
+        deadline = deps.clock.now() + timedelta(hours=hours)
         async with deps.txn(deps.tenant_id) as s:
             await lifecycle.move(
                 s,
@@ -216,6 +246,7 @@ async def _slice(
                 RunStatus.RUNNING,
                 RunStatus.AWAITING_APPROVAL,
                 approval_deadline=deadline,
+                awaiting_kind=kind,
             )
         await scheduler.schedule_timeout(tenant_id, run_id, deadline)
         return SliceOutcome("awaiting", RunStatus.AWAITING_APPROVAL.value)

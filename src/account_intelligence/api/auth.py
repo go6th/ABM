@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 from uuid import UUID
 
@@ -22,11 +23,13 @@ def _jwks() -> PyJWKClient:
 @dataclass(frozen=True)
 class Identity:
     """The caller as the verified token states it: user, tenant and role (W3: the only tenant
-    source)."""
+    source), and when the person last stepped up (an MFA, from the token's ``amr`` and
+    ``auth_time`` claims; None without one). Money-moving decisions require a fresh step-up."""
 
     user_id: str
     tenant_id: UUID
     role: str
+    step_up_at: datetime | None = None
 
 
 async def identity(authorization: str = Header(...)) -> Identity:
@@ -45,9 +48,22 @@ async def identity(authorization: str = Header(...)) -> Identity:
         )
         if claims["role"] not in {"admin", "seller", "viewer"}:
             raise ValueError("invalid role")
-        return Identity(claims["sub"], UUID(claims["tenant_id"]), claims["role"])
+        return Identity(claims["sub"], UUID(claims["tenant_id"]), claims["role"], step_up(claims))
     except (jwt.PyJWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="invalid token") from None
+
+
+def step_up(claims: dict[str, object]) -> datetime | None:
+    """When the token says the person completed an MFA: ``amr`` lists ``mfa`` and ``auth_time``
+    is an integer epoch. Anything else is no step-up (never assumed). [VERIFY] the identity
+    provider's claim names (OIDC ``amr``/``auth_time``) before production."""
+    amr = claims.get("amr")
+    auth_time = claims.get("auth_time")
+    if not isinstance(amr, list) or "mfa" not in amr:
+        return None
+    if isinstance(auth_time, bool) or not isinstance(auth_time, int):
+        return None
+    return datetime.fromtimestamp(auth_time, tz=UTC)
 
 
 def require_role(*roles: str) -> Callable[..., Awaitable[Identity]]:

@@ -241,18 +241,31 @@ async def move(
     new: RunStatus,
     *,
     approval_deadline: datetime | None = None,
+    awaiting_kind: str | None = None,
 ) -> None:
-    """A non-terminal transition on both run rows (terminal ends go through ``finish``)."""
+    """A non-terminal transition on both run rows (terminal ends go through ``finish``). Entering
+    AWAITING_APPROVAL records why the run waits (``approval`` by default, ``cap`` for a pause
+    instead of fail, D-45); leaving it clears the reason."""
     if new in TERMINAL:
         raise LifecycleError("terminal states are reached through finish()")
     transition(expected, new)
+    if awaiting_kind not in (None, "approval", "cap"):
+        raise LifecycleError(f"unknown awaiting kind {awaiting_kind}")
+    kind = (awaiting_kind or "approval") if new is RunStatus.AWAITING_APPROVAL else None
     updated = await session.execute(
         text(
             "UPDATE account_runs SET status = :new,"
-            " approval_deadline = COALESCE(:deadline, approval_deadline)"
+            " approval_deadline = COALESCE(:deadline, approval_deadline),"
+            " awaiting_kind = :kind"
             " WHERE id = :r AND status = :expected"
         ),
-        {"new": new.value, "r": run_id, "expected": expected.value, "deadline": approval_deadline},
+        {
+            "new": new.value,
+            "r": run_id,
+            "expected": expected.value,
+            "deadline": approval_deadline,
+            "kind": kind,
+        },
     )
     if updated.rowcount == 0:  # type: ignore[attr-defined]
         raise RunStateConflict(f"run is no longer {expected.value}")
@@ -388,14 +401,40 @@ async def expire_approval(
     loops into the same interrupt). Returns True when it expired the run."""
     row = (
         await session.execute(
-            text("SELECT status, approval_deadline FROM account_runs WHERE id = :r"), {"r": run_id}
+            text("SELECT status, approval_deadline, awaiting_kind FROM account_runs WHERE id = :r"),
+            {"r": run_id},
         )
     ).first()
     if row is None or row.status != RunStatus.AWAITING_APPROVAL.value:
         return False
     if row.approval_deadline is None or row.approval_deadline > now:
         return False
+    if row.awaiting_kind == "cap":
+        return False  # a pause instead of fail times out through expire_cap_pause (D-45)
     await finish(
         session, tracker, run_id, RunStatus.CANCELED, reason="approval_timeout", refund_all=True
     )
+    return True
+
+
+async def expire_cap_pause(session: AsyncSession, run_id: UUID, now: datetime) -> bool:
+    """D-45: past its wait a cap pause is recorded ``timed_out`` (the decline path) and the run
+    resumes RUNNING so its next slice distils, builds and ends BUDGET_EXCEEDED with partial
+    results and one settlement. A pause never loops into the same interrupt (defect 8). Returns
+    True when it resumed the run (the caller enqueues the next slice)."""
+    from spend.config import load_v2_config
+    from spend.pause import expire
+
+    row = (
+        await session.execute(
+            text("SELECT status, approval_deadline, awaiting_kind FROM account_runs WHERE id = :r"),
+            {"r": run_id},
+        )
+    ).first()
+    if row is None or row.status != RunStatus.AWAITING_APPROVAL.value:
+        return False
+    if row.awaiting_kind != "cap" or row.approval_deadline is None or row.approval_deadline > now:
+        return False
+    await expire(session, run_id, now, load_v2_config())
+    await move(session, run_id, RunStatus.AWAITING_APPROVAL, RunStatus.RUNNING)
     return True

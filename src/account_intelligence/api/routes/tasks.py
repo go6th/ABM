@@ -17,6 +17,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import text
 
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs import lifecycle
@@ -89,11 +90,20 @@ async def run_slice(
 async def approval_timeout(
     task: TimeoutTask, request: Request, authorization: str | None = Header(default=None)
 ) -> dict[str, bool]:
-    """Expire a run's approval past its deadline: cancel and refund (known defect 8)."""
+    """Expire a run's wait past its deadline: a first-cap approval cancels and refunds (known
+    defect 8); a cap pause (D-45) records the timeout and resumes the run, which then ends
+    BUDGET_EXCEEDED with partial results."""
     container = _authorise(request, authorization)
     deps = await container.deps_for(task.tenant_id, task.run_id)
+    now = container.clock.now()
     async with tenant_txn(task.tenant_id) as s:
-        expired = await lifecycle.expire_approval(
-            s, deps.tracker(s), task.run_id, container.clock.now()
-        )
-    return {"expired": expired}
+        expired = await lifecycle.expire_approval(s, deps.tracker(s), task.run_id, now)
+        resumed = False if expired else await lifecycle.expire_cap_pause(s, task.run_id, now)
+        used: int = (
+            await s.execute(
+                text("SELECT slices_used FROM account_runs WHERE id = :r"), {"r": task.run_id}
+            )
+        ).scalar_one()
+    if resumed:
+        await container.scheduler.enqueue_slice(task.tenant_id, task.run_id, int(used))
+    return {"expired": expired or resumed}

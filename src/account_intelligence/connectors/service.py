@@ -802,4 +802,28 @@ def retry_policy_for(config: ProvidersConfig, provider: ProviderCode | None = No
     )
 
 
-__all__ = ["ConnectorRuntime", "call_operation", "retry_policy_for", "PolicyRefused"]
+def phase_retry_policy(policy: RetryPolicy, max_calls: int) -> RetryPolicy:
+    """The parallel research node's RetryPolicy: the same backoff, with a node attempt budget that
+    can never be the binding limit. Each node retry is triggered by one call reaching its next
+    ledger attempt, and the per-call budget (``policy.max_attempts``, read from the ledger by the
+    stages) still ends that call; so ``(max_attempts - 1) * max_calls + 1`` node attempts bound
+    the phase. Still the single retry owner (W6)."""
+    if max_calls < 1:
+        raise ValueError("max_calls must be at least 1")
+    return RetryPolicy(
+        initial_interval=policy.initial_interval,
+        backoff_factor=policy.backoff_factor,
+        max_interval=policy.max_interval,
+        max_attempts=(policy.max_attempts - 1) * max_calls + 1,
+        jitter=policy.jitter,
+        retry_on=policy.retry_on,
+    )
+
+
+__all__ = [
+    "ConnectorRuntime",
+    "call_operation",
+    "retry_policy_for",
+    "phase_retry_policy",
+    "PolicyRefused",
+]

@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from account_intelligence.api.problem import DependencyUnavailable, problem_body
-from account_intelligence.api.routes import health, tasks, v1_router
+from account_intelligence.api.routes import health, operator_router, tasks, v1_router
 
 
 def _on_sigterm(app: FastAPI, previous: Any) -> Any:
@@ -116,6 +116,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(v1_router)
+    app.include_router(operator_router)
     app.include_router(tasks.router)
     return app
 

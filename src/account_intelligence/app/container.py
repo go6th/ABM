@@ -61,6 +61,30 @@ class RuntimeMisconfigured(RuntimeError):
     """A staging or production process was wired with a local or fake adapter (W4)."""
 
 
+def _unconfigured(port: str) -> Any:
+    """The production placeholder of a credit manager v2 port."""
+    from spend.pause import UnconfiguredWallet
+    from spend.upload import UnconfiguredScanner, UnconfiguredUploadStore
+
+    if port == "wallet":
+        return UnconfiguredWallet()
+    if port == "upload_store":
+        return UnconfiguredUploadStore()
+    if port == "scanner":
+        return UnconfiguredScanner()
+    return _UnconfiguredParser()
+
+
+class _UnconfiguredParser:
+    """No upload parser without a connector runtime (every parse is refused as drift)."""
+
+    def parse(self, provider_code: str, operation: str, args: Any, body: bytes) -> list[Any]:
+        """Always refuse."""
+        from spend.errors import NotConfigured
+
+        raise NotConfigured("upload parser")
+
+
 @dataclass
 class Container:
     """Everything the API and the worker need, built once per process."""
@@ -81,6 +105,12 @@ class Container:
     verify_task_token: Callable[[str, str, str], None] | None = None
     extras: dict[str, Any] = field(default_factory=dict)
     builder: Any | None = None  # BuilderPort (exports.wiring); None ends builds PARTIAL
+    # Credit manager v2 ports: production placeholders fail closed (NotConfigured, or an
+    # unavailable scanner that rejects every upload) until real adapters exist; never a fake success
+    wallet: Any = field(default_factory=lambda: _unconfigured("wallet"))
+    upload_store: Any = field(default_factory=lambda: _unconfigured("upload_store"))
+    scanner: Any = field(default_factory=lambda: _unconfigured("scanner"))
+    upload_parser: Any = field(default_factory=lambda: _unconfigured("upload_parser"))
 
     async def deps_for(self, tenant_id: UUID, run_id: UUID) -> RunDeps:
         """One run's dependencies, loaded under the tenant (the run row is the identity)."""

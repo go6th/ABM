@@ -71,6 +71,8 @@ reason_codes:
   # credit cap v1 (D-28, D-31): no approved cap; provider credits exhausted
   no_cap: "No approved spending cap"
   credits_exhausted: "Provider credits exhausted"
+  # parallel execution (P2): a hard dependency of the row's unit failed or was blocked
+  dependency_failed: "A step this row depends on did not finish"
 transitions:
   unset:
     done: ["stage", "verifier"]
