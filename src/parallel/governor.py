@@ -333,6 +333,7 @@ class PostgresGovernor(_SlotMixin):
         self.shares = shares
         self.clock = clock
         self.rng = rng or random.Random()  # noqa: S311 - jitter only
+        self._configured: set[str] = set()  # providers whose bounds this process applied
 
     async def configure(self, tenant_id: UUID, providers: Iterable[str]) -> None:
         """Make sure each provider has a limit row at the configured floor and ceiling."""
@@ -350,6 +351,18 @@ class PostgresGovernor(_SlotMixin):
 
     async def _try(self, ctx: CallContext, provider: str, holder: str, priority: int) -> str | None:
         async with self.txn(ctx.tenant_id) as s:
+            if provider not in self._configured:
+                # apply the configured bounds once per process (a changed ceiling takes effect)
+                await s.execute(
+                    text("SELECT governor_configure(:p, :c, :f, :now)"),
+                    {
+                        "p": provider,
+                        "c": self.settings.ceiling(provider),
+                        "f": self.settings.floor,
+                        "now": self.clock.now(),
+                    },
+                )
+                self._configured.add(provider)
             value = (
                 await s.execute(
                     text(

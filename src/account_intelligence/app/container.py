@@ -171,7 +171,42 @@ def build_connectors(
     runtime = build_runtime(
         config, txn=tenant_txn, payloads=payloads, rate_store=rate_store, env=env
     )
-    return runtime, retry_policy_for(config)
+    return with_governance(runtime), retry_policy_for(config)
+
+
+class _WallClock:
+    """Wall time and an asyncio sleep for the governor's leases and bounded waits."""
+
+    def now(self) -> Any:
+        """Aware UTC now."""
+        from datetime import UTC, datetime
+
+        return datetime.now(UTC)
+
+    async def sleep(self, seconds: float) -> None:
+        """Wait."""
+        import asyncio
+
+        await asyncio.sleep(seconds)
+
+
+def with_governance(runtime: Any) -> Any:
+    """The connector runtime with the per-provider governor (Postgres leases, D-43) and in-process
+    single flight (P8). Every call then holds a provider slot around its live exchange."""
+    from dataclasses import replace
+
+    from parallel.config import load_parallel_config
+    from parallel.governor import PostgresGovernor, Shares
+    from parallel.singleflight import InProcessSingleFlight
+
+    cfg = load_parallel_config()
+    governor = PostgresGovernor(
+        tenant_txn,
+        cfg.providers,
+        Shares(cfg.run_share_pct, cfg.tenant_share_pct, cfg.aging_step_s),
+        _WallClock(),
+    )
+    return replace(runtime, governor=governor, single_flight=InProcessSingleFlight())
 
 
 def _limits(spec: WorkflowSpec, env: Mapping[str, str]) -> RunLimits:
