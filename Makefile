@@ -10,7 +10,7 @@ MIGRATION_ENV = MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
 
 .DEFAULT_GOAL := help
 .PHONY: help install up down emulators db-shell migrate migration run fmt lint test check \
-	static infra-fmt infra-validate image smoke deploy-staging
+	static infra-fmt infra-validate image smoke deploy-staging obs-verify
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -77,6 +77,15 @@ infra-validate: ## terraform init -backend=false and validate for every environm
 	for env in dev staging production; do \
 	  $(TF) -chdir=envs/$$env init -backend=false -input=false >/dev/null && \
 	  $(TF) -chdir=envs/$$env validate -no-color || exit 1; done
+
+obs-verify: ## Telemetry contract, generated Terraform diff, runbook lint, canary suite, obs tests
+	$(UV) run --frozen python scripts/check_telemetry.py
+	$(UV) run --frozen python scripts/gen_observability.py --check
+	$(UV) run --frozen python scripts/check_runbooks.py
+	$(UV) run --frozen pytest tests/obs -p no:cacheprovider -q
+	$(TF) fmt -check -recursive modules/observability
+	$(TF) -chdir=modules/observability init -backend=false -input=false >/dev/null && \
+	  $(TF) -chdir=modules/observability validate -no-color
 
 image: ## Build the service image
 	docker build -t account-intelligence:local .

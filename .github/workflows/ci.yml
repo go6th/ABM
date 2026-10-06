@@ -56,6 +56,11 @@ jobs:
         run: make lint
       - name: Static gates (W1 imports, docstrings, comments, guarantees, loops, bandit, vulture)
         run: make static
+      - name: Observability contract (catalogs, generated Terraform, runbooks, canary suite)
+        run: |
+          uv run --frozen python scripts/check_telemetry.py
+          uv run --frozen python scripts/gen_observability.py --check
+          uv run --frozen python scripts/check_runbooks.py
       - name: Isolation suite first (hard gate), then everything except evals, coverage gate
         run: |
           uv run --frozen pytest tests/isolation -x -p no:cacheprovider
