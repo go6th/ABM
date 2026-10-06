@@ -306,7 +306,7 @@ class RunPeopleInput:
 
 
 class LlmPeopleExtractor:
-    """The tool-less extractor for Findings (tier ``extractor``)."""
+    """The tool-less extractor for Findings (task kind ``classify_person``)."""
 
     def __init__(self, deps: Any, prompt_name: str = "people_findings.v1") -> None:
         self.deps, self.prompt_name = deps, prompt_name
@@ -318,6 +318,6 @@ class LlmPeopleExtractor:
 
         system = prompt(self.prompt_name).replace("{canary}", canary)
         user = json.dumps({"person_key": person_key, "text": text})
-        result = await self.deps.llm.complete("extractor", system, user, max_tokens=800)
+        result = await self.deps.model("classify_person", system, user)
         parsed = parse_json(result.text)
         return parsed if parsed is not None else result.text

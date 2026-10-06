@@ -41,10 +41,9 @@ MAX_RECORD_CHARS = 4000
 MAX_RECORDS = 40
 
 
-async def ask_json(
-    deps: RunDeps, tier: str, system: str, user: Mapping[str, Any], max_tokens: int = 2000
-) -> Any:
-    """One model call with ONE bounded re-ask on unparseable output (workflow spec 3.7)."""
+async def ask_json(deps: RunDeps, task_kind: str, system: str, user: Mapping[str, Any]) -> Any:
+    """One model call named by its task kind (R2), with ONE bounded re-ask on unparseable output
+    (workflow spec 3.7); the token limit is the task kind's (R7)."""
     body = json.dumps(user, sort_keys=True)
     # LOOP(model re-ask): cap=1 re-ask on unparseable output; exit=parsed, None (item blocked)
     for attempt in range(2):
@@ -53,7 +52,7 @@ async def ask_json(
             if attempt == 0
             else "\nYour previous answer was not valid JSON. Answer with JSON only."
         )
-        result = await deps.llm.complete(tier, system, body + note, max_tokens=max_tokens)
+        result = await deps.model(task_kind, system, body + note)
         parsed = parse_json(result.text)
         if parsed is not None:
             return parsed
@@ -99,7 +98,7 @@ class ResearchStage:
         menu = {op: sorted(ARGS_FOR[Operation(op)].model_fields) for op in sorted(self.operations)}
         plan = await ask_json(
             self.deps,
-            "planner",
+            "plan_gaps",
             prompt("planner.v1"),
             {
                 "account_domain": self.deps.domain,
@@ -125,10 +124,9 @@ class ResearchStage:
         system = prompt("extractor.v1").replace("{canary}", self.deps.canary)
         answer = await ask_json(
             self.deps,
-            "extractor",
+            "extract_facts",
             system,
             {"attribute_prefix": self.prefix, "records": items},
-            max_tokens=4000,
         )
         if answer is None:
             return []  # unparseable twice: nothing proposed (counted by the caller)

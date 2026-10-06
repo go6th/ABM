@@ -221,6 +221,19 @@ async def test_unavailable_ports_and_run_input() -> None:
     assert await adapters.RunPeopleInput({}, date(2026, 10, 3), None).reference_employers() is None
 
 
+def _model_deps(llm: Any) -> Any:
+    """Run dependencies whose ``model`` resolves a task kind like ``RunDeps.model`` does without a
+    router (the legacy port under the task kind's legacy tier, R2)."""
+    from llm.tasks import LEGACY_TIER, require
+
+    async def model(task_kind: str, system: str, user: str) -> Any:
+        return await llm.complete(
+            LEGACY_TIER[task_kind], system, user, max_tokens=require(task_kind).max_tokens
+        )
+
+    return SimpleNamespace(llm=llm, model=model)
+
+
 @pytest.mark.asyncio
 async def test_proposal_sink_and_extractor() -> None:
     stored: list[Any] = []
@@ -249,10 +262,10 @@ async def test_proposal_sink_and_extractor() -> None:
             return SimpleNamespace(text=self.text)
 
     llm = Llm('{"person_key": "k", "findings": []}')
-    out = await adapters.LlmPeopleExtractor(SimpleNamespace(llm=llm))("k", "text", "CANARY-x")
+    out = await adapters.LlmPeopleExtractor(_model_deps(llm))("k", "text", "CANARY-x")
     assert out == {"person_key": "k", "findings": []} and "CANARY-x" in llm.calls[0][1]
     assert llm.calls[0][0] == "extractor"
-    raw = await adapters.LlmPeopleExtractor(SimpleNamespace(llm=Llm("not json")))("k", "t", "c")
+    raw = await adapters.LlmPeopleExtractor(_model_deps(Llm("not json")))("k", "t", "c")
     assert raw == "not json"
 
 

@@ -67,6 +67,10 @@ OWNERS: dict[str, set[str]] = {
     "notification_deliveries": {"spend/notify.py"},
     "prepulled_intents": {"spend/exhaustion.py"},
     "prepulled_intent_events": {"spend/exhaustion.py", "spend/upload.py"},
+    # model routing (migration 0018): the call ledger has one writer; candidate health is written
+    # only by the llm_health_record function (called from llm/health.py)
+    "llm_calls": {"llm/record.py"},
+    "llm_call_attempts": {"llm/record.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {

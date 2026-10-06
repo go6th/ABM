@@ -18,7 +18,7 @@ task_kinds:
   status: proposal
   value:
     plan_gaps:              {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
-    extract_facts:          {tier: extractor, max_tokens: 2000, temperature: null, cacheable: true}
+    extract_facts:          {tier: extractor, max_tokens: 4000, temperature: null, cacheable: true}
     classify_posting:       {tier: extractor, max_tokens: 400,  temperature: null, cacheable: true}
     second_pass_posting:    {tier: judge,     max_tokens: 400,  temperature: null, cacheable: true}
     classify_person:        {tier: extractor, max_tokens: 800,  temperature: null, cacheable: true}
@@ -26,7 +26,7 @@ task_kinds:
     synthesise_hypotheses:  {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     write_narrative:        {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     distill:                {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
-    support_judge:          {tier: judge,     max_tokens: 400,  temperature: null, cacheable: true}
+    support_judge:          {tier: judge,     max_tokens: 200,  temperature: null, cacheable: true}
     source_reread:          {tier: judge,     max_tokens: 600,  temperature: null, cacheable: false}
     narrative_reread:       {tier: judge,     max_tokens: 400,  temperature: null, cacheable: false}
 

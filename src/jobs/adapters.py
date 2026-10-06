@@ -223,10 +223,11 @@ class RunJobsInput:
 
 
 class LlmPostingClassifier:
-    """The extractor (tier ``classifier``) or second pass (tier ``judge``) for one posting."""
+    """The classifier (task kind ``classify_posting``) or the second pass (task kind
+    ``second_pass_posting``) for one posting (R2: every model call names its task kind)."""
 
-    def __init__(self, deps: Any, tier: str, prompt_name: str) -> None:
-        self.deps, self.tier, self.prompt_name = deps, tier, prompt_name
+    def __init__(self, deps: Any, task_kind: str, prompt_name: str) -> None:
+        self.deps, self.task_kind, self.prompt_name = deps, task_kind, prompt_name
 
     async def __call__(self, posting_id: str, text: str, canary: str) -> object:
         import json
@@ -236,6 +237,6 @@ class LlmPostingClassifier:
 
         system = prompt(self.prompt_name).replace("{canary}", canary)
         user = json.dumps({"posting_id": posting_id, "text": text[:20_000]})
-        result = await self.deps.llm.complete(self.tier, system, user, max_tokens=400)
+        result = await self.deps.model(self.task_kind, system, user)
         parsed = parse_json(result.text)
         return parsed if parsed is not None else result.text

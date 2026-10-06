@@ -77,10 +77,9 @@ class LlmJudge:
         """Ask the judge tier whether the sentence supports the claim."""
         answer = await ask_json(
             self.deps,
-            "judge",
+            "support_judge",
             prompt("judge.v1"),
             {"claim": claim, "sentence": sentence},
-            max_tokens=200,
         )
         if answer is None:
             raise NotConfigured("judge returned no JSON")
@@ -134,7 +133,7 @@ class GradingStages:
                 try:
                     plan = await ask_json(
                         self.deps,
-                        "planner",
+                        "lead_queries",
                         prompt("lead_queries.v1"),
                         {
                             "lead": key,
