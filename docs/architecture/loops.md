@@ -7,7 +7,8 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
-| dependency closure | `src/parallel/executor.py:149` | number of units (each visited once) | all reached |
+| dependency closure | `src/parallel/executor.py:152` | number of units (each visited once) | all reached |
+| eval repeats | `src/evalgate/runner.py:104` | accounts x repeats_k runs | all cases executed |
 | export keyset pagination | `src/exports/readers/pg.py:76` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
 | findings extractor | `src/people/findings.py:103` | max_extractor_calls, one call per person | converged, cap_reached |
 | gap pass over the remainder | `src/jobs/pipeline.py:461` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
@@ -16,19 +17,20 @@ unannotated (the generator's check fails otherwise).
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:119` | limit (1000) | queue empty, limit |
 | jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
 | judge re-ask | `src/account_intelligence/grading/judge.py:87` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
-| lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:131` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
+| lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:130` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
-| model re-ask | `src/account_intelligence/workflow/stages/research.py:50` | 1 re-ask on unparseable output | parsed, None (item blocked) |
+| model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
 | month normalisation | `src/jobs/window.py:15` | one iteration (month - 12 >= -11) | month in 1..12 |
+| narrative reread | `src/verify/narrative.py:74` | one verdict per sentence | all sentences decided |
 | notification relay | `src/spend/notify.py:203` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
 | people gap passes | `src/people/pipeline.py:343` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
 | people search paging | `src/people/search.py:127` | max_pages_per_source and max_people_per_run | converged, no_progress (no new person, cursor repeat, failed call), cap_reached, budget, deadline |
-| planner gap loop | `src/account_intelligence/workflow/stages/research.py:193` | 1 + planner_gap_passes (2) | converged, no_progress, budget, cap_reached |
+| planner gap loop | `src/account_intelligence/workflow/stages/research.py:191` | 1 + planner_gap_passes (2) | converged, no_progress, budget, cap_reached |
 | posting batch loop | `src/jobs/pipeline.py:380` | postings pulled (bounded by the pull caps), batch_size per batch | all processed (one failure is isolated) |
 | posting extractor re-ask | `src/jobs/extractor.py:97` | 1 re-ask, run cap max_extractor_calls | verified, unclassified(reason), hostile |
 | posts pull | `src/people/posts.py:125` | cost_sample_size, then the budget-approved remainder or unknown_cost_post_cap | converged, budget, cap_reached, deadline |
@@ -38,7 +40,8 @@ unannotated (the generator's check fails otherwise).
 | renderer output drain | `src/exports/word/renderer.py:82` | the byte cap (max_output_bytes or max_stderr_bytes) in 64 KiB reads | end of stream, cap exceeded (the process is killed) |
 | renderer re-run | `src/exports/word/renderer.py:179` | 1 + reruns (1) attempts per document | converged (rendered), cap_reached (RenderError) |
 | research passes | `src/account_intelligence/workflow/parallel_phase.py:250` | 2 passes (a pass that paused but whose request policy declined at once runs again with paid work stopped) | converged or another exit, pause marker |
-| scheduler loop | `src/parallel/executor.py:236` | 10 iterations per unit plus 100 (each launches, blocks, awaits a completion or waits a bounded stall) | converged, deadline, budget, paused, cancelled, retryable, no_progress (SchedulerDeadlock) |
+| scheduler loop | `src/parallel/executor.py:250` | 10 iterations per unit plus 100 (each launches, blocks, awaits a completion or waits a bounded stall) | converged, deadline, budget, paused, cancelled, retryable, no_progress (SchedulerDeadlock) |
+| schema re-ask | `src/llm/port.py:126` | schema_reasks (1) | valid, SchemaInvalid |
 | simulation | `src/parallel/simulate.py:193` | sum of units over runs times 4 plus 1000 steps | all runs drained |
 | slice loop | `src/account_intelligence/workflow/runner.py:95` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | spend invariant pass | `src/spend/jobs.py:62` | batch_size runs | converged, cap_reached |
@@ -50,3 +53,4 @@ unannotated (the generator's check fails otherwise).
 | union-find path compression | `src/people/merge.py:81` | the same path length | root reached |
 | union-find path walk | `src/jobs/dedupe.py:60` | number of identities (path halving) | root found |
 | union-find root walk | `src/people/merge.py:78` | number of records (each step moves to a parent; unions always point the larger root at the smaller, so there is no cycle) | root reached |
+| verification batch | `src/verify/claims.py:110` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
