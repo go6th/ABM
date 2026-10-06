@@ -351,12 +351,45 @@ async def test_a_candidate_whose_adapter_is_absent_is_never_rerouted(cfg: Routin
         await r.call("extract_facts", "p", "h", {}, Out, scope())
 
 
-def test_container_router_factory_builds_a_router_over_one_access_path() -> None:
+def test_container_router_factory_builds_a_router_over_one_access_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace as dc_replace
     from types import SimpleNamespace
 
-    from account_intelligence.app.container import router_factory
+    from account_intelligence.app import container
+    from account_intelligence.app.container import RuntimeMisconfigured, router_factory
 
+    with pytest.raises(RuntimeMisconfigured, match="benchmark"):
+        router_factory(object(), "anthropic_api")  # no benchmark: the router cannot go live
+    real = load_routing_config()
+    monkeypatch.setattr(
+        "llm.config.load_routing_config",
+        lambda: dc_replace(real, benchmark_report="benchmark-test"),
+    )
     make = router_factory(object(), "anthropic_api")
     deps = SimpleNamespace(txn=None, tenant_id=uuid4(), run_id=uuid4())
-    built = make(deps)
-    assert set(built.adapters) == {"anthropic_api"}
+    assert set(make(deps).adapters) == {"anthropic_api"}
+    assert container is not None
+
+
+def test_routing_changes_are_governed(tmp_path: Path) -> None:
+    import shutil
+    import sys
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from check_routing_governance import check
+
+    assert check() == []  # the repository's own config is recorded
+    (tmp_path / "config").mkdir()
+    (tmp_path / "docs/routing").mkdir(parents=True)
+    shutil.copy(ROOT / "config/model_routing.yaml", tmp_path / "config/model_routing.yaml")
+    (tmp_path / "docs/routing/DECISIONS.md").write_text("nothing here\n")
+    assert check(tmp_path)  # an unrecorded change fails
+    import hashlib
+
+    h = hashlib.sha256((tmp_path / "config/model_routing.yaml").read_bytes()).hexdigest()
+    (tmp_path / "docs/routing/DECISIONS.md").write_text(f"| {h} | benchmark: benchmark-x |\n")
+    assert check(tmp_path) == ["benchmark report benchmark-x does not exist"]
+    (tmp_path / "docs/routing/benchmark-x.md").write_text("# report\n")
+    assert check(tmp_path) == []

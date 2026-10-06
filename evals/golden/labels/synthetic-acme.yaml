@@ -1,0 +1,21 @@
+# SYNTHETIC golden labels (format example and harness fixture). Not analyst reviewed; never counts
+# toward a gate. Everything below is invented; the analyst id is an opaque synthetic id.
+account: acme.example
+synthetic: true
+labels:
+  - attribute_key: jobs.salesforce_admin.open
+    value: Senior Salesforce Administrator
+    grade: confirmed
+    captured_on: 2026-10-01
+    source_url: https://careers.acme.example/jobs/42
+    analyst: s-0001
+    split: dev
+  - attribute_key: tech.crm.vendor
+    value: Salesforce
+    grade: lead
+    captured_on: 2026-10-01
+    source_url: https://blog.example.net/acme-crm
+    analyst: s-0001
+    split: holdout
+expected_attributes: [jobs.salesforce_admin.open, tech.crm.vendor]
+high_rows: {job_postings_12_months: done}

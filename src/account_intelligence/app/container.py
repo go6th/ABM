@@ -188,6 +188,10 @@ def router_factory(client: Any, access: str) -> Any:
     from llm.record import PgCallStore
 
     cfg = load_routing_config()
+    if cfg.benchmark_report is None:
+        raise RuntimeMisconfigured(
+            "MODEL_ROUTER=on needs a routing config backed by a benchmark report (D-51)"
+        )
     adapters = {access: AnthropicAdapter(client)}
     clock = _WallClock()
 

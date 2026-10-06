@@ -63,20 +63,11 @@ def _precision(items: Sequence[GoldenItem], grade: str) -> float | None:
 
 
 def expected_calibration_error(items: Sequence[GoldenItem], bins: int = 10) -> float | None:
-    """Weighted mean |accuracy - mean confidence| over equal-width confidence bins."""
-    if not items:
-        return None
-    total = 0.0
-    for b in range(bins):
-        lo, hi = b / bins, (b + 1) / bins
-        bucket = [
-            i for i in items if lo <= i.confidence < hi or (b == bins - 1 and i.confidence == 1.0)
-        ]
-        if bucket:
-            acc = sum(i.correct for i in bucket) / len(bucket)
-            conf = sum(i.confidence for i in bucket) / len(bucket)
-            total += len(bucket) / len(items) * abs(acc - conf)
-    return total
+    """Weighted mean |accuracy - mean confidence| over equal-width confidence bins (one
+    implementation: ``evalgate.metrics.calibration_error``)."""
+    from evalgate.metrics import calibration_error
+
+    return calibration_error([(i.confidence, bool(i.correct)) for i in items], bins)
 
 
 def evaluate(
