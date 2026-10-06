@@ -37,6 +37,10 @@ class JudgeNotIndependent(NoEligibleCandidate):
     """The judge's family equals the generator's (R6): the G12 cap path applies."""
 
 
+class AdapterNotConfigured(LlmError):
+    """The selected candidate's adapter is not configured in this process (never rerouted)."""
+
+
 class BudgetRefused(LlmError):
     """The run's token cap cannot cover this call (R9); refused before the call."""
 

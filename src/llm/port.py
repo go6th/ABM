@@ -111,7 +111,11 @@ class Router:
             budget.estimate_tokens(prefix, user, kind.max_tokens),
             cap,
         )
-        adapter = self.adapters[sel.candidate.adapter]
+        adapter = self.adapters.get(sel.candidate.adapter)
+        if adapter is None:
+            from llm.errors import AdapterNotConfigured
+
+            raise AdapterNotConfigured(f"adapter {sel.candidate.adapter} is not configured")
         caching = kind.cacheable and sel.candidate.caching is True
         reply = await self._attempt(
             adapter, sel.candidate, key, prefix, user, kind.max_tokens, kind.temperature, caching

@@ -332,3 +332,31 @@ def test_no_llm_client_import_outside_src_llm() -> None:
         if "/rag/" not in str(p) and pattern.search(p.read_text())
     }
     assert found <= allowed
+
+
+@pytest.mark.asyncio
+async def test_a_candidate_whose_adapter_is_absent_is_never_rerouted(cfg: RoutingConfig) -> None:
+    from llm.errors import AdapterNotConfigured
+
+    store = InMemoryCallStore()
+    health = InMemoryHealth(2, 60, 30)
+    r = Router(
+        cfg,
+        {"vertex_ai": ScriptedAdapter(lambda c, s, u: '{"answer": "x"}')},
+        store,
+        health,
+        lambda: T0,
+    )
+    with pytest.raises(AdapterNotConfigured):
+        await r.call("extract_facts", "p", "h", {}, Out, scope())
+
+
+def test_container_router_factory_builds_a_router_over_one_access_path() -> None:
+    from types import SimpleNamespace
+
+    from account_intelligence.app.container import router_factory
+
+    make = router_factory(object(), "anthropic_api")
+    deps = SimpleNamespace(txn=None, tenant_id=uuid4(), run_id=uuid4())
+    built = make(deps)
+    assert set(built.adapters) == {"anthropic_api"}

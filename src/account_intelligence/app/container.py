@@ -111,6 +111,8 @@ class Container:
     upload_store: Any = field(default_factory=lambda: _unconfigured("upload_store"))
     scanner: Any = field(default_factory=lambda: _unconfigured("scanner"))
     upload_parser: Any = field(default_factory=lambda: _unconfigured("upload_parser"))
+    # model routing (D-48): a factory deps -> llm.port.Router; None keeps the legacy LlmPort path
+    router: Any | None = None
 
     async def deps_for(self, tenant_id: UUID, run_id: UUID) -> RunDeps:
         """One run's dependencies, loaded under the tenant (the run row is the identity)."""
@@ -146,6 +148,7 @@ class Container:
             builder=self.builder,
             extra_allowed_hosts=frozenset(h for h in hosts if h),
             run_input=dict(row.run_input or {}),
+            router=self.router,
         )
 
 
@@ -172,6 +175,38 @@ def build_connectors(
         config, txn=tenant_txn, payloads=payloads, rate_store=rate_store, env=env
     )
     return with_governance(runtime), retry_policy_for(config)
+
+
+def router_factory(client: Any, access: str) -> Any:
+    """``deps -> Router`` over one SDK client for the configured access path (D-19). Only the
+    candidates whose ``adapter`` equals ``access`` can be served; any other candidate fails with
+    ``AdapterNotConfigured`` (never silently sent through another path)."""
+    from llm.adapters.anthropic_api import AnthropicAdapter
+    from llm.config import load_routing_config
+    from llm.health import PgHealth
+    from llm.port import Router
+    from llm.record import PgCallStore
+
+    cfg = load_routing_config()
+    adapters = {access: AnthropicAdapter(client)}
+    clock = _WallClock()
+
+    def make(deps: Any) -> Any:
+        return Router(
+            cfg,
+            adapters,
+            PgCallStore(deps.txn, deps.tenant_id, deps.run_id),
+            PgHealth(
+                deps.txn,
+                deps.tenant_id,
+                cfg.health_threshold,
+                cfg.health_window_s,
+                cfg.health_cooldown_s,
+            ),
+            clock.now,
+        )
+
+    return make
 
 
 class _WallClock:
@@ -325,6 +360,14 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         )
     else:
         raise RuntimeMisconfigured("LLM_ACCESS must be vertex_ai or anthropic_api (D-19)")
+    # D-48: the router is switched on with MODEL_ROUTER=on once config/model_routing.yaml names
+    # candidates for this access path (V-LLM-2: the Vertex model id format is unverified)
+    client = getattr(llm, "client", None)
+    router = (
+        router_factory(client, access)
+        if env.get("MODEL_ROUTER") == "on" and client is not None
+        else None
+    )
     connectors, retry = build_connectors(env, payloads, _require(env, "REDIS_HOST"))
     clock = SystemClock()
     return Container(
@@ -342,6 +385,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         limits=_limits(spec, env),
         slices=_slices(spec),
         checkpoint_dsn=_require(env, "CHECKPOINT_DATABASE_URL"),
+        router=router,
         task_audience=_require(env, "TASKS_AUDIENCE"),
         task_service_account=_require(env, "TASKS_SERVICE_ACCOUNT"),
         verify_task_token=verify_task_token,
