@@ -40,4 +40,9 @@ product owner signs it; config blocks for proposals say `status: proposal`.
 | D-49 | Verification | blind source re-read of every Confirmed claim in distill; downgrade only via the G12 cap and `supersede`; figures in code; narrative by template | ADR-0043, `config/verify.yaml`, `src/verify/` |
 | D-50 | Eval modes and statistics | replay every PR, live on model changes (not_run blocks), nightly; Wilson, seeded paired bootstrap, Holm at 0.05; k = 3; ARCH thresholds as initial values | ADR-0044, `config/evals.yaml`, `src/evalgate/` |
 | D-51 | Routing governance | DECISIONS.md names each config hash with a benchmark or `proposal-unapplied`; checked in CI | ADR-0045, `docs/routing/DECISIONS.md` |
+| D-56 | Telemetry backend and contract | OpenTelemetry to Cloud Monitoring, Trace and Logging; catalogs in `config/telemetry`; exporter not installed (V-OBS-1) | ADR-0046, `src/obs/` |
+| D-57 | Cost derivation | rollups recomputed from the ledger, exact micro-dollars, reconciled; never a ledger | ADR-0047, `src/obs/costs.py` |
+| D-58 | SLO windows and minimum samples | multiwindow burn 14.4x/1h+5m and 6x/6h+30m, 100 events minimum (proposal) | ADR-0048, `config/telemetry/slos.yaml` |
+| D-59 | Paging policy and on-call tool | pages for availability burn, isolation and silence; tool and rotation are owner inputs | ADR-0049, `docs/oncall/` |
+| D-60 | LLM tracing | span attributes and `llm_calls` only; no prompt text; no self-hosted tracer | ADR-0050 |
 
