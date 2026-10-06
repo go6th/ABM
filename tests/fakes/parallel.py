@@ -28,9 +28,9 @@ class MemoryEventStore:
         for u in units:
             self.units.setdefault(u.key, u)
 
-    async def load(self) -> list[StoredEvent]:
+    async def load(self, after: int = 0) -> list[StoredEvent]:
         await asyncio.sleep(0)
-        return list(self.events)
+        return [e for e in self.events if e.seq > after]
 
     async def append(self, event: UnitEvent, result: Mapping[str, Any] | None = None) -> None:
         if self.fail_after is not None and len(self.events) >= self.fail_after:
@@ -41,7 +41,9 @@ class MemoryEventStore:
             for e in self.events
         ):
             return  # the unique terminal index: a duplicate inserts nothing
-        self.events.append(StoredEvent(event, dict(result) if result is not None else None))
+        self.events.append(
+            StoredEvent(event, dict(result) if result is not None else None, len(self.events) + 1)
+        )
 
     def kinds(self, key: str) -> list[str]:
         return [e.event.event.value for e in self.events if e.event.unit_key == key]

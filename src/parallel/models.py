@@ -10,7 +10,7 @@ GUARANTEE(test_derive_states_is_a_pure_function_of_events): the same events give
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 
@@ -119,44 +119,48 @@ class UnitState:
     waiting: bool  # cap_denied or held: runs again only when funding or the hold allows
 
 
+INITIAL = UnitState(UnitStatus.PENDING, None, None, None, 0, None, False)
+_TERMINAL_STATUS = (UnitStatus.DONE, UnitStatus.FAILED, UnitStatus.BLOCKED)
+
+
+def apply_event(state: UnitState, e: UnitEvent) -> UnitState:
+    """One step of the fold: the unit's state after ``e`` (terminal states never change)."""
+    if state.status in _TERMINAL_STATUS:
+        return state  # terminal: later events (duplicate deliveries) change nothing
+    if e.event is EventKind.QUEUED:
+        return replace(state, queued_at=state.queued_at or e.at)  # age kept across re-queues
+    if e.event is EventKind.STARTED:
+        return replace(state, status=UnitStatus.RUNNING, started_at=e.at, waiting=False)
+    if e.event is EventKind.FINISHED:
+        return replace(state, status=UnitStatus.DONE, finished_at=e.at, reason=e.reason)
+    if e.event is EventKind.FAILED_TERMINAL:
+        return replace(state, status=UnitStatus.FAILED, finished_at=e.at, reason=e.reason)
+    if e.event is EventKind.BLOCKED:
+        return replace(state, status=UnitStatus.BLOCKED, finished_at=e.at, reason=e.reason)
+    if e.event is EventKind.FAILED:
+        return replace(
+            state, status=UnitStatus.PENDING, failures=state.failures + 1, reason=e.reason
+        )
+    if e.event in (EventKind.CAP_DENIED, EventKind.HELD):
+        return replace(state, status=UnitStatus.PENDING, waiting=True, reason=e.reason)
+    return replace(state, status=UnitStatus.PENDING)  # CANCELLED, REQUEUED
+
+
 def derive_states(units: Iterable[WorkUnit], events: Iterable[UnitEvent]) -> dict[str, UnitState]:
     """Fold each unit's events (in the given order) into its state. Pure and total: a unit with no
     event is pending and unqueued."""
-    by_unit: dict[str, list[UnitEvent]] = {}
-    for event in events:
-        by_unit.setdefault(event.unit_key, []).append(event)
-    out: dict[str, UnitState] = {}
-    for unit in units:
-        status = UnitStatus.PENDING
-        queued_at: datetime | None = None
-        started_at: datetime | None = None
-        finished_at: datetime | None = None
-        failures = 0
-        reason: str | None = None
-        waiting = False
-        for e in by_unit.get(unit.key, ()):
-            if status in (UnitStatus.DONE, UnitStatus.FAILED, UnitStatus.BLOCKED):
-                break  # terminal: later events (duplicate deliveries) change nothing
-            if e.event is EventKind.QUEUED:
-                queued_at = queued_at or e.at  # age is preserved across re-queues
-            elif e.event is EventKind.STARTED:
-                status, started_at, waiting = UnitStatus.RUNNING, e.at, False
-            elif e.event is EventKind.FINISHED:
-                status, finished_at, reason = UnitStatus.DONE, e.at, e.reason
-            elif e.event is EventKind.FAILED_TERMINAL:
-                status, finished_at, reason = UnitStatus.FAILED, e.at, e.reason
-            elif e.event is EventKind.BLOCKED:
-                status, finished_at, reason = UnitStatus.BLOCKED, e.at, e.reason
-            elif e.event is EventKind.FAILED:
-                status, failures, reason = UnitStatus.PENDING, failures + 1, e.reason
-            elif e.event in (EventKind.CAP_DENIED, EventKind.HELD):
-                status, waiting, reason = UnitStatus.PENDING, True, e.reason
-            else:  # CANCELLED, REQUEUED: back to pending, nothing else changes
-                status = UnitStatus.PENDING
-        out[unit.key] = UnitState(
-            status, queued_at, started_at, finished_at, failures, reason, waiting
-        )
-    return out
+    out = {unit.key: INITIAL for unit in units}
+    return fold(out, events)
+
+
+def fold(states: dict[str, UnitState], events: Iterable[UnitEvent]) -> dict[str, UnitState]:
+    """Apply more events to known states (in place; events of unknown units are ignored).
+    ``fold(derive_states(u, a), b) == derive_states(u, a + b)`` (property-tested)."""
+    for e in events:
+        current = states.get(e.unit_key)
+        if current is not None:
+            states[e.unit_key] = apply_event(current, e)
+    return states
 
 
 @dataclass(frozen=True)

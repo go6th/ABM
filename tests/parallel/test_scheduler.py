@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from parallel.executor import ResultIndex, StoredEvent, final_results
 from parallel.models import (
     Capacity,
     Durations,
@@ -19,6 +20,7 @@ from parallel.models import (
     UnitStatus,
     WorkUnit,
     derive_states,
+    fold,
 )
 from parallel.scheduler import Deadline, next_batch, remaining_path
 
@@ -289,3 +291,30 @@ def test_derive_states_is_a_pure_function_of_events() -> None:
     assert s.status is UnitStatus.DONE and s.failures == 1 and s.queued_at == T0
     assert s.reason == "ok"
     assert derive_states(units, ev) == derive_states(units, list(ev))
+
+
+EVENTS = st.lists(
+    st.builds(
+        UnitEvent,
+        unit_key=st.sampled_from(["a", "b", "ghost"]),
+        event=st.sampled_from(list(EventKind)),
+        at=st.just(T0),
+        reason=st.sampled_from([None, "x"]),
+    ),
+    max_size=20,
+)
+
+
+@given(EVENTS, EVENTS)
+def test_incremental_fold_equals_the_full_derivation(first: list, second: list) -> None:
+    units = [_u("a"), _u("b")]
+    assert fold(derive_states(units, first), second) == derive_states(units, first + second)
+
+
+@given(EVENTS, st.integers(0, 20))
+def test_incremental_result_index_equals_the_whole_log(events: list, cut: int) -> None:
+    log = [StoredEvent(e, {"k": i}, i + 1) for i, e in enumerate(events)]
+    index = ResultIndex()
+    index.add(log[:cut])
+    index.add(log[cut:])
+    assert index.final == final_results(log)

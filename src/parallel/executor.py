@@ -34,7 +34,7 @@ GUARANTEE(test_executor_raises_scheduler_deadlock_and_blocks_the_remainder): 4.2
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
@@ -54,16 +54,19 @@ from parallel.models import (
     UnitStatus,
     WorkUnit,
     derive_states,
+    fold,
 )
 from parallel.scheduler import Deadline, next_batch, remaining_path
 
 
 @dataclass(frozen=True)
 class StoredEvent:
-    """A unit event with the small result map stored beside it (finished, cap_denied, blocked)."""
+    """A unit event with the small result map stored beside it (finished, cap_denied, blocked)
+    and its position in the run's insert-only log (``seq``, strictly increasing)."""
 
     event: UnitEvent
     result: Mapping[str, Any] | None = None
+    seq: int = 0
 
 
 class EventStore(Protocol):
@@ -73,8 +76,8 @@ class EventStore(Protocol):
         """Record unit definitions once (idempotent)."""
         ...
 
-    async def load(self) -> list[StoredEvent]:
-        """Every event of the run, in insertion order."""
+    async def load(self, after: int = 0) -> list[StoredEvent]:
+        """The run's events with ``seq > after``, in insertion order."""
         ...
 
     async def append(self, event: UnitEvent, result: Mapping[str, Any] | None = None) -> None:
@@ -225,17 +228,27 @@ class Executor:
         first_retryable: dict[str, BaseException] = {}
         blocked_now: dict[str, str] = {}
         unmeasured: set[str] = set()
-        queued: set[str] = {
-            s.event.unit_key for s in await self.store.load() if s.event.event is EventKind.QUEUED
-        }
+        log: list[StoredEvent] = []
+        states = derive_states(units, [])
+        self._results = ResultIndex()
+
+        async def refresh() -> None:
+            """Read only the events appended since the last read and fold them in (P9: the
+            events stay the truth; a second worker's events are read the same way)."""
+            new = await self.store.load(after=log[-1].seq if log else 0)
+            log.extend(new)
+            fold(states, (s.event for s in new))
+            self._results.add(new)
+
+        await refresh()
+        queued: set[str] = {s.event.unit_key for s in log if s.event.event is EventKind.QUEUED}
         exit_reason: ExitReason | None = None
         try:
             # LOOP(scheduler loop): cap=10 iterations per unit plus 100 (each launches, blocks,
             # awaits a completion or waits a bounded stall); exit=converged, deadline, budget,
             # paused, cancelled, retryable, no_progress (SchedulerDeadlock)
             for _ in range(10 * len(by_key) + 100):
-                stored = await self.store.load()
-                states = derive_states(units, [s.event for s in stored])
+                await refresh()
                 if await self.hooks.run_cancelled():
                     token.cancel("run_cancelled")
                 if self.slice_stop_at is not None and self.clock.monotonic() >= self.slice_stop_at:
@@ -266,7 +279,7 @@ class Executor:
                         )
                         blocked_now[key] = reason
                     for key in batch.launch:
-                        tasks[key] = asyncio.create_task(self._run_unit(by_key, key, stored, token))
+                        tasks[key] = asyncio.create_task(self._run_unit(by_key, key, log, token))
                         await self._event(by_key[key], EventKind.STARTED)
                     if batch.blocked or batch.launch:
                         continue
@@ -322,7 +335,8 @@ class Executor:
                 task.cancel()
             await asyncio.gather(*tasks.values(), return_exceptions=True)
             raise
-        stored = await self.store.load()
+        await refresh()
+        stored = log
         update = self._merge(units, stored)
         if blocked_now or any(
             s.event.event in (EventKind.BLOCKED, EventKind.FAILED_TERMINAL) for s in stored
@@ -363,7 +377,7 @@ class Executor:
     ) -> dict[str, Any]:
         """Base state plus the merged results of the unit's transitive dependencies (P1)."""
         deps = _closure(by_key, key)
-        results = _final_results(stored)
+        results = self._results.final
         return merge_in_key_order(
             {k: v for k, v in results.items() if k in deps}, self.reducers, self._base
         )
@@ -408,28 +422,42 @@ class Executor:
     def _merge(self, units: Sequence[WorkUnit], stored: Sequence[StoredEvent]) -> dict[str, Any]:
         """Merge the final result of every unit, in unit-key order (D-42)."""
         keys = {u.key for u in units}
-        results = {k: v for k, v in _final_results(stored).items() if k in keys}
+        results = {k: v for k, v in final_results(stored).items() if k in keys}
         return merge_in_key_order(results, self.reducers)
 
 
-def _final_results(stored: Sequence[StoredEvent]) -> dict[str, Mapping[str, Any]]:
+class ResultIndex:
     """Per unit: the result of its terminal event (finished, failed_terminal, blocked); for a unit
     blocked ``budget_cap`` after a cap denial, the partial result of that denial is kept too, so
-    a declined pause ends with partial results (D-45)."""
-    out: dict[str, Mapping[str, Any]] = {}
-    partial: dict[str, Mapping[str, Any]] = {}
-    for s in stored:
-        key = s.event.unit_key
-        if key in out:
-            continue  # terminal already: later duplicates change nothing
-        if s.event.event is EventKind.CAP_DENIED and s.result is not None:
-            partial[key] = s.result
-        elif s.event.event in (EventKind.FINISHED, EventKind.FAILED_TERMINAL, EventKind.BLOCKED):
-            result = dict(s.result or {})
-            if s.event.event is EventKind.BLOCKED and key in partial:
-                result = {
-                    **partial[key],
-                    **{k: v for k, v in result.items() if k not in partial[key]},
-                }
-            out[key] = result
-    return out
+    a declined pause ends with partial results (D-45). Built incrementally as events are read;
+    equal to folding the whole log at once (``final_results``)."""
+
+    def __init__(self) -> None:
+        self.final: dict[str, Mapping[str, Any]] = {}
+        self._partial: dict[str, Mapping[str, Any]] = {}
+
+    def add(self, stored: Iterable[StoredEvent]) -> None:
+        """Fold more events in, in log order."""
+        for s in stored:
+            key = s.event.unit_key
+            if key in self.final:
+                continue  # terminal already: later duplicates change nothing
+            if s.event.event is EventKind.CAP_DENIED and s.result is not None:
+                self._partial[key] = s.result
+            elif s.event.event in (
+                EventKind.FINISHED,
+                EventKind.FAILED_TERMINAL,
+                EventKind.BLOCKED,
+            ):
+                result = dict(s.result or {})
+                if s.event.event is EventKind.BLOCKED and key in self._partial:
+                    partial = self._partial[key]
+                    result = {**partial, **{k: v for k, v in result.items() if k not in partial}}
+                self.final[key] = result
+
+
+def final_results(stored: Sequence[StoredEvent]) -> dict[str, Mapping[str, Any]]:
+    """The ``ResultIndex`` of a whole log at once."""
+    index = ResultIndex()
+    index.add(stored)
+    return index.final

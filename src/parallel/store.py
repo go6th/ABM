@@ -76,17 +76,17 @@ class PgEventStore:
                     },
                 )
 
-    async def load(self) -> list[StoredEvent]:
-        """Every event of the run in insertion order."""
+    async def load(self, after: int = 0) -> list[StoredEvent]:
+        """The run's events with ``id > after`` in insertion order."""
         async with self.txn(self.tenant_id) as s:
             rows = (
                 await s.execute(
                     text(
-                        "SELECT unit_key, event, at, reason, provider_code, lease_wait_s,"
+                        "SELECT id, unit_key, event, at, reason, provider_code, lease_wait_s,"
                         " error_class, result_json FROM work_unit_events WHERE run_id = :r"
-                        " ORDER BY id"
+                        " AND id > :after ORDER BY id"
                     ),
-                    {"r": self.run_id},
+                    {"r": self.run_id, "after": after},
                 )
             ).all()
         return [
@@ -101,6 +101,7 @@ class PgEventStore:
                     error_class=r.error_class,
                 ),
                 dict(r.result_json) if r.result_json is not None else None,
+                int(r.id),
             )
             for r in rows
         ]

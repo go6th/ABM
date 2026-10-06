@@ -792,3 +792,86 @@ async def test_outbox_dedupes_and_relays_at_least_once_with_bounded_retries(
         run,
     )
     assert final == [(V2.notify_max_attempts, True)]  # bounded, then a recorded give-up
+
+
+async def test_a_crash_during_approval_leaves_no_half_written_cap(
+    tenant_a: UUID, cfg: SpendConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kill during approval: the decision, the new version and the enforcement columns commit
+    together or not at all; the request stays open and can be decided again."""
+    from spend import repo
+
+    _, run, _ = await _approved(tenant_a, cfg)
+    request_id, _ = await open_request(tenant_a, run, cfg)
+    before = (cap_of(run), admin("SELECT count(*) FROM run_cap_versions WHERE run_id = %s", run))
+
+    async def crash(*args: Any, **kw: Any) -> None:
+        raise KeyboardInterrupt("worker killed between the version insert and the columns")
+
+    monkeypatch.setattr(repo, "apply_cap", crash)
+    with pytest.raises(KeyboardInterrupt):
+        async with tenant_txn(tenant_a) as s:
+            await pause.approve(
+                s,
+                run,
+                request_id,
+                approver(tenant_a),
+                None,
+                NOW,
+                V2,
+                cfg,
+                pause.UnconfiguredWallet(),
+            )
+    assert (cap_of(run), admin("SELECT count(*) FROM run_cap_versions WHERE run_id = %s", run)) == (
+        before
+    )
+    assert admin(
+        "SELECT count(*) FROM spend_limit_events WHERE request_id = %s AND event = 'approved'",
+        request_id,
+    ) == [(0,)]
+    monkeypatch.undo()
+    async with tenant_txn(tenant_a) as s:  # the request is still open: the retry succeeds once
+        await pause.approve(
+            s, run, request_id, approver(tenant_a), None, NOW, V2, cfg, pause.UnconfiguredWallet()
+        )
+    assert cap_of(run)[1] == before[0][1] + 1
+
+
+async def test_a_crash_during_an_upload_registers_nothing(tenant_a: UUID, cfg: SpendConfig) -> None:
+    """Kill during an upload (the promote step dies): no registration, the file stays in
+    quarantine, and the intent can still be completed."""
+
+    class DyingStore(Store):
+        async def promote(self, key: str, accepted_key: str) -> str:
+            raise KeyboardInterrupt("worker killed during promote")
+
+    _, run, _, intent = await new_intent(tenant_a, cfg)
+    body = cassette()
+    records = json.loads(body)["results"]
+    with pytest.raises(KeyboardInterrupt):
+        await upload.complete(
+            tenant_txn,
+            tenant_a,
+            intent,
+            "operator:o1",
+            ATTEST,
+            DyingStore(body),
+            Scanner(True),
+            Parser(records),
+            NOW,
+            V2,
+        )
+    assert admin("SELECT count(*) FROM prepulled_files WHERE run_id = %s", run) == [(0,)]
+    verdict = await upload.complete(
+        tenant_txn,
+        tenant_a,
+        intent,
+        "operator:o1",
+        ATTEST,
+        Store(body),
+        Scanner(True),
+        Parser(records),
+        NOW,
+        V2,
+    )
+    assert verdict.accepted
