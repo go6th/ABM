@@ -72,6 +72,10 @@ OWNERS: dict[str, set[str]] = {
     "llm_calls": {"llm/record.py"},
     "llm_call_attempts": {"llm/record.py"},
     "verifier_findings": {"verify/stage.py"},
+    "eval_runs": {"evalgate/store.py"},
+    "eval_case_results": {"evalgate/store.py"},
+    "eval_metrics": {"evalgate/store.py"},
+    "eval_baselines": {"evalgate/store.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {

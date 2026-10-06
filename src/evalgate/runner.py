@@ -97,7 +97,8 @@ def score_case(account: GoldenAccount, out: CaseOutput, bins: int) -> dict[str, 
 
 
 async def run(golden: GoldenSet, executor: Executor, repeats: int, bins: int) -> EvalResult:
-    """Every account ``repeats`` times (synthetic accounts count only toward self-tests); aggregate over all cases from the pooled bases (never an average of averages)."""
+    """Every account ``repeats`` times (synthetic accounts count only toward self-tests);
+    aggregate over all cases from the pooled bases (never an average of averages)."""
     outputs: list[tuple[GoldenAccount, int, CaseOutput]] = []
     # LOOP(eval repeats): cap=accounts x repeats_k runs; exit=all cases executed
     for account in golden.accounts:
