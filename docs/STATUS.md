@@ -23,6 +23,29 @@ owner can supply (named in the last column). Evidence is a test or command run o
 | P1-7 | People pipeline (branch `feat/people-pipeline`) | Done hermetically; providers Blocked | `tests/people` (oracle, lying tests per P-rule, properties, resume matrix, DB), `tests/isolation/test_people_isolation.py` | D-21 to D-23; V-PEOPLE-1 to 3; OI-PPL-2 to 5 |
 | P1-9 | Credit cap v1 (branch `feat/credit-cap`) | Done hermetically and on Postgres; prices and balances Blocked | `tests/spend` (hand oracles, lying input per K-rule, properties, kill and resume, fault injection), `tests/isolation/test_spend_isolation.py`, `tests/system/test_credit_cap_run.py`, ADR-0030 to 0035 | D-27 to D-31; provider cost table and credit rates (V7); balance endpoints (V-SPEND-1); approver roles, timeouts, limits |
 | P1-8 | Export builders, WP 1.8 builder half (branch `feat/export-builders`) | Done hermetically and on Postgres with a neutral proposal look; legacy port and parity Blocked | `tests/exports` (hand-written oracle, lying content per B-rule, properties, same look, byte-identical rebuilds, LibreOffice PDF and recalculation checks, Postgres end to end), `tests/isolation/test_exports_isolation.py`, ADR-0026 to 0029 | legacy Node library, workbook scripts, one real delivered file set; D-24, D-25, D-26; OI-EXP-1 (distill writes `report_sections`), OI-EXP-2/3 (source registry for posting and post links) |
+| P2-PAR | Parallel execution and credit manager v2 (branch `feat/parallel-credit-v2`) | Done hermetically and on PostgreSQL 16; opt-in (`execution_mode: parallel`); the 4 h target Blocked | `tests/parallel` (DAG and PRD edges, property tests of the scheduler, merge, critical path and governor, SQL/Python governor parity, 100 workers over 50 runs never above the limit, executor resume, failure isolation, 50 random completion orders, oracles, simulation), `tests/spend/test_v2_*`, `tests/system/test_parallel_run.py`, `test_parallel_cap_pause.py`, `tests/api/test_spend_v2_routes.py`; ADR-0037 to 0041 | D-42 to D-47 sign-off; real provider limits and measured durations (`docs/parallel/VALIDATION.md`); upload store, scanner and parser adapters (V-UPL-1, V-UPL-2); the operator plane (D-33); V-GOV-1 |
+
+## Parallel execution and credit manager v2 (2026-10-06)
+
+Status: built on branch `feat/parallel-credit-v2` (from `main`). The research stages run as units
+on a dependency-aware scheduler (`src/parallel/`) with per-provider Postgres leases across all runs
+(every ceiling 1 until measured), a key-ordered merge, typed unit outcomes recorded in
+`work_unit_events`, and a pause for approval instead of failing at the cap (`src/spend/` v2:
+soft and hard limits, live spend, pause and step-up approval, the exhaustion ladder, the operator
+upload step, the notification outbox). The default execution mode stays `sequential` until the
+decisions are signed; every provider call in production now holds a governor slot.
+
+Proven by tests: dependencies respected and every PRD edge pinned; concurrency never above the limit
+(continuous monitor, 100 workers, 50 runs, two tenants); identical merged output under 50 random
+completion orders; the parallel whole run ends with the same 33 row statuses as the sequential one;
+one pause request per cap version under races; every bad approval refused; approval appends a cap
+version; decline and timeout end BUDGET_EXCEEDED with partial results and one settlement; the
+ladder order; hostile uploads rejected with typed reasons and an unavailable scanner failing closed;
+no amount or provider in tenant views and notifications.
+
+Not proven: the 4 hour target on real accounts (Blocked, `docs/parallel/VALIDATION.md`), real
+provider limits, real notification delivery, a real scanner and upload store, Cloud Tasks
+behaviour, `governor_definer` ownership with a non-superuser migrator (V-GOV-1).
 
 ## Earlier work-package notes
 
