@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -72,7 +72,10 @@ async def test_a_kill_between_reserve_and_finalise_is_never_under_counted(
     assert _kill("claim", w) == 9
     spent = admin("SELECT spent_usd FROM account_runs WHERE id = %s", w.run)[0][0]
     assert spent == Decimal("0.005000")  # the reservation is counted while the intent is open
-    later = NOW + timedelta(days=2)  # long after the lease: the intent is stale
+    # The worker stamps the intent with the real clock, so the resume time must be anchored to
+    # the real clock too: a fixed fixture stamp rots once the calendar passes it and the 1s lease
+    # would never look stale. NOW + 2 days only ever worked before 2026-10-05T12:00Z.
+    later = max(NOW + timedelta(days=2), datetime.now(UTC) + timedelta(days=2))
     report, _, _ = await service.close_run(tenant_txn, w.tenant, w.run, cfg, later, 1)
     assert admin("SELECT spent_usd, unreconciled_usd FROM account_runs WHERE id = %s", w.run) == [
         (Decimal("0.005000"), Decimal("0.005000"))
