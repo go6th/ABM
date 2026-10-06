@@ -314,6 +314,8 @@ class Ledger:
                 possible_duplicate=possible_duplicate,
                 provider_job_id=resume_job,
             )
+            if charge_budget:
+                await self._limits(s, ctx)
             return Claimed(
                 attempt=next_attempt,
                 lease_epoch=epoch,
@@ -498,6 +500,7 @@ class Ledger:
             )
             if charge_budget and not abandoned:
                 await budget_mod.true_up(s, ctx.run_id, charged - claim.reserved_usd)
+                await self._limits(s, ctx)
             await self._free_defect(s, ctx, key, charged)
 
     async def _free_defect(
@@ -532,13 +535,15 @@ class Ledger:
             return await lookup(s, ctx.run_id, provider_code, operation)
 
     async def fallback_on_exhaustion(self, ctx: CallContext) -> bool:
-        """Whether this tenant allows a fallback provider when credits run out (D-31)."""
-        from spend.config import load_spend_config
-        from spend.prepulled import tenant_fallback_allowed
+        """Whether this tenant allows an alternate route when credits run out: the tenant policy
+        when it says so, else the configured default (D-47 supersedes the D-31 default; the
+        conflict C16 stays recorded)."""
+        from spend.config import load_v2_config
+        from spend.exhaustion import tenant_alternate_allowed
 
         async with self._txn(ctx.tenant_id) as s:
-            return await tenant_fallback_allowed(
-                s, ctx.tenant_id, load_spend_config().allow_fallback_on_exhaustion
+            return await tenant_alternate_allowed(
+                s, ctx.tenant_id, load_v2_config().allow_alternate_on_exhaustion
             )
 
     async def finalize_failed(
@@ -569,6 +574,14 @@ class Ledger:
             )
             if charge_budget and not abandoned:
                 await budget_mod.true_up(s, ctx.run_id, charged - claim.reserved_usd)
+                await self._limits(s, ctx)
+
+    async def _limits(self, s: AsyncSession, ctx: CallContext) -> None:
+        """Credit manager v2 (M1): after every reserve and true-up, in the same transaction as
+        the counter update, record the soft crossing of the current cap version once."""
+        from spend.limits import after_spend_change
+
+        await after_spend_change(s, ctx.run_id, self._clock.now())
 
     # ------------------------------------------------------------------ reads
 

@@ -32,17 +32,17 @@ from account_intelligence.connectors.settings import load_providers_config
 from tests.connectors.conftest import Harness, Reply, context, ledger_rows, make_run
 
 
-def allow_fallback(tenant: UUID) -> None:
-    """D-31: a fallback on credit exhaustion only for a tenant whose policy allows it."""
+def allow_fallback(tenant: UUID, allowed: bool = True) -> None:
+    """The tenant policy's say on a fallback when credits run out (D-31 key; D-47 keeps it)."""
     import psycopg
 
     from tests.conftest import ADMIN_DSN
 
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         c.execute(
-            'UPDATE tenants SET policy_json = policy_json || \'{"allow_fallback_on_exhaustion":'
-            " true}'::jsonb WHERE id = %s",
-            (tenant,),
+            "UPDATE tenants SET policy_json = policy_json || jsonb_build_object("
+            "'allow_fallback_on_exhaustion', %s::boolean) WHERE id = %s",
+            (allowed, tenant),
         )
 
 
@@ -92,10 +92,34 @@ async def test_fallback_on_empty_balance_is_taken_and_recorded(
 
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
+async def test_d47_default_takes_the_alternate_when_the_tenant_policy_is_silent(
+    harness: Harness, tenant_a: UUID
+) -> None:
+    """D-47 (proposal, supersedes the D-31 default; conflict C16 recorded): with no tenant policy
+    the exhaustion ladder's second rung, an allowed alternate route, is taken and labelled."""
+    account, run, domain = make_run(tenant_a, domain="acme.com")
+    ctx = context(tenant_a, account, run, domain)
+    harness.providers[ProviderCode.P_SCRAPE].script(Reply(status=402, body={"success": False}))
+    harness.providers[ProviderCode.P_SEARCH].script(Reply.cassette("p_search", "read_page"))
+    result = await call_need(
+        "job_boards_and_pages",
+        ScrapeJobPageArgs(url="https://jobs.acme.com/1", page_kind="job_page"),
+        ctx,
+        harness.runtime(),
+    )
+    assert result.status == "done" and result.provider_code is ProviderCode.P_SEARCH
+    assert result.fell_back_from is ProviderCode.P_SCRAPE
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
 async def test_exhaustion_does_not_fall_back_unless_the_tenant_allows_it(
     harness: Harness, tenant_a: UUID
 ) -> None:
-    """D-31 default: credits exhausted makes the need Blocked; no weaker source is called."""
+    """A tenant whose policy refuses a fallback: credits exhausted makes the need Blocked and no
+    weaker source is called. (D-31 made this the default; D-47 makes the alternate the default,
+    so the refusal is now the tenant's explicit choice: see the D-47 test below.)"""
+    allow_fallback(tenant_a, False)
     account, run, domain = make_run(tenant_a, domain="acme.com")
     ctx = context(tenant_a, account, run, domain)
     harness.providers[ProviderCode.P_SCRAPE].script(Reply(status=402, body={"success": False}))

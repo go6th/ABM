@@ -99,17 +99,70 @@ async def call_need(
     try:
         return await call_operation(first_op, args, ctx, rt, route=need)
     except UNAVAILABLE as error:
-        primary: ConnectorError = error
-    if isinstance(primary, CreditsExhausted) and not await rt.ledger.fallback_on_exhaustion(ctx):
-        # D-31: Blocked credits_exhausted (the operator may supply a pre-pulled file); a weaker
-        # fallback source only when the tenant policy allows it
-        return _blocked(
-            f"{primary.blocked_reason}; no fallback on exhaustion (tenant policy)",
-            need,
-            route.first.provider,
-            first_op,
-        )
+        return await after_unavailable(need, first_op, args, ctx, rt, error)
+
+
+def need_of(rt: ConnectorRuntime, op: Operation) -> str | None:
+    """The routed need whose first choice is ``op`` (None when no route starts with it)."""
+    for route in rt.config.routes:
+        if route.first.operation == op:
+            return route.need
+    return None
+
+
+async def after_unavailable(
+    need: str,
+    first_op: Operation,
+    args: OperationArgs,
+    ctx: CallContext,
+    rt: ConnectorRuntime,
+    primary: ConnectorError,
+) -> ConnectorResult:
+    """What happens once the first provider is unavailable. On credit exhaustion the decision is
+    the exhaustion ladder's (``spend.exhaustion.decide``, D-47): a pre-pulled file was already
+    consumed by the connector if one was registered, so the next rung is an allowed alternate
+    with a meaning-preserving translation and a closed circuit, else Blocked."""
+    route = rt.config.route(need)
     fallback = route.fallback
+    translate = (
+        TRANSLATIONS.get((need, fallback.operation))
+        if fallback is not None and fallback.operation is not None
+        else None
+    )
+    if isinstance(primary, CreditsExhausted):
+        from spend.exhaustion import Alternate, decide
+
+        alternates = []
+        if fallback is not None and fallback.operation is not None and fallback.provider:
+            state = await rt.breaker.state(fallback.provider)
+            alternates.append(
+                Alternate(
+                    route=need,
+                    provider_code=str(fallback.provider),
+                    operation=str(fallback.operation),
+                    translation=translate is not None,
+                    circuit_open=state == "open",
+                )
+            )
+        allowed = await rt.ledger.fallback_on_exhaustion(ctx)
+        rung = decide(False, alternates, allowed)
+        if rung.action != "use_alternate" and not allowed:
+            # Blocked credits_exhausted (the operator is asked for a pre-pulled file)
+            return _blocked(
+                f"{primary.blocked_reason}; no fallback on exhaustion (tenant policy)",
+                need,
+                route.first.provider,
+                first_op,
+            )
+        if rung.action != "use_alternate" and alternates and alternates[0].circuit_open:
+            return _blocked(
+                f"{primary.blocked_reason}; fallback circuit open",
+                need,
+                route.first.provider,
+                first_op,
+            )
+        # otherwise a missing, chat-only or untranslatable fallback is Blocked below with its
+        # own reason (the ladder chose no alternate for exactly those reasons)
     if fallback is None:
         return _blocked(
             f"{primary.blocked_reason}; no fallback", need, route.first.provider, first_op
@@ -122,7 +175,6 @@ async def call_need(
             route.first.provider,
             first_op,
         )
-    translate = TRANSLATIONS.get((need, fallback.operation))
     if translate is None:
         return _blocked(
             f"{primary.blocked_reason}; fallback {fallback.provider}.{fallback.operation} needs "

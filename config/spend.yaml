@@ -71,3 +71,36 @@ categories:
     people_by_title: people
     profile_enrichment: people
     org_teams: people
+
+# ---------------------------------------------------------------------------------------------
+# Credit manager v2 (D-45, D-46, D-47; docs/prompts/build_parallel_credit_v2.md). Proposals unless
+# a source is given. The sources give NO soft-limit percentage, pause count, tenant ceiling,
+# upload size, type or freshness limit: each is configuration, conservative until set.
+v2:
+  status: proposal
+  decisions: [D-45, D-46, D-47]
+  # D-46: reaching this share of the approved cap notifies once per cap version and switches
+  # funding to priority-only (High rows and units already started).
+  soft_limit_pct: {value: 80, status: "proposal (D-46); TODO, needs product owner"}
+  # D-45: pause instead of fail. The wait is the workflow's approval interrupt (24 h).
+  pause_timeout_hours: {value: 24, source: "ARCH: HITL approval wait 24 h (references/04)"}
+  max_pauses_per_run: {value: 2, status: "proposal (D-45)"}
+  # an optional tenant ceiling for any cap; null: none configured (a pause may still not exceed
+  # the tenant policy's own limit when the tenant sets one)
+  tenant_ceiling_usd: {value: null, source: "TODO, needs product owner"}
+  # M5: approvals need a fresh step-up claim (an MFA within this many minutes)
+  step_up_max_age_minutes: {value: 10, status: proposal}
+  approver_roles: {value: [admin], status: "proposal: the v1 approver roles"}
+  # D-47 (supersedes the D-31 default; conflict C16 stays recorded): an alternate route allowed
+  # by tenant policy is the second rung of the exhaustion ladder; the roadmap item asks for it.
+  allow_alternate_on_exhaustion: {value: true, source: "roadmap: switch to an alternate path or accept a pre-pulled file (D-47 proposal)"}
+  exhausted_hold_s: {value: 300, status: proposal}
+  # M8: the upload step (operator only, quarantined, scanned, strict parse)
+  upload_max_bytes: {value: 26214400, status: proposal}
+  upload_content_types: {value: [application/json], status: "proposal: the providers' own response type"}
+  upload_intent_ttl_minutes: {value: 60, status: proposal}
+  # the pull date of an operator-supplied file must be attested; null: no freshness limit set
+  # (the attestation is recorded and the file is accepted only with it)
+  upload_max_age_days: {value: null, source: "TODO, needs product owner"}
+  # M10: notification relay
+  notify_max_attempts: {value: 5, status: proposal}

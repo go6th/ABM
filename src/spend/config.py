@@ -151,3 +151,77 @@ def load_spend_config(directory: Path | None = None) -> SpendConfig:
     if not isinstance(data, dict):
         raise ConfigError("spend.yaml must contain a mapping")
     return build(data, raw)
+
+
+@dataclass(frozen=True)
+class V2Config:
+    """Credit manager v2 settings (soft and hard limits, pauses, the exhaustion ladder, uploads).
+    Every value comes from ``spend.yaml`` ``v2`` with a source or a status."""
+
+    soft_limit_pct: int
+    pause_timeout_hours: int
+    max_pauses_per_run: int
+    tenant_ceiling_micros: int | None
+    step_up_max_age_minutes: int
+    approver_roles: frozenset[str]
+    allow_alternate_on_exhaustion: bool
+    exhausted_hold_s: int
+    upload_max_bytes: int
+    upload_content_types: frozenset[str]
+    upload_intent_ttl_minutes: int
+    upload_max_age_days: int | None
+    notify_max_attempts: int
+
+
+def build_v2(data: dict[str, Any]) -> V2Config:
+    """Validate the ``v2`` section (``ConfigError`` on anything wrong)."""
+    v2 = data.get("v2")
+    if not isinstance(v2, dict) or ("status" not in v2 and "source" not in v2):
+        raise ConfigError("spend.yaml v2 must be a mapping with a source or status")
+    try:
+        pct = _int(v2, "soft_limit_pct", 1)
+        if pct >= 100:
+            raise ConfigError("soft_limit_pct must be below 100 (soft < hard, M1)")
+        ceiling = _entry(v2, "tenant_ceiling_usd")
+        if ceiling is not None and not isinstance(ceiling, str):
+            raise ConfigError("tenant_ceiling_usd must be a decimal string or null")
+        alternate = _entry(v2, "allow_alternate_on_exhaustion")
+        if not isinstance(alternate, bool):
+            raise ConfigError("allow_alternate_on_exhaustion must be a boolean")
+        roles = _entry(v2, "approver_roles")
+        types = _entry(v2, "upload_content_types")
+        if not isinstance(roles, list) or not roles or not isinstance(types, list) or not types:
+            raise ConfigError("approver_roles and upload_content_types must be non-empty lists")
+        age = _entry(v2, "upload_max_age_days")
+        if age is not None and (isinstance(age, bool) or not isinstance(age, int) or age < 1):
+            raise ConfigError("upload_max_age_days must be a positive integer or null")
+        return V2Config(
+            soft_limit_pct=pct,
+            pause_timeout_hours=_int(v2, "pause_timeout_hours", 1),
+            max_pauses_per_run=_int(v2, "max_pauses_per_run", 1),
+            tenant_ceiling_micros=usd_to_micros(ceiling) if ceiling is not None else None,
+            step_up_max_age_minutes=_int(v2, "step_up_max_age_minutes", 1),
+            approver_roles=frozenset(str(r) for r in roles),
+            allow_alternate_on_exhaustion=alternate,
+            exhausted_hold_s=_int(v2, "exhausted_hold_s", 1),
+            upload_max_bytes=_int(v2, "upload_max_bytes", 1),
+            upload_content_types=frozenset(str(t) for t in types),
+            upload_intent_ttl_minutes=_int(v2, "upload_intent_ttl_minutes", 1),
+            upload_max_age_days=age,
+            notify_max_attempts=_int(v2, "notify_max_attempts", 1),
+        )
+    except MoneyError as exc:
+        raise ConfigError(f"v2: {exc}") from exc
+
+
+@lru_cache(maxsize=4)
+def load_v2_config(directory: Path | None = None) -> V2Config:
+    """Load and validate the ``v2`` section of ``spend.yaml``."""
+    path = (directory or CONFIG_DIR) / "spend.yaml"
+    try:
+        data = yaml.safe_load(path.read_bytes())
+    except (OSError, yaml.YAMLError) as exc:
+        raise ConfigError(f"cannot load {path.name}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError("spend.yaml must contain a mapping")
+    return build_v2(data)

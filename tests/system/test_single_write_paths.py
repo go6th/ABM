@@ -52,6 +52,21 @@ OWNERS: dict[str, set[str]] = {
     "prepulled_files": {"spend/prepulled.py"},
     "spend_defects": {"connectors/ledger.py"},
     "deliverables": {"exports/store.py"},
+    # parallel execution (migration 0017): unit definitions and events have one writer; the
+    # governor tables are written only by the governor_* definer functions (SQL, not Python)
+    "work_units": {"parallel/store.py"},
+    "work_unit_events": {"parallel/store.py"},
+    # credit manager v2: the limit events by the module that owns each event kind
+    "spend_limit_events": {
+        "spend/limits.py",  # soft_crossed
+        "spend/pause.py",  # pause_opened, decisions, late_approval_refused
+        "spend/exhaustion.py",  # exhausted, upload_requested
+        "spend/upload.py",  # upload_accepted, upload_rejected
+    },
+    "notification_outbox": {"spend/notify.py"},
+    "notification_deliveries": {"spend/notify.py"},
+    "prepulled_intents": {"spend/exhaustion.py"},
+    "prepulled_intent_events": {"spend/exhaustion.py", "spend/upload.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {
