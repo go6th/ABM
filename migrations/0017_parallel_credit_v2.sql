@@ -43,6 +43,8 @@ CREATE TABLE work_units (
    CONSTRAINT pk_work_units PRIMARY KEY (id),
    CONSTRAINT fk_work_units_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
    CONSTRAINT uq_work_units_run_key UNIQUE (run_id, unit_key),
+   -- the composite key children reference: an event can only belong to its own tenant's unit
+   CONSTRAINT uq_work_units_tenant_run_key UNIQUE (tenant_id, run_id, unit_key),
    CONSTRAINT ck_work_units_key CHECK (length(unit_key) BETWEEN 1 AND 300),
    CONSTRAINT ck_work_units_cost CHECK (est_cost_micros IS NULL OR est_cost_micros >= 0),
    CONSTRAINT ck_work_units_plan_hash CHECK (plan_hash ~ '^[0-9a-f]{64}$')
@@ -69,8 +71,8 @@ CREATE TABLE work_unit_events (
    worker          text,
    created_at      timestamptz NOT NULL DEFAULT now(),
    CONSTRAINT pk_work_unit_events PRIMARY KEY (id),
-   CONSTRAINT fk_work_unit_events_unit FOREIGN KEY (run_id, unit_key)
-      REFERENCES work_units (run_id, unit_key),
+   CONSTRAINT fk_work_unit_events_unit FOREIGN KEY (tenant_id, run_id, unit_key)
+      REFERENCES work_units (tenant_id, run_id, unit_key),
    CONSTRAINT ck_work_unit_events_event CHECK (event IN ('queued', 'started', 'finished', 'failed',
       'failed_terminal', 'blocked', 'cancelled', 'requeued', 'cap_denied', 'held')),
    CONSTRAINT ck_work_unit_events_wait CHECK (lease_wait_s >= 0),
@@ -429,6 +431,7 @@ CREATE TABLE notification_outbox (
    CONSTRAINT pk_notification_outbox PRIMARY KEY (id),
    CONSTRAINT fk_notification_outbox_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
    CONSTRAINT uq_notification_outbox_dedupe UNIQUE (tenant_id, dedupe_key),
+   CONSTRAINT uq_notification_outbox_tenant_id UNIQUE (tenant_id, id),
    CONSTRAINT ck_notification_outbox_audience CHECK (audience IN ('tenant', 'operator')),
    CONSTRAINT ck_notification_outbox_params
       CHECK (octet_length(params_json::text) <= 4096 AND jsonb_typeof(params_json) = 'object')
@@ -448,8 +451,8 @@ CREATE TABLE notification_deliveries (
    error_class  text,
    at           timestamptz NOT NULL,
    CONSTRAINT pk_notification_deliveries PRIMARY KEY (id),
-   CONSTRAINT fk_notification_deliveries_outbox FOREIGN KEY (outbox_id)
-      REFERENCES notification_outbox (id),
+   CONSTRAINT fk_notification_deliveries_outbox FOREIGN KEY (tenant_id, outbox_id)
+      REFERENCES notification_outbox (tenant_id, id),
    CONSTRAINT uq_notification_deliveries_attempt UNIQUE (outbox_id, attempt),
    CONSTRAINT ck_notification_deliveries_outcome CHECK (outcome IN ('delivered', 'failed',
       'gave_up')),
@@ -480,6 +483,7 @@ CREATE TABLE prepulled_intents (
    CONSTRAINT pk_prepulled_intents PRIMARY KEY (id),
    CONSTRAINT fk_prepulled_intents_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id),
    CONSTRAINT uq_prepulled_intents_spec UNIQUE (run_id, spec_hash),
+   CONSTRAINT uq_prepulled_intents_tenant_id UNIQUE (tenant_id, id),
    CONSTRAINT ck_prepulled_intents_hash CHECK (spec_hash ~ '^[0-9a-f]{64}$'),
    CONSTRAINT ck_prepulled_intents_key CHECK (quarantine_key ~ '^quarantine/')
 );
@@ -500,8 +504,8 @@ CREATE TABLE prepulled_intent_events (
    detail_json  jsonb NOT NULL DEFAULT '{}'::jsonb,
    at           timestamptz NOT NULL,
    CONSTRAINT pk_prepulled_intent_events PRIMARY KEY (id),
-   CONSTRAINT fk_prepulled_intent_events_intent FOREIGN KEY (intent_id)
-      REFERENCES prepulled_intents (id),
+   CONSTRAINT fk_prepulled_intent_events_intent FOREIGN KEY (tenant_id, intent_id)
+      REFERENCES prepulled_intents (tenant_id, id),
    CONSTRAINT ck_prepulled_intent_events_event CHECK (event IN ('created', 'completed',
       'scan_clean', 'scan_failed', 'scan_unavailable', 'accepted', 'rejected')),
    CONSTRAINT ck_prepulled_intent_events_sha CHECK (sha256 IS NULL OR sha256 ~ '^[0-9a-f]{64}$')
