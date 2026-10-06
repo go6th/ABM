@@ -36,7 +36,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/gate"]
+packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/gate", "src/parallel"]
 
 [dependency-groups]
 dev = [
@@ -85,7 +85,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source_pkgs = ["account_intelligence", "spend", "exports", "gate"]
+source_pkgs = ["account_intelligence", "spend", "exports", "gate", "parallel"]
 branch = true
 
 [tool.coverage.report]
@@ -94,7 +94,7 @@ show_missing = true
 
 # W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports
 [tool.importlinter]
-root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "gate"]
+root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "gate", "parallel"]
 
 [[tool.importlinter.contracts]]
 name = "platform ports and adapters depend on nothing above them"
@@ -199,6 +199,16 @@ name = "runs never imports the workflow (one-way dependency; the runner calls th
 type = "forbidden"
 source_modules = ["account_intelligence.runs"]
 forbidden_modules = ["account_intelligence.workflow"]
+
+[[tool.importlinter.contracts]]
+name = "parallel execution is a lower layer: it never imports the workflow, runs, api, app, tracker, grading, pipelines, builders or spend"
+type = "forbidden"
+source_modules = ["parallel"]
+forbidden_modules = [
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app", "account_intelligence.tracker", "account_intelligence.grading",
+    "jobs", "people", "exports", "spend",
+]
 
 # Mutation check (section 9): the pure rule modules whose boundaries decide statuses and counts.
 # Run: uv run --with "mutmut>=3.2,<4" mutmut run   (keys verified in mutmut 3.8.0 configuration)
