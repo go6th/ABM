@@ -241,10 +241,15 @@ async def test_stage_replay_is_noop_and_owned_coverage_must_be_complete() -> Non
 
 
 def test_engine_rejects_parallel_mode_until_enabled_by_design() -> None:
+    """Parallel mode is enabled by design only with its research node (Parallel execution v1,
+    ADR-0037); without it, and for any unknown mode, the engine refuses (fail closed)."""
     spec = load_spec()
-    unsupported = replace(spec, settings={**spec.settings, "execution_mode": "parallel"})
-    with pytest.raises(ValueError, match="sequential"):
-        build_graph({}, unsupported)
+    parallel = replace(spec, settings={**spec.settings, "execution_mode": "parallel"})
+    with pytest.raises(ValueError, match="research node"):
+        build_graph({}, parallel)
+    unknown = replace(spec, settings={**spec.settings, "execution_mode": "eventual"})
+    with pytest.raises(ValueError, match="unknown execution_mode"):
+        build_graph({}, unknown)
 
 
 @pytest.mark.asyncio
