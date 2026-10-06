@@ -71,6 +71,7 @@ OWNERS: dict[str, set[str]] = {
     # only by the llm_health_record function (called from llm/health.py)
     "llm_calls": {"llm/record.py"},
     "llm_call_attempts": {"llm/record.py"},
+    "verifier_findings": {"verify/stage.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {

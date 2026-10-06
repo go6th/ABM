@@ -230,13 +230,29 @@ class GradingStages:
             judge_profile_ok=judge_profile_ok(self.cfg),
             lead_states=leads,
         )
+        recorded = []
         for claim in result.graded:
-            await repo.record_graded_fact(self.deps.txn, run, claim)
+            recorded.append((await repo.record_graded_fact(self.deps.txn, run, claim), claim))
         await repo.record_drops(self.deps.txn, run, result.dropped)
         for lead in result.leads.values():
             await repo.record_lead(self.deps.txn, run, lead)
         counters = {"claims_graded": len(result.graded), "claims_dropped": len(result.dropped)}
         counters.update({f"grade_{k}": v for k, v in result.grade_counts.items()})
+        # D-49: the blind source re-read of every Confirmed claim (downgrade only)
+        from verify.config import load_verify_config
+        from verify.stage import verify_confirmed
+
+        counters.update(
+            await verify_confirmed(
+                self.deps,
+                run,
+                recorded,
+                inputs.sources,
+                self.cfg,
+                load_verify_config(),
+                judge_profile_ok(self.cfg),
+            )
+        )
         return {
             "coverage_reports": {},
             "references": {MANIFEST: manifest},
