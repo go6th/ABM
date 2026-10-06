@@ -86,6 +86,23 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
         roles=frozenset({"admin"}),
         principal_types=frozenset({"operator_support"}),
     ),
+    # Observability (O15): operator reads only; tenants never.
+    ("GET", "/operator/v1/runs/{run_id}/timeline"): RoutePolicy(
+        roles=frozenset({"admin"}),
+        principal_types=frozenset({"operator_support"}),
+    ),
+    ("GET", "/operator/v1/ops/cost/{run_id}"): RoutePolicy(
+        roles=frozenset({"admin"}),
+        principal_types=frozenset({"operator_support"}),
+    ),
+    ("GET", "/operator/v1/ops/failures"): RoutePolicy(
+        roles=frozenset({"admin"}),
+        principal_types=frozenset({"operator_support"}),
+    ),
+    ("GET", "/operator/v1/ops/stuck"): RoutePolicy(
+        roles=frozenset({"admin"}),
+        principal_types=frozenset({"operator_support"}),
+    ),
 }
 
 

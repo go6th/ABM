@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import signal
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -65,6 +66,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await connector.close_async()
 
 
+def _route_class(path: str) -> str:
+    """A bounded route class (never the raw path: cardinality, O5)."""
+    for prefix, name in (
+        ("/v1/runs", "v1_runs"),
+        ("/v1/", "v1_other"),
+        ("/operator/", "operator"),
+        ("/tasks/", "tasks"),
+    ):
+        if path.startswith(prefix):
+            return name
+    return "probe"
+
+
+def _observe(path: str, status: int, seconds: float) -> None:
+    """API request metrics by route and code class (never raises, O1)."""
+    from obs.setup import record
+
+    code = "429" if status == 429 else f"{status // 100}xx"
+    route = _route_class(path)
+    record("api_requests_total", 1, {"route_class": route, "code_class": code})
+    record("api_latency_ms", seconds * 1000, {"route_class": route})
+
+
 def create_app() -> FastAPI:
     """The FastAPI application with probes, the /v1 routes and the /tasks worker routes."""
     app = FastAPI(title="Account Intelligence API", lifespan=lifespan)
@@ -74,7 +98,9 @@ def create_app() -> FastAPI:
         """Attach a fresh request id and baseline browser security headers to every response."""
         request_id = str(uuid4())
         request.state.request_id = request_id
+        started = time.monotonic()
         response = await call_next(request)
+        _observe(request.url.path, response.status_code, time.monotonic() - started)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"

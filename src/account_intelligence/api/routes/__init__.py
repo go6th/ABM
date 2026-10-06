@@ -3,12 +3,23 @@ until the operator plane exists); worker tasks under /tasks; probes unversioned.
 
 from fastapi import APIRouter
 
-from account_intelligence.api.routes import health, runs, spend, spend_v2, tasks
+from account_intelligence.api.routes import health, ops, runs, spend, spend_v2, tasks
 
 v1_router = APIRouter(prefix="/v1")
 v1_router.include_router(runs.router)
 v1_router.include_router(spend.router)
 v1_router.include_router(spend_v2.router)
-operator_router = spend_v2.operator_router
+operator_router = APIRouter()
+operator_router.include_router(spend_v2.operator_router)
+operator_router.include_router(ops.router)
 
-__all__ = ["health", "operator_router", "runs", "spend", "spend_v2", "tasks", "v1_router"]
+__all__ = [
+    "health",
+    "operator_router",
+    "ops",
+    "runs",
+    "spend",
+    "spend_v2",
+    "tasks",
+    "v1_router",
+]

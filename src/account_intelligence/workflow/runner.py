@@ -31,6 +31,7 @@ from typing import Any
 from uuid import UUID
 
 from langgraph.types import Command, RetryPolicy
+from sqlalchemy import text
 
 from account_intelligence.agents.prompts import prompts_hash
 from account_intelligence.connectors.errors import LeaseUnavailable
@@ -79,7 +80,32 @@ async def _finish(deps: RunDeps, target: RunStatus, reason: str | None, refund_a
         status, _ = await lifecycle.finish(
             s, deps.tracker(s), deps.run_id, target, reason=reason, refund_all=refund_all
         )
+        created: Any = (
+            await s.execute(
+                text("SELECT created_at FROM account_runs WHERE id = :r"), {"r": deps.run_id}
+            )
+        ).scalar_one()
+    _emit_root(deps, created, status)
     return status
+
+
+def _emit_root(deps: RunDeps, created: Any, status: str) -> None:
+    """The run's root span once, after the settling transaction committed (O2); telemetry never
+    changes the outcome (O1)."""
+    from obs.runspans import emit_root
+    from obs.setup import record, safe, tracer
+
+    safe(
+        lambda: emit_root(
+            tracer(),
+            deps.run_id,
+            created,
+            deps.clock.now(),
+            {"state": status, "graph_version": str(deps.spec.version)},
+        ),
+        None,
+    )
+    record("run_transitions_total", 1, {"state": status})
 
 
 async def _begin(deps: RunDeps, settings: SliceSettings) -> SliceOutcome | None:
