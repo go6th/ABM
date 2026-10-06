@@ -36,7 +36,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/gate", "src/parallel"]
+packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/gate", "src/parallel", "src/llm", "src/verify", "src/evalgate"]
 
 [dependency-groups]
 dev = [
@@ -85,7 +85,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source_pkgs = ["account_intelligence", "spend", "exports", "gate", "parallel"]
+source_pkgs = ["account_intelligence", "spend", "exports", "gate", "parallel", "llm", "verify", "evalgate"]
 branch = true
 
 [tool.coverage.report]
@@ -94,7 +94,7 @@ show_missing = true
 
 # W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports
 [tool.importlinter]
-root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "gate", "parallel"]
+root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "gate", "parallel", "llm", "verify", "evalgate"]
 
 [[tool.importlinter.contracts]]
 name = "platform ports and adapters depend on nothing above them"
@@ -208,6 +208,34 @@ forbidden_modules = [
     "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
     "account_intelligence.app", "account_intelligence.tracker", "account_intelligence.grading",
     "jobs", "people", "exports", "spend",
+]
+
+[[tool.importlinter.contracts]]
+name = "model routing is a lower layer: llm never imports the workflow, runs, api, app, pipelines, verify or evals"
+type = "forbidden"
+source_modules = ["llm"]
+forbidden_modules = [
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app", "account_intelligence.tracker", "jobs", "people", "exports",
+    "spend", "parallel", "verify", "evalgate",
+]
+
+[[tool.importlinter.contracts]]
+name = "the verifier never imports the workflow, runs, api, app or the eval harness"
+type = "forbidden"
+source_modules = ["verify"]
+forbidden_modules = [
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app", "evalgate",
+]
+
+[[tool.importlinter.contracts]]
+name = "the eval harness never imports the workflow, runs, api or app"
+type = "forbidden"
+source_modules = ["evalgate"]
+forbidden_modules = [
+    "account_intelligence.workflow", "account_intelligence.runs", "account_intelligence.api",
+    "account_intelligence.app",
 ]
 
 # Mutation check (section 9): the pure rule modules whose boundaries decide statuses and counts.
