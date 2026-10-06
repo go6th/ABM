@@ -7,19 +7,23 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
+| dependency closure | `src/parallel/executor.py:149` | number of units (each visited once) | all reached |
 | export keyset pagination | `src/exports/readers/pg.py:76` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
 | findings extractor | `src/people/findings.py:103` | max_extractor_calls, one call per person | converged, cap_reached |
 | gap pass over the remainder | `src/jobs/pipeline.py:461` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
 | gate fix loop | `src/account_intelligence/workflow/stages/core.py:242` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
-| in-flight wait | `src/account_intelligence/connectors/service.py:258` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
+| in-flight wait | `src/account_intelligence/connectors/service.py:294` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:119` | limit (1000) | queue empty, limit |
 | jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
 | judge re-ask | `src/account_intelligence/grading/judge.py:87` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:131` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
+| lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
+| lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:50` | 1 re-ask on unparseable output | parsed, None (item blocked) |
 | month normalisation | `src/jobs/window.py:15` | one iteration (month - 12 >= -11) | month in 1..12 |
+| notification relay | `src/spend/notify.py:203` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
 | people gap passes | `src/people/pipeline.py:343` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
@@ -33,8 +37,12 @@ unannotated (the generator's check fails otherwise).
 | relationship target prefix strip | `src/exports/ooxml.py:71` | the target's length (each pass removes at least one character) | no leading "../" or "/" left |
 | renderer output drain | `src/exports/word/renderer.py:82` | the byte cap (max_output_bytes or max_stderr_bytes) in 64 KiB reads | end of stream, cap exceeded (the process is killed) |
 | renderer re-run | `src/exports/word/renderer.py:179` | 1 + reruns (1) attempts per document | converged (rendered), cap_reached (RenderError) |
-| slice loop | `src/account_intelligence/workflow/runner.py:93` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
+| research passes | `src/account_intelligence/workflow/parallel_phase.py:250` | 2 passes (a pass that paused but whose request policy declined at once runs again with paid work stopped) | converged or another exit, pause marker |
+| scheduler loop | `src/parallel/executor.py:236` | 10 iterations per unit plus 100 (each launches, blocks, awaits a completion or waits a bounded stall) | converged, deadline, budget, paused, cancelled, retryable, no_progress (SchedulerDeadlock) |
+| simulation | `src/parallel/simulate.py:193` | sum of units over runs times 4 plus 1000 steps | all runs drained |
+| slice loop | `src/account_intelligence/workflow/runner.py:95` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | spend invariant pass | `src/spend/jobs.py:62` | batch_size runs | converged, cap_reached |
+| topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |
 | topological sort | `src/account_intelligence/workflow/spec.py:58` | number of stages (each pass removes at least one or raises) | ordered, cycle error |
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:246` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
 | tracker sweep conflict | `src/account_intelligence/tracker/service.py:323` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
