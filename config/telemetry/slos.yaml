@@ -1,0 +1,57 @@
+# SLO catalog (O8, D-58). Thresholds marked source come from ARCH; windows, minimum samples and the
+# p99 bucket bound are proposals. No data is NoData, never 100% good.
+version: "2026-10-06.1"
+status: proposal
+window_days: {value: 30, status: "proposal (D-58)"}
+slos:
+  api_availability:
+    target: {value: 0.999, source: "ARCH: API availability 99.9%"}
+    good: "requests not 5xx and not timeout"
+    total: "all requests (4xx and 429 are good)"
+    source_tables: [api request metrics]
+    min_events: {value: 100, status: proposal}
+    alert: {form: burn, page: [{window: 1h, short: 5m, factor: 14.4}, {window: 6h, short: 30m, factor: 6}], source: "ARCH burn 14.4x over 1 h and 6x over 6 h; short windows D-58"}
+  api_latency:
+    target: {value: 0.99, source: "ARCH: API p99 under 500 ms"}
+    threshold_ms: {value: 500, source: "ARCH"}
+    good: "requests faster than 500 ms (histogram bucket estimate)"
+    total: "all requests"
+    source_tables: [api request metrics]
+    min_events: {value: 100, status: proposal}
+    alert: {form: ticket, status: proposal}
+  run_completion:
+    target: {value: 0.95, source: "ARCH: 95% of runs reach COMPLETED or PARTIAL within the p95 target"}
+    p95_target_s: {value: 2700, source: "ARCH p95 under 45 minutes (a target to prove, C7)"}
+    good: "terminal COMPLETED or PARTIAL within p95_target_s, AWAITING_APPROVAL time excluded"
+    total: "terminal runs except CANCELED"
+    source_tables: [account_runs, run state history]
+    min_events: {value: 20, status: proposal}
+    alert: {form: ticket, status: proposal}
+  alert_freshness:
+    target: {value: 0.95, source: "ARCH: 95% of alerts within 24 h"}
+    good: "product alerts delivered within 24 h of the delta"
+    total: "product alerts due"
+    source_tables: []
+    min_events: {value: 20, status: proposal}
+    alert: {form: ticket, status: proposal}
+  cache_read_ratio:
+    target: {value: 0.70, source: "ARCH: alert when cache-read ratio < 70%"}
+    good: "cache-read tokens of cacheable calls"
+    total: "cache-read + cache-write + uncached input tokens of cacheable calls"
+    source_tables: [llm_calls]
+    min_events: {value: 10000, status: "proposal: tokens"}
+    alert: {form: ticket, within: 1h, source: "ARCH chaos: cache-ratio alert within 1 hour"}
+  isolation:
+    target: {value: 1.0, source: "ARCH: zero isolation violations"}
+    good: "probes and sink scans without a leak"
+    total: "probes and scans run"
+    source_tables: [canary_probe_results]
+    min_events: {value: 1, status: proposal}
+    alert: {form: page, source: "ARCH: page on any canary leak; RLS-denied spike over a baseline (threshold proposal)"}
+  checkpoint_resume:
+    target: {value: 0.999, source: "ARCH: checkpoint resume success 99.9%"}
+    good: "resumed slices that completed"
+    total: "resumed slices"
+    source_tables: [account_runs slices]
+    min_events: {value: 50, status: proposal}
+    alert: {form: ticket, status: proposal}

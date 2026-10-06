@@ -1,0 +1,9 @@
+# Severity matrix (D-60). A page only for what the sources call a page (the two burn rates,
+# isolation violations) and for silent data loss or leakage (canary in a sink, stuck runs past the
+# reconciler bound, telemetry down); everything else is a ticket. The on-call tool, rotation and
+# escalation are inputs from the owner (placeholders in docs/oncall).
+version: "2026-10-06.1"
+status: proposal
+severities:
+  page: {response: "TODO, needs product owner", channel: "placeholder: pager"}
+  ticket: {response: "TODO, needs product owner", channel: "placeholder: tracker"}

@@ -1,0 +1,22 @@
+# Alert catalog (O14, D-60). Every alert names a catalog metric, a severity, an owner, a runbook,
+# and a source or status; the simulator fires each on at least one scenario. Thresholds without a
+# source are proposals.
+version: "2026-10-06.1"
+status: proposal
+alerts:
+  api_availability_fast_burn: {kind: burn, slo: api_availability, window: 1h, short: 5m, factor: 14.4, severity: page, owner: oncall, runbook: api-availability-burn.md, source: "ARCH"}
+  api_availability_slow_burn: {kind: burn, slo: api_availability, window: 6h, short: 30m, factor: 6, severity: page, owner: oncall, runbook: api-availability-burn.md, source: "ARCH"}
+  api_latency_p99: {kind: threshold, metric: api_latency_ms, above: 500, for_s: 600, severity: ticket, owner: api, runbook: api-latency.md, status: "proposal (form)"}
+  isolation_canary_leak: {kind: any, metric: canary_hits_total, severity: page, owner: security, runbook: isolation-violation.md, source: "ARCH: any canary leak pages"}
+  isolation_probe_leak: {kind: any, metric: isolation_probe_leaks_total, severity: page, owner: security, runbook: isolation-violation.md, source: "ARCH"}
+  rls_denied_spike: {kind: rate_above, metric: rls_denied_total, above: 5, window_s: 300, severity: page, owner: security, runbook: isolation-violation.md, status: "proposal: threshold (ARCH says any spike)"}
+  cache_ratio_low: {kind: ratio_below, metric: cache_read_ratio, below: 0.70, window_s: 3600, min_volume: 10000, severity: ticket, owner: llm, runbook: cache-ratio.md, source: "ARCH"}
+  stuck_queued: {kind: threshold, metric: stuck_runs, state: QUEUED, above: 0, for_s: 300, severity: page, owner: oncall, runbook: stuck-runs.md, source: "ARCH: no run stuck beyond 5 minutes after recovery"}
+  stuck_running: {kind: threshold, metric: stuck_runs, state: RUNNING, above: 0, for_s: 300, severity: page, owner: oncall, runbook: stuck-runs.md, status: proposal}
+  telemetry_down: {kind: absent, metric: heartbeat, for_s: 600, severity: page, owner: oncall, runbook: telemetry-down.md, status: "proposal (D-60: silence is an alert)"}
+  cost_drift: {kind: any, metric: cost_drift_total, severity: ticket, owner: finance-ops, runbook: cost-drift.md, status: proposal}
+  unknown_cost: {kind: rate_above, metric: unknown_cost_calls_total, above: 0, window_s: 3600, severity: ticket, owner: finance-ops, runbook: cost-drift.md, status: proposal}
+  provider_failures: {kind: rate_above, metric: connector_calls, outcome_not: [done, replayed, prepulled], above: 20, window_s: 900, severity: ticket, owner: connectors, runbook: provider-outage.md, status: proposal}
+  model_degraded: {kind: rate_above, metric: llm_calls_total, degraded: "true", above: 20, window_s: 900, severity: ticket, owner: llm, runbook: model-outage.md, status: proposal}
+  checkpoint_resume_failures: {kind: rate_above, metric: failures_total, failure_class: resume, above: 0, window_s: 3600, severity: ticket, owner: workflow, runbook: checkpoint-resume.md, status: proposal}
+  telemetry_dropping: {kind: rate_above, metric: telemetry_dropped_total, above: 100, window_s: 600, severity: ticket, owner: oncall, runbook: telemetry-down.md, status: proposal}

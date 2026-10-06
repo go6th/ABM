@@ -1,0 +1,64 @@
+# Telemetry contract: metrics (D-56). The ONLY source of metric names, units, labels and series
+# bounds. Labels come from closed sets; tenant, account, run, person, user, domain, URL and free
+# text are forbidden (O5: cardinality; those dimensions live in traces, logs and DB views).
+# Bounds are proposals (no source gives telemetry volume budgets).
+version: "2026-10-06.1"
+status: proposal
+label_sets:
+  provider_code: {bound: 10, source: "config/providers.yaml provider codes"}
+  operation: {bound: 20, source: "connectors.base.Operation"}
+  outcome: {bound: 40, status: "proposal: typed outcomes and error class names"}
+  kind: {bound: 10, source: "exports file kinds"}
+  product_grade: {values: [confirmed, probable, hypothesis, lead, internal], source: "assets/grading.yaml"}
+  reason: {bound: 40, status: "proposal: drop reason codes"}
+  stage: {bound: 20, source: "config/workflow_v1.yaml stages"}
+  state: {values: [QUEUED, RUNNING, AWAITING_APPROVAL, DISTILLING, VERIFYING, COMPLETED, PARTIAL, BUDGET_EXCEEDED, FAILED, CANCELED], source: "skill references/04 run states"}
+  unit_type: {bound: 30, source: "config/parallel.yaml unit types and bodies"}
+  task_kind: {bound: 20, source: "config/model_routing.yaml task kinds"}
+  tier: {values: [planner, extractor, judge], source: "config/model_routing.yaml tiers"}
+  degraded: {values: ["true", "false"], status: proposal}
+  token_kind: {values: [input, output, cache_read, cache_write], source: "ARCH caching telemetry"}
+  plan_tier: {bound: 5, status: "proposal: plan tiers"}
+  region: {bound: 5, status: proposal}
+  route_class: {values: [v1_runs, v1_other, operator, tasks, probe], source: "src/account_intelligence/api/main.py _route_class"}
+  code_class: {values: ["2xx", "3xx", "4xx", "429", "5xx", "timeout"], status: proposal}
+  signal: {values: [traces, metrics, logs], status: proposal}
+  slo: {bound: 10, source: "config/telemetry/slos.yaml"}
+  window: {values: [1h, 5m, 6h, 30m, 30d], status: "proposal (D-58 short windows)"}
+  age_bucket: {values: [lt_5m, 5m_1h, 1h_24h, gt_24h], status: proposal}
+  sink: {values: [logs, spans, metrics, errors, run_events, operator_api, notifications, otlp], status: proposal}
+  service: {values: [api, worker, relay, jobs], status: proposal}
+  severity: {values: [page, ticket], source: "D-60"}
+  verdict: {values: [supported, overstated, unsupported, contradicted, confirmed, value_mismatch, not_found, unreadable, unavailable, not_independent], source: "config/verify.yaml"}
+  failure_class: {bound: 15, source: "skill references/04 one owner per failure class"}
+  graph_version: {bound: 5, status: "proposal: live graph versions"}
+metrics:
+  connector_calls: {type: counter, unit: "1", labels: [provider_code, operation, outcome], series_bound: 8000, owner: connectors, description: "provider calls by outcome"}
+  connector_unknown_cost: {type: counter, unit: "1", labels: [provider_code, operation], series_bound: 200, owner: connectors, description: "calls whose cost is unknown"}
+  connector_latency_ms: {type: histogram, unit: ms, labels: [provider_code, operation, outcome], series_bound: 8000, owner: connectors, description: "provider latency"}
+  export_files: {type: counter, unit: "1", labels: [kind, outcome], series_bound: 400, owner: exports, description: "files built by kind and outcome"}
+  export_builds: {type: counter, unit: "1", labels: [outcome], series_bound: 40, owner: exports, description: "builds by outcome"}
+  grading_claims_graded: {type: counter, unit: "1", labels: [product_grade], series_bound: 5, owner: grading, description: "claims graded by product grade"}
+  grading_claims_dropped: {type: counter, unit: "1", labels: [reason], series_bound: 40, owner: grading, description: "claims dropped by reason"}
+  run_transitions_total: {type: counter, unit: "1", labels: [state, graph_version], series_bound: 50, owner: workflow, description: "run state entries"}
+  run_duration_s: {type: histogram, unit: s, labels: [state, graph_version], series_bound: 50, owner: workflow, description: "creation to terminal state, human wait excluded"}
+  queue_age_s: {type: gauge, unit: s, labels: [state], series_bound: 10, owner: workflow, description: "age of the oldest run per state"}
+  unit_outcomes_total: {type: counter, unit: "1", labels: [unit_type, outcome], series_bound: 1200, owner: parallel, description: "unit outcomes"}
+  lease_wait_s: {type: histogram, unit: s, labels: [provider_code], series_bound: 10, owner: parallel, description: "provider slot waits"}
+  llm_calls_total: {type: counter, unit: "1", labels: [task_kind, tier, outcome, degraded], series_bound: 4800, owner: llm, description: "model calls"}
+  llm_tokens_total: {type: counter, unit: "1", labels: [task_kind, tier, token_kind], series_bound: 240, owner: llm, description: "model tokens by kind"}
+  cache_read_ratio: {type: gauge, unit: "1", labels: [tier], series_bound: 3, owner: llm, description: "cache-read share of cacheable input tokens"}
+  verifier_findings_total: {type: counter, unit: "1", labels: [verdict], series_bound: 10, owner: verify, description: "verifier outcomes"}
+  cost_micros_total: {type: counter, unit: "1e-6 USD", labels: [provider_code, plan_tier], series_bound: 50, owner: obs, description: "ledger-derived spend (aggregates only)"}
+  unknown_cost_calls_total: {type: counter, unit: "1", labels: [provider_code], series_bound: 10, owner: obs, description: "ledger calls with unknown cost"}
+  cost_drift_total: {type: counter, unit: "1", labels: [provider_code], series_bound: 10, owner: obs, description: "rollup versus ledger mismatches"}
+  stuck_runs: {type: gauge, unit: "1", labels: [state, age_bucket], series_bound: 40, owner: obs, description: "runs flagged by the stuck detector"}
+  rls_denied_total: {type: counter, unit: "1", labels: [service], series_bound: 4, owner: obs, description: "permission errors on writes (SQLSTATE 42501)"}
+  isolation_probe_leaks_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: obs, description: "canary prober leaks (synthetic tenants)"}
+  canary_hits_total: {type: counter, unit: "1", labels: [sink], series_bound: 8, owner: obs, description: "planted canaries found in a sink"}
+  slo_burn_rate: {type: gauge, unit: "1", labels: [slo, window], series_bound: 50, owner: obs, description: "error budget burn rate"}
+  heartbeat: {type: gauge, unit: s, labels: [service], series_bound: 4, owner: obs, description: "last heartbeat epoch seconds"}
+  telemetry_dropped_total: {type: counter, unit: "1", labels: [signal], series_bound: 3, owner: obs, description: "telemetry dropped (queue full, unknown key, export failure)"}
+  api_requests_total: {type: counter, unit: "1", labels: [route_class, code_class], series_bound: 60, owner: api, description: "API requests"}
+  api_latency_ms: {type: histogram, unit: ms, labels: [route_class], series_bound: 10, owner: api, description: "API latency"}
+  failures_total: {type: counter, unit: "1", labels: [failure_class], series_bound: 15, owner: obs, description: "failures by owner class"}
