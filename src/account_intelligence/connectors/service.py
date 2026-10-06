@@ -15,6 +15,7 @@ intent for reconciliation and never a half-written payload (puts are atomic).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import random
 from collections.abc import Awaitable, Callable, Mapping
@@ -52,6 +53,12 @@ from account_intelligence.connectors.errors import (
     SchemaDriftError,
     SecurityError,
     UnexpectedContentType,
+)
+from account_intelligence.connectors.governance import (
+    CANCEL_CHECK,
+    UNIT_PRIORITY,
+    ProviderGovernor,
+    SingleFlight,
 )
 from account_intelligence.connectors.http import HttpSettings, exchange
 from account_intelligence.connectors.ledger import (
@@ -109,6 +116,10 @@ class ConnectorRuntime:
     # the ledger is finalised. None in production.
     after_response_hook: Hook | None = None
     page_limits_override: PageLimits | None = field(default=None)
+    # Parallel execution (D-43, P8): per-provider slots across all runs and workers, and in-process
+    # coalescing of identical concurrent operations. None: no governor (sequential v1 behaviour).
+    governor: ProviderGovernor | None = None
+    single_flight: SingleFlight | None = None
 
 
 @dataclass
@@ -129,7 +140,32 @@ async def call_operation(
     fell_back_from: ProviderCode | None = None,
 ) -> ConnectorResult:
     """The only entry the graph uses: validate, route, breaker, budget, ledger, pace, call, store,
-    normalise."""
+    normalise. Under parallel execution the cooperative cancellation check runs first (P9) and
+    identical concurrent operations of one run share one execution (P8)."""
+    check = CANCEL_CHECK.get()
+    if check is not None:
+        check()
+    if rt.single_flight is None:
+        return await _call_operation(op, args, ctx, rt, route=route, fell_back_from=fell_back_from)
+    provider = OPERATION_PROVIDER[op]
+    flight = f"{ctx.run_id}:{route}:{args_hash(provider, op, args.model_dump(mode='json'))}"
+    result: ConnectorResult = await rt.single_flight.do(
+        flight,
+        lambda: _call_operation(op, args, ctx, rt, route=route, fell_back_from=fell_back_from),
+    )
+    return result
+
+
+async def _call_operation(
+    op: Operation,
+    args: OperationArgs,
+    ctx: CallContext,
+    rt: ConnectorRuntime,
+    *,
+    route: str | None = None,
+    fell_back_from: ProviderCode | None = None,
+) -> ConnectorResult:
+    """``call_operation`` without the parallel wrappers."""
     provider = OPERATION_PROVIDER[op]
     expected = ARGS_FOR[op]
     if type(args) is not expected:
@@ -298,6 +334,58 @@ async def _fetch_page(
     costs: list[_PageCost],
     warnings: list[str],
 ) -> FetchedPage:
+    """One page; under a governor a live call holds a provider slot (D-43, P4). The slot is taken
+    before the ledger claim only when the key is not already done (a replay never waits) and no
+    pre-pulled file serves the page, so waiting for a slot never consumes a ledger attempt."""
+    if rt.governor is None:
+        return await _fetch_page_claimed(
+            op, args, ctx, rt, connector, provider, cursor, route, fell_back_from, costs, warnings
+        )
+    key_hash = args_hash(provider, op, {"args": args.model_dump(mode="json"), "cursor": cursor})
+    needs_slot = not await rt.ledger.is_done(ctx, key_hash) and (
+        cursor is not None or await rt.ledger.prepulled_file(ctx, provider, op) is None
+    )
+    async with contextlib.AsyncExitStack() as stack:
+        if needs_slot:
+            await stack.enter_async_context(
+                rt.governor.slot(ctx, str(provider), UNIT_PRIORITY.get())
+            )
+        try:
+            page = await _fetch_page_claimed(
+                op,
+                args,
+                ctx,
+                rt,
+                connector,
+                provider,
+                cursor,
+                route,
+                fell_back_from,
+                costs,
+                warnings,
+            )
+        except RateLimited:
+            await rt.governor.signal(ctx, str(provider), "rate_limited")
+            raise
+        if needs_slot:
+            await rt.governor.signal(ctx, str(provider), "clean")
+        return page
+
+
+async def _fetch_page_claimed(
+    op: Operation,
+    args: OperationArgs,
+    ctx: CallContext,
+    rt: ConnectorRuntime,
+    connector: Connector,
+    provider: ProviderCode,
+    cursor: str | None,
+    route: str | None,
+    fell_back_from: ProviderCode | None,
+    costs: list[_PageCost],
+    warnings: list[str],
+) -> FetchedPage:
+    """Claim, call or replay, finalise (one page)."""
     key = CallKey(
         args_hash=args_hash(provider, op, {"args": args.model_dump(mode="json"), "cursor": cursor}),
         tool=f"{provider}:{op}",

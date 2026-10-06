@@ -388,6 +388,18 @@ class Ledger:
             raise BudgetExceeded(provider_code=key.provider_code, operation=key.operation)
         raise CapRefused(decision.reason, provider_code=key.provider_code, operation=key.operation)
 
+    async def is_done(self, ctx: CallContext, args_hash_value: str) -> bool:
+        """Whether this key already has a finished call (read only; used to skip a provider slot
+        for a call that will replay)."""
+        async with self._txn(ctx.tenant_id) as s:
+            row = (
+                await s.execute(
+                    text("SELECT 1 FROM tool_calls WHERE run_id = :r AND args_hash = :h"),
+                    {"r": ctx.run_id, "h": args_hash_value},
+                )
+            ).first()
+        return row is not None
+
     async def mark_submitted(
         self, ctx: CallContext, owner: str, key: CallKey, claim: Claimed, job_id: str
     ) -> None:
