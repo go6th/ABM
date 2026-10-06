@@ -1,0 +1,133 @@
+# Parallel execution v1: unit types, their dependencies, fan-out, bodies, concurrency limits and
+# scheduling knobs. INTERNAL. Every number carries a `source` or a `status`. The sources give NO
+# per-provider rate limit or concurrency, no unit duration, no aging step, no deadline reserve
+# (D-43, D-44): every such value is a proposal and starts at the most conservative setting
+# (provider concurrency 1 until measured). Dependencies are data (P2): `parallel.dag` validates
+# this file at startup (acyclic, every dependency exists, every unit type known).
+version: "2026-10-06.1"
+status: proposal
+decisions: [D-42, D-43, D-44]
+
+# PRD 3.3: lanes. Veeva is primary for life sciences, otherwise recorded once as None (the tracker
+# owns that outcome; the scheduler only fans out over the run's in-scope lanes).
+lanes:
+  source: "PRD 3.3; config/lanes.yaml (ids)"
+  value: [salesforce, servicenow, sap, tableau_analytics, veeva, data_ai]
+
+# The two people search passes (config/people_rubric.yaml `passes`, D-21 proposal).
+seniority_passes:
+  source: "config/people_rubric.yaml passes (D-21 proposal)"
+  value: [1, 2]
+
+# Person-name search categories (PRD 4.2 step 8; checklist rows owned by name_searches).
+name_search_categories:
+  source: "PRD 4.2 step 8; config/workflow_v1.yaml name_searches coverage"
+  value: [customer_stories, speaking, podcasts, video, articles]
+
+# Unit types (PRD 4.2 steps 2 to 9 and SaaS 4.2 step 4). `fan_out` is one of: once, lane,
+# lane_pass, rows:<stored set> (computed from stored rows with a hard cap, P3). `depends_on`
+# entries are unit types; `soft: true` lets the unit run when that dependency failed (it is still
+# recorded). `group` is the PRD source group. `provider_route` names the config/routing.yaml need (or none).
+unit_types:
+  pass1_relationship: {group: baseline_executive_voice, fan_out: once, depends_on: [], provider_route: people_by_title, basis: "PRD 4.2 step 2 (pass 1)"}
+  baseline:           {group: baseline_executive_voice, fan_out: once, depends_on: [], provider_route: web_search, basis: "PRD 4.2 step 3"}
+  news_pull:          {group: news, fan_out: once, depends_on: [], provider_route: structured_signals, basis: "PRD 4.2 step 4"}
+  jobs_board:         {group: jobs, fan_out: lane, depends_on: [], provider_route: scrape, basis: "PRD 4.2 step 5: live boards per lane"}
+  postings_12m:       {group: jobs, fan_out: once, depends_on: [], provider_route: structured_signals, basis: "PRD 4.2 step 5: 12 month postings pulled once"}
+  tech_detections:    {group: tech, fan_out: once, depends_on: [], provider_route: structured_signals, basis: "PRD 4.2 step 6: detections pulled once"}
+  title_search:       {group: people, fan_out: lane_pass, depends_on: [], provider_route: people_by_title, basis: "PRD 4.2 step 7: title search per lane and seniority pass"}
+  review_communities: {group: review_communities, fan_out: once, depends_on: [], provider_route: web_search, basis: "PRD 4.2 step 8: review sites and communities"}
+  people_merge:       {group: people, fan_out: once, depends_on: [title_search], provider_route: none, basis: "PRD 4.2 step 7: merge by profile URL then name"}
+  association_search: {group: people, fan_out: once, depends_on: [people_merge], provider_route: people_by_title, basis: "roadmap: association search after the first merged people pass"}
+  profile_pull:       {group: people, fan_out: "rows:senior_people", depends_on: [people_merge], provider_route: profile_enrichment, basis: "PRD 4.2 step 7: full profiles need the title-search results"}
+  people_levels:      {group: people, fan_out: once, depends_on: [profile_pull, association_search], provider_route: none, basis: "PRD 4.2 step 7: levels and priority from profiles"}
+  posts_priority_a:   {group: people, fan_out: "rows:priority_a_people", depends_on: [people_levels], provider_route: profile_enrichment, basis: "PRD 4.2 step 7: posts only for priority A"}
+  name_search:        {group: person_name_searches, fan_out: "rows:top_people_x_category", depends_on: [people_merge], provider_route: web_search, basis: "SaaS 4.2 step 4: person-name searches wait for the people step"}
+  platform_sentences: {group: jobs, fan_out: once, depends_on: [postings_12m], provider_route: none, basis: "PRD 4.2 step 5: platform sentences read from the postings"}
+  tech_cross_check:   {group: tech, fan_out: once, depends_on: [postings_12m, tech_detections], provider_route: none, basis: "PRD 4.2 step 6: the cross-check needs the postings"}
+  lead_verification:
+    group: verification
+    fan_out: once
+    # verification of Leads comes after the pulls (PRD 4.2 step 9); it runs over what exists, so a
+    # failed pull does not stop it (soft), and the failure is still recorded.
+    depends_on: [pass1_relationship, baseline, news_pull, jobs_board, postings_12m, tech_detections, title_search, review_communities, people_levels, posts_priority_a, name_search, platform_sentences, tech_cross_check]
+    soft: [pass1_relationship, baseline, news_pull, jobs_board, postings_12m, tech_detections, title_search, review_communities, people_levels, posts_priority_a, name_search, platform_sentences, tech_cross_check]
+    provider_route: web_search
+    basis: "PRD 4.2 step 9"
+
+# After the parallel phase the graph keeps its sequential tail (PRD 4.2 steps 10 to 13).
+sequential_tail:
+  source: "PRD 4.2 steps 10 to 13"
+  value: [distill_grade, build, gate, deliver]
+
+# Dynamic fan-outs are computed from stored rows with hard caps (P3). A model may suggest a gap; it
+# can neither create nor alter a unit.
+dynamic_caps:
+  top_people: {value: 10, source: "SaaS 4.2 step 4 and PRD 4.2 step 8: the top ten people"}
+  senior_people: {value: 50, status: proposal}
+  priority_a_people: {value: 25, status: proposal}
+  units_per_run: {value: 1000, status: proposal}
+
+# Bodies: the code that executes unit types. Today's stage handlers are stage-granular, so each is
+# bound as ONE composite unit covering the unit types it implements (granularity: stage). A unit
+# type may move to `granularity: unit` only when its stage code accepts a unit scope (lane, pass,
+# person); until then the engine runs the coarsened DAG (dag.coarsen) and the simulation can also
+# run the fine DAG. Every unit type must be covered by exactly one body.
+bodies:
+  status: proposal
+  value:
+    pass1_relationship: {granularity: stage, covers: [pass1_relationship]}
+    baseline:           {granularity: stage, covers: [baseline]}
+    news:               {granularity: stage, covers: [news_pull]}
+    jobs:               {granularity: stage, covers: [jobs_board, postings_12m, platform_sentences]}
+    tech:               {granularity: stage, covers: [tech_detections, tech_cross_check]}
+    # allocates_sources: the body allocates source codes inside its own code (people: profile URLs);
+    # such bodies are chained in key order so they never allocate concurrently (P1, D-42).
+    people:             {granularity: stage, allocates_sources: true, covers: [title_search, people_merge, association_search, profile_pull, people_levels, posts_priority_a]}
+    name_searches:      {granularity: stage, covers: [name_search, review_communities]}
+    verification:       {granularity: stage, covers: [lead_verification]}
+
+# Provider concurrency (D-43). No source gives a provider's concurrency or rate limit: every
+# ceiling is a proposal, the adaptive limit starts at the floor and grows by one per clean window
+# (AIMD), never above the ceiling. Measured values replace these (docs/parallel/VALIDATION.md).
+providers:
+  status: proposal
+  floor: 1
+  default_ceiling: {value: 1, status: "proposal: concurrency 1 until measured"}
+  ceilings: {}
+  aimd_window_s: {value: 60, status: proposal}
+  lease_ttl_s: {value: 120, status: proposal}
+  heartbeat_s: {value: 30, status: proposal}
+  lease_wait_s: {value: 30, status: proposal}
+  lease_poll_s: {value: 0.5, status: proposal}
+  lease_jitter_s: {value: 0.25, status: proposal}
+  waiter_ttl_s: {value: 60, status: proposal}
+
+# Fairness (P5): a run and a tenant may hold at most this share of one provider's slots (at least
+# one slot), priority first, then critical path, then age (aging bounds the wait), then key.
+fairness:
+  status: proposal
+  run_share_pct: 50
+  tenant_share_pct: 50
+  aging_step_s: 30
+
+# Bounded execution per worker (P12).
+worker:
+  status: proposal
+  max_in_flight_units: 8
+  max_queue: 1000
+
+# Deadline (P10): the sourced 4 h ceiling (60 slices of 240 s) and a reserve kept for distill,
+# build and gate (no source gives the reserve size).
+deadline:
+  ceiling_s: {value: 14400, source: "ARCH: wall clock hard ceiling 4 h (60 slices of 240 s)"}
+  tail_reserve_s: {value: 1800, status: proposal}
+  # Used only when a unit type has no measured p95 duration (the scheduler says so in the event).
+  unmeasured_p95_s: {value: 600, status: "proposal: flagged conservative value until measured"}
+  min_samples_for_p95: {value: 5, status: proposal}
+
+# Unit retry budget: the node RetryPolicy (config/providers.yaml defaults.retry) re-executes the
+# phase; a unit whose durable failure count reaches this budget is terminal (dependents Blocked).
+unit_attempts:
+  source: "config/providers.yaml defaults.retry.max_attempts (the node RetryPolicy's budget)"
+  value: 3
