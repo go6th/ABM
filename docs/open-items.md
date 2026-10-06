@@ -30,6 +30,10 @@ Everything below is unverified or undecided. Nothing in this list is claimed to 
 | V-UPL-1 | Signed upload URLs on Cloud Storage with a size condition (V4 signing, `x-goog-content-length-range`) into the quarantine prefix | spend/upload.py UploadStore | implement the adapter and test it against the emulator and staging |
 | V-UPL-2 | A malware scanning option for uploaded files (no scanner is chosen; the placeholder fails closed) | spend/upload.py ScanPort | product owner choice, then an adapter test |
 | V-AUTH-1 | The identity provider's step-up claims (`amr` containing `mfa`, integer `auth_time`) | api/auth.py step_up | read the IdP's token documentation; one staging token |
+| V-LLM-3 | The exact 400 error wording for an over-long prompt (mapped to `ContextTooLong` when the message says "too long") and per-model `cache_control` support (V2) | llm/adapters/anthropic_api.py | one staging call per candidate |
+| V-LLM-4 | Context windows, prices, zero-retention terms and caching support of every candidate (all null today) | config/model_routing.yaml | the provider's dated documentation, recorded as each fact's source |
+| V-CI-1 | Pin `actions/upload-artifact` in eval.yml to a verified commit sha (the tag is used until then) | .github/workflows/eval.yml | look up the release commit on the action's repository |
+| V-CI-2 | Required-check behaviour: making `eval` a required status check in branch protection | docs/evals/ci-and-budget.md | repository settings, once real golden labels exist |
 | p_* | Provider facts tagged in docs/providers/CLAIMS.md | connectors/providers | per CLAIMS.md |
 
 ## Open items (behaviour decisions)
