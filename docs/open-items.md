@@ -24,6 +24,12 @@ Everything below is unverified or undecided. Nothing in this list is claimed to 
 | V-EXP-1 | The Excel cell limit of 32,767 characters (taken from Microsoft's "Excel specifications and limits"; not checked against Excel itself) | config/export_rules.yaml limits | open a workbook with a 32,767 and a 32,768 character cell in Excel |
 | V-EXP-2 | LibreOffice recalculates openpyxl formulas on load and caches results (verified locally with LibreOffice 26.2.4.2 by `test_integration_checks.py`); the production image has no LibreOffice | exports/verify.py | install it in the gate image and re-run the integration checks there |
 | V-EXP-3 | Package normalisation holds for future openpyxl and python-docx versions (verified for openpyxl 3.1.5 and python-docx 1.2.0 by the byte-identical rebuild test) | exports/ooxml.py | the determinism test on every dependency upgrade |
+| V-LG-1 | LangGraph 1.2.12 keeps completed sibling `Send` task writes when the superstep is cancelled and re-runs only the unfinished task on resume: **verified** with `InMemorySaver` (scratch experiment, 2026-10-06); not verified with the Postgres saver. The parallel design does not depend on it (unit events are the truth, ADR-0037) | workflow/parallel_phase.py | repeat the experiment with `AsyncPostgresSaver` |
+| V-GOV-1 | Changing function ownership to the NOLOGIN role `governor_definer` when the production migrator is not a superuser (PostgreSQL 16 `createrole_self_grant`, ADMIN option) | migration 0017 | run migration 0017 as the Cloud SQL migrator role on staging |
+| V-TASKS-2 | Cloud Tasks queue `maxConcurrentDispatches` as a coarse backstop for slices; the governor stays authoritative | infra/modules/tasks | read the queue config on staging and document the chosen value |
+| V-UPL-1 | Signed upload URLs on Cloud Storage with a size condition (V4 signing, `x-goog-content-length-range`) into the quarantine prefix | spend/upload.py UploadStore | implement the adapter and test it against the emulator and staging |
+| V-UPL-2 | A malware scanning option for uploaded files (no scanner is chosen; the placeholder fails closed) | spend/upload.py ScanPort | product owner choice, then an adapter test |
+| V-AUTH-1 | The identity provider's step-up claims (`amr` containing `mfa`, integer `auth_time`) | api/auth.py step_up | read the IdP's token documentation; one staging token |
 | p_* | Provider facts tagged in docs/providers/CLAIMS.md | connectors/providers | per CLAIMS.md |
 
 ## Open items (behaviour decisions)
