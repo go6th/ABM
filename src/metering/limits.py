@@ -94,9 +94,6 @@ async def limits(s: Any) -> dict[str, int]:
 
 
 async def _overrides(s: Any) -> dict[str, int]:
-    exists = (await s.execute(text("SELECT to_regclass('quota_versions')"))).scalar_one()
-    if exists is None:
-        return {}
     rows = (
         await s.execute(
             text(

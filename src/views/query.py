@@ -22,13 +22,14 @@ from functools import lru_cache
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, ValidationError
 
 from account_intelligence.config import CONFIG_DIR
 from views.tables import Op, TableSpec
 
 _KEY = re.compile(r"^[a-z_]{1,40}$")
-Value = str | int | list[str] | None
+# strict: JSON true is never the count 1, and "3" is never the integer 3
+Value = StrictStr | StrictInt | list[StrictStr] | None
 
 
 class QueryError(ValueError):
