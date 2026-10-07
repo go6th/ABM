@@ -46,6 +46,12 @@ class SettingsError(ValueError):
     """Settings that fail validation (a 422 at the API)."""
 
 
+class SettingsInvalid(RuntimeError):
+    """The stored latest version no longer validates (for example a lane was removed from the
+    platform configuration). Fail closed: no run may start on it and nothing falls back to the
+    defaults (that would silently drop exclusions); an admin must save the settings again."""
+
+
 class SettingsConflict(RuntimeError):
     """Another save created this version first; re-read and retry."""
 
@@ -234,9 +240,11 @@ async def current(session: AsyncSession) -> SettingsVersion:
     if row is None:
         d = default_settings()
         return SettingsVersion(0, d, settings_hash(d))
-    return SettingsVersion(
-        int(row.version), TenantSettings.model_validate(row.settings_json), str(row.settings_hash)
-    )
+    try:
+        parsed = TenantSettings.model_validate(row.settings_json)
+    except ValueError:
+        raise SettingsInvalid(f"settings version {row.version} no longer validates") from None
+    return SettingsVersion(int(row.version), parsed, str(row.settings_hash))
 
 
 async def save(
@@ -271,7 +279,12 @@ async def save(
 
 
 async def ensure_saved(session: AsyncSession, *, actor: str, now: datetime) -> SettingsVersion:
-    """The latest stored version; stores the defaults as version 1 when none exists yet."""
+    """The latest stored version; stores the defaults as version 1 when none exists yet
+    (SettingsInvalid when the stored latest no longer validates)."""
+    return await _ensure_saved(session, actor=actor, now=now)
+
+
+async def _ensure_saved(session: AsyncSession, *, actor: str, now: datetime) -> SettingsVersion:
     got = await current(session)
     if got.version > 0:
         return got
