@@ -93,3 +93,30 @@ model).
 | OI-EXP-12 | The legacy Node library, workbook scripts and one real delivered file set (port, characterization tests, legacy parity) | Blocked; neutral proposal theme |
 | OI-EXP-13 | Stale-phrase list, abbreviation list, more partner framings, RESTORE.md wording, news attribute prefixes | empty or placeholder, `source: TODO` |
 | OI-EXP-14 | `config/output_spec.yaml` comments name the Internal Only file after a person; the skill names it "Internal Only" | the builders never build it; rename with the owner |
+
+## Phase 3 (tenant product) VERIFY items
+
+| ID | What | Where | How to close |
+|---|---|---|---|
+| V-P3-IDP-1 | Real OIDC providers' token endpoint authentication, `amr` and `auth_time` claims, key rotation cadence | `src/identity/oidc.py`, `ports.py` | one sign-in per supported IdP in staging |
+| V-P3-IDP-2 | Real SAML metadata, signing algorithm and certificate rollover of each customer IdP | `src/identity/saml.py` | the customer's metadata and a staging sign-in |
+| V-P3-IDP-3 | The 6th staff IdP and its claim names (`staff_role`, `amr`, `auth_time`) | `src/account_intelligence/api/operator.py` | staff IdP configuration |
+| V-P3-COOKIE-1 | `__Host-` prefix and `SameSite` behaviour in the supported browsers, including the SAML POST back | `config/session.yaml` | Playwright run on the deployed origin |
+| V-P3-EGRESS-1 | IdP and connector calls through the platform egress proxy (ARCH 11) | `src/identity/ports.py` | staging egress test |
+| V-P3-CN-1 | Google Drive narrowest scope for admin-named folders, OAuth verification requirements, shortcut and shared-drive ancestry behaviour | `config/connectors.yaml`, `src/connectors_client/drive.py` | Google's current docs and a test project |
+| V-P3-CN-2 | Salesforce OAuth flow, `api` scope breadth and refresh-token policy | `config/connectors.yaml` | Salesforce docs and a developer org |
+| V-P3-CN-3 | HubSpot scopes `crm.objects.companies.read` and `crm.objects.deals.read` and the authorize endpoint | `config/connectors.yaml` | HubSpot docs and a developer account |
+| V-P3-SSE-1 | Server-sent events behind Cloud Run (buffering, request timeout, heartbeat) | `src/account_intelligence/api/routes/runs.py` | staging stream of a 20-minute run |
+| V-P3-GCS-1 | Signed URL and CMEK behaviour for tenant object paths | `src/tenancy/storage.py` | staging object store adapter |
+
+## Phase 3 open items
+
+| ID | Item | State |
+|---|---|---|
+| OI-P3-1 | The Word and PDF header carries the branding display name, not yet the logo and accent colour | follow-up |
+| OI-P3-2 | First-call questions are not shown in the client app (needs a sixth materialised table kind, which alters a CHECK constraint): usefulness events for questions arrive only through the API | follow-up, needs an owner decision on the constraint change |
+| OI-P3-3 | `refresh_run` usage events are never emitted: no refresh endpoint exists | follow-up |
+| OI-P3-4 | Client-history routing from connectors into runs is partial (quarantine only; parsing is Phase B) | Phase B |
+| OI-P3-5 | Operator console web pages (staff sign-in flow) are not built; the operator API is | follow-up |
+| OI-P3-6 | Audit archive with Object Lock (7 years) not built | Blocked |
+| OI-P3-7 | Commits 5c32e44 and 4d5e1ec on `feat/phase3-tenant-product` also contain another session's uncommitted RAG work (`src/account_intelligence/rag/`, `tests/rag/`) | needs the owner's decision |

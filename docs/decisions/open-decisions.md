@@ -46,3 +46,13 @@ product owner signs it; config blocks for proposals say `status: proposal`.
 | D-59 | Paging policy and on-call tool | pages for availability burn, isolation and silence; tool and rotation are owner inputs | ADR-0049, `docs/oncall/` |
 | D-60 | LLM tracing | span attributes and `llm_calls` only; no prompt text; no self-hosted tracer | ADR-0050 |
 
+| D-61 | Tenant roles | admin, analyst, seller, viewer; analyst = seller plus shared views and tracker notes; no group mapping means no access; operator and support are staff roles, never tenant roles | ADR-0051, `config/roles.yaml` |
+| D-62 | Identity architecture | in-app broker: OIDC (PyJWT) and SAML (signxml); tenant from the tenant's own IdP connection; server-side sessions; idle 30 min, absolute 8 h, step-up 10 min (proposals) | ADR-0052, `config/session.yaml` |
+| D-63 | Cap and credits in the client app (C24) | depth tiers; allowance in units and percent; never credits, dollars or provider names | ADR-0053 |
+| D-64 | White label | display name, logo, accent; attribution "6th agents" fixed; custom domains later | ADR-0054, `config/views.yaml` |
+| D-65 | Connector set (C26) | Drive, Salesforce, HubSpot first; Gmail and call notes flagged off (`NotConfigured`); exact scopes; resolved ancestry; quarantine | ADR-0055, `config/connectors.yaml` |
+| D-66 | Support impersonation | read-only view-as by a tenant-admin grant (reason, expiry, customer-visible); separate write grant; no break-glass; read 120 min, write 30 min (proposals) | ADR-0056, `config/support.yaml` |
+| D-67 | Metering | five usage event kinds; active account = run or refresh in the period; six limit dimensions; pilot and standard values are proposals; atomic checks; units only | ADR-0057, `config/plans.yaml` |
+| D-68 | Seller usefulness | two identifier-only event kinds; rates over 30 days with base and small-base label under 20 (proposals) | ADR-0058, `config/pilot.yaml` |
+| D-69 | Audit of reads (C25) | resource-level, 60 s dedupe, identifiers only, hash chain, categories in the tenant export; retention TODO | ADR-0059, `config/audit.yaml` |
+| D-70 | Broker keys | platform-held; write-only references; bring-your-own `NotConfigured` | ADR-0060 |
