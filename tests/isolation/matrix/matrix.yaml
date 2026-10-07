@@ -198,6 +198,14 @@ tables:
     plant: {period: 2026-03}
   throttle_events:
     plant: {step: alert_80, used_percent: 80}
+  crm_connection_events:
+    plant: {crm: salesforce, event: enabled}
+  crm_mappings:
+    plant: {crm: salesforce, record_id: 001A}
+  crm_write_events:
+    plant: {event: requested}
+  crm_writes:
+    plant: {crm: salesforce, kind: note, content_hash: "2222222222222222222222222222222222222222222222222222222222222222", title: synthetic, body: synthetic}
   users: {}
   verifier_findings: {}
   view_materializations: {}

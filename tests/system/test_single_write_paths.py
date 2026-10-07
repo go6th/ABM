@@ -139,6 +139,10 @@ OWNERS: dict[str, set[str]] = {
     "monitoring_budget_versions": {"governance/monitoring_budget.py"},
     "monitoring_usage": {"governance/monitoring_budget.py"},
     "throttle_events": {"governance/monitoring_budget.py"},
+    "crm_connection_events": {"crm_writeback/service.py"},
+    "crm_mappings": {"crm_writeback/service.py"},
+    "crm_writes": {"crm_writeback/service.py"},
+    "crm_write_events": {"crm_writeback/service.py"},
     "usage_counters": {"metering/limits.py"},
     "usage_thresholds": {"metering/limits.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
