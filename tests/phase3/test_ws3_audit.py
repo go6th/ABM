@@ -229,15 +229,28 @@ async def test_admin_actions_fail_closed_when_the_audit_write_fails(
 
 def _endpoints() -> dict[tuple[str, str], Any]:
     """Every (method, full path) -> endpoint, from each route module's own router (routers are
-    included lazily, so the assembled routers do not list their routes)."""
-    from account_intelligence.api.routes import audit, runs, settings, spend, spend_v2, sso, users
+    included lazily, so the assembled routers do not list their routes). Every module of the
+    routes package is walked, so a new module cannot escape the sweep."""
+    import importlib
+    import pkgutil
+
+    import account_intelligence.api.routes as pkg
 
     out: dict[tuple[str, str], Any] = {}
-    for module in (audit, runs, settings, spend, spend_v2, sso, users):
-        for router in (getattr(module, "router", None), getattr(module, "public_router", None)):
+    for info in pkgutil.iter_modules(pkg.__path__):
+        module = importlib.import_module(f"{pkg.__name__}.{info.name}")
+        for attr in ("router", "public_router", "branding_router"):
+            router = getattr(module, attr, None)
             for rt in getattr(router, "routes", []):
+                if not str(rt.path).startswith("/"):
+                    continue
+                prefix = (
+                    ""
+                    if str(rt.path).startswith(("/operator", "/tasks", "/healthz", "/readyz"))
+                    else "/v1"
+                )
                 for m in getattr(rt, "methods", set()):
-                    out[(m, "/v1" + rt.path)] = rt.endpoint
+                    out[(m, prefix + rt.path)] = rt.endpoint
     return out
 
 

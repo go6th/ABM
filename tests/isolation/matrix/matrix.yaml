@@ -27,6 +27,8 @@ tables:
     plant: {absolute_expires_at: "2027-01-01T00:00:00+00:00", idle_timeout_s: 60}
   balance_snapshots:
     plant: {status: unknown, provider_code: p_search}
+  branding_assets:
+    plant: {object_key: "tenants/{tenant}/branding/{hex64}.png"}
   canary_probe_results: {}
   checkpoint_blobs: {}
   checkpoint_writes: {}
@@ -41,6 +43,7 @@ tables:
   eval_case_results: {}
   eval_metrics: {}
   eval_runs: {}
+  export_packages: {}
   fact_evidence:
     plant: {evidence_kind: search_proof, call_ref: "{canary}"}
   facts:
@@ -97,6 +100,7 @@ tables:
   run_leases: {}
   runs: {}
   saml_assertion_ids: {}
+  saved_views: {}
   sources:
     plant: {source_code: S-0001, url: "https://tn1.example/canary",
             url_normalized: "https://tn1.example/canary",
@@ -116,6 +120,9 @@ tables:
   tool_calls: {}
   users: {}
   verifier_findings: {}
+  view_materializations: {}
+  view_rows:
+    plant: {source_state: no_source}
   wallet_ledger: {}
   wallets: {}
   work_unit_events: {}
@@ -182,6 +189,31 @@ routes:
   GET /v1/settings: {probe: tenant}
   GET /v1/audit: {probe: tenant}
   GET /v1/audit/export: {probe: tenant}
+  GET /v1/accounts: {probe: tenant}
+  POST /v1/accounts: {probe: tenant, body: {domain: accounts.domain}}
+  GET /v1/accounts/{domain}/tables/{table}:
+    probe: tenant
+    params: {domain: accounts.domain, table: people}
+  GET /v1/branding: {probe: tenant}
+  POST /v1/settings/branding/logo: {probe: tenant, raw_png: true}
+  PUT /v1/settings/branding:
+    probe: tenant
+    body: {expected_version: 0, display_name: Synthetic B, accent_hex: "#1f4e79"}
+  GET /v1/views: {probe: tenant}
+  POST /v1/views: {probe: tenant, body: {table: people, name: Matrix probe, spec: {}}}
+  PUT /v1/views/{view_id}:
+    probe: tenant
+    params: {view_id: saved_views.id}
+    body: {expected_version: 1, name: Matrix probe}
+  POST /v1/views/{view_id}/archive:
+    probe: tenant
+    params: {view_id: saved_views.id}
+    body: {expected_version: 1}
+  POST /v1/exports: {probe: tenant, body: {domain: accounts.domain, kind: csv, table: people}}
+  GET /v1/exports/{package_id}: {probe: tenant, params: {package_id: export_packages.id}}
+  GET /v1/exports/{package_id}/files/{index}:
+    probe: tenant
+    params: {package_id: export_packages.id, index: "0"}
   PUT /v1/settings:
     probe: tenant
     body: {expected_version: 0, settings: {platform_lanes: [sap], people_scope: {levels_in_scope: [VP]}}}
@@ -234,6 +266,9 @@ storage:
   raw_payload: {layout: "tenants/<tenant>/accounts/<account>/runs/<run>/raw/<sha256>.json.gz"}
   deliverable: {layout: "<tenant>/<account>/<run>/deliverables/<sha256>.<ext> (predates TN4)"}
   prepulled_quarantine: {layout: "quarantine/<tenant>/<run>/<intent>"}
+  branding: {layout: "tenants/<tenant>/branding/<sha256>.png"}
+  branding_upload_quarantine: {layout: "tenants/<tenant>/uploads/branding/<sha256>"}
+  export_file: {layout: "tenants/<tenant>/exports/<run>/<sha256>.<ext>"}
 # Cache purposes (tenancy.catalog.CACHE_PURPOSES): keys start with t:<tenant>:<purpose>:.
 cache:
   membership: {}

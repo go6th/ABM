@@ -238,9 +238,12 @@ def test_jobs_run_inside_the_tenant_boundary(name: str) -> None:
 
 
 def _value(world: World, spec: str) -> str:
+    """A path or body value: ``owner`` (tenant A), ``table.column`` of A's canary, or a literal."""
     if spec == "owner":
         return str(world.tenants["A"])
-    table, column = spec.split(".")
+    table, _, column = spec.partition(".")
+    if not column or table not in world.tables:
+        return spec
     return str(world.rows[(table, "A")][column])
 
 
@@ -330,6 +333,14 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
     ) as client:
         if form:
             reply = await client.request(method, path, data=form, headers=headers)
+        elif entry.get("raw_png"):
+            import io
+
+            from PIL import Image
+
+            buf = io.BytesIO()
+            Image.new("RGB", (8, 8), "navy").save(buf, format="PNG")
+            reply = await client.request(method, path, content=buf.getvalue(), headers=headers)
         else:
             reply = await client.request(method, path, json=body, headers=headers, params=query)
     text = reply.text + json.dumps(dict(reply.headers))

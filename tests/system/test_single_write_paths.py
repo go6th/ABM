@@ -93,6 +93,11 @@ OWNERS: dict[str, set[str]] = {
     "tenant_settings_versions": {"tenancy/settings.py"},
     "audit_events": {"audit/events.py"},
     "audit_chain_checks": {"audit/chain.py"},
+    "view_rows": {"views/materialize.py"},
+    "view_materializations": {"views/materialize.py"},
+    "saved_views": {"views/saved.py"},
+    "export_packages": {"views/packages.py"},
+    "branding_assets": {"views/branding.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {
