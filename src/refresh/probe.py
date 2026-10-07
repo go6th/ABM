@@ -34,6 +34,7 @@ from sqlalchemy import text
 from alerts import engine
 from governance import monitoring_budget, throttle
 from refresh import debounce, delta, escalate, history, records, schedule, slots
+from refresh import observations as obs_store
 from signals import events, fingerprint, intake, score
 from signals.registry import ROW_OF, Monitor, MonitorKind, Observation
 
@@ -290,21 +291,14 @@ async def run_probe(
             now=now,
         )
         for key, (seen, nxt) in sorted(observations.items()):
-            await s.execute(
-                text(
-                    "INSERT INTO missing_observations (account_id, item_key, probe_run_id,"
-                    " observation, state_after, absences, at) VALUES (:a, :k, :r, :o, :st, :n,"
-                    " :now)"
-                ),
-                {
-                    "a": account_id,
-                    "k": key,
-                    "r": run_id,
-                    "o": seen,
-                    "st": nxt.state,
-                    "n": nxt.absences,
-                    "now": now,
-                },
+            await obs_store.insert(
+                s,
+                account_id=account_id,
+                item_key=key,
+                probe_run_id=run_id,
+                seen=seen,
+                state=nxt,
+                now=now,
             )
         for key in removed:
             await history.expire(

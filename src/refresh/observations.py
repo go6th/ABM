@@ -55,3 +55,33 @@ async def record(
         },
     )
     return event
+
+
+async def insert(
+    s: Any,
+    *,
+    account_id: UUID,
+    item_key: str,
+    probe_run_id: UUID,
+    seen: Observation,
+    state: Tracked,
+    now: datetime,
+) -> None:
+    """Record an observation whose debounce state the caller already computed (the probe
+    computes all of them before its run row exists)."""
+    await s.execute(
+        text(
+            "INSERT INTO missing_observations (account_id, item_key, probe_run_id, observation,"
+            " state_after, absences, at) VALUES (:a, :k, :r, :o, :st, :n, :now)"
+            " ON CONFLICT (probe_run_id, item_key) DO NOTHING"
+        ),
+        {
+            "a": account_id,
+            "k": item_key,
+            "r": probe_run_id,
+            "o": seen,
+            "st": state.state,
+            "n": state.absences,
+            "now": now,
+        },
+    )

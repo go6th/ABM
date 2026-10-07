@@ -27,7 +27,8 @@ from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
-from crm_writeback import payloads, service
+from crm_writeback import payloads
+from crm_writeback import service as writeback
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 Crm = Literal["salesforce", "hubspot"]
@@ -101,7 +102,7 @@ async def _items(s: Any, account_id: UUID) -> list[payloads.Item]:
     ]
 
 
-def _refused(e: service.WriteRefused) -> APIProblem:
+def _refused(e: writeback.WriteRefused) -> APIProblem:
     return APIProblem(422, e.reason, "Write refused", "Nothing was written to your CRM.")
 
 
@@ -111,7 +112,7 @@ async def enable(
 ) -> dict[str, Any]:
     """Opt in."""
     async with tenant_txn(ident.tenant_id) as s:
-        await service.enable(s, crm, actor=ident.user_id, now=plane_of(request).clock.now())
+        await writeback.enable(s, crm, actor=ident.user_id, now=plane_of(request).clock.now())
         await audit_action(
             s,
             request,
@@ -129,7 +130,7 @@ async def revoke(
 ) -> dict[str, Any]:
     """Stop writes at once."""
     async with tenant_txn(ident.tenant_id) as s:
-        await service.revoke(s, crm, actor=ident.user_id, now=plane_of(request).clock.now())
+        await writeback.revoke(s, crm, actor=ident.user_id, now=plane_of(request).clock.now())
         await audit_action(
             s,
             request,
@@ -148,7 +149,7 @@ async def confirm(
     """Confirm an account's CRM record."""
     async with tenant_txn(ident.tenant_id) as s:
         acc = await _account(s, body.domain)
-        await service.confirm_mapping(
+        await writeback.confirm_mapping(
             s,
             account_id=acc,
             crm=crm,
@@ -169,16 +170,16 @@ async def confirm(
 
 async def _draft(s: Any, crm: str, body: Target) -> tuple[UUID, Any]:
     acc = await _account(s, body.domain)
-    confirmed = await service.confirmed_record(s, acc, crm)
+    confirmed = await writeback.confirmed_record(s, acc, crm)
     try:
-        draft = service.preview(
+        draft = writeback.preview(
             body.kind,
             candidates=[confirmed] if confirmed else [],
             confirmed=confirmed,
             account_label=body.domain,
             items=await _items(s, acc),
         )
-    except service.WriteRefused as e:
+    except writeback.WriteRefused as e:
         raise _refused(e) from None
     return acc, draft
 
@@ -190,6 +191,14 @@ async def preview(
     """Exactly what would be created."""
     async with tenant_txn(ident.tenant_id) as s:
         _, draft = await _draft(s, crm, body)
+        await audit_action(
+            s,
+            request,
+            audit_class="admin",
+            action="crm_preview",
+            resource_type="account",
+            resource_id=body.domain,
+        )
     return {
         "kind": draft.kind,
         "record_id": draft.account_record_id,
@@ -204,10 +213,10 @@ async def request_write(
 ) -> dict[str, Any]:
     """An idempotent write request (approval follows)."""
     async with tenant_txn(ident.tenant_id) as s:
-        if not await service.enabled(s, crm):
+        if not await writeback.enabled(s, crm):
             raise APIProblem(409, "crm_not_enabled", "Not enabled", "Enable the CRM first.")
         acc, draft = await _draft(s, crm, body)
-        req = await service.request(
+        req = await writeback.request(
             s,
             account_id=acc,
             crm=crm,
@@ -244,10 +253,10 @@ async def approve(
         if known != {str(w) for w in body.write_ids}:
             raise HTTPException(404, "not found")
         try:
-            n = await service.approve(
+            n = await writeback.approve(
                 s, body.write_ids, actor=ident.user_id, now=plane_of(request).clock.now()
             )
-        except service.WriteRefused as e:
+        except writeback.WriteRefused as e:
             raise _refused(e) from None
         await audit_action(
             s,
