@@ -202,3 +202,7 @@ class RunInputPort(Protocol):
     async def people_budget_usd(self) -> float | None:
         """Budget left for this stage in USD; ``None`` when unknown."""
         ...
+
+    async def excluded_people(self) -> tuple[str, ...]:
+        """People the tenant excludes, in ``tenancy.settings.normalise_person`` form (TN5)."""
+        ...

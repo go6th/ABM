@@ -357,6 +357,7 @@ class FakeRunInput:
     ) -> None:
         self.corpus, self._regions = corpus, regions
         self._refs = corpus.reference_employers if refs == "corpus" else refs
+        self.excluded: tuple[str, ...] = ()
 
     async def lanes_off(self) -> frozenset[str]:
         return self.corpus.lanes_off
@@ -372,6 +373,9 @@ class FakeRunInput:
 
     async def people_budget_usd(self) -> float | None:
         return self.corpus.budget_usd
+
+    async def excluded_people(self) -> tuple[str, ...]:
+        return self.excluded
 
 
 class Corpus:

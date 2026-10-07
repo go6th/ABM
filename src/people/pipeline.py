@@ -62,6 +62,7 @@ from people.profiles import pull_profiles
 from people.scope import ScopeInput, classify
 from people.search import SearchSpec, SourceOutcome, page_source, plan_title_searches
 from people.urls import canonical_profile_url
+from tenancy.settings import ExclusionFilter
 
 ROW_PEOPLE = "people_by_platform"
 ROW_PROFILES = "full_profiles_senior_people"
@@ -91,6 +92,16 @@ class RunInputs:
     regions: tuple[str, ...] = ()
     reference_employers: tuple[str, ...] | None = None
     budget_usd: float | None = None
+    excluded_people: tuple[str, ...] = ()
+
+
+def tenant_excludes(inputs: RunInputs, name: str | None, profile_url: str | None) -> bool:
+    """The tenant's exclusion (``tenancy.settings.ExclusionFilter``, the one implementation)
+    applied to one found person at pull time (TN5)."""
+    if not inputs.excluded_people:
+        return False
+    rule = ExclusionFilter(frozenset(), frozenset(inputs.excluded_people))
+    return rule.excludes_person(name=name, profile_url=profile_url)
 
 
 @dataclass(frozen=True)
@@ -238,6 +249,14 @@ class PeoplePipeline:
                 location=record.location,
             )
             cls = classify(scope_input, self.cfg, inputs.account_domain, inputs.regions)
+            if cls.status != "merged" and tenant_excludes(inputs, record.name, item.url):
+                # TN5 pull time: the tenant's exclusion beats every inclusion rule
+                cls = Classification(
+                    status="excluded",
+                    reason="tenant_exclusion",
+                    rule_id="tenant.exclusion",
+                    evidence="tenant settings",
+                )
             cap = self.cfg.cap("max_title_chars")
 
             def field(value: str | None, cap: int = cap) -> str | None:

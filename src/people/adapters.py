@@ -294,6 +294,10 @@ class RunPeopleInput:
         """``people_regions`` from the run input (empty: global, PRD 3.3)."""
         return tuple(str(r) for r in self.data.get("people_regions") or ())
 
+    async def excluded_people(self) -> tuple[str, ...]:
+        """The tenant's excluded people the run input carries (settings version of the run)."""
+        return tuple(str(p) for p in self.data.get("excluded_people") or ())
+
     async def reference_employers(self) -> tuple[str, ...] | None:
         """The pursuing client plus ``reference_employers``; ``None`` when neither is given."""
         names = [self.data.get("pursuing_client"), *(self.data.get("reference_employers") or ())]

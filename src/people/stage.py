@@ -31,6 +31,7 @@ async def read_inputs(run_input: RunInputPort, account_domain: str) -> RunInputs
         regions=await run_input.regions(),
         reference_employers=await run_input.reference_employers(),
         budget_usd=await run_input.people_budget_usd(),
+        excluded_people=await run_input.excluded_people(),
     )
 
 
