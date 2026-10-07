@@ -163,6 +163,20 @@ tables:
     plant: {signal: podcasts, reason_code: synthetic}
   signal_history:
     plant: {reason: shelf_life}
+  intake_drops:
+    plant: {reason: replay}
+  monitor_configs:
+    plant: {kinds: "{news_events}"}
+  monitor_runs:
+    plant: {outcome: blocked, reason: synthetic}
+  signal_event_evidence:
+    plant: {source_tier: t1, url_sha256: "0000000000000000000000000000000000000000000000000000000000000000", via: poll, source_code: S-0001}
+  signal_event_links:
+    plant: {relation: ambiguous}
+  signal_events:
+    plant: {fingerprint: "1111111111111111111111111111111111111111111111111111111111111111", grade: lead, lead: true, components: "[]"}
+  webhook_receipts:
+    plant: {source: p_feed, verdict: ok}
   users: {}
   verifier_findings: {}
   view_materializations: {}

@@ -123,6 +123,13 @@ OWNERS: dict[str, set[str]] = {
     "delta_items": {"refresh/records.py"},
     "signal_history": {"refresh/history.py"},
     "missing_observations": {"refresh/observations.py"},
+    "monitor_configs": {"signals/intake.py"},
+    "monitor_runs": {"signals/intake.py"},
+    "webhook_receipts": {"signals/intake.py"},
+    "intake_drops": {"signals/intake.py"},
+    "signal_events": {"signals/events.py"},
+    "signal_event_evidence": {"signals/events.py"},
+    "signal_event_links": {"signals/events.py"},
     "usage_counters": {"metering/limits.py"},
     "usage_thresholds": {"metering/limits.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
