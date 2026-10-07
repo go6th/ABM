@@ -1,0 +1,26 @@
+# Session, sign-in and download-token policy (Phase 3 WS2, ID1 to ID3; D-62 proposal).
+# The sources give NO session timeouts, MFA policy, step-up window or skew (Phase 3 prompt s2.1):
+# every value is a conservative proposal (shorter sessions, smaller windows, deny by default)
+# until the product owner sets it. The membership cache bound (about 60 s) is sourced (ARCH 9).
+version: "1.0.0"
+status: proposal
+source: "TODO, needs product owner; membership_cache_s from ARCH access control (about 60 s)"
+sessions:
+  idle_timeout_s: 1800          # 30 minutes without a request ends the session
+  absolute_timeout_s: 28800     # 8 hours after sign-in, whatever the activity
+  touch_interval_s: 60          # last_seen_at is written at most once a minute
+  step_up_window_s: 600         # admin actions need an MFA sign-in within 10 minutes
+  admin_requires_mfa: true      # an admin session must carry amr containing mfa
+cookies:
+  session: "__Host-ai_session"  # __Host-: Secure, Path=/, no Domain (VERIFY browser support)
+  preauth: "__Host-ai_preauth"
+  csrf_header: "X-CSRF-Token"
+  same_site: "Lax"              # Lax so the IdP redirect back can carry the pre-auth cookie
+sign_in:
+  state_ttl_s: 600              # a pending sign-in expires after 10 minutes
+  clock_skew_s: 60              # tolerated skew on iat, nbf, NotBefore and NotOnOrAfter
+  max_assertion_bytes: 262144
+membership:
+  cache_s: 60                   # ARCH: re-check membership with about a 60 s cache
+downloads:
+  token_ttl_s: 300              # export download links live 5 minutes

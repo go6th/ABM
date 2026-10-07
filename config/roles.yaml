@@ -1,0 +1,38 @@
+# Tenant roles and what each may do (Phase 3 WS2, ID4). Proposal D-61: the roadmap lists four
+# roles (admin, analyst, seller, viewer), ARCH three; `analyst` is everything a seller can do plus
+# editing shared saved views and tracker notes, with no user, SSO, billing or audit
+# administration. ARCH: the internal blended brief is admin and seller only and never exported;
+# managing users, SSO, billing and redaction is admin only; reading the audit is admin only.
+# The 6th staff roles (operator, support) are a separate plane and never tenant roles.
+# `owner_only` actions are allowed to the listed roles only on resources the caller owns.
+version: "1.0.0"
+status: proposal
+source: "D-61 (proposal); ARCH s9 access control table; Phase 3 prompt s2.2"
+roles: [admin, analyst, seller, viewer]
+actions:
+  read_public: [admin, analyst, seller, viewer]
+  read_internal: [admin, analyst, seller]
+  export_files: [admin, analyst, seller, viewer]
+  add_account: [admin, analyst, seller]
+  start_run: [admin, analyst, seller]
+  cancel_run: [admin, analyst, seller]
+  approve_run: [admin, analyst, seller]
+  configure_alerts: [admin, analyst, seller]
+  save_own_view: [admin, analyst, seller]
+  edit_shared_views: [admin, analyst]
+  edit_tracker_notes: [admin, analyst]
+  give_feedback: [admin, analyst, seller, viewer]
+  revoke_own_session: [admin, analyst, seller, viewer]
+  approve_cap: [admin]
+  manage_users: [admin]
+  manage_sso: [admin]
+  manage_settings: [admin]
+  manage_connectors: [admin]
+  read_audit: [admin]
+  export_audit: [admin]
+  read_usage: [admin]
+  grant_support: [admin]
+  request_deletion: [admin]
+owner_only: [save_own_view, revoke_own_session]
+step_up: [manage_users, manage_sso, manage_connectors, export_audit, grant_support,
+          request_deletion, approve_cap]
