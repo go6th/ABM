@@ -14,6 +14,11 @@ status: generated-coverage
 tables:
   account_runs: {}
   account_source_counters: {}
+  audit_chain_checks:
+    plant: {ok: true, first_bad_seq: null, from_seq: 0, to_seq: 1}
+  audit_events:
+    plant: {action: read.runs, actor_kind: user, audit_class: read, resource_type: run,
+            resource_id: "{canary}"}
   accounts:
     plant: {domain: "tn1-{hex64}.example"}
   auth_events:
@@ -175,6 +180,8 @@ routes:
   GET /operator/v1/ops/failures: {probe: operator}
   GET /operator/v1/ops/stuck: {probe: operator}
   GET /v1/settings: {probe: tenant}
+  GET /v1/audit: {probe: tenant}
+  GET /v1/audit/export: {probe: tenant}
   PUT /v1/settings:
     probe: tenant
     body: {expected_version: 0, settings: {platform_lanes: [sap], people_scope: {levels_in_scope: [VP]}}}
@@ -236,6 +243,7 @@ events:
   task.run_slice: {route: POST /tasks/run-slice}
   task.approval_timeout: {route: POST /tasks/approval-timeout}
   outbox.notification: {table: notification_outbox}
+  audit.event: {table: audit_events}
 # Jobs (tenancy.catalog.JOBS): each runs per tenant inside tenant_txn or through a definer
 # function returning identifiers only; `proof` names the test that exercises it.
 jobs:
@@ -243,3 +251,4 @@ jobs:
   stuck_scan: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
   cost_rollup: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
   isolation_probe: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
+  audit_chain_verify: {via: tenant_txn, proof: tests/phase3/test_ws3_audit.py}

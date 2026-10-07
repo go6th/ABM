@@ -64,6 +64,7 @@ EVENT_TYPES: dict[str, str] = {
     "task.run_slice": "Cloud Tasks payload {tenant_id, run_id, slice}",
     "task.approval_timeout": "Cloud Tasks payload {tenant_id, run_id}",
     "outbox.notification": "notification_outbox row (tenant-scoped, RLS)",
+    "audit.event": "audit_events row (tenant-scoped, RLS, insert-only, hash-chained)",
 }
 
 # Background jobs and the boundary each runs under.
@@ -72,4 +73,5 @@ JOBS: dict[str, str] = {
     "stuck_scan": "obs.stuck.scan: per tenant, inside tenant_txn",
     "cost_rollup": "obs.costs.refresh: per tenant and run, inside tenant_txn",
     "isolation_probe": "obs.canary.probe: synthetic tenants only, inside tenant_txn",
+    "audit_chain_verify": "audit.chain.verify: per tenant, inside tenant_txn",
 }
