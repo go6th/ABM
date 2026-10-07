@@ -120,3 +120,27 @@ model).
 | OI-P3-5 | Operator console web pages (staff sign-in flow) are not built; the operator API is | follow-up |
 | OI-P3-6 | Audit archive with Object Lock (7 years) not built | Blocked |
 | OI-P3-7 | Commits 5c32e44 and 4d5e1ec on `feat/phase3-tenant-product` also contain another session's uncommitted RAG work (`src/account_intelligence/rag/`, `tests/rag/`) | needs the owner's decision |
+
+## Phase 4 (automation and signals) VERIFY items
+
+| ID | What | Where | How to close |
+|---|---|---|---|
+| V-P4-MON-1 | Which providers offer monitoring (change detection, webhooks) per monitor kind, their signature schemes and replay rules | `src/signals/registry.py`, `src/signals/webhooks.py` | provider docs and a test account per provider |
+| V-P4-SLACK-1 | Slack app scopes for posting to a user, rate limits and idempotency | `src/alerts/channels` | Slack app registration and docs |
+| V-P4-CRM-1 | Salesforce and HubSpot create endpoints for notes, tasks and a custom snapshot object; sandbox behaviour; search by marker | `src/crm_writeback/salesforce.py`, `hubspot.py` | a Salesforce sandbox and a HubSpot developer account |
+| V-P4-SCHED-1 | Cloud Scheduler and Cloud Tasks semantics for the tick (at-least-once, deduplication window) | `src/refresh/slots.py` | staging tick test |
+| V-P4-SQL-1 | Cloud SQL backups, PITR window and restore time on the chosen tier | `docs/phase4/dr_plan.md` | staging restore game-day |
+| V-P4-SQL-2 | Cross-region replica lag and promotion | `docs/runbooks/regional-failover.md` | staging failover game-day |
+| V-P4-K6-1 | k6 options and thresholds for the staging profile | `ops/load/k6_profile.js` | k6 docs and a staging run |
+
+## Phase 4 open items
+
+| ID | Item | State |
+|---|---|---|
+| OI-P4-1 | The probe's grading port is wired to fakes; production wiring to the workflow's tool-less extractor and grading nodes is not built | Partial |
+| OI-P4-2 | A refreshed Summary built through the export builders (diff-first section in the Word file, the gate and Phase 3 parity on the refreshed package) is not built; the diff section renders and lints | Partial |
+| OI-P4-3 | A crashed probe's polls are not reused by its retry (the retry polls again and reserves again); facts and alerts are not duplicated | Partial |
+| OI-P4-4 | Inbound webhook payloads are stored as quarantine references; the hand-off to the extractor is not wired | Partial |
+| OI-P4-5 | Real monitor adapters, Slack, email and CRM adapters raise NotConfigured | Blocked on registrations |
+| OI-P4-6 | Operator views for monitoring cost and throttle state exist as functions and SQL, not as operator routes or pages | follow-up |
+| OI-P4-7 | HubSpot adapter has the same shape as Salesforce; neither is built against a real API | Blocked |

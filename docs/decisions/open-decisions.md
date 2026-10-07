@@ -56,3 +56,13 @@ product owner signs it; config blocks for proposals say `status: proposal`.
 | D-68 | Seller usefulness | two identifier-only event kinds; rates over 30 days with base and small-base label under 20 (proposals) | ADR-0058, `config/pilot.yaml` |
 | D-69 | Audit of reads (C25) | resource-level, 60 s dedupe, identifiers only, hash chain, categories in the tenant export; retention TODO | ADR-0059, `config/audit.yaml` |
 | D-70 | Broker keys | platform-held; write-only references; bring-your-own `NotConfigured` | ADR-0060 |
+| D-71 | Shelf life per signal type | cadence from SaaS 5.1; shelf life = cadence period (7, 30, 91 days); null never scheduled; tenants may only lengthen (1x to 4x) | ADR-0061, `config/shelf_life.yaml` |
+| D-72 | Probe and escalation | integer delta score; escalate at score 10 or brief age 90 days; at most one a week, two a month; escalations inherit the probe's pulls | ADR-0062, `config/refresh.yaml` |
+| D-73 | Dedupe and scoring | fingerprint of type, entity, attributes, 7-day bucket; Jaccard 0.8 same, 0.5 ambiguous (linked, never merged); integer explainable score | ADR-0063, `config/scoring.yaml` |
+| D-74 | Alert defaults | the ten rules plus facility expansion and vendor customer story (proposal); digest-only start, subscribe up; caps 1 news per account a day, 3 per user an hour, 10 a day, batch above 5 | ADR-0064, `config/alerts_extra.yaml` |
+| D-75 | Leads | a match is a Lead until read; immediate needs read and verified at the rule's grade; unverifiable dropped and counted | ADR-0065 |
+| D-76 | Sensitive findings | breach, layoff, lawsuit: fixed preparation templates, digest only, neutral subject, outreach lint everywhere | ADR-0066 |
+| D-77 | CRM write-back (C28) | create-only client; enriched fields as new snapshot records, never existing fields (writing into empty fields: owner decision, default no); opt-in, mapped, previewed, approved | ADR-0067, `config/crm.yaml` |
+| D-78 | Open Door | versioned schemas, read API, signed webhooks, additive-only in v1; no consumers or sending | ADR-0068, `docs/opendoor/` |
+| D-79 | Monitoring budget | monthly allowance in plan units (pilot 2000, standard 10000), percent-only view, 80% notice once, deterministic ladder, hard stop, no rollover | ADR-0069, `config/budgets.yaml` |
+| D-80 | Hardening scope | hermetic restore drill, kill-recovery test, report-only load profile, status page generator; real Cloud SQL restore, failover and DR Blocked | ADR-0070 |
