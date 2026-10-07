@@ -1,0 +1,179 @@
+# Isolation matrix (TN1). SYNTHETIC. The generator (scripts/gen_isolation_matrix.py) discovers
+# every tenant object from the database catalog, the application's route table and the
+# registries in src/tenancy/catalog.py; every discovered object must have an entry here, and an
+# entry for an object that no longer exists is also an error. The generated tests
+# (tests/isolation/test_matrix.py) attempt, as tenant B, every cross-tenant operation against
+# tenant A's planted canary.
+#
+# tables: an entry may be {} (the catalog synthesiser plants the canary on its own) or carry
+#   `plant:` column overrides for what CHECK constraints the synthesiser cannot read demand.
+#   Placeholders: {tenant} {uuid} {canary} {hex64}.
+# views: every public view; `tenant_column` names the column the probe filters on.
+# routes, storage, cache, events: see the comments on each section.
+status: generated-coverage
+tables:
+  account_runs: {}
+  account_source_counters: {}
+  accounts:
+    plant: {domain: "tn1-{hex64}.example"}
+  balance_snapshots:
+    plant: {status: unknown, provider_code: p_search}
+  canary_probe_results: {}
+  checkpoint_blobs: {}
+  checkpoint_writes: {}
+  checkpoints: {}
+  chunks: {}
+  claim_drops: {}
+  coverage_row_events: {}
+  coverage_rows: {}
+  deliverables:
+    plant: {object_key: "{uuid}/{uuid}/{uuid}/deliverables/{hex64}.docx"}
+  eval_baselines: {}
+  eval_case_results: {}
+  eval_metrics: {}
+  eval_runs: {}
+  fact_evidence:
+    plant: {evidence_kind: search_proof, call_ref: "{canary}"}
+  facts:
+    plant: {product_grade: hypothesis}
+  grade_events: {}
+  job_pipeline_passes: {}
+  job_pipeline_runs: {}
+  job_posting_classifications: {}
+  job_posting_observations: {}
+  job_posting_platform_sentences:
+    plant: {start_offset: 0, end_offset: 5}
+  job_postings:
+    plant: {url: "https://jobs.example/{canary}"}
+  lead_verification_queries:
+    plant: {accepted: true}
+  lead_verifications: {}
+  llm_call_attempts: {}
+  llm_calls: {}
+  memberships: {}
+  notification_deliveries: {}
+  notification_outbox: {}
+  ops_cost_rollups: {}
+  ops_rollup_watermarks: {}
+  people:
+    plant: {profile_url: "https://profiles.example/{canary}"}
+  people_pipeline_runs: {}
+  person_events:
+    plant: {kind: scope}
+  person_post_pulls: {}
+  person_posts: {}
+  person_profiles: {}
+  person_search_pages: {}
+  person_sources: {}
+  prepulled_files:
+    plant: {provider_code: p_search}
+  prepulled_intent_events: {}
+  prepulled_intents:
+    plant: {quarantine_key: "quarantine/{canary}"}
+  provider_leases: {}
+  provider_waiters: {}
+  report_sections: {}
+  run_cap_events: {}
+  run_cap_versions: {}
+  run_coverage_meta: {}
+  run_leases: {}
+  runs: {}
+  sources:
+    plant: {source_code: S-0001, url: "https://tn1.example/canary",
+            url_normalized: "https://tn1.example/canary",
+            url_hash: 4187a99b7a74361632f63d41a714fe66180164220722b7a9ab1ce373e2d899af}
+  spend_defects:
+    plant: {provider_code: p_search}
+  spend_limit_events:
+    plant: {request_id: "{uuid}"}
+  spend_reports: {}
+  stuck_run_observations: {}
+  tech_detections: {}
+  tool_call_events:
+    plant: {event: submitted}
+  tool_calls: {}
+  verifier_findings: {}
+  wallet_ledger: {}
+  wallets: {}
+  work_unit_events: {}
+  work_units: {}
+views:
+  run_spend_by_provider: {tenant_column: tenant_id}
+# Definer functions run with their owner's rights: each must be narrow and return identifiers
+# only. `proof` names the test that pins that behaviour.
+functions:
+  governor_acquire: {returns: lease id or null, proof: tests/parallel}
+  governor_active: {returns: a count for one provider, proof: tests/parallel}
+  governor_configure: {returns: void, proof: tests/parallel}
+  governor_heartbeat: {returns: boolean for the caller's own lease, proof: tests/parallel}
+  governor_release: {returns: void, caller's own lease, proof: tests/parallel}
+  governor_signal: {returns: void, proof: tests/parallel}
+  spend_runs_to_check: {returns: (tenant_id, run_id) pairs only, proof: tests/spend}
+# Routes. probe: tenant (called as tenant B with the authorisation layer replaced by a fixed
+# tenant-B principal; path parameters filled from tenant A's canary rows; the reply must carry no
+# value of A's canaries), operator (the same through an operator principal of tenant B), machine
+# (worker routes: refused without a worker token even when the body names tenant A).
+# params: path parameter -> "table.column" of A's canary row.
+routes:
+  GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
+  GET /v1/runs/{run_id}/spend: {probe: tenant, params: {run_id: account_runs.id}}
+  GET /v1/runs/{run_id}/spend/live: {probe: tenant, params: {run_id: account_runs.id}}
+  POST /v1/runs: {probe: tenant, body: {domain: synthetic-b.example}, idempotent: true}
+  POST /v1/runs/{run_id}/approve: {probe: tenant, params: {run_id: account_runs.id}}
+  POST /v1/runs/{run_id}/cancel: {probe: tenant, params: {run_id: account_runs.id}}
+  POST /v1/runs/{run_id}/cap/approve:
+    probe: tenant
+    params: {run_id: account_runs.id}
+    body: {version: 1, proposal_hash: "0000000000000000000000000000000000000000000000000000000000000000"}
+  POST /v1/runs/{run_id}/cap/extend:
+    probe: tenant
+    params: {run_id: account_runs.id}
+    body: {cap_usd: "1.00", reason: synthetic}
+  POST /v1/runs/{run_id}/cap/reject: {probe: tenant, params: {run_id: account_runs.id}, body: {version: 1, reason: synthetic}}
+  POST /v1/runs/{run_id}/cap/pauses/{request_id}/approve:
+    probe: tenant
+    params: {run_id: spend_limit_events.run_id, request_id: spend_limit_events.request_id}
+    body: {}
+  POST /v1/runs/{run_id}/cap/pauses/{request_id}/decline:
+    probe: tenant
+    params: {run_id: spend_limit_events.run_id, request_id: spend_limit_events.request_id}
+  GET /operator/v1/runs/{run_id}/spend/live: {probe: operator, params: {run_id: account_runs.id}}
+  GET /operator/v1/runs/{run_id}/timeline: {probe: operator, params: {run_id: account_runs.id}}
+  GET /operator/v1/ops/cost/{run_id}: {probe: operator, params: {run_id: account_runs.id}}
+  GET /operator/v1/ops/failures: {probe: operator}
+  GET /operator/v1/ops/stuck: {probe: operator}
+  GET /operator/v1/runs/{run_id}/prepulled/{intent_id}:
+    probe: operator
+    params: {run_id: prepulled_intents.run_id, intent_id: prepulled_intents.id}
+  POST /operator/v1/runs/{run_id}/prepulled/intents:
+    probe: operator
+    params: {run_id: account_runs.id}
+    body: {intent_id: prepulled_intents.id}
+  POST /operator/v1/runs/{run_id}/prepulled/{intent_id}/complete:
+    probe: operator
+    params: {run_id: prepulled_intents.run_id, intent_id: prepulled_intents.id}
+    body: {account_confirmed: true}
+  POST /tasks/run-slice: {probe: machine, body: {tenant_id: owner, run_id: account_runs.id}}
+  POST /tasks/approval-timeout: {probe: machine, body: {tenant_id: owner, run_id: account_runs.id}}
+# Storage layouts (tenancy.catalog.STORAGE_LAYOUTS): a sample key of tenant A must resolve to A,
+# never to B, and a download token for it must be refused in B's session.
+storage:
+  raw_payload: {layout: "tenants/<tenant>/accounts/<account>/runs/<run>/raw/<sha256>.json.gz"}
+  deliverable: {layout: "<tenant>/<account>/<run>/deliverables/<sha256>.<ext> (predates TN4)"}
+  prepulled_quarantine: {layout: "quarantine/<tenant>/<run>/<intent>"}
+# Cache purposes (tenancy.catalog.CACHE_PURPOSES): keys start with t:<tenant>:<purpose>:.
+cache:
+  membership: {}
+# Event types (tenancy.catalog.EVENT_TYPES): table-backed events name their table (covered by the
+# table probes); queue payloads name the worker route that re-checks the tenant under RLS.
+events:
+  task.run_slice: {route: POST /tasks/run-slice}
+  task.approval_timeout: {route: POST /tasks/approval-timeout}
+  outbox.notification: {table: notification_outbox}
+# Jobs (tenancy.catalog.JOBS): each runs per tenant inside tenant_txn or through a definer
+# function returning identifiers only; `proof` names the test that exercises it.
+jobs:
+  spend_invariants: {via: spend_runs_to_check, proof: tests/spend}
+  stuck_scan: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
+  cost_rollup: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
+  isolation_probe: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
