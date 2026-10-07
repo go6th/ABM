@@ -88,6 +88,9 @@ markers = [
 ]
 
 [tool.coverage.run]
+# SQLAlchemy's async layer runs on greenlets: without this, lines after an awaited query are
+# reported as never run
+concurrency = ["greenlet", "thread"]
 source_pkgs = ["account_intelligence", "spend", "exports", "gate", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot"]
 branch = true
 
