@@ -8,8 +8,8 @@ Steps (each timed):
 4. On the restored instance (SQL): the marker is present; the RLS catalog check returns no rows;
    every wallet's balance equals its newest ledger balance; at most one ``run_settled`` usage event
    per run; insert-only tables kept their row counts.
-5. Dump the restored database and load it into a host-reachable scratch database, then run the
-   audit hash-chain verification and the isolation suite there.
+5. Dump the restored database and load it into a host-reachable scratch database and run the
+   isolation suite there (the audit hash-chain verification is not part of this rehearsal).
 6. Stop the instance and remove the backup.
 
 Prints a JSON report with the measured rehearsal RPO (committed rows lost: the marker) and RTO

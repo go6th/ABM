@@ -15,8 +15,10 @@ seconds: targets, proven only by a game-day on the real Cloud SQL instance).
 
 ## Mitigation
 Follow `docs/phase4/dr_plan.md` steps 1 to 7. The hermetic rehearsal `ops/dr/restore_drill.py`
-proves the invariants a restored database must pass: ledger sums, one settlement per terminal run,
-the RLS catalog, the audit hash chains and the isolation suite.
+proves the invariants a restored database must pass: wallet balances against the ledger, one
+settlement per run, facts with evidence, alerts with deltas, the RLS catalog and the isolation
+suite. The audit hash-chain verification is a step of the real restore (`dr_plan.md` step 4); the
+rehearsal does not run it.
 
 ## Escalation
 Page the platform owner and the security owner.
