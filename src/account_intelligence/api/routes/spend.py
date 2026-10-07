@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api.audit_log import audit_refusal, audited_txn
 from account_intelligence.api.auth import Identity, require_role
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs import lifecycle
@@ -74,7 +75,13 @@ async def approve_cap(
     clock = request.app.state.container.clock
     try:
         cap = await service.approve(
-            tenant_txn,
+            audited_txn(
+                request,
+                audit_class="run",
+                action="cap_approve",
+                resource_type="run",
+                resource_id=run_id,
+            ),
             ident.tenant_id,
             run_id,
             body.version,
@@ -86,6 +93,14 @@ async def approve_cap(
     except ProposalStale as exc:
         raise HTTPException(409, f"proposal stale: {exc}") from None
     except ApprovalInvalid as exc:
+        await audit_refusal(
+            request,
+            ident.tenant_id,
+            audit_class="run",
+            action="cap_approve",
+            resource_type="run",
+            resource_id=run_id,
+        )
         raise HTTPException(403, f"approval refused: {exc}") from None
     resumed = False
     try:
@@ -107,12 +122,21 @@ async def approve_cap(
 
 @router.post("/{run_id}/cap/reject")
 async def reject_cap(
-    run_id: UUID, body: RejectBody, ident: Identity = Depends(require_role("admin", "seller"))
+    run_id: UUID,
+    body: RejectBody,
+    request: Request,
+    ident: Identity = Depends(require_role("admin", "seller")),
 ) -> dict[str, Any]:
     """Reject a cap version (the run then has no approved cap: no paid call)."""
     try:
         await service.reject(
-            tenant_txn,
+            audited_txn(
+                request,
+                audit_class="run",
+                action="cap_reject",
+                resource_type="run",
+                resource_id=run_id,
+            ),
             ident.tenant_id,
             run_id,
             body.version,
@@ -121,18 +145,35 @@ async def reject_cap(
             body.reason,
         )
     except ApprovalInvalid as exc:
+        await audit_refusal(
+            request,
+            ident.tenant_id,
+            audit_class="run",
+            action="cap_reject",
+            resource_type="run",
+            resource_id=run_id,
+        )
         raise HTTPException(403, f"rejection refused: {exc}") from None
     return {"run_id": str(run_id), "version": body.version, "decision": "rejected"}
 
 
 @router.post("/{run_id}/cap/extend")
 async def extend_cap(
-    run_id: UUID, body: ExtendBody, ident: Identity = Depends(require_role("admin", "seller"))
+    run_id: UUID,
+    body: ExtendBody,
+    request: Request,
+    ident: Identity = Depends(require_role("admin", "seller")),
 ) -> dict[str, Any]:
     """Request an extension (a new version that needs its own approval)."""
     try:
         version = await service.request_extension(
-            tenant_txn,
+            audited_txn(
+                request,
+                audit_class="run",
+                action="cap_extend",
+                resource_type="run",
+                resource_id=run_id,
+            ),
             ident.tenant_id,
             run_id,
             usd_to_micros(body.cap_usd),
@@ -140,6 +181,14 @@ async def extend_cap(
             load_spend_config(),
         )
     except (ExtensionDenied, MoneyError) as exc:
+        await audit_refusal(
+            request,
+            ident.tenant_id,
+            audit_class="run",
+            action="cap_extend",
+            resource_type="run",
+            resource_id=run_id,
+        )
         raise HTTPException(409, f"extension refused: {exc}") from None
     return {"run_id": str(run_id), "version": version, "status": "extension_requested"}
 

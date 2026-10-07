@@ -91,6 +91,8 @@ OWNERS: dict[str, set[str]] = {
     "idp_connections": {"identity/connections.py"},
     "tenant_events": {"tenancy/lifecycle.py"},
     "tenant_settings_versions": {"tenancy/settings.py"},
+    "audit_events": {"audit/events.py"},
+    "audit_chain_checks": {"audit/chain.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {

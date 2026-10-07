@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity, require_role
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs import lifecycle
@@ -68,6 +69,14 @@ async def create_run(
             deps_tracker = await _tracker_for(container, s)
             created = await lifecycle.create_run(
                 s, ident.tenant_id, req, container.limits, deps_tracker
+            )
+            await audit_action(
+                s,
+                request,
+                audit_class="run",
+                action="start_replay" if created.replayed else "start",
+                resource_type="run",
+                resource_id=created.run_id,
             )
     except IdempotencyConflict:
         raise HTTPException(409, "idempotency key reused with a different body") from None
@@ -149,6 +158,14 @@ async def approve(
                     text("SELECT slices_used FROM account_runs WHERE id = :r"), {"r": run_id}
                 )
             ).scalar_one()
+            await audit_action(
+                s,
+                request,
+                audit_class="run",
+                action="approve",
+                resource_type="run",
+                resource_id=run_id,
+            )
     except (RunNotFound, RunStateConflict):
         raise HTTPException(409, "run is not awaiting approval") from None
     await container.scheduler.enqueue_slice(ident.tenant_id, run_id, int(used))
@@ -169,6 +186,14 @@ async def cancel(
                 run_id,
                 RunStatus.CANCELED,
                 reason="canceled_by_user",
+            )
+            await audit_action(
+                s,
+                request,
+                audit_class="run",
+                action="cancel",
+                resource_type="run",
+                resource_id=run_id,
             )
     except RunNotFound:
         raise HTTPException(404, "run not found") from None

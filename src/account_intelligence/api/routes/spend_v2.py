@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api.audit_log import audit_action, audit_refusal
 from account_intelligence.api.auth import Identity, require_role
 from account_intelligence.api.operator import OperatorIdentity, require_operator
 from account_intelligence.db.session import tenant_txn
@@ -140,7 +141,23 @@ async def approve_pause(
                 load_spend_config(),
                 request.app.state.container.wallet,
             )
+            await audit_action(
+                s,
+                request,
+                audit_class="run",
+                action="pause_approve",
+                resource_type="run",
+                resource_id=run_id,
+            )
     except ApprovalInvalid as exc:
+        await audit_refusal(
+            request,
+            ident.tenant_id,
+            audit_class="run",
+            action="pause_approve",
+            resource_type="run",
+            resource_id=run_id,
+        )
         raise HTTPException(403, f"approval refused: {exc}") from None
     except MoneyError as exc:
         raise HTTPException(422, f"invalid amount: {exc}") from None
@@ -167,7 +184,23 @@ async def decline_pause(
     try:
         async with tenant_txn(ident.tenant_id) as s:
             await pause.decline(s, run_id, request_id, _approver(ident), now, load_v2_config())
+            await audit_action(
+                s,
+                request,
+                audit_class="run",
+                action="pause_decline",
+                resource_type="run",
+                resource_id=run_id,
+            )
     except ApprovalInvalid as exc:
+        await audit_refusal(
+            request,
+            ident.tenant_id,
+            audit_class="run",
+            action="pause_decline",
+            resource_type="run",
+            resource_id=run_id,
+        )
         raise HTTPException(403, f"decline refused: {exc}") from None
     resumed = await _resume(request, ident.tenant_id, run_id)
     return {

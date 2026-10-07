@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
@@ -70,6 +71,14 @@ async def save_settings(
                 actor=ident.user_id,
                 expected_version=body.expected_version,
                 now=plane_of(request).clock.now(),
+            )
+            await audit_action(
+                s,
+                request,
+                audit_class="admin",
+                action="settings_save",
+                resource_type="settings",
+                resource_id=saved.version,
             )
     except settings.SettingsConflict:
         raise HTTPException(409, "settings changed since they were read") from None

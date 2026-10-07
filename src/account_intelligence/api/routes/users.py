@@ -15,6 +15,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
@@ -80,6 +81,14 @@ async def add_user(
                 email=body.email.lower() if body.email else None,
                 display_name=body.display_name,
             )
+            await audit_action(
+                s,
+                request,
+                audit_class="admin",
+                action="member_add",
+                resource_type="member",
+                resource_id=body.user_id,
+            )
     except membership.MembershipRefused as e:
         raise HTTPException(409, e.reason) from None
     return _json(added)
@@ -106,6 +115,14 @@ async def change_user(
                 reason=body.reason,
             )
             await sessions.revoke_all(s, body.user_id, "privilege_change", now)
+            await audit_action(
+                s,
+                request,
+                audit_class="admin",
+                action="member_change",
+                resource_type="member",
+                resource_id=body.user_id,
+            )
     except membership.MembershipRefused as e:
         raise HTTPException(409, e.reason) from None
     except membership.MembershipConflict:

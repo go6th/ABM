@@ -106,7 +106,25 @@ async def authorize(request: Request, ident: Identity = Depends(identity)) -> Id
             "Sign in again with multi-factor authentication to do this.",
         )
     request.state.principal = ident
+    if policy.audit == "read":
+        await _record_read(request, ident)
     return ident
+
+
+async def _record_read(request: Request, ident: Identity) -> None:
+    """The deduplicated read event (AU1), in a short transaction of its own, BEFORE any data is
+    returned; when it cannot be written the read is refused (configurable, default closed)."""
+    from account_intelligence.api.audit_log import read_audit_event
+    from account_intelligence.db.session import tenant_txn
+    from audit.events import load_policy, record
+
+    event, key = read_audit_event(request)
+    try:
+        async with tenant_txn(ident.tenant_id) as s:
+            await record(s, event, dedupe=key)
+    except Exception as error:
+        if load_policy().read_fail_closed:
+            raise DependencyUnavailable() from error
 
 
 async def _key(plane: TenantPlane, ref: str) -> bytes:

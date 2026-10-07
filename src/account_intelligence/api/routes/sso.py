@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import ANONYMOUS, register, tenant_route
@@ -243,7 +244,16 @@ async def create_connection(
     ref = await _secret_ref(request, body, ident.tenant_id)
     try:
         async with tenant_txn(ident.tenant_id) as s:
-            return await connections.create(s, body.model_dump(exclude={"client_secret"}), ref)
+            created = await connections.create(s, body.model_dump(exclude={"client_secret"}), ref)
+            await audit_action(
+                s,
+                request,
+                audit_class="admin",
+                action="sso_connection_create",
+                resource_type="idp_connection",
+                resource_id=created["id"],
+            )
+            return created
     except connections.ConnectionConflict:
         raise HTTPException(409, "connection could not be created") from None
 
@@ -267,6 +277,15 @@ async def update_connection(
     values = body.model_dump(exclude={"client_secret", "expected_version"})
     try:
         async with tenant_txn(ident.tenant_id) as s:
-            return await connections.update(s, connection_id, values, ref, body.expected_version)
+            updated = await connections.update(s, connection_id, values, ref, body.expected_version)
+            await audit_action(
+                s,
+                request,
+                audit_class="admin",
+                action="sso_connection_update",
+                resource_type="idp_connection",
+                resource_id=connection_id,
+            )
+            return updated
     except connections.ConnectionConflict:
         raise HTTPException(409, "connection changed or not found") from None
