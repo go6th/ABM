@@ -50,6 +50,8 @@ tables:
   lead_verifications: {}
   llm_call_attempts: {}
   llm_calls: {}
+  membership_events:
+    plant: {event: added}
   memberships: {}
   notification_deliveries: {}
   notification_outbox: {}
@@ -89,9 +91,13 @@ tables:
   spend_reports: {}
   stuck_run_observations: {}
   tech_detections: {}
+  tenant_events:
+    plant: {event: created, actor_plane: system}
+  tenant_settings_versions: {}
   tool_call_events:
     plant: {event: submitted}
   tool_calls: {}
+  users: {}
   verifier_findings: {}
   wallet_ledger: {}
   wallets: {}
@@ -109,6 +115,9 @@ functions:
   governor_release: {returns: void, caller's own lease, proof: tests/parallel}
   governor_signal: {returns: void, proof: tests/parallel}
   spend_runs_to_check: {returns: (tenant_id, run_id) pairs only, proof: tests/spend}
+  erase_rows:
+    returns: a row count; the caller's context tenant only, allow-listed tables, approved requests
+    proof: tests/phase3/test_ws1_tenancy.py
 # Routes. probe: tenant (called as tenant B with the authorisation layer replaced by a fixed
 # tenant-B principal; path parameters filled from tenant A's canary rows; the reply must carry no
 # value of A's canaries), operator (the same through an operator principal of tenant B), machine
