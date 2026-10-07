@@ -1,0 +1,15 @@
+# Audit of reads, runs, exports and administration (Phase 3 WS3, AU1, AU2; D-69 proposal).
+# The sources give the record (actor, action, resource, time; append-only; Object Lock archive;
+# exportable to the client) but NOT the dedupe window or retention: those are proposals.
+version: "1.0.0"
+status: proposal
+source: "SaaS 3.1 rules 7 and 9; ARCH 14 (append-only, 90 days queryable, 7 years archived);
+  dedupe window and read fail-closed default: proposal (D-69); retention: TODO, needs product owner"
+read_dedupe_window_s: 60     # one row per actor, read action and resource per window
+read_fail_closed: true       # a read whose audit row cannot be written is refused (503)
+chain_check_batch: 1000      # rows per verification batch
+chain_check_max_batches: 50  # batches per verification pass
+export_max_rows: 50000       # rows per audit export file
+retention:
+  queryable_days: 90         # ARCH 14 (sourced)
+  archive_years: 7           # ARCH 14 (sourced); archive with Object Lock: not built (Blocked)
