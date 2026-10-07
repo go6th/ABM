@@ -53,6 +53,13 @@ TEMPLATES: dict[str, Template] = {
         "This period you have used {percent} percent of your plan's {dimension} allowance. "
         "An admin can see the details under Usage.",
     ),
+    "monitoring_budget_near_limit": Template(
+        "tenant",
+        frozenset({"percent"}),
+        "Your monitoring allowance is nearly used",
+        "This month you have used {percent} percent of your monitoring allowance. Monitoring of "
+        "lower-priority accounts is reduced first; an admin can see the details under Usage.",
+    ),
     "spend_soft_limit": Template(
         "operator",
         frozenset({"run_id", "cap_version"}),
