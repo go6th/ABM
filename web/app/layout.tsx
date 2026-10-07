@@ -43,6 +43,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Link href="/settings/users">Users</Link>
             <Link href="/settings/sso">Single sign-on</Link>
             <Link href="/settings/connectors">Connectors</Link>
+            <Link href="/alerts">Alerts</Link>
+            <Link href="/settings/alerts">Alert settings</Link>
+            <Link href="/settings/crm">CRM</Link>
             <Link href="/settings/support">Support access</Link>
             <Link href="/audit">Audit</Link>
             <Link href="/usage">Usage</Link>
