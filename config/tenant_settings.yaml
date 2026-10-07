@@ -1,0 +1,12 @@
+# Tenant settings limits (Phase 3 WS1, TN5). The roadmap names the settings (platform lanes,
+# people scope, exclusions, the pursuing client, branding) but gives no limits; every number here
+# is a conservative proposal until the product owner sets it.
+version: "1.0.0"
+status: proposal
+source: "TODO, needs product owner (Phase 3 prompt s2.1: no limits are sourced)"
+limits:
+  max_excluded_companies: 200
+  max_excluded_people: 500
+  max_pursuing_client_chars: 120
+  max_regions: 20
+  max_region_chars: 60
