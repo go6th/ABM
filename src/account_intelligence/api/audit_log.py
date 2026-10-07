@@ -92,6 +92,7 @@ def audited_txn(
 
     @asynccontextmanager
     async def factory(tenant_id: Any, **kw: Any) -> Any:
+        """``tenant_txn`` that records the request's event in the first completed transaction."""
         async with tenant_txn(tenant_id, **kw) as s:
             yield s
             if not state["done"] and not kw.get("snapshot"):

@@ -35,6 +35,7 @@ from account_intelligence.api.routes.accounts import (
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.ports import NotConfigured
+from metering import events as usage
 from tenancy.storage import PathRefused, require_owned, tenant_of_key
 from views import packages
 from views.materialize import api_rows
@@ -126,6 +127,8 @@ async def create_export(
             now=plane.clock.now(),
             rows_hash=mat.rows_hash,
         )
+        if pkg.status == "delivered":
+            await usage.record(s, "export_created", package_id, plane.clock.now())
         await audit_action(
             s,
             request,

@@ -375,6 +375,12 @@ class Broker:
         if (await membership.active_role(s, user_id)) is None and not decision.provision:
             raise SignInRefused("tenant_suspended_or_inactive")
         if decision.provision:
+            from metering import limits
+
+            try:
+                await limits.consume(s, "seats", now)
+            except limits.LimitReached:
+                raise SignInRefused("plan_seats_reached") from None
             await membership.add(
                 s,
                 user_id=user_id,

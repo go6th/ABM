@@ -29,6 +29,7 @@ from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from connectors_client import framework, oauth, quarantine
+from metering import limits
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 register("GET", "/v1/connectors", tenant_route("manage_connectors", "read", step_up=False))
@@ -127,6 +128,10 @@ async def start(
     )
     try:
         async with tenant_txn(ident.tenant_id) as s:
+            try:
+                await limits.consume(s, "connectors", plane.clock.now())
+            except limits.LimitReached as e:
+                raise limits.limit_problem(e) from None
             started = await oauth.start(
                 s,
                 kind=body.kind,
@@ -313,6 +318,7 @@ async def disconnect(
     client, _, _ = plane.connector_ports()
     try:
         async with tenant_txn(ident.tenant_id) as s:
+            await limits.release(s, "connectors", plane.clock.now())
             upstream = await oauth.disconnect(
                 s,
                 connection_id=connection_id,

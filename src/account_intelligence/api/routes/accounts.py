@@ -31,6 +31,8 @@ from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.ports import NotConfigured
 from account_intelligence.runs import lifecycle
 from account_intelligence.runs.transitions import TERMINAL
+from metering import events as usage
+from metering import limits
 from tenancy import settings
 from views import materialize, query, saved
 from views.tables import TABLES, specs
@@ -119,6 +121,13 @@ async def add_account(
                 "This company is on the tenant's exclusion list.",
             )
         account_id, created = await lifecycle.add_account(s, ident.tenant_id, body.domain)
+        if created:
+            now = plane_of(request).clock.now()
+            try:
+                await limits.consume(s, "accounts", now)
+            except limits.LimitReached as e:
+                raise limits.limit_problem(e) from None
+            await usage.record(s, "account_added", body.domain, now)
         await audit_action(
             s,
             request,

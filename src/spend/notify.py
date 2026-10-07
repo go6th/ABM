@@ -46,6 +46,13 @@ class Template:
 
 
 TEMPLATES: dict[str, Template] = {
+    "plan_usage_near_limit": Template(
+        "tenant",
+        frozenset({"dimension", "percent"}),
+        "Your plan allowance is nearly used",
+        "This period you have used {percent} percent of your plan's {dimension} allowance. "
+        "An admin can see the details under Usage.",
+    ),
     "spend_soft_limit": Template(
         "operator",
         frozenset({"run_id", "cap_version"}),

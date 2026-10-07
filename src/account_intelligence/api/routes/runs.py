@@ -39,6 +39,8 @@ from account_intelligence.runs.lifecycle import (
     RunStateConflict,
 )
 from account_intelligence.workflow.transitions import RunStatus
+from metering import events as usage
+from metering import limits
 from tenancy import settings
 from views import progress
 from views.progress import Progress
@@ -74,12 +76,19 @@ async def create_run(
         async with tenant_txn(ident.tenant_id) as s:
             run_input, version = await _run_input(s, body, ident, container)
             req = RunRequest(body.domain, body.depth, idem, run_input)
+            now = container.clock.now()
+            _, new_account = await lifecycle.add_account(s, ident.tenant_id, body.domain)
+            if new_account:
+                await limits.consume(s, "accounts", now)
+                await usage.record(s, "account_added", body.domain, now)
             deps_tracker = await _tracker_for(container, s)
             created = await lifecycle.create_run(
                 s, ident.tenant_id, req, container.limits, deps_tracker
             )
             if not created.replayed:
                 await settings.pin_run(s, created.run_id, version)
+                await limits.consume(s, "runs_per_period", now)
+                await usage.record(s, "run_started", created.run_id, now)
             await audit_action(
                 s,
                 request,
@@ -88,6 +97,8 @@ async def create_run(
                 resource_type="run",
                 resource_id=created.run_id,
             )
+    except limits.LimitReached as e:
+        raise limits.limit_problem(e) from None
     except IdempotencyConflict:
         raise HTTPException(409, "idempotency key reused with a different body") from None
     except InsufficientCredits:
@@ -303,6 +314,7 @@ async def run_events(
     cfg = progress_config()
 
     async def stream() -> AsyncIterator[bytes]:
+        """Progress events, heartbeats and a final reconnect hint, within the duration cap."""
         last = last_event_id
         current: Progress | None = first
         started = time.monotonic()

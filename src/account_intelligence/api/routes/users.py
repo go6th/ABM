@@ -22,6 +22,7 @@ from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from identity import membership, sessions
+from metering import limits
 
 router = APIRouter(prefix="/users", tags=["users"])
 register("GET", "/v1/users", tenant_route("manage_users", "read", step_up=False))
@@ -72,6 +73,10 @@ async def add_user(
     now = plane_of(request).clock.now()
     try:
         async with tenant_txn(ident.tenant_id) as s:
+            try:
+                await limits.consume(s, "seats", now)
+            except limits.LimitReached as e:
+                raise limits.limit_problem(e) from None
             added = await membership.add(
                 s,
                 user_id=body.user_id,
@@ -104,6 +109,8 @@ async def change_user(
     now = plane_of(request).clock.now()
     try:
         async with tenant_txn(ident.tenant_id) as s:
+            current = await membership.get(s, body.user_id)
+            before = current.status if current else None
             changed = await membership.change(
                 s,
                 actor=ident.user_id,
@@ -115,6 +122,13 @@ async def change_user(
                 reason=body.reason,
             )
             await sessions.revoke_all(s, body.user_id, "privilege_change", now)
+            if body.status in ("suspended", "removed") and before == "active":
+                await limits.release(s, "seats", now)
+            elif body.status == "active" and before != "active":
+                try:
+                    await limits.consume(s, "seats", now)
+                except limits.LimitReached as e:
+                    raise limits.limit_problem(e) from None
             await audit_action(
                 s,
                 request,

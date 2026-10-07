@@ -385,6 +385,7 @@ async def settle_once(
     ).all()
     if done:
         by = {row.entry: Decimal(row.amount) for row in done}
+        await _usage_settled(session, run_id)
         return Settlement(
             reserved, by.get("commit", Decimal(0)), by.get("refund", Decimal(0)), True
         )
@@ -412,7 +413,17 @@ async def settle_once(
             ),
             {"t": run.tenant_id, "r": run_id, "e": entry, "a": amount, "b": balance},
         )
+    await _usage_settled(session, run_id)
     return Settlement(reserved, committed, refunded, False)
+
+
+async def _usage_settled(session: AsyncSession, run_id: UUID) -> None:
+    """The run's one ``run_settled`` usage event, in the settlement's transaction (MT1: the
+    idempotency key makes every later settlement call add nothing)."""
+    from metering.events import record
+
+    now: datetime = (await session.execute(text("SELECT now()"))).scalar_one()
+    await record(session, "run_settled", run_id, now)
 
 
 async def expire_approval(
