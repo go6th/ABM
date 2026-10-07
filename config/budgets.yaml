@@ -1,0 +1,16 @@
+# Monitoring budget (Phase 4 WS6, D-79 proposal). Sourced: a monthly budget per tenant for
+# monitoring, automatic throttling, an alert at 80 percent (roadmap). NOT sourced: the allowance,
+# the ladder steps and their shares (proposals, "TODO, needs product owner").
+version: "1.0.0"
+status: proposal
+source: "80% alert and throttling: roadmap Phase 4; values and ladder: TODO, needs product owner (D-79)"
+alert_at_percent: 80             # source: roadmap
+plans:                           # monthly monitoring allowance in plan units (tenant sees percent only)
+  pilot: 2000
+  standard: 10000
+unknown_cost_units: 50           # an unpriced call counts at this upper bound (CG1)
+ladder:                          # applied in order as the used share grows (pure function)
+  - {from_percent: 80, step: probe_only_lowest_scores, share: 0.5}   # lowest-scoring half probe-only
+  - {from_percent: 90, step: lengthen_cadence, factor: 2}
+  - {from_percent: 95, step: pause_non_priority}
+  - {from_percent: 100, step: hard_stop}

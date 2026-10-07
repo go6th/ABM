@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://6th.agents/opendoor/signal_event.v1.json",
+  "title": "Signal event v1",
+  "description": "One deduplicated, scored signal on a tenant's account. Identifiers, grades and source codes only: no raw provider payloads, no provider names, no credit counts or cost.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "account", "signal_type", "fingerprint", "grade", "source_codes", "score", "detected_at", "fact_ref"],
+  "properties": {
+    "schema": {"const": "signal_event.v1"},
+    "event_id": {"type": "string", "format": "uuid"},
+    "account": {"type": "string", "pattern": "^[a-z0-9.-]{1,253}$"},
+    "signal_type": {"type": "string", "pattern": "^[a-z_]{1,60}$"},
+    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "grade": {"enum": ["confirmed", "probable", "hypothesis", "lead"]},
+    "lead": {"type": "boolean"},
+    "sensitive": {"type": "boolean"},
+    "source_codes": {"type": "array", "items": {"type": "string", "pattern": "^S-[0-9]{4,}$"}, "maxItems": 50},
+    "score": {"type": "integer", "minimum": 0},
+    "detected_at": {"type": "string", "format": "date-time"},
+    "fact_ref": {"type": "string", "format": "uuid"}
+  },
+  "examples": [{"schema": "signal_event.v1", "event_id": "0f8fad5b-d9cb-469f-a165-70867728950e", "account": "acme.example", "signal_type": "build_role_posting", "fingerprint": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "grade": "confirmed", "lead": false, "sensitive": false, "source_codes": ["S-0012"], "score": 95, "detected_at": "2026-03-02T09:00:00Z", "fact_ref": "7c9e6679-7425-40de-944b-e07fc1f90ae7"}]
+}

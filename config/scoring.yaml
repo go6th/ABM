@@ -1,0 +1,16 @@
+# Significance scoring (Phase 4 WS4, D-73 proposal). The sources name the inputs (signal type,
+# grade, source tier, recency, lane, priority) but give NO weights or thresholds: all values are
+# proposals ("TODO, needs product owner"), integers so a score is exact and reproducible.
+version: "1.0.0"
+status: proposal
+source: "inputs: ARCH 6.4, SaaS 5.3; weights: TODO, needs product owner (D-73)"
+signal_type: {build_role_posting: 30, leadership_change: 30, funding_ma: 30, news_event: 20, tech_detection: 15, exec_speaking: 10, priority_a_post: 10, facility_expansion: 15, vendor_customer_story: 15, other: 5}
+grade: {confirmed: 30, probable: 20, hypothesis: 5, lead: 0}
+source_tier: {t1: 20, t2: 10, t3: 0}
+recency_days: [[7, 15], [30, 8], [90, 3]]   # within N days -> points; older -> 0
+lane_match: 10
+priority_a: 10
+date_bucket_days: 7                          # fingerprint date bucket (proposal)
+cluster:
+  title_jaccard_same: 0.8                    # at or above: the same event (clustered)
+  title_jaccard_ambiguous: 0.5               # between: ambiguous (linked, one alert lists both)

@@ -1,0 +1,31 @@
+# Alert additions and noise control (Phase 4 WS5, D-74 proposal). The ten rules themselves come
+# from assets/alert_rules.yaml (sourced). The sources give NO cap values, digest thresholds or
+# grade floors beyond those stated in the rules: everything below is a conservative proposal
+# ("TODO, needs product owner").
+version: "1.0.0"
+status: proposal
+source: "rules: assets/alert_rules.yaml; additions, caps and defaults: TODO, needs product owner (D-74)"
+extra_rules:
+  - {id: facility_expansion,    tier: digest, delivery: [weekly_digest], trigger: "facility expansion reported", status: proposal}
+  - {id: vendor_customer_story, tier: digest, delivery: [weekly_digest], trigger: "a vendor publishes a customer story naming the account", status: proposal}
+# signal types each rule watches and the grade floor it needs (floors not stated in a rule: proposal)
+rule_signals:
+  new_build_role:        {signals: [build_role_posting], grade_floor: probable}
+  leadership_change:     {signals: [leadership_change], grade_floor: probable}
+  tier_one_news:         {signals: [news_event], grade_floor: confirmed}
+  funding_ma:            {signals: [funding_ma], grade_floor: probable}         # source: "grade B or better"
+  new_tech_detection:    {signals: [tech_detection], grade_floor: hypothesis}   # source: "ignore below grade C"
+  exec_speaking:         {signals: [exec_speaking], grade_floor: hypothesis}
+  priority_a_posts:      {signals: [priority_a_post], grade_floor: hypothesis}
+  lead_regraded_up:      {signals: [lead_regraded], grade_floor: probable}
+  confidence_drop:       {signals: [confidence_drop], grade_floor: lead}
+  budget:                {signals: [budget], grade_floor: lead}
+  facility_expansion:    {signals: [facility_expansion], grade_floor: probable}
+  vendor_customer_story: {signals: [vendor_customer_story], grade_floor: probable}
+defaults:
+  new_user: {digest: true, immediate: false, slack: false, threshold: 0}   # subscribe up (source: roadmap risks)
+caps:
+  tier_one_news_per_account_per_day: 1      # source names the cap; value is a proposal
+  per_user_per_hour: 3
+  per_user_per_day: 10
+  digest_batch_threshold: 5                 # above this many immediate alerts a day, batch into the digest

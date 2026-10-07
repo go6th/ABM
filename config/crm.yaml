@@ -1,0 +1,12 @@
+# CRM write-back (Phase 4 WS7, D-77 proposal). Sourced: opt-in; notes, tasks and enriched account
+# fields to Salesforce or HubSpot; new records only, never overwrite or delete (roadmap). The
+# conflict over "enriched fields" (C28) is resolved conservatively: enriched fields go into NEW
+# snapshot records, never into existing fields. Limits are proposals.
+version: "1.0.0"
+status: proposal
+source: "roadmap Phase 4 CRM write-back; limits: TODO, needs product owner (D-77)"
+enabled_by_default: false
+approval_per_batch: true
+kinds: [note, task, account_snapshot]
+limits: {title_chars: 120, body_chars: 4000, items_per_batch: 25}
+marker_prefix: "6th-agents-write:"   # written into every created record so a crash can be reconciled

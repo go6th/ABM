@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://6th.agents/opendoor/signal_page.v1.json",
+  "title": "Signal page v1 (GET /v1/signals)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "items", "next_cursor"],
+  "properties": {
+    "schema": {"const": "signal_page.v1"},
+    "items": {"type": "array", "items": {"$ref": "signal_event.v1.json"}, "maxItems": 200},
+    "next_cursor": {"type": ["string", "null"], "maxLength": 200}
+  }
+}
