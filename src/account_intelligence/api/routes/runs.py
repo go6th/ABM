@@ -12,18 +12,23 @@ No endpoint accepts a tenant id, and none sends outreach.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import time
+from collections.abc import AsyncIterator
 from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity, require_role
+from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs import lifecycle
 from account_intelligence.runs.lifecycle import (
@@ -34,6 +39,9 @@ from account_intelligence.runs.lifecycle import (
     RunStateConflict,
 )
 from account_intelligence.workflow.transitions import RunStatus
+from tenancy import settings
+from views import progress
+from views.progress import Progress
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
@@ -62,14 +70,16 @@ async def create_run(
 ) -> dict[str, Any]:
     """Create a run (both rows, reservation, tracker in one transaction) and enqueue slice 0."""
     container = _container(request)
-    run_input = {"lanes_off": sorted(set(body.lanes_off)), "pursuing_client": body.pursuing_client}
-    req = RunRequest(body.domain, body.depth, idem, run_input)
     try:
         async with tenant_txn(ident.tenant_id) as s:
+            run_input, version = await _run_input(s, body, ident, container)
+            req = RunRequest(body.domain, body.depth, idem, run_input)
             deps_tracker = await _tracker_for(container, s)
             created = await lifecycle.create_run(
                 s, ident.tenant_id, req, container.limits, deps_tracker
             )
+            if not created.replayed:
+                await settings.pin_run(s, created.run_id, version)
             await audit_action(
                 s,
                 request,
@@ -87,6 +97,42 @@ async def create_run(
     if not created.replayed:
         await container.scheduler.enqueue_slice(ident.tenant_id, created.run_id, 0)
     return {"run_id": str(created.run_id), "status": created.status, "replayed": created.replayed}
+
+
+async def _run_input(
+    s: Any, body: RunBody, ident: Identity, container: Any
+) -> tuple[dict[str, Any], int]:
+    """The run's frozen input from the tenant's current settings (TN5): lanes the tenant switched
+    off, the people geography, the exclusions (applied at pull time) and the pursuing client;
+    an excluded company is refused. Returns the input and the settings version it used."""
+    now = container.clock.now()
+    try:
+        current = await settings.ensure_saved(s, actor=ident.user_id, now=now)
+    except settings.SettingsInvalid:
+        raise APIProblem(
+            409,
+            "settings_invalid",
+            "Settings need attention",
+            "An admin must save the tenant settings again.",
+        ) from None
+    rule = settings.ExclusionFilter.of(current.settings)
+    if rule.excludes_company(body.domain):
+        raise APIProblem(
+            409,
+            "excluded_company",
+            "Excluded company",
+            "This company is on the tenant's exclusion list.",
+        )
+    lanes, _, _ = settings.platform_options()
+    off = set(body.lanes_off) | (set(lanes) - set(current.settings.platform_lanes))
+    run_input: dict[str, Any] = {"lanes_off": sorted(off), "pursuing_client": body.pursuing_client}
+    if body.pursuing_client and current.settings.pursuing_client:
+        run_input["pursuing_client"] = current.settings.pursuing_client
+    if current.settings.people_scope.regions:
+        run_input["people_regions"] = list(current.settings.people_scope.regions)
+    if rule.people or rule.companies:
+        run_input.update(rule.run_input())
+    return run_input, current.version
 
 
 async def _tracker_for(container: Any, session: Any) -> Any:
@@ -200,3 +246,98 @@ async def cancel(
     except ValueError:
         raise HTTPException(409, "run cannot be canceled from its state") from None
     return {"run_id": str(run_id), "status": status}
+
+
+register("GET", "/v1/runs/{run_id}/progress", tenant_route("read_public", "read"))
+register("GET", "/v1/runs/{run_id}/events", tenant_route("read_public", "read"))
+
+
+async def _progress(container: Any, tenant_id: UUID, run_id: UUID) -> Progress:
+    async with tenant_txn(tenant_id) as s:
+        row = (
+            await s.execute(text("SELECT status FROM account_runs WHERE id = :r"), {"r": run_id})
+        ).first()
+        if row is None:
+            raise HTTPException(404, "not found")
+        rows = (
+            await s.execute(
+                text("SELECT row_key, status FROM coverage_rows WHERE run_id = :r"),
+                {"r": run_id},
+            )
+        ).all()
+    stages = [(st.id, st.name) for st in container.spec.stages]
+    return progress.compute(
+        str(run_id),
+        row.status,
+        stages,
+        container.spec.coverage_owners,
+        [(r.row_key, r.status) for r in rows],
+    )
+
+
+@router.get("/{run_id}/progress")
+async def run_progress(
+    run_id: UUID,
+    request: Request,
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
+    ident: Identity = Depends(require_role("admin", "seller", "viewer")),
+) -> Response:
+    """Stages done of stages (``3 of 7``), with an ETag for cheap polling."""
+    got = await _progress(_container(request), ident.tenant_id, run_id)
+    if if_none_match == got.etag:
+        return Response(status_code=304, headers={"ETag": got.etag})
+    return JSONResponse(got.as_json(), headers={"ETag": got.etag})
+
+
+@router.get("/{run_id}/events")
+async def run_events(
+    run_id: UUID,
+    request: Request,
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    ident: Identity = Depends(require_role("admin", "seller", "viewer")),
+) -> StreamingResponse:
+    """Server-sent progress events: one event per change, a heartbeat, a bounded duration (the
+    client reconnects with Last-Event-ID and is authorised again)."""
+    container = _container(request)
+    first = await _progress(container, ident.tenant_id, run_id)  # 404 before streaming
+    cfg = progress_config()
+
+    async def stream() -> AsyncIterator[bytes]:
+        last = last_event_id
+        current: Progress | None = first
+        started = time.monotonic()
+        beat = started
+        # LOOP(progress stream): cap=sse_max_duration_s seconds, polled every sse_poll_s;
+        # exit=finished run, max duration, client gone
+        while time.monotonic() - started < cfg["sse_max_duration_s"]:
+            if current is not None and current.etag != last:
+                body = json.dumps(current.as_json(), separators=(",", ":"))
+                yield f"id: {current.etag}\nevent: progress\ndata: {body}\n\n".encode()
+                last = current.etag
+                beat = time.monotonic()
+                if current.finished:
+                    return
+            elif time.monotonic() - beat >= cfg["sse_heartbeat_s"]:
+                yield b": heartbeat\n\n"
+                beat = time.monotonic()
+            if await request.is_disconnected():
+                return
+            await asyncio.sleep(cfg["sse_poll_s"])
+            current = await _progress(container, ident.tenant_id, run_id)
+        yield b"event: reconnect\ndata: {}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+def progress_config() -> dict[str, float]:
+    """``config/views.yaml`` progress section (read on each stream)."""
+    import yaml
+
+    from account_intelligence.config import CONFIG_DIR
+
+    raw = yaml.safe_load((CONFIG_DIR / "views.yaml").read_text())["progress"]
+    return {k: float(v) for k, v in raw.items()}

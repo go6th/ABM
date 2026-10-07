@@ -162,6 +162,8 @@ routes:
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/spend: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/spend/live: {probe: tenant, params: {run_id: account_runs.id}}
+  GET /v1/runs/{run_id}/progress: {probe: tenant, params: {run_id: account_runs.id}}
+  GET /v1/runs/{run_id}/events: {probe: tenant, params: {run_id: account_runs.id}}
   POST /v1/runs: {probe: tenant, body: {domain: synthetic-b.example}, idempotent: true}
   POST /v1/runs/{run_id}/approve: {probe: tenant, params: {run_id: account_runs.id}}
   POST /v1/runs/{run_id}/cancel: {probe: tenant, params: {run_id: account_runs.id}}

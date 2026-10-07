@@ -23,3 +23,8 @@ branding:
   min_accent_contrast: 4.5        # WCAG AA for normal text against white (proposal)
   max_display_name_chars: 60
   attribution: "6th agents"       # fixed until D-64 is decided (skill rule 6)
+progress:
+  sse_max_duration_s: 60        # a stream ends within the membership-cache bound; the client
+                                # reconnects (with Last-Event-ID) and is authorised again
+  sse_heartbeat_s: 15
+  sse_poll_s: 2
