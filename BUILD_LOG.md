@@ -25,3 +25,27 @@ Not pushed. Phase 4 not started.
   rewrite was refused by the permission system; the owner decides (OI-P3-7).
 * Coverage under-reported async code until greenlet tracing was enabled (`b0a5bbf`).
 * A lax filter type let JSON `true` act as the count 1; values are strict now (`46dae9b`).
+
+# Build log: Phase 4, automation and signals
+
+Branch `feat/phase4-automation` (from `feat/phase3-tenant-product`), spec
+`docs/prompts/build_phase4.md`. Not pushed. Phase 5 not started.
+
+| Workstream | Result |
+|---|---|
+| WS0 foundations: WorldScript fake world, fake grader, config with provenance | Done |
+| WS1 shelf-life policy and scheduling (migration 0028) | Done |
+| WS2 refresh engine: plan, delta, escalation, debounce, history, codes, Summary diff, probe orchestrator | Done; refreshed Summary through the export builders Partial (OI-P4-2) |
+| WS3 monitors, intake, webhooks (0029) | Done hermetically; real adapters NotConfigured; webhook payload hand-off to the extractor Partial |
+| WS4 fingerprints, clustering, scoring | Done |
+| WS5 alerting: rules, subscribe-up, caps, templates, sensitive wording, outbox, channels, digest, feedback (0030) | Done; Slack and email adapters NotConfigured |
+| WS6 monitoring budget, throttle, cost reports (0031) | Done |
+| WS7 CRM write-back, create-only (0032) | Done hermetically; Salesforce and HubSpot NotConfigured |
+| WS8 Open Door schemas, API, docs | Done |
+| WS9 hardening: metrics, alerts, runbooks, restore drill, kill recovery, load profile, status page, DR plan, on-call template | Done as rehearsal; real DR Blocked |
+| WS10 simulation, gates, exit criteria | Done |
+
+Findings fixed during the build: a probe that crashed after grading would have lost its alert on
+retry (the snapshot now uses facts already reported); a lost CRM reply was recorded as failed
+although the record could exist (now reconciled by marker); fact expiry moved into the grading
+repo (one writer of facts); debounce rows written through their owner; CRM previews audited.
