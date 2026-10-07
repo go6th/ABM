@@ -36,6 +36,8 @@ from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.ports import NotConfigured
 from metering import events as usage
+from pilot import usefulness
+from pilot.feedback import policy as pilot_policy
 from tenancy.storage import PathRefused, require_owned, tenant_of_key
 from views import packages
 from views.materialize import api_rows
@@ -195,6 +197,15 @@ async def read_export(
     }
 
 
+_FACT_FILES = frozenset({"summary", "evidence", "workspace", "facts", "pdf"})
+
+
+def _carries_facts(package_kind: str, file: Any) -> bool:
+    """Whether a downloaded file holds the run's graded facts (D-68: a Confirmed fact in a
+    downloaded export counts as referenced); the People, Jobs and Tech files do not."""
+    return package_kind == "pdf" or file.get("kind") in _FACT_FILES
+
+
 @router.get("/{package_id}/files/{index}")
 async def download(
     package_id: UUID,
@@ -227,6 +238,14 @@ async def download(
             resource_type="export_file",
             resource_id=f["sha256"],
         )
+        if _carries_facts(row.kind, f):
+            await usefulness.exported(
+                s,
+                run_id=row.run_id,
+                user_id=ident.user_id,
+                now=plane_of(request).clock.now(),
+                limit=int(pilot_policy()["max_export_references"]),
+            )
     if (
         f["store"] == "deliverables"
         or tenant_of_key(f["key"])

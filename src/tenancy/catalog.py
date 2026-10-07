@@ -86,6 +86,8 @@ EVENT_TYPES: dict[str, str] = {
     "connector.access": "connector_access_log row (tenant-scoped, RLS, insert-only)",
     "usage.event": "usage_events row (tenant-scoped, RLS, insert-only, idempotent)",
     "support.action": "support_session_events row (tenant-scoped, RLS, insert-only, visible)",
+    "pilot.feedback": "run_feedback row (tenant-scoped, RLS, insert-only; the note is tenant data)",
+    "pilot.usefulness": "usefulness_events row (tenant-scoped, RLS, insert-only, identifiers)",
 }
 
 # Background jobs and the boundary each runs under.

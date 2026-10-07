@@ -1,0 +1,23 @@
+# Pilot feedback and seller usefulness (Phase 3 WS9; PL1, PL2, D-68). The roadmap names the
+# metric ("first-call questions used, Confirmed facts referenced") but gives no reason list, no
+# ratio definition and no minimum base: everything below is a proposal ("TODO, needs product
+# owner").
+version: "1.0.0"
+status: proposal
+source: "Roadmap Phase 3 pilot onboarding; definitions: proposal D-68"
+feedback_reasons:
+  useful: [accurate, new_to_me, used_on_call, saved_time]
+  not_useful: [wrong, out_of_date, already_known, not_relevant, missing_source]
+note_max_chars: 2000
+metric:
+  window_days: 30
+  # a rate whose base is smaller than this is shown with a "small base" label and its counts
+  min_base: 20
+  definitions:
+    question_use_rate: >-
+      distinct first-call questions marked or copied by any member / distinct first-call
+      questions in the newest report version of the tenant's runs created in the window
+    confirmed_fact_reference_rate: >-
+      distinct Confirmed facts opened, copied into a note or in a downloaded export / distinct
+      current, public Confirmed facts of the tenant's accounts created in the window
+max_export_references: 500
