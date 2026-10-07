@@ -56,6 +56,10 @@ STORAGE_LAYOUTS: dict[str, StorageLayout] = {
         "tenancy.storage.tenant_path(uploads, branding)",
         lambda t: tenant_path(t, "uploads", "branding", "a" * 64),
     ),
+    "connector_quarantine": StorageLayout(
+        "tenancy.storage.tenant_path(connector-quarantine)",
+        lambda t: tenant_path(t, "connector-quarantine", str(_id(t, "conn")), "a" * 64),
+    ),
     "export_file": StorageLayout(
         "tenancy.storage.tenant_path(exports)",
         lambda t: tenant_path(t, "exports", str(_id(t, "run")), "a" * 64 + ".csv"),
@@ -79,6 +83,7 @@ EVENT_TYPES: dict[str, str] = {
     "task.approval_timeout": "Cloud Tasks payload {tenant_id, run_id}",
     "outbox.notification": "notification_outbox row (tenant-scoped, RLS)",
     "audit.event": "audit_events row (tenant-scoped, RLS, insert-only, hash-chained)",
+    "connector.access": "connector_access_log row (tenant-scoped, RLS, insert-only)",
 }
 
 # Background jobs and the boundary each runs under.
@@ -88,4 +93,6 @@ JOBS: dict[str, str] = {
     "cost_rollup": "obs.costs.refresh: per tenant and run, inside tenant_txn",
     "isolation_probe": "obs.canary.probe: synthetic tenants only, inside tenant_txn",
     "audit_chain_verify": "audit.chain.verify: per tenant, inside tenant_txn",
+    "connector_fetch": "connectors_client.framework.fetch_pass: per connection, tenant_txn;"
+    " provider calls outside any transaction",
 }

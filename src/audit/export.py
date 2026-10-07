@@ -1,7 +1,8 @@
 """The tenant's audit export (AU2, D-69 proposal; SaaS 3.1 rule 7 reconciled with rule 6).
 
 A CSV a tenant admin downloads: every audit event (sequence, time, actor, actor kind, class,
-action, resource, route, request id, outcome, support grant), every sign-in event, and, per run,
+action, resource, route, request id, outcome, support grant), every sign-in event, every connector
+access (the connection, the source's own resource id, purpose and outcome), and, per run,
 how many provider calls were made in each neutral CATEGORY (``web_search``, ``people_search``,
 ...). Never a provider name, a credit count, a cost, a token or any content. Every line passes
 the client-output scanner and every cell is neutralised against spreadsheet formula injection.
@@ -75,6 +76,15 @@ async def build_csv(
             window,
         )
     ).all()
+    accesses = (
+        await s.execute(
+            text(
+                "SELECT id, at, principal, kind, purpose, outcome, resource_id, connection_id"
+                f" FROM connector_access_log WHERE {where} ORDER BY id LIMIT :n"  # noqa: S608
+            ),
+            window,
+        )
+    ).all()
     calls = (
         await s.execute(
             text(
@@ -121,6 +131,22 @@ async def build_csv(
                 outcome="denied" if a.event in ("login_failed", "csrf_refused") else "ok",
                 request_id=a.request_id,
                 category=a.reason_code,
+            )
+        )
+    for x in accesses:
+        lines.append(
+            _row(
+                kind="connector_access",
+                seq=int(x.id),
+                at=x.at.isoformat(),
+                actor=x.principal,
+                actor_kind="user",
+                **{"class": "access"},
+                action=f"connector.{x.purpose}",
+                resource_type=x.kind,
+                resource_id=x.resource_id,
+                outcome=x.outcome,
+                route=str(x.connection_id),
             )
         )
     per_category: dict[tuple[str, str], tuple[int, datetime]] = {}

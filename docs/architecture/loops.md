@@ -7,9 +7,13 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
+| connector token refresh | `src/connectors_client/oauth.py:211` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
 | converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
+| crm fetch pass | `src/connectors_client/framework.py:401` | max_pages_per_pass pages per pass | last page, page_cap |
 | deletion cascade | `src/tenancy/lifecycle.py:331` | max_batches_per_pass erasing batches per pass, plus one empty probe per table | completed, blocked (blocked items remain), batch_cap |
 | dependency closure | `src/parallel/executor.py:152` | number of units (each visited once) | all reached |
+| drive ancestry resolution | `src/connectors_client/framework.py:297` | max_ancestry_depth levels | no unresolved parent, depth cap (the decision is then unknown ancestry: deny) |
+| drive fetch pass | `src/connectors_client/framework.py:316` | max_pages_per_pass pages and max_items_per_pass items per pass | complete, page_cap or item_cap (a cursor is saved and the next pass resumes) |
 | eval repeats | `src/evalgate/runner.py:104` | accounts x repeats_k runs | all cases executed |
 | export keyset pagination | `src/exports/readers/pg.py:78` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
 | findings extractor | `src/people/findings.py:103` | max_extractor_calls, one call per person | converged, cap_reached |

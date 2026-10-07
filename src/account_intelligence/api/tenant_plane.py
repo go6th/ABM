@@ -71,6 +71,31 @@ class TenantPlane:
     clock: Clock
     base_url: str | None
     policy: SessionPolicy
+    oauth: Any = None
+    connectors: Any = None
+    connector_client_ids: dict[str, str] | None = None
+    vault: Any = None
+
+    def connector_ports(self) -> tuple[Any, Any, Any]:
+        """(OAuth client, read client, Phase B vault), fail-closed defaults when unwired."""
+        from connectors_client.ports import (
+            UnconfiguredConnectorClient,
+            UnconfiguredOAuthClient,
+            UnconfiguredVault,
+        )
+
+        return (
+            self.oauth or UnconfiguredOAuthClient(),
+            self.connectors or UnconfiguredConnectorClient(),
+            self.vault or UnconfiguredVault(),
+        )
+
+    def connector_client_id(self, kind: str) -> str:
+        """The registered OAuth client id of a source (NotConfigured: no app is registered)."""
+        found = (self.connector_client_ids or {}).get(kind)
+        if not found:
+            raise NotConfigured(f"no OAuth app is registered for {kind}")
+        return found
 
     async def key(self, ref: str) -> bytes:
         """A signing key from the secret store (NotConfigured when absent or too short)."""
