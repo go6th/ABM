@@ -11,6 +11,7 @@ GUARANTEE(test_every_read_route_emits_an_audit_event)
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from datetime import datetime
@@ -21,10 +22,23 @@ _PARAM = re.compile(r"^\{(\w+?)(?:_id)?(?::\w+)?\}$")
 _WORD = re.compile(r"[^a-z]+")
 
 
+_ID = re.compile(r"^[A-Za-z0-9:_.@+=-]{1,200}$")
+
+
+def _identifier(value: str) -> str:
+    """A path value as an audit identifier: kept when it is one, else its hash (a hostile or odd
+    value is recorded without being stored, and never fails the audit write)."""
+    if _ID.match(value):
+        return value
+    return "sha256:" + hashlib.sha256(value.encode()).hexdigest()[:32]
+
+
 def resource_of(template: str, params: Mapping[str, object]) -> tuple[str, str, str | None]:
     """``(slug, resource_type, resource_id)`` for a route template: the slug joins the static
-    segments after the version; the resource is the LAST path parameter (``run_id`` -> ``run``)
-    or, for a collection route, its last static segment."""
+    segments after the version; the resource type is the LAST path parameter's name (``run_id``
+    -> ``run``) or, for a collection route, its last static segment; the resource id joins EVERY
+    path parameter's value in order (an account's table is ``acme.example/people``), each kept
+    only when it is an identifier and hashed otherwise."""
     segments = [s for s in template.split("/") if s and s not in ("v1", "operator")]
     static = [_WORD.sub("_", s.lower()).strip("_") for s in segments if not s.startswith("{")]
     slug = "_".join(x for x in static if x)[:60] or "root"
@@ -33,12 +47,12 @@ def resource_of(template: str, params: Mapping[str, object]) -> tuple[str, str, 
         return slug, (static[-1] if static else "root")[:40], None
     m = _PARAM.match(last_param)
     name = m.group(1) if m else "resource"
-    full = last_param.strip("{}").split(":", 1)[0]
-    value = params.get(full)
+    names = [s.strip("{}").split(":", 1)[0] for s in segments if s.startswith("{")]
+    values = [_identifier(str(params[n])) for n in names if params.get(n) is not None]
     return (
         slug,
         _WORD.sub("_", name.lower())[:40] or "resource",
-        (None if value is None else str(value)[:300]),
+        "/".join(values)[:300] if values else None,
     )
 
 

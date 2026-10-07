@@ -15,6 +15,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID, uuid5
 
+from tenancy.storage import tenant_path
+
 _NS = UUID("6f1a3c7e-0000-4000-8000-000000000001")
 
 
@@ -46,6 +48,18 @@ def _deliverable(t: UUID) -> str:
 STORAGE_LAYOUTS: dict[str, StorageLayout] = {
     "raw_payload": StorageLayout("account_intelligence.connectors.payloads.payload_key", _payload),
     "deliverable": StorageLayout("exports.store.object_key", _deliverable),
+    "branding": StorageLayout(
+        "tenancy.storage.tenant_path(branding)",
+        lambda t: tenant_path(t, "branding", "a" * 64 + ".png"),
+    ),
+    "branding_upload_quarantine": StorageLayout(
+        "tenancy.storage.tenant_path(uploads, branding)",
+        lambda t: tenant_path(t, "uploads", "branding", "a" * 64),
+    ),
+    "export_file": StorageLayout(
+        "tenancy.storage.tenant_path(exports)",
+        lambda t: tenant_path(t, "exports", str(_id(t, "run")), "a" * 64 + ".csv"),
+    ),
     "prepulled_quarantine": StorageLayout(
         "spend.exhaustion (quarantine/<tenant>/<run>/<intent>)",
         lambda t: f"quarantine/{t}/{_id(t, 'run')}/{_id(t, 'intent')}",
