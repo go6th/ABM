@@ -49,10 +49,35 @@ def _seed(plane: Any) -> dict[str, UUID]:
 
     suffix = os.urandom(3).hex()
     os.environ["E2E_SLUG_A"], os.environ["E2E_SLUG_B"] = f"e2e-a-{suffix}", f"e2e-b-{suffix}"
-    return {
+    seeded = {
         "a": tenant(os.environ["E2E_SLUG_A"], MEMBERS_A, ["acme-a.example", "acme-b.example"]),
         "b": tenant(os.environ["E2E_SLUG_B"], {"bob": "admin"}, ["beta-only.example"]),
     }
+    _seed_alert(seeded["a"], f"{os.environ['E2E_SLUG_A']}:ada")
+    return seeded
+
+
+def _seed_alert(tenant: UUID, user: str) -> None:
+    """One alert for tenant A's admin, built by the real engine (Phase 4 flows)."""
+    import asyncio
+
+    import psycopg
+
+    from tests.conftest import ADMIN_DSN
+    from tests.phase4.test_ws5_alerting import evaluate, make_event
+
+    with psycopg.connect(ADMIN_DSN) as c:
+        account = c.execute(
+            "SELECT id FROM accounts WHERE tenant_id = %s AND domain = 'acme-a.example'", (tenant,)
+        ).fetchone()[0]
+
+    async def go() -> None:
+        ev = await make_event(
+            tenant, account, signal="build_role_posting", title="Platform owner role posted"
+        )
+        await evaluate(tenant, ev, users=(user,))
+
+    asyncio.run(go())
 
 
 def build() -> Any:

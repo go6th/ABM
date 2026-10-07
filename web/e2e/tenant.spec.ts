@@ -23,6 +23,7 @@ async function signIn(page: Page, slug: string, subject: string, role: string) {
     await route.fulfill({ status: 302, headers: { location: answer.headers()["location"] ?? "/login" } });
   });
   await page.goto("/login");
+  await page.waitForLoadState("networkidle");  // the form's handler is attached after hydration
   await page.getByLabel("Organisation sign-in name").fill(slug);
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
@@ -116,4 +117,56 @@ test("pages carry a nonce CSP and the security headers", async ({ page }) => {
   expect(h["content-security-policy"]).toMatch(/script-src[^;]*'nonce-/);
   expect(h["x-frame-options"]).toBe("DENY");
   expect(h["x-content-type-options"]).toBe("nosniff");
+});
+
+test("alerts: the inbox shows the alert and a rating is saved", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "ada", "admin");
+  await page.goto("/alerts");
+  await expect(page.getByRole("heading", { name: /New role posted at/ })).toBeVisible();
+  await page.getByRole("button", { name: "Rate" }).first().click();
+  await expect(page.getByText("Thanks.")).toBeVisible();
+  await noSeriousA11y(page);
+});
+
+test("subscriptions start digest-only and subscribe up; admins see the budget in percent", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "ada", "admin");
+  // start from the digest-only defaults (a fresh user's state; the API test covers new users)
+  const csrf = (await (await page.request.get("/v1/sso/session")).json()).csrf_token as string;
+  await page.request.put("/v1/subscriptions", { data: { digest: true, immediate_rules: [], slack: false, threshold: 0, muted_accounts: [] }, headers: { "X-CSRF-Token": csrf } });
+  await page.goto("/settings/alerts");
+  const box = page.getByLabel("New build or admin role in your lanes");
+  await expect(box).not.toBeChecked();
+  await expect(page.getByLabel("Weekly digest")).toBeChecked();
+  await box.check();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("New build or admin role in your lanes")).toBeChecked();
+  await expect(page.getByText(/% used/)).toBeVisible();
+  const text = (await page.locator("body").innerText()).toLowerCase();
+  for (const word of ["credit", "usd", "units"]) expect(text).not.toContain(word);
+  await noSeriousA11y(page);
+});
+
+test("CRM write-back is admin-only, off by default and refuses an unmapped preview", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "ada", "admin");
+  await page.goto("/settings/crm");
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("button", { name: "Revoke" }).click();  // start from "off"
+  await expect(page.getByText("Revoked: writes stop now.")).toBeVisible();
+  await page.getByLabel("Account domain").fill("acme-a.example");
+  await page.getByRole("button", { name: "Request write" }).click();
+  await expect(page.getByText("Refused (crm_not_enabled).")).toBeVisible();
+  await page.getByRole("button", { name: "Enable" }).click();
+  await expect(page.getByText("Enabled.")).toBeVisible();
+  await page.getByRole("button", { name: "Preview" }).click();
+  await expect(page.getByText("Refused (mapping_missing).")).toBeVisible();
+  await noSeriousA11y(page);
+});
+
+test("a seller cannot manage CRM write-back", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "sam", "seller");
+  await page.goto("/settings/crm");
+  await expect(page.getByText("Only admins manage CRM write-back.")).toBeVisible();
+  expect((await page.request.post("/v1/crm/salesforce/enable", { headers: { "X-CSRF-Token": (await (await page.request.get("/v1/sso/session")).json()).csrf_token } })).status()).toBe(403);
 });
