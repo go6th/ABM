@@ -39,7 +39,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/gate", "src/parallel", "src/llm", "src/verify", "src/evalgate", "src/obs", "src/tenancy", "src/identity", "src/audit", "src/views"]
+packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/gate", "src/parallel", "src/llm", "src/verify", "src/evalgate", "src/obs", "src/tenancy", "src/identity", "src/audit", "src/views", "src/connectors_client"]
 
 [dependency-groups]
 dev = [
@@ -88,7 +88,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source_pkgs = ["account_intelligence", "spend", "exports", "gate", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views"]
+source_pkgs = ["account_intelligence", "spend", "exports", "gate", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client"]
 branch = true
 
 [tool.coverage.report]
@@ -97,7 +97,7 @@ show_missing = true
 
 # W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports
 [tool.importlinter]
-root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "gate", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views"]
+root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "gate", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client"]
 
 [[tool.importlinter.contracts]]
 name = "platform ports and adapters depend on nothing above them"
