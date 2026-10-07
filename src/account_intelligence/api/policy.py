@@ -7,7 +7,9 @@ router guard (``api.guard``) before any handler runs, and ``scripts/check_route_
 fails the build when a route has no entry or an entry has no route.
 
 The tenant is never a request field: ``session`` means the verified session or token,
-``operator_grant`` means an operator's tenant-admin support grant (D-66), ``none`` means the
+``operator_grant`` means an operator's tenant-admin support grant (D-66), ``operator_target``
+means a 6th operator naming a tenant for lifecycle and quota changes only (never a data read),
+``none`` means the
 route reads no tenant data (an IdP callback resolves the tenant from the tenant's own IdP
 connection, never from a claim the IdP supplies).
 
@@ -24,7 +26,8 @@ from typing import Literal
 Role = Literal["admin", "analyst", "seller", "viewer"]
 PrincipalType = Literal["jwt", "session", "api_key", "operator_support", "anonymous"]
 AuditClass = Literal["read", "run", "export", "admin", "none"]
-TenantSource = Literal["session", "operator_grant", "none"]
+TenantSource = Literal["session", "operator_grant", "operator_target", "none"]
+OperatorRole = Literal["operator", "support"]
 
 ALL_ROLES: frozenset[Role] = frozenset({"admin", "analyst", "seller", "viewer"})
 TENANT_PRINCIPALS: frozenset[PrincipalType] = frozenset({"jwt", "session"})
@@ -43,6 +46,7 @@ class RoutePolicy:
     audit: AuditClass
     tenant_source: TenantSource
     action: str | None = None
+    operator_roles: frozenset[OperatorRole] = frozenset()
 
 
 def _tenant(roles: set[Role], audit: AuditClass) -> RoutePolicy:
@@ -50,7 +54,20 @@ def _tenant(roles: set[Role], audit: AuditClass) -> RoutePolicy:
 
 
 def _operator(audit: AuditClass) -> RoutePolicy:
-    return RoutePolicy(frozenset({"admin"}), OPERATOR, audit, "operator_grant")
+    return RoutePolicy(
+        frozenset(), OPERATOR, audit, "operator_grant", None, frozenset({"operator", "support"})
+    )
+
+
+def operator_route(
+    audit: AuditClass,
+    *,
+    tenant: TenantSource = "operator_grant",
+    roles: frozenset[OperatorRole] = frozenset({"operator", "support"}),
+) -> RoutePolicy:
+    """An operator-plane route: a support grant (``operator_grant``), an operator naming a tenant
+    for lifecycle and quota changes only (``operator_target``), or no tenant (``none``)."""
+    return RoutePolicy(frozenset(), OPERATOR, audit, tenant, None, roles)
 
 
 _SELLERS: set[Role] = {"admin", "analyst", "seller"}

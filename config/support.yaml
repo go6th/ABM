@@ -1,0 +1,14 @@
+# Support access (Phase 3 WS8, AD3; D-66 proposal; SaaS 3.1 rule 9 and A8: just-in-time access
+# with a reason code and a customer-visible audit entry). The sources give NO durations or reason
+# list: these are conservative proposals ("TODO, needs product owner").
+version: "1.0.0"
+status: proposal
+source: "SaaS 3.1 rule 9; ARCH A8; durations and reason codes: proposal D-66"
+reason_codes: [customer_request, incident_investigation, onboarding_help, data_question]
+max_minutes:
+  read: 120          # a view-as grant lasts at most two hours
+  write: 30          # a write grant (separate, second grant) at most thirty minutes
+operator_token:
+  issuer_env: STAFF_JWT_ISSUER          # the 6th staff IdP (not a tenant IdP); unset: 503
+  audience_env: STAFF_JWT_AUDIENCE
+  jwks_env: STAFF_JWKS_URL

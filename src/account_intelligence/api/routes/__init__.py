@@ -10,12 +10,15 @@ from account_intelligence.api.routes import (
     connectors,
     exports,
     health,
+    operator_admin,
+    operator_view,
     ops,
     runs,
     settings,
     spend,
     spend_v2,
     sso,
+    support,
     tasks,
     usage,
     users,
@@ -38,6 +41,7 @@ v1_router.include_router(views.router)
 v1_router.include_router(exports.router)
 v1_router.include_router(connectors.router)
 v1_router.include_router(usage.router)
+v1_router.include_router(support.router)
 # Anonymous sign-in routes: the catalog guard applies (they are registered ANONYMOUS), but no
 # principal is resolved; the tenant comes from the IdP connection the URL names.
 public_v1_router = APIRouter(prefix="/v1", dependencies=[Depends(route_guard)])
@@ -45,6 +49,8 @@ public_v1_router.include_router(sso.public_router)
 operator_router = APIRouter(dependencies=[Depends(route_guard)])
 operator_router.include_router(spend_v2.operator_router)
 operator_router.include_router(ops.router)
+operator_router.include_router(operator_admin.router)
+operator_router.include_router(operator_view.router)
 
 __all__ = [
     "accounts",

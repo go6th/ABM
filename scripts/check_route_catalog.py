@@ -79,10 +79,18 @@ def problems() -> list[str]:
                 out.append(f"bad audit class {policy.audit!r}: {method.upper()} {path}")
             operator = path.startswith("/operator/")
             if operator and (
-                policy.tenant_source != "operator_grant"
+                policy.tenant_source not in ("operator_grant", "operator_target", "none")
                 or policy.principal_types != frozenset({"operator_support"})
+                or not policy.operator_roles
+                or policy.roles
             ):
-                out.append(f"operator route must use an operator grant: {method.upper()} {path}")
+                out.append(f"operator route must use the staff plane: {method.upper()} {path}")
+            if (
+                operator
+                and policy.tenant_source == "operator_target"
+                and policy.operator_roles != {"operator"}
+            ):
+                out.append(f"only operators may name a tenant: {method.upper()} {path}")
             if not operator and policy.tenant_source not in ("session", "none"):
                 out.append(f"tenant route must take its tenant from the session: {path}")
             if not operator and "operator_support" in policy.principal_types:
@@ -95,6 +103,14 @@ def problems() -> list[str]:
             body = op.get("requestBody", {}).get("content", {})
             for media in body.values():
                 params |= _schema_names(media.get("schema", {}), components, set())
+            path_params = {
+                p.get("name", "") for p in op.get("parameters", []) if p.get("in") == "path"
+            }
+            if policy.tenant_source == "operator_target":
+                # an operator names the tenant in the path, never in a query or body
+                params -= path_params & {"tenant_id"}
+                if "tenant_id" not in path_params:
+                    out.append(f"operator target route without a tenant path: {path}")
             if {"tenant_id", "tenant", "tenantId"} & {p for p in params}:
                 out.append(f"route accepts a tenant field: {method.upper()} {path}")
     for method, path in sorted(set(ROUTE_POLICIES) - seen):

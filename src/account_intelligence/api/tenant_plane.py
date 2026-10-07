@@ -75,6 +75,7 @@ class TenantPlane:
     connectors: Any = None
     connector_client_ids: dict[str, str] | None = None
     vault: Any = None
+    staff_verifier: Any = None
 
     def connector_ports(self) -> tuple[Any, Any, Any]:
         """(OAuth client, read client, Phase B vault), fail-closed defaults when unwired."""
