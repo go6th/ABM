@@ -53,11 +53,16 @@ def plan(
     *,
     probe_sources: Sequence[str],
     overrides: Mapping[str, int] | None = None,
+    inherited: Mapping[str, str] | None = None,
 ) -> list[RowPlan]:
-    """The per-row plan (in row order)."""
+    """The per-row plan (in row order). ``inherited`` maps rows a probe pulled this period to
+    that probe's run: an escalated refresh does not pull them again (pull once, RF4)."""
     probe_keys = {k for src in probe_sources for k in PROBE_ROWS.get(src, ())}
     out: list[RowPlan] = []
     for r in sorted(rows, key=lambda x: x.row_key):
+        if kind == "refresh" and inherited and r.row_key in inherited:
+            out.append(RowPlan(r.row_key, "not_due", "probe_source", inherited[r.row_key]))
+            continue
         entry = policy.entries.get(r.row_key)
         days = effective_days(entry, policy, (overrides or {}).get(r.row_key)) if entry else None
         due = is_due(now, r.last_checked_at, days)
