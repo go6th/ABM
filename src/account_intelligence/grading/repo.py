@@ -14,6 +14,7 @@ import hashlib
 import json
 from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -292,3 +293,19 @@ async def record_lead(txn: TxnFactory, run: RunInfo, state: LeadVerification) ->
                 },
             )
         return UUID(str(lead_id))
+
+
+async def expire(s: AsyncSession, fact_id: UUID, now: datetime) -> UUID | None:
+    """Mark a current fact expired (``superseded_at`` set once, no successor: a signal past its
+    shelf life, Phase 4 RF2); returns its account id, or None when it was already superseded.
+    The caller records why (``refresh.history``). The only expiry path for facts."""
+    row = (
+        await s.execute(
+            text(
+                "UPDATE facts SET superseded_at = :now WHERE id = :f AND superseded_at IS NULL"
+                " RETURNING account_id"
+            ),
+            {"now": now, "f": fact_id},
+        )
+    ).first()
+    return None if row is None else UUID(str(row.account_id))

@@ -1,0 +1,33 @@
+# Shelf life per signal type (Phase 4 WS1, D-71 proposal). Cadences are from SaaS 5.1 via
+# assets/checklist.yaml `refresh_cadence` (`source` given per row). The sources give NO shelf-life
+# durations: `shelf_life_days` equals the cadence period (a proposal, "TODO, needs product owner").
+# These are NOT the grading half-lives (hiring 21, technology 90, leadership 180, funding 365 days),
+# which are confidence decay. A null cadence is never scheduled until an analyst sets one.
+version: "1.0.0"
+status: proposal
+source: "cadence: SaaS 5.1 / assets/checklist.yaml; durations: TODO, needs product owner (D-71)"
+cadence_days: {weekly: 7, monthly: 30, quarterly: 91}   # proposal: period lengths in days
+tenant_override_bounds: {min_factor: 1.0, max_factor: 4.0}  # proposal: tenants may only lengthen
+signals:
+  job_board_by_lane:            {cadence: weekly,    source: "SaaS 5.1"}
+  job_postings_12_months:       {cadence: monthly,   source: "SaaS 5.1"}
+  job_postings_read_classified: {cadence: monthly,   source: "assets/checklist.yaml"}
+  company_news:                 {cadence: weekly,    source: "SaaS 5.1"}
+  technology_detections:        {cadence: monthly,   source: "SaaS 5.1"}
+  leadership_changes:           {cadence: weekly,    source: "SaaS 5.1"}
+  earnings_filings:             {cadence: quarterly, source: "SaaS 5.1 (reporting calendar not modelled; status: proposal)"}
+  people_by_platform:           {cadence: quarterly, source: "SaaS 5.1 senior people list"}
+  full_profiles_senior_people:  {cadence: quarterly, source: "SaaS 5.1 priority A profiles"}
+  posts_priority_people:        {cadence: monthly,   source: "SaaS 5.1 (recent activity only)"}
+  executive_voice_earnings:     {cadence: quarterly, source: "assets/checklist.yaml"}
+  financial_baseline_verified:  {cadence: quarterly, source: "assets/checklist.yaml"}
+  executive_speaking:           {cadence: monthly,   source: "SaaS 5.1"}
+  podcasts:                     {cadence: monthly,   source: "SaaS 5.1"}
+  youtube:                      {cadence: monthly,   source: "SaaS 5.1"}
+  medium_substack:              {cadence: monthly,   source: "SaaS 5.1"}
+  review_sites:                 {cadence: quarterly, source: "SaaS 5.1"}
+  vendor_communities:           {cadence: quarterly, source: "SaaS 5.1"}
+  facility_expansions:          {cadence: null,      status: "proposal: roadmap monitor; no cadence in the sources"}
+  vendor_customer_stories:      {cadence: null,      source: "assets/checklist.yaml (null)"}
+  prior_customer_status:        {cadence: null,      source: "assets/checklist.yaml (null)"}
+  lead_verification:            {cadence: null,      source: "assets/checklist.yaml (null)"}

@@ -1,0 +1,26 @@
+# Refresh engine (Phase 4 WS2, D-72 proposal). ARCH 6.4 gives the method (probe the cheapest
+# high-signal sources, escalate on delta score or brief age) but NO numbers: every value below is a
+# conservative proposal ("TODO, needs product owner"). ARCH cost figures are illustrative only.
+version: "1.0.0"
+status: proposal
+source: "method: ARCH 6.4, PRD 4.5; values: TODO, needs product owner (D-72)"
+probe:
+  cadence: weekly                       # source: job board and news are weekly (SaaS 5.1)
+  sources: [job_postings, news_events]  # source: assets/alert_rules.yaml refresh.probe_sources
+  jitter_window_s: 3600                 # source: ARCH 6.4 "jitter across the hour"
+escalation:
+  delta_score_threshold: 10             # proposal: high on purpose (fewer escalations)
+  max_brief_age_days: 90                # proposal
+  min_interval_days: 7                  # proposal: at most one escalation a week per account
+  max_per_period: 2                     # proposal: per account per calendar month
+debounce:
+  absent_probes_to_remove: 2            # source: ARCH 6.4 "absent on two probes"
+catch_up:
+  max_slots_per_tick: 50                # proposal
+  max_slots_per_tenant_per_tick: 5      # proposal
+delta_weights:                          # proposal: weights of the delta score (D-72)
+  new: {build_role_posting: 4, leadership_change: 5, news_event: 2, tech_detection: 2, funding_ma: 5, other: 1}
+  expired: 1
+  regraded_up: 2
+  regraded_down: 2
+  count_change: 1
