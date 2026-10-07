@@ -8,6 +8,7 @@ import { SignedIn } from "@/components/SignedIn";
 import { RunProgress } from "@/components/Progress";
 import { cellText } from "@/lib/render";
 import { useApi } from "@/lib/useApi";
+import { FeedbackForm } from "@/components/Feedback";
 
 interface Account { domain: string; latest_run: { run_id: string; status: string } | null }
 interface Settings { settings: { platform_lanes: string[]; pursuing_client: string | null } }
@@ -75,6 +76,7 @@ function Summary({ s, domain }: { s: Session; domain: string }) {
         </form>
       ) : null}
       {message ? <p role="status">{message}</p> : null}
+      {account?.latest_run ? <FeedbackForm label="Feedback on this account" target={{ domain }} /> : null}
       <h2>Tables</h2>
       <ul>{TABLES.map(([key, label]) => <li key={key}><a href={`/accounts/${encodeURIComponent(domain)}/tables/${key}`}>{label}</a></li>)}</ul>
       <h2>Exports</h2>

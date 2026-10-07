@@ -7,11 +7,12 @@ import { useParams } from "next/navigation";
 import { api, type Session } from "@/lib/api";
 import { SignedIn } from "@/components/SignedIn";
 import { useApi } from "@/lib/useApi";
+import { FeedbackForm, markUseful } from "@/components/Feedback";
 import { cellText, LINK_REL, safeLink } from "@/lib/render";
 import { addFilter, emptySpec, needsValue, removeFilter, tableUrl, toggleSort, withSearch, type Column, type Op, type QuerySpec } from "@/lib/query";
 
 interface Row { position: number; ref: string; row_id: string; cells: Record<string, string | number | null>; source: { code: string | null; url: string | null; state: string } }
-interface Page { columns: Column[]; rows: Row[]; next_cursor: string | null; materialization: { status: string; reason: string | null } }
+interface Page { run_id?: string; columns: Column[]; rows: Row[]; next_cursor: string | null; materialization: { status: string; reason: string | null } }
 interface SavedView { id: string; name: string; table: string; shared: boolean; version: number; spec: QuerySpec }
 
 function TableView({ s, domain, table }: { s: Session; domain: string; table: string }) {
@@ -108,8 +109,12 @@ function TableView({ s, domain, table }: { s: Session; domain: string; table: st
           <h2>Source {cellText(selected.source.code)}</h2>
           <p>Row {cellText(selected.ref)}</p>
           {safeLink(selected.source.url) ? (
-            <p><a href={safeLink(selected.source.url) ?? undefined} target="_blank" rel={LINK_REL}>Open the source</a></p>
+            <p><a href={safeLink(selected.source.url) ?? undefined} target="_blank" rel={LINK_REL} onClick={() => { if (table === "facts") markUseful("confirmed_fact_referenced", selected.row_id, "opened"); }}>Open the source</a></p>
           ) : <p className="muted">No link</p>}
+          {table === "facts" ? (
+            <button type="button" onClick={() => { void navigator.clipboard?.writeText(Object.values(selected.cells).map((v) => cellText(v)).join(" | ")); markUseful("confirmed_fact_referenced", selected.row_id, "noted"); }}>Copy into a note</button>
+          ) : null}
+          {page?.run_id ? <FeedbackForm label={`Feedback on row ${selected.ref}`} target={{ domain, runId: page.run_id, table, rowId: selected.row_id }} /> : null}
           <button type="button" onClick={() => setSelected(null)}>Close</button>
         </aside>
       ) : null}
