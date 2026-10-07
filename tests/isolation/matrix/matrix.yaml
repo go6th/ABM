@@ -16,6 +16,10 @@ tables:
   account_source_counters: {}
   accounts:
     plant: {domain: "tn1-{hex64}.example"}
+  auth_events:
+    plant: {event: login_started}
+  auth_sessions:
+    plant: {absolute_expires_at: "2027-01-01T00:00:00+00:00", idle_timeout_s: 60}
   balance_snapshots:
     plant: {status: unknown, provider_code: p_search}
   canary_probe_results: {}
@@ -37,6 +41,11 @@ tables:
   facts:
     plant: {product_grade: hypothesis}
   grade_events: {}
+  idp_connections:
+    plant: {slug: "{uuid}", protocol: oidc, client_id: "{canary}",
+            authorization_endpoint: "https://idp.synthetic.test/{canary}",
+            token_endpoint: "https://idp.synthetic.test/token",
+            jwks_uri: "https://idp.synthetic.test/jwks"}
   job_pipeline_passes: {}
   job_pipeline_runs: {}
   job_posting_classifications: {}
@@ -50,6 +59,8 @@ tables:
   lead_verifications: {}
   llm_call_attempts: {}
   llm_calls: {}
+  login_states:
+    plant: {expires_at: "2027-01-01T00:00:00+00:00", return_to: /}
   membership_events:
     plant: {event: added}
   memberships: {}
@@ -80,6 +91,7 @@ tables:
   run_coverage_meta: {}
   run_leases: {}
   runs: {}
+  saml_assertion_ids: {}
   sources:
     plant: {source_code: S-0001, url: "https://tn1.example/canary",
             url_normalized: "https://tn1.example/canary",
@@ -118,10 +130,21 @@ functions:
   erase_rows:
     returns: a row count; the caller's context tenant only, allow-listed tables, approved requests
     proof: tests/phase3/test_ws1_tenancy.py
+  idp_connection_tenant:
+    returns: (tenant_id, connection_id) of one active connection by slug
+    proof: tests/phase3/test_ws2_sso_api.py
+  login_state_tenant:
+    returns: the tenant of one pending sign-in by the hash of its 256-bit state
+    proof: tests/phase3/test_ws2_sso_api.py
+  session_tenant:
+    returns: the tenant of one session by the hash of its 256-bit token
+    proof: tests/phase3/test_ws2_sso_api.py
 # Routes. probe: tenant (called as tenant B with the authorisation layer replaced by a fixed
 # tenant-B principal; path parameters filled from tenant A's canary rows; the reply must carry no
 # value of A's canaries), operator (the same through an operator principal of tenant B), machine
 # (worker routes: refused without a worker token even when the body names tenant A).
+# anonymous (sign-in routes: no principal; called with A's identifiers, no session may be issued
+# and only the values the protocol makes public, listed in `public`, may appear in the reply).
 # params: path parameter -> "table.column" of A's canary row.
 routes:
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
@@ -151,6 +174,40 @@ routes:
   GET /operator/v1/ops/cost/{run_id}: {probe: operator, params: {run_id: account_runs.id}}
   GET /operator/v1/ops/failures: {probe: operator}
   GET /operator/v1/ops/stuck: {probe: operator}
+  GET /v1/settings: {probe: tenant}
+  PUT /v1/settings:
+    probe: tenant
+    body: {expected_version: 0, settings: {platform_lanes: [sap], people_scope: {levels_in_scope: [VP]}}}
+  GET /v1/users: {probe: tenant}
+  POST /v1/users: {probe: tenant, body: {user_id: "matrix:probe", role: viewer}}
+  PATCH /v1/users:
+    probe: tenant
+    body: {user_id: memberships.user_id, expected_version: 1, role: viewer}
+  GET /v1/sso/session: {probe: tenant}
+  POST /v1/sso/logout: {probe: tenant}
+  POST /v1/sso/logout-all: {probe: tenant}
+  GET /v1/sso/connections: {probe: tenant}
+  POST /v1/sso/connections:
+    probe: tenant
+    body: {slug: matrix-probe, protocol: saml, issuer: "https://idp.synthetic.test",
+           saml_sso_url: "https://idp.synthetic.test/sso", saml_idp_cert_pem: x,
+           sp_entity_id: "https://app.test/saml/sp"}
+  PUT /v1/sso/connections/{connection_id}:
+    probe: tenant
+    params: {connection_id: idp_connections.id}
+    body: {expected_version: 1, slug: matrix-probe2, protocol: saml, issuer: "https://idp.synthetic.test",
+           saml_sso_url: "https://idp.synthetic.test/sso", saml_idp_cert_pem: x,
+           sp_entity_id: "https://app.test/saml/sp"}
+  GET /v1/sso/{slug}/start:
+    probe: anonymous
+    params: {slug: idp_connections.slug}
+    public: [idp_connections.slug, idp_connections.client_id, idp_connections.authorization_endpoint]
+  GET /v1/sso/oidc/callback:
+    probe: anonymous
+    query: {state: login_states.state_hash, code: matrix-code}
+  POST /v1/sso/saml/acs:
+    probe: anonymous
+    form: {SAMLResponse: PHg+, RelayState: login_states.state_hash}
   GET /operator/v1/runs/{run_id}/prepulled/{intent_id}:
     probe: operator
     params: {run_id: prepulled_intents.run_id, intent_id: prepulled_intents.id}

@@ -245,13 +245,14 @@ def _value(world: World, spec: str) -> str:
 
 
 def _app(world: World) -> Any:
+    """The real application over the faked tenant plane, with the authorisation layer replaced
+    by a fixed tenant-B principal (a fresh step-up, so step-up never hides a route)."""
     from datetime import UTC, datetime
     from types import SimpleNamespace
 
     from account_intelligence.api.auth import Identity, identity
-    from account_intelligence.api.main import create_app
     from account_intelligence.api.operator import OperatorIdentity, require_operator
-    from account_intelligence.app.container import build_container
+    from tests.phase3.conftest import make_app
 
     b = world.tenants["B"]
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
@@ -260,12 +261,12 @@ def _app(world: World) -> Any:
             " ON CONFLICT (tenant_id, user_id) DO NOTHING",
             (b,),
         )
-    container = build_container({"APP_ENV": "test"})
+    plane = make_app()
+    app = plane.app
     extras = SimpleNamespace(wallet=None, upload_store=None, scanner=None, upload_parser=None)
-    app = create_app()
-    app.state.container = _Merged(container, extras)
-    app.state.draining = False
+    app.state.container = _Merged(app.state.container, extras)
     now = datetime.now(UTC)
+    plane.clock.current = now
 
     async def as_b() -> Identity:
         return Identity("matrix-b", b, "admin", now)
@@ -282,12 +283,15 @@ class _Merged:
     """The test container plus the optional v2 ports a route may look up."""
 
     def __init__(self, base: Any, extra: Any) -> None:
-        self._base, self._extra = base, extra
+        self.__dict__["_base"], self.__dict__["_extra"] = base, extra
 
     def __getattr__(self, name: str) -> Any:
         if hasattr(self._extra, name):
             return getattr(self._extra, name)
         return getattr(self._base, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._base, name, value)
 
 
 @pytest.mark.asyncio
@@ -313,17 +317,37 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
             for k, v in body.items()
         }
     headers = {"Idempotency-Key": f"matrix-{uuid4().hex[:16]}"} if entry.get("idempotent") else {}
+    query = {
+        k: _value(world, v) if "." in str(v) else v for k, v in (entry.get("query") or {}).items()
+    }
+    form = {
+        k: _value(world, v) if "." in str(v) else v for k, v in (entry.get("form") or {}).items()
+    }
     app = _app(world)
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://t"
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="https://app.test",
     ) as client:
-        reply = await client.request(method, path, json=body, headers=headers)
-    text = reply.text
-    sent = path + json.dumps(body or {})
+        if form:
+            reply = await client.request(method, path, data=form, headers=headers)
+        else:
+            reply = await client.request(method, path, json=body, headers=headers, params=query)
+    text = reply.text + json.dumps(dict(reply.headers))
+    sent = path + json.dumps(body or {}) + json.dumps(query) + json.dumps(form)
+    public = {_value(world, spec) for spec in entry.get("public") or ()}
     # a value the caller sent and the reply echoes back discloses nothing; any other value does
-    leaked = sorted(v for v in world.canary_values("A") if v in text and v not in sent)
+    leaked = sorted(
+        v for v in world.canary_values("A") if v in text and v not in sent and v not in public
+    )
     assert not leaked, (route, reply.status_code, leaked)
+    assert reply.status_code < 500 or entry["probe"] in ("operator", "anonymous"), (
+        route,
+        reply.status_code,
+        reply.text[:300],
+    )
     if entry["probe"] == "machine":
         assert reply.status_code == 403, (route, reply.status_code)
+    elif entry["probe"] == "anonymous":
+        assert "__Host-ai_session" not in reply.headers.get("set-cookie", ""), route
     else:
-        assert reply.status_code != 422, (route, "probe body malformed", json.loads(text))
+        assert reply.status_code != 422, (route, "probe body malformed", json.loads(reply.text))

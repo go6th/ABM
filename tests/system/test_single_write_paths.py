@@ -80,6 +80,17 @@ OWNERS: dict[str, set[str]] = {
     "ops_cost_rollups": {"obs/costs.py"},
     "stuck_run_observations": {"obs/stuck.py"},
     "canary_probe_results": {"obs/canary.py"},
+    # Phase 3 tenant plane: identity (migration 0021) and tenancy (migration 0020)
+    "users": {"identity/membership.py"},
+    "memberships": {"identity/membership.py"},
+    "membership_events": {"identity/membership.py"},
+    "auth_sessions": {"identity/sessions.py"},
+    "auth_events": {"identity/sessions.py"},
+    "login_states": {"identity/broker.py"},
+    "saml_assertion_ids": {"identity/broker.py"},
+    "idp_connections": {"identity/connections.py"},
+    "tenant_events": {"tenancy/lifecycle.py"},
+    "tenant_settings_versions": {"tenancy/settings.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {
@@ -89,6 +100,7 @@ OWNERS: dict[str, set[str]] = {
         "grading/repo.py",
         "spend/repo.py",  # the approved cap's enforcement columns (one conditional UPDATE)
         "spend/reconcile.py",  # unreconciled_usd (stale reserves, K9)
+        "tenancy/settings.py",  # settings_version, set once (TN5)
     },
 }
 IGNORED = {"statements", "or"}  # words matched in comments and docstrings, not tables
