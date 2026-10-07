@@ -55,7 +55,7 @@ CREATE TABLE idp_connections (
    CONSTRAINT ck_idp_connections_saml CHECK (protocol <> 'saml' OR (saml_sso_url IS NOT NULL
       AND saml_idp_cert_pem IS NOT NULL AND sp_entity_id IS NOT NULL)),
    CONSTRAINT ck_idp_connections_secret_ref CHECK (client_secret_ref IS NULL
-      OR client_secret_ref ~ '^[A-Za-z0-9/_.:-]{1,300}$'),
+      OR (client_secret_ref ~ '^[A-Za-z0-9/_.:-]+$' AND char_length(client_secret_ref) <= 300)),
    CONSTRAINT ck_idp_connections_map CHECK (jsonb_typeof(group_role_map) = 'object'
       AND octet_length(group_role_map::text) <= 16384)
 );
