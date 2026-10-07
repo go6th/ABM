@@ -12,6 +12,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from account_intelligence.platform.ports import NotConfigured
 
@@ -114,3 +115,15 @@ class FakeScanner:
             raise NotConfigured("scanner unavailable")
         self.scanned.append(key)
         return key not in self.infected
+
+
+class FakeStaffIdp:
+    """The 6th staff IdP: tokens ``<role>:<staff id>``; anything else is invalid."""
+
+    def verify(self, token: str) -> Any:
+        from account_intelligence.api.operator import StaffIdentity
+
+        role, _, who = token.partition(":")
+        if role not in ("operator", "support") or not who:
+            raise PermissionError("invalid staff token")
+        return StaffIdentity(who, role)  # type: ignore[arg-type]

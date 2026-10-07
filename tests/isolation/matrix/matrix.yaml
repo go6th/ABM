@@ -138,6 +138,12 @@ tables:
     plant: {kind: run_started, period: "2026-03"}
   usage_thresholds:
     plant: {period: "2026-03", percent: 80}
+  quota_versions:
+    plant: {dimension: accounts, reason_code: synthetic}
+  support_grants:
+    plant: {scope: read, reason_code: synthetic, grantee: matrix-op, expires_at: "2099-01-01T00:00:00+00:00"}
+  support_session_events:
+    plant: {method: GET, outcome: ok}
   users: {}
   verifier_findings: {}
   view_materializations: {}
@@ -171,12 +177,23 @@ functions:
   session_tenant:
     returns: the tenant of one session by the hash of its 256-bit token
     proof: tests/phase3/test_ws2_sso_api.py
+  support_grant_tenant:
+    returns: (tenant_id, scope) of one unrevoked, unexpired grant to exactly this operator
+    proof: tests/phase3/test_ws8_admin.py
+  operator_tenant_overview:
+    returns: tenant ids, creation time, plan, suspension and counts; no names, no content
+    proof: tests/phase3/test_ws8_admin.py
+  provision_tenant:
+    returns: the id of one new tenant with an empty wallet; reads and changes nothing else
+    proof: tests/phase3/test_ws8_admin.py
 # Routes. probe: tenant (called as tenant B with the authorisation layer replaced by a fixed
 # tenant-B principal; path parameters filled from tenant A's canary rows; the reply must carry no
 # value of A's canaries), operator (the same through an operator principal of tenant B), machine
 # (worker routes: refused without a worker token even when the body names tenant A).
 # anonymous (sign-in routes: no principal; called with A's identifiers, no session may be issued
-# and only the values the protocol makes public, listed in `public`, may appear in the reply).
+# and only the values the protocol makes public, listed in `public`, may appear in the reply),
+# staff (operator-plane platform routes: a 6th staff operator from the fake staff IdP and no
+# tenant principal; an operator naming tenant A in the path must still see none of A's content).
 # params: path parameter -> "table.column" of A's canary row.
 routes:
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
@@ -219,6 +236,55 @@ routes:
   GET /v1/branding: {probe: tenant}
   GET /v1/connectors: {probe: tenant}
   GET /v1/usage: {probe: tenant}
+  GET /v1/support/grants: {probe: tenant}
+  GET /v1/support/events: {probe: tenant}
+  POST /v1/support/grants:
+    probe: tenant
+    body: {grantee: matrix-op, scope: read, reason_code: customer_request, minutes: 5}
+  POST /v1/support/grants/{grant_id}/revoke:
+    probe: tenant
+    params: {grant_id: support_grants.id}
+  GET /operator/v1/view/accounts: {probe: operator}
+  GET /operator/v1/view/settings: {probe: operator}
+  GET /operator/v1/tenants: {probe: staff, public: [owner]}
+  POST /operator/v1/tenants: {probe: staff, body: {name: matrix-provisioned-synthetic}}
+  POST /operator/v1/tenants/{tenant_id}/suspend:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {reason_code: synthetic}
+  POST /operator/v1/tenants/{tenant_id}/reactivate:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {reason_code: synthetic}
+  POST /operator/v1/tenants/{tenant_id}/quotas:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {dimension: accounts, limit_value: 5, reason_code: synthetic}
+  POST /operator/v1/tenants/{tenant_id}/plan:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {plan_code: pilot, reason_code: synthetic}
+  POST /operator/v1/tenants/{tenant_id}/deletion:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {reason_code: synthetic}
+  POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/dry-run:
+    probe: staff
+    params: {tenant_id: owner, request_id: 00000000-0000-4000-8000-000000000001}
+  POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/approve:
+    probe: staff
+    params: {tenant_id: owner, request_id: 00000000-0000-4000-8000-000000000001}
+  POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/execute:
+    probe: staff
+    params: {tenant_id: owner, request_id: 00000000-0000-4000-8000-000000000001}
+  GET /operator/v1/flags: {probe: staff}
+  POST /operator/v1/flags:
+    probe: staff
+    body: {flag: matrix_flag, rule: {percent: 0}, reason_code: synthetic}
+  GET /operator/v1/keys: {probe: staff}
+  POST /operator/v1/keys:
+    probe: staff
+    body: {provider_code: p_matrix, secret_ref: projects/matrix/secrets/synthetic, reason_code: synthetic}
   GET /v1/usage/export: {probe: tenant}
   POST /v1/connectors: {probe: tenant, body: {kind: hubspot}}
   GET /v1/connectors/oauth/callback:
@@ -328,6 +394,7 @@ events:
   audit.event: {table: audit_events}
   connector.access: {table: connector_access_log}
   usage.event: {table: usage_events}
+  support.action: {table: support_session_events}
 # Jobs (tenancy.catalog.JOBS): each runs per tenant inside tenant_txn or through a definer
 # function returning identifiers only; `proof` names the test that exercises it.
 jobs:

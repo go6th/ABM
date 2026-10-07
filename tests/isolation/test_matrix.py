@@ -267,10 +267,12 @@ def _app(world: World) -> Any:
     plane = make_app()
     app = plane.app
     from tests.fakes.connectors import FakeDrive, FakeOAuth
+    from tests.fakes.phase3 import FakeStaffIdp
 
     tp = app.state.container.tenant_plane
     tp.oauth, tp.connectors = FakeOAuth(), FakeDrive()
     tp.connector_client_ids = {"google_drive": "d", "salesforce": "s", "hubspot": "h"}
+    tp.staff_verifier = FakeStaffIdp()
     extras = SimpleNamespace(wallet=None, upload_store=None, scanner=None, upload_parser=None)
     app.state.container = _Merged(app.state.container, extras)
     now = datetime.now(UTC)
@@ -325,6 +327,8 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
             for k, v in body.items()
         }
     headers = {"Idempotency-Key": f"matrix-{uuid4().hex[:16]}"} if entry.get("idempotent") else {}
+    if entry["probe"] == "staff":  # a real 6th staff principal, no tenant principal at all
+        headers["Authorization"] = "Bearer operator:matrix-op"
     query = {
         k: _value(world, v) if "." in str(v) else v for k, v in (entry.get("query") or {}).items()
     }
@@ -363,6 +367,12 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
     )
     if entry["probe"] == "machine":
         assert reply.status_code == 403, (route, reply.status_code)
+    elif entry["probe"] == "staff":  # the probe proves something only if the route ran
+        assert reply.status_code not in (401, 403, 422), (
+            route,
+            reply.status_code,
+            reply.text[:300],
+        )
     elif entry["probe"] == "anonymous":
         assert "__Host-ai_session" not in reply.headers.get("set-cookie", ""), route
     else:
