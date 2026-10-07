@@ -98,15 +98,23 @@ class ProbeResult:
     dropped: int = 0
 
 
-async def _current(s: Any, account_id: UUID) -> dict[str, dict[str, Any]]:
+async def _current(
+    s: Any, account_id: UUID, *, reported_since: datetime | None = None
+) -> dict[str, dict[str, Any]]:
+    """Current signal facts. With ``reported_since`` (the brief's build time): only facts the
+    account has already been told about: those that existed when the brief was built, or that an
+    earlier delta named. A fact recorded by a probe that crashed before its delta stays NEW for
+    the retry, so its alert is never silently lost."""
     rows = (
         await s.execute(
             text(
-                "SELECT id, product_grade, attribute_key, value_json FROM facts WHERE account_id"
-                " = :a"
-                " AND superseded_at IS NULL AND attribute_key LIKE 'signal.%'"
+                "SELECT f.id, f.product_grade, f.attribute_key, f.value_json FROM facts f"
+                " WHERE f.account_id = :a AND f.superseded_at IS NULL"
+                " AND f.attribute_key LIKE 'signal.%' AND (CAST(:since AS timestamptz) IS NULL"
+                " OR f.created_at <= CAST(:since AS timestamptz) OR EXISTS (SELECT 1 FROM"
+                " delta_items d WHERE d.fact_id = f.id))"
             ),
-            {"a": account_id},
+            {"a": account_id, "since": reported_since},
         )
     ).all()
     return {
@@ -153,7 +161,7 @@ async def run_probe(
 ) -> ProbeResult:
     """One probe (see the module docstring)."""
     async with txn(tenant) as s:
-        before = await _current(s, account_id)
+        before = await _current(s, account_id, reported_since=brief_built_at)
         used_pct = (await monitoring_budget.tenant_view(s, deps.plan, now))["percent"]
     mode = throttle.plan(
         used_pct,
@@ -381,6 +389,14 @@ async def run_probe(
                     now=now,
                 )
                 result.alerts.extend(out.alerts)
+        from obs.setup import record
+
+        record(
+            "refresh_probes_total",
+            1,
+            {"outcome": "blocked" if blocked else ("no_change" if d.no_change else "changed")},
+        )
+        record("refresh_escalations_total", 1, {"reason": decision.reason})
         if decision.escalate:
             await slots.ensure(
                 s,

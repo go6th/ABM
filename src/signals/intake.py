@@ -25,6 +25,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from account_intelligence.platform.ports import NotConfigured
+from obs.setup import record
 from signals import webhooks
 from signals.registry import Monitor, Observation
 
@@ -125,6 +126,7 @@ async def run_monitor(
         except SourceFailed as e:
             result = MonitorResult("blocked", e.reason, ())
     await _log(s, account_id, monitor.kind, result, units, refresh_run_id, now)
+    record("monitor_polls_total", 1, {"outcome": result.outcome})
     return result
 
 
@@ -181,6 +183,7 @@ async def receive_webhook(
         ).first()
         if inserted is None:
             verdict = "replay"
+    record("webhook_receipts_total", 1, {"outcome": verdict})
     if verdict != "ok":
         await drop(s, account_id=account_id, kind="webhook", reason=verdict, now=now)
     return verdict

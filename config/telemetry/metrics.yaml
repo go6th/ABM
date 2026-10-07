@@ -19,6 +19,7 @@ label_sets:
   degraded: {values: ["true", "false"], status: proposal}
   token_kind: {values: [input, output, cache_read, cache_write], source: "ARCH caching telemetry"}
   plan_tier: {bound: 5, status: "proposal: plan tiers"}
+  channel: {values: [in_app, email, slack, webhook, digest], source: "Phase 4 alert channels (AL6)"}
   region: {bound: 5, status: proposal}
   route_class: {values: [v1_runs, v1_other, operator, tasks, probe], source: "src/account_intelligence/api/main.py _route_class"}
   code_class: {values: ["2xx", "3xx", "4xx", "429", "5xx", "timeout"], status: proposal}
@@ -59,6 +60,16 @@ metrics:
   connector_access_refused_total: {type: counter, unit: "1", labels: [outcome], series_bound: 40, owner: connectors, description: "connector accesses refused or failed (Phase 3 CN1 to CN4)"}
   tenant_suspensions_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: support, description: "tenant suspensions (Phase 3 lifecycle)"}
   tenant_deletion_requests_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: support, description: "tenant deletion requests opened (Phase 3 lifecycle)"}
+  refresh_probes_total: {type: counter, unit: "1", labels: [outcome], series_bound: 40, owner: refresh, description: "probes by outcome: changed, no_change, blocked (Phase 4 RF)"}
+  refresh_escalations_total: {type: counter, unit: "1", labels: [reason], series_bound: 40, owner: refresh, description: "escalation decisions by reason (D-72)"}
+  refresh_scheduler_heartbeat: {type: counter, unit: "1", labels: [], series_bound: 1, owner: refresh, description: "scheduler ticks that claimed slots (silence is an alert)"}
+  monitor_polls_total: {type: counter, unit: "1", labels: [outcome], series_bound: 40, owner: signals, description: "monitor polls by outcome: ok, blocked, not_configured, throttled"}
+  webhook_receipts_total: {type: counter, unit: "1", labels: [outcome], series_bound: 40, owner: signals, description: "inbound monitor webhooks by verdict"}
+  alert_deliveries_total: {type: counter, unit: "1", labels: [channel, outcome], series_bound: 200, owner: alerts, description: "alert deliveries by channel and outcome: sent, retried, failed"}
+  alert_delivery_latency_s: {type: histogram, unit: s, labels: [channel], series_bound: 5, owner: alerts, description: "signal to delivery latency (freshness SLI input)"}
+  monitoring_units_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: governance, description: "monitoring allowance units reserved (plan units, never dollars)"}
+  monitoring_budget_exhausted_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: governance, description: "reservations refused at 100 percent"}
+  crm_writes_total: {type: counter, unit: "1", labels: [outcome], series_bound: 40, owner: crm, description: "CRM write attempts by outcome"}
   canary_hits_total: {type: counter, unit: "1", labels: [sink], series_bound: 8, owner: obs, description: "planted canaries found in a sink"}
   slo_burn_rate: {type: gauge, unit: "1", labels: [slo, window], series_bound: 50, owner: obs, description: "error budget burn rate"}
   heartbeat: {type: gauge, unit: s, labels: [service], series_bound: 4, owner: obs, description: "last heartbeat epoch seconds"}

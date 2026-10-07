@@ -26,6 +26,7 @@ import yaml
 from sqlalchemy import text
 
 from account_intelligence.config import CONFIG_DIR
+from obs.setup import record
 from spend import notify
 
 
@@ -124,8 +125,10 @@ async def reserve(s: Any, *, units: int | None, plan: str, now: datetime) -> Res
         )
     ).first()
     if row is None:
+        record("monitoring_budget_exhausted_total", 1, {})
         await _step(s, period, "hard_stop", 100, now)
         raise BudgetExhausted(period)
+    record("monitoring_units_total", n, {})
     after = int(row.used)
     pct = min(100, (after * 100) // cap) if cap else 100
     crossed = False

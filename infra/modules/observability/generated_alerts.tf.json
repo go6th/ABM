@@ -1,6 +1,56 @@
 {
  "resource": {
   "google_monitoring_alert_policy": {
+   "alert_delivery_failed": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/alert_deliveries_total\"",
+       "threshold_value": 0.0
+      },
+      "display_name": "alert_delivery_failed"
+     }
+    ],
+    "display_name": "alert_delivery_failed",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/slack-outage.md. Owner: alerts.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "alerts",
+     "severity": "ticket"
+    }
+   },
+   "alert_flood": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/alert_deliveries_total\"",
+       "threshold_value": 200.0
+      },
+      "display_name": "alert_flood"
+     }
+    ],
+    "display_name": "alert_flood",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/alert-flood.md. Owner: alerts.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "alerts",
+     "severity": "ticket"
+    }
+   },
    "api_availability_fast_burn": {
     "combiner": "OR",
     "conditions": [
@@ -176,6 +226,31 @@
      "severity": "ticket"
     }
    },
+   "crm_write_failed": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/crm_writes_total\"",
+       "threshold_value": 0.0
+      },
+      "display_name": "crm_write_failed"
+     }
+    ],
+    "display_name": "crm_write_failed",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/crm-write-failed.md. Owner: crm.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "crm",
+     "severity": "ticket"
+    }
+   },
    "isolation_canary_leak": {
     "combiner": "OR",
     "conditions": [
@@ -251,6 +326,56 @@
      "severity": "ticket"
     }
    },
+   "monitor_outage": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/monitor_polls_total\"",
+       "threshold_value": 20.0
+      },
+      "display_name": "monitor_outage"
+     }
+    ],
+    "display_name": "monitor_outage",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/monitor-outage.md. Owner: signals.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "signals",
+     "severity": "ticket"
+    }
+   },
+   "monitoring_budget_breach": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/monitoring_budget_exhausted_total\"",
+       "threshold_value": 0.0
+      },
+      "display_name": "monitoring_budget_breach"
+     }
+    ],
+    "display_name": "monitoring_budget_breach",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/budget-breach.md. Owner: governance.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "governance",
+     "severity": "ticket"
+    }
+   },
    "provider_failures": {
     "combiner": "OR",
     "conditions": [
@@ -274,6 +399,29 @@
     "user_labels": {
      "owner": "connectors",
      "severity": "ticket"
+    }
+   },
+   "refresh_scheduler_stalled": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_absent": {
+       "duration": "1800s",
+       "filter": "metric.type=\"workload.googleapis.com/refresh_scheduler_heartbeat\""
+      },
+      "display_name": "refresh_scheduler_stalled"
+     }
+    ],
+    "display_name": "refresh_scheduler_stalled",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/stuck-scheduler.md. Owner: refresh.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.page_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "refresh",
+     "severity": "page"
     }
    },
    "rls_denied_spike": {
@@ -496,6 +644,31 @@
     "project": "${var.project_id}",
     "user_labels": {
      "owner": "finance_ops",
+     "severity": "ticket"
+    }
+   },
+   "webhook_storm": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/webhook_receipts_total\"",
+       "threshold_value": 500.0
+      },
+      "display_name": "webhook_storm"
+     }
+    ],
+    "display_name": "webhook_storm",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/webhook-storm.md. Owner: signals.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "signals",
      "severity": "ticket"
     }
    }

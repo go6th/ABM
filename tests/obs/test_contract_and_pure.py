@@ -214,6 +214,25 @@ def scenarios() -> dict[str, list[alerts.Sample]]:
         "checkpoint_resume_failures": [
             alerts.Sample(3500, "failures_total", 1, {"failure_class": "resume"})
         ],
+        "refresh_scheduler_stalled": [alerts.Sample(0, "refresh_scheduler_heartbeat", 1)],
+        "monitor_outage": [
+            alerts.Sample(t, "monitor_polls_total", 1, {"outcome": "blocked"})
+            for t in range(3000, 3600, 20)
+        ],
+        "webhook_storm": [
+            alerts.Sample(t, "webhook_receipts_total", 50) for t in range(3400, 3600, 10)
+        ],
+        "alert_flood": [
+            alerts.Sample(t, "alert_deliveries_total", 10, {"outcome": "sent", "channel": "email"})
+            for t in range(3000, 3600, 20)
+        ],
+        "alert_delivery_failed": [
+            alerts.Sample(
+                3500, "alert_deliveries_total", 1, {"outcome": "failed", "channel": "slack"}
+            )
+        ],
+        "crm_write_failed": [alerts.Sample(3500, "crm_writes_total", 1, {"outcome": "failed"})],
+        "monitoring_budget_breach": [alerts.Sample(3500, "monitoring_budget_exhausted_total", 1)],
         "sso_signin_refusals": [
             alerts.Sample(t, "auth_signin_refusals_total", 1, {"outcome": "state_expired"})
             for t in range(3000, 3600, 20)
@@ -239,6 +258,7 @@ def test_every_alert_fires_on_its_incident_and_stays_quiet_when_healthy() -> Non
         for t in range(0, 21600, 60)
     ]
     healthy += [alerts.Sample(t, "heartbeat", 1) for t in range(0, 21600, 60)]
+    healthy += [alerts.Sample(t, "refresh_scheduler_heartbeat", 1) for t in range(0, 21600, 60)]
     healthy += [
         alerts.Sample(t, "cache_read_ratio", 0.9, {"volume": "2000"}) for t in range(0, 21600, 300)
     ]

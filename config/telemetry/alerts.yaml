@@ -23,4 +23,11 @@ alerts:
   connector_access_refused: {kind: rate_above, metric: connector_access_refused_total, above: 10, window_s: 900, severity: ticket, owner: connectors, runbook: connector-grant-broken.md, status: "proposal (Phase 3)"}
   tenant_suspended: {kind: any, metric: tenant_suspensions_total, severity: ticket, owner: support, runbook: tenant-suspended.md, status: "proposal (Phase 3)"}
   tenant_deletion_requested: {kind: any, metric: tenant_deletion_requests_total, severity: ticket, owner: support, runbook: deletion-request.md, status: "proposal (Phase 3)"}
+  refresh_scheduler_stalled: {kind: absent, metric: refresh_scheduler_heartbeat, for_s: 1800, severity: page, owner: refresh, runbook: stuck-scheduler.md, status: "proposal (Phase 4)"}
+  monitor_outage: {kind: rate_above, metric: monitor_polls_total, outcome: blocked, above: 20, window_s: 3600, severity: ticket, owner: signals, runbook: monitor-outage.md, status: "proposal (Phase 4)"}
+  webhook_storm: {kind: rate_above, metric: webhook_receipts_total, above: 500, window_s: 300, severity: ticket, owner: signals, runbook: webhook-storm.md, status: "proposal (Phase 4)"}
+  alert_flood: {kind: rate_above, metric: alert_deliveries_total, outcome: sent, above: 200, window_s: 3600, severity: ticket, owner: alerts, runbook: alert-flood.md, status: "proposal (Phase 4)"}
+  alert_delivery_failed: {kind: rate_above, metric: alert_deliveries_total, outcome: failed, above: 0, window_s: 3600, severity: ticket, owner: alerts, runbook: slack-outage.md, status: "proposal (Phase 4)"}
+  crm_write_failed: {kind: rate_above, metric: crm_writes_total, outcome: failed, above: 0, window_s: 3600, severity: ticket, owner: crm, runbook: crm-write-failed.md, status: "proposal (Phase 4)"}
+  monitoring_budget_breach: {kind: any, metric: monitoring_budget_exhausted_total, severity: ticket, owner: governance, runbook: budget-breach.md, source: "roadmap: monthly monitoring budget with throttling"}
   telemetry_dropping: {kind: rate_above, metric: telemetry_dropped_total, above: 100, window_s: 600, severity: ticket, owner: oncall, runbook: telemetry-down.md, status: proposal}

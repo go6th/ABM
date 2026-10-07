@@ -37,6 +37,7 @@ from sqlalchemy import text
 from account_intelligence.config import CONFIG_DIR
 from crm_writeback import mapping, payloads
 from crm_writeback.client import CrmClient, Draft, Kind
+from obs.setup import record
 
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[Any]]
 
@@ -267,9 +268,11 @@ async def execute(
     except Exception:
         # we cannot know whether the CRM created the record (a lost reply): leave the write in
         # ``sending`` for ``reconcile``, which decides by a read-only marker search
+        record("crm_writes_total", 1, {"outcome": "unknown"})
         return "unknown"
     async with txn(tenant) as s:
         await _write_event(s, write_id, "created", actor, now, record=created.record_id)
+    record("crm_writes_total", 1, {"outcome": "created"})
     return "created"
 
 
@@ -301,4 +304,5 @@ async def reconcile(
             else:
                 await _write_event(s, r.id, "failed", actor, now, reason="not_found_after_crash")
                 out[str(r.id)] = "failed"
+                record("crm_writes_total", 1, {"outcome": "failed"})
     return out

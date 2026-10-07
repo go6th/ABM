@@ -26,6 +26,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from account_intelligence.safety.client_output import assert_client_safe
+from obs.setup import record
 from signals.webhooks import retry_schedule, sign
 
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[Any]]
@@ -127,6 +128,12 @@ async def relay(
                     {"now": now, "i": r.id},
                 )
                 sent += 1
+                record("alert_deliveries_total", 1, {"channel": r.channel, "outcome": "sent"})
+                record(
+                    "alert_delivery_latency_s",
+                    (now - a.signal_detected_at).total_seconds(),
+                    {"channel": r.channel},
+                )
                 continue
             schedule = retry_schedule()
             n = int(r.attempts)
@@ -140,6 +147,7 @@ async def relay(
                     {"t": now + timedelta(seconds=delay), "e": error, "i": r.id},
                 )
                 retried += 1
+                record("alert_deliveries_total", 1, {"channel": r.channel, "outcome": "retried"})
             else:
                 await s.execute(
                     text(
@@ -149,6 +157,7 @@ async def relay(
                     {"e": error, "i": r.id},
                 )
                 failed += 1
+                record("alert_deliveries_total", 1, {"channel": r.channel, "outcome": "failed"})
     return PassResult(sent, retried, failed)
 
 

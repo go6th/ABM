@@ -13,7 +13,7 @@ The one writer of ``refresh_slots``. GUARANTEE(test_one_slot_one_execution)
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -59,10 +59,50 @@ async def claim(s: Any, *, now: datetime, worker: str, limit: int) -> list[Slot]
             {"now": now, "w": worker, "n": limit},
         )
     ).all()
+    from obs.setup import record
+
+    record("refresh_scheduler_heartbeat", 1, {})
     return sorted(
         (Slot(r.id, r.account_id, r.kind, r.period) for r in rows),
         key=lambda x: (x.period, str(x.id)),
     )
+
+
+async def recover(s: Any, *, now: datetime, lease: timedelta, limit: int = 100) -> dict[str, int]:
+    """Slots left ``claimed`` by a dead worker past the lease: ``done`` (outcome ``recovered``)
+    when their run was recorded (the unique slot on ``refresh_runs`` proves it ran once), else
+    released to ``pending`` so the next tick runs them once."""
+    stale = (
+        await s.execute(
+            text(
+                "SELECT s.id, EXISTS (SELECT 1 FROM refresh_runs r WHERE r.slot_id = s.id) AS ran"
+                " FROM refresh_slots s WHERE s.status = 'claimed' AND s.claimed_at < :cut"
+                " ORDER BY s.claimed_at, s.id LIMIT :n FOR UPDATE SKIP LOCKED"
+            ),
+            {"cut": now - lease, "n": limit},
+        )
+    ).all()
+    out = {"recovered": 0, "released": 0}
+    for r in stale:  # LOOP(slot recovery): cap=limit stale slots; exit=end
+        if r.ran:
+            await s.execute(
+                text(
+                    "UPDATE refresh_slots SET status = 'done', outcome = 'recovered',"
+                    " finished_at = :now WHERE id = :i AND status = 'claimed'"
+                ),
+                {"now": now, "i": r.id},
+            )
+            out["recovered"] += 1
+        else:
+            await s.execute(
+                text(
+                    "UPDATE refresh_slots SET status = 'pending', claimed_at = NULL,"
+                    " claimed_by = NULL WHERE id = :i AND status = 'claimed'"
+                ),
+                {"i": r.id},
+            )
+            out["released"] += 1
+    return out
 
 
 async def finish(s: Any, slot_id: UUID, *, status: str, outcome: str, now: datetime) -> bool:
