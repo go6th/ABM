@@ -96,6 +96,11 @@ def normalise_person(value: str) -> str:
     v = " ".join(value.split())
     if not v or len(v) > 300:
         raise SettingsError("an excluded person must be a non-empty name or profile URL")
+    # already canonical (settings read back from storage): normalising is idempotent
+    if v.startswith("url:") and "/" in v[4:] and " " not in v and v == v.lower():
+        return v
+    if v.startswith("name:") and v[5:] and normalise_name(v[5:]) == v[5:]:
+        return v
     if re.match(r"^https?://", v, re.I):
         v = re.sub(r"^https?://", "", v, flags=re.I).split("?", 1)[0].split("#", 1)[0]
         url = v.lower().removeprefix("www.").rstrip("/")

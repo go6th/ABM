@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 
 import psycopg
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from account_intelligence.db.session import tenant_txn
 from tenancy import lifecycle, settings
@@ -356,3 +358,22 @@ async def test_deletion_needs_a_second_person_and_never_touches_ledgers_or_audit
         if poisoned[0] in plan.never or poisoned[0] in plan.blocked:
             with pytest.raises(lifecycle.LifecycleError):
                 lifecycle.check_plan(bad)
+
+
+@given(
+    st.one_of(
+        st.text(min_size=1, max_size=60),
+        st.builds(
+            lambda a, b: f"https://{a}.example/in/{b}",
+            st.from_regex(r"[a-z]{1,10}", fullmatch=True),
+            st.from_regex(r"[a-zA-Z0-9-]{1,20}", fullmatch=True),
+        ),
+    )
+)
+def test_normalising_a_person_is_idempotent(value: str) -> None:
+    """Settings are validated again when read back: a stored canonical form must not change."""
+    try:
+        once = normalise_person(value)
+    except SettingsError:
+        return
+    assert normalise_person(once) == once
