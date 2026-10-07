@@ -148,6 +148,21 @@ tables:
     plant: {scope: account, verdict: useful, reason_code: synthetic}
   usefulness_events:
     plant: {kind: first_call_question_used, via: marked}
+  delta_items:
+    plant: {kind: count_change, direction: up, source_code: S-0001}
+  deltas: {}
+  missing_observations:
+    plant: {observation: absent, state_after: missing_once}
+  refresh_row_plans:
+    plant: {action: rerun, reason: shelf_life}
+  refresh_runs:
+    plant: {kind: probe}
+  refresh_slots:
+    plant: {kind: probe, period: 2026-W10, status: pending}
+  shelf_life_overrides:
+    plant: {signal: podcasts, reason_code: synthetic}
+  signal_history:
+    plant: {reason: shelf_life}
   users: {}
   verifier_findings: {}
   view_materializations: {}

@@ -116,6 +116,13 @@ OWNERS: dict[str, set[str]] = {
     "operator_audit": {"admin/tenants.py"},
     "run_feedback": {"pilot/feedback.py"},
     "usefulness_events": {"pilot/usefulness.py"},
+    "refresh_slots": {"refresh/slots.py"},
+    "refresh_runs": {"refresh/records.py"},
+    "refresh_row_plans": {"refresh/records.py"},
+    "deltas": {"refresh/records.py"},
+    "delta_items": {"refresh/records.py"},
+    "signal_history": {"refresh/history.py"},
+    "missing_observations": {"refresh/observations.py"},
     "usage_counters": {"metering/limits.py"},
     "usage_thresholds": {"metering/limits.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
