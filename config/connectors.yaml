@@ -1,0 +1,44 @@
+# Client history connectors (Phase 3 WS6, CN1 to CN4; D-65 proposal). The roadmap names the sources
+# and says "narrowest scope, per-source consent, log every access; Drive restricted in code to the
+# folders the client named". Everything below is a proposal: the scope strings, endpoints and
+# limits are NOT verified against the providers' documentation ([VERIFY], docs/open-items.md) and
+# no real OAuth app exists. Gmail and call notes stay off until the owner decides D-65.
+version: "1.0.0"
+status: proposal
+source: "Roadmap Phase 3 connectors; D-08 (Grain first, then CRM and Drive); D-65 proposal"
+connectors:
+  google_drive:
+    enabled: true
+    scopes: ["https://www.googleapis.com/auth/drive.readonly"]   # [VERIFY] narrowest scope that can read admin-named folders
+    authorize_endpoint: "https://accounts.google.com/o/oauth2/v2/auth"  # [VERIFY]
+    grant_kinds: [drive_folder]
+  salesforce:
+    enabled: true
+    scopes: ["api", "refresh_token"]                               # [VERIFY]; read-only is enforced in code (no write call exists)
+    authorize_endpoint: "https://login.salesforce.com/services/oauth2/authorize"  # [VERIFY]
+    grant_kinds: [crm_object, crm_field]
+    objects: {Account: [Id, Name, Industry, Website], Opportunity: [Id, Name, StageName, CloseDate, AccountId]}
+  hubspot:
+    enabled: true
+    scopes: ["crm.objects.companies.read", "crm.objects.deals.read"]   # [VERIFY]
+    authorize_endpoint: "https://app.hubspot.com/oauth/authorize"     # [VERIFY]
+    grant_kinds: [crm_object, crm_field]
+    objects: {companies: [id, name, domain, industry], deals: [id, dealname, dealstage, closedate]}
+  gmail:
+    enabled: false                                                 # D-65: not in ARCH; owner decides
+    scopes: ["https://www.googleapis.com/auth/gmail.readonly"]     # [VERIFY]
+    authorize_endpoint: "https://accounts.google.com/o/oauth2/v2/auth"
+    grant_kinds: []
+  call_notes:
+    enabled: false                                                 # D-65: source not chosen
+    scopes: []
+    authorize_endpoint: "https://invalid.example/not-configured"
+    grant_kinds: []
+limits:
+  oauth_state_ttl_s: 600
+  refresh_attempts: 3
+  max_pages_per_pass: 50
+  max_items_per_pass: 500
+  max_bytes_per_item: 10485760
+  max_ancestry_depth: 20
+  max_folder_depth: 10
