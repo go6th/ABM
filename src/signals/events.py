@@ -69,7 +69,8 @@ def _url_hash(url: str) -> str:
 async def _evidence(s: Any, event_id: UUID, x: EventInput) -> None:
     await s.execute(
         text(
-            "INSERT INTO signal_event_evidence (event_id, source_code, source_tier, url_sha256, via,"
+            "INSERT INTO signal_event_evidence (event_id, source_code, source_tier, url_sha256,"
+            " via,"
             " at) VALUES (:e, :c, :t, :u, :v, :at) ON CONFLICT (event_id, url_sha256) DO NOTHING"
         ),
         {
@@ -87,9 +88,11 @@ async def _insert(s: Any, x: EventInput) -> UUID | None:
     row = (
         await s.execute(
             text(
-                "INSERT INTO signal_events (account_id, fingerprint, signal_type, event_type, entity,"
+                "INSERT INTO signal_events (account_id, fingerprint, signal_type, event_type,"
+                " entity,"
                 " title, bucket, grade, lead, sensitive, fact_id, delta_item_id, score, components,"
-                " config_version, detected_at) VALUES (:a, :fp, :st, :et, :en, :ti, :b, :g, :l, :sen, :f,"
+                " config_version, detected_at) VALUES (:a, :fp, :st, :et, :en, :ti, :b, :g, :l,"
+                " :sen, :f,"
                 " :d, :sc, CAST(:comp AS jsonb), :cv, :at)"
                 " ON CONFLICT (tenant_id, account_id, fingerprint) DO NOTHING RETURNING id"
             ),
@@ -130,8 +133,10 @@ async def record(s: Any, x: EventInput, *, same: float, ambiguous: float) -> Rec
     near = (
         await s.execute(
             text(
-                "SELECT id, event_type, entity, title, bucket FROM signal_events WHERE account_id = :a"
-                " AND signal_type = :st AND bucket BETWEEN :b - 1 AND :b + 1 ORDER BY detected_at, id"
+                "SELECT id, event_type, entity, title, bucket FROM signal_events WHERE account_id"
+                " = :a"
+                " AND signal_type = :st AND bucket BETWEEN :b - 1 AND :b + 1 ORDER BY"
+                " detected_at, id"
                 " LIMIT 50"
             ),
             {"a": x.account_id, "st": x.signal_type, "b": x.bucket},

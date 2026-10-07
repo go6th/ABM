@@ -54,7 +54,8 @@ async def set_kinds(
         (
             await s.execute(
                 text(
-                    "SELECT coalesce(max(version), 0) + 1 FROM monitor_configs WHERE account_id = :a"
+                    "SELECT coalesce(max(version), 0) + 1 FROM monitor_configs WHERE account_id ="
+                    " :a"
                 ),
                 {"a": account_id},
             )
@@ -170,7 +171,8 @@ async def receive_webhook(
         inserted = (
             await s.execute(
                 text(
-                    "INSERT INTO webhook_receipts (source, event_id, verdict, payload_ref, received_at)"
+                    "INSERT INTO webhook_receipts (source, event_id, verdict, payload_ref,"
+                    " received_at)"
                     " VALUES (:s, :e, 'ok', :p, :now) ON CONFLICT (tenant_id, source, event_id)"
                     " DO NOTHING RETURNING id"
                 ),
