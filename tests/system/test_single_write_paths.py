@@ -130,6 +130,12 @@ OWNERS: dict[str, set[str]] = {
     "signal_events": {"signals/events.py"},
     "signal_event_evidence": {"signals/events.py"},
     "signal_event_links": {"signals/events.py"},
+    "alerts": {"alerts/engine.py"},
+    "alert_outbox": {"alerts/engine.py", "alerts/outbox.py", "alerts/digest.py"},
+    "alert_suppressions": {"alerts/engine.py"},
+    "subscriptions": {"alerts/subscriptions.py"},
+    "alert_feedback": {"alerts/feedback.py"},
+    "digest_runs": {"alerts/digest.py"},
     "usage_counters": {"metering/limits.py"},
     "usage_thresholds": {"metering/limits.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget

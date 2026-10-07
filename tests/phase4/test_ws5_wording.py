@@ -32,14 +32,22 @@ def test_the_wording_lint_rejects_outreach_phrasing(text: str) -> None:
 
 
 def test_neutral_wording_and_the_fixed_label_pass() -> None:
-    for ok in ("New role posted at acme.example", "Grade: confirmed. Source S-0012.",
-               sensitive.LABEL, "Review it before any contact."):
+    for ok in (
+        "New role posted at acme.example",
+        "Grade: confirmed. Source S-0012.",
+        sensitive.LABEL,
+        "Review it before any contact.",
+    ):
         assert lint.check(ok) == ok
 
 
 def test_sensitive_events_render_only_from_fixed_templates() -> None:
-    for event, cat in (("data_breach", "breach"), ("layoff", "layoff"),
-                       ("class_action", "lawsuit"), ("ransomware", "breach")):
+    for event, cat in (
+        ("data_breach", "breach"),
+        ("layoff", "layoff"),
+        ("class_action", "lawsuit"),
+        ("ransomware", "breach"),
+    ):
         assert sensitive.category(event) == cat
         text = sensitive.render(cat, "S-0007")  # type: ignore[arg-type]
         assert text.startswith(sensitive.LABEL) and "S-0007" in text

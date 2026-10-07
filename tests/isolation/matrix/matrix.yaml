@@ -177,6 +177,21 @@ tables:
     plant: {fingerprint: "1111111111111111111111111111111111111111111111111111111111111111", grade: lead, lead: true, components: "[]"}
   webhook_receipts:
     plant: {source: p_feed, verdict: ok}
+  alert_feedback:
+    plant: {verdict: useful, reason: acted_on}
+  alert_outbox:
+    plant: {channel: in_app, status: pending}
+  alert_suppressions:
+    plant: {reason: muted}
+  alerts:
+    plant: {rule_id: new_build_role, tier: digest, lead: false}
+  digest_runs:
+    plant: {period: 2026-W10}
+  subscriptions:
+    plant: {settings: "{}"}
+  tenant_rule_accounts: {}
+  tenant_rules:
+    plant: {grade_floor: probable, signal_type: news_event}
   users: {}
   verifier_findings: {}
   view_materializations: {}
