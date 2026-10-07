@@ -160,6 +160,7 @@ class SummaryModel(_Frozen):
     tracker: tuple[TrackerRow, ...] = Field(min_length=1)
     tracker_tally: tuple[Text, ...] = Field(min_length=1)
     none_found: Text
+    brand: Text | None = None
 
 
 # ---- Sources and Evidence ------------------------------------------------------------------
@@ -216,6 +217,7 @@ class EvidenceModel(_Frozen):
     job_descriptions: tuple[JobRead, ...]
     news: tuple[NewsItem, ...]
     none_found: Text
+    brand: Text | None = None
 
     @model_validator(mode="after")
     def _unique_codes(self) -> EvidenceModel:

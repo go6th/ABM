@@ -47,6 +47,7 @@ from exports.content import (
     TrackerLine,
 )
 from exports.errors import LeakError, MissingContent, RowConservation
+from exports.readers.exclusions import apply_exclusions
 from exports.snapshot import open_snapshot, session_factory
 from jobs.config import load_jobs_config
 from jobs.counts import render_count_sentence
@@ -55,6 +56,7 @@ from jobs.models import CountBlock, NotSearched, PostingCounts
 from jobs.repo import PgPostingRepo
 from people.export import build_export
 from people.repo import PgPeopleRepo
+from tenancy.settings import ExclusionFilter, TenantSettings
 
 _OTHER_ACCOUNTS = "SELECT name FROM accounts WHERE id <> :a AND name IS NOT NULL ORDER BY name"
 _FACT_COLS = (
@@ -161,6 +163,16 @@ class PgContentReader:
             ).first()
             if head is None:
                 raise MissingContent("no such run for this tenant", (run_id,))
+            # TN5 render time: the tenant settings version the run recorded (none: no exclusions)
+            run_settings = (
+                await s.execute(
+                    text(
+                        "SELECT v.settings_json FROM account_runs r JOIN tenant_settings_versions"
+                        " v ON v.version = r.settings_version WHERE r.id = :r"
+                    ),
+                    {"r": rid},
+                )
+            ).scalar_one_or_none()
             account_id: UUID = head.account_id
             as_of: date = head.created_at.date()
             policy = (
@@ -344,6 +356,16 @@ class PgContentReader:
             **people_part,
             **jobs_part,
         )
+        if run_settings:
+            try:
+                tenant_settings = TenantSettings.model_validate(run_settings)
+            except ValueError:
+                raise MissingContent("the run's settings no longer validate", (run_id,)) from None
+            content = apply_exclusions(content, ExclusionFilter.of(tenant_settings))
+            if tenant_settings.branding is not None:
+                content = content.model_copy(
+                    update={"brand_name": tenant_settings.branding.display_name}
+                )
         return content
 
     async def _people(

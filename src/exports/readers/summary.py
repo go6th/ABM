@@ -308,6 +308,7 @@ def map_summary(ctx: MapContext, people: PeopleModel | None) -> Mapped[SummaryMo
     if not tracker:
         return Mapped(None)
     model = SummaryModel(
+        brand=ctx.rendered(c.brand_name, "branding") if c.brand_name else None,
         account=c.account_name,
         as_of=c.as_of,
         narrative=tuple(_block(ctx, s) for s in sections["narrative"]),

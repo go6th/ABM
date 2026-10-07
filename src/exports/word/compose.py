@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from exports.config import ExportConfig, TableName
-from exports.models import AuthoredBlock, EvidenceModel, SummaryModel
+from exports.models import AuthoredBlock, EvidenceModel, LaneRow, SummaryModel, TrackerRow
 from exports.word.contract import (
     Block,
     BulletsBlock,
@@ -29,6 +29,26 @@ def _table(cfg: ExportConfig, name: TableName, rows: Sequence[Sequence[str]]) ->
         rows=tuple(tuple(r) for r in rows),
         keys=tuple(r[0] for r in rows),
     )
+
+
+def lane_cells(r: LaneRow) -> tuple[str, str, str, str, str, str]:
+    """One lane-table row exactly as the Account Summary prints it (and as the client's Facts by
+    grade table shows it, ``views.rowsources``): Ref, Finding, Grade, Use, Confirming question,
+    Sources."""
+    return (r.ref, r.finding, r.grade_label, r.use, r.question or "", ", ".join(r.codes))
+
+
+def tracker_cells(t: TrackerRow) -> tuple[str, str, str, str, str, str, str]:
+    """One coverage-tracker row exactly as the Account Summary prints it (and as the client's
+    Coverage tracker table shows it): Ref, Coverage row, Status, Priority, Reason, Tools,
+    Results."""
+    return (t.ref, t.row, t.status, t.priority, t.reason or "", t.tools, t.results)
+
+
+def _header(brand: str | None, account: str, doc_title: str) -> str:
+    """The page header: the tenant's display name (VW6, when branded), the account, the title.
+    The attribution stays in the footer whatever the branding (skill rule 6, D-64)."""
+    return f"{brand}. {account}. {doc_title}" if brand else f"{account}. {doc_title}"
 
 
 def _cited(text: str, codes: Sequence[str]) -> str:
@@ -77,10 +97,7 @@ def compose_summary(model: SummaryModel, cfg: ExportConfig, title: str) -> Docum
             _table(
                 cfg,
                 "lane",
-                [
-                    (r.ref, r.finding, r.grade_label, r.use, r.question or "", ", ".join(r.codes))
-                    for r in lane.rows
-                ],
+                [lane_cells(r) for r in lane.rows],
             )
         )
     blocks.append(_heading(h.key_people))
@@ -141,15 +158,12 @@ def compose_summary(model: SummaryModel, cfg: ExportConfig, title: str) -> Docum
         _table(
             cfg,
             "tracker",
-            [
-                (t.ref, t.row, t.status, t.priority, t.reason or "", t.tools, t.results)
-                for t in model.tracker
-            ],
+            [tracker_cells(t) for t in model.tracker],
         )
     )
     return DocumentSpec(
         theme=cfg.theme.word,
-        header_text=f"{model.account}. {doc_title}",
+        header_text=_header(model.brand, model.account, doc_title),
         footer_text=footer,
         blocks=tuple(blocks),
     )
@@ -198,7 +212,7 @@ def compose_evidence(model: EvidenceModel, cfg: ExportConfig, title: str) -> Doc
     )
     return DocumentSpec(
         theme=cfg.theme.word,
-        header_text=f"{model.account}. {doc_title}",
+        header_text=_header(model.brand, model.account, doc_title),
         footer_text=footer,
         blocks=tuple(blocks),
     )

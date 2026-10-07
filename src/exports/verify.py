@@ -167,11 +167,14 @@ class LibreOffice:
                     return produced[0].read_bytes()
         return None
 
-    def pdf_text(self, docx: bytes) -> str | None:
-        """PDF rendering of the document, as text (``pdftotext -layout``), or None."""
-        pdf = self._convert(docx, ".docx", "pdf")
+    def pdf_bytes(self, docx: bytes) -> bytes | None:
+        """The PDF rendering of a Word document, or None without a converter."""
+        return self._convert(docx, ".docx", "pdf")
+
+    def text_of_pdf(self, pdf: bytes) -> str | None:
+        """A PDF's text (``pdftotext -layout``), or None without the tool."""
         pdftotext = shutil.which("pdftotext")
-        if pdf is None or pdftotext is None:
+        if pdftotext is None:
             return None
         try:
             done = subprocess.run(  # nosec B603 - fixed argv, no shell
@@ -185,6 +188,11 @@ class LibreOffice:
         except (subprocess.SubprocessError, OSError):
             return None
         return done.stdout.decode("utf-8", "ignore")
+
+    def pdf_text(self, docx: bytes) -> str | None:
+        """PDF rendering of the document, as text (``pdftotext -layout``), or None."""
+        pdf = self.pdf_bytes(docx)
+        return None if pdf is None else self.text_of_pdf(pdf)
 
     def recalculated(self, xlsx: bytes) -> bytes | None:
         """The workbook re-saved by LibreOffice (formulas computed and cached), or None."""

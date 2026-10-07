@@ -124,6 +124,7 @@ def map_evidence(
         f"{ctx.withheld} sentences withheld",
     )
     model = EvidenceModel(
+        brand=ctx.rendered(c.brand_name, "branding") if c.brand_name else None,
         account=c.account_name,
         as_of=c.as_of,
         sources=tuple(sources),

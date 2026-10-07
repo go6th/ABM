@@ -178,6 +178,8 @@ class SnapshotContent(_Row):
     jobs_counts: JobsCounts | None = None
     detections: tuple[DetectionRow, ...] = ()
     tracker: tuple[TrackerLine, ...] = ()
+    # the tenant's white-label display name for document headers (VW6); None: no branding
+    brand_name: str | None = None
     tracker_tally: tuple[str, ...] = ()
     # COUNT(*) of the selected rows per file, taken in the same snapshot (B3 reconciliation)
     snapshot_counts: dict[str, int] = Field(default_factory=dict)

@@ -166,6 +166,43 @@ def _content_hash(model: Any, cfg: ExportConfig) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
+def map_snapshot(
+    content: SnapshotContent, cfg: ExportConfig, grading: GradingConfig
+) -> tuple[dict[str, Mapped[Any]], MapContext]:
+    """Map one snapshot to every file's model: the ONE mapping the export builders render and
+    the client tables (``views.rowsources``) read, so on-screen rows and exported rows come from
+    the same function (VW1). Pure; violations are left on the returned context."""
+    ctx = MapContext(content, cfg, grading)
+    people = map_people(ctx)
+    jobs = map_jobs(ctx)
+    tech = map_tech(ctx)
+    summary = map_summary(ctx, people.model)
+    rendered_facts = frozenset(
+        r.row_id for t in (summary.model.lanes if summary.model else ()) for r in t.rows
+    )
+    cited = set().union(people.cited, jobs.cited, tech.cited, summary.cited)
+    evidence = map_evidence(ctx, cited, rendered_facts, jobs.model)
+    mapped: dict[str, Mapped[Any]] = {
+        "summary": summary,
+        "evidence": evidence,
+        "people": people,
+        "jobs": jobs,
+        "tech": tech,
+    }
+    ctx.flag(
+        orphans(
+            {
+                "summary": summary.cited,
+                "people": people.cited,
+                "jobs": jobs.cited,
+                "tech": tech.cited,
+            },
+            evidence.cited,
+        )
+    )
+    return mapped, ctx
+
+
 class ExportBuilder:
     """The builders (see the module docstring)."""
 
@@ -193,34 +230,7 @@ class ExportBuilder:
     def assemble(self, content: SnapshotContent) -> Assembly:
         """Map, render, verify and package one snapshot (no storage)."""
         out = Assembly()
-        ctx = MapContext(content, self.cfg, self.grading)
-        people = map_people(ctx)
-        jobs = map_jobs(ctx)
-        tech = map_tech(ctx)
-        summary = map_summary(ctx, people.model)
-        rendered_facts = frozenset(
-            r.row_id for t in (summary.model.lanes if summary.model else ()) for r in t.rows
-        )
-        cited = set().union(people.cited, jobs.cited, tech.cited, summary.cited)
-        evidence = map_evidence(ctx, cited, rendered_facts, jobs.model)
-        out.mapped = {
-            "summary": summary,
-            "evidence": evidence,
-            "people": people,
-            "jobs": jobs,
-            "tech": tech,
-        }
-        ctx.flag(
-            orphans(
-                {
-                    "summary": summary.cited,
-                    "people": people.cited,
-                    "jobs": jobs.cited,
-                    "tech": tech.cited,
-                },
-                evidence.cited,
-            )
-        )
+        out.mapped, ctx = map_snapshot(content, self.cfg, self.grading)
         out.errors.extend(errors_of(ctx.violations))
         missing = [k for k, m in out.mapped.items() if m.model is None]
         if missing and not out.errors:
