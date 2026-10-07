@@ -1,0 +1,119 @@
+// The tenant plane end to end: SSO sign-in per role, the account list, adding an account, the admin
+// pages, role limits, a second tenant that sees nothing of the first, sign-out, keyboard and axe.
+import { test, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+
+const API = "http://127.0.0.1:8080";
+const GROUP: Record<string, string> = { admin: "admins", analyst: "analysts", seller: "sales", viewer: "readers" };
+let seeded: { slug_a: string; slug_b: string };
+
+test.beforeAll(async ({ request }) => {
+  seeded = await (await request.get(`${API}/fake-idp/tenants`)).json();
+});
+
+async function signIn(page: Page, slug: string, subject: string, role: string) {
+  await page.request.post(`${API}/fake-idp/next`, { data: { subject, groups: [GROUP[role] ?? "none"] } });
+  // The IdP lives at https://idp.synthetic.test (the database refuses http IdPs) and does not
+  // resolve; Playwright does not route requests reached through a redirect, so the sign-in start is
+  // fetched here (same cookie jar as the browser) and the fake IdP's answer handed back.
+  await page.route("**/v1/sso/*/start**", async (route) => {
+    const start = await page.request.get(route.request().url(), { maxRedirects: 0 });
+    const idp = new URL(start.headers()["location"] ?? "/login", "http://localhost:3000");
+    const answer = await page.request.get(`${API}/fake-idp/authorize${idp.search}`, { maxRedirects: 0 });
+    await route.fulfill({ status: 302, headers: { location: answer.headers()["location"] ?? "/login" } });
+  });
+  await page.goto("/login");
+  await page.getByLabel("Organisation sign-in name").fill(slug);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+}
+
+async function noSeriousA11y(page: Page) {
+  const result = await new AxeBuilder({ page }).analyze();
+  const serious = result.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(serious.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+}
+
+test("an admin signs in with SSO, sees only the tenant's accounts and adds one", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "ada", "admin");
+  await expect(page.getByText("acme-a.example").first()).toBeVisible();
+  await expect(page.getByText("beta-only.example")).toHaveCount(0);
+  await noSeriousA11y(page);
+  await page.getByLabel("Company domain").fill("added-by-e2e.example");
+  await page.getByRole("button", { name: "Add account" }).click();
+  await expect(page.getByText("added-by-e2e.example").first()).toBeVisible();
+  const pages: [string, string][] = [["/settings/users", "Users"], ["/settings/support", "Support access"], ["/audit", "Audit"], ["/usage", "Usage"], ["/settings", "Settings"]];
+  for (const [path, heading] of pages) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { name: heading, exact: false }).first()).toBeVisible();
+    await noSeriousA11y(page);
+  }
+  // the audit log recorded the reads and the add
+  await page.goto("/audit");
+  const added = page.getByRole("row").filter({ hasText: "added-by-e2e.example" });
+  await expect(added.getByRole("cell", { name: "run.account_add", exact: true }).first()).toBeVisible();
+  // client pages never name a provider, a credit count or a cost
+  const text = (await page.locator("body").innerText()).toLowerCase();
+  for (const word of ["credit", "usd", "p_people", "p_search"]) expect(text).not.toContain(word);
+});
+
+test("a viewer reads but cannot add, run or administer", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "val", "viewer");
+  await expect(page.getByLabel("Company domain")).toHaveCount(0);
+  await page.goto("/accounts/acme-a.example");
+  await expect(page.getByRole("heading", { name: "acme-a.example" })).toBeVisible();
+  await expect(page.getByRole("form", { name: "Start a run" })).toHaveCount(0);
+  await page.goto("/settings/users");
+  await expect(page.getByText("Only admins manage users.")).toBeVisible();
+  expect((await page.request.get("/v1/users")).status()).toBe(403);
+});
+
+const members: [string, string][] = [["sam", "seller"], ["ana", "analyst"]];
+for (const [subject, role] of members) {
+  test(`a ${role} can add accounts and start runs but not administer`, async ({ page }) => {
+    await signIn(page, seeded.slug_a, subject, role);
+    await expect(page.getByLabel("Company domain")).toBeVisible();
+    await page.goto("/accounts/acme-a.example");
+    await expect(page.getByRole("form", { name: "Start a run" })).toBeVisible();
+    await page.goto("/settings/support");
+    await expect(page.getByText("Only admins manage support access.")).toBeVisible();
+    expect((await page.request.get("/v1/audit")).status()).toBe(403);
+  });
+}
+
+test("a second tenant sees nothing of the first", async ({ page }) => {
+  await signIn(page, seeded.slug_b, "bob", "admin");
+  await expect(page.getByText("beta-only.example").first()).toBeVisible();
+  await expect(page.getByText("acme-a.example")).toHaveCount(0);
+  for (const path of ["/v1/accounts/acme-a.example/tables/people", "/v1/accounts/acme-b.example/runs"]) {
+    const status = (await page.request.get(path)).status();
+    expect([403, 404]).toContain(status);
+  }
+  const list = await (await page.request.get("/v1/accounts?limit=200")).json();
+  expect(list.accounts.map((a: { domain: string }) => a.domain)).toEqual(["beta-only.example"]);
+});
+
+test("keyboard: the skip link is first and moves focus to the content", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "ada", "admin");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/#main$/);
+});
+
+test("signing out ends the session", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "ada", "admin");
+  const csrf = (await (await page.request.get("/v1/sso/session")).json()).csrf_token as string;
+  expect((await page.request.post("/v1/sso/logout", { headers: { "X-CSRF-Token": csrf } })).status()).toBeLessThan(300);
+  expect((await page.request.get("/v1/sso/session")).status()).toBe(401);
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login/);
+});
+
+test("pages carry a nonce CSP and the security headers", async ({ page }) => {
+  const res = await page.goto("/login");
+  const h = res!.headers();
+  expect(h["content-security-policy"]).toMatch(/script-src[^;]*'nonce-/);
+  expect(h["x-frame-options"]).toBe("DENY");
+  expect(h["x-content-type-options"]).toBe("nosniff");
+});
