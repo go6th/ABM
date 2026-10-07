@@ -84,6 +84,7 @@ EVENT_TYPES: dict[str, str] = {
     "outbox.notification": "notification_outbox row (tenant-scoped, RLS)",
     "audit.event": "audit_events row (tenant-scoped, RLS, insert-only, hash-chained)",
     "connector.access": "connector_access_log row (tenant-scoped, RLS, insert-only)",
+    "usage.event": "usage_events row (tenant-scoped, RLS, insert-only, idempotent)",
 }
 
 # Background jobs and the boundary each runs under.
@@ -93,6 +94,7 @@ JOBS: dict[str, str] = {
     "cost_rollup": "obs.costs.refresh: per tenant and run, inside tenant_txn",
     "isolation_probe": "obs.canary.probe: synthetic tenants only, inside tenant_txn",
     "audit_chain_verify": "audit.chain.verify: per tenant, inside tenant_txn",
+    "usage_reconcile": "metering.reconcile.reconcile: per tenant, inside tenant_txn",
     "connector_fetch": "connectors_client.framework.fetch_pass: per connection, tenant_txn;"
     " provider calls outside any transaction",
 }
