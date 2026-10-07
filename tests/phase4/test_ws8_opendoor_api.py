@@ -20,8 +20,6 @@ from tests.phase3.conftest import (  # noqa: F401  (fixtures)
     Plane,
     add_member,
     add_oidc_connection,
-    browser,
-    plane,
     uid,
 )
 from tests.phase4.conftest import db, fact, tenant_with_account
@@ -121,7 +119,7 @@ async def _signed_in(
 @pytest.mark.asyncio
 async def test_the_phase4_api_is_tenant_scoped_role_gated_and_client_safe(
     plane: Plane,
-    browser: Browser,  # noqa: F811
+    browser: Browser,
 ) -> None:
     from account_intelligence.safety.client_output import scan_text
 
@@ -195,7 +193,7 @@ async def test_the_phase4_api_is_tenant_scoped_role_gated_and_client_safe(
 @pytest.mark.asyncio
 async def test_crm_routes_are_opt_in_admin_only_and_write_nothing_unmapped(
     plane: Plane,
-    browser: Browser,  # noqa: F811
+    browser: Browser,
 ) -> None:
     t, a, _ = await _signed_in(plane, browser, "p4crm")
     domain = "p4crm.example"

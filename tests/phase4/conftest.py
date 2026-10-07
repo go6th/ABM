@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import psycopg
 
 from tests.conftest import ADMIN_DSN
+from tests.phase3.conftest import browser, plane  # noqa: F401  (signed-in API fixtures)
 
 NOW = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 
