@@ -7,6 +7,7 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
+| deletion cascade | `src/tenancy/lifecycle.py:331` | max_batches_per_pass erasing batches per pass, plus one empty probe per table | completed, blocked (blocked items remain), batch_cap |
 | dependency closure | `src/parallel/executor.py:152` | number of units (each visited once) | all reached |
 | eval repeats | `src/evalgate/runner.py:104` | accounts x repeats_k runs | all cases executed |
 | export keyset pagination | `src/exports/readers/pg.py:76` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
@@ -28,7 +29,7 @@ unannotated (the generator's check fails otherwise).
 | notification relay | `src/spend/notify.py:203` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
-| people gap passes | `src/people/pipeline.py:343` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
+| people gap passes | `src/people/pipeline.py:362` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
 | people search paging | `src/people/search.py:127` | max_pages_per_source and max_people_per_run | converged, no_progress (no new person, cursor repeat, failed call), cap_reached, budget, deadline |
 | planner gap loop | `src/account_intelligence/workflow/stages/research.py:191` | 1 + planner_gap_passes (2) | converged, no_progress, budget, cap_reached |
 | posting batch loop | `src/jobs/pipeline.py:380` | postings pulled (bounded by the pull caps), batch_size per batch | all processed (one failure is isolated) |
