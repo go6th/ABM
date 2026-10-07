@@ -210,6 +210,27 @@ async def create_run(
     return CreatedRun(run_id, RunStatus.QUEUED.value, False)
 
 
+async def add_account(session: AsyncSession, tenant_id: UUID, domain: str) -> tuple[UUID, bool]:
+    """Add an account to the tenant's list without starting a run (the client app's "add an
+    account"); returns (account id, created). The one writer of ``accounts`` besides
+    ``create_run`` (W1)."""
+    created = (
+        await session.execute(
+            text(
+                "INSERT INTO accounts (tenant_id, domain) VALUES (:t, :d)"
+                " ON CONFLICT (tenant_id, domain) DO NOTHING RETURNING id"
+            ),
+            {"t": tenant_id, "d": domain},
+        )
+    ).scalar_one_or_none()
+    if created is not None:
+        return UUID(str(created)), True
+    existing: Any = (
+        await session.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+    ).scalar_one()
+    return UUID(str(existing)), False
+
+
 async def current_status(session: AsyncSession, run_id: UUID) -> RunStatus:
     """The run's status (``RunNotFound`` if invisible to this tenant)."""
     status = (
