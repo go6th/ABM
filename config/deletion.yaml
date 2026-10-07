@@ -1,0 +1,50 @@
+# Tenant deletion on request (SaaS 3.1 rule 8; Phase 3 WS1 and AD2): derived data, raw broker
+# results and embeddings are removed and the client is sent a confirmation; the public cache is
+# untouched; ledgers and the audit trail are never deleted. The operation is dry run first, needs
+# a second person to approve, runs in bounded batches and is resumable.
+#
+# `erase` is ordered children first (foreign keys). The database refuses any table outside the
+# same allow-list (erase_rows in migration 0020). `blocked` lists tenant data that an earlier
+# invariant forbids deleting; the dry run counts it and execution stops short with the reason
+# (conflict C23 in docs/decisions/conflicts.md). `never` is checked by a test against `erase`.
+version: "1.0.0"
+status: proposal
+source: "SaaS 3.1 rule 8; batch size and order are proposals (TODO, needs product owner)"
+batch_size: 500
+max_batches_per_pass: 200
+erase:
+  - fact_evidence
+  - grade_events
+  - verifier_findings
+  - facts
+  - claim_drops
+  - report_sections
+  - deliverables
+  - job_posting_platform_sentences
+  - job_posting_classifications
+  - job_posting_observations
+  - job_postings
+  - tech_detections
+  - chunks
+blocked:
+  sources: "rows are never deleted (stable source codes, trigger sources_guard_identity); C23"
+  people: "tombstone erasure only, not exposed until counsel decides (D-06, D-23); C23"
+  person_profiles: "tombstone erasure only (D-23); C23"
+  person_posts: "tombstone erasure only (D-23); C23"
+  person_sources: "tombstone erasure only (D-23); C23"
+  raw_payload_objects: "no object delete adapter; crypto-shredding the tenant key is the sourced method (ARCH 14); C23"
+never:
+  - wallet_ledger
+  - wallets
+  - tool_calls
+  - tool_call_events
+  - run_cap_versions
+  - run_cap_events
+  - spend_limit_events
+  - spend_reports
+  - audit_events
+  - usage_events
+  - tenant_events
+  - membership_events
+  - tenant_settings_versions
+  - account_runs
