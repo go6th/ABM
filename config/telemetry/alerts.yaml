@@ -19,4 +19,8 @@ alerts:
   provider_failures: {kind: rate_above, metric: connector_calls, outcome_not: [done, replayed, prepulled], above: 20, window_s: 900, severity: ticket, owner: connectors, runbook: provider-outage.md, status: proposal}
   model_degraded: {kind: rate_above, metric: llm_calls_total, degraded: "true", above: 20, window_s: 900, severity: ticket, owner: llm, runbook: model-outage.md, status: proposal}
   checkpoint_resume_failures: {kind: rate_above, metric: failures_total, failure_class: resume, above: 0, window_s: 3600, severity: ticket, owner: workflow, runbook: checkpoint-resume.md, status: proposal}
+  sso_signin_refusals: {kind: rate_above, metric: auth_signin_refusals_total, above: 20, window_s: 900, severity: ticket, owner: identity, runbook: sso-outage.md, status: "proposal (Phase 3)"}
+  connector_access_refused: {kind: rate_above, metric: connector_access_refused_total, above: 10, window_s: 900, severity: ticket, owner: connectors, runbook: connector-grant-broken.md, status: "proposal (Phase 3)"}
+  tenant_suspended: {kind: any, metric: tenant_suspensions_total, severity: ticket, owner: support, runbook: tenant-suspended.md, status: "proposal (Phase 3)"}
+  tenant_deletion_requested: {kind: any, metric: tenant_deletion_requests_total, severity: ticket, owner: support, runbook: deletion-request.md, status: "proposal (Phase 3)"}
   telemetry_dropping: {kind: rate_above, metric: telemetry_dropped_total, above: 100, window_s: 600, severity: ticket, owner: oncall, runbook: telemetry-down.md, status: proposal}

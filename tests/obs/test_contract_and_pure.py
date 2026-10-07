@@ -214,6 +214,16 @@ def scenarios() -> dict[str, list[alerts.Sample]]:
         "checkpoint_resume_failures": [
             alerts.Sample(3500, "failures_total", 1, {"failure_class": "resume"})
         ],
+        "sso_signin_refusals": [
+            alerts.Sample(t, "auth_signin_refusals_total", 1, {"outcome": "state_expired"})
+            for t in range(3000, 3600, 20)
+        ],
+        "connector_access_refused": [
+            alerts.Sample(t, "connector_access_refused_total", 1, {"outcome": "denied"})
+            for t in range(3000, 3600, 30)
+        ],
+        "tenant_suspended": [alerts.Sample(3500, "tenant_suspensions_total", 1)],
+        "tenant_deletion_requested": [alerts.Sample(3500, "tenant_deletion_requests_total", 1)],
         "telemetry_dropping": [
             alerts.Sample(t, "telemetry_dropped_total", 10) for t in range(3100, 3600, 10)
         ],

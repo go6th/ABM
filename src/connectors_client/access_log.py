@@ -24,7 +24,12 @@ async def log(
     at: datetime,
     resource_id: str | None = None,
 ) -> None:
-    """One access row in the caller's transaction."""
+    """One access row in the caller's transaction; a refused or failed access is also counted
+    (never raises)."""
+    if outcome != "ok":
+        from obs.setup import record
+
+        record("connector_access_refused_total", 1, {"outcome": outcome})
     await s.execute(
         text(
             "INSERT INTO connector_access_log (connection_id, principal, kind, resource_id,"

@@ -178,6 +178,13 @@ async def append(
     return await state(session)
 
 
+def _count(metric: str) -> None:
+    """A lifecycle alert counter (never raises; runbooks tenant-suspended, deletion-request)."""
+    from obs.setup import record
+
+    record(metric, 1, {})
+
+
 async def suspend(
     session: AsyncSession, *, actor: str, plane: Plane, reason_code: str, now: datetime
 ) -> TenantState:
@@ -185,9 +192,11 @@ async def suspend(
     st = await state(session)
     if st.suspended:
         raise LifecycleError("tenant is already suspended")
-    return await append(
+    out = await append(
         session, st, "suspended", actor=actor, plane=plane, now=now, reason_code=reason_code
     )
+    _count("tenant_suspensions_total")
+    return out
 
 
 async def reactivate(
@@ -220,6 +229,7 @@ async def request_deletion(
         reason_code=reason_code,
         detail={"request_id": request_id},
     )
+    _count("tenant_deletion_requests_total")
     return request_id
 
 

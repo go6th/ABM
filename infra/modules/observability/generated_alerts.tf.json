@@ -126,6 +126,31 @@
      "severity": "ticket"
     }
    },
+   "connector_access_refused": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/connector_access_refused_total\"",
+       "threshold_value": 10.0
+      },
+      "display_name": "connector_access_refused"
+     }
+    ],
+    "display_name": "connector_access_refused",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/connector-grant-broken.md. Owner: connectors.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "connectors",
+     "severity": "ticket"
+    }
+   },
    "cost_drift": {
     "combiner": "OR",
     "conditions": [
@@ -276,6 +301,31 @@
      "severity": "page"
     }
    },
+   "sso_signin_refusals": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/auth_signin_refusals_total\"",
+       "threshold_value": 20.0
+      },
+      "display_name": "sso_signin_refusals"
+     }
+    ],
+    "display_name": "sso_signin_refusals",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/sso-outage.md. Owner: identity.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "identity",
+     "severity": "ticket"
+    }
+   },
    "stuck_queued": {
     "combiner": "OR",
     "conditions": [
@@ -371,6 +421,56 @@
     "project": "${var.project_id}",
     "user_labels": {
      "owner": "oncall",
+     "severity": "ticket"
+    }
+   },
+   "tenant_deletion_requested": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/tenant_deletion_requests_total\"",
+       "threshold_value": 0.0
+      },
+      "display_name": "tenant_deletion_requested"
+     }
+    ],
+    "display_name": "tenant_deletion_requested",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/deletion-request.md. Owner: support.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "support",
+     "severity": "ticket"
+    }
+   },
+   "tenant_suspended": {
+    "combiner": "OR",
+    "conditions": [
+     {
+      "condition_threshold": {
+       "comparison": "COMPARISON_GT",
+       "duration": "0s",
+       "filter": "metric.type=\"workload.googleapis.com/tenant_suspensions_total\"",
+       "threshold_value": 0.0
+      },
+      "display_name": "tenant_suspended"
+     }
+    ],
+    "display_name": "tenant_suspended",
+    "documentation": {
+     "content": "Runbook: docs/runbooks/tenant-suspended.md. Owner: support.",
+     "mime_type": "text/markdown"
+    },
+    "notification_channels": "${var.ticket_channels}",
+    "project": "${var.project_id}",
+    "user_labels": {
+     "owner": "support",
      "severity": "ticket"
     }
    },

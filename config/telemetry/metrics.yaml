@@ -55,6 +55,10 @@ metrics:
   stuck_runs: {type: gauge, unit: "1", labels: [state, age_bucket], series_bound: 40, owner: obs, description: "runs flagged by the stuck detector"}
   rls_denied_total: {type: counter, unit: "1", labels: [service], series_bound: 4, owner: obs, description: "permission errors on writes (SQLSTATE 42501)"}
   isolation_probe_leaks_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: obs, description: "canary prober leaks (synthetic tenants)"}
+  auth_signin_refusals_total: {type: counter, unit: "1", labels: [outcome], series_bound: 40, owner: identity, description: "refused sign-ins by fixed reason code (Phase 3 ID1)"}
+  connector_access_refused_total: {type: counter, unit: "1", labels: [outcome], series_bound: 40, owner: connectors, description: "connector accesses refused or failed (Phase 3 CN1 to CN4)"}
+  tenant_suspensions_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: support, description: "tenant suspensions (Phase 3 lifecycle)"}
+  tenant_deletion_requests_total: {type: counter, unit: "1", labels: [], series_bound: 1, owner: support, description: "tenant deletion requests opened (Phase 3 lifecycle)"}
   canary_hits_total: {type: counter, unit: "1", labels: [sink], series_bound: 8, owner: obs, description: "planted canaries found in a sink"}
   slo_burn_rate: {type: gauge, unit: "1", labels: [slo, window], series_bound: 50, owner: obs, description: "error budget burn rate"}
   heartbeat: {type: gauge, unit: s, labels: [service], series_bound: 4, owner: obs, description: "last heartbeat epoch seconds"}

@@ -108,7 +108,12 @@ async def event(
     reason: str | None = None,
     request_id: str | None = None,
 ) -> None:
-    """One ``auth_events`` row (identifiers and a fixed reason code only)."""
+    """One ``auth_events`` row (identifiers and a fixed reason code only); a refused sign-in is
+    also counted by reason (never raises)."""
+    if kind == "login_failed":
+        from obs.setup import record
+
+        record("auth_signin_refusals_total", 1, {"outcome": reason or "unknown"})
     await s.execute(
         text(
             "INSERT INTO auth_events (user_id, session_id, connection_id, event, reason_code,"

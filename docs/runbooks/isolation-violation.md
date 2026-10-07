@@ -18,6 +18,10 @@ Preserve evidence (export the alert, the probe rows and the sink sample by id), 
 ## Escalation
 Page or ticket per docs/oncall/severity.md; escalate to the owner above.
 
+Phase 3: the isolation matrix (`tests/isolation/matrix/matrix.yaml`, generated coverage) runs on every
+build; a new table, route, storage layout, cache purpose, event or job cannot ship without its
+probes. Reproduce a reported leak as a matrix probe before fixing it.
+
 ## Verification
 Probes and scans clean for 24 hours after the fix.
 
