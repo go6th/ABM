@@ -114,6 +114,8 @@ OWNERS: dict[str, set[str]] = {
     "flag_events": {"admin/flags.py"},
     "broker_keys": {"admin/keys.py"},
     "operator_audit": {"admin/tenants.py"},
+    "run_feedback": {"pilot/feedback.py"},
+    "usefulness_events": {"pilot/usefulness.py"},
     "usage_counters": {"metering/limits.py"},
     "usage_thresholds": {"metering/limits.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget

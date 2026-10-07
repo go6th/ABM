@@ -144,6 +144,10 @@ tables:
     plant: {scope: read, reason_code: synthetic, grantee: matrix-op, expires_at: "2099-01-01T00:00:00+00:00"}
   support_session_events:
     plant: {method: GET, outcome: ok}
+  run_feedback:
+    plant: {scope: account, verdict: useful, reason_code: synthetic}
+  usefulness_events:
+    plant: {kind: first_call_question_used, via: marked}
   users: {}
   verifier_findings: {}
   view_materializations: {}
@@ -183,6 +187,9 @@ functions:
   operator_tenant_overview:
     returns: tenant ids, creation time, plan, suspension and counts; no names, no content
     proof: tests/phase3/test_ws8_admin.py
+  pilot_aggregate:
+    returns: per-tenant counts of usefulness events and verdicts; no subject, note or content
+    proof: tests/phase3/test_ws9_pilot.py
   provision_tenant:
     returns: the id of one new tenant with an empty wallet; reads and changes nothing else
     proof: tests/phase3/test_ws8_admin.py
@@ -236,6 +243,15 @@ routes:
   GET /v1/branding: {probe: tenant}
   GET /v1/connectors: {probe: tenant}
   GET /v1/usage: {probe: tenant}
+  POST /v1/feedback:
+    probe: tenant
+    body: {domain: accounts.domain, verdict: useful, reason: accurate}
+  GET /v1/feedback: {probe: tenant, query: {domain: accounts.domain}}
+  POST /v1/usefulness:
+    probe: tenant
+    body: {kind: first_call_question_used, subject_id: report_sections.id, via: marked}
+  GET /v1/usefulness/metric: {probe: tenant}
+  GET /operator/v1/pilot/aggregate: {probe: staff, public: [owner]}
   GET /v1/support/grants: {probe: tenant}
   GET /v1/support/events: {probe: tenant}
   POST /v1/support/grants:
@@ -395,6 +411,8 @@ events:
   connector.access: {table: connector_access_log}
   usage.event: {table: usage_events}
   support.action: {table: support_session_events}
+  pilot.feedback: {table: run_feedback}
+  pilot.usefulness: {table: usefulness_events}
 # Jobs (tenancy.catalog.JOBS): each runs per tenant inside tenant_txn or through a definer
 # function returning identifiers only; `proof` names the test that exercises it.
 jobs:
