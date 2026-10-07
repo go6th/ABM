@@ -88,6 +88,8 @@ tables:
   notification_outbox: {}
   ops_cost_rollups: {}
   ops_rollup_watermarks: {}
+  plan_assignments:
+    plant: {plan_code: pilot, reason_code: synthetic}
   people:
     plant: {profile_url: "https://profiles.example/{canary}"}
   people_pipeline_runs: {}
@@ -130,6 +132,12 @@ tables:
   tool_call_events:
     plant: {event: submitted}
   tool_calls: {}
+  usage_counters:
+    plant: {period: all}
+  usage_events:
+    plant: {kind: run_started, period: "2026-03"}
+  usage_thresholds:
+    plant: {period: "2026-03", percent: 80}
   users: {}
   verifier_findings: {}
   view_materializations: {}
@@ -210,6 +218,8 @@ routes:
     params: {domain: accounts.domain, table: people}
   GET /v1/branding: {probe: tenant}
   GET /v1/connectors: {probe: tenant}
+  GET /v1/usage: {probe: tenant}
+  GET /v1/usage/export: {probe: tenant}
   POST /v1/connectors: {probe: tenant, body: {kind: hubspot}}
   GET /v1/connectors/oauth/callback:
     probe: tenant
@@ -317,6 +327,7 @@ events:
   outbox.notification: {table: notification_outbox}
   audit.event: {table: audit_events}
   connector.access: {table: connector_access_log}
+  usage.event: {table: usage_events}
 # Jobs (tenancy.catalog.JOBS): each runs per tenant inside tenant_txn or through a definer
 # function returning identifiers only; `proof` names the test that exercises it.
 jobs:
@@ -326,3 +337,4 @@ jobs:
   isolation_probe: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
   audit_chain_verify: {via: tenant_txn, proof: tests/phase3/test_ws3_audit.py}
   connector_fetch: {via: tenant_txn, proof: tests/phase3/test_ws6_connectors.py}
+  usage_reconcile: {via: tenant_txn, proof: tests/phase3/test_ws7_metering.py}

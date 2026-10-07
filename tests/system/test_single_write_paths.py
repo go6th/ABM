@@ -105,6 +105,9 @@ OWNERS: dict[str, set[str]] = {
     "connector_items": {"connectors_client/framework.py"},
     "connector_quarantine": {"connectors_client/quarantine.py"},
     "connector_access_log": {"connectors_client/access_log.py"},
+    "usage_events": {"metering/events.py"},
+    "usage_counters": {"metering/limits.py"},
+    "usage_thresholds": {"metering/limits.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {
