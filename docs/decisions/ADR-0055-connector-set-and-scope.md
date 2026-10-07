@@ -11,8 +11,11 @@ Salesforce, HubSpot, Drive, Gmail and call notes. Connectors can expose sensitiv
 
 ## Decision
 
-* Framework plus Google Drive, Salesforce and HubSpot adapters first; Gmail and call notes are
-  flagged off and raise `NotConfigured`.
+* Framework plus Google Drive, Salesforce and HubSpot first. Built: the OAuth flow, the exact scope
+  table, consent, quarantine, the access log and the Drive ancestry and bounded fetch logic, all
+  behind ports and tested against fakes. Not built: any real provider HTTP client (no OAuth app is
+  registered; the production ports raise `NotConfigured`) and the Salesforce and HubSpot fetch
+  (scope tables only). Gmail and call notes are flagged off and raise `NotConfigured`.
 * Per-source consent by a tenant admin (step-up), OAuth with PKCE bound to tenant, user and
   connection; the granted scopes must equal `config/connectors.yaml` exactly (scope widening
   refused). Drive reads only inside admin-named folders, by **resolved ancestry**: shortcuts,

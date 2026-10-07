@@ -32,7 +32,7 @@ to C26. Migrations 0020 to 0027 (expand only).
 | `identity` | roles table, OIDC, SAML, broker, sessions, CSRF, membership, provisioning, SSRF-guarded IdP client |
 | `audit` | events, per-tenant hash chain, tenant export by category, route resource ids |
 | `views` | row sources from the export mapping, materialised `view_rows`, allow-listed query builder, saved views, parity, packages, branding, safe rendering, progress |
-| `connectors_client` | OAuth with PKCE, exact scopes, Drive ancestry, quarantine, access log, bounded fetch; Salesforce, HubSpot adapters; Gmail and notes `NotConfigured` |
+| `connectors_client` | OAuth with PKCE, exact scopes, Drive ancestry, quarantine, access log, bounded fetch, all behind ports (real provider clients not built: `NotConfigured`); Salesforce and HubSpot scope tables only; Gmail and notes `NotConfigured` |
 | `metering` | usage events, atomic limits, summary, reconcile |
 | `admin` | support grants, quotas and plans, feature flags, broker key references, tenant management |
 | `pilot` | feedback, usefulness events, metric |
