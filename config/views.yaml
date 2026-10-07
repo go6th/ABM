@@ -1,0 +1,25 @@
+# Client table queries, saved views and branding (Phase 3 WS4, VW3, VW6). The sources give no page
+# sizes, filter limits, saved-view limits or branding limits (Phase 3 prompt s2.1): every number
+# here is a conservative proposal until the product owner sets it.
+version: "1.0.0"
+status: proposal
+source: "TODO, needs product owner"
+query:
+  default_page_size: 50
+  max_page_size: 200
+  max_filters: 8
+  max_sorts: 2
+  max_in_values: 50
+  max_value_chars: 200
+  max_search_chars: 200
+saved_views:
+  max_per_user: 50
+  max_shared_per_tenant: 100
+branding:
+  max_logo_bytes: 524288          # 512 KiB upload
+  max_logo_pixels: 4000000        # refused above this before decoding (decompression bombs)
+  max_logo_side: 2000
+  output_max_side: 600            # re-encoded logo is resized to fit
+  min_accent_contrast: 4.5        # WCAG AA for normal text against white (proposal)
+  max_display_name_chars: 60
+  attribution: "6th agents"       # fixed until D-64 is decided (skill rule 6)
