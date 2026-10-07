@@ -298,11 +298,15 @@ def test_branding_refuses_every_hostile_input() -> None:
             branding.accent(bad)
     # display name: no markup, no forbidden terms, bounded
     assert branding.display_name("  Synthetic   Partners  ") == "Synthetic Partners"
+    from account_intelligence.connectors.registry_internal import vendor_names
+    from account_intelligence.connectors.settings import load_providers_config
+
+    vendor = sorted(n for n in vendor_names(load_providers_config()).values() if n != "Parallel")[0]
     for bad in (
         "<script>alert(1)</script>",
         "x" * 61,
         "   ",
-        "Powered by Firecrawl",
+        f"Powered by {vendor}",  # a provider name (from config; never written in source)
         "1,000 credits remaining",
         "{{evil}}",
     ):

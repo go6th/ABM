@@ -27,7 +27,15 @@ def container():
     return c
 
 
-REQUEST = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(container=None)))
+# the route function called directly: the request carries what the router layer would have set
+REQUEST = SimpleNamespace(
+    app=SimpleNamespace(state=SimpleNamespace(container=None)),
+    state=SimpleNamespace(principal=None, request_id=None),
+    scope={"route": None},
+    url=SimpleNamespace(path="/v1/runs"),
+    method="POST",
+    headers={},
+)
 
 
 def _balance(tenant: UUID) -> float:
