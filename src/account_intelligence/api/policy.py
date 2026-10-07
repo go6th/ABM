@@ -84,6 +84,25 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
 }
 
 
+def tenant_route(action: str, audit: AuditClass, *, step_up: bool = True) -> RoutePolicy:
+    """A tenant route whose roles come from the role policy for ``action`` (D-61, one source).
+    ``step_up=False`` keeps the roles but never asks for step-up (a read that shares an
+    administrative action's roles)."""
+    from identity.roles import roles_for
+
+    roles = frozenset(r for r in roles_for(action) if r in ALL_ROLES)
+    return RoutePolicy(
+        roles,
+        TENANT_PRINCIPALS,
+        audit,
+        "session",
+        action if step_up else None,
+    )
+
+
+ANONYMOUS = RoutePolicy(frozenset(), frozenset({"anonymous"}), "none", "none")
+
+
 def register(method: str, path: str, policy: RoutePolicy) -> None:
     """Add one entry at import time of the module that defines the route (a duplicate is a
     programming error, never an override)."""

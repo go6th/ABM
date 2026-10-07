@@ -22,8 +22,16 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.problem import DependencyUnavailable, problem_body
-from account_intelligence.api.routes import health, operator_router, tasks, v1_router
+from account_intelligence.api.routes import (
+    health,
+    operator_router,
+    public_v1_router,
+    tasks,
+    v1_router,
+)
+from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 
 
 def _on_sigterm(app: FastAPI, previous: Any) -> Any:
@@ -130,6 +138,33 @@ def create_app() -> FastAPI:
             media_type="application/problem+json",
         )
 
+    @app.exception_handler(APIProblem)
+    async def typed_problem(request: Request, error: APIProblem) -> JSONResponse:
+        """An expected problem with its own stable type, title and safe detail."""
+        request_id = getattr(request.state, "request_id", "unavailable")
+        return JSONResponse(
+            {
+                "type": f"urn:6th:problem:{error.type}",
+                "title": error.title,
+                "status": error.status,
+                "detail": error.detail,
+                "request_id": request_id,
+            },
+            status_code=error.status,
+            media_type="application/problem+json",
+            headers=error.headers or None,
+        )
+
+    @app.exception_handler(PlatformNotConfigured)
+    async def not_configured(request: Request, _error: PlatformNotConfigured) -> JSONResponse:
+        """A production adapter that is not wired: fail closed with 503, never a fake success."""
+        request_id = getattr(request.state, "request_id", "unavailable")
+        return JSONResponse(
+            problem_body(503, request_id),
+            status_code=503,
+            media_type="application/problem+json",
+        )
+
     @app.exception_handler(Exception)
     async def internal_problem(request: Request, _error: Exception) -> JSONResponse:
         """Return no exception text or traceback to clients."""
@@ -142,6 +177,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(v1_router)
+    app.include_router(public_v1_router)
     app.include_router(operator_router)
     app.include_router(tasks.router)
     return app

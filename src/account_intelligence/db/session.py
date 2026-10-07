@@ -84,3 +84,12 @@ async def tenant_txn(tenant_id: UUID, *, snapshot: bool = False) -> AsyncIterato
             {"tid": str(tenant_id)},
         )
         yield session
+
+
+@asynccontextmanager
+async def untenanted_session() -> AsyncIterator[AsyncSession]:
+    """A transaction with NO tenant context, for the definer-rights identity lookups only
+    (``idp_connection_tenant``, ``login_state_tenant``, ``session_tenant``). RLS shows this
+    session zero tenant rows; the lookups return identifiers only."""
+    async with _sessions()() as session, session.begin():
+        yield session

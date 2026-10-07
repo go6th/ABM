@@ -113,6 +113,9 @@ class Container:
     upload_parser: Any = field(default_factory=lambda: _unconfigured("upload_parser"))
     # model routing (D-48): a factory deps -> llm.port.Router; None keeps the legacy LlmPort path
     router: Any | None = None
+    # Phase 3 tenant plane (identity broker, secret and object stores, mailer, scanner): the
+    # production default fails closed (NotConfigured) until real adapters exist
+    tenant_plane: Any | None = None
 
     async def deps_for(self, tenant_id: UUID, run_id: UUID) -> RunDeps:
         """One run's dependencies, loaded under the tenant (the run row is the identity)."""
@@ -325,6 +328,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     from google.cloud import secretmanager, tasks_v2
     from google.cloud import storage as gcs  # type: ignore[attr-defined]  # noqa: I001
 
+    from account_intelligence.api.tenant_plane import cloud_plane
     from account_intelligence.platform.gcp.adapters import (
         CloudTasksScheduler,
         GcsPayloadStore,
@@ -393,6 +397,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         task_audience=_require(env, "TASKS_AUDIENCE"),
         task_service_account=_require(env, "TASKS_SERVICE_ACCOUNT"),
         verify_task_token=verify_task_token,
+        tenant_plane=cloud_plane(secrets, clock, env.get("PUBLIC_BASE_URL")),
     )
 
 
