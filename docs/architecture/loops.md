@@ -73,4 +73,4 @@ unannotated (the generator's check fails otherwise).
 | union-find path walk | `src/jobs/dedupe.py:60` | number of identities (path halving) | root found |
 | union-find root walk | `src/people/merge.py:78` | number of records (each step moves to a parent; unions always point the larger root at the smaller, so there is no cycle) | root reached |
 | verification batch | `src/verify/claims.py:110` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
-| webhook retry schedule | `src/signals/webhooks.py:60` | window | window end |
+| webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |

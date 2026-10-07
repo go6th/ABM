@@ -56,7 +56,8 @@ def retry_schedule(
     """Exponential retry offsets (seconds after the first attempt) within the 24 h window
     (source: "exponential retries for 24 h"; first delay and factor are proposals)."""
     out, delay, t = [], first_delay_s, 0
-    while t + delay <= window_s:  # LOOP(webhook retry schedule): cap=window; exit=window end
+    # LOOP(webhook retry schedule): cap=the 24 h window (delays double); exit=window end
+    while t + delay <= window_s:
         t += delay
         out.append(t)
         delay *= factor
