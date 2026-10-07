@@ -1,0 +1,27 @@
+# Plans and their limits (Phase 3 WS7, MT1 to MT3; D-67 proposal). The sources give the
+# DIMENSIONS of billing (accounts, refreshes and spend; a platform fee per active account plus
+# metered credits, ARCH 9) but NO limit values: every number below is a conservative proposal
+# ("TODO, needs product owner"). Migration 0025 seeds plan_limits version 1 from this file and a
+# test keeps them identical; later versions are inserted by the operator plane, never edited.
+version: "1.0.0"
+status: proposal
+source: "TODO, needs product owner (D-67); dimensions from ARCH 9 billing and roadmap metering"
+period: calendar_month                  # proposal: usage periods are UTC calendar months
+active_account: "an account with a run or a refresh started in the period (D-67 proposal)"
+soft_threshold_percent: 80              # notify once per period per dimension (proposal)
+default_plan: pilot
+plans:
+  pilot:
+    accounts: 10                        # accounts on the list
+    runs_per_period: 20
+    refreshes_per_period: 0             # scheduled refresh is not built in this package
+    seats: 10                           # active members
+    connectors: 3
+    storage_mb: 1024
+  standard:
+    accounts: 50
+    runs_per_period: 100
+    refreshes_per_period: 200
+    seats: 25
+    connectors: 5
+    storage_mb: 10240
