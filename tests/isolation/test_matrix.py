@@ -266,6 +266,11 @@ def _app(world: World) -> Any:
         )
     plane = make_app()
     app = plane.app
+    from tests.fakes.connectors import FakeDrive, FakeOAuth
+
+    tp = app.state.container.tenant_plane
+    tp.oauth, tp.connectors = FakeOAuth(), FakeDrive()
+    tp.connector_client_ids = {"google_drive": "d", "salesforce": "s", "hubspot": "h"}
     extras = SimpleNamespace(wallet=None, upload_store=None, scanner=None, upload_parser=None)
     app.state.container = _Merged(app.state.container, extras)
     now = datetime.now(UTC)

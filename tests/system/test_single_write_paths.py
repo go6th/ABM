@@ -98,6 +98,13 @@ OWNERS: dict[str, set[str]] = {
     "saved_views": {"views/saved.py"},
     "export_packages": {"views/packages.py"},
     "branding_assets": {"views/branding.py"},
+    # consent and status by oauth; the fetch cursor and last fetch time by the framework
+    "connector_connections": {"connectors_client/oauth.py", "connectors_client/framework.py"},
+    "connector_oauth_states": {"connectors_client/oauth.py"},
+    "connector_grants": {"connectors_client/framework.py"},
+    "connector_items": {"connectors_client/framework.py"},
+    "connector_quarantine": {"connectors_client/quarantine.py"},
+    "connector_access_log": {"connectors_client/access_log.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget
     # (spent_usd and the call count), grading (the pinned config hash)
     "account_runs": {

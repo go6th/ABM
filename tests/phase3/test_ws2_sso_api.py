@@ -414,3 +414,39 @@ async def test_membership_removal_and_role_change_take_effect_within_the_bound(
         assert (await b.client.get("/v1/settings")).status_code == 401
     finally:
         await b.close()
+
+
+async def test_an_admin_configures_a_connection_with_a_write_only_secret(
+    plane: Plane, browser: Browser
+) -> None:
+    a = new_tenant("sso-admin")
+    slug = f"acme-{uid()}"
+    add_oidc_connection(a, plane, slug)
+    add_member(a, f"{slug}:root", "admin")
+    await browser.oidc_sign_in(slug, "root", extra={"groups": ["admins"]})
+    body = {
+        "slug": f"new-{uid()}",
+        "protocol": "oidc",
+        "issuer": "https://idp2.synthetic.test",
+        "client_id": "c2",
+        "client_secret": "SECRET-CANARY-123",
+        "authorization_endpoint": "https://idp2.synthetic.test/a",
+        "token_endpoint": "https://idp2.synthetic.test/t",
+        "jwks_uri": "https://idp2.synthetic.test/j",
+        "group_role_map": {"sales": "seller"},
+    }
+    created = await browser.call("POST", "/v1/sso/connections", json=body)
+    assert created.status_code == 201, created.text
+    assert created.json()["has_client_secret"] is True and "SECRET-CANARY" not in created.text
+    listed = await browser.client.get("/v1/sso/connections")
+    assert "SECRET-CANARY" not in listed.text
+    assert (
+        b"SECRET-CANARY-123"
+        in plane.secrets.values[next(k for k in plane.secrets.values if "/idp/" in k)]
+    )
+    bad = await browser.call(
+        "POST",
+        "/v1/sso/connections",
+        json={**body, "slug": f"x-{uid()}", "group_role_map": {"g": "root"}},
+    )
+    assert bad.status_code == 422

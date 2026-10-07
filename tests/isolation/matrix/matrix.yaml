@@ -35,6 +35,18 @@ tables:
   checkpoints: {}
   chunks: {}
   claim_drops: {}
+  connector_access_log:
+    plant: {purpose: fetch, outcome: ok}
+  connector_connections:
+    plant: {kind: google_drive, status: active}
+  connector_grants:
+    plant: {grant_kind: drive_folder}
+  connector_items:
+    plant: {object_key: "tenants/{tenant}/connector-quarantine/{uuid}/{hex64}", state: quarantined}
+  connector_oauth_states:
+    plant: {expires_at: "2027-01-01T00:00:00+00:00"}
+  connector_quarantine:
+    plant: {resource_kind: file, reason: outside_allow_list, status: held}
   coverage_row_events: {}
   coverage_rows: {}
   deliverables:
@@ -197,6 +209,28 @@ routes:
     probe: tenant
     params: {domain: accounts.domain, table: people}
   GET /v1/branding: {probe: tenant}
+  GET /v1/connectors: {probe: tenant}
+  POST /v1/connectors: {probe: tenant, body: {kind: hubspot}}
+  GET /v1/connectors/oauth/callback:
+    probe: tenant
+    query: {state: connector_oauth_states.state_hash, code: matrix-code}
+  POST /v1/connectors/{connection_id}/grants:
+    probe: tenant
+    params: {connection_id: connector_connections.id}
+    body: {grant_kind: drive_folder, resource_id: folder-1}
+  POST /v1/connectors/{connection_id}/fetch:
+    probe: tenant
+    params: {connection_id: connector_connections.id}
+  GET /v1/connectors/{connection_id}/quarantine:
+    probe: tenant
+    params: {connection_id: connector_quarantine.connection_id}
+  POST /v1/connectors/{connection_id}/quarantine/{item_id}/{decision}:
+    probe: tenant
+    params: {connection_id: connector_quarantine.connection_id, item_id: connector_quarantine.id,
+             decision: clear}
+  POST /v1/connectors/{connection_id}/disconnect:
+    probe: tenant
+    params: {connection_id: connector_connections.id}
   POST /v1/settings/branding/logo: {probe: tenant, raw_png: true}
   PUT /v1/settings/branding:
     probe: tenant
@@ -271,6 +305,7 @@ storage:
   branding: {layout: "tenants/<tenant>/branding/<sha256>.png"}
   branding_upload_quarantine: {layout: "tenants/<tenant>/uploads/branding/<sha256>"}
   export_file: {layout: "tenants/<tenant>/exports/<run>/<sha256>.<ext>"}
+  connector_quarantine: {layout: "tenants/<tenant>/connector-quarantine/<connection>/<sha256>"}
 # Cache purposes (tenancy.catalog.CACHE_PURPOSES): keys start with t:<tenant>:<purpose>:.
 cache:
   membership: {}
@@ -281,6 +316,7 @@ events:
   task.approval_timeout: {route: POST /tasks/approval-timeout}
   outbox.notification: {table: notification_outbox}
   audit.event: {table: audit_events}
+  connector.access: {table: connector_access_log}
 # Jobs (tenancy.catalog.JOBS): each runs per tenant inside tenant_txn or through a definer
 # function returning identifiers only; `proof` names the test that exercises it.
 jobs:
@@ -289,3 +325,4 @@ jobs:
   cost_rollup: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
   isolation_probe: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
   audit_chain_verify: {via: tenant_txn, proof: tests/phase3/test_ws3_audit.py}
+  connector_fetch: {via: tenant_txn, proof: tests/phase3/test_ws6_connectors.py}

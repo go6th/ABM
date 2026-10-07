@@ -659,10 +659,15 @@ async def test_materialisation_is_once_per_run_and_matches_the_mapping(seeded: A
     expected = {k: len(v) for k, v in rows_of(mapped).items()}
     assert first.counts == expected
     with psycopg.connect(_admin()) as c:
-        assert c.execute("SELECT count(*) FROM view_materializations WHERE run_id = %s",
-                         (w.run,)).fetchone()[0] == 1
-        assert c.execute("SELECT count(*) FROM view_rows WHERE run_id = %s",
-                         (w.run,)).fetchone()[0] == sum(expected.values())
+        assert (
+            c.execute(
+                "SELECT count(*) FROM view_materializations WHERE run_id = %s", (w.run,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert c.execute("SELECT count(*) FROM view_rows WHERE run_id = %s", (w.run,)).fetchone()[
+            0
+        ] == sum(expected.values())
     running = make_world(tenant=w.tenant)
     with pytest.raises(mat.NotReady):
         await mat.materialize(tenant_txn, build.reader, CFG, GRADING, w.tenant, running.run, now)
