@@ -301,6 +301,39 @@ routes:
   GET /v1/branding: {probe: tenant}
   GET /v1/connectors: {probe: tenant}
   GET /v1/usage: {probe: tenant}
+  GET /v1/signals: {probe: tenant}
+  GET /v1/alerts: {probe: tenant}
+  GET /v1/alerts/usefulness: {probe: tenant}
+  POST /v1/alerts/{alert_id}/feedback:
+    probe: tenant
+    params: {alert_id: alerts.id}
+    body: {verdict: useful, reason: acted_on}
+  GET /v1/subscriptions: {probe: tenant}
+  PUT /v1/subscriptions:
+    probe: tenant
+    body: {digest: true}
+  POST /v1/subscriptions/subscribe-all: {probe: tenant}
+  GET /v1/monitoring/budget: {probe: tenant}
+  GET /v1/accounts/{domain}/history: {probe: tenant, params: {domain: accounts.domain}}
+  POST /v1/crm/{crm}/enable: {probe: tenant, params: {crm: salesforce}}
+  POST /v1/crm/{crm}/revoke: {probe: tenant, params: {crm: salesforce}}
+  POST /v1/crm/{crm}/mappings:
+    probe: tenant
+    params: {crm: salesforce}
+    body: {domain: accounts.domain, record_id: "001B"}
+  POST /v1/crm/{crm}/preview:
+    probe: tenant
+    params: {crm: salesforce}
+    body: {domain: accounts.domain}
+  POST /v1/crm/{crm}/writes:
+    probe: tenant
+    params: {crm: salesforce}
+    body: {domain: accounts.domain}
+  POST /v1/crm/{crm}/writes/approve:
+    probe: tenant
+    params: {crm: salesforce}
+    body: {write_ids: [crm_writes.id]}
+  GET /v1/crm/{crm}/writes: {probe: tenant, params: {crm: salesforce}}
   POST /v1/feedback:
     probe: tenant
     body: {domain: accounts.domain, verdict: useful, reason: accurate}

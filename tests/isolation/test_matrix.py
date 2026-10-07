@@ -317,15 +317,17 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
         path = path.replace("{" + param + "}", _value(world, spec))
     body = entry.get("body")
     if body is not None:
-        body = {
-            k: (
-                _value(world, v)
-                if isinstance(v, str)
-                and (v == "owner" or "." in v and v.split(".")[0] in world.tables)
-                else v
-            )
-            for k, v in body.items()
-        }
+
+        def fill(v: Any) -> Any:
+            if isinstance(v, list):
+                return [fill(x) for x in v]
+            if isinstance(v, str) and (
+                v == "owner" or "." in v and v.split(".")[0] in world.tables
+            ):
+                return _value(world, v)
+            return v
+
+        body = {k: fill(v) for k, v in body.items()}
     headers = {"Idempotency-Key": f"matrix-{uuid4().hex[:16]}"} if entry.get("idempotent") else {}
     if entry["probe"] == "staff":  # a real 6th staff principal, no tenant principal at all
         headers["Authorization"] = "Bearer operator:matrix-op"
