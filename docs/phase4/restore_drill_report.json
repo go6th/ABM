@@ -1,0 +1,24 @@
+{
+  "rehearsal": true,
+  "source_db": "ai_p3",
+  "statement": "hermetic rehearsal on a local container; the real Cloud SQL restore and DR drill are Blocked",
+  "backup_s": 31.88,
+  "replayed_and_started_s": 33.13,
+  "checks": {
+    "marker_present": true,
+    "rls_catalog_rows": 0,
+    "wallet_balance_matches_ledger": 0,
+    "one_settlement_per_run": 0,
+    "facts_have_evidence": 0,
+    "alerts_have_deltas": 0,
+    "insert_only_counts_kept": true
+  },
+  "sql_invariants_pass": true,
+  "rto_rehearsal_s": 34.04,
+  "rpo_rehearsal_lost_committed_rows": 0,
+  "restored_copy": "ai_drill_6fadb9fa",
+  "isolation_suite_on_restored_copy": [
+    "361 passed in 51.38s"
+  ],
+  "isolation_pass": true
+}
