@@ -192,6 +192,12 @@ tables:
   tenant_rule_accounts: {}
   tenant_rules:
     plant: {grade_floor: probable, signal_type: news_event}
+  monitoring_budget_versions:
+    plant: {reason_code: synthetic}
+  monitoring_usage:
+    plant: {period: 2026-03}
+  throttle_events:
+    plant: {step: alert_80, used_percent: 80}
   users: {}
   verifier_findings: {}
   view_materializations: {}
