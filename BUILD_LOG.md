@@ -114,3 +114,34 @@ Incidents and findings: the output spec named a person in a comment (fixed, C33)
 claim any row of their source group (fixed: row must match the evidence); a budget breach in the
 careers-page choice crashed a node (fixed); tool names in the Internal Only distill were not
 scanned (fixed: both audiences are tenant-facing).
+
+## ABM agent layer, part 2: production bindings and production-grade tests (2026-10-08)
+
+| Item | Result |
+|---|---|
+| Production adapters for every port (`src/agents/production/`, ADR-0100) | Done, except people recording from the agent layer, internal-history connector search, Internal Only file builder (OI-ABM-4) |
+| Grading engine rule `unread_match` + `match_origin` (C36) | Done, engine tests added |
+| Tracker reasons `consent_required`, `pull_not_approved` | Done |
+| Runner: `execute_slice` graph factory; worker endpoint switch (pull, build, `abm_agents` flag) | Done; default stays Workflow v1 (C34) |
+| Migration 0042 (`abm_distill_outputs`) | Done |
+| K3 cap guard | The agent package no longer reaches the approval service; `propose_plan_and_gate` in the setup adapter |
+| Stale fixtures from before migration 0033 (isolation matrix, grading) | Repaired; the isolation matrix probes every table again |
+
+Defects found by the production tests and fixed: visited-page ids built from payload keys
+(dots refused by the schema); attribute keys without an engine attribute class (C38); a cap
+proposal path that bypassed K3; G2 conflating search snippets with keyword matches (C36).
+
+Gates (local docker Postgres):
+
+* `pytest tests/agents tests/system/test_abm_production.py tests/phase3/test_abm_modes_api.py
+  tests/grading/test_unread_match.py`: 238 passed; `src/agents` coverage 96% (guards, lessons,
+  modes, manifest, contracts 100%).
+* Full `pytest -m "not eval"`: 30 failed, 3280 passed, 0 errors. Against the parent commit
+  `07766f5`: 0 new failures, 248 fixed (the isolation matrix errors and three grading tests). The
+  30 remaining failures exist at the parent commit (RAG, alerting, simulation, privacy, static
+  guards and write-owner or isolation-coverage entries for tables of earlier packages).
+* mutmut 3.8.0 on guards, modes, manifest, lessons: 643 mutants, 634 killed, 9 survived (8
+  equivalent, 1 minor: `require_guard`'s prompt directory, unused until a prompt-enforced lesson).
+* ruff, `mypy --strict` (130 files), lint-imports (18 contracts kept), interrogate 100%, name
+  scan, routing governance, validate_assets, selftest: pass. `abm_lessons.py check`: INCOMPLETE
+  (archive absent). Eval gate: blocked on analyst-reviewed golden accounts, as at the parent.
