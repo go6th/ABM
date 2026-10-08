@@ -145,3 +145,43 @@ Gates (local docker Postgres):
 * ruff, `mypy --strict` (130 files), lint-imports (18 contracts kept), interrogate 100%, name
   scan, routing governance, validate_assets, selftest: pass. `abm_lessons.py check`: INCOMPLETE
   (archive absent). Eval gate: blocked on analyst-reviewed golden accounts, as at the parent.
+
+## Separate client and operator panels (2026-10-08)
+
+The user requested a separate customer login/workspace and staff admin console, then selected
+Google Workspace for staff sign-in. The client and operator route groups now have distinct shells.
+Operator routes use a same-origin proxy, generated runtime-validated API operations and a separate
+HttpOnly session cookie.
+
+The Google authorization-code flow includes state, nonce, PKCE, a Workspace-domain hint, and
+requested auth_time/amr claims. The API maps only verified Workspace emails from server-side role
+allowlists, validates the signed token against the configured issuer, audience and JWKS, and still
+requires fresh MFA. No name-based access bypass is present. The exact Workspace domain and Rajesh's
+email remain deployment inputs.
+
+Connected operator screens: content-free tenant overview and lifecycle/plan/quota administration;
+feature flag and write-only key reference management; tenant-approved support view; run timeline;
+live spend; cost reconciliation; and tenant-scoped failures/stuck observations. Review queue,
+operator audit browsing, monitors/SLOs and announcements remain hidden in production until
+backend read contracts exist. Two-person deletion and pre-pulled upload actions are not exposed yet.
+
+Validation so far:
+
+* Web TypeScript check: pass.
+* Web ESLint: pass.
+* Web Vitest: 14 passed.
+* Google staff-claim, MFA freshness and OpenAPI contract tests: 11 passed.
+* Ruff on changed authentication and unit-test modules: pass.
+* PostgreSQL-backed operator integration suite: not run successfully; fixture setup failed because
+  the local PostgreSQL server rejected the configured connection with no password supplied.
+
+Final frontend checks (2026-10-08):
+
+* `npm run build` (standalone output): pass; all routes render dynamically so the per-request CSP
+  nonce reaches Next.js scripts. `postbuild` copies static assets into the standalone bundle.
+* Production standalone smoke: `/login` and `/operator/login` return 200; unsupported operator
+  routes return 404; `/api/operator/login` returns the expected 503 while OAuth settings are absent.
+* Playwright loaded both login panels with no failed requests or browser console errors. Screenshots:
+  `docs/frontend/client-login.png` and `docs/frontend/operator-login.png`.
+* Contrast check: 102/102 declared pairs pass for light and dark themes; generated API client and
+  `git diff --check`: pass.

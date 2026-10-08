@@ -74,3 +74,13 @@ def test_the_committed_snapshot_has_no_drift() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_generated_web_client_has_no_drift() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "gen_web_client.py"), "--check"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

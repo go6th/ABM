@@ -117,7 +117,7 @@ model).
 | OI-P3-2 | First-call questions are not shown in the client app (needs a sixth materialised table kind, which alters a CHECK constraint): usefulness events for questions arrive only through the API | follow-up, needs an owner decision on the constraint change |
 | OI-P3-3 | `refresh_run` usage events are never emitted: no refresh endpoint exists | follow-up |
 | OI-P3-4 | Client-history routing from connectors into runs is partial (quarantine only; parsing is Phase B) | Phase B |
-| OI-P3-5 | Operator console web pages (staff sign-in flow) are not built; the operator API is | follow-up |
+| OI-P3-5 | Configure the Google Workspace OAuth web client, exact redirect URI, Workspace domain, Rajesh’s operator email allowlist entry, and enabled auth_time/amr claims; the staff sign-in and connected console are implemented | deployment |
 | OI-P3-6 | Audit archive with Object Lock (7 years) not built | Blocked |
 | OI-P3-7 | Commits 5c32e44 and 4d5e1ec on `feat/phase3-tenant-product` also contain another session's uncommitted RAG work (`src/account_intelligence/rag/`, `tests/rag/`) | needs the owner's decision |
 

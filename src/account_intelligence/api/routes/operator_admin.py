@@ -29,11 +29,13 @@ from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn, untenanted_session
 from admin import flags, keys, quotas, tenants
 from audit.events import AuditEvent, record
+from identity.sessions import load_policy, step_up_fresh
 from tenancy import lifecycle
 
 router = APIRouter(prefix="/operator/v1", tags=["operator"])
 OPS: frozenset[OperatorRole] = frozenset({"operator"})
 STAFF: frozenset[OperatorRole] = frozenset({"operator", "support"})
+register("GET", "/operator/v1/session", operator_route("read", tenant="none", roles=STAFF))
 register("GET", "/operator/v1/tenants", operator_route("read", tenant="none", roles=STAFF))
 register("POST", "/operator/v1/tenants", operator_route("admin", tenant="none", roles=OPS))
 for _p in (
@@ -62,6 +64,20 @@ class Reason(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     reason_code: str = Field(pattern=r"^[a-z_]{1,40}$")
+
+
+@router.get("/session", response_model=C.OperatorSession)
+async def operator_session(
+    request: Request, who: StaffIdentity = Depends(require_staff)
+) -> dict[str, Any]:
+    """Return only the verified staff principal, role and MFA freshness."""
+    return {
+        "staff_id": who.staff_id,
+        "role": who.role,
+        "mfa_fresh": step_up_fresh(
+            who.step_up_at, plane_of(request).clock.now(), load_policy()
+        ),
+    }
 
 
 async def _op_audit(

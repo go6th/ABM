@@ -88,6 +88,25 @@ async def test_operator_routes_fail_closed_without_the_operator_plane(
         ).status_code == 403
 
 
+async def test_operator_session_identifies_verified_staff_and_mfa_state(plane: Plane) -> None:
+    async with _staff(plane) as staff:
+        missing = await staff.get("/operator/v1/session")
+        assert missing.status_code == 401
+
+        operator = await staff.get("/operator/v1/session", headers=_as("operator:rajesh"))
+        assert operator.status_code == 200
+        assert operator.json() == {
+            "staff_id": "rajesh",
+            "role": "operator",
+            "mfa_fresh": True,
+        }
+
+        support_without_mfa = await staff.get(
+            "/operator/v1/session", headers=_as("support:sup-1:no-mfa")
+        )
+        assert support_without_mfa.status_code == 403
+
+
 async def _grant(browser: Browser, grantee: str, scope: str = "read", minutes: int = 30) -> str:
     r = await browser.call(
         "POST",

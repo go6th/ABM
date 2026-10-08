@@ -16,3 +16,17 @@ text are TODO (OI-ABM-3). The ABM graph runs on the production runner and adapte
 only and Phase 2 only runs, and for full runs behind the `abm_agents` tenant flag (OI-ABM-1,
 ADR-0100); a few bindings remain open (OI-ABM-4) and most coverage rows have no grading attribute
 class yet (C38). Details: `docs/abm/README.md`, BUILD_LOG.
+
+## Separate client and operator panels (2026-10-08)
+
+The customer workspace and operator console now use separate route groups and shells. The staff
+console has a Google Workspace authorization-code flow and connects its available screens to the
+generated backend contract. Tenant administration and read-only support access are grant- and
+role-checked by the API.
+
+Local web typecheck, lint and unit tests pass. Backend identity unit tests pass. PostgreSQL operator
+integration tests still need a working local database credential. Production sign-in still needs
+the Google OAuth client, registered callback, Workspace domain, Rajesh's exact email allowlist
+entry and enabled MFA claims. Screens without backend contracts are explicitly unavailable in
+production. See the operator route map at docs/frontend/operator-route-map.md and Google Workspace
+setup at docs/phase3/operator_google_workspace.md.

@@ -12,3 +12,8 @@ operator_token:
   issuer_env: STAFF_JWT_ISSUER          # the 6th staff IdP (not a tenant IdP); unset: 503
   audience_env: STAFF_JWT_AUDIENCE
   jwks_env: STAFF_JWKS_URL
+  workspace_domain_env: STAFF_WORKSPACE_DOMAIN
+  operator_email_allowlist_env: STAFF_OPERATOR_EMAILS  # verified Google Workspace emails; no name-based bypass
+  support_email_allowlist_env: STAFF_SUPPORT_EMAILS
+  google_claims: [sub, email, email_verified, hd, auth_time, amr]
+  mfa_required_claim: "amr contains mfa and auth_time is inside the configured step-up window"

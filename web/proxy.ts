@@ -22,19 +22,23 @@ export function proxy(request: NextRequest): NextResponse {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
-  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  const unavailableOperatorRoutes = new Set([
+    "/operator/announcements",
+    "/operator/audit",
+    "/operator/monitors",
+    "/operator/review",
+  ]);
+  const normalizedPath = request.nextUrl.pathname.replace(/\/$/, "") || "/";
+  const response =
+    process.env.NODE_ENV === "production" && unavailableOperatorRoutes.has(normalizedPath)
+      ? new NextResponse("Not Found", { status: 404, headers: { "Content-Security-Policy": csp } })
+      : NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", csp);
   return response;
 }
 
 export const config = {
   matcher: [
-    {
-      source: "/((?!v1/|_next/static|_next/image|favicon.ico).*)",
-      missing: [
-        { type: "header", key: "next-router-prefetch" },
-        { type: "header", key: "purpose", value: "prefetch" },
-      ],
-    },
+    "/((?!v1/|_next/static|_next/image|favicon.ico).*)",
   ],
 };

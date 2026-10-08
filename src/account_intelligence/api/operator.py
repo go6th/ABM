@@ -53,10 +53,22 @@ class OperatorIdentity:
 class JwtStaffVerifier:
     """Staff tokens: RS256 from the staff IdP's key set ([VERIFY] the staff IdP's claim names)."""
 
-    def __init__(self, issuer: str, audience: str, jwks_url: str) -> None:
+    def __init__(
+        self,
+        issuer: str,
+        audience: str,
+        jwks_url: str,
+        *,
+        workspace_domain: str | None = None,
+        operator_emails: frozenset[str] = frozenset(),
+        support_emails: frozenset[str] = frozenset(),
+    ) -> None:
         from jwt import PyJWKClient
 
         self.issuer, self.audience = issuer, audience
+        self.workspace_domain = workspace_domain.lower().strip() if workspace_domain else None
+        self.operator_emails = frozenset(email.lower().strip() for email in operator_emails)
+        self.support_emails = frozenset(email.lower().strip() for email in support_emails)
         self.jwks = PyJWKClient(jwks_url, cache_keys=True)
 
     def verify(self, token: str) -> StaffIdentity:
@@ -65,19 +77,40 @@ class JwtStaffVerifier:
 
         try:
             key = self.jwks.get_signing_key_from_jwt(token).key
+            issuer: str | list[str] = self.issuer
+            if self.issuer == "https://accounts.google.com":
+                issuer = ["https://accounts.google.com", "accounts.google.com"]
             claims = jwt.decode(
                 token,
                 key,
                 algorithms=["RS256"],
                 audience=self.audience,
-                issuer=self.issuer,
-                options={"require": ["exp", "iat", "sub", "staff_role"]},
+                issuer=issuer,
+                options={"require": ["exp", "iat", "sub"]},
             )
         except jwt.PyJWTError:
             raise PermissionError("invalid staff token") from None
         role = claims.get("staff_role")
+        # Google Workspace ID tokens do not carry a product-specific staff_role by default.
+        # Map only verified, workspace-domain identities from explicit server-side allowlists.
+        hosted_domain = claims.get("hd")
+        hosted_domain = hosted_domain.lower() if isinstance(hosted_domain, str) else ""
+        if role not in ("operator", "support") and self.workspace_domain:
+            email = claims.get("email")
+            if (
+                claims.get("email_verified") is True
+                and hosted_domain == self.workspace_domain
+                and isinstance(email, str)
+            ):
+                address = email.lower()
+                if address in self.operator_emails:
+                    role = "operator"
+                elif address in self.support_emails:
+                    role = "support"
         if role not in ("operator", "support"):
             raise PermissionError("invalid staff role")
+        if self.workspace_domain and hosted_domain != self.workspace_domain:
+            raise PermissionError("invalid staff workspace")
         auth_time = claims.get("auth_time")
         mfa = "mfa" in (claims.get("amr") or [])
         step = (
@@ -95,7 +128,21 @@ def staff_verifier_from_env() -> JwtStaffVerifier:
     )
     if not (issuer and audience and jwks):
         raise NotConfigured("the staff identity provider is not configured")
-    return JwtStaffVerifier(issuer, audience, jwks)
+    def email_set(key: str) -> frozenset[str]:
+        return frozenset(
+            value.strip().lower()
+            for value in os.environ.get(key, "").split(",")
+            if value.strip()
+        )
+
+    return JwtStaffVerifier(
+        issuer,
+        audience,
+        jwks,
+        workspace_domain=os.environ.get("STAFF_WORKSPACE_DOMAIN"),
+        operator_emails=email_set("STAFF_OPERATOR_EMAILS"),
+        support_emails=email_set("STAFF_SUPPORT_EMAILS"),
+    )
 
 
 async def staff(
@@ -121,9 +168,14 @@ async def staff(
 
 async def require_staff(request: Request, who: StaffIdentity = Depends(staff)) -> StaffIdentity:
     """A staff member whose role the route's catalog entry allows (403 otherwise)."""
+    from account_intelligence.api.tenant_plane import plane_of
+    from identity.sessions import load_policy, step_up_fresh
+
     policy = getattr(request.state, "route_policy", None)
     if policy is None or who.role not in policy.operator_roles:
         raise HTTPException(status_code=403, detail="forbidden")
+    if not step_up_fresh(who.step_up_at, plane_of(request).clock.now(), load_policy()):
+        raise HTTPException(status_code=403, detail="step-up required")
     request.state.principal = who
     return who
 
@@ -139,10 +191,13 @@ async def require_operator(
     from account_intelligence.db.session import tenant_txn, untenanted_session
     from admin import support
     from audit.events import AuditEvent, record
+    from identity.sessions import load_policy, step_up_fresh
 
     policy = getattr(request.state, "route_policy", None)
     if policy is None or who.role not in policy.operator_roles:
         raise HTTPException(status_code=403, detail="forbidden")
+    if not step_up_fresh(who.step_up_at, plane_of(request).clock.now(), load_policy()):
+        raise HTTPException(status_code=403, detail="step-up required")
     try:
         grant_id = UUID(grant_header or "")
     except ValueError:

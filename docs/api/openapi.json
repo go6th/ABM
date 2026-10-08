@@ -3338,6 +3338,35 @@
         "title": "OperatorLiveSpend",
         "type": "object"
       },
+      "OperatorSession": {
+        "additionalProperties": false,
+        "description": "The verified 6th staff principal and whether the MFA step-up is fresh.",
+        "properties": {
+          "mfa_fresh": {
+            "title": "Mfa Fresh",
+            "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "operator",
+              "support"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "staff_id": {
+            "title": "Staff Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "staff_id",
+          "role",
+          "mfa_fresh"
+        ],
+        "title": "OperatorSession",
+        "type": "object"
+      },
       "ParityVerdict": {
         "additionalProperties": false,
         "description": "Response body: parity verdict.",
@@ -6957,6 +6986,56 @@
         "summary": "Run Timeline",
         "tags": [
           "ops"
+        ]
+      }
+    },
+    "/operator/v1/session": {
+      "get": {
+        "description": "Return only the verified staff principal, role and MFA freshness.",
+        "operationId": "operator_session_operator_v1_session_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Operator Session",
+        "tags": [
+          "operator"
         ]
       }
     },

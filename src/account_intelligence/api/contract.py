@@ -54,6 +54,14 @@ class Session(Out):
     csrf_token: str | None = None
 
 
+class OperatorSession(Out):
+    """The verified 6th staff principal and whether the MFA step-up is fresh."""
+
+    staff_id: str
+    role: Literal["operator", "support"]
+    mfa_fresh: bool
+
+
 class SignedOut(Out):
     """Response body: signed out."""
 

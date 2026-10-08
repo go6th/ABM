@@ -277,4 +277,7 @@ async def rotate(
 
 def step_up_fresh(step_up_at: datetime | None, now: datetime, policy: SessionPolicy) -> bool:
     """True when the last MFA sign-in is within the step-up window."""
-    return step_up_at is not None and now - step_up_at < timedelta(seconds=policy.step_up_window_s)
+    if step_up_at is None:
+        return False
+    age = now - step_up_at
+    return timedelta(0) <= age < timedelta(seconds=policy.step_up_window_s)

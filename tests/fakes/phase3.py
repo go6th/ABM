@@ -118,12 +118,16 @@ class FakeScanner:
 
 
 class FakeStaffIdp:
-    """The 6th staff IdP: tokens ``<role>:<staff id>``; anything else is invalid."""
+    """The 6th staff IdP fake; ``:no-mfa`` models a verified token without an MFA claim."""
 
     def verify(self, token: str) -> Any:
         from account_intelligence.api.operator import StaffIdentity
 
         role, _, who = token.partition(":")
+        no_mfa = who.endswith(":no-mfa")
+        if no_mfa:
+            who = who.removesuffix(":no-mfa")
         if role not in ("operator", "support") or not who:
             raise PermissionError("invalid staff token")
-        return StaffIdentity(who, role)  # type: ignore[arg-type]
+        mfa_at = None if no_mfa else datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
+        return StaffIdentity(who, role, mfa_at)  # type: ignore[arg-type]
