@@ -6,10 +6,10 @@ import pytest
 
 from account_intelligence.rag.synthetic import (
     SyntheticExample,
+    contains_pii,
     filter_valid,
     is_answerable,
     is_self_referential,
-    contains_pii,
     scenario_balance,
     select_diverse,
     validate,

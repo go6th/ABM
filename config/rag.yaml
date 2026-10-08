@@ -1,0 +1,26 @@
+# Agentic RAG subsystem (GROUNDED blueprint): thresholds, caps and weights.
+# Every knob the retrieval loop, reflection loop and cache need in one place;
+# nothing is hardcoded in modules.
+version: "1.0.0"
+retrieval:
+  top_k: 8              # chunks handed to the generator (top-8 with spans)
+  dense_weight: 0.7     # semantic arm weight in the fused score
+  sparse_weight: 0.3    # BM25 arm weight in the fused score
+  rrf_k: 60             # reciprocal rank fusion constant
+  lexical_weight: 0.25  # re-ranker blend weight over the fused score
+  min_score: 0.1        # chunks below this are dropped before ranking
+  metadata_required: true # fail closed: filter keys missing from a chunk drop it
+cache:
+  similarity_threshold: 0.92  # strict cosine gate before serving a cached answer
+  ttl_seconds: 3600
+  max_entries: 10000
+reflection:
+  relevance_threshold: 0.6
+  completeness_threshold: 0.7
+  quality_threshold: 0.5
+  max_passes: 3         # reflection retries before the loop answers or refuses
+loop:
+  max_iterations: 5     # circuit breaker: total retrieval passes per query (LLM10)
+answer:
+  confidence_floor: 0.5 # below this the answer is marked requires_more_info
+  relevance_floor: 0.85 # enterprise target for answer relevance

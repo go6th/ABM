@@ -30,7 +30,7 @@ OWNERS: dict[str, set[str]] = {
     "wallets": {"runs/lifecycle.py"},
     "wallet_ledger": {"runs/lifecycle.py"},
     "runs": {"runs/lifecycle.py", "tracker/guard.py"},
-    "accounts": {"runs/lifecycle.py", "workflow/stages/core.py"},
+    "accounts": {"runs/lifecycle.py", "datamodel/careers.py"},
     "job_postings": {"jobs/repo.py"},
     "job_posting_platform_sentences": {"jobs/repo.py"},
     "job_posting_classifications": {"jobs/repo.py"},
@@ -143,6 +143,7 @@ OWNERS: dict[str, set[str]] = {
     "crm_mappings": {"crm_writeback/service.py"},
     "crm_writes": {"crm_writeback/service.py"},
     "crm_write_events": {"crm_writeback/service.py"},
+    "export_verifications": {"datamodel/export_verify.py"},
     "usage_counters": {"metering/limits.py"},
     "usage_thresholds": {"metering/limits.py"},
     # account_runs: lifecycle (state machine, slices), guard (terminal status), connector budget

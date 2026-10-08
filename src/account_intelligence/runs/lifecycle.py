@@ -37,6 +37,7 @@ from account_intelligence.runs.transitions import TERMINAL, RunStatus, transitio
 from account_intelligence.tracker.guard import finish_run
 from account_intelligence.tracker.model import ReasonCode
 from account_intelligence.tracker.service import TrackerService
+from datamodel import pins
 
 SWEEP_REASON = {
     RunStatus.PARTIAL: ReasonCode.SWEPT_UNREPORTED,
@@ -154,8 +155,9 @@ async def create_run(
             text(
                 "INSERT INTO account_runs (id, tenant_id, account_id, graph_version, budget_json,"
                 " reserved_credits, idempotency_key, request_hash, budget_usd, tool_call_cap,"
-                " run_input) VALUES (:id, :t, :a, :gv, CAST(:budget AS jsonb), :credits, :k,"
-                " :h, :usd, :cap, CAST(:input AS jsonb))"
+                " run_input, checklist_version, model_versions) VALUES (:id, :t, :a, :gv,"
+                " CAST(:budget AS jsonb), :credits, :k, :h, :usd, :cap, CAST(:input AS jsonb),"
+                " :cl, CAST(:mv AS jsonb))"
                 " ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING id"
             ),
             {
@@ -170,6 +172,8 @@ async def create_run(
                 "usd": limits.budget_usd,
                 "cap": limits.tool_call_cap,
                 "input": json.dumps(request.run_input, sort_keys=True),
+                "cl": pins.checklist_version(),
+                "mv": json.dumps(pins.model_versions(), sort_keys=True),
             },
         )
     ).first()

@@ -183,5 +183,5 @@ class TestRerank:
     def test_scores_are_bounded(self) -> None:
         """BM25 normalization keeps the score inside [0, 1]."""
         scores = bm25_scores("alpha", ("alpha beta", "alpha"))
-        assert all(0.0 <= score for score in normalize(scores))
+        assert all(score >= 0.0 for score in normalize(scores))
         assert math.isfinite(sum(normalize(scores)))

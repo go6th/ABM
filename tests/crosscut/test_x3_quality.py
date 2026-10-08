@@ -10,8 +10,8 @@ from datetime import UTC, datetime
 import pytest
 import sqlalchemy as sa
 
-from quality import analyst_loop, regression, release_check
 from account_intelligence.db.session import SessionLocal
+from quality import analyst_loop, regression, release_check
 
 NOW = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 

@@ -1,0 +1,185 @@
+"""Section 11 conformance (preflight): every requirement in ``config/section11_spec.yaml`` is
+evaluated against evidence in the repository and the live catalog. All evidence present: Done
+(with the proof); some: Partial; none: Missing; a declared ``blocked_by`` owner that is absent:
+Blocked-by-dependency. One pass, no writes.
+
+GUARANTEE(test_the_conformance_checker_finds_planted_gaps)
+"""
+
+from __future__ import annotations
+
+import ast
+import importlib
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class Catalog:
+    """What the database says (columns, check constraints, forced-RLS tables)."""
+
+    columns: frozenset[str]
+    checks: frozenset[str]
+    forced_rls: frozenset[str]
+
+
+@dataclass(frozen=True)
+class Result:
+    """One requirement's verdict."""
+
+    id: str
+    text: str
+    status: str
+    present: tuple[str, ...]
+    absent: tuple[str, ...]
+
+
+def load_catalog(conn: Any) -> Catalog:
+    """Read the catalog through a psycopg connection."""
+    cols = {
+        f"{t}.{c}"
+        for t, c in conn.execute(
+            "SELECT table_name, column_name FROM information_schema.columns"
+            " WHERE table_schema = 'public'"
+        ).fetchall()
+    }
+    checks = {
+        f"{t}:{n}"
+        for t, n in conn.execute(
+            "SELECT c.conrelid::regclass::text, c.conname FROM pg_constraint c"
+            " JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'public'"
+            " AND c.contype = 'c'"
+        ).fetchall()
+    }
+    rls = {
+        t
+        for (t,) in conn.execute(
+            "SELECT relname FROM pg_class WHERE relrowsecurity AND relforcerowsecurity"
+            " AND relnamespace = 'public'::regnamespace"
+        ).fetchall()
+    }
+    return Catalog(frozenset(cols), frozenset(checks), frozenset(rls))
+
+
+@lru_cache
+def test_names(root: Path = ROOT) -> frozenset[str]:
+    """Every test function name under tests/."""
+    out: set[str] = set()
+    for p in (root / "tests").rglob("test_*.py"):
+        try:
+            tree = ast.parse(p.read_text())
+        except SyntaxError:
+            continue
+        out |= {
+            n.name
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name.startswith("test_")
+        }
+    return frozenset(out)
+
+
+def _symbol(spec: str) -> bool:
+    mod, _, attr = spec.partition(":")
+    try:
+        return hasattr(importlib.import_module(mod), attr)
+    except Exception:  # an absent package is simply missing evidence
+        return False
+
+
+def _config(spec: str, root: Path) -> bool:
+    path, _, key = spec.partition("#")
+    p = root / path
+    if not p.exists():
+        return False
+    doc = yaml.safe_load(p.read_text()) or {}
+    return not key or key in doc
+
+
+def present(
+    ev: Mapping[str, str],
+    cat: Catalog,
+    root: Path = ROOT,
+    tests: frozenset[str] | None = None,
+    symbol: Callable[[str], bool] = _symbol,
+) -> bool:
+    """Whether one piece of evidence exists."""
+    ((kind, value),) = ev.items()
+    if kind == "column":
+        return value in cat.columns
+    if kind == "check":
+        return value in cat.checks
+    if kind == "rls":
+        return value in cat.forced_rls
+    if kind == "symbol":
+        return symbol(value)
+    if kind == "test":
+        return value in (tests if tests is not None else test_names(root))
+    if kind == "file":
+        return (root / value).exists()
+    if kind == "config":
+        return _config(value, root)
+    raise ValueError(f"unknown evidence kind {kind!r}")
+
+
+def evaluate(
+    spec: Mapping[str, Any],
+    cat: Catalog,
+    root: Path = ROOT,
+    tests: frozenset[str] | None = None,
+    symbol: Callable[[str], bool] = _symbol,
+) -> list[Result]:
+    """Every requirement's verdict, in spec order."""
+    out = []
+    for rid, req in spec["requirements"].items():
+        evs = req["evidence"]
+        have = [e for e in evs if present(e, cat, root, tests, symbol)]
+        miss = [e for e in evs if e not in have]
+        fmt = lambda e: "{}={}".format(*next(iter(e.items())))  # noqa: E731
+        blocked = req.get("blocked_by")
+        if blocked and not (root / blocked).exists():
+            status = "Blocked-by-dependency"
+        elif not miss:
+            status = "Done"
+        elif have:
+            status = "Partial"
+        else:
+            status = "Missing"
+        out.append(Result(rid, req["text"], status, tuple(map(fmt, have)), tuple(map(fmt, miss))))
+    return out
+
+
+def render(results: list[Result], title: str) -> str:
+    """The Markdown report."""
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[r.status] = counts.get(r.status, 0) + 1
+    lines = [
+        f"# {title}",
+        "",
+        "Generated by `scripts/check_conformance.py` from "
+        "`config/section11_spec.yaml` (roadmap 11.1 to 11.5).",
+        "",
+        "Summary: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())),
+        "",
+        "| Id | Requirement | Status | Proof present | Missing evidence |",
+        "|---|---|---|---|---|",
+    ]
+    for r in results:
+        lines.append(
+            f"| `{r.id}` | {r.text} | {r.status} | {'<br>'.join(r.present) or '-'} |"
+            f" {'<br>'.join(r.absent) or '-'} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def load_spec(root: Path = ROOT) -> dict[str, Any]:
+    """The requirement spec."""
+    data: dict[str, Any] = yaml.safe_load((root / "config/section11_spec.yaml").read_text())
+    return data

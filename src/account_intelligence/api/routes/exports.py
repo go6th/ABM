@@ -35,6 +35,7 @@ from account_intelligence.api.routes.accounts import (
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.ports import NotConfigured
+from datamodel import export_verify
 from metering import events as usage
 from pilot import usefulness
 from pilot.feedback import policy as pilot_policy
@@ -222,6 +223,13 @@ async def download(
                 "package_blocked",
                 "Package not delivered",
                 "This package did not pass its checks and cannot be downloaded.",
+            )
+        if await export_verify.blocked(s, package_id):
+            raise APIProblem(
+                409,
+                "package_invalid",
+                "Package failed verification",
+                "This package no longer matches its rows and cannot be downloaded.",
             )
         if index >= len(row.files):
             raise HTTPException(404, "not found")

@@ -1,0 +1,50 @@
+# Retention windows (roadmap 11.4, PD2; D-83). Sourced windows are enforced by the
+# retention job (dry run first, then a bounded, audited execute). Windows the sources
+# give carry a source; the rest are conservative proposals for the product owner.
+version: "2026-10-08.1"
+classes:
+  checkpoints:
+    days: 7
+    after: terminal
+    source: "ARCH: checkpoints kept until the run is terminal plus 7 days"
+    action: delete
+  raw_broker_payloads:
+    days_hot: 30
+    days_archive: 365
+    source: "ARCH: raw broker payloads 30 days hot then 12 months archive"
+    action: archive_then_delete
+  superseded_facts:
+    days: 730
+    source: "ARCH: superseded facts to Parquet after 24 months"
+    action: export_then_delete
+  run_metadata:
+    days: 395
+    source: "ARCH: run metadata 13 months"
+    action: delete
+  wallet_ledger:
+    permanent: true
+    source: "ARCH: the wallet ledger is permanent"
+    action: none
+  audit_events:
+    days_queryable: 90
+    days_archive: 2555
+    source: "ARCH: audit 90 days queryable and 7 years archived"
+    action: archive_then_delete
+  document_cascade:
+    hours: 24
+    source: "ARCH: cascade to storage within 24 h of a document deletion"
+    action: delete
+  person_profiles:
+    days: 730
+    source: "TODO, needs product owner or counsel: people-data retention is a lawful-basis question (D-84)"
+    status: proposal
+    action: delete
+  alerts_history:
+    days: 365
+    source: "TODO, needs product owner: expired signals move to history (roadmap 11.1)"
+    status: proposal
+    action: delete
+holds:
+  # legal holds reference a class and a reason; held rows are never deleted
+  enabled: true
+  source: "prompt s3 PD2: legal holds block deletion"

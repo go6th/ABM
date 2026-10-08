@@ -8,9 +8,9 @@ from uuid import uuid4
 
 import pytest
 
+from account_intelligence.db.session import SessionLocal
 from contracts import drift, fingerprint
 from contracts import monitor as mon
-from account_intelligence.db.session import SessionLocal
 
 P = "p_search"
 OP = "web_search"

@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS review_samples CASCADE;
+DROP TABLE IF EXISTS tool_call_records CASCADE;
+DROP TABLE IF EXISTS pentest_tracker CASCADE;
+DROP TABLE IF EXISTS soc2_evidence CASCADE;
+DROP TABLE IF EXISTS rotation_events CASCADE;

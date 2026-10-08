@@ -132,7 +132,8 @@ def _insert_fact(
     with c.transaction():
         fact = c.execute(
             "INSERT INTO facts (tenant_id, account_id, attribute_key, value_json, fingerprint, "
-            "visibility, product_grade) VALUES (%s, %s, 'internal.note', %s, %s, %s, 'hypothesis') "
+            "visibility, product_grade, confirming_question) VALUES (%s, %s, 'internal.note', %s,"
+            " %s, %s, 'hypothesis', 'Synthetic: what would confirm this?') "
             "RETURNING id",
             (tenant, acct, value, fp, visibility),
         ).fetchone()[0]

@@ -1,0 +1,7 @@
+version: "1.0.0"
+source: "TODO, needs product owner or counsel"
+status: proposal
+models:
+  default:
+    input_price: 0.001
+    output_price: 0.002

@@ -1,0 +1,9 @@
+# DSAR deadlines (roadmap 11.4, PD3; D-84). Days to respond by request kind.
+# Conservative placeholders: the applicable deadlines depend on jurisdiction and
+# counsel's advice (GDPR one month; India's DPDP Act has its own timelines).
+version: "2026-10-08.1"
+deadline_days:
+  access: 30
+  erasure: 30
+deadline_source: "TODO, needs counsel: jurisdiction-dependent statutory deadlines (D-84)"
+status: proposal

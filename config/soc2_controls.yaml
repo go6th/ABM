@@ -1,0 +1,6 @@
+version: "1.0.0"
+status: proposal
+source: "TODO, needs product owner or counsel"
+controls:
+  CC6.1:
+    evidence: access_reviews

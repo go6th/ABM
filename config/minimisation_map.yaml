@@ -1,0 +1,43 @@
+# People-data minimisation map (roadmap 11.4, PD1; D-84). Each collected person
+# field maps to the deliverable that needs it. A field with no consumer is NOT
+# collected: the schema, the pipelines and the exports are checked against this
+# map (privacy.minimise.check). Fields never collected: personal contact details,
+# protected characteristics, anything the deliverables do not need.
+version: "2026-10-08.1"
+fields:
+  name:
+    consumers: [people_list, alerts]
+    source: "roadmap 11.1 Person: name; the people list renders it"
+    status: proposal
+  profile_url:
+    consumers: [people_list, dedup, dsar]
+    source: "roadmap 11.1: one deduplicated list merged by profile URL then name"
+    status: proposal
+  title:
+    consumers: [people_list, alerts]
+    source: "roadmap 11.1 Person: title"
+    status: proposal
+  job_level:
+    consumers: [people_list]
+    source: "roadmap 11.1 Person: level"
+    status: proposal
+  lane:
+    consumers: [people_list]
+    source: "roadmap 11.1 Person: lane"
+    status: proposal
+  priority:
+    consumers: [people_list]
+    source: "roadmap 11.1 Person: priority"
+    status: proposal
+  join_date:
+    consumers: [alerts]
+    source: "roadmap 11.1 Person: join date (sourced or null with a reason)"
+    status: proposal
+  certifications:
+    consumers: [people_list]
+    source: "roadmap 11.1 Person: certifications (sourced or null with a reason)"
+    status: proposal
+  headline:
+    consumers: [people_list]
+    source: "collected by the people pipeline for the people list; reviewed 2026-10"
+    status: proposal

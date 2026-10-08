@@ -1,0 +1,67 @@
+# Roadmap section 11 (cross-cutting workstreams) as checkable requirements. Each requirement lists
+# the evidence that proves it; scripts/check_conformance.py evaluates every item against the live
+# catalog and the repo: all present = Done, some = Partial, none = Missing, a declared missing owner
+# package = Blocked-by-dependency. Requirement text paraphrases roadmap 11.1 to 11.5 (source).
+# Evidence kinds: column (table.column), check (table:constraint), rls (table), symbol
+# (module:attr), test (test function name under tests/), file (path), config (path#key).
+version: "1.0.0"
+source: "roadmap 11.1 to 11.5; skill references 03, 05, 10"
+requirements:
+  # ---- 11.1 data model -------------------------------------------------------------------------
+  DM.tenant.scope:            {text: "every data table is tenant-scoped with forced RLS", evidence: [{test: test_cross_tenant_table_operations_are_refused}, {test: test_every_discovered_object_is_covered_by_the_matrix}]}
+  DM.user.role_subject:       {text: "user: tenant, role, SSO subject", evidence: [{column: memberships.role}, {column: users.subject}, {rls: memberships}]}
+  DM.tenant.settings:         {text: "settings: lanes, people scope, exclusions, pursuing client", evidence: [{column: tenant_settings_versions.settings_json}, {symbol: "tenancy.settings:TenantSettings"}]}
+  DM.account.fields:          {text: "account: name, domain, careers URL, industry, primary lane", evidence: [{column: accounts.name}, {column: accounts.industry}, {column: accounts.primary_lane}, {column: accounts.careers_url}]}
+  DM.account.careers_url_verified: {text: "careers URL verified by a visit, never constructed", evidence: [{column: accounts.careers_fetch_ref}, {check: "accounts:ck_accounts_careers_url_visited"}, {symbol: "datamodel.careers:record_visit"}, {test: test_a_constructed_careers_url_is_refused}]}
+  DM.run.fields:              {text: "run: account, type, cap, spend, status", evidence: [{column: account_runs.status}, {column: account_runs.budget_usd}, {column: account_runs.spent_usd}, {column: runs.run_type}]}
+  DM.run.config_version:      {text: "a run pins config (checklist, grading), graph and model versions, immutable", evidence: [{column: account_runs.grading_config_hash}, {column: account_runs.graph_version}, {column: account_runs.model_versions}, {column: account_runs.checklist_version}, {test: test_a_run_stays_pinned_when_config_changes_mid_run}]}
+  DM.source.anchor:           {text: "source: stable id, URL, date, tier, exact sentence, fetch record; id reused", evidence: [{column: sources.source_code}, {column: sources.published_at}, {column: fact_evidence.supporting_sentence}, {column: fact_evidence.source_tier}, {column: fact_evidence.call_ref}, {test: test_source_codes_are_stable_across_refresh_cycles}]}
+  DM.fact.anchor:             {text: "fact: grade, sources; Hypothesis carries its confirming question; only Confirmed statable", evidence: [{check: "facts:ck_facts_only_confirmed_may_be_stated"}, {check: "facts:ck_facts_hypothesis_has_question"}, {test: test_a_fact_without_evidence_or_a_hypothesis_without_question_is_refused}]}
+  DM.coverage.fields:         {text: "coverage row: priority, status, proof, last checked, shelf life", evidence: [{column: coverage_rows.priority}, {column: coverage_rows.proof}, {column: coverage_rows.last_checked_at}, {config: "config/shelf_life.yaml#signals"}]}
+  DM.person.one_list:         {text: "people: one deduplicated list merged by profile URL then name", evidence: [{column: people.merged_into}, {symbol: "people.merge:plan_merge"}, {test: test_merge_by_url_first}, {test: test_merge_order_independent_acyclic}]}
+  DM.person.sourced_fields:   {text: "join date, tenure, certifications sourced or null with a reason", evidence: [{column: person_profiles.join_date}, {column: person_profiles.certifications}, {column: person_profiles.join_precision}]}
+  DM.posting.read_vs_matched: {text: "job posting counts state read versus matched", evidence: [{column: job_postings.full_text_read}, {symbol: "datamodel.counts:render_count"}, {test: test_a_count_without_its_base_cannot_render}]}
+  DM.tech.date_range_is_lead: {text: "a technology date range alone is a lead until cross-checked", evidence: [{column: tech_detections.cross_check_result}, {symbol: "datamodel.counts:tech_grade_cap"}, {test: test_a_date_range_alone_is_a_lead}]}
+  DM.signal.fields:           {text: "signal and alert: type, sources, score, status, recipients; expired to history", evidence: [{column: signal_events.score}, {column: alerts.fact_delta_id}, {column: signal_history.reason}]}
+  DM.export.row_hash:         {text: "export: type, run, row snapshot hash, gate results, storage key", evidence: [{column: export_packages.rows_hash}, {column: deliverables.snapshot_hash}, {symbol: "views.rowsources.common:rows_hash"}, {symbol: "datamodel.export_verify:verify"}, {test: test_every_tamper_of_an_export_is_detected}]}
+  # ---- 11.2 connector layer ---------------------------------------------------------------------
+  CX.typed_ops:               {text: "typed request and response per provider operation", evidence: [{file: config/providers.yaml}, {symbol: "account_intelligence.connectors.base:Operation"}]}
+  CX.retry_cache_rate_cost:   {text: "retry with backoff, request-keyed cache, per-broker rate limit, cost per call", evidence: [{symbol: "account_intelligence.connectors.service:call_operation"}, {column: tool_calls.cost_usd}]}
+  CX.raw_neutral:             {text: "raw responses stored with neutral names", evidence: [{test: test_vendor_names_live_only_in_allowed_places}]}
+  CX.test_double:             {text: "recorded-response test double", evidence: [{file: tests/connectors}]}
+  CX.contract_check:          {text: "a contract check alerts when a broker changes its response shape", evidence: [{symbol: "contracts.fingerprint:fingerprint"}, {symbol: "contracts.drift:classify"}, {column: contract_drift_events.severity}, {test: test_breaking_drift_disables_the_operation_fail_closed}]}
+  # ---- 11.3 quality system ----------------------------------------------------------------------
+  QS.checklist_as_code:       {text: "checklist as code, 33 rows, grading rules versioned", evidence: [{file: .claude/skills/account-intelligence-platform/assets/checklist.yaml}, {file: config/grading_policy.yaml}]}
+  QS.three_layers:            {text: "structural gate, semantic verifier, statistical eval are release criteria", evidence: [{file: src/gate/pipeline.py}, {file: src/verify}, {file: src/evalgate}, {symbol: "quality.release_check:check"}, {test: test_a_release_needs_every_layer}]}
+  QS.no_status_blocks:        {text: "a row with no status blocks delivery", evidence: [{test: test_a_row_with_no_status_blocks_delivery}]}
+  QS.regression_policy:       {text: "a change keeps the eval score at or above the last release or does not merge", evidence: [{symbol: "quality.regression:decide"}, {test: test_regressions_and_skipped_evals_block_the_merge}]}
+  QS.analyst_loop:            {text: "analysts label a fresh sample quarterly; disagreements become eval cases", evidence: [{column: analyst_label_tasks.quarter}, {symbol: "quality.analyst_loop:draw_sample"}, {test: test_the_analyst_loop_samples_fresh_and_makes_cases}]}
+  # ---- 11.4 security and compliance -------------------------------------------------------------
+  SC.isolation:               {text: "RLS, per-tenant storage prefixes, cross-tenant tests in CI", evidence: [{symbol: "tenancy.storage:tenant_path"}, {test: test_a_broken_policy_is_caught_by_the_probes}]}
+  SC.secrets_manager:         {text: "secrets manager, no broker keys in code or logs", evidence: [{symbol: "security.secrets_scan:scan"}, {test: test_no_secret_reaches_code_logs_or_responses}]}
+  SC.rotation_schedule:       {text: "a rotation schedule; overdue rotations alert; dual-key overlap", evidence: [{config: "config/secrets_rotation.yaml#secrets"}, {symbol: "security.rotation:overdue"}, {test: test_rotation_overlaps_and_overdue_alerts}]}
+  SC.byo_keys:                {text: "optional bring-your-own keys per tenant", evidence: [{symbol: "admin.keys:bring_your_own"}]}
+  PD.minimisation:            {text: "collect only what the deliverables need", evidence: [{config: "config/minimisation_map.yaml#fields"}, {symbol: "privacy.minimise:check"}, {test: test_a_person_field_without_a_consumer_fails}]}
+  PD.lawful_basis:            {text: "documented lawful basis (template for counsel)", evidence: [{file: docs/privacy/lawful_basis_register.md}]}
+  PD.retention:               {text: "retention windows enforced", evidence: [{config: "config/retention.yaml#classes"}, {symbol: "privacy.retention:select"}, {test: test_retention_removes_exactly_the_dry_run}]}
+  PD.dsar:                    {text: "access and deletion request process", evidence: [{column: dsar_requests.kind}, {symbol: "privacy.dsar:open_request"}, {test: test_a_dsar_runs_end_to_end}]}
+  PD.dpa_brokers:             {text: "data-processing terms with brokers (template)", evidence: [{file: docs/privacy/dpa_notes.md}, {file: docs/privacy/subprocessors.md}]}
+  SC.immutable_log:           {text: "immutable log of logins, runs, views and exports", evidence: [{column: audit_events.hash}, {symbol: "audit.chain:verify"}, {test: test_audit_chain_detects_deleted_edited_and_truncated_rows}]}
+  SC.soc2_pentest:            {text: "SOC 2 readiness; penetration test before client beta", evidence: [{config: "config/soc2_controls.yaml#controls"}, {symbol: "security.soc2:coverage"}, {symbol: "security.pentest_gate:beta_gate"}, {test: test_soc2_reports_coverage_and_the_beta_gate_needs_a_pentest}]}
+  SC.untrusted_content:       {text: "fetched content is untrusted, never instructions", evidence: [{test: test_hostile_pages_are_never_obeyed}]}
+  SC.prompt_tool_log:         {text: "log prompts and tool calls for review (D-81: redacted tool calls; prompts only to the review store)", evidence: [{column: tool_call_records.args_sha256}, {symbol: "security.review_store:capture"}, {test: test_prompt_capture_is_off_by_default_and_never_reaches_logs}]}
+  # ---- 11.5 observability and cost --------------------------------------------------------------
+  UC.broker_credits:          {text: "unit cost: broker credits per account", evidence: [{symbol: "unitcost.rollup:broker_cost"}]}
+  UC.model_tokens:            {text: "unit cost: model tokens per account", evidence: [{config: "config/pricing.yaml#models"}, {symbol: "unitcost.rollup:token_cost"}]}
+  UC.infrastructure:          {text: "unit cost: infrastructure per account (allocation)", evidence: [{symbol: "unitcost.rollup:infra_allocation"}]}
+  UC.review_minutes:          {text: "unit cost: analyst review minutes per account", evidence: [{symbol: "unitcost.rollup:review_seconds"}, {test: test_the_four_unit_costs_match_hand_oracles}]}
+  UC.dashboard:               {text: "per-tenant dashboard (operator plane)", evidence: [{symbol: "unitcost.rollup:per_account"}]}
+  UC.anomaly_alert:           {text: "alert on a run crossing its cap or past twice the median time", evidence: [{symbol: "unitcost.anomaly:check"}, {test: test_the_anomaly_alert_fires_once_and_excludes_human_wait}]}
+  # ---- 14 success metrics -----------------------------------------------------------------------
+  MX.report:                  {text: "success metrics report", evidence: [{symbol: "metrics.report:generate"}, {test: test_the_success_metrics_report_matches_its_oracle}]}
+  MX.link_check:              {text: "link and sentence check", evidence: [{column: link_checks.fetch_ref}, {symbol: "metrics.linkcheck:check_all"}, {test: test_the_link_checker_downgrades_failures_and_never_silently_passes}]}
+  # ---- 15 risk register, 16 decisions, 17 messaging, 19 claims ----------------------------------
+  RR.risks:                   {text: "risk controls and tests", evidence: [{config: "config/risk_register.yaml#risks"}, {symbol: "registers.risks:check"}, {test: test_removing_a_risk_or_mitigation_fails}]}
+  RR.decisions:               {text: "decisions tracked", evidence: [{file: docs/risk/decision_log.md}, {symbol: "registers.decisions:check"}, {test: test_removing_a_decision_fails}]}
+  CL.claims:                  {text: "claims labelled", evidence: [{file: docs/CLAIMS.md}, {config: "config/claims.yaml#claims"}, {symbol: "registers.claims:check"}, {test: test_unlabelled_figures_fail_the_build}]}
+  CL.messaging:               {text: "messaging rules linted", evidence: [{config: "config/messaging_rules.yaml#rules"}, {symbol: "registers.messaging:lint"}, {test: test_the_messaging_lint_passes_positive_and_flags_negative}]}

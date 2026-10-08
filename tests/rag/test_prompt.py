@@ -7,8 +7,8 @@ import json
 import pytest
 
 from account_intelligence.rag.models import (
-    Citation,
     INSUFFICIENT_CONTEXT,
+    Citation,
     RetrievedChunk,
 )
 from account_intelligence.rag.prompt import (

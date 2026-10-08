@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from account_intelligence.platform.ports import LlmResult, LlmUsage
@@ -150,7 +150,7 @@ class FakeClock:
 
     def now(self) -> datetime:
         """The injected time as an aware UTC datetime."""
-        return datetime.fromtimestamp(self.seconds, tz=timezone.utc)
+        return datetime.fromtimestamp(self.seconds, tz=UTC)
 
     def advance(self, seconds: float) -> None:
         """Move the injected time forward."""

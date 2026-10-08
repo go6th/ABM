@@ -75,14 +75,21 @@ async def verify_careers(deps: RunDeps) -> str:
     for url in candidates[:2]:
         page = await _call(deps, Operation.READ_PAGE, ReadPageArgs(url=url))
         if page is not None and page.records:
-            async with deps.txn(deps.tenant_id) as session:
-                await session.execute(
-                    text(
-                        "UPDATE accounts SET careers_url = :u, careers_url_verified_at = now()"
-                        " WHERE id = :a"
-                    ),
-                    {"u": url, "a": deps.account_id},
-                )
+            from datetime import UTC, datetime
+
+            from datamodel.careers import ConstructedUrl, Visit, record_visit
+
+            fetch_ref = (page.call_refs or page.raw_refs or ("",))[0]
+            try:
+                async with deps.txn(deps.tenant_id) as session:
+                    await record_visit(
+                        session,
+                        account_id=deps.account_id,
+                        domain=deps.domain,
+                        visit=Visit(url, fetch_ref, datetime.now(UTC)),
+                    )
+            except ConstructedUrl:
+                continue
             host = (urlsplit(url).hostname or "").lower()
             deps.extra_allowed_hosts = deps.extra_allowed_hosts | {host}
             careers = "verified"

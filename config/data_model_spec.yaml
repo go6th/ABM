@@ -1,0 +1,24 @@
+# Roadmap 11.1 data model as an executable spec (DM1). Every entity maps to its table; `keys` must
+# be NOT NULL; `fields` must exist; every table carries tenant_id under forced RLS unless
+# `platform: true`. Mappings document where an 11.1 field lives when its name differs.
+version: "1.0.0"
+source: "roadmap 11.1"
+entities:
+  tenant_user:   {table: memberships, keys: [tenant_id, user_id, role], fields: [status]}
+  user:          {table: users, keys: [tenant_id, subject], fields: [email]}
+  settings:      {table: tenant_settings_versions, keys: [tenant_id, version, settings_json], fields: [settings_hash], mapping: "lanes, people scope, exclusions, pursuing client live in settings_json (tenancy.settings.TenantSettings)"}
+  account:       {table: accounts, keys: [tenant_id, domain], fields: [name, industry, primary_lane, careers_url, careers_url_verified_at, careers_fetch_ref]}
+  run:           {table: account_runs, keys: [tenant_id, account_id, status, graph_version], fields: [budget_usd, spent_usd, checklist_version, model_versions, grading_config_hash, settings_version], mapping: "run type full or refresh: runs.run_type; refresh parent: refresh_runs"}
+  source:        {table: sources, keys: [tenant_id, account_id, source_code, url], fields: [published_at, first_seen_run_id], mapping: "exact sentence, tier and fetch record: fact_evidence.supporting_sentence, source_tier, call_ref"}
+  evidence:      {table: fact_evidence, keys: [tenant_id, fact_id, supporting_sentence], fields: [source_tier, call_ref, source_id]}
+  fact:          {table: facts, keys: [tenant_id, account_id, product_grade], fields: [value_text, confirming_question, may_state_to_prospect, read_in_primary_this_run, superseded_at]}
+  coverage_row:  {table: coverage_rows, keys: [tenant_id, run_id, row_key, priority], fields: [status, proof, last_checked_at, proof_calls], mapping: "shelf life: config/shelf_life.yaml"}
+  person:        {table: people, keys: [tenant_id, account_id], fields: [name, profile_url, title, job_level, lanes, priority, merged_into], mapping: "join date, tenure, certifications: person_profiles"}
+  person_profile: {table: person_profiles, keys: [tenant_id, account_id], fields: [join_date, join_precision, certifications]}
+  job_posting:   {table: job_postings, keys: [tenant_id, account_id], fields: [title, posting_class, full_text_read, first_seen, status, url]}
+  tech_detection: {table: tech_detections, keys: [tenant_id, account_id, technology], fields: [first_seen_at, last_seen_at, source_ref, cross_check_result]}
+  signal:        {table: signal_events, keys: [tenant_id, account_id, fingerprint, signal_type, score], fields: [grade, detected_at]}
+  alert:         {table: alerts, keys: [tenant_id, account_id, rule_id, fact_delta_id], fields: [subject]}
+  signal_history: {table: signal_history, keys: [tenant_id, fact_id, reason], fields: [expired_at]}
+  export:        {table: export_packages, keys: [tenant_id, run_id, kind, status], fields: [files, parity, rows_hash], mapping: "storage key and sha256 per file in files"}
+  deliverable:   {table: deliverables, keys: [tenant_id, run_id, kind], fields: [snapshot_hash, object_key, sha256]}
