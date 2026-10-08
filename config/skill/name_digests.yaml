@@ -1,0 +1,9 @@
+# G9 / work item 10: names that must never appear in code, config, UI or client files, stored as
+# sha256 digests of the case-folded word so the names themselves appear nowhere in the repository.
+# `person` is the operator the skill's operator-only file was named after (guide S11, S13); the
+# file is called Internal Only. Tool names are matched in clear by config/client_output_denylist.txt.
+version: "1.0.0"
+digests:
+  source: "guide S11, S13 (digest computed 2026-10-08; the name is not written anywhere)"
+  value:
+    - {kind: person, sha256: 973d7f9efc06ba81112bceb8205309ff0f49c303c28914a1dcf143d86a1b15b4}

@@ -1,0 +1,54 @@
+# Phase 1 pull plan: which step pulls each coverage row and through which route (G1, G5, G15).
+# INTERNAL: routes name a `need` from config/routing.yaml, never a provider; the connector layer
+# resolves the provider and records it as a provider_code.
+#
+# Coverage rows are the platform's 33 (config/checklist.yaml). The archive's checklist rows could
+# not be compared (archive absent, C31). Query wording: the archive's tools.md "query patterns that
+# worked" (guide S11) is TODO, so the phrasings are generic proposals built from the row label.
+version: "1.0.0"
+status: "proposal (tools.md query patterns TODO, C31)"
+
+phrasings:
+  status: proposal
+  value:
+    - "{account} {topic}"
+    - "\"{domain}\" {topic}"
+    - "{account} {topic} {year}"
+
+# step: pass1 | pass2 | people (guide S3). need: config/routing.yaml routes[].need.
+# people: true marks a people pull (G8 consent). internal_history: true marks the Pass 1 rows the
+# skill searched in mail, call notes and Drive (guide S20); that part is off by default (D-98).
+rows:
+  prior_customer_status:        {step: pass1,  need: web_search, internal_history: true}
+  connections_alumni:           {step: pass1,  need: web_search, internal_history: true}
+  platform_vendor_account_team: {step: pass1,  need: web_search}
+  key_contact_profiles_posts:   {step: pass1,  need: profile_enrichment, people: true}
+  basic_fit_check:              {step: pass1,  need: web_search}
+  company_news:                 {step: pass2,  need: structured_signals}
+  earnings_filings:             {step: pass2,  need: web_search}
+  leadership_changes:           {step: pass2,  need: structured_signals}
+  job_board_by_lane:            {step: pass2,  need: scrape}
+  job_postings_read_classified: {step: pass2,  need: structured_signals}
+  job_postings_12_months:       {step: pass2,  need: structured_signals}
+  technology_detections:        {step: pass2,  need: structured_signals}
+  people_by_platform:           {step: people, need: people_by_technology, people: true}
+  full_profiles_senior_people:  {step: people, need: profile_enrichment, people: true}
+  posts_priority_people:        {step: people, need: profile_enrichment, people: true}
+  executive_voice_earnings:     {step: pass2,  need: web_search}
+  financial_baseline_verified:  {step: pass2,  need: web_search}
+  vendor_customer_stories:      {step: pass2,  need: web_search}
+  lead_verification:            {step: pass2,  need: page_read}
+  customers_partners_matched:   {step: pass2,  need: web_search}
+  executive_speaking:           {step: pass2,  need: web_search}
+  podcasts:                     {step: pass2,  need: web_search}
+  youtube:                      {step: pass2,  need: scrape}
+  medium_substack:              {step: pass2,  need: web_search}
+  review_sites:                 {step: pass2,  need: web_search}
+  vendor_communities:           {step: pass2,  need: web_search}
+  regulatory_quality_events:    {step: pass2,  need: web_search}
+  financial_position_peers:     {step: pass2,  need: web_search}
+  competitor_moves:             {step: pass2,  need: web_search}
+  major_holders_activists:      {step: pass2,  need: web_search}
+  events_sponsored:             {step: pass2,  need: web_search}
+  employee_content_github:      {step: pass2,  need: web_search}
+  research_papers:              {step: pass2,  need: web_search}

@@ -1,0 +1,58 @@
+# The shape of a run, split mode and the rules that matter most (D-95, D-102). INTERNAL.
+# Rule *names* and their meaning come from the guide (cited); the archive's exact rule text is
+# `archive_text: null` until the archive is placed (docs/abm/SOURCE_MAP.md).
+version: "1.0.0"
+
+steps:
+  source: "guide S3"
+  value:
+    - {id: setup,         number: 1, phase: pull,  label: "Set up"}
+    - {id: pass1,         number: 2, phase: pull,  label: "Summary homework (Pass 1)"}
+    - {id: pass2,         number: 3, phase: pull,  label: "Detailed homework (Pass 2)"}
+    - {id: people,        number: 4, phase: pull,  label: "People"}
+    - {id: distill,       number: 5, phase: build, label: "Distill"}
+    - {id: build_files,   number: 6, phase: build, label: "Build files"}
+    - {id: gate,          number: 7, phase: build, label: "Pre-delivery gate"}
+    - {id: delivery,      number: 8, phase: build, label: "Delivery"}
+
+# Steps 2 to 4 have a pull half (Phase 1, code only) and an interpretation half (Phase 2, agents).
+# Phase 2 opens with the sense check (step 5a) before anything is built.
+phases:
+  pull:  {value: "Pulls everything into files and never interprets", source: "guide S9"}
+  build: {value: "Starts with a mandatory sense check before it builds anything", source: "guide S10"}
+
+split_mode:
+  value: {pull_tier: extractor, analysis_tier: planner}
+  source: "guide S4: pulls on the lower cost model, analysis on the stronger one"
+
+rules:
+  - {id: cover_every_row,     guard: G1, source: "guide S5", archive_text: null}
+  - {id: keyword_match_lead,  guard: G2, source: "guide S5", archive_text: null}
+  - {id: three_phrasings,     guard: G3, source: "guide S5", archive_text: null}
+  - {id: grade_everything,    guard: G4, source: "guide S5", archive_text: null}
+  - {id: link_every_fact,     guard: G4, source: "guide S5", archive_text: null}
+  - {id: no_tool_names,       guard: G9, source: "guide S5", archive_text: null}
+  - {id: phase1_no_interpret, guard: G5, source: "guide S9", archive_text: null}
+  - {id: sense_check_first,   guard: G6, source: "guide S10", archive_text: null}
+  - {id: ask_before_spend,    guard: G7, source: "guide S17 (checklist requirement 14)", archive_text: null}
+  - {id: people_consent,      guard: G8, source: "guide S19", archive_text: null}
+
+# G3. The guide says "three phrasings"; the platform skill (rule 4) says "three differently worded
+# queries across two tools". The archive's exact tool-count wording is unknown (C32), so the
+# stricter of the two applies until it is read.
+phrasing:
+  min_phrasings: {value: 3, source: "guide S5"}
+  min_tool_categories: {value: 2, source: "platform SKILL.md rule 4", status: "conservative until the archive is read (C32)"}
+
+# G6 finding kinds. The archive's sense-check *questions* are TODO; the kinds are from the guide.
+sense_check:
+  kinds:
+    value: [entity_boundary, adjacent_organisation, hidden_title, contradictory_fact]
+    source: "guide S10"
+  questions: {value: null, status: "TODO: phase2-build.md lines 10-21 (archive absent)"}
+
+# D-100. Lanes as the skill description lists them, plus MuleSoft counted under Salesforce.
+lanes:
+  description_lanes: {value: [salesforce, servicenow, sap, tableau_analytics, veeva, data_ai], source: "guide S13"}
+  salesforce_includes: {value: [MuleSoft], source: "guide S14 (checklist.md line 52)"}
+  search_on_every_account: {value: [MuleSoft], source: "guide S14"}

@@ -1,0 +1,94 @@
+# Agent registry (D-95). One agent per step where a model is needed; build, gate and delivery are
+# code only. `model_tier` is a tier alias from config/model_routing.yaml (never a model id);
+# `task_kind` is the routed task kind (G11). `tools` is the typed tool allow-list the agent's
+# ToolBox exposes (agents.contracts.ToolBox refuses anything else). Schemas are pydantic models in
+# agents.schemas (extra fields forbidden). The registry test (tests/agents/test_registry.py) fails
+# on a tool outside the list, an output field outside the schema, or an agent with no guard.
+# Budgets are proposals (status) until measured on golden accounts.
+version: "1.0.0"
+status: "proposal (D-95; budgets unmeasured)"
+
+agents:
+  setup:
+    purpose: "Collect and validate account, domain, lanes, pursuing client, depth and the cap request; choose the careers page among pages already visited"
+    step: 1
+    model_tier: extractor
+    task_kind: abm_setup
+    tools: [settings.read, payloads.read]
+    input_schema: SetupInput
+    output_schema: SetupProposal
+    budgets: {tokens: 4000, tool_calls: 4, seconds: 60}
+    stop: [validated, invalid_input, budget]
+    guards: [G7, G13]
+  pull:
+    purpose: "Code-driven fetcher: typed provider operations through the ledger in routed order; stores raw payload references"
+    step: 2
+    model_tier: null
+    task_kind: null
+    tools: [ledger.call_operation, payloads.put]
+    input_schema: PullInput
+    output_schema: PullRowResult
+    budgets: {tokens: 0, tool_calls: 120, seconds: 900}
+    stop: [all_rows_pulled, cap_pause, budget]
+    guards: [G1, G5, G7, G8, G13, G15]
+  pass1:
+    purpose: "Relationship and fit facts from stored Pass 1 payloads (and quarantined connector material when D-98 is on)"
+    step: 2
+    model_tier: extractor
+    task_kind: abm_pass1_extract
+    tools: [payloads.read]
+    input_schema: ExtractionInput
+    output_schema: ExtractionOutput
+    budgets: {tokens: 30000, tool_calls: 40, seconds: 300}
+    stop: [extracted, budget]
+    guards: [G2, G4, G9, G10, G13]
+  pass2:
+    purpose: "One call per source group and lane: classify, extract and propose candidates with evidence"
+    step: 3
+    model_tier: extractor
+    task_kind: abm_pass2_extract
+    tools: [payloads.read]
+    input_schema: ExtractionInput
+    output_schema: ExtractionOutput
+    budgets: {tokens: 60000, tool_calls: 80, seconds: 600}
+    stop: [extracted, budget]
+    guards: [G2, G3, G4, G9, G13]
+  people:
+    purpose: "Senior people list and priorities from pulled people results"
+    step: 4
+    model_tier: extractor
+    task_kind: abm_people_extract
+    tools: [payloads.read]
+    input_schema: ExtractionInput
+    output_schema: PeopleOutput
+    budgets: {tokens: 30000, tool_calls: 40, seconds: 300}
+    stop: [extracted, consent_required, budget]
+    guards: [G4, G8, G9, G13]
+  sense_check:
+    purpose: "Entity boundaries, adjacent organisations, hidden titles and contradictory facts across stored facts; typed findings and pull proposals"
+    step: 5
+    model_tier: planner
+    task_kind: abm_sense_check
+    tools: [facts.read, credit.price]
+    input_schema: SenseCheckInput
+    output_schema: SenseCheckOutput
+    budgets: {tokens: 30000, tool_calls: 10, seconds: 300}
+    stop: [checked, budget]
+    guards: [G6, G7, G13]
+  distill:
+    purpose: "Hypotheses, first-call questions and narrative from graded facts, every claim tied to fact ids"
+    step: 5
+    model_tier: planner
+    task_kind: abm_distill
+    tools: [facts.read]
+    input_schema: DistillInput
+    output_schema: DistillOutput
+    budgets: {tokens: 30000, tool_calls: 10, seconds: 300}
+    stop: [distilled, budget]
+    guards: [G4, G9, G10, G13]
+
+# Steps 6 to 8 (guide S3) are code: no model may be bound to them (stop rule; test).
+code_only_steps:
+  - {step: 6, id: build_files, port: BuilderPort}
+  - {step: 7, id: gate, port: GatePort}
+  - {step: 8, id: delivery, port: DeliveryPort}

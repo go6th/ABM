@@ -26,6 +26,12 @@ LEGACY_TIER: dict[str, str] = {
     "support_judge": "judge",
     "source_reread": "judge",
     "narrative_reread": "judge",
+    "abm_setup": "extractor",
+    "abm_pass1_extract": "extractor",
+    "abm_pass2_extract": "extractor",
+    "abm_people_extract": "extractor",
+    "abm_sense_check": "planner",
+    "abm_distill": "planner",
 }
 
 

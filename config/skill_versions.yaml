@@ -1,0 +1,13 @@
+# D-101 skill versioning. A run pins `config_version` (the hash of config/skill/, agents.yaml and
+# lessons.yaml); a build run inherits its pull run's pin unless a newer one is chosen and recorded
+# (G17). Updates arrive by pull request with the eval gate; there is no in-app repackaging (S21).
+version: "1.0.0"
+update_channel: {value: repository, source: "guide S15; D-101"}
+in_app_repackaging: {value: false, source: "guide S15, S21; D-101"}
+current: {value: "1.8", source: "guide S7"}
+changelog:
+  source: "guide S7 (checklist.md change log lines 158-172)"
+  value:
+    - {version: "1.8", date: "2026-09-29", source: "guide S7", summary: null, status: "TODO: archive change log text"}
+    - {version: "1.0", date: "2026-09-20", source: "guide S7", summary: null, status: "TODO: archive change log text"}
+  intermediate: {value: null, status: "TODO: versions 1.1 to 1.7 are in the archive change log (absent)"}

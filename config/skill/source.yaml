@@ -1,0 +1,40 @@
+# The manual skill this agent layer encodes (D-101). INTERNAL.
+#
+# The skill archive itself (16 files) is NOT in the repository: only the reader's guide was
+# available when this package was built (2026-10-08). Every value below that the guide states is
+# cited by its source id (S1 to S21), which the guide maps to a file and line of the archive.
+# Everything the guide does not state is `status: TODO` and the system runs at the conservative
+# setting until the archive arrives (docs/abm/SOURCE_MAP.md, conflict C31).
+version: "1.0.0"
+skill:
+  name: {value: abm-account-research, source: "guide S1 (archive folder name)"}
+  version: {value: "1.8", source: "guide title; S7 (change log line 158, version 1.8)"}
+  file_count: {value: 16, source: "guide S1 (archive manifest)"}
+archive:
+  status: absent
+  expected_path: docs/sources/abm-skill/
+  note: "Place the .skill file or its extracted folder here, then run scripts/abm_source_check.py"
+guide:
+  path: {value: docs/sources/ABM_Skill_Readers_Guide_v2.docx, source: "operator supplied 2026-10-08"}
+  sources:
+    S1:  {location: "archive manifest (16 files; SKILL.md 11,402 bytes; checklist.md 23,326 bytes; scripts/third_party_scan.py)"}
+    S2:  {location: "file inspection: the .skill file is a zip archive"}
+    S3:  {location: "SKILL.md lines 23-32, The shape of a run"}
+    S4:  {location: "SKILL.md lines 34-36, Split mode"}
+    S5:  {location: "SKILL.md lines 38-70, Rules that matter most"}
+    S6:  {location: "SKILL.md lines 10-21, Read these first, every run"}
+    S7:  {location: "checklist.md sections 1-7; change log lines 158 (1.8) and 172 (1.0)"}
+    S8:  {location: "SKILL.md line 13; lessons.md dated sections 2026-09-20 to 2026-09-29"}
+    S9:  {location: "phase1-pull.md line 7, Purpose, and the 'Phase 1 does not' section"}
+    S10: {location: "phase2-build.md lines 10-21, Step 2a, the sense check"}
+    S11: {location: "SKILL.md lines 19-21; output-spec.md line 66, the operator-only file"}
+    S12: {location: "SKILL.md lines 88-96, Bundled files"}
+    S13: {location: "SKILL.md line 3, description (lane list; operator trigger)"}
+    S14: {location: "checklist.md line 52, Scope defaults (MuleSoft under Salesforce)"}
+    S15: {location: "Assessment by the guide's author; not text in the skill"}
+    S16: {location: "SKILL.md line 25; phase1-pull.md line 23, step 0 (pursuing client, credit cap)"}
+    S17: {location: "checklist.md line 33, requirement 14 (ask before unapproved spend)"}
+    S18: {location: "phase2-build.md lines 21-23 (sense-check pulls run once approved)"}
+    S19: {location: "tools.md line 66; phase1-pull.md line 29 (people-source consent flow)"}
+    S20: {location: "phase1-pull.md line 24 (Pass 1 searches mail, call notes, named Drive folders)"}
+    S21: {location: "SKILL.md lines 76-86, Updating the checklist and lessons (repackaging in chat)"}

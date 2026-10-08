@@ -1,0 +1,46 @@
+# SaaS conversions (guide S15): every operator-in-the-loop part of the skill becomes a per-client
+# setting, an approval step in the app, or a feature turned off for clients. Each entry names the
+# code that enforces it and the test that proves it (tests/agents/test_conversions.py).
+# The operator-only file is called Internal Only here and everywhere (no person's name).
+version: "1.0.0"
+conversions:
+  - id: trigger_on_account
+    skill: {value: "The description triggers on the operator naming a target account", source: "guide S13"}
+    saas: {status: proposal, kind: setting, value: "A run starts only from the start-run form, the API or the scheduler with a typed account", decision: D-102}
+    enforced_by: agents.setup.agent.validate_setup
+    test: test_conversion_trigger_is_a_typed_request
+  - id: pursuing_client_and_cap
+    skill: {value: "Setup asks for the pursuing client and confirms the credit cap", source: "guide S16"}
+    saas: {status: proposal, kind: setting_and_approval, value: "Pursuing client is a tenant setting or run field; the cap request is approved in the app before any paid call", decision: D-96}
+    enforced_by: agents.setup.agent.validate_setup
+    test: test_conversion_cap_confirmation_is_setting_plus_approval
+  - id: ask_before_spend
+    skill: {value: "Ask before spending credits that were not already approved", source: "guide S17"}
+    saas: {status: proposal, kind: approval, value: "Any pull not covered by the approved cap pauses for approval (attended) or is recorded as a recommendation (unattended)", decision: D-96}
+    enforced_by: agents.guards.spend_route
+    test: test_conversion_ask_before_spend_is_a_pause
+  - id: sense_check_pulls
+    skill: {value: "The sense check recommends targeted pulls that run once approved", source: "guide S18"}
+    saas: {status: proposal, kind: approval, value: "Typed, priced pull proposals; run only after approval", decision: D-96}
+    enforced_by: agents.guards.spend_route
+    test: test_conversion_sense_check_pulls_need_approval
+  - id: people_consent
+    skill: {value: "The people source requires a consent flow before people pulls", source: "guide S19"}
+    saas: {status: proposal, kind: setting_and_approval, value: "A tenant-level people data consent record (who, when, text version, scope) before any people pull", decision: D-97}
+    enforced_by: agents.guards.consent_decision
+    test: test_conversion_consent_flow_is_a_tenant_record
+  - id: internal_history
+    skill: {value: "Pass 1 searches mail, call notes and named Drive folders", source: "guide S20"}
+    saas: {status: proposal, kind: off_by_default, value: "Off for every tenant; on only through the Phase 3 connectors with admin consent and named folders; content is Internal Only", decision: D-98}
+    enforced_by: agents.guards.internal_history_allowed
+    test: test_conversion_internal_history_off_by_default
+  - id: operator_only_file
+    skill: {value: "The output spec creates an operator-only file from internal sources", source: "guide S11"}
+    saas: {status: proposal, kind: setting, value: "The Internal Only view and file; private facts render only there", decision: D-95}
+    enforced_by: agents.guards.renderable
+    test: test_conversion_operator_only_file_is_internal_only
+  - id: skill_updates
+    skill: {value: "Checklist updates are repackaged in chat", source: "guide S21"}
+    saas: {status: proposal, kind: off_for_clients, value: "Skill updates ship through the GitHub repository with the eval gate; there is no in-app repackaging", decision: D-101}
+    enforced_by: agents.config.load_skill_config
+    test: test_conversion_updates_go_through_the_repository

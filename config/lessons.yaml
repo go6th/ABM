@@ -1,0 +1,11 @@
+# D-99 lessons as code. Every entry of the archive's lessons.md (guide S8: dated sections from
+# 2026-09-20 to 2026-09-29) becomes a rule here with its dated source line, the general rule, the
+# guard that enforces it (code | prompt | process) and a test.
+#
+# The archive is absent, so NO lesson is listed: none may be written from memory. Generate the
+# entries with `python scripts/abm_lessons.py generate docs/sources/abm-skill/.../lessons.md`
+# once it is placed; `python scripts/abm_lessons.py check` reports INCOMPLETE (exit 3) until then.
+version: "1.0.0"
+archive_status: absent
+expected_window: {first: "2026-09-20", last: "2026-09-29", source: "guide S8"}
+lessons: []
