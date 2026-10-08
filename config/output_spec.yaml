@@ -57,8 +57,9 @@ deliverables:
       - Notes
     includes: [summary, evidence, people, jobs, tech]
   - id: operator_only
-    # Today this is the "Rajesh Only" file. Roadmap s8: separated by access control, not naming.
-    filename: "{account}_Operator_Only"
+    # The skill's operator-only file, renamed Internal Only (platform rule 5; ADR-0093). Roadmap s8:
+    # separated by access control, not naming.
+    filename: "{account}_Internal_Only"
     format: docx
     audience: operator_only
     contents:
