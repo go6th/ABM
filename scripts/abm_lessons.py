@@ -37,8 +37,12 @@ def main(argv: list[str]) -> int:
         return 0
     if argv and argv[0] == "check":
         cfg = load_skill_config()
-        report = lessons_check(cfg.lessons, cfg.lessons_archive_status, ROOT / "tests" / "agents",
-                               ROOT / "src" / "agents")
+        report = lessons_check(
+            cfg.lessons,
+            cfg.lessons_archive_status,
+            ROOT / "tests" / "agents",
+            ROOT / "src" / "agents",
+        )
         for lesson_id, problem in report.problems:
             print(f"{lesson_id}: {problem}")
         if report.status == "failed":
@@ -46,14 +50,19 @@ def main(argv: list[str]) -> int:
             return 1
         if "--run-tests" in argv and cfg.lessons:
             names = " or ".join(str(e["test"]) for e in cfg.lessons)
-            result = subprocess.run([sys.executable, "-m", "pytest", "-q", "tests/agents", "-k",
-                                     names], cwd=ROOT, check=False)
+            result = subprocess.run(
+                [sys.executable, "-m", "pytest", "-q", "tests/agents", "-k", names],
+                cwd=ROOT,
+                check=False,
+            )
             if result.returncode:
                 print("FAILED: a lesson test does not pass")
                 return 1
         if report.status == "incomplete":
-            print(f"INCOMPLETE: {report.checked} lesson(s); skill archive is "
-                  f"{cfg.lessons_archive_status}, lessons.md not loaded")
+            print(
+                f"INCOMPLETE: {report.checked} lesson(s); skill archive is "
+                f"{cfg.lessons_archive_status}, lessons.md not loaded"
+            )
             return 3
         print(f"OK: {report.checked} lesson(s), every one guarded and tested")
         return 0

@@ -16,13 +16,30 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from agents.naming import digest_hits  # noqa: E402
 
-SKIP_SUFFIXES = {".png", ".jpg", ".pdf", ".docx", ".xlsx", ".pptx", ".zip", ".gz", ".ico", ".woff",
-                 ".woff2", ".lock"}
+SKIP_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".pdf",
+    ".docx",
+    ".xlsx",
+    ".pptx",
+    ".zip",
+    ".gz",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".lock",
+}
 
 
 def files() -> list[Path]:
-    out = subprocess.run(["git", "ls-files", "-co", "--exclude-standard"], cwd=ROOT, check=True,
-                         capture_output=True, text=True).stdout.splitlines()
+    out = subprocess.run(
+        ["git", "ls-files", "-co", "--exclude-standard"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
     return [ROOT / p for p in out if Path(p).suffix.lower() not in SKIP_SUFFIXES]
 
 

@@ -108,8 +108,10 @@ root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "
 name = "nothing below the ABM agent layer imports it (it orchestrates; it never grades, tracks or renders)"
 type = "forbidden"
 source_modules = [
-    "account_intelligence", "jobs", "people", "spend", "exports", "gate", "llm", "verify",
-    "connectors_client",
+    "account_intelligence.platform", "account_intelligence.connectors",
+    "account_intelligence.grading", "account_intelligence.tracker",
+    "account_intelligence.workflow", "account_intelligence.runs", "jobs", "people", "spend",
+    "exports", "gate", "llm", "verify", "connectors_client",
 ]
 forbidden_modules = ["agents"]
 

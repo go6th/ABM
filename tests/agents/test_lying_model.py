@@ -17,6 +17,19 @@ pytestmark = pytest.mark.asyncio
 CANARY = "CANARY-7f3a9e"
 
 
+def _vendor() -> str:
+    """A paid provider's display name, read from config (never written in tests)."""
+    import yaml
+
+    from account_intelligence.config import CONFIG_DIR
+
+    brokers = yaml.safe_load((CONFIG_DIR / "routing.yaml").read_text())["brokers"]
+    return next(str(b["display_name"]) for b in brokers.values() if b["paid"])
+
+
+VENDOR = _vendor()
+
+
 def lying(h: Harness, task: str, script: Any) -> None:
     assert h.llm is not None
     h.llm.scripts[task] = script
@@ -212,7 +225,7 @@ async def test_distill_lies_are_dropped_or_rejected(h: Harness) -> None:
     "bad",
     [
         {"hypotheses": [{"text": "No fact ids", "fact_ids": []}]},
-        {"narrative": [{"text": "Data from Firecrawl shows growth", "fact_ids": ["X"]}]},
+        {"narrative": [{"text": f"Data from {VENDOR} shows growth", "fact_ids": ["X"]}]},
         {"narrative": [{"text": "We used 40 credits on this", "fact_ids": ["X"]}]},
     ],
 )
@@ -229,7 +242,7 @@ async def test_distill_schema_and_tool_name_lies_reject_client_output(h: Harness
         == 1
     )
     texts = " ".join(line for lines in h.builder.files.values() for line in lines)
-    assert "Firecrawl" not in texts and "credits" not in texts
+    assert VENDOR not in texts and "credits" not in texts
 
 
 async def test_sense_check_lies_are_filtered(h: Harness) -> None:

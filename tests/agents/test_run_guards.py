@@ -176,15 +176,19 @@ async def test_g8_without_approved_consent_text_no_record_is_valid(make) -> None
 # G9 --------------------------------------------------------------------------------------------
 
 
+def _vendors() -> list[str]:
+    """Paid provider display names from config (vendor names live only in allowed places)."""
+    import yaml
+
+    from account_intelligence.config import CONFIG_DIR
+
+    brokers = yaml.safe_load((CONFIG_DIR / "routing.yaml").read_text())["brokers"]
+    return sorted(str(b["display_name"]) for b in brokers.values() if b["paid"])
+
+
 @pytest.mark.parametrize(
     "planted",
-    [
-        "Sourced via BitScale",
-        "Data: PredictLeads feed",
-        "Used 12 credits",
-        "p_people result",
-        "Firecrawl scrape",
-    ],
+    [f"Sourced via {name}" for name in _vendors()] + ["Used 12 credits", "p_people result"],
 )
 async def test_g9_planted_tool_names_are_caught_in_every_deliverable(h: Harness, planted) -> None:  # type: ignore[no-untyped-def]
     h.builder.plant = planted

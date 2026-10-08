@@ -175,6 +175,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
 
     # Step 1 ------------------------------------------------------------------------------------
     async def setup(state: AbmState) -> dict[str, Any]:
+        """Step 1: per-client settings must be valid before anything runs."""
         ctx = context(state)
         settings = await deps.settings.get(ctx.tenant_id)
         if not settings.pursuing_client:
@@ -199,6 +200,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
 
     # Phase 1 -----------------------------------------------------------------------------------
     async def pull(state: AbmState) -> dict[str, Any]:
+        """Phase 1: pull every planned row through the ledger and store the manifest (G5, G15)."""
         ctx = context(state)
         consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
         problem = consent_decision(consent, cfg.consent_scope, cfg.consent_text_version)
@@ -244,6 +246,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         }
 
     async def spend_gate(state: AbmState) -> dict[str, Any]:
+        """Pause for a spend approval after the credit gate refused a paid call (G7)."""
         decision = interrupt({"awaiting": "spend", "row": state.get("pending_spend_row")})
         return {
             "spend_declined": not bool(decision),
@@ -258,6 +261,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
 
     # Phase 2 -----------------------------------------------------------------------------------
     async def load_manifest(state: AbmState) -> dict[str, Any]:
+        """Phase 2 entry: the build precondition on the stored manifest (G16)."""
         ctx = context(state)
         source = state["run_id"] if state["mode"] == "full" else state.get("parent_run_id")
         manifest = await deps.manifests.for_run(ctx.tenant_id, UUID(source)) if source else None
@@ -322,6 +326,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         return drops
 
     async def interpret(state: AbmState) -> dict[str, Any]:
+        """Steps 2 to 4, interpretation: extract, grade and report every row to the tracker."""
         ctx = context(state)
         manifest = await _manifest(state)
         consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
@@ -372,6 +377,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         return url
 
     async def sense(state: AbmState) -> dict[str, Any]:
+        """Step 5a: the mandatory sense check and the routing of its proposals (G6, D-96)."""
         ctx = context(state)
         second = state.get("sense_pass", 0) >= 1
         facts = await deps.grading.facts(ctx)
@@ -435,6 +441,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         return "targeted_pulls" if state.get("to_run") else "distill"
 
     async def sense_approval(state: AbmState) -> dict[str, Any]:
+        """Pause for approval of recommended pulls the cap does not cover (D-96)."""
         ctx = context(state)
         awaiting = state.get("awaiting") or []
         total = 0
@@ -449,6 +456,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         return {"awaiting": []}
 
     async def targeted_pulls(state: AbmState) -> dict[str, Any]:
+        """Run approved or covered pulls, then interpret and grade what they returned."""
         ctx = context(state)
         views: list[PayloadView] = []
         for item in state.get("to_run") or []:
@@ -472,6 +480,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         }
 
     async def distill_node(state: AbmState) -> dict[str, Any]:
+        """Step 5: distill for the client and the Internal Only audiences."""
         ctx = context(state)
         facts = await deps.grading.facts(ctx)
         counters: dict[str, int] = {}
@@ -486,6 +495,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
 
     # Steps 6 to 8: code only -------------------------------------------------------------------
     async def build(state: AbmState) -> dict[str, Any]:
+        """Step 6 (code): build files after the sense-check precondition; scan every file (G9)."""
         ctx = context(state)
         current: tuple[StoredFact, ...] = await deps.grading.facts(ctx)
         try:
@@ -506,6 +516,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         return {"client_files": list(client), "internal_files": list(internal)}
 
     async def gate(state: AbmState) -> dict[str, Any]:
+        """Step 7 (code): the quality gate and the coverage verdict (G1)."""
         ctx = context(state)
         failing = await deps.gate.check(ctx)
         verdict = coverage_verdict(cfg.plan, await deps.tracker.rows(ctx))
@@ -521,6 +532,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         return "finish" if state.get("error_code") else "deliver"
 
     async def deliver(state: AbmState) -> dict[str, Any]:
+        """Step 8 (code): release the client files; never outreach."""
         ctx = context(state)
         await deps.delivery.release(ctx, state.get("client_files") or [])
         rows = await deps.tracker.rows(ctx)
@@ -528,6 +540,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         return {"outcome": "completed" if complete else "partial"}
 
     async def finish(state: AbmState) -> dict[str, Any]:
+        """The single settlement point of every run."""
         if state.get("settled"):
             return {}
         await deps.wallet.settle_once(context(state), False)

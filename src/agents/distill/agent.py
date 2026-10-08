@@ -58,6 +58,7 @@ async def distill(
     known = {f.fact_id for f in visible}
 
     def keep(claims: tuple[Claim, ...]) -> tuple[Claim, ...]:
+        """Claims that cite known facts and do not restate a grade."""
         kept = []
         for claim in claims:
             if not set(claim.fact_ids) <= known:
