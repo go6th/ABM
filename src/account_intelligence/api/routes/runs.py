@@ -7,6 +7,9 @@
 * ``POST /v1/runs/{id}/approve``: AWAITING_APPROVAL to RUNNING and the next slice is enqueued
   (a run that requires a credit cap needs ``/cap/approve`` first, ``api.routes.spend``).
 * ``POST /v1/runs/{id}/cancel``: ends the run CANCELED and settles the spend so far.
+* ``mode`` (D-102): ``full`` (default when absent), ``pull`` (Phase 1 only) or ``build`` (Phase 2
+  only, with ``parent_run_id``); ``GET /v1/runs/pull-option`` says whether Phase 2 only may be
+  offered.
 No endpoint accepts a tenant id, and none sends outreach.
 """
 
@@ -39,6 +42,10 @@ from account_intelligence.runs.lifecycle import (
     RunStateConflict,
 )
 from account_intelligence.workflow.transitions import RunStatus
+from agents.adapters import build_parent, pull_option, run_mode_columns
+from agents.config import skill_config
+from agents.errors import InvalidMode
+from agents.modes import RunMode, RunPlan, plan_run, resolve_mode
 from metering import events as usage
 from metering import limits
 from tenancy import settings
@@ -57,6 +64,9 @@ class RunBody(BaseModel):
     depth: Literal["standard", "deep"] = "standard"
     lanes_off: list[str] = Field(default_factory=list, max_length=10)
     pursuing_client: bool = False
+    # D-102: an explicit typed choice; absent means "full" (both phases). Never parsed from text.
+    mode: Literal["full", "pull", "build"] | None = None
+    parent_run_id: UUID | None = None
 
 
 def _container(request: Request) -> Any:
@@ -75,6 +85,10 @@ async def create_run(
     try:
         async with tenant_txn(ident.tenant_id) as s:
             run_input, version = await _run_input(s, body, ident, container)
+            plan = await _mode_plan(s, body)
+            run_input["mode"] = plan.mode.value
+            if plan.parent_run_id is not None:
+                run_input["parent_run_id"] = str(plan.parent_run_id)
             req = RunRequest(body.domain, body.depth, idem, run_input)
             now = container.clock.now()
             _, new_account = await lifecycle.add_account(s, ident.tenant_id, body.domain)
@@ -86,6 +100,7 @@ async def create_run(
                 s, ident.tenant_id, req, container.limits, deps_tracker
             )
             if not created.replayed:
+                await run_mode_columns(s, created.run_id, plan)
                 await settings.pin_run(s, created.run_id, version)
                 await limits.consume(s, "runs_per_period", now)
                 await usage.record(s, "run_started", created.run_id, now)
@@ -144,6 +159,47 @@ async def _run_input(
     if rule.people or rule.companies:
         run_input.update(rule.run_input())
     return run_input, current.version
+
+
+async def _mode_plan(s: Any, body: RunBody) -> RunPlan:
+    """D-102 / G16: the run's mode, parent and config pin. A Phase 2 only run needs a pull of the
+    same account by this tenant with a stored manifest; otherwise ``no_pulled_data`` (422) and
+    nothing is written. It never falls back to running Phase 1."""
+    mode = resolve_mode(body.mode)
+    parent = await build_parent(s, body.parent_run_id) if body.parent_run_id else None
+    current = skill_config().config_version
+    if mode is RunMode.BUILD and (
+        parent is None or parent.domain != body.domain or not parent.has_manifest
+    ):
+        raise APIProblem(
+            422,
+            "no_pulled_data",
+            "No pulled data",
+            "Run Phase 1 for this account first, or choose Run both.",
+        )
+    try:
+        return plan_run(
+            mode,
+            parent_run_id=parent.run_id if parent else None,
+            parent_mode=resolve_mode(parent.mode) if parent else None,
+            parent_config_version=(parent.config_version or current) if parent else None,
+            requested_config_version=None,
+            current_config_version=current,
+        )
+    except InvalidMode as error:
+        raise APIProblem(422, "invalid_mode", "Invalid run mode", error.detail) from None
+
+
+@router.get("/pull-option")
+async def get_pull_option(
+    domain: str,
+    ident: Identity = Depends(require_role("admin", "seller", "viewer")),
+) -> dict[str, Any]:
+    """Whether "Phase 2 only" may be offered for the account, with the pull's date and coverage
+    (work item 2). Counts only; no content, provider or cost."""
+    async with tenant_txn(ident.tenant_id) as s:
+        option = await pull_option(s, domain.strip().lower().rstrip("."))
+    return {"available": option is not None, **(option or {})}
 
 
 async def _tracker_for(container: Any, session: Any) -> Any:

@@ -12,6 +12,9 @@ import { FeedbackForm } from "@/components/Feedback";
 
 interface Account { domain: string; latest_run: { run_id: string; status: string } | null }
 interface Settings { settings: { platform_lanes: string[]; pursuing_client: string | null } }
+// D-102 run modes: an explicit choice; "Run both" sends no mode (the API's default is both phases).
+interface PullOption { available: boolean; pull_run_id?: string; pulled_at?: string; rows_stored?: number; rows_blocked?: number }
+type Mode = "full" | "pull" | "build";
 interface Pkg { package_id: string; kind: string; status: string; reason: string | null; files: { index: number; name: string }[] }
 
 const TABLES: [string, string][] = [["people", "People"], ["jobs", "Job postings"], ["facts", "Facts by grade"], ["tech", "Tech stack"], ["coverage", "Coverage tracker"]];
@@ -26,14 +29,21 @@ function Summary({ s, domain }: { s: Session; domain: string }) {
   const [depth, setDepth] = useState<"standard" | "deep">("standard");
   const [lanesOff, setLanesOff] = useState<string[]>([]);
   const [forClient, setForClient] = useState(false);
+  const [mode, setMode] = useState<Mode>("full");
+  const pull = useApi<PullOption>(`/v1/runs/pull-option?domain=${encodeURIComponent(domain)}`);
+  const pullReady = pull.data?.available === true && !!pull.data.pull_run_id;
   const [packages, setPackages] = useState<Pkg[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const canRun = s.role !== "viewer";
   const start = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api("POST", "/v1/runs", { domain, depth, lanes_off: lanesOff, pursuing_client: forClient }, { "Idempotency-Key": newIdempotencyKey() });
-      setMessage("Run started."); list.reload();
+      const base = { domain, depth, lanes_off: lanesOff, pursuing_client: forClient };
+      const body = mode === "full" ? base
+        : mode === "pull" ? { ...base, mode }
+        : { ...base, mode, parent_run_id: pull.data?.pull_run_id };
+      await api("POST", "/v1/runs", body, { "Idempotency-Key": newIdempotencyKey() });
+      setMessage("Run started."); list.reload(); pull.reload();
     } catch (err) {
       setMessage(err instanceof ApiError ? `The run could not start (${err.type}).` : "The run could not start.");
     }
@@ -55,6 +65,13 @@ function Summary({ s, domain }: { s: Session; domain: string }) {
       {canRun ? (
         <form className="card" onSubmit={start} aria-label="Start a run">
           <h2>Start a run</h2>
+          <fieldset><legend>What to run</legend>
+            <label className="row"><input type="radio" name="mode" checked={mode === "full"} onChange={() => setMode("full")} /> Run both (default)</label>
+            <label className="row"><input type="radio" name="mode" checked={mode === "pull"} onChange={() => setMode("pull")} /> Phase 1 only (gather sources, no files)</label>
+            {pullReady ? (
+              <label className="row"><input type="radio" name="mode" checked={mode === "build"} onChange={() => setMode("build")} /> Phase 2 only, on sources gathered {cellText(pull.data?.pulled_at?.slice(0, 10) ?? "")} ({pull.data?.rows_stored ?? 0} sources stored, {pull.data?.rows_blocked ?? 0} blocked)</label>
+            ) : <p className="muted">Phase 2 only becomes available after a Phase 1 run.</p>}
+          </fieldset>
           <div className="row">
             <label htmlFor="depth">Depth</label>
             <select id="depth" value={depth} onChange={(e) => setDepth(e.target.value === "deep" ? "deep" : "standard")}>
