@@ -18,6 +18,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.operator import OperatorIdentity, require_operator
 from account_intelligence.db.session import tenant_txn
 from obs import costs, timings
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/operator/v1", tags=["ops"])
 MAX_ROWS = 200
 
 
-@router.get("/runs/{run_id}/timeline")
+@router.get("/runs/{run_id}/timeline", response_model=C.RunTimeline)
 async def run_timeline(
     run_id: UUID, op: OperatorIdentity = Depends(require_operator)
 ) -> dict[str, Any]:
@@ -59,7 +60,7 @@ async def run_timeline(
     }
 
 
-@router.get("/ops/cost/{run_id}")
+@router.get("/ops/cost/{run_id}", response_model=C.RunCost)
 async def run_cost(
     run_id: UUID, op: OperatorIdentity = Depends(require_operator)
 ) -> dict[str, Any]:
@@ -82,7 +83,7 @@ async def run_cost(
     }
 
 
-@router.get("/ops/failures")
+@router.get("/ops/failures", response_model=C.Failures)
 async def failures(op: OperatorIdentity = Depends(require_operator)) -> dict[str, Any]:
     """Failed and partial runs by status and reason (counts only)."""
     async with tenant_txn(op.tenant_id) as s:
@@ -99,7 +100,7 @@ async def failures(op: OperatorIdentity = Depends(require_operator)) -> dict[str
     return {"rows": [{"status": r.status, "reason": r.reason, "runs": int(r.runs)} for r in rows]}
 
 
-@router.get("/ops/stuck")
+@router.get("/ops/stuck", response_model=C.Stuck)
 async def stuck(op: OperatorIdentity = Depends(require_operator)) -> dict[str, Any]:
     """The latest stuck-run observations (identifiers and reasons only)."""
     async with tenant_txn(op.tenant_id) as s:

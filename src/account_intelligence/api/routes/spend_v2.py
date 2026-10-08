@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action, audit_refusal
 from account_intelligence.api.auth import Identity, require_role
 from account_intelligence.api.operator import OperatorIdentity, require_operator
@@ -102,7 +103,7 @@ async def _resume(request: Request, tenant_id: UUID, run_id: UUID) -> bool:
         return False
 
 
-@router.get("/{run_id}/spend/live")
+@router.get("/{run_id}/spend/live", response_model=C.TenantLiveSpend)
 async def tenant_live(
     run_id: UUID,
     request: Request,
@@ -117,7 +118,7 @@ async def tenant_live(
     return snap.tenant_view(by_category)
 
 
-@router.post("/{run_id}/cap/pauses/{request_id}/approve")
+@router.post("/{run_id}/cap/pauses/{request_id}/approve", response_model=C.PauseApproved)
 async def approve_pause(
     run_id: UUID,
     request_id: UUID,
@@ -172,7 +173,7 @@ async def approve_pause(
     }
 
 
-@router.post("/{run_id}/cap/pauses/{request_id}/decline")
+@router.post("/{run_id}/cap/pauses/{request_id}/decline", response_model=C.PauseDeclined)
 async def decline_pause(
     run_id: UUID,
     request_id: UUID,
@@ -211,7 +212,7 @@ async def decline_pause(
     }
 
 
-@operator_router.get("/{run_id}/spend/live")
+@operator_router.get("/{run_id}/spend/live", response_model=C.OperatorLiveSpend)
 async def operator_live(
     run_id: UUID, request: Request, op: OperatorIdentity = Depends(require_operator)
 ) -> dict[str, Any]:
@@ -236,7 +237,7 @@ async def operator_live(
     }
 
 
-@operator_router.post("/{run_id}/prepulled/intents")
+@operator_router.post("/{run_id}/prepulled/intents", response_model=C.UploadIntent)
 async def intent_target(
     run_id: UUID,
     body: IntentBody,
@@ -270,7 +271,7 @@ async def intent_target(
     }
 
 
-@operator_router.post("/{run_id}/prepulled/{intent_id}/complete")
+@operator_router.post("/{run_id}/prepulled/{intent_id}/complete", response_model=C.UploadVerdict)
 async def complete_upload(
     run_id: UUID,
     intent_id: UUID,
@@ -304,7 +305,7 @@ async def complete_upload(
     }
 
 
-@operator_router.get("/{run_id}/prepulled/{intent_id}")
+@operator_router.get("/{run_id}/prepulled/{intent_id}", response_model=C.IntentEvents)
 async def intent_status(
     run_id: UUID, intent_id: UUID, op: OperatorIdentity = Depends(require_operator)
 ) -> dict[str, Any]:

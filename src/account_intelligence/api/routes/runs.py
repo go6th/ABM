@@ -23,15 +23,17 @@ from collections.abc import AsyncIterator
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity, require_role
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.routes.accounts import exclusion_rule
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs import lifecycle
 from account_intelligence.runs.lifecycle import (
@@ -48,6 +50,7 @@ from agents.errors import InvalidMode
 from agents.modes import RunMode, RunPlan, plan_run, resolve_mode
 from metering import events as usage
 from metering import limits
+from opendoor.api import decode_cursor, encode_cursor
 from tenancy import settings
 from views import progress
 from views.progress import Progress
@@ -75,7 +78,7 @@ def _container(request: Request) -> Any:
     return request.app.state.container
 
 
-@router.post("", status_code=202)
+@router.post("", response_model=C.RunCreated, status_code=202)
 async def create_run(
     body: RunBody,
     request: Request,
@@ -194,7 +197,55 @@ async def _mode_plan(s: Any, body: RunBody) -> RunPlan:
         raise APIProblem(422, "invalid_mode", "Invalid run mode", error.detail) from None
 
 
-@router.get("/pull-option")
+register("GET", "/v1/runs", tenant_route("read_public", "read"))
+
+
+@router.get("", response_model=C.RunPage)
+async def list_runs(
+    cursor: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=30, ge=1, le=100),
+    ident: Identity = Depends(require_role("admin", "analyst", "seller", "viewer")),
+) -> dict[str, Any]:
+    """The tenant's runs, newest first (keyset by creation time and id), with the client status
+    label. Excluded companies are hidden as in the account list."""
+    try:
+        at, rid = decode_cursor(cursor) if cursor else (None, None)
+    except ValueError:
+        raise HTTPException(422, "bad cursor") from None
+    async with tenant_txn(ident.tenant_id) as s:
+        rule = await exclusion_rule(s)
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT r.id, r.status, r.created_at, a.domain FROM account_runs r"
+                    " JOIN accounts a ON a.id = r.account_id"
+                    " WHERE (CAST(:at AS timestamptz) IS NULL"
+                    " OR (r.created_at, r.id) < (CAST(:at AS timestamptz), CAST(:id AS uuid)))"
+                    " ORDER BY r.created_at DESC, r.id DESC LIMIT :n"
+                ),
+                {"at": at, "id": rid, "n": limit + 1},
+            )
+        ).all()
+    page = rows[:limit]
+    return {
+        "runs": [
+            {
+                "run_id": str(r.id),
+                "domain": r.domain,
+                "status": r.status,
+                "label": progress.STATUS_LABELS.get(r.status, r.status),
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in page
+            if not rule.excludes_company(r.domain)
+        ],
+        "next_cursor": encode_cursor(page[-1].created_at, page[-1].id)
+        if len(rows) > limit
+        else None,
+    }
+
+
+@router.get("/pull-option", response_model=C.PullOption, response_model_exclude_unset=True)
 async def get_pull_option(
     domain: str,
     ident: Identity = Depends(require_role("admin", "seller", "viewer")),
@@ -220,7 +271,7 @@ async def _tracker_for(container: Any, session: Any) -> Any:
     )
 
 
-@router.get("/{run_id}")
+@router.get("/{run_id}", responses={200: {"model": C.RunStatusView}})
 async def get_run(
     run_id: UUID,
     request: Request,
@@ -245,6 +296,7 @@ async def get_run(
         "reason": row.finished_reason,
         "coverage": view,
     }
+    payload = C.RunStatusView.model_validate(payload).model_dump(mode="json")
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     etag = '"' + hashlib.sha256(encoded.encode()).hexdigest() + '"'
     if if_none_match == etag:
@@ -252,7 +304,7 @@ async def get_run(
     return JSONResponse(payload, headers={"ETag": etag})
 
 
-@router.post("/{run_id}/approve")
+@router.post("/{run_id}/approve", response_model=C.RunState)
 async def approve(
     run_id: UUID, request: Request, ident: Identity = Depends(require_role("admin", "seller"))
 ) -> dict[str, str]:
@@ -289,7 +341,7 @@ async def approve(
     return {"run_id": str(run_id), "status": RunStatus.RUNNING.value}
 
 
-@router.post("/{run_id}/cancel")
+@router.post("/{run_id}/cancel", response_model=C.RunState)
 async def cancel(
     run_id: UUID, request: Request, ident: Identity = Depends(require_role("admin", "seller"))
 ) -> dict[str, str]:
@@ -346,7 +398,7 @@ async def _progress(container: Any, tenant_id: UUID, run_id: UUID) -> Progress:
     )
 
 
-@router.get("/{run_id}/progress")
+@router.get("/{run_id}/progress", responses={200: {"model": C.RunProgress}})
 async def run_progress(
     run_id: UUID,
     request: Request,
@@ -357,7 +409,8 @@ async def run_progress(
     got = await _progress(_container(request), ident.tenant_id, run_id)
     if if_none_match == got.etag:
         return Response(status_code=304, headers={"ETag": got.etag})
-    return JSONResponse(got.as_json(), headers={"ETag": got.etag})
+    body = C.RunProgress.model_validate(got.as_json()).model_dump(mode="json")
+    return JSONResponse(body, headers={"ETag": got.etag})
 
 
 @router.get("/{run_id}/events")

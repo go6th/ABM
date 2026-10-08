@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -41,6 +42,7 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 register("GET", "/v1/accounts", tenant_route("read_public", "read"))
 register("POST", "/v1/accounts", tenant_route("add_account", "run"))
 register("GET", "/v1/accounts/{domain}/tables/{table}", tenant_route("read_public", "read"))
+register("GET", "/v1/accounts/{domain}", tenant_route("read_public", "read"))
 DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
 _TERMINAL = sorted(s.value for s in TERMINAL)
 
@@ -58,7 +60,7 @@ async def exclusion_rule(s: Any) -> settings.ExclusionFilter:
         ) from None
 
 
-@router.get("")
+@router.get("", response_model=C.AccountPage)
 async def list_accounts(
     request: Request,
     after: str | None = Query(default=None, max_length=253),
@@ -106,7 +108,7 @@ class AccountBody(BaseModel):
     domain: str = Field(pattern=DOMAIN, max_length=253)
 
 
-@router.post("", status_code=201)
+@router.post("", response_model=C.AccountAdded, status_code=201)
 async def add_account(
     body: AccountBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -137,6 +139,53 @@ async def add_account(
             resource_id=body.domain,
         )
     return {"domain": body.domain, "account_id": str(account_id), "created": created}
+
+
+@router.get("/{domain}", response_model=C.AccountDetail)
+async def read_account(
+    domain: str, request: Request, ident: Identity = Depends(authorize)
+) -> dict[str, Any]:
+    """One account of the tenant with its newest runs (status labels as the client sees them).
+    An unknown or excluded domain is simply not found."""
+    from views.progress import STATUS_LABELS
+
+    async with tenant_txn(ident.tenant_id) as s:
+        rule = await exclusion_rule(s)
+        if not re.fullmatch(DOMAIN, domain) or rule.excludes_company(domain):
+            raise HTTPException(404, "not found")
+        acc = (
+            await s.execute(
+                text("SELECT id, domain, name, created_at FROM accounts WHERE domain = :d"),
+                {"d": domain},
+            )
+        ).first()
+        if acc is None:
+            raise HTTPException(404, "not found")
+        runs = (
+            await s.execute(
+                text(
+                    "SELECT id, status, run_mode, created_at, finished_at FROM account_runs"
+                    " WHERE account_id = :a ORDER BY created_at DESC, id DESC LIMIT 20"
+                ),
+                {"a": acc.id},
+            )
+        ).all()
+    return {
+        "domain": acc.domain,
+        "name": acc.name,
+        "added_at": acc.created_at.isoformat(),
+        "runs": [
+            {
+                "run_id": str(r.id),
+                "status": r.status,
+                "label": STATUS_LABELS.get(r.status, r.status),
+                "mode": r.run_mode,
+                "created_at": r.created_at.isoformat(),
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            }
+            for r in runs
+        ],
+    }
 
 
 def _row(r: Any) -> dict[str, Any]:
@@ -205,7 +254,7 @@ async def materialized(request: Request, tenant_id: UUID, run_id: UUID) -> mater
         raise HTTPException(404, "not found") from None
 
 
-@router.get("/{domain}/tables/{table}")
+@router.get("/{domain}/tables/{table}", response_model=C.TablePage)
 async def read_table(
     domain: str,
     table: str,

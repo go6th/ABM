@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -106,7 +107,7 @@ def _refused(e: writeback.WriteRefused) -> APIProblem:
     return APIProblem(422, e.reason, "Write refused", "Nothing was written to your CRM.")
 
 
-@router.post("/{crm}/enable")
+@router.post("/{crm}/enable", response_model=C.CrmToggle)
 async def enable(
     crm: Crm, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -124,7 +125,7 @@ async def enable(
     return {"crm": crm, "enabled": True}
 
 
-@router.post("/{crm}/revoke")
+@router.post("/{crm}/revoke", response_model=C.CrmToggle)
 async def revoke(
     crm: Crm, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -142,7 +143,7 @@ async def revoke(
     return {"crm": crm, "enabled": False}
 
 
-@router.post("/{crm}/mappings", status_code=201)
+@router.post("/{crm}/mappings", response_model=C.CrmMapping, status_code=201)
 async def confirm(
     crm: Crm, body: MappingBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -184,7 +185,7 @@ async def _draft(s: Any, crm: str, body: Target) -> tuple[UUID, Any]:
     return acc, draft
 
 
-@router.post("/{crm}/preview")
+@router.post("/{crm}/preview", response_model=C.CrmPreview)
 async def preview(
     crm: Crm, body: Target, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -207,7 +208,7 @@ async def preview(
     }
 
 
-@router.post("/{crm}/writes", status_code=201)
+@router.post("/{crm}/writes", response_model=C.CrmWriteRequested, status_code=201)
 async def request_write(
     crm: Crm, body: Target, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -235,7 +236,7 @@ async def request_write(
     return {"write_id": str(req.write_id), "new": req.new}
 
 
-@router.post("/{crm}/writes/approve")
+@router.post("/{crm}/writes/approve", response_model=C.CrmApproved)
 async def approve(
     crm: Crm, body: Approval, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -269,7 +270,7 @@ async def approve(
     return {"approved": n}
 
 
-@router.get("/{crm}/writes")
+@router.get("/{crm}/writes", response_model=C.CrmWrites)
 async def writes(
     crm: Crm, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:

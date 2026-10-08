@@ -21,6 +21,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.operator import StaffIdentity, require_staff
 from account_intelligence.api.policy import OperatorRole, operator_route, register
@@ -98,7 +99,7 @@ async def _tenant_audit(
     )
 
 
-@router.get("/tenants")
+@router.get("/tenants", response_model=C.TenantsOverview)
 async def overview(request: Request, who: StaffIdentity = Depends(require_staff)) -> dict[str, Any]:
     """Every tenant's metadata (no names, no content)."""
     async with untenanted_session() as plain:
@@ -112,7 +113,7 @@ class NewTenant(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
 
-@router.post("/tenants", status_code=201)
+@router.post("/tenants", response_model=C.TenantCreated, status_code=201)
 async def provision(
     body: NewTenant, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -154,7 +155,7 @@ async def _lifecycle(
     return {"tenant_id": str(tenant_id), "status": "suspended" if action == "suspend" else "active"}
 
 
-@router.post("/tenants/{tenant_id}/suspend")
+@router.post("/tenants/{tenant_id}/suspend", response_model=C.TenantLifecycle)
 async def suspend(
     tenant_id: UUID, body: Reason, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -162,7 +163,7 @@ async def suspend(
     return await _lifecycle(request, who, tenant_id, "suspend", body)
 
 
-@router.post("/tenants/{tenant_id}/reactivate")
+@router.post("/tenants/{tenant_id}/reactivate", response_model=C.TenantLifecycle)
 async def reactivate(
     tenant_id: UUID, body: Reason, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -179,7 +180,7 @@ class QuotaBody(Reason):
     limit_value: int = Field(ge=0, le=1_000_000)
 
 
-@router.post("/tenants/{tenant_id}/quotas", status_code=201)
+@router.post("/tenants/{tenant_id}/quotas", response_model=C.QuotaSet, status_code=201)
 async def set_quota(
     tenant_id: UUID, body: QuotaBody, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -204,7 +205,7 @@ class PlanBody(Reason):
     plan_code: str = Field(pattern=r"^[a-z_]{1,40}$")
 
 
-@router.post("/tenants/{tenant_id}/plan", status_code=201)
+@router.post("/tenants/{tenant_id}/plan", response_model=C.PlanSet, status_code=201)
 async def set_plan(
     tenant_id: UUID, body: PlanBody, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -225,7 +226,7 @@ async def set_plan(
     return {"plan_code": body.plan_code, "version": version}
 
 
-@router.post("/tenants/{tenant_id}/deletion", status_code=201)
+@router.post("/tenants/{tenant_id}/deletion", response_model=C.DeletionRequested, status_code=201)
 async def request_deletion(
     tenant_id: UUID, body: Reason, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -273,7 +274,7 @@ async def _deletion_step(
     return out
 
 
-@router.post("/tenants/{tenant_id}/deletion/{request_id}/dry-run")
+@router.post("/tenants/{tenant_id}/deletion/{request_id}/dry-run", response_model=C.DeletionStep)
 async def deletion_dry_run(
     tenant_id: UUID, request_id: UUID, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -281,7 +282,7 @@ async def deletion_dry_run(
     return await _deletion_step(request, who, tenant_id, str(request_id), "dry_run")
 
 
-@router.post("/tenants/{tenant_id}/deletion/{request_id}/approve")
+@router.post("/tenants/{tenant_id}/deletion/{request_id}/approve", response_model=C.DeletionStep)
 async def deletion_approve(
     tenant_id: UUID, request_id: UUID, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -289,7 +290,7 @@ async def deletion_approve(
     return await _deletion_step(request, who, tenant_id, str(request_id), "approve")
 
 
-@router.post("/tenants/{tenant_id}/deletion/{request_id}/execute")
+@router.post("/tenants/{tenant_id}/deletion/{request_id}/execute", response_model=C.DeletionStep)
 async def deletion_execute(
     tenant_id: UUID, request_id: UUID, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -304,7 +305,7 @@ class FlagBody(Reason):
     rule: dict[str, Any]
 
 
-@router.get("/flags")
+@router.get("/flags", response_model=C.Flags)
 async def list_flags(
     request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -323,7 +324,7 @@ async def list_flags(
     return {"flags": [{"flag": r.flag, "version": r.version, "rule": r.rule} for r in rows]}
 
 
-@router.post("/flags", status_code=201)
+@router.post("/flags", response_model=C.FlagSet, status_code=201)
 async def set_flag(
     body: FlagBody, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -351,7 +352,7 @@ class KeyBody(Reason):
     secret_ref: str = Field(pattern=r"^[A-Za-z0-9/_.:-]{1,255}$")
 
 
-@router.get("/keys")
+@router.get("/keys", response_model=C.KeyVersions)
 async def list_keys(
     request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
@@ -360,7 +361,7 @@ async def list_keys(
         return {"keys": await keys.versions(plain)}
 
 
-@router.post("/keys", status_code=201)
+@router.post("/keys", response_model=C.KeyAdded, status_code=201)
 async def add_key(
     body: KeyBody, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:

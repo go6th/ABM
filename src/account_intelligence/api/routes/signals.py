@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
@@ -42,7 +43,7 @@ register("GET", "/v1/monitoring/budget", tenant_route("read_usage", "read"))
 register("GET", "/v1/accounts/{domain}/history", tenant_route("read_public", "read"))
 
 
-@router.get("/signals")
+@router.get("/signals", response_model=C.SignalPage)
 async def signals(
     request: Request,
     cursor: str | None = Query(default=None, max_length=200),
@@ -56,7 +57,7 @@ async def signals(
         raise HTTPException(422, "bad cursor") from None
 
 
-@router.get("/alerts")
+@router.get("/alerts", response_model=C.Alerts)
 async def inbox(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The caller's alerts (newest first)."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -95,7 +96,7 @@ class Rating(BaseModel):
     reason: str = Field(pattern=r"^[a-z_]{1,40}$")
 
 
-@router.post("/alerts/{alert_id}/feedback", status_code=201)
+@router.post("/alerts/{alert_id}/feedback", response_model=C.AlertRated, status_code=201)
 async def rate(
     alert_id: UUID, body: Rating, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -123,7 +124,7 @@ async def rate(
     return {"alert_id": str(alert_id), "verdict": body.verdict}
 
 
-@router.get("/alerts/usefulness")
+@router.get("/alerts/usefulness", response_model=C.AlertUsefulness)
 async def usefulness(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The usefulness metric with its base and the target (never as a result)."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -151,14 +152,14 @@ def _out(sub: subscriptions.Subscription) -> dict[str, Any]:
     }
 
 
-@router.get("/subscriptions")
+@router.get("/subscriptions", response_model=C.Subscription)
 async def my_settings(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The caller's settings (the digest-only defaults when none were saved)."""
     async with tenant_txn(ident.tenant_id) as s:
         return _out(await subscriptions.current(s, ident.user_id))
 
 
-@router.put("/subscriptions")
+@router.put("/subscriptions", response_model=C.Subscription)
 async def save_settings(
     body: Settings, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -205,7 +206,7 @@ async def save_settings(
     return _out(sub)
 
 
-@router.post("/subscriptions/subscribe-all")
+@router.post("/subscriptions/subscribe-all", response_model=C.Subscription)
 async def subscribe_all(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """Subscribe the caller to every immediate rule: explicit and audited."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -236,7 +237,7 @@ async def subscribe_all(request: Request, ident: Identity = Depends(authorize)) 
     return _out(sub)
 
 
-@router.get("/monitoring/budget")
+@router.get("/monitoring/budget", response_model=C.MonitoringBudget)
 async def budget(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The monitoring allowance used this month, in percent only."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -250,7 +251,7 @@ async def budget(request: Request, ident: Identity = Depends(authorize)) -> dict
         )
 
 
-@router.get("/accounts/{domain}/history")
+@router.get("/accounts/{domain}/history", response_model=C.History)
 async def account_history(
     domain: str, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:

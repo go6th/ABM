@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
@@ -144,7 +145,7 @@ async def saml_acs(
     return _finish(request, signed)
 
 
-@router.get("/session")
+@router.get("/session", response_model=C.Session)
 async def whoami(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The signed-in user, their role, the CSRF token for this session and whether step-up is
     fresh. No token or secret is returned."""
@@ -160,7 +161,7 @@ async def whoami(request: Request, ident: Identity = Depends(authorize)) -> dict
     return body
 
 
-@router.post("/logout")
+@router.post("/logout", responses={200: {"model": C.SignedOut}})
 async def logout(request: Request, ident: Identity = Depends(authorize)) -> Response:
     """End this session (cookie sessions only)."""
     plane = plane_of(request)
@@ -173,7 +174,7 @@ async def logout(request: Request, ident: Identity = Depends(authorize)) -> Resp
     return response
 
 
-@router.post("/logout-all")
+@router.post("/logout-all", responses={200: {"model": C.SessionsEnded}})
 async def logout_all(request: Request, ident: Identity = Depends(authorize)) -> Response:
     """End every session of this user ("sign out everywhere")."""
     plane = plane_of(request)
@@ -220,7 +221,7 @@ class ConnectionBody(BaseModel):
         return out
 
 
-@router.get("/connections")
+@router.get("/connections", response_model=C.IdpConnections)
 async def list_connections(
     request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -236,7 +237,7 @@ async def _secret_ref(request: Request, body: ConnectionBody, tenant: UUID) -> s
     return await plane.secrets.put(f"tenants/{tenant}/idp/{body.slug}", body.client_secret.encode())
 
 
-@router.post("/connections", status_code=201)
+@router.post("/connections", response_model=C.IdpConnection, status_code=201)
 async def create_connection(
     body: ConnectionBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -265,7 +266,7 @@ class ConnectionUpdate(ConnectionBody):
     status: Literal["active", "disabled"] = "active"
 
 
-@router.put("/connections/{connection_id}")
+@router.put("/connections/{connection_id}", response_model=C.IdpConnection)
 async def update_connection(
     connection_id: UUID,
     body: ConnectionUpdate,

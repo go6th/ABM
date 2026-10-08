@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -45,14 +46,14 @@ class GrantBody(BaseModel):
     minutes: int = Field(ge=1, le=1440)
 
 
-@router.get("/grants")
+@router.get("/grants", response_model=C.SupportGrants)
 async def grants(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The tenant's grants."""
     async with tenant_txn(ident.tenant_id) as s:
         return {"grants": await support.listing(s)}
 
 
-@router.post("/grants", status_code=201)
+@router.post("/grants", response_model=C.GrantCreated, status_code=201)
 async def create(
     body: GrantBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -81,7 +82,7 @@ async def create(
     return {"grant_id": str(gid)}
 
 
-@router.post("/grants/{grant_id}/revoke")
+@router.post("/grants/{grant_id}/revoke", response_model=C.GrantRevoked)
 async def revoke(
     grant_id: UUID, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -103,7 +104,7 @@ async def revoke(
     return {"grant_id": str(grant_id), "revoked": True}
 
 
-@router.get("/events")
+@router.get("/events", response_model=C.SupportEvents)
 async def events(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """Every support action in this tenant."""
     async with tenant_txn(ident.tenant_id) as s:

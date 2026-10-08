@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.operator import OperatorIdentity, require_operator
 from account_intelligence.api.policy import operator_route, register
 from account_intelligence.db.session import tenant_txn
@@ -23,7 +24,7 @@ register("GET", "/operator/v1/view/settings", operator_route("read"))
 BANNER = {"X-Support-View": "read-only", "Cache-Control": "no-store"}
 
 
-@router.get("/accounts")
+@router.get("/accounts", responses={200: {"model": C.ViewAsAccounts}})
 async def accounts(
     request: Request, op: OperatorIdentity = Depends(require_operator)
 ) -> JSONResponse:
@@ -43,10 +44,12 @@ async def accounts(
         "support_grant": op.support_session_id,
         "accounts": [{"domain": r.domain, "latest_run_status": r.status} for r in rows],
     }
-    return JSONResponse(body, headers=BANNER)
+    return JSONResponse(
+        C.ViewAsAccounts.model_validate(body).model_dump(mode="json"), headers=BANNER
+    )
 
 
-@router.get("/settings")
+@router.get("/settings", responses={200: {"model": C.ViewAsSettings}})
 async def tenant_settings(
     request: Request, op: OperatorIdentity = Depends(require_operator)
 ) -> JSONResponse:
@@ -60,4 +63,5 @@ async def tenant_settings(
             }
         except settings.SettingsInvalid:
             body = {"version": None, "settings": None, "reason": "settings_invalid"}
-    return JSONResponse({"support_grant": op.support_session_id, **body}, headers=BANNER)
+    checked = C.ViewAsSettings.model_validate({"support_grant": op.support_session_id, **body})
+    return JSONResponse(checked.model_dump(mode="json", exclude_unset=True), headers=BANNER)

@@ -16,11 +16,12 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -46,6 +47,7 @@ from views.tables import TABLES
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 register("POST", "/v1/exports", tenant_route("export_files", "export"))
+register("GET", "/v1/exports", tenant_route("export_files", "read"))
 register("GET", "/v1/exports/{package_id}", tenant_route("export_files", "read"))
 register("GET", "/v1/exports/{package_id}/files/{index}", tenant_route("export_files", "export"))
 _MEDIA = {
@@ -81,7 +83,7 @@ async def _deliverables(request: Request, tenant_id: UUID, run_id: UUID) -> list
     ]
 
 
-@router.post("", status_code=201)
+@router.post("", response_model=C.ExportPackage, status_code=201)
 async def create_export(
     body: ExportBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -155,28 +157,7 @@ async def create_export(
     }
 
 
-async def _package(s: Any, package_id: UUID) -> Any:
-    row = (
-        await s.execute(
-            text(
-                "SELECT id, run_id, kind, status, reason, files, parity, created_at"
-                " FROM export_packages WHERE id = :i"
-            ),
-            {"i": package_id},
-        )
-    ).first()
-    if row is None:
-        raise HTTPException(404, "not found")
-    return row
-
-
-@router.get("/{package_id}")
-async def read_export(
-    package_id: UUID, request: Request, ident: Identity = Depends(authorize)
-) -> dict[str, Any]:
-    """One package of the caller's tenant."""
-    async with tenant_txn(ident.tenant_id) as s:
-        row = await _package(s, package_id)
+def _package_json(row: Any) -> dict[str, Any]:
     return {
         "package_id": str(row.id),
         "run_id": str(row.run_id),
@@ -196,6 +177,55 @@ async def read_export(
         ],
         "created_at": row.created_at.isoformat(),
     }
+
+
+@router.get("", response_model=C.ExportPackages)
+async def list_exports(
+    request: Request,
+    domain: str = Query(pattern=DOMAIN, max_length=253),
+    ident: Identity = Depends(authorize),
+) -> dict[str, Any]:
+    """An account's packages, newest first (files and parity verdicts; never cell content)."""
+    async with tenant_txn(ident.tenant_id) as s:
+        rule = await exclusion_rule(s)
+        if rule.excludes_company(domain):
+            raise HTTPException(404, "not found")
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT p.id, p.run_id, p.kind, p.status, p.reason, p.files, p.parity,"
+                    " p.created_at FROM export_packages p JOIN accounts a ON a.id = p.account_id"
+                    " WHERE a.domain = :d ORDER BY p.created_at DESC, p.id DESC LIMIT 50"
+                ),
+                {"d": domain},
+            )
+        ).all()
+    return {"packages": [_package_json(r) for r in rows]}
+
+
+async def _package(s: Any, package_id: UUID) -> Any:
+    row = (
+        await s.execute(
+            text(
+                "SELECT id, run_id, kind, status, reason, files, parity, created_at"
+                " FROM export_packages WHERE id = :i"
+            ),
+            {"i": package_id},
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(404, "not found")
+    return row
+
+
+@router.get("/{package_id}", response_model=C.ExportPackage)
+async def read_export(
+    package_id: UUID, request: Request, ident: Identity = Depends(authorize)
+) -> dict[str, Any]:
+    """One package of the caller's tenant."""
+    async with tenant_txn(ident.tenant_id) as s:
+        row = await _package(s, package_id)
+    return _package_json(row)
 
 
 _FACT_FILES = frozenset({"summary", "evidence", "workspace", "facts", "pdf"})

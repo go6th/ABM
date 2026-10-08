@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
@@ -34,7 +35,7 @@ _COLUMNS = (
 )
 
 
-@router.get("")
+@router.get("", response_model=C.AuditPage)
 async def list_audit(
     request: Request,
     actor: str | None = Query(default=None, max_length=300),

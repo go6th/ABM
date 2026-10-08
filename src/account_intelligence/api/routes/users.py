@@ -15,6 +15,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
@@ -57,7 +58,7 @@ def _json(m: membership.Member) -> dict[str, Any]:
     return {"user_id": m.user_id, "role": m.role, "status": m.status, "version": m.version}
 
 
-@router.get("")
+@router.get("", response_model=C.Members)
 async def list_users(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """Every member of the caller's tenant."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -65,7 +66,7 @@ async def list_users(request: Request, ident: Identity = Depends(authorize)) -> 
     return {"members": [_json(m) for m in members]}
 
 
-@router.post("", status_code=201)
+@router.post("", response_model=C.Member, status_code=201)
 async def add_user(
     body: AddBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -99,7 +100,7 @@ async def add_user(
     return _json(added)
 
 
-@router.patch("")
+@router.patch("", response_model=C.Member)
 async def change_user(
     body: ChangeBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:

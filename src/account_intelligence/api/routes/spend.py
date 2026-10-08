@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_refusal, audited_txn
 from account_intelligence.api.auth import Identity, require_role
 from account_intelligence.db.session import tenant_txn
@@ -63,7 +64,7 @@ def _principal(ident: Identity) -> Principal:
     )
 
 
-@router.post("/{run_id}/cap/approve")
+@router.post("/{run_id}/cap/approve", response_model=C.CapApproved)
 async def approve_cap(
     run_id: UUID,
     body: ApproveBody,
@@ -120,7 +121,7 @@ async def approve_cap(
     return {"run_id": str(run_id), "version": body.version, "cap_micros": cap, "resumed": resumed}
 
 
-@router.post("/{run_id}/cap/reject")
+@router.post("/{run_id}/cap/reject", response_model=C.CapRejected)
 async def reject_cap(
     run_id: UUID,
     body: RejectBody,
@@ -157,7 +158,7 @@ async def reject_cap(
     return {"run_id": str(run_id), "version": body.version, "decision": "rejected"}
 
 
-@router.post("/{run_id}/cap/extend")
+@router.post("/{run_id}/cap/extend", response_model=C.CapExtended)
 async def extend_cap(
     run_id: UUID,
     body: ExtendBody,
@@ -193,7 +194,7 @@ async def extend_cap(
     return {"run_id": str(run_id), "version": version, "status": "extension_requested"}
 
 
-@router.get("/{run_id}/spend")
+@router.get("/{run_id}/spend", response_model=C.JsonObject)
 async def tenant_spend(
     run_id: UUID, ident: Identity = Depends(require_role("admin", "seller", "viewer"))
 ) -> dict[str, Any]:

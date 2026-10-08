@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -33,7 +34,7 @@ def _period(value: str | None) -> str | None:
     return value
 
 
-@router.get("")
+@router.get("", response_model=C.Usage)
 async def usage(
     request: Request,
     period: str | None = Query(default=None, max_length=7),

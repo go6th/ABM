@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -46,7 +47,7 @@ def _json(v: settings.SettingsVersion) -> dict[str, Any]:
     return {"version": v.version, "hash": v.hash, "settings": v.settings.model_dump(mode="json")}
 
 
-@router.get("")
+@router.get("", response_model=C.TenantSettings)
 async def read_settings(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The tenant's current settings (version 0 is the platform default, never stored)."""
     try:
@@ -62,7 +63,7 @@ async def read_settings(request: Request, ident: Identity = Depends(authorize)) 
         ) from None
 
 
-@router.put("")
+@router.put("", response_model=C.TenantSettings)
 async def save_settings(
     body: SettingsBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -108,7 +109,7 @@ class BrandingBody(BaseModel):
     logo_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
-@branding_router.get("/branding")
+@branding_router.get("/branding", response_model=C.Branding)
 async def read_branding(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The tokens views and documents use (the attribution is fixed)."""
     try:
@@ -124,7 +125,7 @@ async def read_branding(request: Request, ident: Identity = Depends(authorize)) 
     return branding.tokens(current.settings.branding)
 
 
-@router.post("/branding/logo", status_code=201)
+@router.post("/branding/logo", response_model=C.LogoUploaded, status_code=201)
 async def upload_logo(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """Upload a logo: quarantined and scanned BEFORE any decoder sees it, then re-encoded."""
     limits = branding.load_limits()
@@ -171,7 +172,7 @@ async def upload_logo(request: Request, ident: Identity = Depends(authorize)) ->
     return {"logo_sha256": logo.sha256, "width": logo.width, "height": logo.height}
 
 
-@router.put("/branding")
+@router.put("/branding", response_model=C.BrandingSaved)
 async def save_branding(
     body: BrandingBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:

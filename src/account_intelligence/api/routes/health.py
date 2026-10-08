@@ -12,10 +12,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
+
 router = APIRouter(tags=["health"])
 
 
-@router.get("/healthz")
+@router.get("/healthz", response_model=C.Health)
 async def healthz() -> dict[str, str]:
     """Liveness: the process answers."""
     return {"status": "ok"}
@@ -34,7 +36,7 @@ def _config() -> None:
     load_all()
 
 
-@router.get("/readyz")
+@router.get("/readyz", responses={200: {"model": C.Ready}})
 async def readyz(request: Request) -> JSONResponse:
     """Readiness that fails closed (W5): 200 only when every check passes, else 503 naming it."""
     checks: dict[str, str] = {}

@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
@@ -50,7 +51,7 @@ class FeedbackBody(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
 
 
-@router.post("/feedback", status_code=201)
+@router.post("/feedback", response_model=C.FeedbackCreated, status_code=201)
 async def give(
     body: FeedbackBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -80,7 +81,7 @@ async def give(
     return {"id": fid}
 
 
-@router.get("/feedback")
+@router.get("/feedback", response_model=C.FeedbackList)
 async def review(
     request: Request,
     domain: str | None = Query(default=None, max_length=253),
@@ -104,7 +105,7 @@ class UsefulBody(BaseModel):
     via: Literal["marked", "copied", "opened", "noted"]
 
 
-@router.post("/usefulness", status_code=202)
+@router.post("/usefulness", response_model=C.UsefulRecorded, status_code=202)
 async def useful(
     body: UsefulBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -126,14 +127,14 @@ async def useful(
     return {"recorded": new}
 
 
-@router.get("/usefulness/metric")
+@router.get("/usefulness/metric", response_model=C.UsefulnessMetric)
 async def tenant_metric(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The tenant's usefulness metric with its base."""
     async with tenant_txn(ident.tenant_id) as s:
         return await metric.tenant_metric(s, plane_of(request).clock.now())
 
 
-@operator_router.get("/aggregate")
+@operator_router.get("/aggregate", response_model=C.PilotAggregate)
 async def aggregate(
     request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:

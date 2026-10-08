@@ -14,6 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -70,7 +71,7 @@ def _problem(e: saved.SavedViewError) -> APIProblem:
     return APIProblem(status, e.code, "Saved view refused", "The saved view change was refused.")
 
 
-@router.get("")
+@router.get("", response_model=C.SavedViews)
 async def list_views(
     request: Request,
     table: Table | None = Query(default=None),
@@ -82,7 +83,7 @@ async def list_views(
     return {"views": [saved.as_json(v) for v in views]}
 
 
-@router.post("", status_code=201)
+@router.post("", response_model=C.SavedView, status_code=201)
 async def create_view(
     body: ViewBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -112,7 +113,7 @@ async def create_view(
     return saved.as_json(view)
 
 
-@router.put("/{view_id}")
+@router.put("/{view_id}", response_model=C.SavedView)
 async def edit_view(
     view_id: UUID, body: ViewEdit, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -145,7 +146,7 @@ async def edit_view(
     return saved.as_json(view)
 
 
-@router.post("/{view_id}/archive")
+@router.post("/{view_id}/archive", response_model=C.ViewArchived)
 async def archive_view(
     view_id: UUID, body: Archive, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:

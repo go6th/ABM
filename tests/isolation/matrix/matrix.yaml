@@ -305,6 +305,9 @@ routes:
   GET /v1/audit: {probe: tenant}
   GET /v1/audit/export: {probe: tenant}
   GET /v1/accounts: {probe: tenant}
+  GET /v1/accounts/{domain}: {probe: tenant, params: {domain: accounts.domain}}
+  GET /v1/runs: {probe: tenant}
+  GET /v1/exports: {probe: tenant, query: {domain: accounts.domain}}
   GET /v1/runs/pull-option: {probe: tenant, query: {domain: pull_manifests.account_key}}
   POST /v1/accounts: {probe: tenant, body: {domain: accounts.domain}}
   GET /v1/accounts/{domain}/tables/{table}:

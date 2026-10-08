@@ -21,6 +21,7 @@ from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -76,7 +77,7 @@ def _refused(e: oauth.ConnectorRefused) -> APIProblem:
     return APIProblem(status, e.reason, "Connector refused", "The connector request was refused.")
 
 
-@router.get("")
+@router.get("", response_model=C.Connections)
 async def list_connectors(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The tenant's connections (never a token)."""
     async with tenant_txn(ident.tenant_id) as s:
@@ -117,7 +118,7 @@ class StartBody(BaseModel):
     kind: Kind
 
 
-@router.post("", status_code=201)
+@router.post("", response_model=C.ConnectorStarted, status_code=201)
 async def start(
     body: StartBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -197,7 +198,7 @@ class GrantBody(BaseModel):
     resource_id: str = Field(min_length=1, max_length=300, pattern=r"^[A-Za-z0-9_.:-]+$")
 
 
-@router.post("/{connection_id}/grants", status_code=201)
+@router.post("/{connection_id}/grants", response_model=C.ConnectorGranted, status_code=201)
 async def grant(
     connection_id: UUID, body: GrantBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -227,7 +228,7 @@ async def grant(
     return {"connection_id": str(connection_id), "granted": body.resource_id}
 
 
-@router.post("/{connection_id}/fetch")
+@router.post("/{connection_id}/fetch", response_model=C.FetchResult)
 async def fetch(
     connection_id: UUID, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -267,7 +268,7 @@ async def fetch(
     }
 
 
-@router.get("/{connection_id}/quarantine")
+@router.get("/{connection_id}/quarantine", response_model=C.Quarantine)
 async def held(
     connection_id: UUID, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
@@ -276,7 +277,7 @@ async def held(
         return {"items": await quarantine.listing(s, connection_id)}
 
 
-@router.post("/{connection_id}/quarantine/{item_id}/{decision}")
+@router.post("/{connection_id}/quarantine/{item_id}/{decision}", response_model=C.QuarantineDecided)
 async def decide(
     connection_id: UUID,
     item_id: UUID,
@@ -309,7 +310,7 @@ async def decide(
     return {"resource_id": resource, "status": "cleared" if decision == "clear" else "refused"}
 
 
-@router.post("/{connection_id}/disconnect")
+@router.post("/{connection_id}/disconnect", response_model=C.Disconnected)
 async def disconnect(
     connection_id: UUID, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
