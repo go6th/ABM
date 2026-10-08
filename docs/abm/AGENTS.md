@@ -47,3 +47,22 @@ setup -> cap_approval -> pull <-> spend_gate              Phase 1 (full, pull)
 
 `finish` is the only settlement point. Approval points are `cap_approval`, `spend_gate` and
 `sense_approval` (LangGraph `interrupt`, resumed with `Command(resume=bool)`).
+
+## Production bindings (ADR-0100)
+
+| Port | Production adapter | Existing component it uses |
+|---|---|---|
+| ProviderPort | `production/provider.py` `ConnectorProvider` | `connectors.router.call_need` (routing, pull once, credit gate, retries by node policy) |
+| PayloadPort | `production/payloads.py` `StorePayloads` | platform payload store, neutral content-addressed keys |
+| GradingPort | `production/grading.py` `EngineGrading` | `grade_claims`, `record_graded_fact`, `record_drops`, `record_lead`, `supersede` |
+| TrackerPort | `production/tracker.py` `TrackerAdapter` | `TrackerService.record_outcome` / `downgrade` (inherited ledger for Phase 2) |
+| CreditPort | `production/credit.py` `CreditAdapter` | `spend.service.propose`/`approve`, `spend.pause.open_pause`, cost table |
+| RunRecordStore | `production/state.py` `PgRunRecords` | `abm_sense_checks`, `abm_distill_outputs` (migrations 0041, 0042) |
+| SettingsPort | `production/state.py` `SettingsAdapter` | tenant settings and the run's frozen input |
+| Builder, Gate, Delivery | `production/delivery.py` | export builder, quality gate, the `deliver` stage's note |
+| WalletPort | `RunnerSettles` | settlement stays in `lifecycle.finish` (once) |
+| AgentModel | `production/wiring.py` `RunDepsModel` | `RunDeps.model` (router or legacy tier) and `llm.schema.validate` |
+
+Runner: `workflow.runner.execute_slice(..., graph_factory=AbmGraphFactory())`; the worker endpoint
+chooses it for `pull` and `build` runs and, for `full` runs, when the tenant's `abm_agents` flag
+is on.

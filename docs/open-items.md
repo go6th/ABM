@@ -149,10 +149,11 @@ model).
 
 | Id | Item | State |
 |---|---|---|
-| OI-ABM-1 | The ABM graph (`agents/graph.py`) is not the production runner's graph; the runner still drives `workflow_v1`. Binding it needs the slice runner and approval routes to resume `agents.service` | follow-up (C34) |
+| OI-ABM-1 | The ABM graph runs under the production runner (`execute_slice` graph factory) for Phase 1 only and Phase 2 only runs and, for full runs, behind the `abm_agents` tenant flag; making it the default for every tenant is the owner's decision (C34) | done behind flag |
 | OI-ABM-2 | [VERIFY] lessons.md format (`## YYYY-MM-DD` headings, bullets) against the archive | Blocked on archive |
 | OI-ABM-3 | Archive absent: checklist reconciliation (C31), lessons, prompt text from runbooks, sense-check questions, consent text, signal tiers | Blocked on archive |
-| OI-ABM-4 | Production bindings missing (raise NotConfigured): provider port to `connectors.service`, grading port to `grading.pipeline` + `record_graded_fact`, tracker port to `TrackerService`, credit port to `spend.service`, builder/gate/delivery ports, distill narrative store, internal-history connector search | follow-up |
+| OI-ABM-4 | Production bindings done (`src/agents/production/`, ADR-0100) except: people recording from the agent layer (NotConfigured, counted), the internal-history connector search (D-98 keeps it off), the Internal Only file builder (the internal audience builds no file), the export builders reading `abm_distill_outputs` | partial |
+| OI-ABM-8 | Grading attribute classes cover leadership, hiring, technology and funding only; most coverage rows' claims are refused `unknown_attribute_class` (C38) | needs owner (half-lives) |
 | OI-ABM-5 | LangGraph APIs used: `interrupt`, `Command(resume=...)`, conditional edges, `InMemorySaver` (verified against installed langgraph 1.2.12 by tests). `Send`, subgraphs and per-node model binding are not used (routing is by task kind) | verified |
 | OI-ABM-6 | Mutation testing of the guard modules: see BUILD_LOG (ABM section) | see log |
 | OI-ABM-7 | Budgets in `config/agents.yaml` are unmeasured proposals | needs golden accounts |
