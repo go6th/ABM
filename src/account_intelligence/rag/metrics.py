@@ -105,7 +105,7 @@ def conversational_faithfulness(
     return grounded / len(information_statements)
 
 
-def answer_relevance(query: str, answer: str, *, content_only: bool = True) -> float:
+def answer_relevance(query: str, answer: str) -> float:
     """Lexical alignment of the answer with the query.
 
     A deterministic proxy for the judged metric: the fraction

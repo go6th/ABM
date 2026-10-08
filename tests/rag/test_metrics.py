@@ -54,7 +54,11 @@ class TestRetrievalMetrics:
 
     def test_mrr(self) -> None:
         """Mean reciprocal rank across queries."""
-        queries = (("x", "a"), ("a",), ("x", "y"))
+        queries = (
+            (("x", "a"), frozenset({"a"})),
+            (("a",), frozenset({"a"})),
+            (("x", "y"), frozenset({"a"})),
+        )
         assert mrr(queries) == pytest.approx((0.5 + 1.0 + 0.0) / 3)
 
     def test_mrr_empty(self) -> None:
@@ -100,7 +104,7 @@ class TestTriad:
 
     def test_answer_relevance(self) -> None:
         """The answer addresses the query's content terms."""
-        assert answer_relevance("acme revenue growth", "acme revenue") == 0.5
+        assert answer_relevance("acme revenue growth", "acme revenue") == pytest.approx(2 / 3)
 
     def test_answer_relevance_empty_query(self) -> None:
         """A stopword-only query is trivially addressed."""
