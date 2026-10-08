@@ -9,7 +9,7 @@ status: proposal
 product_precedence:
   status: proposal
   decision: D-01
-  order: [no_evidence, conflicting, internal_only, primary_read, engine_a_or_b, engine_c_or_synthesis, engine_d_or_secondary_only]
+  order: [no_evidence, conflicting, internal_only, primary_read, unread_match, engine_a_or_b, engine_c_or_synthesis, engine_d_or_secondary_only]
   conflicting_max_product_grade: probable
   blocked_product_grade: hypothesis       # a Blocked attribute is shown as a question with its reason
   internal_authoritative_default: false   # Phase B: client may mark a source authoritative

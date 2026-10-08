@@ -21,6 +21,7 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 | `budget_cap` | Budget cap reached |
 | `cap_reached` | Execution cap reached |
 | `claims_dropped` | Claims dropped by verification |
+| `consent_required` | People data consent is needed |
 | `credits_exhausted` | Provider credits exhausted |
 | `deadline` | Deadline reached |
 | `dependency_failed` | A step this row depends on did not finish |
@@ -32,6 +33,7 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 | `not_planned` | No search was planned for this row in this run |
 | `out_of_scope` | Out of scope |
 | `page_cap` | Page cap reached |
+| `pull_not_approved` | A recommended search was not approved |
 | `result_count_unknown` | Result count not reported by the source |
 | `source_failed` | Source failed during execution |
 | `source_rate_limited` | Source rate limited |

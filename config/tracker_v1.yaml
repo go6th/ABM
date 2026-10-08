@@ -73,6 +73,9 @@ reason_codes:
   credits_exhausted: "Provider credits exhausted"
   # parallel execution (P2): a hard dependency of the row's unit failed or was blocked
   dependency_failed: "A step this row depends on did not finish"
+  # ABM agent layer (D-96, D-97): people data consent missing; a recommended pull not approved
+  consent_required: "People data consent is needed"
+  pull_not_approved: "A recommended search was not approved"
 transitions:
   unset:
     done: ["stage", "verifier"]

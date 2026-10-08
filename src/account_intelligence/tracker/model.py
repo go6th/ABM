@@ -75,6 +75,9 @@ class ReasonCode(StrEnum):
     CREDITS_EXHAUSTED = "credits_exhausted"
     # Added by parallel execution (P2):
     DEPENDENCY_FAILED = "dependency_failed"
+    # Added by the ABM agent layer (D-96, D-97):
+    CONSENT_REQUIRED = "consent_required"
+    PULL_NOT_APPROVED = "pull_not_approved"
 
 
 SWEEP_REASONS = frozenset(

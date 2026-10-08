@@ -43,6 +43,9 @@ class ProposedSourced(_Strict):
     evidence: tuple[ProposedEvidence, ...] = Field(min_length=1, max_length=10)
     reasoning: Text | None = None
     confirming_question: Text | None = None
+    # Platform rule 4 / G2: the claim came from a keyword match or a date range, not a read. Such a
+    # claim is a Lead until a primary source is read this run (precedence rule ``unread_match``).
+    match_origin: Literal["keyword_match", "date_range"] | None = None
 
 
 class ProposedSynthesis(_Strict):

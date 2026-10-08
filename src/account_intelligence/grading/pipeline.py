@@ -386,6 +386,7 @@ async def grade_claims(
                     internal_only=key in internal_only_keys,
                     internal_authoritative=cfg.precedence.internal_authoritative_default,
                     secondary_only=s.secondary_only,
+                    unread_match=p.match_origin is not None,
                 )
                 grade, rule = product_grade(inputs_, cfg)
                 if not prim.value and any(e.origin == "full_page_read" for e in s.evidence):

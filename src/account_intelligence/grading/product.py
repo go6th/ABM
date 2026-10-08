@@ -3,6 +3,7 @@
 Order (``config/grading_policy.yaml product_precedence.order``):
 1 no evidence -> Hypothesis; 2 Conflicting -> at most Probable; 3 internal-only -> Internal;
 4 read in a primary source this run (computed by ``primary.py``) -> Confirmed;
+4a a keyword match or date range not read this run -> Lead (``unread_match``, platform rule 4);
 5 engine A or B -> Probable; 6 engine C or synthesis -> Hypothesis;
 7 engine D or secondary/aggregator-only -> Lead. A Blocked attribute is a question.
 Only Confirmed may be stated to a prospect (PRD Appendix B; ``grading.yaml``).
@@ -27,6 +28,7 @@ class ProductInputs:
     internal_only: bool = False
     internal_authoritative: bool = False
     secondary_only: bool = False
+    unread_match: bool = False
 
 
 def _rule(rule: str, x: ProductInputs, cfg: GradingConfig) -> ProductGrade | None:
@@ -40,6 +42,10 @@ def _rule(rule: str, x: ProductInputs, cfg: GradingConfig) -> ProductGrade | Non
         return "internal" if x.internal_only and not x.internal_authoritative else None
     if rule == "primary_read":
         return "confirmed" if x.read_in_primary else None
+    if rule == "unread_match":
+        # A keyword match or date range not read in a primary source this run is a Lead
+        # (platform rule 4; skill rule "a keyword match is a lead", guide S5).
+        return "lead" if x.unread_match and not x.read_in_primary else None
     if rule == "engine_a_or_b":
         return "probable" if x.engine_grade in ("A", "B") and not x.synthesis else None
     if rule == "engine_c_or_synthesis":

@@ -512,6 +512,22 @@
       "title": "Local Id",
       "type": "string"
      },
+     "match_origin": {
+      "anyOf": [
+       {
+        "enum": [
+         "keyword_match",
+         "date_range"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Match Origin"
+     },
      "reasoning": {
       "anyOf": [
        {
