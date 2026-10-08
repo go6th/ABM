@@ -107,7 +107,7 @@ async def test_build_with_new_pull_proposal_pauses_for_approval(make) -> None:  
     record = await h.start("b", mode="build", parent_run_id=pull.run_id, attended=True, budget=0)
     state = await h.service.execute(h.tenant, record.run_id)
     pending = await h.service.pending(h.tenant, record.run_id)
-    assert pending and pending[0]["awaiting"] == "sense_pulls"
+    assert pending and pending[0]["reason"] == "sense_pulls"
     assert h.provider.new_calls and not h.builder.builds
     h.credit.approve(record.run_id, 1_000_000)
     state = await h.service.resume(h.tenant, record.run_id, True)

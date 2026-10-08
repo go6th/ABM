@@ -1,0 +1,55 @@
+# How the agent layer's route needs (config/skill/pull_plan.yaml, named as in the skill's
+# config/routing.yaml) reach the platform's connector routes (config/providers.yaml). INTERNAL.
+# Only operations the connector layer already implements are used; nothing here names a vendor.
+version: "1.0.0"
+status: "proposal (tools.md query patterns TODO, C31)"
+
+needs:
+  web_search:         {value: {route: open_web_search, operation: web_search}, source: "config/providers.yaml routes"}
+  # A page read or scrape needs a URL: the account's own site is searched first and the first
+  # result on the account's domain is read (page reads are allow-listed to the account's hosts).
+  page_read:          {value: {route: read_known_page, operation: read_page, url_from: account_search}, source: "config/providers.yaml routes"}
+  scrape:             {value: {route: job_boards_and_pages, operation: scrape_job_page, url_from: account_search}, source: "config/providers.yaml routes"}
+  structured_signals: {value: {route: news_tech_job_feeds, operation: news_events}, source: "config/providers.yaml routes (operation chosen by the caller)"}
+  people_by_title:    {value: {route: people_by_title, operation: people_by_title}, source: "config/providers.yaml routes"}
+  people_by_technology: {value: {route: people_by_technology, operation: people_by_technology, needs: organization_id}, source: "config/providers.yaml routes"}
+  # Profiles need profile URLs from an earlier people pull (a dependent pull): not planned in
+  # Phase 1, so the row is Blocked with a reason rather than guessed.
+  profile_enrichment: {value: {route: profiles_posts_comments, operation: profile_enrichment, needs: profile_urls}, source: "config/providers.yaml routes"}
+
+# The feed operation per coverage row (news, jobs or technology), from the row's meaning.
+feed_operation_by_row:
+  source: "config/checklist.yaml row labels"
+  value:
+    company_news: news_events
+    leadership_changes: news_events
+    job_postings_read_classified: job_openings
+    job_postings_12_months: job_openings
+    technology_detections: tech_detections
+
+# Titles and technologies searched for people rows. The skill's lists are in the archive (absent).
+people_titles: {value: ["Chief Information Officer", "Chief Technology Officer", "Chief Digital Officer"], status: "proposal: archive TODO (C31)"}
+technology_slugs: {value: {salesforce: salesforce, servicenow: servicenow, sap: sap, tableau_analytics: tableau, veeva: veeva, data_ai: snowflake}, status: "proposal: archive TODO (C31)"}
+
+# Attribute key prefix per coverage row: the grading engine grades only keys whose first segment
+# has an attribute class (config/grading_policy.yaml attributes.classes: exec, people, jobs,
+# hiring, tech, funding). Rows with no fitting class are not mapped: the engine refuses their
+# claims as unknown_attribute_class (counted). Adding classes needs half-lives: owner (C38).
+attribute_prefix_by_row:
+  status: "proposal (existing classes only; C38)"
+  value:
+    leadership_changes: exec
+    executive_voice_earnings: exec
+    executive_speaking: exec
+    key_contact_profiles_posts: people
+    people_by_platform: people
+    full_profiles_senior_people: people
+    posts_priority_people: people
+    job_board_by_lane: jobs
+    job_postings_read_classified: jobs
+    job_postings_12_months: jobs
+    technology_detections: tech
+    employee_content_github: tech
+    earnings_filings: funding
+    financial_baseline_verified: funding
+    major_holders_activists: funding

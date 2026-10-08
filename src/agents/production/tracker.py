@@ -1,0 +1,139 @@
+"""``TrackerPort`` on ``TrackerService`` (statuses are derived there from ledger evidence).
+
+* ``report`` records a row as its owning workflow stage (``spec.coverage_owners``) with the
+  manifest's call references as proof, or with a configured not-attempted reason; the agent
+  layer's reasons map onto the tracker's ``ReasonCode`` (consent, spend, source failures).
+* ``mark_partial`` is the tracker's downgrade (actor ``gate``: the approval gate) with
+  ``pull_not_approved``; a Blocked row keeps its status.
+* ``InheritingCallLedger`` resolves a proof reference in this run, then in the run's declared
+  parent pull run (a Phase 2 run's rows are proven by the pull it was built on, G16). The parent's
+  real ledger record is returned for this run; a reference in neither run is refused.
+
+GUARANTEE(test_tracker_adapter_derives_rows_from_real_ledger_proof)
+GUARANTEE(test_inherited_proof_comes_only_from_the_declared_parent)
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from account_intelligence.grading.config import load_grading_config
+from account_intelligence.grading.repo import TxnFactory
+from account_intelligence.tracker.adapters import LedgerCallAdapter, RunInputAdapter
+from account_intelligence.tracker.model import Actor, CallRecord, ReasonCode, Status
+from account_intelligence.tracker.repo import CoverageRepo
+from account_intelligence.tracker.service import TrackerService
+from agents.ports import RowOutcome, RunContext
+from agents.production.grading import parent_run
+
+REASONS: dict[str, ReasonCode] = {
+    "consent_required": ReasonCode.CONSENT_REQUIRED,
+    "spend_not_approved": ReasonCode.NO_CAP,
+    "no_cap": ReasonCode.NO_CAP,
+    "cap_reached": ReasonCode.CAP_REACHED,
+    "credits_exhausted": ReasonCode.CREDITS_EXHAUSTED,
+    "not_supported_yet": ReasonCode.NOT_AVAILABLE_YET,
+    "needs_profile_urls": ReasonCode.DEPENDENCY_FAILED,
+    "agent_budget_exceeded": ReasonCode.TOOL_CALL_CAP,
+    "pull_not_approved": ReasonCode.PULL_NOT_APPROVED,
+}
+
+
+def reason_for(code: str | None) -> ReasonCode | None:
+    """The tracker reason of an agent-layer reason (any other failure: ``source_failed``)."""
+    if code is None:
+        return None
+    return REASONS.get(code, ReasonCode.SOURCE_FAILED)
+
+
+@dataclass
+class InheritingCallLedger:
+    """``CallLedgerPort``: this run's ledger, then its declared parent's (read only)."""
+
+    inner: LedgerCallAdapter
+    parent: UUID | None
+
+    async def get_call_record(self, tenant_id: UUID, run_id: UUID, call_ref: str) -> CallRecord:
+        """The record of a call of this run, or of the declared parent pull run."""
+        try:
+            return await self.inner.get_call_record(tenant_id, run_id, call_ref)
+        except KeyError:
+            if self.parent is None:
+                raise
+        record = await self.inner.get_call_record(tenant_id, self.parent, call_ref)
+        return record.model_copy(update={"run_id": str(run_id)})
+
+
+def _outcome(status: Status | None, reason: ReasonCode | None, calls: int) -> RowOutcome:
+    return RowOutcome(
+        status.value if status is not None else None,
+        reason.value if reason is not None else None,
+        calls,
+    )
+
+
+@dataclass(frozen=True)
+class TrackerAdapter:
+    """See the module docstring."""
+
+    txn: TxnFactory
+    owners: Mapping[str, str]
+
+    async def _service(self, s: AsyncSession, ctx: RunContext) -> TrackerService:
+        ledger = LedgerCallAdapter(s, load_grading_config().category_by_operation)
+        parent = await parent_run(self.txn, ctx.tenant_id, ctx.run_id)
+        return TrackerService(
+            CoverageRepo(s),
+            InheritingCallLedger(ledger, parent),
+            RunInputAdapter(s),
+            owners=self.owners,
+        )
+
+    async def report(
+        self, ctx: RunContext, row_key: str, call_refs: Sequence[str], reason: str | None
+    ) -> RowOutcome:
+        """Record the row's evidence (or its not-attempted reason) as its owning stage."""
+        async with self.txn(ctx.tenant_id) as s:
+            service = await self._service(s, ctx)
+            result = await service.record_outcome(
+                ctx.tenant_id,
+                ctx.run_id,
+                row_key,
+                tuple(call_refs),
+                Actor.STAGE,
+                None if call_refs else reason_for(reason or "source_failed"),
+                stage=self.owners.get(row_key),
+            )
+        return _outcome(result.status, result.reason_code, len(set(call_refs)))
+
+    async def rows(self, ctx: RunContext) -> Mapping[str, RowOutcome]:
+        """Every row of the run."""
+        async with self.txn(ctx.tenant_id) as s:
+            rows = await CoverageRepo(s).get_all_rows(ctx.run_id)
+        return {r.key: _outcome(r.status, r.reason_code, r.proof_calls) for r in rows}
+
+    async def mark_partial(self, ctx: RunContext, row_key: str, reason: str) -> RowOutcome:
+        """Downgrade to Partial with ``pull_not_approved`` (a Blocked row stays Blocked)."""
+        async with self.txn(ctx.tenant_id) as s:
+            rows = {r.key: r for r in await CoverageRepo(s).get_all_rows(ctx.run_id)}
+            row = rows.get(row_key)
+            if row is None or row.status in (None, Status.BLOCKED, Status.PARTIAL):
+                return _outcome(
+                    row.status if row else None,
+                    row.reason_code if row else None,
+                    row.proof_calls if row else 0,
+                )
+            service = await self._service(s, ctx)
+            result = await service.downgrade(
+                ctx.tenant_id,
+                ctx.run_id,
+                row_key,
+                Status.PARTIAL,
+                Actor.GATE,
+                reason_for(reason) or ReasonCode.PULL_NOT_APPROVED,
+            )
+        return _outcome(result.status, result.reason_code, row.proof_calls)

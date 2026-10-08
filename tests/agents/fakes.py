@@ -120,6 +120,10 @@ class FakeCredit:
     async def price(self, need: str) -> tuple[int, bool]:
         return PRICES[need], True
 
+    async def propose_cap(self, ctx: RunContext) -> bool:
+        self.proposals = getattr(self, "proposals", 0) + 1
+        return ctx.run_id in self.budgets
+
     async def request_approval(
         self, ctx: RunContext, proposals: Sequence[Mapping[str, Any]], total_micros: int
     ) -> str:

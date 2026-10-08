@@ -102,7 +102,7 @@ async def extract(
         result.candidates.append(
             GradingCandidate(
                 candidate=c.model_copy(update={"origin": origin}),
-                urls=tuple(dict.fromkeys(p.url for p in evidence_payloads)),
+                urls=tuple(p.url for p in evidence_payloads),
                 visibility="private" if private else "public",
                 read_this_run=read,
             )

@@ -71,7 +71,7 @@ async def test_g6_facts_changed_after_the_sense_check_are_refused(h: Harness) ->
 async def test_g7_unapproved_pull_in_an_attended_run_pauses(h: Harness) -> None:
     record = await h.start("r", attended=True, budget=None)
     await h.service.execute(h.tenant, record.run_id)
-    assert (await h.service.pending(h.tenant, record.run_id))[0]["awaiting"] == "cap"
+    assert (await h.service.pending(h.tenant, record.run_id))[0]["awaiting"] == "approval"
     assert h.provider.new_calls == 0
     h.credit.approve(record.run_id, 10_000_000)
     state = await h.service.resume(h.tenant, record.run_id, True)
@@ -82,7 +82,7 @@ async def test_g7_cap_reached_mid_pull_pauses_then_resumes_once(h: Harness) -> N
     record = await h.start("r", attended=True, budget=60_000)
     await h.service.execute(h.tenant, record.run_id)
     pending = await h.service.pending(h.tenant, record.run_id)
-    assert pending[0]["awaiting"] == "spend" and pending[0]["row"]
+    assert pending[0]["reason"] == "spend" and pending[0]["row"]
     spent_at_pause = h.credit.spent[record.run_id]
     h.credit.approve(record.run_id, 10_000_000)
     state = await h.service.resume(h.tenant, record.run_id, True)

@@ -157,6 +157,7 @@ class StoredFact(_Strict):
     value: str
     grade: str
     visibility: Visibility = "public"
+    flags: tuple[str, ...] = ()
 
 
 class SenseCheckInput(_Strict):

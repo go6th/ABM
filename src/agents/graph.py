@@ -19,6 +19,9 @@
   ``sense_approval``.
 * ``finish`` is the only node that settles, and the wallet settles once per run.
 * The state holds ids, counters and small references only.
+* Interrupt values follow the runner's convention: ``awaiting: approval`` for the first cap
+  confirmation, ``awaiting: cap`` (with a ``reason``) for spend and sense-check pauses, so the
+  runner applies the credit manager's pause timeout.
 
 GUARANTEE(test_full_equals_pull_then_build)
 GUARANTEE(test_pull_mode_produces_a_manifest_and_nothing_else)
@@ -67,6 +70,7 @@ from agents.ports import (
     GradingPort,
     InternalSourcePort,
     ManifestStore,
+    NotConfigured,
     PayloadPort,
     ProviderFailed,
     ProviderPort,
@@ -166,7 +170,7 @@ def _plan_order(cfg: SkillConfig) -> list[str]:
     return sorted(cfg.plan, key=lambda k: (STEP_ORDER[cfg.plan[k].step], k))
 
 
-def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
+def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmState]:
     """The uncompiled graph; compile with the run checkpointer (see the module docstring)."""
     cfg, reg = deps.cfg, deps.registry
 
@@ -188,13 +192,19 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         """G7 / S16: the cap request is confirmed before any paid call of Phase 1."""
         if state.get("outcome") == "failed" or state["mode"] == "build":
             return {}
+        if await deps.credit.propose_cap(context(state)):
+            return {"exits": {"cap_approval": "approved"}}
         cap = await deps.credit.cap_state(context(state))
         if not cap.cap_required or cap.cap_version is not None:
             return {}
         if not state.get("attended"):
             return {"exits": {"cap_approval": "unattended_no_cap"}}
         decision = interrupt(
-            {"awaiting": "cap", "cap_request_micros": state.get("cap_request_micros", 0)}
+            {
+                "awaiting": "approval",
+                "reason": "cap",
+                "cap_request_micros": state.get("cap_request_micros", 0),
+            }
         )
         return {"cap_declined": not bool(decision), "exits": {"cap_approval": "decided"}}
 
@@ -247,7 +257,9 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
 
     async def spend_gate(state: AbmState) -> dict[str, Any]:
         """Pause for a spend approval after the credit gate refused a paid call (G7)."""
-        decision = interrupt({"awaiting": "spend", "row": state.get("pending_spend_row")})
+        decision = interrupt(
+            {"awaiting": "cap", "reason": "spend", "row": state.get("pending_spend_row")}
+        )
         return {
             "spend_declined": not bool(decision),
             "spend_pauses": state.get("spend_pauses", 0) + 1,
@@ -317,12 +329,17 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
                 people += res.people
                 drops.update(res.drops)
         batch = await deps.grading.grade(ctx, candidates)
-        for fact, index in zip(batch.facts, batch.item_index, strict=True):
-            item = candidates[index]
-            lead_check(item.candidate.origin, item.read_this_run, fact.grade)
+        reads = batch.read_in_primary or tuple(
+            candidates[i].read_this_run for i in batch.item_index
+        )
+        for fact, index, read in zip(batch.facts, batch.item_index, reads, strict=True):
+            lead_check(candidates[index].candidate.origin, read, fact.grade)
         drops.update(batch.drops)
         if people:
-            await deps.grading.record_people(ctx, people)
+            try:
+                await deps.grading.record_people(ctx, people)
+            except NotConfigured:
+                drops["people_not_recorded"] += len(people)
         return drops
 
     async def interpret(state: AbmState) -> dict[str, Any]:
@@ -347,14 +364,14 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         from agents.setup.agent import choose_careers_page, validate_setup
 
         settings = await deps.settings.get(ctx.tenant_id)
-        pages = []
+        pages: list[Any] = []
         for row in stored:
             if cfg.plan[row.row_key].need in ("scrape", "page_read"):
                 for ref in row.payload_refs:
                     view = await deps.payloads.view(ctx.tenant_id, ref)
                     pages.append(
                         VisitedPage(
-                            page_id=ref.replace("/", ":"),
+                            page_id=f"page{len(pages) + 1}",  # payload keys are not ids
                             url=view.url,
                             title=cfg.row_labels[row.row_key][:300],
                         )
@@ -448,7 +465,9 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         for item in awaiting:
             total += (await deps.credit.price(item["need"]))[0]
         approval_id = await deps.credit.request_approval(ctx, awaiting, total)
-        decision = interrupt({"awaiting": "sense_pulls", "approval_id": approval_id})
+        decision = interrupt(
+            {"awaiting": "cap", "reason": "sense_pulls", "approval_id": approval_id}
+        )
         if decision:
             return {"to_run": [*(state.get("to_run") or []), *awaiting], "awaiting": []}
         for item in awaiting:
@@ -507,8 +526,11 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
             )
         except GuardViolation as missing:
             return _fail(missing.code)
-        client = await deps.builder.build(ctx, "client")
-        internal = await deps.builder.build(ctx, "internal")
+        try:
+            client = await deps.builder.build(ctx, "client")
+            internal = await deps.builder.build(ctx, "internal")
+        except NotConfigured:
+            return {"outcome": "partial", "error_code": "builders_not_configured"}
         try:
             for file_id in (*client, *internal):
                 assert_client_clean(await deps.builder.texts(ctx, file_id))
@@ -528,6 +550,9 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
                 "missing_rows": [*verdict.missing, *verdict.unproven],
             }
         return {}
+
+    def after_build(state: AbmState) -> str:
+        return "finish" if state.get("outcome") in ("failed", "partial") else "gate"
 
     def after_gate(state: AbmState) -> str:
         return "finish" if state.get("error_code") else "deliver"
@@ -570,7 +595,9 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         ("deliver", deliver),
         ("finish", finish),
     ):
-        g.add_node(name, cast(Any, fn))
+        # The node RetryPolicy is the single retry owner for retryable provider errors (W6).
+        policy = retry_policy if name in ("pull", "targeted_pulls") else None
+        g.add_node(name, cast(Any, fn), retry_policy=policy)
     g.add_edge(START, "setup")
     g.add_conditional_edges(
         "setup",
@@ -589,7 +616,7 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
     g.add_edge("sense_approval", "targeted_pulls")
     g.add_edge("targeted_pulls", "sense_check")
     g.add_conditional_edges("distill", ok_or_finish("build"))
-    g.add_conditional_edges("build", ok_or_finish("gate"))
+    g.add_conditional_edges("build", after_build)
     g.add_conditional_edges("gate", after_gate)
     g.add_edge("deliver", "finish")
     g.add_edge("finish", END)

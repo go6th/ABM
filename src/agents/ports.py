@@ -169,7 +169,7 @@ class GradingCandidate:
     """A candidate handed to the grading engine with what the agent layer verified."""
 
     candidate: FactCandidate
-    urls: tuple[str, ...]
+    urls: tuple[str, ...]  # one per evidence item, in order
     visibility: str
     read_this_run: bool
 
@@ -182,6 +182,8 @@ class GradeBatch:
     facts: tuple[StoredFact, ...]
     item_index: tuple[int, ...]
     drops: Mapping[str, int]
+    # The engine's own "read in a primary source this run" per fact (empty: use the item's hint)
+    read_in_primary: tuple[bool, ...] = ()
 
 
 class GradingPort(Protocol):
@@ -240,6 +242,11 @@ class CreditPort(Protocol):
 
     async def cap_state(self, ctx: RunContext) -> RunCapState:
         """The run's cap enforcement columns."""
+        ...
+
+    async def propose_cap(self, ctx: RunContext) -> bool:
+        """Propose the run's cap from the pull plan; the tenant policy may auto-approve it within
+        the created budget. True when an approved cap exists afterwards."""
         ...
 
     async def price(self, need: str) -> tuple[int, bool]:

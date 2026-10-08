@@ -50,14 +50,14 @@ async def test_conversion_cap_confirmation_is_setting_plus_approval(h: Harness) 
     h.settings.settings = TenantAgentSettings(pursuing_client="Partner", lanes=("salesforce",))
     record = await h.start("b", attended=True, budget=None)
     await h.service.execute(h.tenant, record.run_id)
-    assert (await h.service.pending(h.tenant, record.run_id))[0]["awaiting"] == "cap"
+    assert (await h.service.pending(h.tenant, record.run_id))[0]["awaiting"] == "approval"
 
 
 @pytest.mark.asyncio
 async def test_conversion_ask_before_spend_is_a_pause(h: Harness) -> None:
     record = await h.start("r", attended=True, budget=60_000)
     await h.service.execute(h.tenant, record.run_id)
-    assert (await h.service.pending(h.tenant, record.run_id))[0]["awaiting"] == "spend"
+    assert (await h.service.pending(h.tenant, record.run_id))[0]["reason"] == "spend"
 
 
 @pytest.mark.asyncio
@@ -68,7 +68,7 @@ async def test_conversion_sense_check_pulls_need_approval(make) -> None:  # type
     pull, _ = await h.run("p", mode="pull")
     record = await h.start("b", mode="build", parent_run_id=pull.run_id, attended=True, budget=0)
     await h.service.execute(h.tenant, record.run_id)
-    assert (await h.service.pending(h.tenant, record.run_id))[0]["awaiting"] == "sense_pulls"
+    assert (await h.service.pending(h.tenant, record.run_id))[0]["reason"] == "sense_pulls"
     assert h.credit.requests and h.credit.requests[0][1] == 1
 
 

@@ -162,6 +162,7 @@ OWNERS: dict[str, set[str]] = {
     "pull_manifests": {"agents/adapters.py"},
     "people_data_consents": {"agents/adapters.py"},
     "abm_sense_checks": {"agents/adapters.py"},
+    "abm_distill_outputs": {"agents/production/state.py"},
 }
 IGNORED = {"statements", "or"}  # words matched in comments and docstrings, not tables
 

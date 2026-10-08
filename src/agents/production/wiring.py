@@ -1,0 +1,227 @@
+"""Build the agent layer for one run from the workflow's ``RunDeps`` and plug it into the runner.
+
+* ``abm_deps`` binds every port to its production adapter for one run.
+* ``RunDepsModel`` is the ``AgentModel``: ``RunDeps.model`` routes by task kind (router or legacy
+  tier, recorded) and ``llm.schema.validate`` checks the output (one implementation each).
+* ``AbmGraphFactory`` is what ``workflow.runner.execute_slice`` runs instead of Workflow v1 for an
+  ABM run: the compiled graph, its initial state from the run row, and the terminal mapping.
+* ``uses_abm`` decides per run: a ``pull`` or ``build`` run always (those modes exist only here);
+  a ``full`` run only when the tenant's ``abm_agents`` flag is on (deny by default, C34).
+
+GUARANTEE(test_runner_executes_an_abm_run_end_to_end_on_postgres)
+GUARANTEE(test_full_runs_stay_on_workflow_v1_unless_the_flag_is_on)
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any, TypeVar
+from uuid import UUID
+
+from pydantic import BaseModel
+from sqlalchemy import text
+
+from account_intelligence.grading.adapters import LedgerAdapter
+from account_intelligence.grading.config import load_grading_config
+from account_intelligence.platform.ports import NotConfigured
+from account_intelligence.workflow.deps import RunDeps
+from account_intelligence.workflow.transitions import RunStatus
+from agents.adapters import PgConsentStore, PgManifestStore
+from agents.config import SkillConfig, skill_config
+from agents.contracts import load_registry
+from agents.graph import AbmDeps, AbmState, build_abm_graph
+from agents.ports import RunContext
+from agents.production.credit import CreditAdapter
+from agents.production.delivery import ExportBuilderPort, GateAdapter, NoteDelivery, RunnerSettles
+from agents.production.grading import EngineGrading, InheritedLedger
+from agents.production.payloads import StorePayloads
+from agents.production.provider import ConnectorProvider
+from agents.production.state import PgRunRecords, SettingsAdapter
+from agents.production.tracker import TrackerAdapter
+from llm.errors import SchemaInvalid
+from llm.schema import validate
+
+M = TypeVar("M", bound=BaseModel)
+FLAG = "abm_agents"
+PRE_SPEND_FAILURES = frozenset({"no_pulled_data", "stale_pulls", "invalid_setup"})
+
+
+@dataclass(frozen=True)
+class RunDepsModel:
+    """``AgentModel`` over ``RunDeps.model`` (routed or legacy, recorded) and schema validation."""
+
+    deps: RunDeps
+
+    async def call(
+        self,
+        task_kind: str,
+        prompt_text: str,
+        prompt_hash: str,
+        payload: Mapping[str, Any],
+        output: type[M],
+        ctx: RunContext,
+    ) -> tuple[M, int]:
+        """One call; a reply that fails its schema is ``SchemaInvalid`` (never kept)."""
+        import json
+
+        result = await self.deps.model(task_kind, prompt_text, json.dumps(dict(payload)))
+        validated = validate(result.text, output)
+        if validated is None:
+            raise SchemaInvalid(f"{task_kind}: output failed its schema")
+        return validated, int(result.usage.input_tokens + result.usage.output_tokens)
+
+
+class _NoConnectors:
+    """Provider port for a process with no connector runtime: every pull is not available yet."""
+
+    async def call(self, ctx: RunContext, need: str, query: str, row_key: str) -> Any:
+        from agents.ports import ProviderFailed
+
+        raise ProviderFailed("not_supported_yet")
+
+
+def abm_deps(deps: RunDeps, lanes: tuple[str, ...] = (), cfg: SkillConfig | None = None) -> AbmDeps:
+    """Every agent port bound to its production adapter for this run."""
+    cfg = cfg or skill_config()
+    grading_cfg = load_grading_config()
+    provider: Any = _NoConnectors()
+    ledger: InheritedLedger | None = None
+    if deps.connectors is not None:
+        provider = ConnectorProvider(
+            deps.connectors, deps.account_id, lanes, deps.extra_allowed_hosts
+        )
+        ledger = InheritedLedger(
+            LedgerAdapter(
+                deps.txn, deps.connectors.payloads, deps.connectors.connectors, grading_cfg
+            ),
+            deps.txn,
+        )
+    if ledger is None:
+        raise NotConfigured("the agent layer needs the connector runtime (ledger and sources)")
+    from spend.config import load_spend_config
+
+    return AbmDeps(
+        cfg=cfg,
+        registry=load_registry(),
+        clock=deps.clock,
+        model=RunDepsModel(deps),
+        provider=provider,
+        payloads=StorePayloads(deps.payloads, deps.account_id),
+        manifests=PgManifestStore(),
+        consent=PgConsentStore(),
+        settings=SettingsAdapter(deps.txn, deps.run_id, cfg),
+        grading=EngineGrading(deps.txn, ledger, grading_cfg, deps.clock),
+        tracker=TrackerAdapter(deps.txn, deps.spec.coverage_owners),
+        credit=CreditAdapter(deps.txn, deps.clock, cfg, deps.balances, deps.notifier),
+        records=PgRunRecords(deps.txn),
+        builder=ExportBuilderPort(deps),
+        gate=GateAdapter(deps),
+        delivery=NoteDelivery(deps),
+        wallet=RunnerSettles(),
+        internal=None,  # D-98: no connector search binding yet; internal history stays off
+        free_operations=frozenset(load_spend_config().free_operations),
+    )
+
+
+async def uses_abm(deps: RunDeps) -> bool:
+    """See the module docstring."""
+    from admin import flags
+
+    async with deps.txn(deps.tenant_id) as s:
+        mode = (
+            await s.execute(
+                text("SELECT run_mode FROM account_runs WHERE id = :r"), {"r": deps.run_id}
+            )
+        ).scalar_one_or_none()
+        if mode in ("pull", "build"):
+            return True
+        rule = await flags.current(s, FLAG)
+        plan = (
+            await s.execute(text("SELECT plan FROM tenants WHERE id = :t"), {"t": deps.tenant_id})
+        ).scalar_one_or_none()
+    return flags.evaluate(rule, FLAG, deps.tenant_id, str(plan or ""))
+
+
+@dataclass(frozen=True)
+class AbmGraphFactory:
+    """The runner's alternative graph for an ABM run (``workflow.runner.GraphFactory``)."""
+
+    cfg: SkillConfig | None = None
+
+    async def build(self, deps: RunDeps, saver: Any) -> Any:
+        """The compiled ABM graph on the run's checkpointer."""
+        cfg = self.cfg or skill_config()
+        async with deps.txn(deps.tenant_id) as s:
+            run_input: dict[str, Any] = (
+                await s.execute(
+                    text("SELECT run_input FROM account_runs WHERE id = :r"), {"r": deps.run_id}
+                )
+            ).scalar_one_or_none() or {}
+        off = set(dict(run_input).get("lanes_off") or ())
+        lanes = tuple(lane for lane in cfg.lanes if lane not in off)
+        policy = None
+        if deps.connectors is not None:
+            from account_intelligence.connectors.service import retry_policy_for
+
+            policy = retry_policy_for(deps.connectors.config)
+        return build_abm_graph(abm_deps(deps, lanes, cfg), policy).compile(checkpointer=saver)
+
+    async def initial(self, deps: RunDeps) -> dict[str, Any]:
+        """The ABM state from the run row (tenant and run from the trusted run path)."""
+        async with deps.txn(deps.tenant_id) as s:
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT r.run_mode, r.parent_run_id, r.skill_config_version, r.attended,"
+                        " r.run_input, r.budget_usd, a.domain, a.name FROM account_runs r"
+                        " JOIN accounts a ON a.id = r.account_id WHERE r.id = :r"
+                    ),
+                    {"r": deps.run_id},
+                )
+            ).first()
+        if row is None:
+            raise LookupError("run not found for this tenant")
+        run_input = dict(row.run_input or {})
+        cfg = self.cfg or skill_config()
+        state: AbmState = {
+            "tenant_id": str(deps.tenant_id),
+            "run_id": str(deps.run_id),
+            "mode": str(row.run_mode or "full"),
+            "parent_run_id": str(row.parent_run_id) if row.parent_run_id else None,
+            "account_key": row.domain,
+            "account_name": row.name or row.domain,
+            "domain": row.domain,
+            "attended": bool(row.attended),
+            "config_version": row.skill_config_version or cfg.config_version,
+            "acknowledged_stale": list(run_input.get("acknowledged_stale_rows") or ()),
+            "cap_request_micros": 0,
+            "counters": {},
+            "exits": {},
+        }
+        return dict(state)
+
+    def target(self, values: Mapping[str, Any]) -> tuple[RunStatus, str | None, bool]:
+        """``(terminal status, reason, refund_all)`` of a finished ABM graph."""
+        outcome = values.get("outcome")
+        code = values.get("error_code")
+        if values.get("mode") == "pull" and outcome == "completed":
+            return RunStatus.PARTIAL, "pull_only", False  # Phase 1 evaluates no rows (G15)
+        if outcome == "completed":
+            return RunStatus.COMPLETED, None, False
+        if outcome == "failed" and code in PRE_SPEND_FAILURES:
+            return RunStatus.FAILED, str(code), True
+        return RunStatus.PARTIAL, str(code or "abm_partial"), False
+
+
+def run_context(values: Mapping[str, Any]) -> RunContext:
+    """The run context of a stored ABM state (for adapters used outside the graph)."""
+    return RunContext(
+        UUID(str(values["tenant_id"])),
+        UUID(str(values["run_id"])),
+        str(values["account_key"]),
+        str(values["account_name"]),
+        str(values["domain"]),
+        bool(values.get("attended")),
+        str(values["config_version"]),
+    )
