@@ -1,6 +1,8 @@
 """Worker task endpoints, called by Cloud Tasks with a Google-signed OIDC token (D-18).
 
-* ``POST /tasks/run-slice``: runs one slice of one run (``workflow.runner.execute_slice``).
+* ``POST /tasks/run-slice``: runs one slice of one run (``workflow.runner.execute_slice``); an ABM
+  run (Phase 1 only, Phase 2 only, or a tenant with the ``abm_agents`` flag) runs the agent
+  layer's graph under the same slice lifecycle (``agents.production.wiring``).
 * ``POST /tasks/approval-timeout``: expires an approval past its deadline (cancel and refund).
 
 The body carries ids only. The token must be for the worker audience and from the scheduler's
@@ -67,8 +69,11 @@ async def run_slice(
     """Run one slice of one run for an OIDC-verified Cloud Tasks call."""
     container = _authorise(request, authorization)
     from account_intelligence.platform.checkpoint import checkpointer_factory
+    from agents.production.wiring import AbmGraphFactory, uses_abm
 
     try:
+        deps = await container.deps_for(task.tenant_id, task.run_id)
+        factory = AbmGraphFactory() if await uses_abm(deps) else None
         outcome = await execute_slice(
             container.deps_for,
             checkpointer_factory(container.checkpoint_dsn),
@@ -78,6 +83,7 @@ async def run_slice(
             task.slice,
             settings=container.slices,
             retry_policy=container.extras.get("retry_policy"),
+            graph_factory=factory,
         )
     except LookupError:
         raise HTTPException(404, "run not found") from None

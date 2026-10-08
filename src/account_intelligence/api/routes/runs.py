@@ -67,6 +67,8 @@ class RunBody(BaseModel):
     # D-102: an explicit typed choice; absent means "full" (both phases). Never parsed from text.
     mode: Literal["full", "pull", "build"] | None = None
     parent_run_id: UUID | None = None
+    # G16: stale pulled rows the requester accepts for a Phase 2 only run (else refresh first)
+    acknowledged_stale_rows: list[str] = Field(default_factory=list, max_length=40)
 
 
 def _container(request: Request) -> Any:
@@ -89,6 +91,8 @@ async def create_run(
             run_input["mode"] = plan.mode.value
             if plan.parent_run_id is not None:
                 run_input["parent_run_id"] = str(plan.parent_run_id)
+            if body.acknowledged_stale_rows:
+                run_input["acknowledged_stale_rows"] = sorted(set(body.acknowledged_stale_rows))
             req = RunRequest(body.domain, body.depth, idem, run_input)
             now = container.clock.now()
             _, new_account = await lifecycle.add_account(s, ident.tenant_id, body.domain)

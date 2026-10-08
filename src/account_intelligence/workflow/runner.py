@@ -23,11 +23,11 @@ One slice:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from langgraph.types import Command, RetryPolicy
@@ -44,6 +44,24 @@ from account_intelligence.workflow.transitions import TERMINAL, RunStatus
 
 DepsFactory = Callable[[UUID, UUID], Awaitable[RunDeps]]
 Checkpointer = Callable[[UUID], AbstractAsyncContextManager[Any]]
+
+
+class GraphFactory(Protocol):
+    """An alternative graph for a run (the ABM agent layer, ``agents.production.wiring``): the
+    slice lifecycle, lease, approval pauses and the one settlement stay the runner's."""
+
+    async def build(self, deps: RunDeps, saver: Any) -> Any:
+        """The compiled graph on the run's checkpointer."""
+        ...
+
+    async def initial(self, deps: RunDeps) -> dict[str, Any]:
+        """The first state of the graph."""
+        ...
+
+    def target(self, values: Mapping[str, Any]) -> tuple[RunStatus, str | None, bool]:
+        """``(terminal status, reason, refund_all)`` of the finished graph."""
+        ...
+
 
 PHASE = {
     "distill_grade": (RunStatus.RUNNING, RunStatus.DISTILLING),
@@ -148,8 +166,10 @@ async def execute_slice(
     *,
     settings: SliceSettings | None = None,
     retry_policy: RetryPolicy | None = None,
+    graph_factory: GraphFactory | None = None,
 ) -> SliceOutcome:
-    """Run one slice of one run (see the module docstring)."""
+    """Run one slice of one run (see the module docstring). ``graph_factory`` runs another graph
+    (the ABM agent layer) under the same slice lifecycle."""
     settings = settings or SliceSettings()
     deps = await deps_factory(tenant_id, run_id)
     owner: str | None = None
@@ -166,7 +186,15 @@ async def execute_slice(
         owner = deps.connectors.worker_id
     try:
         return await _slice(
-            deps, checkpointer, scheduler, tenant_id, run_id, slice_no, settings, retry_policy
+            deps,
+            checkpointer,
+            scheduler,
+            tenant_id,
+            run_id,
+            slice_no,
+            settings,
+            retry_policy,
+            graph_factory,
         )
     finally:
         if owner is not None and deps.connectors is not None:
@@ -182,6 +210,7 @@ async def _slice(
     slice_no: int,
     settings: SliceSettings,
     retry_policy: RetryPolicy | None,
+    graph_factory: GraphFactory | None = None,
 ) -> SliceOutcome:
     """The slice body, run while holding the run lease."""
     early = await _begin(deps, settings)
@@ -199,42 +228,18 @@ async def _slice(
     config = {"configurable": {"thread_id": f"{tenant_id}:{run_id}"}, "recursion_limit": 100}
     try:
         async with checkpointer(tenant_id) as saver:
-            handlers = build_handlers(deps)
-            research = None
-            phase_policy = None
-            if deps.spec.settings.get("execution_mode") == "parallel":
-                from account_intelligence.connectors.service import phase_retry_policy
-                from account_intelligence.workflow.parallel_phase import research_node
-
-                research = research_node(handlers, deps)
-                if retry_policy is not None:
-                    phase_policy = phase_retry_policy(
-                        retry_policy, int(deps.spec.settings.get("max_calls", 60))
-                    )
-            graph = build_graph(
-                handlers,
-                deps.spec,
-                retry_policy=retry_policy,
-                on_enter=on_enter,
-                research=research,
-                phase_retry_policy=phase_policy,
-            ).compile(checkpointer=saver)
+            if graph_factory is not None:
+                graph = await graph_factory.build(deps, saver)
+                first: dict[str, Any] = await graph_factory.initial(deps)
+            else:
+                graph, first = _workflow_graph(
+                    deps, saver, retry_policy, on_enter, tenant_id, run_id
+                )
             snap = await graph.aget_state(config)
             pending = bool(snap.next) and any(t.interrupts for t in snap.tasks)
             graph_input: Any
             if not snap.values:
-                graph_input = {
-                    "schema_version": 1,
-                    "tenant_id": str(tenant_id),
-                    "run_id": str(run_id),
-                    "graph_version": str(deps.spec.version),
-                    "status": RunStatus.RUNNING.value,
-                    "completed_stages": [],
-                    "references": {"prompts_hash": prompts_hash()},
-                    "counters": {},
-                    "loop_exits": {},
-                    "coverage_updates": {},
-                }
+                graph_input = first
             elif pending:
                 graph_input = Command(resume=True)  # the run was approved (status is RUNNING)
             else:
@@ -252,6 +257,63 @@ async def _slice(
         if (await _status(deps)) not in TERMINAL:
             await _finish(deps, RunStatus.FAILED, type(error).__name__, True)
         raise
+    return await _end(deps, scheduler, run_id, snap, settings, graph_factory)
+
+
+def _workflow_graph(
+    deps: RunDeps,
+    saver: Any,
+    retry_policy: RetryPolicy | None,
+    on_enter: Callable[[str], Awaitable[None]],
+    tenant_id: UUID,
+    run_id: UUID,
+) -> tuple[Any, dict[str, Any]]:
+    """Workflow v1: the compiled graph and its first state."""
+    handlers = build_handlers(deps)
+    research = None
+    phase_policy = None
+    if deps.spec.settings.get("execution_mode") == "parallel":
+        from account_intelligence.connectors.service import phase_retry_policy
+        from account_intelligence.workflow.parallel_phase import research_node
+
+        research = research_node(handlers, deps)
+        if retry_policy is not None:
+            phase_policy = phase_retry_policy(
+                retry_policy, int(deps.spec.settings.get("max_calls", 60))
+            )
+    graph = build_graph(
+        handlers,
+        deps.spec,
+        retry_policy=retry_policy,
+        on_enter=on_enter,
+        research=research,
+        phase_retry_policy=phase_policy,
+    ).compile(checkpointer=saver)
+    first = {
+        "schema_version": 1,
+        "tenant_id": str(tenant_id),
+        "run_id": str(run_id),
+        "graph_version": str(deps.spec.version),
+        "status": RunStatus.RUNNING.value,
+        "completed_stages": [],
+        "references": {"prompts_hash": prompts_hash()},
+        "counters": {},
+        "loop_exits": {},
+        "coverage_updates": {},
+    }
+    return graph, first
+
+
+async def _end(
+    deps: RunDeps,
+    scheduler: RunScheduler,
+    run_id: UUID,
+    snap: Any,
+    settings: SliceSettings,
+    graph_factory: GraphFactory | None,
+) -> SliceOutcome:
+    """After the graph stopped: wait at an interrupt, or end the run once (one settlement)."""
+    tenant_id = deps.tenant_id
     if snap.next:  # interrupted at the approval gate or at a cap pause (D-45)
         kind = "approval"
         for task in snap.tasks:
@@ -276,7 +338,10 @@ async def _slice(
             )
         await scheduler.schedule_timeout(tenant_id, run_id, deadline)
         return SliceOutcome("awaiting", RunStatus.AWAITING_APPROVAL.value)
-    target, reason = _target(dict(snap.values))
+    if graph_factory is not None:
+        target, reason, refund = graph_factory.target(dict(snap.values))
+    else:
+        (target, reason), refund = _target(dict(snap.values)), False
     current = await _status(deps)
     if current in TERMINAL:
         return SliceOutcome("done", current.value)
@@ -288,7 +353,7 @@ async def _slice(
                 current = RunStatus.DISTILLING
             if current is RunStatus.DISTILLING:
                 await lifecycle.move(s, run_id, RunStatus.DISTILLING, RunStatus.VERIFYING)
-    final = await _finish(deps, target, reason, False)
+    final = await _finish(deps, target, reason, refund)
     return SliceOutcome("done", final)
 
 
