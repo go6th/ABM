@@ -63,7 +63,8 @@ async def test_distill_grade_stage_persists_and_returns_only_counters(tenant_a: 
         )
         c.execute(
             "UPDATE accounts SET name = 'Acme', careers_url = 'https://careers.acme.example/', "
-            "careers_url_verified_at = now() WHERE id = %s",
+            # migration 0033: a verified careers URL names the fetch that visited it
+            "careers_url_verified_at = now(), careers_fetch_ref = 'synthetic-fetch' WHERE id = %s",
             (account,),
         )
     info = await load_run_info(tenant_txn, tenant_a, run)

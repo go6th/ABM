@@ -40,11 +40,19 @@ async def _raw_fact(
                 text(
                     "INSERT INTO facts (tenant_id, account_id, attribute_key, value_json,"
                     " fingerprint, product_grade,"
-                    " read_in_primary_this_run, may_state_to_prospect) VALUES ((SELECT"
-                    " app_tenant()), :a, 'jobs.x.y',"
-                    " '{}', 'fp', :g, :p, :m) RETURNING id"
+                    " read_in_primary_this_run, may_state_to_prospect, confirming_question)"
+                    " VALUES ((SELECT app_tenant()), :a, 'jobs.x.y',"
+                    " '{}', 'fp', :g, :p, :m, :q) RETURNING id"
                 ),
-                {"a": account, "g": grade, "p": primary, "m": stated},
+                # migration 0033: a hypothesis needs its confirming question, so the check under
+                # test (evidence at commit, primary read) is the one that fires
+                {
+                    "a": account,
+                    "g": grade,
+                    "p": primary,
+                    "m": stated,
+                    "q": "Synthetic: what would confirm this?",
+                },
             )
         ).scalar_one()
         if evidence:

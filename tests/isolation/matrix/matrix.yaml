@@ -59,7 +59,8 @@ tables:
   fact_evidence:
     plant: {evidence_kind: search_proof, call_ref: "{canary}"}
   facts:
-    plant: {product_grade: hypothesis}
+    # migration 0033: a hypothesis carries its confirming question (ck_facts_hypothesis_has_question)
+    plant: {product_grade: hypothesis, confirming_question: "Synthetic: what would confirm this?"}
   grade_events: {}
   idp_connections:
     plant: {slug: "{uuid}", protocol: oidc, client_id: "{canary}",

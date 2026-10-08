@@ -18,8 +18,9 @@ def _seed(tenant: UUID) -> dict[str, object]:
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c, c.transaction():
         fact = c.execute(
             "INSERT INTO facts (tenant_id, account_id, attribute_key, value_json, fingerprint,"
-            " product_grade, run_id)"
-            " VALUES (%s, %s, 'jobs.a.b', '{}', 'fp', 'hypothesis', %s) RETURNING id",
+            " product_grade, run_id, confirming_question)"
+            " VALUES (%s, %s, 'jobs.a.b', '{}', 'fp', 'hypothesis', %s,"
+            " 'Synthetic: what would confirm this?') RETURNING id",
             (tenant, acct, run),
         ).fetchone()[0]
         c.execute(
