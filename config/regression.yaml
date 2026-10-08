@@ -1,0 +1,17 @@
+# The regression policy (roadmap 11.3, QS2): which changed paths must keep the
+# eval score at or above the last release before they can merge. Path prefixes.
+version: "2026-10-08.1"
+watched_paths:
+  - evals/prompts
+  - config/models.yaml
+  - config/providers.yaml
+  - config/checklist.yaml
+  - config/grading.yaml
+  - config/grading_policy.yaml
+  - src/account_intelligence/connectors
+  - src/verify
+  - src/evalgate
+watched_paths_source: "roadmap 11.3: any prompt, model, connector or config change (proposal)"
+skipped_eval_is_failure: true
+skipped_eval_source: "roadmap 11.3 and prompt section 3 QS2"
+status: proposal
