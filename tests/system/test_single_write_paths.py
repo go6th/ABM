@@ -156,7 +156,12 @@ OWNERS: dict[str, set[str]] = {
         "spend/repo.py",  # the approved cap's enforcement columns (one conditional UPDATE)
         "spend/reconcile.py",  # unreconciled_usd (stale reserves, K9)
         "tenancy/settings.py",  # settings_version, set once (TN5)
+        "agents/adapters.py",  # run_mode, parent_run_id, skill config pin, set at creation (D-102)
     },
+    # ABM agent layer (migration 0041): insert-only manifests, consents and sense checks
+    "pull_manifests": {"agents/adapters.py"},
+    "people_data_consents": {"agents/adapters.py"},
+    "abm_sense_checks": {"agents/adapters.py"},
 }
 IGNORED = {"statements", "or"}  # words matched in comments and docstrings, not tables
 

@@ -1,3 +1,4 @@
+-- Rollback of migration 0041 (ABM agent layer): drops the three tables and the run mode columns.
 DROP TABLE IF EXISTS abm_sense_checks CASCADE;
 DROP TABLE IF EXISTS people_data_consents CASCADE;
 DROP TABLE IF EXISTS pull_manifests CASCADE;

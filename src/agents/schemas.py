@@ -6,7 +6,7 @@ model cases). No output schema has a grade, a URL the agent writes, or a free-te
 could carry an interpretation of a pull: the Pull agent's output is ``ManifestRow`` (G5).
 
 GUARANTEE(test_output_schemas_have_no_grade_or_tool_fields)
-GUARANTEE(test_pull_output_has_no_interpretive_field)
+GUARANTEE(test_g5_pull_layer_has_no_model_and_no_interpretive_output)
 """
 
 from __future__ import annotations

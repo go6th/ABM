@@ -11,7 +11,8 @@
 Hits carry the pattern kind and offset, never the matched text.
 
 GUARANTEE(test_g9_planted_tool_names_are_caught_in_every_deliverable)
-GUARANTEE(test_person_name_appears_nowhere_in_the_repository)
+GUARANTEE(test_g9_person_name_digest_is_caught)
+GUARANTEE(test_conversion_operator_only_file_is_internal_only)
 """
 
 from __future__ import annotations

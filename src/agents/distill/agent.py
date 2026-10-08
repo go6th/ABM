@@ -7,7 +7,7 @@
   the runtime scans every output for tool, provider and person names (G9) and rejects it whole;
   a claim that fails a fact or grade check is dropped and counted, the rest are kept.
 
-GUARANTEE(test_distill_claims_need_known_fact_ids_and_no_grade_words)
+GUARANTEE(test_distill_lies_are_dropped_or_rejected)
 """
 
 from __future__ import annotations

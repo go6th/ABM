@@ -66,3 +66,51 @@ Branch `feat/crosscutting`.
 | X8 Registers & release (12, 15, 16, 17, 19) | Done |
 
 All gates pass. `scripts/check_conformance.py` confirms 42/42 requirements.
+
+# Build log: ABM agent layer (skill v1.8 as agents)
+
+Branch `feat/abm-agents` (from `feat/crosscutting` at `07766f5`). Not pushed. **Guide-only build:**
+the skill archive was absent; the owner instructed building from the reader's guide. Archive-only
+content (checklist rows, lessons, runbook prompt text, sense-check questions, consent text, signal
+tiers) is `status: TODO`, never reconstructed. Docs: `docs/abm/`.
+
+| Work item | Result |
+|---|---|
+| 1 Skill content as config (`config/skill/`, versions, hashed, sourced) | Done (archive values TODO) |
+| 2 Run modes: graph slices, manifest, `no_pulled_data`, lineage, migration 0041, API `mode`, start-run form | Done (ABM graph not yet the runner's graph: OI-ABM-1) |
+| 3 Agent registry, contracts, schemas, allow-lists, budgets | Done |
+| 4 Setup assistant and per-client settings | Done |
+| 5 Pull layer, Pass 1, Pass 2, People | Done (prompts trace to guide ids; runbook text TODO) |
+| 6 Sense check node and approval path | Done |
+| 7 Distill and hand-off to build, gate, delivery | Done through ports; production bindings OI-ABM-4 |
+| 8 Lessons as code | Done as mechanism; INCOMPLETE (no lessons without the archive) |
+| 9 Consent and internal-history switches | Done (consent text TODO, so people rows Blocked) |
+| 10 Internal Only file, person-name scan | Done (`output_spec.yaml` renamed; digest scan) |
+| 11 Docs, ADR-0091..0099, D-95..D-102, C30..C34 | Done |
+
+Gates (2026-10-08, local docker Postgres):
+
+* `pytest tests/agents` 187 passed; `src/agents` coverage 98% (guards, lessons, modes, manifest,
+  contracts 100%); `tests/phase3/test_abm_modes_api.py` 5 passed.
+* `ruff`, `mypy --strict src/agents`, `lint-imports` (19 contracts kept), `interrogate src/agents`
+  100%: pass. `ruff check .`: 26 findings, all in files of earlier packages.
+* `validate_assets.py` OK; `selftest.sh` OK; `scan_client_output.py` on the three oracle accounts'
+  six files: 0 hits (a planted provider name is caught); `abm_name_scan.py` OK;
+  `check_routing_governance.py` OK; `abm_lessons.py check`: INCOMPLETE (exit 3, archive absent).
+* `lint_migrations.py`: 13 findings, identical with and without 0041 (earlier packages).
+  `check_rls_catalog.sql` on a fresh migration: 8 rows, none on this package's tables; 0041
+  downgrade and re-upgrade succeed.
+* Full `pytest -m "not eval"`: 36 failed, 2974 passed, 243 errors. Against the parent commit the
+  only new failure was `test_routing_changes_are_governed` (fixed: decision recorded). All other
+  failures and the 243 isolation-matrix errors exist at `07766f5` (matrix fixture violates
+  `ck_facts_hypothesis_has_question`; RAG, alerting, grading-isolation and static-guard findings of
+  other packages). The isolation matrix therefore cannot probe the new tables; their RLS is proven
+  by `tests/agents/test_pg_adapters.py`.
+* Mutation (mutmut 3.8.0, scratch copy, pure tests): guards, modes, manifest, lessons: 643 mutants,
+  634 killed, 9 survived (8 equivalent; 1 minor: `require_guard`'s prompt directory, used only by
+  prompt-enforced lessons, none yet). Eval suite in replay mode: not run (no ABM golden set).
+
+Incidents and findings: the output spec named a person in a comment (fixed, C33); candidates could
+claim any row of their source group (fixed: row must match the evidence); a budget breach in the
+careers-page choice crashed a node (fixed); tool names in the Internal Only distill were not
+scanned (fixed: both audiences are tenant-facing).

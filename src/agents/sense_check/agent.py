@@ -11,7 +11,7 @@ targeted pulls (S18). Code validates the output:
 
 It never builds, spends or changes a fact itself.
 
-GUARANTEE(test_sense_check_findings_are_typed_and_bound_to_known_facts)
+GUARANTEE(test_sense_check_lies_are_filtered)
 """
 
 from __future__ import annotations

@@ -14,8 +14,9 @@ One model call per source group (step and route need) reads only that group's st
 
 Drops are counted by reason; nothing is silently lost.
 
-GUARANTEE(test_lying_extractor_cannot_fabricate_quotes_urls_or_titles)
-GUARANTEE(test_search_snippets_are_never_read_this_run)
+GUARANTEE(test_fabricated_quotes_and_urls_never_become_facts)
+GUARANTEE(test_invented_titles_names_and_tenure_are_dropped)
+GUARANTEE(test_promoted_lead_from_a_search_snippet_stays_a_lead)
 """
 
 from __future__ import annotations

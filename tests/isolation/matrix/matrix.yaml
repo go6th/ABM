@@ -196,6 +196,12 @@ tables:
     plant: {reason_code: synthetic}
   monitoring_usage:
     plant: {period: 2026-03}
+  pull_manifests:
+    plant: {digest: "0000000000000000000000000000000000000000000000000000000000000000"}
+  people_data_consents:
+    plant: {text_version: v1}
+  abm_sense_checks:
+    plant: {seq: 1, findings: 0, proposals: 0}
   throttle_events:
     plant: {step: alert_80, used_percent: 80}
   crm_connection_events:
@@ -296,6 +302,7 @@ routes:
   GET /v1/audit: {probe: tenant}
   GET /v1/audit/export: {probe: tenant}
   GET /v1/accounts: {probe: tenant}
+  GET /v1/runs/pull-option: {probe: tenant, query: {domain: pull_manifests.account_key}}
   POST /v1/accounts: {probe: tenant, body: {domain: accounts.domain}}
   GET /v1/accounts/{domain}/tables/{table}:
     probe: tenant
