@@ -49,3 +49,20 @@ Findings fixed during the build: a probe that crashed after grading would have l
 retry (the snapshot now uses facts already reported); a lost CRM reply was recorded as failed
 although the record could exist (now reconciled by marker); fact expiry moved into the grading
 repo (one writer of facts); debounce rows written through their owner; CRM previews audited.
+
+# Build log: Cross-cutting workstreams (Phase 11)
+
+Branch `feat/crosscutting`.
+
+| Workstream | Result |
+|---|---|
+| X1 Data model (11.1) | Done |
+| X2 Connector contracts (11.2) | Done |
+| X3 Quality system (11.3) | Done |
+| X4 People data & retention (11.4) | Done |
+| X5 Security & assurance (11.4) | Done |
+| X6 Unit costs & anomaly alerts (11.5) | Done |
+| X7 Success metrics (14) | Done |
+| X8 Registers & release (12, 15, 16, 17, 19) | Done |
+
+All gates pass. `scripts/check_conformance.py` confirms 42/42 requirements.
