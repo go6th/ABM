@@ -22,7 +22,9 @@ Tenant data reads require a UUID support grant. The UI does not persist it. The 
 
 Not yet exposed as UI actions: the two-person tenant deletion workflow and pre-pulled upload workflow. The API has those operations, but their review and confirmation flows need dedicated screens. Global run lists, unit-cost aggregates, SLOs, audit browsing, review queue and announcements need backend contracts before production screens can be enabled.
 
-The customer and operator sign-in screens are captured at [client-login.png](client-login.png) and
-[operator-login.png](operator-login.png). Both production standalone routes loaded without failed
-requests or browser console errors. The operator screenshot shows the unconfigured state; Google
-OAuth client, callback, Workspace domain and verified staff email are deployment inputs.
+Visual review on 2026-10-08 used fresh production standalone screenshots of the customer and
+operator sign-in screens at 1440px light mode, plus the customer screen at 390px dark mode. All
+three routes returned 200 with no browser console errors, failed requests, or error responses; the
+screenshots were inspected and kept only in temporary storage. The operator screen correctly shows
+the unconfigured state; Google OAuth client, callback, Workspace domain and verified staff email
+are deployment inputs. `/icon.svg` also returned 200 after adding the app icon.

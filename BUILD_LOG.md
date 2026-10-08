@@ -181,8 +181,10 @@ Final frontend checks (2026-10-08):
   nonce reaches Next.js scripts. `postbuild` copies static assets into the standalone bundle.
 * Production standalone smoke: `/login` and `/operator/login` return 200; unsupported operator
   routes return 404; `/api/operator/login` returns the expected 503 while OAuth settings are absent.
-* Playwright loaded both login panels with no failed requests or browser console errors. Screenshots:
-  `docs/frontend/client-login.png` and `docs/frontend/operator-login.png`.
+* Production Playwright smoke: `/login`, `/operator/login`, and `/icon.svg` returned 200 with no
+  browser console errors, failed requests, or error responses. Fresh customer and operator desktop
+  light screenshots and a customer 390px dark screenshot were visually inspected from temporary
+  storage; screenshot files are not retained in the repository.
 * Contrast check: 102/102 declared pairs pass for light and dark themes; generated API client and
   `git diff --check`: pass.
 
