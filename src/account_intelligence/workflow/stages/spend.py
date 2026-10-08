@@ -14,6 +14,7 @@ GUARANTEE(test_setup_without_policy_waits_and_makes_no_paid_call): fail closed.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,7 +24,7 @@ from account_intelligence.workflow.deps import RunDeps
 from account_intelligence.workflow.state import RunState
 from spend.config import load_spend_config
 from spend.errors import ApprovalInvalid, ProposalStale
-from spend.models import Principal
+from spend.models import PlanItem, Principal
 
 
 @dataclass(frozen=True)
@@ -40,9 +41,24 @@ async def propose_and_gate(deps: RunDeps) -> GateOutcome:
     from account_intelligence.connectors.settings import load_providers_config
     from account_intelligence.grading.config import load_grading_config
     from account_intelligence.workflow.handlers import people_operations
-    from spend import service
     from spend.costs import cost_table
     from spend.plan import spec_plan, stage_order
+
+    costs = cost_table(load_providers_config())
+    plan = spec_plan(
+        deps.spec, costs, load_grading_config().category_by_operation, people_operations()
+    )
+    return await propose_plan_and_gate(deps, plan, stage_order(deps.spec))
+
+
+async def propose_plan_and_gate(
+    deps: RunDeps, plan: Sequence[PlanItem], order: Sequence[str]
+) -> GateOutcome:
+    """Propose the cap for a given plan (Workflow v1's stage plan or the ABM pull plan) and let
+    the tenant policy auto-approve it within the created budget; the one non-API approver (K3)."""
+    from account_intelligence.connectors.settings import load_providers_config
+    from spend import service
+    from spend.costs import cost_table
 
     async with deps.txn(deps.tenant_id) as s:
         row = (
@@ -60,9 +76,6 @@ async def propose_and_gate(deps: RunDeps) -> GateOutcome:
         return GateOutcome(True, "approved", row.cap_version)
     cfg = load_spend_config()
     costs = cost_table(load_providers_config())
-    plan = spec_plan(
-        deps.spec, costs, load_grading_config().category_by_operation, people_operations()
-    )
     proposed = await service.propose(
         deps.txn,
         deps.tenant_id,
@@ -72,7 +85,7 @@ async def propose_and_gate(deps: RunDeps) -> GateOutcome:
         getattr(deps, "balances", None),
         cfg,
         deps.clock.now(),
-        stage_order(deps.spec),
+        order,
         getattr(deps, "notifier", None),
     )
     policy: dict[str, Any] = row.policy_json or {}

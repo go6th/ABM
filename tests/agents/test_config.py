@@ -17,6 +17,7 @@ FILES = [
     "skill/source.yaml",
     "skill/run.yaml",
     "skill/pull_plan.yaml",
+    "skill/provider_routes.yaml",
     "skill/conversions.yaml",
     "skill/consent.yaml",
     "skill/name_digests.yaml",

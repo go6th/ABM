@@ -78,66 +78,21 @@ class CreditAdapter:
     txn: TxnFactory
     clock: Clock
     cfg: SkillConfig
-    balances: Any = None
-    notifier: Any = None
+    deps: Any = None  # the run's RunDeps (the setup adapter proposes and gates the cap)
 
     async def propose_cap(self, ctx: RunContext) -> bool:
-        """The cap proposal of the pull plan and the tenant policy's auto-approval (D-28), the
-        same path Workflow v1's setup takes (``spend.service.propose``/``approve``)."""
-        from spend import service
-        from spend.errors import ApprovalInvalid, ProposalStale
-        from spend.models import Principal
+        """The cap proposal of the pull plan, auto-approved only by the tenant policy within the
+        created budget, through Workflow v1's setup adapter (the one non-API approver, K3: the
+        agent layer never reaches the approval service itself)."""
+        if self.deps is None:
+            return False
+        from account_intelligence.workflow.stages.spend import propose_plan_and_gate
 
-        async with self.txn(ctx.tenant_id) as s:
-            row = (
-                await s.execute(
-                    text(
-                        "SELECT r.cap_required, r.cap_version, t.policy_json FROM account_runs r"
-                        " JOIN tenants t ON t.id = r.tenant_id WHERE r.id = :r"
-                    ),
-                    {"r": ctx.run_id},
-                )
-            ).first()
-        if row is None:
-            return False
-        if not row.cap_required or row.cap_version is not None:
-            return True
-        spend_cfg = load_spend_config()
         costs = cost_table(load_providers_config())
-        proposed = await service.propose(
-            self.txn,
-            ctx.tenant_id,
-            ctx.run_id,
-            pull_plan_items(self.cfg, costs),
-            costs,
-            self.balances,
-            spend_cfg,
-            self.clock.now(),
-            ("pass1", "pass2", "people"),
-            self.notifier,
+        outcome = await propose_plan_and_gate(
+            self.deps, pull_plan_items(self.cfg, costs), ("pass1", "pass2", "people")
         )
-        policy: dict[str, Any] = row.policy_json or {}
-        if not policy.get("auto_approve_within_reserve"):
-            return False
-        principal = Principal(
-            kind="tenant_policy",
-            subject="auto_approve_within_reserve",
-            tenant_id=str(ctx.tenant_id),
-        )
-        try:
-            await service.approve(
-                self.txn,
-                ctx.tenant_id,
-                ctx.run_id,
-                proposed.version,
-                proposed.proposal.content_hash,
-                principal,
-                spend_cfg,
-                self.clock.now(),
-            )
-        except (ApprovalInvalid, ProposalStale):
-            return False
-        return True
+        return outcome.approved
 
     async def cap_state(self, ctx: RunContext) -> RunCapState:
         """The run's cap enforcement columns (refused as ``no_cap`` when the run is unknown)."""

@@ -32,7 +32,7 @@ import yaml
 from account_intelligence.config import CONFIG_DIR
 from agents.errors import AgentConfigInvalid
 
-SKILL_FILES = ("source", "run", "pull_plan", "conversions", "consent")
+SKILL_FILES = ("source", "run", "pull_plan", "conversions", "consent", "provider_routes")
 STEPS_WITH_PULLS = frozenset({"pass1", "pass2", "people"})
 
 
