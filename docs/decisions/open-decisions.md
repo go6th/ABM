@@ -66,3 +66,13 @@ product owner signs it; config blocks for proposals say `status: proposal`.
 | D-78 | Open Door | versioned schemas, read API, signed webhooks, additive-only in v1; no consumers or sending | ADR-0068, `docs/opendoor/` |
 | D-79 | Monitoring budget | monthly allowance in plan units (pilot 2000, standard 10000), percent-only view, 80% notice once, deterministic ladder, hard stop, no rollover | ADR-0069, `config/budgets.yaml` |
 | D-80 | Hardening scope | hermetic restore drill, kill-recovery test, report-only load profile, status page generator; real Cloud SQL restore, failover and DR Blocked | ADR-0070 |
+| D-95 | ABM agent roster (proposal) | one agent per model step; pull, build, gate and delivery are code; pull output has no interpretive field | ADR-0092, `config/agents.yaml` |
+| D-96 | Sense check and approval (proposal) | mandatory node before build; proposals priced in code; run within the approved cap, else pause (attended) or record with rows Partial (unattended) | ADR-0094 |
+| D-97 | People data consent (proposal; **owner must approve the consent text**) | tenant-level insert-only record before any people pull; none valid until the archive's text is approved | ADR-0095, migration 0041 |
+| D-98 | Pass 1 internal history (proposal; **owner decision**) | off by default; only with admin consent, named folders, connected connector; private content | ADR-0096 |
+| D-99 | Lessons as code (proposal) | lessons.yaml entry, guard and test per lesson; check fails without them, INCOMPLETE without the archive | ADR-0097 |
+| D-100 | MuleSoft lane naming (proposal) | named in the agent lane config and prompt; client lane label unchanged pending owner (C30) | ADR-0098 |
+| D-101 | Skill versioning (proposal) | version and change log in config, run pin, repository updates only | ADR-0099 |
+| D-102 | Run modes (proposal) | `full` default, `pull`, `build` by typed field only; slices of one graph; build pinned to its pull | ADR-0091 |
+
+D-91 to D-94 are not recorded in this repository (the ABM prompt says earlier prompts used them).

@@ -144,3 +144,15 @@ model).
 | OI-P4-5 | Real monitor adapters, Slack, email and CRM adapters raise NotConfigured | Blocked on registrations |
 | OI-P4-6 | Operator views for monitoring cost and throttle state exist as functions and SQL, not as operator routes or pages | follow-up |
 | OI-P4-7 | HubSpot adapter has the same shape as Salesforce; neither is built against a real API | Blocked |
+
+## ABM agent layer (2026-10-08)
+
+| Id | Item | State |
+|---|---|---|
+| OI-ABM-1 | The ABM graph (`agents/graph.py`) is not the production runner's graph; the runner still drives `workflow_v1`. Binding it needs the slice runner and approval routes to resume `agents.service` | follow-up (C34) |
+| OI-ABM-2 | [VERIFY] lessons.md format (`## YYYY-MM-DD` headings, bullets) against the archive | Blocked on archive |
+| OI-ABM-3 | Archive absent: checklist reconciliation (C31), lessons, prompt text from runbooks, sense-check questions, consent text, signal tiers | Blocked on archive |
+| OI-ABM-4 | Production bindings missing (raise NotConfigured): provider port to `connectors.service`, grading port to `grading.pipeline` + `record_graded_fact`, tracker port to `TrackerService`, credit port to `spend.service`, builder/gate/delivery ports, distill narrative store, internal-history connector search | follow-up |
+| OI-ABM-5 | LangGraph APIs used: `interrupt`, `Command(resume=...)`, conditional edges, `InMemorySaver` (verified against installed langgraph 1.2.12 by tests). `Send`, subgraphs and per-node model binding are not used (routing is by task kind) | verified |
+| OI-ABM-6 | Mutation testing of the guard modules: see BUILD_LOG (ABM section) | see log |
+| OI-ABM-7 | Budgets in `config/agents.yaml` are unmeasured proposals | needs golden accounts |

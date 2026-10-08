@@ -4,3 +4,13 @@ All roadmap section 11 requirements (Cross-cutting workstreams) have been built 
 The platform now has complete coverage across data model conformity, connector contracts, quality gating, retention and privacy policies, security controls, cost rollups, success metrics tracking, and risk management.
 
 Current phase: Ready for beta gate / Phase B.
+
+## ABM agent layer (branch `feat/abm-agents`, 2026-10-08)
+
+The ABM Account Research skill v1.8 runs as agents inside the platform: eight steps, three explicit
+run modes (`full` default, `pull`, `build`), guards G1 to G17 enforced in code, the mandatory sense
+check before build, approvals for unapproved spend, consent before people pulls, internal history
+off by default, and the Internal Only file. **Built guide-only: the skill archive is absent**, so
+checklist reconciliation (C31), lessons, runbook prompt text, sense-check questions and the consent
+text are TODO (OI-ABM-3). The ABM graph is not yet the production runner's graph (OI-ABM-1), and
+several ports have no production binding (OI-ABM-4). Details: `docs/abm/README.md`, BUILD_LOG.
