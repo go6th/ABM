@@ -1,5 +1,5 @@
 -- Migration 0014: people pipeline storage (expand only; no column dropped or altered).
--- Spec docs/prompts/build_people_pipeline.md section 6. Follows 0013 (job gap passes); the
+-- Spec docs/people/rubric.md and docs/people/counts.md. Follows 0013 (job gap passes); the
 -- down_revision was re-pointed from 0012 to 0013 when the people and jobs branches met.
 --
 -- `people` (created in 0010: one row per found record per run, insert-only) gains the pipeline

@@ -1,5 +1,5 @@
 -- Migration 0027: pilot feedback and seller usefulness (Phase 3 WS9; expand only). Spec
--- docs/prompts/build_phase3.md s5, PL1, PL2, D-68. down_revision 0026.
+-- docs/phase3/architecture.md, PL1, PL2, D-68. down_revision 0026.
 --
 -- run_feedback: insert-only; a member's verdict on one account or one table row (useful or not,
 --   a reason from config/pilot.yaml, an optional note stored as tenant data and never logged).

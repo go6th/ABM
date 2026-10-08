@@ -1,4 +1,4 @@
--- Migration 0026: operator plane (Phase 3 WS8; expand only). Spec docs/prompts/build_phase3.md
+-- Migration 0026: operator plane (Phase 3 WS8; expand only). Spec docs/phase3/architecture.md
 -- s5, AD1 to AD4, D-66, D-70. down_revision 0025.
 --
 -- Tenant-scoped (forced RLS):

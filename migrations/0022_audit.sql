@@ -1,4 +1,4 @@
--- Migration 0022: audit (Phase 3 WS3; expand only). Spec docs/prompts/build_phase3.md s5, AU1, AU2.
+-- Migration 0022: audit (Phase 3 WS3; expand only). Spec docs/phase3/architecture.md and docs/audit/.
 -- down_revision 0021.
 --
 -- audit_events: insert-only (no UPDATE or DELETE grant), one hash chain per tenant: each row's

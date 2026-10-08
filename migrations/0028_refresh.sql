@@ -1,4 +1,4 @@
--- Migration 0028: refresh engine (Phase 4 WS1, WS2; expand only). Spec docs/prompts/build_phase4.md
+-- Migration 0028: refresh engine (Phase 4 WS1, WS2; expand only). Spec docs/phase4/refresh_design.md
 -- s5, RF1 to RF8, SL1, D-71, D-72. down_revision 0027.
 --
 -- shelf_life_overrides: insert-only tenant overrides of a signal's shelf life (newest wins; bounds

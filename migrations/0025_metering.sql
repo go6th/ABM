@@ -1,4 +1,4 @@
--- Migration 0025: metering (Phase 3 WS7; expand only). Spec docs/prompts/build_phase3.md s5,
+-- Migration 0025: metering (Phase 3 WS7; expand only). Spec docs/phase3/architecture.md,
 -- MT1 to MT3, D-67. down_revision 0024.
 --
 -- usage_events: insert-only; one row per (kind, subject) by the unique idempotency key, so a

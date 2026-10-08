@@ -1,4 +1,4 @@
--- Migration 0019: observability (expand only). Spec docs/prompts/build_observability.md section 5.
+-- Migration 0019: observability (expand only). Spec docs/observability/README.md.
 -- down_revision 0018.
 --
 -- ops_cost_rollups: DERIVED and recomputable from the insert-only ledger (documented as NOT a

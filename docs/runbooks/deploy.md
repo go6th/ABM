@@ -2,6 +2,10 @@
 
 `make deploy-staging` PRINTS the full command list; it runs nothing.
 
+Before provisioning an environment, record the cloud account, region, identity provider, and
+data-residency decisions. Do not use production credentials or real tenant data until isolation,
+security, and operational gates pass.
+
 - Normal path: merge to main; CI runs every gate, then the `deploy-staging` job (after the
   environment's reviewers approve) builds the image, pushes it to Artifact Registry and rolls it out
   to `ai-staging-api` and `ai-staging-worker`, then requires `/readyz` to answer 200.

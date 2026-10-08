@@ -1,6 +1,6 @@
 """The people pipeline (PRD step 7) over injected ports.
 
-Spec: docs/prompts/build_people_pipeline.md.
+Spec: docs/people/rubric.md and docs/people/counts.md.
 
 Steps: (1) title search per (lane, pass), paged on the same source from its cursor; (2) normalise
 and merge (union-find, P3); (3) scope (P4, P5); (4) gaps: one association search per gap lane,

@@ -1,5 +1,5 @@
 -- Migration 0018: model routing, verifier findings and the eval harness (expand only; no existing
--- column is dropped or altered). Spec docs/prompts/build_routing_verify_eval.md section 5.
+-- column is dropped or altered). Spec docs/routing/README.md and docs/grading/rules.md.
 -- down_revision 0017.
 --
 -- No model-call ledger existed before this revision, so it is created here: llm_calls (one row per

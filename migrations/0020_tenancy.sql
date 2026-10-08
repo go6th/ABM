@@ -1,4 +1,4 @@
--- Migration 0020: tenancy (Phase 3 WS1; expand only). Spec docs/prompts/build_phase3.md s5.
+-- Migration 0020: tenancy (Phase 3 WS1; expand only). Spec docs/phase3/architecture.md.
 -- down_revision 0019.
 --
 -- users: one row per person per tenant (the subject is what memberships.user_id holds).

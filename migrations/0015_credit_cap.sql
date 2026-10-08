@@ -1,5 +1,5 @@
 -- Migration 0015: credit cap v1 (expand only; no existing column dropped or altered).
--- Spec docs/prompts/build_credit_cap.md section 6. down_revision 0014 (people pipeline).
+-- Spec docs/spend/credit-manager-v2.md. down_revision 0014 (people pipeline).
 --
 -- Table naming (ADR-0030): the workflow, the connector reserve and settlement all use
 -- account_runs.budget_usd and spent_usd; runs.credit_cap (0004, integer) is the data-layer mirror
@@ -238,4 +238,3 @@ CREATE FUNCTION spend_runs_to_check(since timestamptz)
 $$;
 REVOKE ALL ON FUNCTION spend_runs_to_check(timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION spend_runs_to_check(timestamptz) TO app_rw;
-

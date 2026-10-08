@@ -1,6 +1,6 @@
 # Phase 3 architecture: the tenant plane
 
-Spec: `docs/prompts/build_phase3.md`. Decisions D-61 to D-70 (ADR-0051 to ADR-0060), conflicts C23
+Spec: the PRD and SaaS sources in `docs/sources/`. Decisions D-61 to D-70 (ADR-0051 to ADR-0060), conflicts C23
 to C26. Migrations 0020 to 0027 (expand only).
 
 ## Planes

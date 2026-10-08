@@ -1,5 +1,5 @@
 -- Migration 0033: data model conformance (cross-cutting X1; expand only). Spec
--- docs/prompts/build_crosscutting.md s3 DM1 to DM7. down_revision 0032.
+-- docs/crosscutting/CONFORMANCE.md DM1 to DM7. down_revision 0032.
 --
 -- accounts.careers_fetch_ref: the fetch record proving the careers URL was visited; a careers URL
 --   can only be stored with its verified time and fetch record (CHECK, NOT VALID: enforced for new

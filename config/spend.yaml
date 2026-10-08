@@ -73,7 +73,7 @@ categories:
     org_teams: people
 
 # ---------------------------------------------------------------------------------------------
-# Credit manager v2 (D-45, D-46, D-47; docs/prompts/build_parallel_credit_v2.md). Proposals unless
+# Credit manager v2 (D-45, D-46, D-47; docs/spend/credit-manager-v2.md). Proposals unless
 # a source is given. The sources give NO soft-limit percentage, pause count, tenant ceiling,
 # upload size, type or freshness limit: each is configuration, conservative until set.
 v2:

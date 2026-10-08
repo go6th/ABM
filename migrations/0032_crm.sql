@@ -1,4 +1,4 @@
--- Migration 0032: CRM write-back (Phase 4 WS7; expand only). Spec docs/prompts/build_phase4.md
+-- Migration 0032: CRM write-back (Phase 4 WS7; expand only). Spec docs/phase4/crm_write_back.md
 -- s5, CW1 to CW5, D-77, C28. down_revision 0031.
 --
 -- crm_connection_events: insert-only enable and revoke events per CRM (the newest is the state;

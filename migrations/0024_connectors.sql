@@ -1,5 +1,5 @@
 -- Migration 0024: client history connectors (Phase 3 WS6; expand only). Spec
--- docs/prompts/build_phase3.md s5, CN1 to CN4, D-65. down_revision 0023.
+-- docs/phase3/architecture.md, CN1 to CN4, D-65. down_revision 0023.
 --
 -- connector_connections: one tenant source (Drive, Salesforce, HubSpot; Gmail and call notes are
 --   flagged off). Tokens are Secret Manager REFERENCES; status changes are conditional updates on

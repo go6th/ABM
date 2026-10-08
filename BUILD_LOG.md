@@ -1,6 +1,6 @@
 # Build log: Phase 3, the multi-tenant product
 
-Branch `feat/phase3-tenant-product` (from `feat/observability`), spec `docs/prompts/build_phase3.md`.
+Branch `feat/phase3-tenant-product` (from `feat/observability`), spec `docs/phase3/architecture.md`.
 Not pushed. Phase 4 not started.
 
 | Workstream | Result | Main commits |
@@ -29,7 +29,7 @@ Not pushed. Phase 4 not started.
 # Build log: Phase 4, automation and signals
 
 Branch `feat/phase4-automation` (from `feat/phase3-tenant-product`), spec
-`docs/prompts/build_phase4.md`. Not pushed. Phase 5 not started.
+`docs/phase4/EXIT_CRITERIA.md`. Not pushed. Phase 5 not started.
 
 | Workstream | Result |
 |---|---|

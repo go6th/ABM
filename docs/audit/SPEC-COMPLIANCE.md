@@ -1,4 +1,4 @@
-# Spec compliance: code on `feat/integrate-gcp-production` against `docs/prompts/`
+# Spec compliance: code on `feat/integrate-gcp-production` against the source documents and settled decisions
 
 Pass 1, written 2026-10-02 after the owner supplied the workflow, tracker and job pipeline
 spec prompts. Each line is checked against code that was read, not memory. "Fixed in" names
@@ -103,7 +103,7 @@ its feed record never merged; a dot inside a word ended a sentence.
 
 ## Connectors and grading
 
-Delivered on their own branches with their own gate runs (`docs/prompts/build_broker_connectors.md`,
+Delivered on their own branches with their own gate runs (`docs/providers/README.md`,
 `build_grading_engine.md`); the integration audit (`AUDIT.md`, findings F-4, F-5) records that
 neither is called by the runtime. Their open items stay in `docs/providers/CLAIMS.md` and the
 grading report.

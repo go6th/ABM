@@ -5,7 +5,7 @@
 - Deciders: TODO
 
 ## Context
-Observability work package (docs/prompts/build_observability.md). Observability must not leak tenant
+Observability work package (docs/observability/README.md). Observability must not leak tenant
 data, change run behaviour, or become a second source of truth for money or run status.
 
 ## Decision

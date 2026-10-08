@@ -6,7 +6,7 @@
 
 ## Context
 
-The tracker spec (`docs/prompts/build_tracker_state_machine.md`) gives the rule (every row ends
+The tracker spec (`docs/tracker/transitions.md`) gives the rule (every row ends
 Done, Partial, Not done, Blocked or None with proof; no COMPLETED while a High row lacks a status)
 but not the machinery. The spec-compliance check (`docs/audit/SPEC-COMPLIANCE.md`) found the first
 implementation let a judge or gate upgrade a row, treated an unknown result count as zero, let

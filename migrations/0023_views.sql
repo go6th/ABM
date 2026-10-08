@@ -1,4 +1,4 @@
--- Migration 0023: views and exports (Phase 3 WS4; expand only). Spec docs/prompts/build_phase3.md
+-- Migration 0023: views and exports (Phase 3 WS4; expand only). Spec docs/phase3/architecture.md
 -- s5, VW1 to VW6. down_revision 0022.
 --
 -- view_rows: DERIVED and recomputable: the five client tables of one finished run, written once

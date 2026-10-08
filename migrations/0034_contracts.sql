@@ -1,5 +1,5 @@
 -- Migration 0034: connector contract checks (cross-cutting X2; expand only). Spec
--- docs/prompts/build_crosscutting.md s3 CX1 to CX3, D-88. down_revision 0033.
+-- docs/crosscutting/CONFORMANCE.md CX1 to CX3, D-88. down_revision 0033.
 --
 -- contract_fingerprints: insert-only. The schema fingerprint of each operation's
 --   recorded fixture; the newest row per (provider_code, operation) is the active

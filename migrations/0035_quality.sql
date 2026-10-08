@@ -1,5 +1,5 @@
 -- Migration 0035: quality system (cross-cutting X3; expand only). Spec
--- docs/prompts/build_crosscutting.md s3 QS1 to QS3. down_revision 0034.
+-- docs/crosscutting/CONFORMANCE.md QS1 to QS3. down_revision 0034.
 --
 -- release_checks: insert-only. One row per candidate: the three layers (structural
 --   gate, semantic verifier, statistical eval), the eval score and the verdict.

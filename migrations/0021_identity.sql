@@ -1,4 +1,4 @@
--- Migration 0021: identity (Phase 3 WS2; expand only). Spec docs/prompts/build_phase3.md s5.
+-- Migration 0021: identity (Phase 3 WS2; expand only). Spec docs/phase3/architecture.md.
 -- down_revision 0020.
 --
 -- idp_connections: one tenant's own IdP connection (OIDC or SAML). The login URL names the

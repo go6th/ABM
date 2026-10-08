@@ -6,7 +6,7 @@
 
 ## Context
 
-Spec `docs/prompts/build_export_builders.md` asks to port the legacy Node docx library and the two
+Spec `docs/exports/files.md` records the output contract and legacy Node renderer decision; the two
 openpyxl workbook scripts so they read database rows, and to keep "the look" exactly. A search of
 the repository and the machine found none of the legacy files (the Node library, the people and
 jobs workbook scripts, `rowcheck.py`, `doc_checks.py`, `third_party_scan.py`,

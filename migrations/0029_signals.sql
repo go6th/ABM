@@ -1,5 +1,5 @@
 -- Migration 0029: signal monitors, dedupe and scoring (Phase 4 WS3, WS4; expand only). Spec
--- docs/prompts/build_phase4.md s5, SM1 to SM4, DS1 to DS3, D-73, D-75. down_revision 0028.
+-- docs/phase4/dedupe_and_scoring.md, SM1 to SM4, DS1 to DS3, D-73, D-75. down_revision 0028.
 --
 -- monitor_configs: insert-only versions of an account's monitor set (kinds on or off).
 -- monitor_runs: insert-only; one poll of one monitor kind for one account, with its outcome

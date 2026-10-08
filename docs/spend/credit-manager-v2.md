@@ -1,6 +1,6 @@
 # Credit manager v2: limits, live spend, pause and approval, the exhaustion ladder, uploads
 
-Spec: `docs/prompts/build_parallel_credit_v2.md` (M1 to M12). Decisions: ADR-0039 (D-45, D-46),
+Spec: ARCH 5.5–5.6 and `docs/decisions/open-decisions.md`. Decisions: ADR-0039 (D-45, D-46),
 ADR-0040 (D-47), ADR-0041 (uploads). Every K-rule of Credit cap v1 still holds (its suite runs
 unchanged). Config: `config/spend.yaml` section `v2` (every value with a source or a status).
 

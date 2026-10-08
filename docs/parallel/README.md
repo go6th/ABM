@@ -2,7 +2,7 @@
 
 Status: built and tested hermetically and on PostgreSQL 16; **opt-in** (`execution_mode: parallel`
 in `config/workflow_v1.yaml`; the default stays `sequential` until D-42 to D-47 are signed). Spec:
-`docs/prompts/build_parallel_credit_v2.md`. Decisions: ADR-0037 (units and merge), ADR-0038
+`docs/spend/credit-manager-v2.md`. Decisions: ADR-0037 (units and merge), ADR-0038
 (governor), ADR-0039 (pause instead of fail), D-44 (`VALIDATION.md`).
 
 ## Dependency graph (`config/parallel.yaml`)

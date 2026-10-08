@@ -1,4 +1,4 @@
--- Migration 0030: alerting (Phase 4 WS5; expand only). Spec docs/prompts/build_phase4.md s5,
+-- Migration 0030: alerting (Phase 4 WS5; expand only). Spec docs/phase4/alert_catalog.md,
 -- AL1 to AL8, D-74 to D-76. down_revision 0029.
 --
 -- alerts: one per (rule, account, fingerprint), unique (DS1); fact_delta_id NOT NULL and a foreign

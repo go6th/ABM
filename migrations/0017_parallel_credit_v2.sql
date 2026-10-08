@@ -1,5 +1,5 @@
 -- Migration 0017: parallel execution and credit manager v2 (expand only; no existing column is
--- dropped or altered). Spec docs/prompts/build_parallel_credit_v2.md section 5. down_revision 0016.
+-- dropped or altered). Spec docs/spend/credit-manager-v2.md. down_revision 0016.
 --
 -- Insert-only (INSERT and SELECT for app_rw, no UPDATE, no DELETE): work_units, work_unit_events,
 -- spend_limit_events, notification_outbox, notification_deliveries, prepulled_intents,

@@ -1,5 +1,5 @@
 -- Migration 0031: monitoring cost governance (Phase 4 WS6; expand only). Spec
--- docs/prompts/build_phase4.md s5, CG1 to CG3, D-79. down_revision 0030.
+-- docs/phase4/monitoring_budget.md, CG1 to CG3, D-79. down_revision 0030.
 --
 -- monitoring_budget_versions: insert-only operator-set monthly allowances (plan units); absent
 --   means the plan default from config/budgets.yaml.

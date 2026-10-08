@@ -1,5 +1,5 @@
 -- Migration 0036: people data and retention (cross-cutting X4; expand only). Spec
--- docs/prompts/build_crosscutting.md s3 PD1 to PD5, D-83 and D-84. down_revision 0035.
+-- docs/crosscutting/CONFORMANCE.md PD1 to PD5, D-83 and D-84. down_revision 0035.
 --
 -- retention_runs: one dry-run or execute pass, resumable by cursor.
 -- retention_actions: insert-only; what a run removed (class, table, row id).
