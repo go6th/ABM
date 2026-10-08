@@ -1,4 +1,5 @@
 import { googleOperatorOidcConfig } from "@/lib/operator-oidc";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 
 function localReturnPath(value: string | undefined): string {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/operator";
@@ -26,12 +27,12 @@ export default async function OperatorLogin({
   return (
     <section className="operator-login-content">
       <p className="eyebrow">STAFF IDENTITY</p>
-      <h1>Operator sign in</h1>
-      <p className="secondary">Use your 6th staff account. Staff access is separate from every customer workspace.</p>
+      <h1>Welcome back</h1>
+      <p className="secondary">Sign in with your approved staff account to access the operations dashboard.</p>
       {errorMessage ? <div className="banner tone-rose" role="alert"><span aria-hidden="true">!</span><div className="banner-body"><strong>Sign-in failed</strong><p>{errorMessage}</p></div></div> : null}
       {loginUrl ? (
         <a className="btn primary lg operator-login-button" href={loginUrl}>
-          Continue with Google Workspace <span aria-hidden="true">↗</span>
+          Continue with Google Workspace <ArrowRight aria-hidden="true" />
         </a>
       ) : (
         <div className="banner tone-butter operator-login-warning" role="status">
@@ -43,10 +44,11 @@ export default async function OperatorLogin({
         </div>
       )}
       <div className="operator-login-note">
-        <strong>Admin access</strong>
-        <p>Rajesh’s verified Workspace email must be listed in <code>STAFF_OPERATOR_EMAILS</code>. The API also checks the signed Workspace domain, ID token audience, expiry, and a recent MFA assertion.</p>
+        <ShieldCheck aria-hidden="true" />
+        <div><strong>Protected staff access</strong>
+        <p>Only approved accounts in your Workspace can continue. The service verifies identity and recent multi-factor authentication.</p></div>
       </div>
-      <p className="operator-auth-foot">This console contains internal operational data. Access attempts are verified by the API and audited.</p>
+      <p className="operator-auth-foot">This console is separate from customer workspaces. Access is verified and audited.</p>
     </section>
   );
 }

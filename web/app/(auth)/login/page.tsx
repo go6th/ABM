@@ -1,6 +1,6 @@
 "use client";
-// Sign in through the organisation's own identity provider. The browser is sent to the API's
-// sign-in start for the connection; the tenant comes from that connection, never from here.
+
+import { ArrowRight, Building2, LockKeyhole } from "lucide-react";
 import { useState } from "react";
 
 const SLUG = /^[a-z0-9][a-z0-9-]{2,62}$/;
@@ -8,26 +8,65 @@ const SLUG = /^[a-z0-9][a-z0-9-]{2,62}$/;
 export default function Login() {
   const [slug, setSlug] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const go = (e: React.FormEvent) => {
-    e.preventDefault();
-    const s = slug.trim().toLowerCase();
-    if (!SLUG.test(s)) { setError("Enter your organisation's sign-in name."); return; }
-    const raw = new URLSearchParams(window.location.search).get("return_to") ?? "/";
-    const returnTo = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
-    // the sign-in start is an API route (a redirect to the IdP), not a page of this app
-    window.location.href = new URL(`/v1/sso/${s}/start?return_to=${encodeURIComponent(returnTo)}`, window.location.origin).toString();
+
+  const go = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const workspace = slug.trim().toLowerCase();
+    if (!SLUG.test(workspace)) {
+      setError("Enter a workspace name between 3 and 63 letters, numbers, or hyphens.");
+      return;
+    }
+
+    const candidate = new URLSearchParams(window.location.search).get("return_to") ?? "/";
+    const returnTo = candidate.startsWith("/") && !candidate.startsWith("//") && !candidate.includes("\\")
+      ? candidate
+      : "/";
+    const destination = new URL(`/v1/sso/${workspace}/start`, window.location.origin);
+    destination.searchParams.set("return_to", returnTo);
+    window.location.assign(destination.toString());
   };
+
   return (
-    <section>
-      <h1>Sign in</h1>
-      <form onSubmit={go} className="card">
-        <label htmlFor="org">Organisation sign-in name</label>
-        <div className="row">
-          <input id="org" name="org" autoComplete="organization" value={slug} onChange={(e) => setSlug(e.target.value)} />
-          <button className="primary" type="submit">Continue</button>
+    <section className="client-login">
+      <span className="login-emblem" aria-hidden="true"><Building2 /></span>
+      <div className="login-heading">
+        <p className="eyebrow">WORKSPACE SIGN IN</p>
+        <h1>Welcome back</h1>
+        <p className="secondary">Sign in to continue to your account intelligence workspace.</p>
+      </div>
+
+      <form className="login-form" onSubmit={go} noValidate>
+        <div className="field">
+          <label htmlFor="workspace">Workspace name</label>
+          <input
+            className="input"
+            id="workspace"
+            name="workspace"
+            autoComplete="organization"
+            autoCapitalize="none"
+            spellCheck={false}
+            maxLength={63}
+            placeholder="your-company"
+            value={slug}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? "workspace-error" : "workspace-hint"}
+            onChange={(event) => {
+              setSlug(event.target.value);
+              if (error) setError(null);
+            }}
+          />
+          {error ? (
+            <span className="field-error" id="workspace-error" role="alert">{error}</span>
+          ) : (
+            <span className="hint" id="workspace-hint">Use the sign-in name provided by your organization.</span>
+          )}
         </div>
-        {error ? <p className="error" role="alert">{error}</p> : null}
+        <button className="btn primary lg auth-submit" type="submit">
+          Continue <ArrowRight aria-hidden="true" />
+        </button>
       </form>
+
+      <p className="login-security-note"><LockKeyhole aria-hidden="true" /> Your organization’s secure sign-in provider will open next.</p>
     </section>
   );
 }

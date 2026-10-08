@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function OperatorAuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <main id="main" className="auth-frame operator-auth-frame">
@@ -6,7 +8,10 @@ export default function OperatorAuthLayout({ children }: { children: React.React
         <span><strong>6th</strong><small>INTERNAL SYSTEMS</small></span>
       </div>
       <div className="auth-card surface">{children}</div>
-      <p className="muted auth-caption">Staff access only · all access is audited</p>
+      <div className="auth-footer">
+        <p className="muted auth-caption">Staff access only · all access is audited</p>
+        <Link className="auth-panel-link" href="/login">Customer sign in</Link>
+      </div>
     </main>
   );
 }

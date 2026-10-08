@@ -24,7 +24,7 @@ async function signIn(page: Page, slug: string, subject: string, role: string) {
   });
   await page.goto("/login");
   await page.waitForLoadState("networkidle");  // the form's handler is attached after hydration
-  await page.getByLabel("Organisation sign-in name").fill(slug);
+  await page.getByLabel("Workspace name").fill(slug);
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
 }

@@ -185,3 +185,15 @@ Final frontend checks (2026-10-08):
   `docs/frontend/client-login.png` and `docs/frontend/operator-login.png`.
 * Contrast check: 102/102 declared pairs pass for light and dark themes; generated API client and
   `git diff --check`: pass.
+
+## Sign-in and dashboard polish (2026-10-08)
+
+* Customer and staff sign-in now use a restrained, centered flow with clear workspace/provider
+  expectations and links between the two panels. Admin access continues through the approved Google
+  Workspace flow; no password form or hardcoded credential was added.
+* Customer home adds API-derived account summary cards, account search, add-account feedback, and
+  distinct loading, empty and error states. Operator home adds API-derived tenant, active tenant, live
+  run and feature-flag summaries. No demo records or metric values are embedded.
+* `npm run build`, lint, 14 Vitest tests and 102 contrast pairs: pass. Playwright visual review loaded
+  both login screens and both dashboard empty states. Axe reports no WCAG 2.1 A/AA violations on
+  those four screens.

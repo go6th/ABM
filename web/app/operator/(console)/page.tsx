@@ -13,31 +13,43 @@ export default function OperatorHomePage() {
   const flags = useOperatorApi("GET /operator/v1/flags", {}, isOperator);
   const keys = useOperatorApi("GET /operator/v1/keys", {}, isOperator);
   const pilot = useOperatorApi("GET /operator/v1/pilot/aggregate", {}, isOperator);
+  const tenantRows = tenants.data?.tenants ?? [];
+  const activeTenants = tenantRows.filter((tenant) => !tenant.suspended).length;
+  const liveRuns = tenantRows.reduce((total, tenant) => total + tenant.live_runs, 0);
+  const countText = (value: number | null, loading: boolean, error: unknown) =>
+    error ? "Unavailable" : loading ? "…" : value === null ? "—" : formatCount(value);
 
   return (
     <section>
       <div className="operator-page-heading">
-        <div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Overview</h1><p>Verified staff access with an audit trail.</p></div>
-        <Link className="btn" href="/operator/tenants">Open tenant administration</Link>
+        <div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Operations overview</h1><p>Platform health and tenant administration at a glance.</p></div>
+        <Link className="btn primary" href="/operator/tenants">Manage tenants <span aria-hidden="true">↗</span></Link>
       </div>
 
-      <div className="operator-grid">
-        <article className="operator-card">
-          <span className="eyebrow">STAFF ID</span>
-          <strong className="operator-card-value mono">{viewer.staffId}</strong>
-          <span className="operator-card-caption">Identity returned by the staff verifier</span>
+      <section className="operator-overview-stats" aria-label="Live operator summary">
+        <article className="operator-overview-stat">
+          <span className="operator-overview-icon tone-lavender"><span aria-hidden="true">◫</span></span>
+          <div><span className="eyebrow">TENANTS</span><strong>{countText(tenants.data?.tenants.length ?? null, tenants.loading, tenants.error)}</strong></div>
+          <span className="operator-overview-caption">Provisioned workspaces</span>
         </article>
-        <article className="operator-card">
-          <span className="eyebrow">ACCESS ROLE</span>
-          <strong className="operator-card-value">{isOperator ? "Operator" : "Support"}</strong>
-          <span className="operator-card-caption">Role claim checked by the API</span>
+        <article className="operator-overview-stat">
+          <span className="operator-overview-icon tone-mint"><span aria-hidden="true">✓</span></span>
+          <div><span className="eyebrow">ACTIVE</span><strong>{countText(tenants.data ? activeTenants : null, tenants.loading, tenants.error)}</strong></div>
+          <span className="operator-overview-caption">Active tenants</span>
         </article>
-        <article className="operator-card">
-          <span className="eyebrow">MFA</span>
-          <strong className="operator-card-value">Fresh</strong>
-          <span className="operator-card-caption">Verified against the configured step-up window</span>
+        <article className="operator-overview-stat">
+          <span className="operator-overview-icon tone-sky"><span aria-hidden="true">↗</span></span>
+          <div><span className="eyebrow">LIVE RUNS</span><strong>{countText(tenants.data ? liveRuns : null, tenants.loading, tenants.error)}</strong></div>
+          <span className="operator-overview-caption">Across tenant workspaces</span>
         </article>
-      </div>
+        <article className="operator-overview-stat">
+          <span className="operator-overview-icon tone-peach"><span aria-hidden="true">⚑</span></span>
+          <div><span className="eyebrow">FEATURE FLAGS</span><strong>{isOperator ? countText(flags.data?.flags.length ?? null, flags.loading, flags.error) : "Restricted"}</strong></div>
+          <span className="operator-overview-caption">{isOperator ? "Configured platform flags" : "Operator role required"}</span>
+        </article>
+      </section>
+
+      <div className="operator-overview-note" role="note"><span aria-hidden="true">i</span><p>Summary values come directly from the operator API. Tenant metadata is content-free; customer account content is never shown here.</p></div>
 
       <section className="operator-section" aria-labelledby="tenant-overview-title">
         <div className="operator-section-title"><h2 id="tenant-overview-title">Tenant metadata</h2><Link href="/operator/tenants">Manage tenants →</Link></div>

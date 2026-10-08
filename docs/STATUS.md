@@ -24,9 +24,18 @@ console has a Google Workspace authorization-code flow and connects its availabl
 generated backend contract. Tenant administration and read-only support access are grant- and
 role-checked by the API.
 
+The sign-in screens now use a simpler centered flow, with explicit links between customer and staff
+sign-in. The customer dashboard shows live account totals, search, add-account and loading/empty/error
+states. The operator overview summarizes only values returned by the operator API. No sample account
+or tenant data is embedded in the screens.
+
 Local web typecheck, lint and unit tests pass. Backend identity unit tests pass. PostgreSQL operator
 integration tests still need a working local database credential. Production sign-in still needs
 the Google OAuth client, registered callback, Workspace domain, Rajesh's exact email allowlist
 entry and enabled MFA claims. Screens without backend contracts are explicitly unavailable in
 production. See the operator route map at docs/frontend/operator-route-map.md and Google Workspace
 setup at docs/phase3/operator_google_workspace.md.
+
+Production build and standalone smoke checks pass. Playwright visual review covered both dashboards
+using temporary empty API responses; axe found no WCAG 2.1 A/AA violations on either login or the
+dashboard empty states. Updated sign-in screenshots are in docs/frontend/.
