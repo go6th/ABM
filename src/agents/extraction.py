@@ -6,8 +6,9 @@ One model call per source group (step and route need) reads only that group's st
 * every candidate's row must belong to the group and be the row of every payload it quotes; its
   lane must be a skill lane (or none);
 * G4: its evidence must cite payloads this call was given and quote them verbatim;
-* G2: the origin is the stricter of the model's claim and the payloads: a candidate is ``read``
-  only if every evidence payload is a full-page read; anything from search results is a match;
+* G2: a declared keyword match or date range stays one, and a payload code knows is a match makes
+  the candidate one whatever the model claims; "read this run" needs full-page reads (the grading
+  engine decides Confirmed itself and grades an unread match Lead);
 * private payloads make the candidate private (G10);
 * people: the title, and any tenure, must be quoted in the evidence (no invented titles);
 * G3: a lead-drop request is honoured only with three phrasings across two tool categories.
@@ -57,12 +58,14 @@ class ExtractionResult:
 def _origin(
     candidate: FactCandidate, given: Mapping[str, PayloadView], cfg: SkillConfig
 ) -> tuple[str, bool]:
-    full_reads = all(
-        cfg.plan[given[e.payload_ref].row_key].need in FULL_READ_NEEDS for e in candidate.evidence
-    )
-    if candidate.origin == "read" and full_reads:
-        return "read", True
-    return ("keyword_match" if candidate.origin == "read" else candidate.origin), False
+    """``(origin, read_this_run)``. A declared match stays a match; a payload code knows is a
+    date range or keyword match makes the candidate one whatever the model claims; it was read
+    this run only when every evidence payload is a full-page read (the engine checks again)."""
+    payloads = [given[e.payload_ref] for e in candidate.evidence]
+    full_reads = all(cfg.plan[p.row_key].need in FULL_READ_NEEDS for p in payloads)
+    floor = next((p.match_kind for p in payloads if p.match_kind), None)
+    origin = floor if candidate.origin == "read" and floor else candidate.origin
+    return origin, full_reads and floor is None
 
 
 async def extract(

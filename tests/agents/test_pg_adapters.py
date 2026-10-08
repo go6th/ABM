@@ -40,7 +40,11 @@ def manifest(tenant: UUID, run: UUID, key: str) -> PullManifest:
         created_at=T0,
         rows=(
             ManifestRow(
-                row_key="company_news", status="stored", payload_refs=("pl/1",), pulled_at=T0
+                row_key="company_news",
+                status="stored",
+                payload_refs=("pl/1",),
+                call_refs=("c",),
+                pulled_at=T0,
             ),
         ),
     )

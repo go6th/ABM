@@ -42,15 +42,25 @@ class RunContext:
 
 
 @dataclass(frozen=True)
-class ProviderResult:
-    """One typed provider call as the ledger recorded it. ``body`` goes to the payload store."""
+class SourceItem:
+    """One source record a call returned: its link, its text and, when code knows it (a feed's
+    date range), the match kind. One item is one payload the extractors may quote."""
 
     url: str
-    body: str
+    text: str
+    match_kind: str | None = None  # "keyword_match" | "date_range" | None
+
+
+@dataclass(frozen=True)
+class ProviderResult:
+    """One routed call as the ledger recorded it: its source items, counts, cost and the ledger
+    references the tracker reads its proof from."""
+
+    items: tuple[SourceItem, ...]
     result_count: int
     cost_micros: int
     tool_category: str
-    call_ref: str
+    call_refs: tuple[str, ...]
 
 
 class ProviderFailed(RuntimeError):
@@ -72,16 +82,17 @@ class CapPause(RuntimeError):
 class ProviderPort(Protocol):
     """Typed provider operations through the ledger (pull once, credit gate, routed order)."""
 
-    async def call(self, ctx: RunContext, need: str, query: str) -> ProviderResult:
-        """One routed call; replays are free (pull once). Raises CapPause or ProviderFailed."""
+    async def call(self, ctx: RunContext, need: str, query: str, row_key: str) -> ProviderResult:
+        """One routed call for a coverage row; replays are free (pull once). Raises CapPause or
+        ProviderFailed."""
         ...
 
 
 class PayloadPort(Protocol):
     """Raw payloads under neutral keys; read back as quarantined views."""
 
-    async def put(self, ctx: RunContext, row_key: str, url: str, body: str, visibility: str) -> str:
-        """Store one payload; the neutral reference."""
+    async def put(self, ctx: RunContext, row_key: str, item: SourceItem, visibility: str) -> str:
+        """Store one source item; the neutral reference."""
         ...
 
     async def view(self, tenant_id: UUID, ref: str) -> PayloadView:

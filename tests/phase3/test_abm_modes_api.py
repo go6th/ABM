@@ -53,7 +53,7 @@ def _store_manifest(tenant: UUID, run: str, domain: str) -> None:
             "row_key": "company_news",
             "status": "stored",
             "payload_refs": ["pl/1"],
-            "call_refs": [],
+            "call_refs": ["c1"],
             "queries": [],
             "cost_micros": 0,
             "pulled_at": "2026-10-08T09:00:00+00:00",

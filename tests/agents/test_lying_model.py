@@ -109,6 +109,9 @@ async def test_inflated_grades_and_tool_requests_reject_the_output(h: Harness, e
 
 
 async def test_promoted_lead_from_a_search_snippet_stays_a_lead(h: Harness) -> None:
+    """A model claiming it read what it only saw in search results or a feed cannot get past the
+    rules: nothing unread is Confirmed, and a date range (known to code) stays a Lead. (C36: a
+    search snippet is read text, not a keyword match; the engine grades it, never Confirmed.)"""
     honest = honest_extract(h.cfg)
 
     def promote(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -117,10 +120,20 @@ async def test_promoted_lead_from_a_search_snippet_stays_a_lead(h: Harness) -> N
 
     every_extract(h, promote)
     record, _ = await h.run("r")
+    facts = list(h.grading.facts_by_run[record.run_id].values())
+    unread_rows = {k for k, r in h.cfg.plan.items() if r.need not in ("scrape", "page_read")}
+    unread = [f for f in facts if f.row_key in unread_rows]
+    assert unread and all(f.grade != "confirmed" for f in unread)
+    stack = [f for f in facts if f.attribute == "stack"]
+    assert stack and all(f.grade == "lead" for f in stack)
+
+
+async def test_declared_keyword_match_stays_a_lead(h: Harness) -> None:
+    every_extract(h, honest_extract(h.cfg))  # honest: search results are declared matches
+    record, _ = await h.run("r")
     facts = h.grading.facts_by_run[record.run_id].values()
-    search_rows = {k for k, r in h.cfg.plan.items() if r.need not in ("scrape", "page_read")}
-    searched = [f for f in facts if f.row_key in search_rows]
-    assert searched and all(f.grade == "lead" for f in searched)
+    unread_rows = {k for k, r in h.cfg.plan.items() if r.need not in ("scrape", "page_read")}
+    assert all(f.grade == "lead" for f in facts if f.row_key in unread_rows)
 
 
 async def test_lying_engine_that_promotes_unread_matches_fails_closed(make) -> None:  # type: ignore[no-untyped-def]
@@ -339,18 +352,38 @@ async def test_g3_lead_drop_needs_three_phrasings_in_a_run(h: Harness) -> None:
     assert state["counters"]["drop_lead_kept_too_few_phrasings"] == calls
 
 
-async def test_candidates_for_other_rows_or_lanes_are_dropped(h: Harness) -> None:
-    honest = honest_extract(h.cfg)
+async def test_candidates_for_other_rows_or_lanes_are_dropped(make) -> None:  # type: ignore[no-untyped-def]
+    world = worlds.rich()
+    d = world.domain
+    world.pages["podcasts"] = [Page(f"https://{d}/pod", "podcast: The CIO spoke about MuleSoft.")]
+    world.pages["review_sites"] = [Page(f"https://{d}/rev", "review: Customers rate support well.")]
+    h = make(world)
 
     def stray(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-        out = list(honest(payload)["candidates"])
+        pod = next((p for p in payload["payloads"] if p["row_key"] == "podcasts"), None)
+        if pod is None:
+            return {"candidates": []}
+        ev = [{"payload_ref": pod["payload_ref"], "quote": "The CIO spoke about MuleSoft."}]
+        base = {
+            "attribute": "voice",
+            "value": "CIO talk",
+            "origin": "keyword_match",
+            "evidence": ev,
+        }
         return {
-            "candidates": [{**c, "row_key": "research_papers"} for c in out[:1]]
-            + [{**c, "lane": "mainframe"} for c in out[:1]]
+            "candidates": [
+                {**base, "row_key": "review_sites"},  # quotes the podcasts payload
+                {**base, "row_key": "research_papers"},  # a row with nothing pulled in this group
+                {**base, "row_key": "podcasts", "lane": "mainframe"},
+            ]
         }
 
     every_extract(h, stray)
     record, state = await h.run("r")
-    assert state["counters"]["drop_row_not_in_evidence"] >= 1
-    assert state["counters"]["drop_unknown_lane"] >= 1
+    c = state["counters"]
+    assert (c["drop_row_not_in_evidence"], c["drop_row_not_in_group"], c["drop_unknown_lane"]) == (
+        1,
+        1,
+        1,
+    )
     assert not h.grading.facts_by_run[record.run_id]

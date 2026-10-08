@@ -36,6 +36,7 @@ from agents.ports import (
     RunContext,
     RunRecord,
     SenseCheckRecord,
+    SourceItem,
     TenantAgentSettings,
 )
 from agents.schemas import PayloadView, PersonCandidate, StoredFact
@@ -79,6 +80,7 @@ class Page:
     url: str
     body: str
     count: int = 1
+    match_kind: str | None = None
 
 
 @dataclass
@@ -139,11 +141,7 @@ class StubLedgerProvider:
         self.crash_after: int | None = None
         self.new_calls = 0
 
-    def _row_for(self, query: str) -> str | None:
-        hits = [k for k, label in self.cfg.row_labels.items() if label in query]
-        return max(hits, key=lambda k: len(self.cfg.row_labels[k])) if hits else None
-
-    async def call(self, ctx: RunContext, need: str, query: str) -> ProviderResult:
+    async def call(self, ctx: RunContext, need: str, query: str, row_key: str) -> ProviderResult:
         key = (ctx.run_id, need, query)
         if key in self.calls:
             return self.calls[key]
@@ -154,23 +152,22 @@ class StubLedgerProvider:
         decision = decide(await self.credit.cap_state(ctx), need, price, True, FREE_NEEDS)
         if not decision.allowed:
             raise CapPause(decision.reason)
-        row = self._row_for(query)
-        if row in self.world.failing_rows:
+        if row_key in self.world.failing_rows:
             raise ProviderFailed("provider_down")
-        pages = self.world.pages.get(row or "", [])
+        pages = self.world.pages.get(row_key, [])
         index = sum(1 for k in self.calls if k[0] == ctx.run_id and k[1] == need)
-        page = pages[index % len(pages)] if pages else Page(f"https://{ctx.domain}/none", "", 0)
+        page = pages[index % len(pages)] if pages else None
         self.new_calls += 1
         if price:
             self.paid_calls += 1
             self.credit.spent[ctx.run_id] += price
+        items = (SourceItem(page.url, page.body, page.match_kind),) if page and page.body else ()
         result = ProviderResult(
-            url=page.url,
-            body=page.body,
-            result_count=page.count,
+            items=items,
+            result_count=page.count if page else 0,
             cost_micros=price,
             tool_category=need,
-            call_ref=f"call-{h(f'{ctx.run_id}{need}{query}')}",
+            call_refs=(f"call-{h(f'{ctx.run_id}{need}{query}')}",),
         )
         self.calls[key] = result
         return result
@@ -186,12 +183,11 @@ class FakeInternal:
     async def search(self, ctx: RunContext, row_key: str, query: str) -> ProviderResult:
         self.searches += 1
         return ProviderResult(
-            url=f"https://internal.invalid/{row_key}",
-            body=self.body,
+            items=(SourceItem(f"https://internal.invalid/{row_key}", self.body),),
             result_count=1,
             cost_micros=0,
             tool_category="internal_history",
-            call_ref=f"int-{h(row_key + query)}",
+            call_refs=(f"int-{h(row_key + query)}",),
         )
 
 
@@ -201,14 +197,17 @@ class FakePayloads:
     def __init__(self) -> None:
         self.items: dict[str, tuple[UUID, PayloadView]] = {}
 
-    async def put(self, ctx: RunContext, row_key: str, url: str, body: str, visibility: str) -> str:
-        ref = f"pl/{h(f'{ctx.run_id}{row_key}{url}{body}{visibility}', 16)}"
-        view = PayloadView(
-            payload_ref=ref,
-            row_key=row_key,
-            url=url,
-            text=body,
-            visibility="private" if visibility == "private" else "public",
+    async def put(self, ctx: RunContext, row_key: str, item: SourceItem, visibility: str) -> str:
+        ref = f"pl/{h(f'{ctx.run_id}{row_key}{item.url}{item.text}{visibility}', 16)}"
+        view = PayloadView.model_validate(
+            {
+                "payload_ref": ref,
+                "row_key": row_key,
+                "url": item.url,
+                "text": item.text,
+                "visibility": "private" if visibility == "private" else "public",
+                "match_kind": item.match_kind,
+            }
         )
         self.items[ref] = (ctx.tenant_id, view)
         return ref

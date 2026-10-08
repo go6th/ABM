@@ -47,6 +47,7 @@ def rich() -> World:
                 Page(
                     f"https://{d}/tech",
                     "stack: Northwind runs Salesforce Service Cloud and MuleSoft.",
+                    match_kind="date_range",
                 )
             ],
             "basic_fit_check": [

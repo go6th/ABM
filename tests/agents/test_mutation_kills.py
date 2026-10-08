@@ -38,7 +38,7 @@ from agents.schemas import StoredFact
 
 T0 = datetime(2026, 10, 8, tzinfo=UTC)
 TENANT, PARENT = uuid4(), uuid4()
-PINNED = "a3b48f974d94f6ab6732517a34ba29936cf9ab60fa5b550734055b96c9bf1270"
+PINNED = "3ae6ae74a6b7001d96737f6233f259232394bfa0bcf4800ac201020e1ca41f4c"
 
 
 def raises(fn, guard: str, code: str, detail: str = "") -> None:  # type: ignore[no-untyped-def]
@@ -167,7 +167,9 @@ def test_every_plan_field_per_branch() -> None:
 
 def row(key: str, status: str = "stored", at: datetime = T0) -> ManifestRow:
     if status == "stored":
-        return ManifestRow(row_key=key, status="stored", payload_refs=("p",), pulled_at=at)
+        return ManifestRow(
+            row_key=key, status="stored", payload_refs=("p",), call_refs=("c",), pulled_at=at
+        )
     return ManifestRow(row_key=key, status="blocked", blocked_reason="x", pulled_at=at)
 
 
@@ -227,8 +229,22 @@ def test_manifest_digest_and_cost() -> None:
     assert m.digest() == m.model_copy().digest() and len(m.digest()) == 64
     assert m.digest() != manifest(row("b")).digest()
     costly = manifest(
-        ManifestRow(row_key="a", status="stored", payload_refs=("p",), pulled_at=T0, cost_micros=7),
-        ManifestRow(row_key="b", status="stored", payload_refs=("q",), pulled_at=T0, cost_micros=5),
+        ManifestRow(
+            row_key="a",
+            status="stored",
+            payload_refs=("p",),
+            call_refs=("c",),
+            pulled_at=T0,
+            cost_micros=7,
+        ),
+        ManifestRow(
+            row_key="b",
+            status="stored",
+            payload_refs=("q",),
+            call_refs=("c",),
+            pulled_at=T0,
+            cost_micros=5,
+        ),
     )
     assert costly.total_cost_micros() == 12
 

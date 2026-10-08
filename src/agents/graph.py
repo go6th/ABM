@@ -461,20 +461,21 @@ def build_abm_graph(deps: AbmDeps) -> StateGraph[AbmState]:
         views: list[PayloadView] = []
         for item in state.get("to_run") or []:
             try:
-                result = await deps.provider.call(ctx, item["need"], item["query"])
+                result = await deps.provider.call(ctx, item["need"], item["query"], item["row_key"])
             except (CapPause, ProviderFailed):
                 await deps.tracker.mark_partial(ctx, item["row_key"], "pull_not_approved")
                 continue
-            ref = await deps.payloads.put(ctx, item["row_key"], result.url, result.body, "public")
-            views.append(await deps.payloads.view(ctx.tenant_id, ref))
-            await deps.tracker.report(ctx, item["row_key"], (result.call_ref,), None)
+            for source in result.items:
+                ref = await deps.payloads.put(ctx, item["row_key"], source, "public")
+                views.append(await deps.payloads.view(ctx.tenant_id, ref))
+            await deps.tracker.report(ctx, item["row_key"], result.call_refs, None)
         consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
         ok = consent_decision(consent, cfg.consent_scope, cfg.consent_text_version) is None
         drops = await _interpret(ctx, views, ok) if views else Counter[str]()
         return {
             "to_run": [],
             "counters": {
-                "targeted_pulls": len(views),
+                "targeted_pulls": len(state.get("to_run") or []),
                 **{f"drop_{k}": v for k, v in drops.items()},
             },
         }

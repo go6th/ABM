@@ -84,6 +84,7 @@ class PayloadView(_Strict):
     url: str
     text: str
     visibility: Visibility = "public"
+    match_kind: Literal["keyword_match", "date_range"] | None = None
 
 
 class ExtractionInput(_Strict):

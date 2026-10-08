@@ -2,9 +2,9 @@
 
 For each coverage row in plan order it issues the row's phrasings (built in code from the
 checklist label) through the provider port, which is the connector ledger: routed order, pull
-once, credit gate. Every successful call's raw body is stored, including zero-result responses,
-so the manifest row carries payload references, query records, call references and cost. It never
-reads, summarises, grades or drops content.
+once, credit gate. Every source item a call returned is stored as one payload; a zero-result call
+stores none but its ledger reference is the row's proof (the tracker derives None, not Blocked).
+It never reads, summarises, grades or drops content.
 
 Outcomes per row (visible, never silently absent, G1):
 
@@ -39,6 +39,7 @@ from agents.ports import (
     PayloadPort,
     ProviderFailed,
     ProviderPort,
+    ProviderResult,
     RunContext,
 )
 
@@ -96,7 +97,7 @@ class PullAgent:
         for query in phrasings_for(self.cfg, row, ctx, now.year):
             meter.charge_call()
             try:
-                result = await self.provider.call(ctx, row.need, query)
+                result = await self.provider.call(ctx, row.need, query, row.row_key)
             except CapPause as pause:
                 if ctx.attended and not self.record_refusals:
                     raise SpendPause(row.row_key, pause.reason) from pause
@@ -105,10 +106,8 @@ class PullAgent:
             except ProviderFailed as error:
                 failure = error.reason
                 continue
-            refs.append(
-                await self.payloads.put(ctx, row.row_key, result.url, result.body, "public")
-            )
-            calls.append(result.call_ref)
+            refs += await self._store(ctx, row, result, "public")
+            calls += result.call_refs
             queries.append(
                 QueryRecord(
                     text=query, tool_category=result.tool_category, result_count=result.result_count
@@ -119,10 +118,8 @@ class PullAgent:
             for query in phrasings_for(self.cfg, row, ctx, now.year)[:1]:
                 meter.charge_call()
                 result = await self.internal.search(ctx, row.row_key, query)
-                refs.append(
-                    await self.payloads.put(ctx, row.row_key, result.url, result.body, "private")
-                )
-                calls.append(result.call_ref)
+                refs += await self._store(ctx, row, result, "private")
+                calls += result.call_refs
                 queries.append(
                     QueryRecord(
                         text=query,
@@ -130,7 +127,7 @@ class PullAgent:
                         result_count=result.result_count,
                     )
                 )
-        if not refs:
+        if not calls:
             return self.blocked(row, failure or "no_calls_succeeded")
         return ManifestRow(
             row_key=row.row_key,
@@ -141,6 +138,12 @@ class PullAgent:
             cost_micros=cost,
             pulled_at=now,
         )
+
+    async def _store(
+        self, ctx: RunContext, row: PlanRow, result: ProviderResult, visibility: str
+    ) -> list[str]:
+        """One payload per source item (a zero-result call stores none; its call ref is proof)."""
+        return [await self.payloads.put(ctx, row.row_key, i, visibility) for i in result.items]
 
     def blocked(self, row: PlanRow, reason: str) -> ManifestRow:
         """A Blocked manifest row with a reason code."""

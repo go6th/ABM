@@ -58,7 +58,11 @@ def manifest(tenant=None, account="a.example") -> PullManifest:  # type: ignore[
         account_key=account,
         config_version="v",
         created_at=T0,
-        rows=(ManifestRow(row_key="a", status="stored", payload_refs=("p",), pulled_at=T0),),
+        rows=(
+            ManifestRow(
+                row_key="a", status="stored", payload_refs=("p",), call_refs=("c",), pulled_at=T0
+            ),
+        ),
     )
 
 

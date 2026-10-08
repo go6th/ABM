@@ -61,8 +61,8 @@ class ManifestRow(BaseModel):
     def _consistent(self) -> ManifestRow:
         if self.pulled_at.tzinfo is None:
             raise ValueError("pulled_at must be timezone aware")
-        if self.status == "stored" and (not self.payload_refs or self.blocked_reason):
-            raise ValueError("a stored row needs payload refs and no blocked reason")
+        if self.status == "stored" and (not self.call_refs or self.blocked_reason):
+            raise ValueError("a stored row needs call refs (its proof) and no blocked reason")
         if self.status == "blocked" and (self.payload_refs or not self.blocked_reason):
             raise ValueError("a blocked row needs a reason and no payload refs")
         return self
