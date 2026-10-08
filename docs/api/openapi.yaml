@@ -1,0 +1,25 @@
+openapi: 3.0.3
+info:
+  title: Account Intelligence API
+  version: 1.0.0
+paths:
+  /v1/sso/session:
+    get:
+      responses:
+        "200":
+          description: OK
+  /v1/accounts:
+    get:
+      responses:
+        "200":
+          description: OK
+  /v1/runs:
+    get:
+      responses:
+        "200":
+          description: OK
+  /v1/operator/runs:
+    get:
+      responses:
+        "200":
+          description: OK

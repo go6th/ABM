@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --canvas: #f8f9fa;
+    --raised: #ffffff;
+    --sunken: #e9ecef;
+    --glass: rgba(255, 255, 255, 0.7);
+    --border: #dee2e6;
+    --focus-ring: #a5d8ff;
+    
+    --text-primary: #212529;
+    --text-secondary: #495057;
+    --text-muted: #868e96;
+    --text-inverse: #f8f9fa;
+
+    --success: #b2f2bb;
+    --warning: #ffec99;
+    --danger: #ffc9c9;
+    --info: #a5d8ff;
+
+    --grade-confirmed: #b2f2bb;
+    --grade-probable: #d8f5a2;
+    --grade-hypothesis: #ffe066;
+    --grade-lead: #a5d8ff;
+    --grade-conflicting: #ffc9c9;
+    --grade-blocked: #ced4da;
+    
+    --accent-soft: #eebefa;
+    --accent-mid: #da77f2;
+    --accent-strong: #be4bdb;
+  }
+
+  .dark {
+    --canvas: #212529;
+    --raised: #343a40;
+    --sunken: #121415;
+    --glass: rgba(52, 58, 64, 0.7);
+    --border: #495057;
+    --focus-ring: #339af0;
+    
+    --text-primary: #f8f9fa;
+    --text-secondary: #ced4da;
+    --text-muted: #868e96;
+    --text-inverse: #212529;
+
+    --success: #2b8a3e;
+    --warning: #e67700;
+    --danger: #c92a2a;
+    --info: #1864ab;
+
+    --grade-confirmed: #2b8a3e;
+    --grade-probable: #5c940d;
+    --grade-hypothesis: #e67700;
+    --grade-lead: #1864ab;
+    --grade-conflicting: #c92a2a;
+    --grade-blocked: #495057;
+    
+    --accent-soft: #9c36b5;
+    --accent-mid: #862e9c;
+    --accent-strong: #7048e8;
+  }
+}
