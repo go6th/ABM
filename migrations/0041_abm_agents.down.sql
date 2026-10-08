@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS abm_sense_checks CASCADE;
+DROP TABLE IF EXISTS people_data_consents CASCADE;
+DROP TABLE IF EXISTS pull_manifests CASCADE;
+ALTER TABLE account_runs DROP CONSTRAINT IF EXISTS fk_account_runs_parent;
+ALTER TABLE account_runs DROP CONSTRAINT IF EXISTS ck_account_runs_config_reason;
+ALTER TABLE account_runs DROP CONSTRAINT IF EXISTS ck_account_runs_build_parent;
+ALTER TABLE account_runs DROP CONSTRAINT IF EXISTS ck_account_runs_run_mode;
+ALTER TABLE account_runs DROP COLUMN IF EXISTS skill_config_reason;
+ALTER TABLE account_runs DROP COLUMN IF EXISTS skill_config_version;
+ALTER TABLE account_runs DROP COLUMN IF EXISTS parent_run_id;
+ALTER TABLE account_runs DROP COLUMN IF EXISTS run_mode;
+ALTER TABLE account_runs DROP CONSTRAINT IF EXISTS uq_account_runs_tenant_id;
