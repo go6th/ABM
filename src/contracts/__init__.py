@@ -1,0 +1,1 @@
+"""contracts (cross-cutting package)."""

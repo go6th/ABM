@@ -1,0 +1,22 @@
+# Contract drift rules (roadmap 11.2, D-88). Which shape changes are additive and
+# which are breaking; the enum paths watched. Pure data: every value carries a source.
+version: "2026-10-08.1"
+rules:
+  breaking_kinds:        # any of these in a diff = breaking (fail closed)
+    - field_removed
+    - type_changed
+    - enum_removed
+  breaking_kinds_source: "D-88 proposal: renames, removals and type changes break consumers"
+  additive_kinds:
+    - field_added
+    - enum_added
+  additive_kinds_source: "D-88 proposal: new optional fields and enum values extend the contract"
+  status: proposal
+enum_paths:              # dotted paths whose string values are watched as enums
+  default: [status, kind, type]
+  source: "D-88 proposal: common discriminator field names; extend per operation as fixtures land"
+  status: proposal
+error_body:              # a 200 whose body is an error envelope is breaking drift (CX2)
+  keys: [error, errors, fault, detail]
+  source: "D-88 proposal: provider returning 200 with an error body"
+  status: proposal
