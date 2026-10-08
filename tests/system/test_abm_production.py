@@ -302,8 +302,10 @@ async def test_full_abm_run_grades_through_the_engine_and_tracks_every_row(
     st, reason = status(run.run)
     assert st == "PARTIAL" and reason == "builders_not_configured"  # no builder in this world
     graded = facts(run.run)
-    drops = admin("SELECT reason_code, count(*) FROM claim_drops WHERE run_id = %s GROUP BY reason_code",
-                  run.run)
+    drops = admin(
+        "SELECT reason_code, count(*) FROM claim_drops WHERE run_id = %s GROUP BY reason_code",
+        run.run,
+    )
     assert graded, f"the engine recorded facts (drops: {drops}, model: {run.script.calls})"
     assert all(g[2] in ("confirmed", "probable", "hypothesis", "lead") for g in graded), graded
     tracked = rows(run.run)
