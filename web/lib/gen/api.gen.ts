@@ -198,6 +198,91 @@ export const ChangeBody = z.object({
 }).strict();
 export type ChangeBody = z.infer<typeof ChangeBody>;
 
+export const ChatModelCapabilities = z.object({
+  "streaming": z.boolean(),
+  "tool_use": z.boolean(),
+  "vision": z.boolean(),
+}).strict();
+export type ChatModelCapabilities = z.infer<typeof ChatModelCapabilities>;
+
+export const ChatModel = z.object({
+  "cache_read_usd_per_million": z.string(),
+  "cache_write_usd_per_million": z.string(),
+  "capabilities": ChatModelCapabilities,
+  "context_window": z.number().int(),
+  "display_name": z.string(),
+  "id": z.string(),
+  "input_usd_per_million": z.string(),
+  "max_output_tokens": z.number().int(),
+  "output_usd_per_million": z.string(),
+  "provider": z.string(),
+}).strict();
+export type ChatModel = z.infer<typeof ChatModel>;
+
+export const ChatModels = z.object({
+  "default_model": z.string(),
+  "models": z.array(ChatModel),
+}).strict();
+export type ChatModels = z.infer<typeof ChatModels>;
+
+export const ChatTurn = z.object({
+  "account_id": z.string().nullable(),
+  "assistant_content": z.string().nullable(),
+  "cache_read_tokens": z.number().int(),
+  "cache_write_tokens": z.number().int(),
+  "client": z.string(),
+  "completed_at": z.string().nullable(),
+  "cost_usd": z.string(),
+  "created_at": z.string(),
+  "id": z.string(),
+  "input_tokens": z.number().int(),
+  "model_id": z.string(),
+  "output_tokens": z.number().int(),
+  "phase": z.string(),
+  "request_id": z.string(),
+  "status": z.string(),
+  "turn_number": z.number().int(),
+  "user_content": z.string(),
+}).strict();
+export type ChatTurn = z.infer<typeof ChatTurn>;
+
+export const ChatThread = z.object({
+  "created_at": z.string(),
+  "id": z.string(),
+  "reserved_usd": z.string(),
+  "spent_usd": z.string(),
+  "title": z.string(),
+  "turn_count": z.number().int(),
+  "turns": z.array(ChatTurn),
+  "updated_at": z.string(),
+}).strict();
+export type ChatThread = z.infer<typeof ChatThread>;
+
+export const ChatThreadCreated = z.object({
+  "id": z.string(),
+}).strict();
+export type ChatThreadCreated = z.infer<typeof ChatThreadCreated>;
+
+export const ChatThreadDeleted = z.object({
+  "deleted": z.boolean(),
+}).strict();
+export type ChatThreadDeleted = z.infer<typeof ChatThreadDeleted>;
+
+export const ChatThreadSummary = z.object({
+  "id": z.string(),
+  "model_id": z.string().nullable(),
+  "spent_usd": z.string(),
+  "title": z.string(),
+  "turn_count": z.number().int(),
+  "updated_at": z.string(),
+}).strict();
+export type ChatThreadSummary = z.infer<typeof ChatThreadSummary>;
+
+export const ChatThreads = z.object({
+  "threads": z.array(ChatThreadSummary),
+}).strict();
+export type ChatThreads = z.infer<typeof ChatThreads>;
+
 export const CompleteBody = z.object({
   "account_confirmed": z.boolean(),
   "pull_date": z.string().nullable().optional(),
@@ -670,6 +755,17 @@ export const NewTenant = z.object({
 }).strict();
 export type NewTenant = z.infer<typeof NewTenant>;
 
+export const NewThread = z.record(z.string(), z.unknown());
+export type NewThread = z.infer<typeof NewThread>;
+
+export const NewTurn = z.object({
+  "account_id": z.string().nullable().optional(),
+  "content": z.string(),
+  "model": z.string(),
+  "request_id": z.string(),
+}).strict();
+export type NewTurn = z.infer<typeof NewTurn>;
+
 export const OperatorLiveSpend = z.object({
   "as_of": z.string(),
   "by_provider": z.array(z.record(z.string(), z.unknown())),
@@ -1118,6 +1214,23 @@ export const TenantLiveSpend = z.object({
 }).strict();
 export type TenantLiveSpend = z.infer<typeof TenantLiveSpend>;
 
+export const TenantModelKeyBody = z.object({
+  "api_key": z.string(),
+}).strict();
+export type TenantModelKeyBody = z.infer<typeof TenantModelKeyBody>;
+
+export const TenantModelKeyDeleted = z.object({
+  "deleted": z.boolean(),
+}).strict();
+export type TenantModelKeyDeleted = z.infer<typeof TenantModelKeyDeleted>;
+
+export const TenantModelKeyStatus = z.object({
+  "available": z.boolean(),
+  "configured": z.boolean(),
+  "updated_at": z.string().nullable(),
+}).strict();
+export type TenantModelKeyStatus = z.infer<typeof TenantModelKeyStatus>;
+
 export const TenantOverview = z.object({
   "accounts": z.number().int(),
   "created_at": z.string(),
@@ -1469,6 +1582,14 @@ export const operations = {
   "GET /v1/audit": { method: "GET", path: "/v1/audit", plane: "tenant", status: 200, request: null, requestRequired: false, response: AuditPage },
   "GET /v1/audit/export": { method: "GET", path: "/v1/audit/export", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/branding": { method: "GET", path: "/v1/branding", plane: "tenant", status: 200, request: null, requestRequired: false, response: Branding },
+  "DELETE /v1/chat/provider-key": { method: "DELETE", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyDeleted },
+  "GET /v1/chat/provider-key": { method: "GET", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyStatus },
+  "PUT /v1/chat/provider-key": { method: "PUT", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: TenantModelKeyBody, requestRequired: true, response: TenantModelKeyStatus },
+  "GET /v1/chat/threads": { method: "GET", path: "/v1/chat/threads", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThreads },
+  "POST /v1/chat/threads": { method: "POST", path: "/v1/chat/threads", plane: "tenant", status: 201, request: NewThread, requestRequired: true, response: ChatThreadCreated },
+  "DELETE /v1/chat/threads/{thread_id}": { method: "DELETE", path: "/v1/chat/threads/{thread_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThreadDeleted },
+  "GET /v1/chat/threads/{thread_id}": { method: "GET", path: "/v1/chat/threads/{thread_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThread },
+  "POST /v1/chat/threads/{thread_id}/turns/stream": { method: "POST", path: "/v1/chat/threads/{thread_id}/turns/stream", plane: "tenant", status: 200, request: NewTurn, requestRequired: true, response: null },
   "GET /v1/connectors": { method: "GET", path: "/v1/connectors", plane: "tenant", status: 200, request: null, requestRequired: false, response: Connections },
   "POST /v1/connectors": { method: "POST", path: "/v1/connectors", plane: "tenant", status: 201, request: StartBody, requestRequired: true, response: ConnectorStarted },
   "GET /v1/connectors/oauth/callback": { method: "GET", path: "/v1/connectors/oauth/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
@@ -1490,6 +1611,7 @@ export const operations = {
   "GET /v1/exports/{package_id}/files/{index}": { method: "GET", path: "/v1/exports/{package_id}/files/{index}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/feedback": { method: "GET", path: "/v1/feedback", plane: "tenant", status: 200, request: null, requestRequired: false, response: FeedbackList },
   "POST /v1/feedback": { method: "POST", path: "/v1/feedback", plane: "tenant", status: 201, request: FeedbackBody, requestRequired: true, response: FeedbackCreated },
+  "GET /v1/models": { method: "GET", path: "/v1/models", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatModels },
   "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, request: null, requestRequired: false, response: MonitoringBudget },
   "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunPage },
   "POST /v1/runs": { method: "POST", path: "/v1/runs", plane: "tenant", status: 202, request: RunBody, requestRequired: true, response: RunCreated },

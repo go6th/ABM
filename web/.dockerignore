@@ -1,0 +1,10 @@
+node_modules
+.next
+coverage
+test-results
+playwright-report
+tsconfig.tsbuildinfo
+.env
+.env.*
+gha-creds-*.json
+*.log

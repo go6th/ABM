@@ -119,6 +119,43 @@ export async function api<T>(
   }
 }
 
+/** POST a first-party streaming operation with the same contract and CSRF checks as api(). */
+export async function apiStream(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  if (!path.startsWith("/v1/")) throw new Error("API paths start with /v1/");
+  const method = "POST";
+  const operation = operationFor(method, path);
+  if (!operation) throw new ApiError(500, "operation_not_in_contract", "This API operation is not in the generated contract.");
+  let payload: unknown = body;
+  if (operation.request) {
+    try {
+      payload = operation.request.parse(body);
+    } catch {
+      throw new ApiError(0, "request_contract_mismatch", "The request did not match its API contract.");
+    }
+  } else if (operation.requestRequired) {
+    throw new ApiError(0, "request_contract_mismatch", "This API operation requires a request body.");
+  }
+  if (csrfToken === null) await session();
+  const headers: Record<string, string> = {
+    Accept: "text/event-stream",
+    "Content-Type": "application/json",
+  };
+  if (csrfToken !== null) headers["X-CSRF-Token"] = csrfToken;
+  const reply = await fetch(path, {
+    method,
+    headers,
+    body: JSON.stringify(payload),
+    credentials: "same-origin",
+    cache: "no-store",
+    signal,
+  });
+  if (!reply.ok) throw await problem(reply);
+  if (!reply.headers.get("content-type")?.includes("text/event-stream") || !reply.body) {
+    throw new ApiError(502, "stream_contract_mismatch", "The API did not return a chat stream.");
+  }
+  return reply;
+}
+
 export function newIdempotencyKey(): string {
   return crypto.randomUUID().replaceAll("-", "");
 }

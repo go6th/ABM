@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Script from "next/script";
+import { headers } from "next/headers";
 import "./globals.css";
 
 // The proxy creates a request-scoped CSP nonce. Dynamic rendering lets Next attach that nonce
@@ -10,9 +12,13 @@ export const metadata: Metadata = {
   description: "Account intelligence workspace",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script src="/theme-init.js" strategy="beforeInteractive" nonce={nonce} />
+      </head>
       <body>{children}</body>
     </html>
   );

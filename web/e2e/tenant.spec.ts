@@ -1,39 +1,13 @@
 // The tenant plane end to end: SSO sign-in per role, the account list, adding an account, the admin
 // pages, role limits, a second tenant that sees nothing of the first, sign-out, keyboard and axe.
-import { test, expect, type Page } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { test, expect } from "@playwright/test";
+import { API, noSeriousA11y, signIn } from "./helpers";
 
-const API = "http://127.0.0.1:8080";
-const GROUP: Record<string, string> = { admin: "admins", analyst: "analysts", seller: "sales", viewer: "readers" };
 let seeded: { slug_a: string; slug_b: string };
 
 test.beforeAll(async ({ request }) => {
   seeded = await (await request.get(`${API}/fake-idp/tenants`)).json();
 });
-
-async function signIn(page: Page, slug: string, subject: string, role: string) {
-  await page.request.post(`${API}/fake-idp/next`, { data: { subject, groups: [GROUP[role] ?? "none"] } });
-  // The IdP lives at https://idp.synthetic.test (the database refuses http IdPs) and does not
-  // resolve; Playwright does not route requests reached through a redirect, so the sign-in start is
-  // fetched here (same cookie jar as the browser) and the fake IdP's answer handed back.
-  await page.route("**/v1/sso/*/start**", async (route) => {
-    const start = await page.request.get(route.request().url(), { maxRedirects: 0 });
-    const idp = new URL(start.headers()["location"] ?? "/login", "http://localhost:3000");
-    const answer = await page.request.get(`${API}/fake-idp/authorize${idp.search}`, { maxRedirects: 0 });
-    await route.fulfill({ status: 302, headers: { location: answer.headers()["location"] ?? "/login" } });
-  });
-  await page.goto("/login");
-  await page.waitForLoadState("networkidle");  // the form's handler is attached after hydration
-  await page.getByLabel("Workspace name").fill(slug);
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
-}
-
-async function noSeriousA11y(page: Page) {
-  const result = await new AxeBuilder({ page }).analyze();
-  const serious = result.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-  expect(serious.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
-}
 
 test("an admin signs in with SSO, sees only the tenant's accounts and adds one", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
@@ -67,6 +41,59 @@ test("a viewer reads but cannot add, run or administer", async ({ page }) => {
   await page.goto("/settings/users");
   await expect(page.getByText("Only admins manage users.")).toBeVisible();
   expect((await page.request.get("/v1/users")).status()).toBe(403);
+});
+
+test("Claude chat streams, persists history and passes accessibility checks", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await signIn(page, seeded.slug_a, "ana", "analyst");
+  await page.goto("/chat");
+  await expect(page.getByRole("heading", { name: "How can I help?" })).toBeVisible();
+  await expect(page.getByLabel("Model")).toBeVisible();
+  await noSeriousA11y(page);
+  await page.getByLabel("Message Claude").fill("Summarize our account notes");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Synthetic response")).toBeVisible();
+  await expect(page.locator(".chat-message.user").getByText("Summarize our account notes", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Summarize our account notes", exact: true })).toBeVisible();
+  await noSeriousA11y(page);
+  await expect(page.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Light" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "New chat" }).click();
+  await expect(page.getByText("Start a conversation")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Summarize our account notes", exact: true })).toBeVisible();
+});
+
+test("chat history is private to its tenant member", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "ana", "analyst");
+  const csrf = (await (await page.request.get("/v1/sso/session")).json()).csrf_token as string;
+  const created = await page.request.post("/v1/chat/threads", {
+    data: {},
+    headers: { "X-CSRF-Token": csrf },
+  });
+  expect(created.status()).toBe(201);
+  const threadId = (await created.json()).id as string;
+  await page.request.post("/v1/sso/logout", { headers: { "X-CSRF-Token": csrf } });
+
+  await signIn(page, seeded.slug_a, "sam", "seller");
+  expect((await page.request.get(`/v1/chat/threads/${threadId}`)).status()).toBe(404);
+  const otherCsrf = (await (await page.request.get("/v1/sso/session")).json()).csrf_token as string;
+  await page.request.post("/v1/sso/logout", { headers: { "X-CSRF-Token": otherCsrf } });
+
+  await signIn(page, seeded.slug_b, "bob", "admin");
+  expect((await page.request.get(`/v1/chat/threads/${threadId}`)).status()).toBe(404);
+});
+
+test("admins see BYO key availability without a key value", async ({ page }) => {
+  await signIn(page, seeded.slug_a, "ada", "admin");
+  await page.goto("/chat");
+  await page.getByText("Provider key", { exact: true }).click();
+  await expect(page.getByText("This environment does not enable encrypted tenant keys.")).toBeVisible();
+  await expect(page.getByLabel("Anthropic API key")).toHaveCount(0);
+  await noSeriousA11y(page);
 });
 
 const members: [string, string][] = [["sam", "seller"], ["ana", "analyst"]];

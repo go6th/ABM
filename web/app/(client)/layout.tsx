@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cookies, headers } from "next/headers";
 import { tenantAccent } from "@/design/contrast";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -51,11 +52,13 @@ export default async function ClientLayout({ children }: { children: React.React
         </Link>
         <nav className="client-nav" aria-label="Workspace navigation">
           <Link href="/">Accounts</Link>
+          <Link href="/chat">Chat</Link>
           <Link href="/alerts">Alerts</Link>
           <Link href="/usage">Usage</Link>
           <Link href="/audit">Audit</Link>
           <Link href="/settings">Settings</Link>
         </nav>
+        <ThemeToggle />
       </header>
       <main id="main" className="client-main">{children}</main>
       <footer className="client-footer">Prepared by {brand?.attribution ?? "6th agents"}</footer>
