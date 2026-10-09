@@ -111,6 +111,11 @@ The product tree (excluding `.git`, `node_modules`, and `.venv`) is organized as
 | REVIEW / LOCAL ONLY | `.env`, `.freebuff`, `.kilo`, `.venv`, `venv`, `venv2`, `ABM_Skill_Readers_Guide_v2.docx`, its LibreOffice lock file, and installed `node_modules` | Preserved because they contain local credentials, tool state, environments, dependencies, or a user-owned guide; excluded from commits and the printed product tree. `.env.example` remains a tracked template and contains no real values. |
 | DELETE | The 18 committed files in the cleanup table above; generated cache/build/test outputs listed in the cleanup gate | Removed after backup and review. No `docs/prompts/`, repository ZIPs, screenshots, coverage files, or mutmut output remain in the product tree. |
 
+After the audit-specific commits, `git status --short` still reports 115 modified or untracked
+worktree entries. They were left unstaged because the shared workspace contained substantial
+project work whose ownership was not clear enough to include in these commits. Review those entries
+before merging or publishing; no push was made.
+
 ## Remaining release blockers and owner inputs
 
 - Make the declared API container start reliably from a clean checkout with DB bootstrap and
