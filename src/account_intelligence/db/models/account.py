@@ -50,6 +50,7 @@ class Account(UuidPkMixin, TimestampMixin, Base):
     name: Mapped[str | None] = mapped_column(Text)
     careers_url: Mapped[str | None] = mapped_column(Text)
     careers_url_verified_at: Mapped[datetime | None]
+    careers_fetch_ref: Mapped[str | None] = mapped_column(Text)
     industry: Mapped[str | None] = mapped_column(Text)
     primary_lane: Mapped[str | None] = mapped_column(Text)
     pursuing_client: Mapped[str | None] = mapped_column(Text)

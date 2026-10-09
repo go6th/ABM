@@ -15,6 +15,7 @@ import json
 from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime
+from functools import partial
 from typing import Any
 from uuid import UUID
 
@@ -98,16 +99,64 @@ async def _insert_fact(s: AsyncSession, run: RunInfo, claim: GradedClaim) -> tup
     return UUID(str(existing)), False
 
 
-async def _insert_evidence(s: AsyncSession, fact_id: UUID, claim: GradedClaim) -> None:
+async def _insert_evidence(
+    s: AsyncSession, fact_id: UUID, run: RunInfo, claim: GradedClaim
+) -> None:
+    """Store evidence with its stable per-account source identity when it has a public URL."""
+    from account_intelligence.db.enums import SourceKind
+    from account_intelligence.db.source_ids import get_or_create_source
+
+    lifecycle = (
+        await s.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM account_runs WHERE id = :r),"
+                " EXISTS (SELECT 1 FROM runs WHERE id = :r)"
+            ),
+            {"r": run.run_id},
+        )
+    ).one()
+    # The established API writes both lifecycle rows with the same id. Direct account-run
+    # integrations and test harnesses may have only account_runs, so preserve that FK too.
+    account_run_id = run.run_id if lifecycle[0] else None
+    legacy_run_id = run.run_id if not lifecycle[0] and lifecycle[1] else None
+    if account_run_id is None and legacy_run_id is None:
+        raise LookupError("fact evidence references a run missing from both run lifecycles")
+
     for e in claim.evidence:
+        source_id = None
+        if e.evidence_kind != "search_proof" and e.url:
+            kind = (
+                SourceKind.AGGREGATOR
+                if e.is_aggregator
+                else SourceKind.PRIMARY
+                if e.tier == "T1"
+                else SourceKind.SECONDARY
+            )
+            evidence_date = e.evidence_date
+            published_at = (
+                evidence_date.date()
+                if e.date_kind == "published" and evidence_date is not None
+                else None
+            )
+            create_source = partial(
+                get_or_create_source,
+                account_id=run.account_id,
+                run_id=legacy_run_id,
+                account_run_id=account_run_id,
+                url=e.url,
+                kind=kind,
+                published_at=published_at,
+            )
+            source = await s.run_sync(create_source)
+            source_id = source.id
         await s.execute(
             text(
                 "INSERT INTO fact_evidence (fact_id, evidence_kind, url, supporting_sentence,"
-                " span_sha256,"
+                " span_sha256, source_id,"
                 " source_ref, call_ref, origin, source_tier, lineage_group, is_aggregator,"
                 " date_kind,"
-                " evidence_date, provider_code) VALUES (:f, :k, :u, :s, :h, :sr, :cr, :o, :t,"
-                " :lg, :ag,"
+                " evidence_date, provider_code) VALUES (:f, :k, :u, :s, :h, :sid, :sr, :cr, :o,"
+                " :t, :lg, :ag,"
                 " :dk, :ed, :pc)"
             ),
             {
@@ -116,6 +165,7 @@ async def _insert_evidence(s: AsyncSession, fact_id: UUID, claim: GradedClaim) -
                 "u": e.url,
                 "s": e.supporting_sentence,
                 "h": e.span_sha256,
+                "sid": source_id,
                 "sr": e.source_ref,
                 "cr": e.call_ref,
                 "o": e.origin,
@@ -165,7 +215,7 @@ async def record_graded_fact(
     async with txn(run.tenant_id) as s:
         fact_id, created = await _insert_fact(s, run, claim)
         if created:
-            await _insert_evidence(s, fact_id, claim)
+            await _insert_evidence(s, fact_id, run, claim)
             await _grade_event(s, fact_id, run, claim, actor, "initial")
         return fact_id
 
@@ -194,7 +244,7 @@ async def supersede(
             raise LookupError("fact not found or already superseded")
         new_id, created = await _insert_fact(s, run, claim)
         if created:
-            await _insert_evidence(s, new_id, claim)
+            await _insert_evidence(s, new_id, run, claim)
         await s.execute(
             text("UPDATE facts SET superseded_at = now(), superseded_by = :n WHERE id = :o"),
             {"n": new_id, "o": old_fact_id},

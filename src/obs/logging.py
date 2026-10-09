@@ -37,6 +37,8 @@ class JsonFormatter(std_logging.Formatter):
             payload: dict[str, Any] = {
                 "event": event[:64],
                 "level": record.levelname,
+                # Cloud Logging reads ``severity`` from structured stdout lines
+                "severity": record.levelname,
                 "service": self.service,
             }
             if record.exc_info and record.exc_info[1] is not None:
@@ -55,6 +57,20 @@ class JsonFormatter(std_logging.Formatter):
         except Exception:
             self.drops.add("logs")
             return json.dumps({"event": "log_format_failed", "service": self.service})
+
+
+def configure_logging(level: str, service: str) -> None:
+    """Install the JSON formatter on one stdout handler for the whole process (idempotent)."""
+    import sys
+
+    from obs.catalog import load_catalog
+    from obs.setup import drops
+
+    handler = std_logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JsonFormatter(load_catalog(), drops(), service))
+    root = std_logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(level)
 
 
 def logger(name: str) -> std_logging.Logger:

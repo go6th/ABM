@@ -10,7 +10,6 @@ replays paid calls).
 
 from __future__ import annotations
 
-import os
 import signal
 import time
 from collections.abc import AsyncIterator
@@ -19,6 +18,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -32,6 +32,7 @@ from account_intelligence.api.routes import (
     v1_router,
 )
 from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
+from account_intelligence.platform.ports import PayloadMissing
 
 
 def _on_sigterm(app: FastAPI, previous: Any) -> Any:
@@ -51,17 +52,34 @@ def _on_sigterm(app: FastAPI, previous: Any) -> Any:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Build the container, bind the Cloud SQL engine in the cloud, install the SIGTERM drain."""
     from account_intelligence.app.container import build_container
+    from account_intelligence.config import load_settings
 
+    # fail fast: the whole environment is validated before anything is wired (names only)
+    settings = load_settings()
+    from obs.logging import configure_logging
+
+    configure_logging(settings.log_level, service=settings.service_role)
     app.state.draining = False
     container = build_container()
     app.state.container = container
+    from account_intelligence.chat.registry import get_chat_registry
+    from account_intelligence.chat.service import AnthropicChatProvider, ChatService
+
+    client = getattr(container.llm, "client", None)
+    app.state.chat_service = ChatService(
+        get_chat_registry(), AnthropicChatProvider(client) if client is not None else None
+    )
+    from account_intelligence.chat.credentials import TenantModelKeyStore
+
+    app.state.tenant_model_keys = TenantModelKeyStore(settings.byok_kms_key)
     connector = None
     if container.env in ("staging", "production"):
         from account_intelligence.db.session import bind_engine
         from account_intelligence.platform.gcp.adapters import cloud_sql_engine
 
+        assert settings.cloud_sql_instance and settings.db_iam_user and settings.db_name
         engine, connector = await cloud_sql_engine(
-            os.environ["CLOUD_SQL_INSTANCE"], os.environ["DB_IAM_USER"], os.environ["DB_NAME"]
+            settings.cloud_sql_instance, settings.db_iam_user, settings.db_name
         )
         bind_engine(engine)
     previous = signal.getsignal(signal.SIGTERM)
@@ -126,6 +144,42 @@ def create_app() -> FastAPI:
             status_code=error.status_code,
             media_type="application/problem+json",
             headers={**error.headers} if error.headers else None,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
+        """422 as a problem document: field locations and messages only. The submitted values are
+        never echoed (they may be sensitive, and non-standard JSON such as Infinity cannot be
+        serialised back, which used to turn a bad request into a 500)."""
+        request_id = getattr(request.state, "request_id", "unavailable")
+        errors = [
+            {
+                "loc": [str(p) for p in e.get("loc", ())],
+                "msg": str(e.get("msg", "")),
+                "type": str(e.get("type", "")),
+            }
+            for e in error.errors()
+        ]
+        return JSONResponse(
+            {**problem_body(422, request_id, "invalid request"), "errors": errors[:50]},
+            status_code=422,
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(PayloadMissing)
+    async def payload_missing(request: Request, _error: PayloadMissing) -> JSONResponse:
+        """A stored source object is gone (retention, deletion, lost write): 409, never a 500."""
+        request_id = getattr(request.state, "request_id", "unavailable")
+        return JSONResponse(
+            {
+                "type": "urn:6th:problem:source_missing",
+                "title": "Source data missing",
+                "status": 409,
+                "detail": "A stored source for this run is no longer available.",
+                "request_id": request_id,
+            },
+            status_code=409,
+            media_type="application/problem+json",
         )
 
     @app.exception_handler(DependencyUnavailable)

@@ -22,7 +22,8 @@ from tests.spend.conftest import NOW, admin
 from tests.spend.test_connector_gate import _approved
 from tests.spend.test_v2_db import GOOD, Scanner, Store, cassette, open_request
 
-pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
+# asyncio is marked per coroutine test: a module-wide mark also tags the sync tests (warning)
+pytestmark = [pytest.mark.requires_postgres]
 
 
 @pytest.fixture
@@ -100,6 +101,7 @@ def test_step_up_is_read_only_from_mfa_claims() -> None:
     assert step_up({}) is None
 
 
+@pytest.mark.asyncio
 async def test_pause_approval_route_needs_step_up_and_resumes_the_run(
     tenant_a: UUID, cfg: SpendConfig
 ) -> None:
@@ -125,6 +127,7 @@ async def test_pause_approval_route_needs_step_up_and_resumes_the_run(
     assert again.status_code == 403  # single use
 
 
+@pytest.mark.asyncio
 async def test_decline_route_resumes_to_end_with_partial_results(
     tenant_a: UUID, cfg: SpendConfig
 ) -> None:
@@ -140,6 +143,7 @@ async def test_decline_route_resumes_to_end_with_partial_results(
     ) == [("declined",)]
 
 
+@pytest.mark.asyncio
 async def test_tenant_live_route_never_shows_amounts_or_providers(
     tenant_a: UUID, tenant_b: UUID, cfg: SpendConfig
 ) -> None:
@@ -154,6 +158,7 @@ async def test_tenant_live_route_never_shows_amounts_or_providers(
     assert (await call(other, "GET", f"/v1/runs/{run}/spend/live")).status_code == 404
 
 
+@pytest.mark.asyncio
 async def test_operator_routes_fail_closed_without_the_operator_plane(
     tenant_a: UUID, cfg: SpendConfig
 ) -> None:
@@ -163,6 +168,7 @@ async def test_operator_routes_fail_closed_without_the_operator_plane(
     assert res.status_code == 503
 
 
+@pytest.mark.asyncio
 async def test_operator_upload_flow_returns_spec_target_and_a_typed_verdict(
     tenant_a: UUID, cfg: SpendConfig
 ) -> None:

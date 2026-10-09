@@ -14,6 +14,7 @@ GUARANTEE(test_a_dsar_runs_end_to_end)
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -61,7 +62,9 @@ def deadlines(path: Path | None = None) -> dict[str, int]:
 
 
 def _path(rel: str) -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / rel
+    return (
+        Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config") / rel
+    )
 
 
 @dataclass(frozen=True)

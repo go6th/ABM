@@ -41,8 +41,9 @@ def test_jsonb_type_is_postgres_jsonb() -> None:
     assert column.type is JSONB or type(column.type) is JSONB
 
 
-# Starter tables mapped for foreign keys only; they predate the v1 conventions.
-STARTER_TABLES = {"tenants"}
+# Tables registered only to resolve foreign keys are not application ORM models. Starter tables
+# mapped for foreign keys also predate the v1 conventions.
+REFERENCE_ONLY_TABLES = {"account_runs", "tenants"}
 
 
 def test_uuid_pk_and_timestamps_on_every_registered_model() -> None:
@@ -50,7 +51,7 @@ def test_uuid_pk_and_timestamps_on_every_registered_model() -> None:
     for table in Base.metadata.tables.values():
         (pk,) = table.primary_key.columns  # single-column UUID key (id, or account_id for counters)
         assert pk.type.python_type is UUID, table.name
-        if table.name in STARTER_TABLES:
+        if table.name in REFERENCE_ONLY_TABLES:
             continue
         for stamp in ("created_at", "updated_at"):
             assert stamp in table.c, table.name

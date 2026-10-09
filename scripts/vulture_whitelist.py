@@ -18,3 +18,10 @@ parent_context  # noqa: B018, F821 - OpenTelemetry SpanProcessor.on_start contra
 functions  # noqa: B018, F821 - PeopleSearchPort contract; provider args are technology-scoped
 row_keys  # noqa: B018, F821 - TrackerPort.mark contract
 to  # noqa: B018, F821 - Mailer.send contract and unconfigured adapter
+
+# pydantic-settings ``settings_customise_sources`` signature (config._Explicit):
+# the framework passes every source; only ``init_settings`` is used.
+settings_cls  # noqa: B018, F821 - pydantic-settings sources
+env_settings  # noqa: B018, F821 - pydantic-settings sources
+dotenv_settings  # noqa: B018, F821 - pydantic-settings sources
+file_secret_settings  # noqa: B018, F821 - pydantic-settings sources

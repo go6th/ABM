@@ -19,7 +19,7 @@ from account_intelligence.config import get_settings
 
 _settings = get_settings()
 engine = create_async_engine(
-    _settings.database_url,
+    _settings.runtime_database_url,
     pool_size=_settings.db_pool_size,
     max_overflow=_settings.db_max_overflow,
     pool_pre_ping=True,
@@ -56,7 +56,7 @@ def get_sync_engine() -> Engine:
     global _sync_engine
     if _sync_engine is None:
         _sync_engine = create_engine(
-            make_sync_url(get_settings().database_url),
+            make_sync_url(get_settings().runtime_database_url),
             pool_pre_ping=True,
         )
     return _sync_engine

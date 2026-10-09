@@ -201,6 +201,7 @@ def test_log_lines_carry_only_allowed_fields() -> None:
     assert lines[0] == {
         "event": "provider_failed",
         "level": "WARNING",
+        "severity": "WARNING",  # Cloud Logging reads severity from structured lines
         "service": "worker",
         "provider_code": "p_search",
         "attempt": 2,

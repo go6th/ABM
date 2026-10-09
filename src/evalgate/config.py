@@ -6,6 +6,7 @@ GUARANTEE(test_eval_config_is_sourced): every value has a source or a status.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -116,7 +117,10 @@ def build(data: Mapping[str, Any], raw: bytes) -> EvalConfig:
 @lru_cache(maxsize=4)
 def load_eval_config(directory: Path | None = None) -> EvalConfig:
     """Load ``evals.yaml``."""
-    path = (directory or Path(__file__).resolve().parents[2] / "config") / "evals.yaml"
+    path = (
+        directory
+        or Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config")
+    ) / "evals.yaml"
     raw = path.read_bytes()
     data = yaml.safe_load(raw)
     if not isinstance(data, Mapping):

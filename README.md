@@ -36,26 +36,28 @@ flowchart LR
 ```
 
 `src/account_intelligence/app/container.py` selects adapters. The database is the source of truth
-for tenant isolation and run lifecycle. Compose defines PostgreSQL, Cloud Storage and Cloud Tasks
-emulators, Redis, and an API container. `make up` starts only the dependency services. Compose
-does not provide migration/bootstrap ordering, a worker, scheduler, web app, fake identity provider,
-provider/model stubs, or notification sinks, so a clean-checkout full-stack run is not proven.
+for tenant isolation and run lifecycle. Every environment variable is declared once in the typed
+registry (`src/account_intelligence/config.py`); a process with a missing, forbidden or mistyped
+variable refuses to start. The list of names (never values) is
+[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
 
 ## Local development
 
 Requires Python 3.12, `uv`, Docker Compose, Node.js 22, and npm. From the repository root:
 
 ```bash
-test -f .env || cp .env.example .env
 uv sync --frozen
-make up
-make migrate
-make run
+make up        # builds and starts db, migrate, api, worker, web, fake IdP, GCS/Tasks emulators, Redis
+make doctor    # every service healthy, endpoints answer, a fake-IdP token round-trips through the API
 ```
 
-Then in a separate terminal, install and run the web app with `npm --prefix web ci && npm --prefix
-web run dev`. The local Compose stack does not seed fake OIDC users; authenticated browser flows are
-not currently proven end to end. Keep all data synthetic.
+The default stack is hermetic: no container reads `.env`, so no provider or model is called. To use
+real keys locally, put them in the ignored `.env` (variables in docs/ENVIRONMENT.md) and run
+`docker compose -f compose.yml -f compose.live.yml up -d`. Keep all data synthetic.
+
+Endpoints: web <http://localhost:3000>, API <http://localhost:8080>, worker
+<http://localhost:8081>, fake IdP <http://localhost:9090>. `make down` stops the stack; `make reset`
+also deletes its database volume.
 
 ## Checks
 

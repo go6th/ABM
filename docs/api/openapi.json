@@ -946,6 +946,377 @@
         "title": "ChangeBody",
         "type": "object"
       },
+      "ChatModel": {
+        "additionalProperties": false,
+        "description": "Public model identifier, prices and capability flags; never provider credentials.",
+        "properties": {
+          "cache_read_usd_per_million": {
+            "title": "Cache Read Usd Per Million",
+            "type": "string"
+          },
+          "cache_write_usd_per_million": {
+            "title": "Cache Write Usd Per Million",
+            "type": "string"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/ChatModelCapabilities"
+          },
+          "context_window": {
+            "title": "Context Window",
+            "type": "integer"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_usd_per_million": {
+            "title": "Input Usd Per Million",
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "title": "Max Output Tokens",
+            "type": "integer"
+          },
+          "output_usd_per_million": {
+            "title": "Output Usd Per Million",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "display_name",
+          "input_usd_per_million",
+          "output_usd_per_million",
+          "cache_write_usd_per_million",
+          "cache_read_usd_per_million",
+          "context_window",
+          "max_output_tokens",
+          "capabilities"
+        ],
+        "title": "ChatModel",
+        "type": "object"
+      },
+      "ChatModelCapabilities": {
+        "additionalProperties": false,
+        "description": "Public capabilities of a selectable chat model.",
+        "properties": {
+          "streaming": {
+            "title": "Streaming",
+            "type": "boolean"
+          },
+          "tool_use": {
+            "title": "Tool Use",
+            "type": "boolean"
+          },
+          "vision": {
+            "title": "Vision",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "streaming",
+          "vision",
+          "tool_use"
+        ],
+        "title": "ChatModelCapabilities",
+        "type": "object"
+      },
+      "ChatModels": {
+        "additionalProperties": false,
+        "description": "Available chat models and the configured default.",
+        "properties": {
+          "default_model": {
+            "title": "Default Model",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ChatModel"
+            },
+            "title": "Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "default_model",
+          "models"
+        ],
+        "title": "ChatModels",
+        "type": "object"
+      },
+      "ChatThread": {
+        "additionalProperties": false,
+        "description": "Private thread details and chronological turns.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "reserved_usd": {
+            "title": "Reserved Usd",
+            "type": "string"
+          },
+          "spent_usd": {
+            "title": "Spent Usd",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "turn_count": {
+            "title": "Turn Count",
+            "type": "integer"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/ChatTurn"
+            },
+            "title": "Turns",
+            "type": "array"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "turn_count",
+          "spent_usd",
+          "reserved_usd",
+          "created_at",
+          "updated_at",
+          "turns"
+        ],
+        "title": "ChatThread",
+        "type": "object"
+      },
+      "ChatThreadCreated": {
+        "additionalProperties": false,
+        "description": "A newly created private chat thread.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ChatThreadCreated",
+        "type": "object"
+      },
+      "ChatThreadDeleted": {
+        "additionalProperties": false,
+        "description": "Confirmation of a caller-owned thread deletion.",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "ChatThreadDeleted",
+        "type": "object"
+      },
+      "ChatThreadSummary": {
+        "additionalProperties": false,
+        "description": "Sidebar summary for one private thread.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "spent_usd": {
+            "title": "Spent Usd",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "turn_count": {
+            "title": "Turn Count",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "turn_count",
+          "spent_usd",
+          "updated_at",
+          "model_id"
+        ],
+        "title": "ChatThreadSummary",
+        "type": "object"
+      },
+      "ChatThreads": {
+        "additionalProperties": false,
+        "description": "Recent private chat threads.",
+        "properties": {
+          "threads": {
+            "items": {
+              "$ref": "#/components/schemas/ChatThreadSummary"
+            },
+            "title": "Threads",
+            "type": "array"
+          }
+        },
+        "required": [
+          "threads"
+        ],
+        "title": "ChatThreads",
+        "type": "object"
+      },
+      "ChatTurn": {
+        "additionalProperties": false,
+        "description": "One persisted user/model turn and safe token attribution.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "assistant_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assistant Content"
+          },
+          "cache_read_tokens": {
+            "title": "Cache Read Tokens",
+            "type": "integer"
+          },
+          "cache_write_tokens": {
+            "title": "Cache Write Tokens",
+            "type": "integer"
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "turn_number": {
+            "title": "Turn Number",
+            "type": "integer"
+          },
+          "user_content": {
+            "title": "User Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "turn_number",
+          "request_id",
+          "model_id",
+          "user_content",
+          "assistant_content",
+          "client",
+          "account_id",
+          "phase",
+          "status",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_write_tokens",
+          "cost_usd",
+          "created_at",
+          "completed_at"
+        ],
+        "title": "ChatTurn",
+        "type": "object"
+      },
       "CompleteBody": {
         "additionalProperties": false,
         "description": "The operator's attestation (recorded with the verdict).",
@@ -3240,6 +3611,55 @@
         "title": "NewTenant",
         "type": "object"
       },
+      "NewThread": {
+        "additionalProperties": false,
+        "description": "No caller-supplied tenant, owner or budget fields.",
+        "properties": {},
+        "title": "NewThread",
+        "type": "object"
+      },
+      "NewTurn": {
+        "additionalProperties": false,
+        "description": "One append-only user turn. The provider key and limit fields are never accepted.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "content": {
+            "maxLength": 60000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "model",
+          "content"
+        ],
+        "title": "NewTurn",
+        "type": "object"
+      },
       "OperatorLiveSpend": {
         "additionalProperties": false,
         "description": "Response body: operator live spend.",
@@ -5251,6 +5671,70 @@
           "as_of"
         ],
         "title": "TenantLiveSpend",
+        "type": "object"
+      },
+      "TenantModelKeyBody": {
+        "additionalProperties": false,
+        "description": "Admin-supplied BYO key; it is never returned or written to logs.",
+        "properties": {
+          "api_key": {
+            "format": "password",
+            "title": "Api Key",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "api_key"
+        ],
+        "title": "TenantModelKeyBody",
+        "type": "object"
+      },
+      "TenantModelKeyDeleted": {
+        "additionalProperties": false,
+        "description": "Confirmation that a tenant's optional model key was removed.",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "TenantModelKeyDeleted",
+        "type": "object"
+      },
+      "TenantModelKeyStatus": {
+        "additionalProperties": false,
+        "description": "Non-secret status of a tenant's optional model key.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "available",
+          "configured",
+          "updated_at"
+        ],
+        "title": "TenantModelKeyStatus",
         "type": "object"
       },
       "TenantOverview": {
@@ -8703,6 +9187,456 @@
         ]
       }
     },
+    "/v1/chat/provider-key": {
+      "delete": {
+        "description": "Remove encrypted BYO key bytes and audit the content-free administrative action.",
+        "operationId": "remove_provider_key_v1_chat_provider_key_delete",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantModelKeyDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Provider Key",
+        "tags": [
+          "chat"
+        ]
+      },
+      "get": {
+        "description": "Return only whether a BYO key is set and when it was last changed.",
+        "operationId": "provider_key_status_v1_chat_provider_key_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantModelKeyStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provider Key Status",
+        "tags": [
+          "chat"
+        ]
+      },
+      "put": {
+        "description": "Encrypt a tenant's optional Anthropic key with KMS; audit without its value.",
+        "operationId": "set_provider_key_v1_chat_provider_key_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantModelKeyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantModelKeyStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Provider Key",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/threads": {
+      "get": {
+        "description": "List only this member's 100 most recently active threads.",
+        "operationId": "threads_v1_chat_threads_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatThreads"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Threads",
+        "tags": [
+          "chat"
+        ]
+      },
+      "post": {
+        "description": "Create an empty private history owned by the verified user and tenant.",
+        "operationId": "new_thread_v1_chat_threads_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewThread"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatThreadCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "New Thread",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/threads/{thread_id}": {
+      "delete": {
+        "description": "Delete a caller-owned conversation and its stored transcript.",
+        "operationId": "remove_thread_v1_chat_threads__thread_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatThreadDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Thread",
+        "tags": [
+          "chat"
+        ]
+      },
+      "get": {
+        "description": "Load a caller-owned conversation; other tenants and members receive a 404.",
+        "operationId": "thread_v1_chat_threads__thread_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatThread"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Thread",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/threads/{thread_id}/turns/stream": {
+      "post": {
+        "description": "Reserve a bounded turn before returning SSE, then persist token/cost attribution.",
+        "operationId": "stream_turn_v1_chat_threads__thread_id__turns_stream_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTurn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Turn",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
     "/v1/connectors": {
       "get": {
         "description": "The tenant's connections (never a token).",
@@ -10063,6 +10997,56 @@
         "summary": "Give",
         "tags": [
           "feedback"
+        ]
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "description": "The current allowlist and public costs; no provider credential is returned.",
+        "operationId": "models_v1_models_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatModels"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Models",
+        "tags": [
+          "chat"
         ]
       }
     },

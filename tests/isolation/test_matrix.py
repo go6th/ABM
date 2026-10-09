@@ -362,11 +362,12 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
         v for v in world.canary_values("A") if v in text and v not in sent and v not in public
     )
     assert not leaked, (route, reply.status_code, leaked)
-    assert reply.status_code < 500 or entry["probe"] in ("operator", "anonymous"), (
-        route,
-        reply.status_code,
-        reply.text[:300],
-    )
+    expected_unavailable = entry.get("allow_service_unavailable") and reply.status_code == 503
+    assert (
+        reply.status_code < 500
+        or expected_unavailable
+        or entry["probe"] in ("operator", "anonymous")
+    ), (route, reply.status_code, reply.text[:300])
     if entry["probe"] == "machine":
         assert reply.status_code == 403, (route, reply.status_code)
     elif entry["probe"] == "staff":  # the probe proves something only if the route ran

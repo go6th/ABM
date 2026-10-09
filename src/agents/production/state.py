@@ -33,7 +33,17 @@ class PgRunRecords(PgSenseChecks):
         self.txn = txn
 
     async def save_distill(self, ctx: RunContext, audience: str, output: BaseModel) -> None:
-        """Insert once per run and audience (a replay is a no-op)."""
+        """Insert once per run and audience, and project client prose to the append-only report.
+
+        The export reader consumes ``report_sections``; it never reads model output directly. Only
+        validated client distill claims with known public fact ids are projected. Narrative rows
+        require registered source codes, and hypotheses require a matching confirmation question.
+        Replays are idempotent at both stores.
+        """
+        from agents.schemas import DistillOutput
+
+        if not isinstance(output, DistillOutput):
+            raise TypeError("distill output must be schema-validated")
         async with self.txn(ctx.tenant_id) as s:
             await s.execute(
                 text(
@@ -48,6 +58,97 @@ class PgRunRecords(PgSenseChecks):
                     "o": json.dumps(output.model_dump(mode="json"), sort_keys=True),
                 },
             )
+            if audience != "client":
+                return
+
+            account_id = (
+                await s.execute(
+                    text("SELECT account_id FROM account_runs WHERE id = :r"),
+                    {"r": ctx.run_id},
+                )
+            ).scalar_one_or_none()
+            if account_id is None:
+                raise LookupError("run not found for this tenant")
+
+            fact_ids = sorted(
+                {
+                    fact_id
+                    for claim in (*output.narrative, *output.hypotheses, *output.questions)
+                    for fact_id in claim.fact_ids
+                }
+            )
+            codes_by_fact: dict[str, set[str]] = {}
+            if fact_ids:
+                rows = (
+                    await s.execute(
+                        text(
+                            "SELECT DISTINCT f.id::text AS fact_id, src.source_code"
+                            " FROM facts f JOIN fact_evidence e ON e.fact_id = f.id"
+                            " JOIN sources src ON src.id = e.source_id"
+                            " WHERE f.run_id = :r AND f.account_id = :a"
+                            " AND f.id = ANY(CAST(:ids AS uuid[]))"
+                            " AND f.visibility = 'public' AND f.superseded_at IS NULL"
+                            " AND e.evidence_kind <> 'search_proof'"
+                        ),
+                        {"r": ctx.run_id, "a": account_id, "ids": fact_ids},
+                    )
+                ).all()
+                for row in rows:
+                    codes_by_fact.setdefault(row.fact_id, set()).add(row.source_code)
+
+            async def project(
+                kind: str,
+                position: int,
+                claim: Any,
+                *,
+                question: str | None = None,
+                require_citation: bool = False,
+            ) -> None:
+                """Persist one checked section; uncited narrative is withheld from the renderer."""
+                ids = sorted(set(claim.fact_ids))
+                codes = sorted({code for fid in ids for code in codes_by_fact.get(fid, set())})
+                if require_citation and not codes:
+                    return
+                # A run's client report is immutable. Conflicts are safe replays of the same
+                # graph node, not edits or replacement of previously rendered prose.
+                await s.execute(
+                    text(
+                        "INSERT INTO report_sections (tenant_id, account_id, run_id, version,"
+                        " kind, position, text, cited_source_codes, fact_ids, confirming_question,"
+                        " visibility) VALUES (:t, :a, :r, 1, :k, :p, :body, :codes,"
+                        " CAST(:ids AS uuid[]), :question, 'public')"
+                        " ON CONFLICT (tenant_id, run_id, version, kind, position) DO NOTHING"
+                    ),
+                    {
+                        "t": ctx.tenant_id,
+                        "a": account_id,
+                        "r": ctx.run_id,
+                        "k": kind,
+                        "p": position,
+                        "body": claim.text,
+                        "codes": codes,
+                        "ids": ids,
+                        "question": question,
+                    },
+                )
+
+            for position, claim in enumerate(output.narrative):
+                await project("narrative", position, claim, require_citation=True)
+            for position, claim in enumerate(output.questions):
+                # A question is a prompt for the account owner, not an asserted fact.
+                await project("first_call_question", position, claim)
+            for position, hypothesis in enumerate(output.hypotheses):
+                ids = set(hypothesis.fact_ids)
+                confirmation = next(
+                    (q for q in output.questions if ids.intersection(q.fact_ids)), None
+                )
+                if confirmation is not None:
+                    await project(
+                        "hypothesis",
+                        position,
+                        hypothesis,
+                        question=confirmation.text,
+                    )
 
     async def distill(self, ctx: RunContext, audience: str) -> dict[str, Any] | None:
         """The stored output for an audience."""

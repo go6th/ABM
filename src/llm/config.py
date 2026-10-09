@@ -11,6 +11,7 @@ GUARANTEE(test_routing_config_loads_and_every_candidate_fact_is_sourced): R1.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -253,7 +254,7 @@ def build(data: Mapping[str, Any], raw: bytes) -> RoutingConfig:
 
 def config_dir() -> Path:
     """The repository's ``config`` directory."""
-    return Path(__file__).resolve().parents[2] / "config"
+    return Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config")
 
 
 @lru_cache(maxsize=4)

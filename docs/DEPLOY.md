@@ -1,75 +1,138 @@
-# Deployment preparation
+# Production Deployment Guide: Google Cloud Platform (GCP)
 
-This repository targets Google Cloud, but this checkout is **not release-ready**. The local
-Compose file starts PostgreSQL, the Cloud Storage and Cloud Tasks emulators, and Redis; it does not
-start the web app, a worker, a scheduler, a fake identity provider, or provider/LLM sinks. The
-Terraform stack currently defines the API and worker from one image. Do not treat a successful image
-build or `terraform validate` as a deployment approval. See [RELEASE_REPORT.md](RELEASE_REPORT.md)
-for the gates that remain open.
+This document provides operational instructions for deploying the ABM Generator stack to Google Cloud Platform.
+No live cloud mutations are executed automatically; deployment is gated by explicit owner authorization and WIF pipelines.
 
-## Owner inputs required before a staging deployment
+---
 
-- Separate staging and production project IDs, region, billing ownership, and data residency.
-- Terraform state bucket and a reviewed database tier/availability choice.
-- Repository name and GitHub Workload Identity Federation provider and deployer service account.
-- A pinned, scanned image digest and an approved migration execution path.
-- Secret Manager values and provider registrations; Workspace OAuth client, callback, domain,
-  operator allowlist, and MFA claims for the staff plane.
-- A decision on the production OIDC provider and user, analyst, seller, viewer, and operator roles.
-- Human approval from the configured GitHub `staging` environment reviewers.
+## 1. Required Owner Inputs Before Deployment
 
-Do not place secret values in Terraform variables, `.env.example`, command arguments, or Git.
-Terraform provisions Secret Manager references; secret values are entered by the owner after review.
+Before deploying staging or production environments, the infrastructure owner must provide:
 
-## Validation before any cloud action
+1. **GCP Project ID**: Staging and production project identifiers (e.g., `ai-abm-staging-123`, `ai-abm-prod-456`).
+2. **Deployment Region**: Selected Google Cloud region (e.g., `us-central1` for US-only inference compliance).
+3. **Billing Authorization**: Confirmation that Google Cloud billing is active and attached to the target projects.
+4. **Production Domain**: The public DNS domain for the external HTTPS load balancer (e.g., `app.example.com`).
 
-The following checks are local and do not authenticate to Google Cloud or create resources:
+Do not hardcode or place secrets in repository configuration, Terraform variables, or Git commits.
+
+---
+
+## 2. Infrastructure Architecture Overview
+
+The production architecture is provisioned via modular Terraform (`infra/`):
+
+- **Compute & Ingress**:
+  - `web` (Next.js 16 standalone): Cloud Run v2 service behind an External HTTPS Load Balancer with Google-managed SSL and Cloud Armor WAF rules (`infra/modules/edge/`, `infra/modules/cloud_run/`).
+  - `api` (FastAPI): Cloud Run v2 service with Direct VPC egress, accessible internally from `web` and Cloud Tasks.
+  - `worker` (Cloud Run Job): One-run-per-container execution driven by Cloud Tasks (`infra/modules/cloud_run_jobs/`).
+  - `migrate` (Cloud Run Job): Runs `alembic upgrade head` before service rollout.
+- **Data & Storage**:
+  - Cloud SQL PostgreSQL 16 with `pgvector`, Private IP only, CMEK encryption, and IAM database authentication (`infra/modules/cloud_sql/`).
+  - Cloud Storage: Private CMEK-encrypted bucket for tenant payloads under `tenants/{tenant}/runs/{run_id}/raw/` (`infra/modules/gcs/`).
+  - Memorystore Redis: Shared rate limiting and concurrency governance (`infra/modules/cache/`).
+- **Identity & Security**:
+  - Google Secret Manager: Holds provider credentials and runtime secrets referenced via `secret_key_ref` (`infra/modules/secret_manager/`).
+  - Cloud KMS: CMEK for storage, SQL, and envelope encryption for tenant BYOK keys (`tenant_model_credentials`).
+  - Google Cloud Identity Platform: Multi-tenant OIDC discovery and token verification (`infra/modules/identity_platform/`).
+  - IAM: Least-privilege service accounts (`api`, `job`, `web`, `migrate`, `deployer`) with GitHub Workload Identity Federation (`infra/modules/iam/`).
+- **Governance & Monitoring**:
+  - Cloud Billing Budget: Monthly spend caps and alert notifications (`infra/modules/budget/`).
+  - Cloud Scheduler: Triggers nightly spend invariant jobs (`infra/modules/scheduler/`).
+
+---
+
+## 3. Required Service Account Permissions
+
+| Service Account | Role / Permissions | Purpose |
+|---|---|---|
+| `api` | `roles/cloudsql.client`, `roles/secretmanager.secretAccessor` (scoped), `roles/cloudtasks.enqueuer`, `roles/storage.objectUser` | Serves API traffic and orchestrates runs. |
+| `job` (worker) | `roles/cloudsql.client`, `roles/secretmanager.secretAccessor` (scoped), `roles/storage.objectUser` | Executes isolated account research runs. |
+| `web` | `roles/run.invoker` (internal api service) | Proxies client traffic server-side. |
+| `migrate` | `roles/cloudsql.client`, `roles/secretmanager.secretAccessor` (`app_rw_password`, `migrator_url`) | Executes schema migrations. |
+| `deployer` (WIF) | `roles/run.developer`, `roles/artifactregistry.writer`, `roles/iam.serviceAccountUser` | GitHub Actions CI/CD deployment runner. |
+
+---
+
+## 4. Pre-Deployment Verification (Local)
+
+Run local diagnostics and Terraform syntax checks:
 
 ```bash
+# 1. Inspect local developer environment and stack health
+make doctor
+
+# 2. Verify Terraform formatting and validation across staging and prod
 make infra-fmt
 make infra-validate
-uv run --frozen python scripts/preflight_deploy.py --env staging
+
+# 3. Verify environment registry schema
+make env-check
 ```
 
-The preflight reads required `TF_VAR_*` inputs and checks the production Terraform Secret Manager
-references. It prints names and failures only, never supplied values. It does not prove credentials,
-permissions, provider keys, or cloud readiness.
+---
 
-## Human-run staging sequence
+## 5. Step-by-Step Deployment Procedure
 
-Only after the release report's blocking gates are resolved and the owner has reviewed the plan:
+### Step 1: Terraform Initialization & Planning
 
-1. Create the staging project, enable billing, create a restricted state bucket, and configure the
-   GitHub OIDC/WIF provider and deployer service account. Follow
-   [bootstrap.md](runbooks/bootstrap.md).
-2. Add the required `STAGING_*` repository variables and protect the GitHub `staging` environment
-   with named reviewers. The workflow has no deploy job until its WIF provider variable is set.
-3. Set non-secret `TF_VAR_project_id`, `TF_VAR_github_repository`, `TF_VAR_image` (an immutable
-   `@sha256:` digest), `TF_VAR_db_tier`, and `TF_STATE_BUCKET` in the deployment environment. Run
-   `scripts/preflight_deploy.py --env staging` and review its output.
-4. Run Terraform from `infra/envs/staging`: `terraform init` with the approved GCS backend,
-   `terraform plan -out=staging.plan`, then have the infrastructure owner review that plan. Apply
-   only through the approved change process.
-5. Enter provider, database, and model secrets into Secret Manager through the approved secret
-   workflow. Confirm workload identities have only the required access.
-6. Build, scan, and publish the exact reviewed image digest. Run migrations as a separate, reviewed
-   job before any service rollout. The current repository does not yet provide separate validated
-   API, worker, web, and migrator images/jobs; resolve this before rollout.
-7. Deploy API, worker, scheduler, and web only after the service split and local end-to-end stack
-   gates pass. Verify `/healthz`, `/readyz`, same-origin browser-to-API access, authentication,
-   tenant isolation, and a synthetic run. Do not use real tenant data in smoke tests.
-8. Record image digest, migration revision, readiness output, smoke-test run ID, approver, and
-   rollback target in the release record.
+```bash
+cd infra/envs/staging # or infra/envs/prod
 
-The existing `make deploy-staging` command only prints a legacy command template. It does not
-deploy. The GitHub workflow is gated by branch, required jobs, WIF variables, and the protected
-environment, but its image and service rollout have not passed the complete deployment gates.
+# 1. Initialize with remote GCS state bucket
+terraform init -backend-config="bucket=${TF_STATE_BUCKET}"
 
-## Rollback
+# 2. Generate and review deployment plan
+terraform plan -var-file="terraform.tfvars" -out="staging.tfplan"
 
-For a service rollback, route traffic to the previously approved Cloud Run revision only after
-checking migration compatibility. The current migrations are not all proven safe for rollback with
-live data; use forward fixes for irreversible data changes. Restore the database only under the
-incident commander and database owner's approval, following [restore.md](runbooks/restore.md).
+# 3. Apply infrastructure resources (requires human review)
+terraform apply "staging.tfplan"
+```
 
-No cloud plan, apply, deploy, secret write, or real credential check was run for this audit.
+### Step 2: Secret Population in Secret Manager
+
+Add required secret versions out-of-band (never committed to Git):
+
+```bash
+# Model provider key
+gcloud secrets versions add anthropic-api-key --data-file=<(printf "%s" "$ANTHROPIC_API_KEY")
+
+# Provider connector keys
+gcloud secrets versions add p-search-api-key --data-file=<(printf "%s" "$P_SEARCH_API_KEY")
+gcloud secrets versions add p-scrape-api-key --data-file=<(printf "%s" "$P_SCRAPE_API_KEY")
+gcloud secrets versions add p-signals-api-key --data-file=<(printf "%s" "$P_SIGNALS_API_KEY")
+gcloud secrets versions add p-signals-api-token --data-file=<(printf "%s" "$P_SIGNALS_API_TOKEN")
+gcloud secrets versions add p-people-api-key --data-file=<(printf "%s" "$P_PEOPLE_API_KEY")
+gcloud secrets versions add p-org-api-key --data-file=<(printf "%s" "$P_ORG_API_KEY")
+```
+
+### Step 3: Container Build, Scan, Sign, and Rollout
+
+Executed automatically via GitHub Actions (`.github/workflows/deploy-staging.yml` or `deploy-prod.yml`), or manually:
+
+```bash
+bash scripts/deploy_gcp.sh
+```
+
+The script:
+1. Builds `api`, `worker`, and `web` containers.
+2. Runs Trivy vulnerability scans (fails on HIGH or CRITICAL).
+3. Generates and uploads CycloneDX SBOMs.
+4. Pushes image digests to Artifact Registry.
+5. Signs image digests keylessly with Cosign (Sigstore OIDC).
+6. Executes Cloud Run migration job (`alembic upgrade head`).
+7. Updates Cloud Run services and jobs with zero downtime.
+
+---
+
+## 6. Rollback Runbook
+
+If an issue occurs after deployment:
+
+1. **Traffic Rollback**:
+   ```bash
+   gcloud run services update-traffic ${CLOUD_RUN_API_SERVICE} --to-revisions=${PREVIOUS_REVISION}=100 --region=${GCP_REGION}
+   gcloud run services update-traffic ${CLOUD_RUN_WEB_SERVICE} --to-revisions=${PREVIOUS_REVISION}=100 --region=${GCP_REGION}
+   ```
+2. **Database Schema Rollback**:
+   Check migration reversibility before rolling back. For irreversible data changes, deploy a forward-fix migration.

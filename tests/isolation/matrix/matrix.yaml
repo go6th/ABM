@@ -31,6 +31,11 @@ tables:
   branding_assets:
     plant: {object_key: "tenants/{tenant}/branding/{hex64}.png"}
   canary_probe_results: {}
+  chat_threads:
+    plant: {owner_user_id: "{canary}"}
+  chat_turns:
+    plant: {client: web, phase: chat}
+  tenant_model_credentials: {}
   checkpoint_blobs: {}
   checkpoint_writes: {}
   checkpoints: {}
@@ -122,7 +127,8 @@ tables:
   sources:
     plant: {source_code: S-0001, url: "https://tn1.example/canary",
             url_normalized: "https://tn1.example/canary",
-            url_hash: 4187a99b7a74361632f63d41a714fe66180164220722b7a9ab1ce373e2d899af}
+            url_hash: 4187a99b7a74361632f63d41a714fe66180164220722b7a9ab1ce373e2d899af,
+            first_seen_account_run_id: "{uuid}", last_seen_account_run_id: "{uuid}"}
   spend_defects:
     plant: {provider_code: p_search}
   spend_limit_events:
@@ -310,6 +316,25 @@ routes:
   GET /operator/v1/ops/cost/{run_id}: {probe: operator, params: {run_id: account_runs.id}}
   GET /operator/v1/ops/failures: {probe: operator}
   GET /operator/v1/ops/stuck: {probe: operator}
+  GET /v1/models: {probe: anonymous}
+  GET /v1/chat/provider-key: {probe: tenant}
+  PUT /v1/chat/provider-key:
+    probe: tenant
+    allow_service_unavailable: true
+    body: {api_key: sk-ant-abcdefghijklmnopqrstuvwxyz}
+  DELETE /v1/chat/provider-key: {probe: tenant}
+  POST /v1/chat/threads: {probe: tenant, body: {}}
+  GET /v1/chat/threads: {probe: tenant}
+  GET /v1/chat/threads/{thread_id}: {probe: tenant, params: {thread_id: chat_threads.id}}
+  DELETE /v1/chat/threads/{thread_id}: {probe: tenant, params: {thread_id: chat_threads.id}}
+  POST /v1/chat/threads/{thread_id}/turns/stream:
+    probe: tenant
+    allow_service_unavailable: true
+    params: {thread_id: chat_threads.id}
+    body:
+      request_id: "00000000-0000-4000-8000-000000000001"
+      model: claude-opus-5-5
+      content: Synthetic isolation probe
   GET /v1/settings: {probe: tenant}
   GET /v1/audit: {probe: tenant}
   GET /v1/audit/export: {probe: tenant}

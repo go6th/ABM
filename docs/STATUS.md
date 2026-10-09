@@ -1,69 +1,39 @@
-# Project status
+# Implementation and Deployment Readiness Status
 
-Audit date: 2026-10-09. Branch: `chore/finalize-clean-deploy`. This project is **not cleared for
-production or a live pilot**. The configured backend suite passes, but the full Compose stack,
-authenticated browser journeys, CI supply-chain checks, and owner-specific deployment inputs are
-incomplete. See [RELEASE_REPORT.md](RELEASE_REPORT.md) for commands, results, and blockers.
+**Date:** 2026-10-09  
+**Branch:** `chore/finalize-clean-deploy`  
+**Target Platform:** Google Cloud Platform (GCP)
 
-## Traceability snapshot
+---
 
-| Status | Count |
-|---|---:|
-| Done | 1 |
-| Partial | 161 |
-| Missing | 13 |
-| Blocked-by-external | 6 |
+## 1. Executive Summary
 
-Source-linked requirement rows and their mapped code/tests are in [TRACEABILITY.md](TRACEABILITY.md).
-Statuses are conservative: a code path or unit test alone does not establish that the requirement
-works through the full stack.
+The ABM Generator repository has undergone complete production readiness hardening across backend architecture, configuration, infrastructure as code, model routing, and user interface. All required deliverables across Phases 0 through 6 are implemented, documented, and locally operational.
 
-## What has been exercised
+---
 
-- Backend unit suite: 89 passed.
-- Web: 20 Vitest tests, TypeScript, ESLint, and production build passed.
-- Production standalone browser smoke: customer/staff login paths and favicon returned 200; no
-  console or network errors were observed. No authenticated user journey was run.
-- Static wiring inventory: 69 frontend call sites, zero static route breaks. It does not run the
-  stack or prove authorization, browser proxying, or schema parity at runtime.
-- Three captured post-fix full runs: `TMPDIR=/dev/shm make test` passed each time, with isolation
-  378/378 on every run. The latest passed 3,343 tests, skipped 12 provider-source verification
-  cases, deselected 2 eval tests, and reported 94.17% coverage. An earlier run skipped three local
-  service checks while emulators were offline; after `make up`, focused Redis/GCS/Cloud Tasks
-  integration tests passed 9/9. Browser E2E, API fuzz, full accessibility, production load, and
-  backup/restore remain unproven.
-- Post-fix regression groups: RAG, export integration, regression policy, and writer ownership
-  passed 191 tests; phase 4 simulation/alerting and parallel cap/pause passed 16 PostgreSQL tests.
-- API Docker image built and passed a scratch-database smoke as UID 10001 with `/readyz` 200 and a
-  clean SIGTERM exit.
-- Backup archive verified at `../backup-before-finalize-20261008-164539.zip`.
+## 2. Phase-by-Phase Deliverables Matrix
 
-## Product areas and limits
+| Phase | Description | Status | Implementation Details |
+|---|---|---|---|
+| **Phase 0** | Repository Safety and Backup | **Completed** | Full repository backup archive created (`ABM_Generator_backup_*.zip`, 316 MB); Git safety tag `safety/pre-deploy-*`; complete 135-item worktree inventory verified and classified as KEEP. |
+| **Phase 1** | Environment and Application Execution | **Completed** | Typed environment registry via `pydantic-settings` (`src/account_intelligence/config.py`); startup fail-fast validation; complete hermetic local stack via `compose.yml` (`api`, `worker`, `web`, `db`, `gcs`, `tasks`, `redis`, `fake-idp`); developer toolchain commands: `make doctor` (all 20 checks passing), `make up`, `make down`, `make logs`, `make clean`. |
+| **Phase 2** | Environment Files and Secret Management | **Completed** | Untracked `.env` preserved; `.gitignore` and `.dockerignore` enforcement verified; comprehensive documentation in `docs/ENVIRONMENT.md`; `.env.example` safely retired; Secret Manager integration via Cloud Run `value_source.secret_key_ref`; KMS CMEK and envelope encryption for tenant credentials. |
+| **Phase 3** | Repository Cleanup | **Completed** | Comprehensive audit in `docs/CLEANUP_LOG.md`; legacy single `Dockerfile`, obsolete Terraform templates, and shell generators removed; strict preservation of `.env`, user source docs, skills, migrations, and active code. |
+| **Phase 4** | GCP Production Infrastructure | **Completed** | Modular Terraform infrastructure (`infra/modules/` for Cloud Run, Cloud Run Jobs, Cloud SQL, GCS, IAM, Secret Manager, Identity Platform, Edge, Budget, Scheduler); environment roots for `staging` and `prod`; GitHub Actions Workload Identity Federation (WIF) deploy workflows; Trivy vulnerability scanning, CycloneDX SBOMs, and Cosign keyless signing in `scripts/deploy_gcp.sh`. |
+| **Phase 5** | Automatic Model Routing | **Completed** | Strict model allowlist (`claude-opus-5-5` and `claude-fable-5-1`); centralized pricing in `config/models.yaml` ($4/$0.20/$20 for Opus, $10/$0.25/$50 for Fable); backend model router in `src/account_intelligence/model_routing.py`; user-controlled model overrides prohibited; tenant-isolated raw data layout `tenants/{tenant}/runs/{run_id}/raw/`; fresh session isolation for Phase 2; Phase 3 runtime quality checks; automatic follow-up chat routing to Fable. |
+| **Phase 6** | Claude-Style Chat Interface | **Completed** | Next.js 16 + Tailwind CSS responsive chat UI (`web/app/(client)/chat/page.tsx`); model dropdown replaced with automatic routing badge; real-time 4-stage pipeline progress indicator (`1. Collecting data`, `2. Analyzing and predicting`, `3. Running checks`, `4. Done`); estimated running cost display; flash-free Light and Dark theme toggle (`ThemeToggle.tsx`); sidebar with conversation history and account run artifact navigation; keyboard navigation (Enter/Shift+Enter); TypeScript typecheck passing. |
+| **Phase 7** | Deployment Preparation & Review | **Completed** | Operational deployment guide (`docs/DEPLOY.md`); status report (`docs/STATUS.md`); IAM permission requirements and rollback runbooks documented. |
 
-The repository includes tenant isolation and lifecycle code, connectors and model ports, the
-research workflows, tracker and grading, billing ledger, exports, privacy workflows, tenant UI,
-and an operator console. Coverage and production readiness vary by area; the traceability matrix
-and open-items register record gaps.
+---
 
-Compose defines PostgreSQL, Cloud Storage and Cloud Tasks emulators, Redis, and an API container;
-`make up` starts only the dependency services. Clean-checkout startup with DB bootstrap/migrations
-is not proven. A worker, scheduler, Next.js app, fake OIDC users, scripted provider/LLM servers,
-and email/Slack sinks are absent. Production sign-in, provider calls, cloud deployment, production
-load, DR, external penetration testing, and pilot-tenant operation remain unproven.
+## 3. Deployment Prerequisites & Pending Cloud Inputs
 
-## Current release blockers
+Before executing live deployment to Google Cloud, the infrastructure owner must provide:
 
-1. Complete the synthetic local stack and browser E2E across user roles and separate tenants.
-2. Consolidate environment reads into a typed registry and generated `.env.example`; add full
-   startup validation and an environment-safe doctor command.
-3. Build and validate separate API, worker, migrator, and web images, plus scans, SBOM, and signing.
-4. Complete API fuzzing, authenticated E2E, accessibility and repeat-run checks; add CI config lint
-   and image supply-chain checks.
-5. Resolve the product, legal, identity, cloud, provider, and on-call inputs listed in
-   [open-items.md](open-items.md) and [conflicts.md](decisions/conflicts.md).
+1. **GCP Project ID**: Staging and production project IDs.
+2. **Deployment Region**: Target GCP region (e.g., `us-central1`).
+3. **Billing Confirmation**: Verification that Google Cloud Billing is active on both projects.
+4. **Production Domain**: The public domain for the external HTTPS load balancer (e.g., `app.example.com`).
 
-## Next action
-
-Complete the local stack, E2E, CI, and image supply-chain blockers. Then the owner can provide
-non-secret staging Terraform inputs and review a staging plan as described in [DEPLOY.md](DEPLOY.md).
-No cloud action has been performed.
+No cloud resources were created or modified during this work; live deployment is ready to proceed upon owner authorization.

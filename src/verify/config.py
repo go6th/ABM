@@ -6,6 +6,7 @@ GUARANTEE(test_verify_config_is_sourced_and_actions_are_downgrade_only): D-49.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -96,7 +97,10 @@ def build(data: Mapping[str, Any], raw: bytes) -> VerifyConfig:
 @lru_cache(maxsize=4)
 def load_verify_config(directory: Path | None = None) -> VerifyConfig:
     """Load ``verify.yaml``."""
-    path = (directory or Path(__file__).resolve().parents[2] / "config") / "verify.yaml"
+    path = (
+        directory
+        or Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config")
+    ) / "verify.yaml"
     raw = path.read_bytes()
     data = yaml.safe_load(raw)
     if not isinstance(data, Mapping):

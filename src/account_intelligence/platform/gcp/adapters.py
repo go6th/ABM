@@ -51,8 +51,15 @@ class GcsPayloadStore:
 
     async def get(self, key: str) -> bytes:
         """Download and decompress one payload."""
+        from google.api_core.exceptions import NotFound
+
+        from account_intelligence.platform.ports import PayloadMissing
+
         blob = self._bucket.blob(key)
-        data: bytes = await asyncio.to_thread(blob.download_as_bytes)
+        try:
+            data: bytes = await asyncio.to_thread(blob.download_as_bytes)
+        except NotFound:
+            raise PayloadMissing(key) from None
         return gzip.decompress(data)
 
 

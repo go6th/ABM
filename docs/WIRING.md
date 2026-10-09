@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **108**.
-- Frontend literal call sites found: **69**.
-- Frontend call sites mapped to backend operations: **66**.
-- Backend operations without a direct frontend call site: **48**.
+- Backend operations in OpenAPI: **117**.
+- Frontend literal call sites found: **77**.
+- Frontend call sites mapped to backend operations: **74**.
+- Backend operations without a direct frontend call site: **49**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -58,6 +58,13 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/(client)/alerts/page.tsx` | tenant client | `POST /v1/alerts/{alert_id}/feedback` | Rating (required) | AlertRated | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/app/(client)/audit/page.tsx` | tenant client | `GET /v1/audit` | — | AuditPage | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/layout.tsx` | same-origin or external fetch | `GET /v1/branding` | — | Branding | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(client)/chat/page.tsx` | tenant client | `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
+| `web/app/(client)/chat/page.tsx` | tenant client | `GET /v1/chat/provider-key` | — | TenantModelKeyStatus | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(client)/chat/page.tsx` | tenant client | `PUT /v1/chat/provider-key` | TenantModelKeyBody (required) | TenantModelKeyStatus | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
+| `web/app/(client)/chat/page.tsx` | tenant client | `GET /v1/chat/threads` | — | ChatThreads | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(client)/chat/page.tsx` | tenant client | `POST /v1/chat/threads` | NewThread (required) | ChatThreadCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/app/(client)/chat/page.tsx` | tenant client | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
+| `web/app/(client)/chat/page.tsx` | tenant client | `GET /v1/chat/threads/{thread_id}` | — | ChatThread | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/settings/connectors/page.tsx` | tenant client | `POST /v1/connectors` | StartBody (required) | ConnectorStarted | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/settings/connectors/page.tsx` | tenant client | `POST /v1/connectors/{connection_id}/disconnect` | — | Disconnected | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/settings/connectors/page.tsx` | tenant client | `GET /v1/connectors/{connection_id}/quarantine` | — | Quarantine | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
@@ -70,6 +77,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/(client)/settings/crm/page.tsx` | dynamic tenant wrapper | `POST /v1/crm/{crm}/writes/approve` | Approval (required) | CrmApproved | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/accounts/[domain]/page.tsx` | tenant client | `POST /v1/exports` | ExportBody (required) | ExportPackage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `web/components/Feedback.tsx` | tenant client | `POST /v1/feedback` | FeedbackBody (required) | FeedbackCreated | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `web/app/(client)/chat/page.tsx` | tenant client | `GET /v1/models` | — | ChatModels | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/settings/alerts/page.tsx` | tenant page query | `GET /v1/monitoring/budget` | — | MonitoringBudget | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/accounts/[domain]/page.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/app/(client)/accounts/[domain]/page.tsx` | tenant page query | `GET /v1/runs/pull-option` | — | PullOption | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -102,6 +110,8 @@ Schema names come from the live application OpenAPI document. Policy values come
 
 | Method and path | Request schema | Success schema | Access rule |
 |---|---|---|---|
+| `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
+| `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `GET /healthz` | — | Health (200) | public health probe |
 | `GET /operator/v1/flags` | — | Flags (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
 | `GET /operator/v1/keys` | — | KeyVersions (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
@@ -126,6 +136,9 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/audit` | — | AuditPage (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/audit/export` | — | — | tenant; roles=admin; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/branding` | — | Branding (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/chat/provider-key` | — | TenantModelKeyStatus (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/chat/threads` | — | ChatThreads (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/chat/threads/{thread_id}` | — | ChatThread (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/connectors` | — | Connections (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/connectors/oauth/callback` | — | — | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `GET /v1/connectors/{connection_id}/quarantine` | — | Quarantine (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
@@ -134,6 +147,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/exports/{package_id}` | — | ExportPackage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/exports/{package_id}/files/{index}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/feedback` | — | FeedbackList (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/models` | — | ChatModels (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/monitoring/budget` | — | MonitoringBudget (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs` | — | RunPage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs/pull-option` | — | PullOption (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -172,6 +186,8 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /operator/v1/tenants/{tenant_id}/suspend` | Reason (required) | TenantLifecycle (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `POST /v1/accounts` | AccountBody (required) | AccountAdded (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/alerts/{alert_id}/feedback` | Rating (required) | AlertRated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `POST /v1/chat/threads` | NewThread (required) | ChatThreadCreated (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/chat/threads/{thread_id}/turns/stream` | NewTurn (required) | — | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/connectors` | StartBody (required) | ConnectorStarted (201) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/connectors/{connection_id}/disconnect` | — | Disconnected (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/connectors/{connection_id}/fetch` | — | FetchResult (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
@@ -205,6 +221,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/users` | AddBody (required) | Member (201) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/views` | ViewBody (required) | SavedView (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/views/{view_id}/archive` | Archive (required) | ViewArchived (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=admin |
+| `PUT /v1/chat/provider-key` | TenantModelKeyBody (required) | TenantModelKeyStatus (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/settings` | SettingsBody (required) | TenantSettings (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/settings/branding` | BrandingBody (required) | BrandingSaved (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/sso/connections/{connection_id}` | ConnectionUpdate (required) | IdpConnection (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |

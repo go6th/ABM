@@ -7,6 +7,7 @@ from account_intelligence.api.guard import authorize, route_guard
 from account_intelligence.api.routes import (
     accounts,
     audit,
+    chat,
     connectors,
     crm,
     exports,
@@ -32,6 +33,7 @@ from account_intelligence.api.routes import (
 # authorised against it (catalog roles, membership, CSRF on cookie sessions, step-up).
 v1_router = APIRouter(prefix="/v1", dependencies=[Depends(route_guard), Depends(authorize)])
 v1_router.include_router(runs.router)
+v1_router.include_router(chat.router)
 v1_router.include_router(spend.router)
 v1_router.include_router(spend_v2.router)
 v1_router.include_router(sso.router)
@@ -62,6 +64,7 @@ operator_router.include_router(feedback.operator_router)
 __all__ = [
     "accounts",
     "audit",
+    "chat",
     "connectors",
     "usage",
     "exports",

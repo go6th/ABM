@@ -5,7 +5,7 @@ application, a browser request, source control, an issue, or chat.
 
 ## Local development
 
-Copy `.env.example` to `.env`, keep `CONNECTORS=on`, then fill only the credentials for the
+Create the ignored `.env` with the variables in docs/ENVIRONMENT.md, keep `CONNECTORS=on`, then fill only the credentials for the
 providers you use. `make run` and the local Compose API load `.env`; restart the API after changing
 credentials. No provider requests are made until a run invokes a provider operation.
 

@@ -10,6 +10,7 @@ dependencies = [
     "cloud-sql-python-connector[asyncpg]>=1.12",
     "fastapi>=0.115",
     "google-auth>=2.30",
+    "google-cloud-kms>=2.20",
     "google-cloud-secret-manager>=2.20",
     "google-cloud-storage>=2.18",
     "google-cloud-tasks>=2.16",
@@ -97,7 +98,7 @@ source_pkgs = ["account_intelligence", "spend", "exports", "gate", "parallel", "
 branch = true
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 94
 show_missing = true
 
 # W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports

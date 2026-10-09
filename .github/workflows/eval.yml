@@ -91,7 +91,7 @@ jobs:
           trigger=pull_request
           [ "${{ needs.changes.outputs.model }}" = "true" ] && trigger=prompt_or_model_change
           [ "${{ github.event_name }}" = "schedule" ] && trigger=nightly
-          baseline=$(ls -1 evals/baselines/baseline-*.json 2>/dev/null | tail -1 || true)
+          baseline=$(find evals/baselines -maxdepth 1 -name "baseline-*.json" 2>/dev/null | sort | tail -1 || true)
           uv run --frozen python -m evalgate.cli gate \
             --candidate eval-out/eval-report.json ${baseline:+--baseline "$baseline"} \
             --trigger "$trigger" --modes "replay=$replay,live=$live" --out eval-out/gate.md

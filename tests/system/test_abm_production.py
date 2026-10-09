@@ -119,7 +119,16 @@ class AbmScript:
                         }
                         for f in facts
                     ],
-                    "narrative": [],
+                    "narrative": [
+                        {
+                            # The synthetic evidence is only probable, so a client-facing
+                            # narrative must pose a question rather than state the claim.
+                            "text": "What activity does the public source record for this account?",
+                            "fact_ids": [facts[0]["fact_id"]],
+                        }
+                    ]
+                    if facts
+                    else [],
                 }
             )
         return "{}"
@@ -310,6 +319,15 @@ async def test_full_abm_run_grades_through_the_engine_and_tracks_every_row(
     assert all(g[2] in ("confirmed", "probable", "hypothesis", "lead") for g in graded), graded
     tracked = rows(run.run)
     assert len(tracked) == 33 and all(s is not None for s, _ in tracked.values()), tracked
+    sections = admin(
+        "SELECT kind, cited_source_codes, visibility FROM report_sections"
+        " WHERE run_id = %s ORDER BY kind, position",
+        run.run,
+    )
+    assert any(
+        kind == "narrative" and codes and visibility == "public"
+        for kind, codes, visibility in sections
+    )
     people = {
         k: v
         for k, v in tracked.items()

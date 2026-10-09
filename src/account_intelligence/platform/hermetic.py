@@ -16,7 +16,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from account_intelligence.platform.ports import LlmResult, LlmUsage, NotConfigured
+from account_intelligence.platform.ports import (
+    LlmResult,
+    LlmUsage,
+    NotConfigured,
+    PayloadMissing,
+)
 
 
 class SystemClock:
@@ -39,8 +44,11 @@ class MemoryPayloadStore:
         return key
 
     async def get(self, key: str) -> bytes:
-        """Decompress a stored body (KeyError when missing)."""
-        return gzip.decompress(self.objects[key])
+        """Decompress a stored body (``PayloadMissing`` when absent)."""
+        try:
+            return gzip.decompress(self.objects[key])
+        except KeyError:
+            raise PayloadMissing(key) from None
 
 
 class LocalPayloadStore:
@@ -79,8 +87,11 @@ class LocalPayloadStore:
             raise
 
     async def get(self, key: str) -> bytes:
-        """Read and decompress a stored body."""
-        data = await asyncio.to_thread(self._path(key).read_bytes)
+        """Read and decompress a stored body (``PayloadMissing`` when absent)."""
+        try:
+            data = await asyncio.to_thread(self._path(key).read_bytes)
+        except FileNotFoundError:
+            raise PayloadMissing(key) from None
         return gzip.decompress(data)
 
 
@@ -121,6 +132,49 @@ class InProcessScheduler:
             await self.runner(tenant, run, slice_no)
             done += 1
         return done
+
+
+class HttpTaskScheduler:
+    """Local stack scheduler: posts slice tasks to the worker service over HTTP, the same body
+    Cloud Tasks delivers (``/tasks/run-slice``; the local worker accepts it only with
+    ``ALLOW_UNAUTHENTICATED_TASKS=1``). Fire-and-forget like a queue; idempotent per slice."""
+
+    def __init__(self, worker_url: str) -> None:
+        self.worker_url = worker_url.rstrip("/")
+        self.seen: set[tuple[UUID, int]] = set()
+        self.tasks: set[asyncio.Task[None]] = set()
+
+    async def _post(self, path: str, body: dict[str, object], delay_s: float) -> None:
+        import httpx
+
+        if delay_s:
+            await asyncio.sleep(delay_s)
+        # a slice runs up to 240 s: a bounded read well above it, short connect/write/pool
+        timeout = httpx.Timeout(connect=5.0, read=600.0, write=30.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            await client.post(f"{self.worker_url}{path}", json=body)
+
+    def _spawn(self, path: str, body: dict[str, object], delay_s: float = 0.0) -> None:
+        task = asyncio.get_running_loop().create_task(self._post(path, body, delay_s))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def enqueue_slice(
+        self, tenant_id: UUID, run_id: UUID, slice_no: int, delay_s: float = 0.0
+    ) -> None:
+        """Post the slice once."""
+        if (run_id, slice_no) in self.seen:
+            return
+        self.seen.add((run_id, slice_no))
+        body = {"tenant_id": str(tenant_id), "run_id": str(run_id), "slice": slice_no}
+        self._spawn("/tasks/run-slice", body, delay_s)
+
+    async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
+        """Post the approval-timeout task at its deadline."""
+        delay = max(0.0, (at - datetime.now(UTC)).total_seconds())
+        self._spawn(
+            "/tasks/approval-timeout", {"tenant_id": str(tenant_id), "run_id": str(run_id)}, delay
+        )
 
 
 class EnvSecrets:

@@ -4,7 +4,7 @@
 under concurrent callers:
 
 1. Fast path: look the URL up without locking. A known source only has its
-   ``last_seen_run_id`` moved to the current run; its code never changes.
+   matching last-seen reference moved to the current run; its code never changes.
 2. Miss: lock the account's counter row (``SELECT ... FOR UPDATE``), then look
    again. A worker that waited on the lock may find the row a concurrent
    worker just committed, and returns it instead of colliding.
@@ -43,9 +43,24 @@ def _find(session: Session, account_id: UUID, digest: str) -> Source | None:
     ).one_or_none()
 
 
-def _mark_seen(session: Session, source: Source, run_id: UUID) -> Source:
-    if source.last_seen_run_id != run_id:
+def _mark_seen(
+    session: Session,
+    source: Source,
+    *,
+    run_id: UUID | None,
+    account_run_id: UUID | None,
+) -> Source:
+    if run_id is not None:
+        changed = source.last_seen_run_id != run_id or source.last_seen_account_run_id is not None
         source.last_seen_run_id = run_id
+        source.last_seen_account_run_id = None
+    else:
+        changed = (
+            source.last_seen_account_run_id != account_run_id or source.last_seen_run_id is not None
+        )
+        source.last_seen_run_id = None
+        source.last_seen_account_run_id = account_run_id
+    if changed:
         session.flush()
     return source
 
@@ -68,7 +83,8 @@ def get_or_create_source(
     session: Session,
     *,
     account_id: UUID,
-    run_id: UUID,
+    run_id: UUID | None = None,
+    account_run_id: UUID | None = None,
     url: str,
     kind: SourceKind,
     title: str | None = None,
@@ -77,20 +93,23 @@ def get_or_create_source(
 ) -> Source:
     """Return the account's source for ``url``, creating it with the next code if new.
 
-    For an existing source only ``last_seen_run_id`` changes; the metadata
+    Exactly one of ``run_id`` (legacy lifecycle) or ``account_run_id`` (account lifecycle) is
+    required. For an existing source only the matching last-seen reference changes; the metadata
     arguments apply to new sources.
     """
+    if (run_id is None) == (account_run_id is None):
+        raise ValueError("pass exactly one of run_id or account_run_id")
     normalized = normalize_url(url)
     digest = url_hash(normalized)
 
     existing = _find(session, account_id, digest)
     if existing is not None:
-        return _mark_seen(session, existing, run_id)
+        return _mark_seen(session, existing, run_id=run_id, account_run_id=account_run_id)
 
     number = _allocate_number(session, account_id)
     existing = _find(session, account_id, digest)  # a concurrent worker may have won
     if existing is not None:
-        return _mark_seen(session, existing, run_id)
+        return _mark_seen(session, existing, run_id=run_id, account_run_id=account_run_id)
 
     session.execute(
         update(AccountSourceCounter)
@@ -109,6 +128,8 @@ def get_or_create_source(
         published_at=published_at,
         first_seen_run_id=run_id,
         last_seen_run_id=run_id,
+        first_seen_account_run_id=account_run_id,
+        last_seen_account_run_id=account_run_id,
     )
     session.add(source)
     session.flush()

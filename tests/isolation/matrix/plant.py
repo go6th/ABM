@@ -127,7 +127,7 @@ def _value(table: Table, col: Column, tenant: UUID, canary: str) -> Any:
     if col.name == "tenant_id":
         return tenant
     if col.name == "thread_id":
-        return f"{tenant}:{uuid4()}"
+        return uuid4() if col.type == "uuid" else f"{tenant}:{uuid4()}"
     if col.name in table.enums:
         return _render(table.enums[col.name][0], tenant, canary)
     t = col.type

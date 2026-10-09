@@ -404,6 +404,8 @@ async def drive(
     worker_id: str = "worker-a",
     after_response_hook: Any = None,
     settings: SliceSettings | None = None,
+    builder: Any | None = None,
+    graph_factory: Any | None = None,
 ) -> InProcessScheduler:
     """Run an EXISTING run's slices to the end with this harness (kill/resume and concurrency
     tests). The payload store is the harness's (a shared LocalPayloadStore across processes)."""
@@ -441,6 +443,7 @@ async def drive(
             clock=harness.clock,
             spec=spec,
             connectors=runtime,
+            builder=builder,
             canary=CANARY,
             extra_allowed_hosts=frozenset({DOMAIN, f"news.{DOMAIN}"}),
             run_input=dict(row.run_input or {}),
@@ -452,7 +455,15 @@ async def drive(
 
     async def run_slice(t: UUID, r: UUID, n: int) -> None:
         await execute_slice(
-            deps_factory, saver, scheduler, t, r, n, settings=settings, retry_policy=FAST_RETRY
+            deps_factory,
+            saver,
+            scheduler,
+            t,
+            r,
+            n,
+            settings=settings,
+            retry_policy=FAST_RETRY,
+            graph_factory=graph_factory,
         )
 
     scheduler.runner = run_slice

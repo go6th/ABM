@@ -19,6 +19,8 @@ CLI = {
     "src/account_intelligence/grading/docs.py",
     "src/spend/jobs.py",
     "src/evalgate/cli.py",
+    "src/account_intelligence/worker/__main__.py",
+    "src/account_intelligence/config.py",
 }
 CREATE = {
     "create_counter",

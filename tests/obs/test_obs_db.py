@@ -18,7 +18,8 @@ from account_intelligence.db.session import tenant_txn
 from obs import canary, costs, stuck, timings
 from tests.spend.conftest import admin
 
-pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
+# asyncio is marked per coroutine test: a module-wide mark also tags the sync tests (warning)
+pytestmark = [pytest.mark.requires_postgres]
 ROOT = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 3, 2, 12, tzinfo=UTC)
 TERMINAL = {"COMPLETED", "PARTIAL", "FAILED", "CANCELED", "BUDGET_EXCEEDED"}
@@ -71,6 +72,7 @@ def ledger(
     )
 
 
+@pytest.mark.asyncio
 async def test_cost_rollups_equal_the_ledger_exactly(tenant_a: UUID, tenant_b: UUID) -> None:
     run = new_run(tenant_a)
     ledger(tenant_a, run, "p_search", "0.010000", "documented")
@@ -121,6 +123,7 @@ async def test_cost_rollups_equal_the_ledger_exactly(tenant_a: UUID, tenant_b: U
     assert seen == 0
 
 
+@pytest.mark.asyncio
 async def test_stuck_scan_records_only_stuck_runs(tenant_a: UUID) -> None:
     stale_queued = new_run(tenant_a, "QUEUED", NOW - timedelta(minutes=5))
     fresh_queued = new_run(tenant_a, "QUEUED", NOW - timedelta(seconds=20))
@@ -152,6 +155,7 @@ async def test_stuck_scan_records_only_stuck_runs(tenant_a: UUID) -> None:
     assert admin("SELECT status FROM account_runs WHERE id = %s", stale_queued)[0][0] == "QUEUED"
 
 
+@pytest.mark.asyncio
 async def test_the_prober_detects_a_broken_policy(tenant_a: UUID, tenant_b: UUID) -> None:
     run_b = new_run(tenant_b)
     acct_b = admin("SELECT account_id FROM account_runs WHERE id = %s", run_b)[0][0]
@@ -170,6 +174,7 @@ async def test_the_prober_detects_a_broken_policy(tenant_a: UUID, tenant_b: UUID
         await canary.probe(tenant_txn, tenant_a, tenant_b, {"pg_authid": 1}, NOW)
 
 
+@pytest.mark.asyncio
 async def test_timings_come_from_events_and_report_missing_sources(
     tenant_a: UUID, tenant_b: UUID
 ) -> None:
@@ -214,6 +219,7 @@ def test_every_runbook_query_runs(tenant_a: UUID) -> None:
             c.execute(q.read_text()).fetchall()
 
 
+@pytest.mark.asyncio
 async def test_ops_routes_are_operator_only_and_carry_no_content(tenant_a: UUID) -> None:
     from tests.api.test_spend_v2_routes import app_for, call
 

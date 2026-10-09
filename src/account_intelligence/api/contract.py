@@ -1140,3 +1140,111 @@ class PilotAggregate(Out):
     """Response body: pilot aggregate."""
 
     tenants: list[PilotTenant]
+
+
+class ChatModelCapabilities(Out):
+    """Public capabilities of a selectable chat model."""
+
+    streaming: bool
+    vision: bool
+    tool_use: bool
+
+
+class ChatModel(Out):
+    """Public model identifier, prices and capability flags; never provider credentials."""
+
+    id: str
+    provider: str
+    display_name: str
+    input_usd_per_million: str
+    output_usd_per_million: str
+    cache_write_usd_per_million: str
+    cache_read_usd_per_million: str
+    context_window: int
+    max_output_tokens: int
+    capabilities: ChatModelCapabilities
+
+
+class ChatModels(Out):
+    """Available chat models and the configured default."""
+
+    default_model: str
+    models: list[ChatModel]
+
+
+class ChatThreadCreated(Out):
+    """A newly created private chat thread."""
+
+    id: str
+
+
+class ChatThreadSummary(Out):
+    """Sidebar summary for one private thread."""
+
+    id: str
+    title: str
+    turn_count: int
+    spent_usd: str
+    updated_at: str
+    model_id: str | None
+
+
+class ChatThreads(Out):
+    """Recent private chat threads."""
+
+    threads: list[ChatThreadSummary]
+
+
+class ChatTurn(Out):
+    """One persisted user/model turn and safe token attribution."""
+
+    id: str
+    turn_number: int
+    request_id: str
+    model_id: str
+    user_content: str
+    assistant_content: str | None
+    client: str
+    account_id: str | None
+    phase: str
+    status: str
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+    cost_usd: str
+    created_at: str
+    completed_at: str | None
+
+
+class ChatThread(Out):
+    """Private thread details and chronological turns."""
+
+    id: str
+    title: str
+    turn_count: int
+    spent_usd: str
+    reserved_usd: str
+    created_at: str
+    updated_at: str
+    turns: list[ChatTurn]
+
+
+class ChatThreadDeleted(Out):
+    """Confirmation of a caller-owned thread deletion."""
+
+    deleted: bool
+
+
+class TenantModelKeyStatus(Out):
+    """Non-secret status of a tenant's optional model key."""
+
+    available: bool
+    configured: bool
+    updated_at: str | None
+
+
+class TenantModelKeyDeleted(Out):
+    """Confirmation that a tenant's optional model key was removed."""
+
+    deleted: bool

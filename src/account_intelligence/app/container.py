@@ -27,6 +27,7 @@ from sqlalchemy import text
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.hermetic import (
     EnvSecrets,
+    HttpTaskScheduler,
     InProcessScheduler,
     LocalPayloadStore,
     MemoryPayloadStore,
@@ -50,6 +51,7 @@ from exports.wiring import build_export_builder
 CLOUD_ENVS = frozenset({"staging", "production"})
 HERMETIC_TYPES = (
     InProcessScheduler,
+    HttpTaskScheduler,
     MemoryPayloadStore,
     LocalPayloadStore,
     EnvSecrets,
@@ -310,7 +312,12 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         env=app_env,
         connectors=connectors,
         extras={"retry_policy": retry} if retry is not None else {},
-        scheduler=InProcessScheduler(),
+        # the local stack posts slices to its worker container; tests drain in process
+        scheduler=(
+            HttpTaskScheduler(env["WORKER_URL"])
+            if app_env == "dev" and env.get("WORKER_URL")
+            else InProcessScheduler()
+        ),
         payloads=payloads,
         secrets=EnvSecrets(),
         llm=llm,

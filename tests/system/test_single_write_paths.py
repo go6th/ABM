@@ -21,6 +21,7 @@ OWNERS: dict[str, set[str]] = {
     "facts": {"grading/repo.py"},
     "fact_evidence": {"grading/repo.py"},
     "grade_events": {"grading/repo.py"},
+    "sources": {"account_intelligence/db/source_ids.py"},
     "claim_drops": {"grading/repo.py"},
     "lead_verifications": {"grading/repo.py"},
     "lead_verification_queries": {"grading/repo.py"},
@@ -173,6 +174,7 @@ OWNERS: dict[str, set[str]] = {
     "people_data_consents": {"agents/adapters.py"},
     "abm_sense_checks": {"agents/adapters.py"},
     "abm_distill_outputs": {"agents/production/state.py"},
+    "report_sections": {"agents/production/state.py"},
 }
 IGNORED = {"statements", "or"}  # words matched in comments and docstrings, not tables
 

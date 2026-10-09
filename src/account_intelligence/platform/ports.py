@@ -10,6 +10,11 @@ from typing import Any, Protocol
 from uuid import UUID
 
 
+class PayloadMissing(KeyError):
+    """A payload key has no object. Every ``PayloadStore`` raises exactly this for a missing key
+    (memory, local file and Cloud Storage alike), so callers handle one typed error."""
+
+
 class NotConfigured(RuntimeError):
     """A required production adapter is missing. A stage that meets it ends its rows Not done
     with ``not_available_yet`` and the run PARTIAL with a reason, never a fake success."""

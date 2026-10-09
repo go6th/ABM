@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -155,7 +156,10 @@ def build(
 
 def config_dir() -> Path:
     """``config/telemetry``."""
-    return Path(__file__).resolve().parents[2] / "config" / "telemetry"
+    return (
+        Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config")
+        / "telemetry"
+    )
 
 
 @lru_cache(maxsize=4)

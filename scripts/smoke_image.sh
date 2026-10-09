@@ -7,7 +7,7 @@ docker run -d --name "$name" --network host -e APP_ENV=test \
   -e DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://app_rw:local-dev-only@localhost:5432/ai}" \
   -e CHECKPOINT_DATABASE_URL="${CHECKPOINT_DATABASE_URL:-postgresql://app_rw:local-dev-only@localhost:5432/ai}" \
   -e JWKS_URL=https://issuer.invalid/jwks -e JWT_AUDIENCE=aud -e JWT_ISSUER=iss \
-  account-intelligence:local >/dev/null
+  account-intelligence-api:local >/dev/null
 trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 30); do curl -fsS localhost:8080/healthz >/dev/null 2>&1 && break; sleep 1; done
 test "$(docker exec "$name" id -u)" != "0"

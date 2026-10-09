@@ -36,7 +36,8 @@ from tests.phase3.conftest import (
     uid,
 )
 
-pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
+# asyncio is marked per coroutine test: a module-wide mark also tags the sync tests (warning)
+pytestmark = [pytest.mark.requires_postgres]
 ROOT = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 
@@ -68,6 +69,7 @@ async def _verify(tenant: UUID) -> chain.ChainCheck:
         return await chain.verify(s, NOW, batch=4, max_batches=50)
 
 
+@pytest.mark.asyncio
 async def test_audit_chain_is_gapless_and_serialised_under_concurrency() -> None:
     t = new_tenant("audit-race")
     seqs = await asyncio.gather(*(_write(t, i) for i in range(20)))
@@ -99,6 +101,7 @@ async def test_audit_chain_is_gapless_and_serialised_under_concurrency() -> None
         ("DELETE FROM audit_events WHERE tenant_id = %s AND seq > 8", "truncated", 9),
     ],
 )
+@pytest.mark.asyncio
 async def test_audit_chain_detects_deleted_edited_and_truncated_rows(
     tamper: str, reason: str, bad_seq: int
 ) -> None:
@@ -156,6 +159,7 @@ def _audit_rows(tenant: UUID) -> list[tuple[Any, ...]]:
         ).fetchall()
 
 
+@pytest.mark.asyncio
 async def test_every_read_route_emits_an_audit_event(plane: Plane, browser: Browser) -> None:
     t, actor = await _admin_browser(plane, browser, "audit-reads")
     reads = sorted(
@@ -172,6 +176,7 @@ async def test_every_read_route_emits_an_audit_event(plane: Plane, browser: Brow
     assert not missing, missing
 
 
+@pytest.mark.asyncio
 async def test_reads_are_deduplicated_within_the_window(plane: Plane, browser: Browser) -> None:
     t, _ = await _admin_browser(plane, browser, "audit-dedupe")
     for _ in range(3):
@@ -182,6 +187,7 @@ async def test_reads_are_deduplicated_within_the_window(plane: Plane, browser: B
     assert sum(1 for r in _audit_rows(t) if r[0] == "/v1/settings") == 2
 
 
+@pytest.mark.asyncio
 async def test_read_audit_failure_refuses_the_read(
     plane: Plane, browser: Browser, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -195,6 +201,7 @@ async def test_read_audit_failure_refuses_the_read(
     assert reply.status_code == 503 and "platform_lanes" not in reply.text
 
 
+@pytest.mark.asyncio
 async def test_admin_actions_fail_closed_when_the_audit_write_fails(
     plane: Plane, browser: Browser, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -271,6 +278,7 @@ def test_run_export_and_admin_handlers_record_their_audit_event() -> None:
     assert not missing, missing
 
 
+@pytest.mark.asyncio
 async def test_audit_export_is_client_safe_and_tenant_scoped(
     plane: Plane, browser: Browser, tmp_path: Path
 ) -> None:
