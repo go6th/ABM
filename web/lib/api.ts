@@ -83,6 +83,10 @@ export async function api<T>(
   const operation = operationFor(method, path);
   if (!operation) throw new ApiError(500, "operation_not_in_contract", "This API operation is not in the generated contract.");
   const headers: Record<string, string> = { Accept: "application/json", ...extraHeaders };
+  if (typeof window !== "undefined" && !headers["Authorization"]) {
+    const token = window.localStorage.getItem("ai_token");
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
   let payload: BodyInit | undefined;
   if (body instanceof Blob) {
     payload = body;

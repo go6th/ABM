@@ -121,12 +121,37 @@ class JwtStaffVerifier:
         return StaffIdentity(str(claims["sub"]), role, step)
 
 
-def staff_verifier_from_env() -> JwtStaffVerifier:
+class DevStaffVerifier:
+    """Dev and local-stack staff verifier for operator console testing without external IdP."""
+
+    def __init__(self, *, now: datetime | None = None) -> None:
+        self.now = now or datetime.now(UTC)
+
+    def verify(self, token: str) -> StaffIdentity:
+        clean = token.strip()
+        if ":" in clean:
+            role, _, who = clean.partition(":")
+        else:
+            role, who = "operator", clean
+        no_mfa = who.endswith(":no-mfa")
+        if no_mfa:
+            who = who.removesuffix(":no-mfa")
+        if role not in ("operator", "support"):
+            role = "operator"
+        if not who:
+            who = "dev-operator"
+        mfa_at = None if no_mfa else self.now
+        return StaffIdentity(who, role, mfa_at)
+
+
+def staff_verifier_from_env() -> Any:
     """The production verifier (NotConfigured until the staff IdP is configured)."""
     issuer, audience, jwks = (
         os.environ.get(k) for k in ("STAFF_JWT_ISSUER", "STAFF_JWT_AUDIENCE", "STAFF_JWKS_URL")
     )
     if not (issuer and audience and jwks):
+        if os.environ.get("APP_ENV") in ("dev", "local", "test"):
+            return DevStaffVerifier()
         raise NotConfigured("the staff identity provider is not configured")
 
     def email_set(key: str) -> frozenset[str]:
