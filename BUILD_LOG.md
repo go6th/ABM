@@ -156,8 +156,8 @@ HttpOnly session cookie.
 The Google authorization-code flow includes state, nonce, PKCE, a Workspace-domain hint, and
 requested auth_time/amr claims. The API maps only verified Workspace emails from server-side role
 allowlists, validates the signed token against the configured issuer, audience and JWKS, and still
-requires fresh MFA. No name-based access bypass is present. The exact Workspace domain and Rajesh's
-email remain deployment inputs.
+requires fresh MFA. No name-based access bypass is present. The exact Workspace domain and the
+designated operator email remain deployment inputs.
 
 Connected operator screens: content-free tenant overview and lifecycle/plan/quota administration;
 feature flag and write-only key reference management; tenant-approved support view; run timeline;
@@ -199,3 +199,43 @@ Final frontend checks (2026-10-08):
 * `npm run build`, lint, 14 Vitest tests and 102 contrast pairs: pass. Playwright visual review loaded
   both login screens and both dashboard empty states. Axe reports no WCAG 2.1 A/AA violations on
   those four screens.
+
+## Finalize and release audit (2026-10-09)
+
+Branch `chore/finalize-clean-deploy`; not pushed. The original checkout was archived at
+`../backup-before-finalize-20261008-164539.zip` and verified before deletions. The current branch
+contains the source traceability matrix, static wiring inventory, deployment and operations
+guidance, and a release report. These documents replace earlier broad readiness claims with
+observed results.
+
+Recorded checks: backend unit tests 89 passed; web unit tests 20 passed; web typecheck, lint,
+production build, and standalone login/favicon browser smoke passed; static wiring audit mapped 69
+frontend call sites with zero static breaks. The initial configured full run had 30 failures; the
+intermediate audit rerun had 28 failures. Three captured post-fix `TMPDIR=/dev/shm make test` runs
+passed. Their isolation suites passed 378/378 each. The first full run passed 3,340 with 15 skips,
+2 eval tests deselected, and 94.06% coverage; two later runs passed 3,343 with 12 skips, 2 eval
+tests deselected, and 94.17% coverage. The latest backend run took 1,454.45s, emitted four existing
+asyncio-mark warnings, and exited 0. The 12 remaining skips are provider-source review blockers;
+three service-offline skips in the first full run passed in a focused 9/9 run after `make up`.
+
+Fixes made after the red run: converter temp storage is isolated; phase 4 synthetic fixtures satisfy
+the Hypothesis confirming-question constraint; RAG recognizes its refusal sentinel and clamps
+confidence before validation; the regression loader returns the declared skipped-eval policy;
+status-only tracker updates retain existing call proof; and the table-writer audit includes the
+new privacy, contracts, and quality owners. No tests were xfailed or assertions relaxed. The
+formula-only backoff property now has no Hypothesis runtime deadline because it is not a performance
+test.
+
+Migration 0043 separates platform tombstones from tenant tombstones, forces tenant RLS on the
+affected tables, and permits canonical profile URL clearing only on first erasure. Its downgrade
+refuses to restore the old identity constraint if erased rows depend on the relaxed form. Empty
+database upgrade twice, RLS catalog check, downgrade, re-upgrade twice, and the isolation suite all
+passed on disposable scratch databases.
+
+Release status: **not production-ready**. Compose still lacks the web, API, worker, scheduler, fake
+identity provider, scripted provider/LLM, and notification services needed for end-to-end proof.
+The existing API image built and passed a scratch-DB smoke as UID 10001, with `/readyz` 200 and
+clean SIGTERM. Terraform validation passed. CI lint, separate service images, image scanning,
+SBOM/signing, authenticated multi-role E2E, production load, real cloud/identity/provider checks,
+external penetration testing, and pilot tenants were not performed. See `docs/RELEASE_REPORT.md` for
+blockers and the next safe step.

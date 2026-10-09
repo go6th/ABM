@@ -1,41 +1,68 @@
-# Status
+# Project status
 
-All roadmap section 11 requirements (Cross-cutting workstreams) have been built and verified via code.
-The platform now has complete coverage across data model conformity, connector contracts, quality gating, retention and privacy policies, security controls, cost rollups, success metrics tracking, and risk management.
+Audit date: 2026-10-09. Branch: `chore/finalize-clean-deploy`. This project is **not cleared for
+production or a live pilot**. The configured backend suite passes, but the full Compose stack,
+authenticated browser journeys, CI supply-chain checks, and owner-specific deployment inputs are
+incomplete. See [RELEASE_REPORT.md](RELEASE_REPORT.md) for commands, results, and blockers.
 
-Current phase: Ready for beta gate / Phase B.
+## Traceability snapshot
 
-## ABM agent layer (branch `feat/abm-agents`, 2026-10-08)
+| Status | Count |
+|---|---:|
+| Done | 1 |
+| Partial | 161 |
+| Missing | 13 |
+| Blocked-by-external | 6 |
 
-The ABM Account Research skill v1.8 runs as agents inside the platform: eight steps, three explicit
-run modes (`full` default, `pull`, `build`), guards G1 to G17 enforced in code, the mandatory sense
-check before build, approvals for unapproved spend, consent before people pulls, internal history
-off by default, and the Internal Only file. **Built guide-only: the skill archive is absent**, so
-checklist reconciliation (C31), lessons, runbook prompt text, sense-check questions and the consent
-text are TODO (OI-ABM-3). The ABM graph runs on the production runner and adapters for Phase 1
-only and Phase 2 only runs, and for full runs behind the `abm_agents` tenant flag (OI-ABM-1,
-ADR-0100); a few bindings remain open (OI-ABM-4) and most coverage rows have no grading attribute
-class yet (C38). Details: `docs/abm/README.md`, BUILD_LOG.
+Source-linked requirement rows and their mapped code/tests are in [TRACEABILITY.md](TRACEABILITY.md).
+Statuses are conservative: a code path or unit test alone does not establish that the requirement
+works through the full stack.
 
-## Separate client and operator panels (2026-10-08)
+## What has been exercised
 
-The customer workspace and operator console now use separate route groups and shells. The staff
-console has a Google Workspace authorization-code flow and connects its available screens to the
-generated backend contract. Tenant administration and read-only support access are grant- and
-role-checked by the API.
+- Backend unit suite: 89 passed.
+- Web: 20 Vitest tests, TypeScript, ESLint, and production build passed.
+- Production standalone browser smoke: customer/staff login paths and favicon returned 200; no
+  console or network errors were observed. No authenticated user journey was run.
+- Static wiring inventory: 69 frontend call sites, zero static route breaks. It does not run the
+  stack or prove authorization, browser proxying, or schema parity at runtime.
+- Three captured post-fix full runs: `TMPDIR=/dev/shm make test` passed each time, with isolation
+  378/378 on every run. The latest passed 3,343 tests, skipped 12 provider-source verification
+  cases, deselected 2 eval tests, and reported 94.17% coverage. An earlier run skipped three local
+  service checks while emulators were offline; after `make up`, focused Redis/GCS/Cloud Tasks
+  integration tests passed 9/9. Browser E2E, API fuzz, full accessibility, production load, and
+  backup/restore remain unproven.
+- Post-fix regression groups: RAG, export integration, regression policy, and writer ownership
+  passed 191 tests; phase 4 simulation/alerting and parallel cap/pause passed 16 PostgreSQL tests.
+- API Docker image built and passed a scratch-database smoke as UID 10001 with `/readyz` 200 and a
+  clean SIGTERM exit.
+- Backup archive verified at `../backup-before-finalize-20261008-164539.zip`.
 
-The sign-in screens now use a simpler centered flow, with explicit links between customer and staff
-sign-in. The customer dashboard shows live account totals, search, add-account and loading/empty/error
-states. The operator overview summarizes only values returned by the operator API. No sample account
-or tenant data is embedded in the screens.
+## Product areas and limits
 
-Local web typecheck, lint and unit tests pass. Backend identity unit tests pass. PostgreSQL operator
-integration tests still need a working local database credential. Production sign-in still needs
-the Google OAuth client, registered callback, Workspace domain, Rajesh's exact email allowlist
-entry and enabled MFA claims. Screens without backend contracts are explicitly unavailable in
-production. See the operator route map at docs/frontend/operator-route-map.md and Google Workspace
-setup at docs/phase3/operator_google_workspace.md.
+The repository includes tenant isolation and lifecycle code, connectors and model ports, the
+research workflows, tracker and grading, billing ledger, exports, privacy workflows, tenant UI,
+and an operator console. Coverage and production readiness vary by area; the traceability matrix
+and open-items register record gaps.
 
-Production build and standalone smoke checks pass. Playwright visual review covered both dashboards
-using temporary empty API responses; axe found no WCAG 2.1 A/AA violations on either login or the
-dashboard empty states. Updated sign-in screenshots are in docs/frontend/.
+The local Compose stack starts PostgreSQL, Cloud Storage and Cloud Tasks emulators, and Redis. It
+does not include the API, worker, scheduler, Next.js app, fake OIDC users, scripted provider/LLM
+servers, or email/Slack sinks. Production sign-in, provider calls, cloud deployment, production
+load, DR, external penetration testing, and pilot-tenant operation remain unproven.
+
+## Current release blockers
+
+1. Complete the synthetic local stack and browser E2E across user roles and separate tenants.
+2. Consolidate environment reads into a typed registry and generated `.env.example`; add full
+   startup validation and an environment-safe doctor command.
+3. Build and validate separate API, worker, migrator, and web images, plus scans, SBOM, and signing.
+4. Complete API fuzzing, authenticated E2E, accessibility and repeat-run checks; add CI config lint
+   and image supply-chain checks.
+5. Resolve the product, legal, identity, cloud, provider, and on-call inputs listed in
+   [open-items.md](open-items.md) and [conflicts.md](decisions/conflicts.md).
+
+## Next action
+
+Complete the local stack, E2E, CI, and image supply-chain blockers. Then the owner can provide
+non-secret staging Terraform inputs and review a staging plan as described in [DEPLOY.md](DEPLOY.md).
+No cloud action has been performed.

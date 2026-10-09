@@ -1,93 +1,93 @@
 # Account Intelligence
 
-Multi-tenant platform that researches a sales account and returns a sourced, graded account
-brief, a senior people list, and change alerts. Every fact carries its source URL and a grade;
-only **Confirmed** facts may be stated to a prospect.
+**Internal and proprietary. Keep this repository private.** Product and source specifications are
+local-only under `docs/sources/` and are not committed.
 
-> Internal and proprietary. The product and architecture background is in
-> [docs/product-overview.md](docs/product-overview.md).
+Account Intelligence is a multi-tenant research platform that stores sourced account facts, grades
+claims, tracks coverage, and supports tenant and operator workflows. The current checkout is **not
+production-ready**: the configured backend suite passes, but Compose does not start the complete
+web/API/worker/identity stack and authenticated user flows have not been proven. Read [the release
+report](docs/RELEASE_REPORT.md) before using it beyond synthetic local development.
 
-**Status:** Phase 0 and Phase 1 integration on Google Cloud. One run path is wired end to end:
-API, Cloud Tasks scheduler, worker slices on the Workflow v1 graph (13 stages), broker
-connectors, tracker, grading, single settlement and a delivery note. Deliverable builders and the
-production quality gate do not exist yet, so every run ends PARTIAL (`builders_not_configured`).
-Status table: [docs/STATUS.md](docs/STATUS.md); open items: [docs/open-items.md](docs/open-items.md).
+## Current status
+
+| Traceability status | Requirements |
+|---|---:|
+| Done | 1 |
+| Partial | 161 |
+| Missing | 13 |
+| Blocked by external input or environment | 6 |
+
+The matrix is in [docs/TRACEABILITY.md](docs/TRACEABILITY.md). It maps requirements to code and
+proofs; `Partial` means the full requirement has not been demonstrated.
 
 ## Architecture
 
-| Concern | Choice |
-|---|---|
-| API | FastAPI, JWT (RS256 via JWKS); tenant identity comes only from the verified token |
-| Tenant isolation | PostgreSQL 16 forced row-level security; runtime role `app_rw` is not the owner and has no `BYPASSRLS`; tenant context set per transaction by `tenant_txn()` |
-| Research runs | LangGraph with the Postgres checkpointer as source of truth; time-sliced and resumable |
-| Orchestration | Cloud Tasks behind the `RunScheduler` port: named slice tasks, approval timeout (D-18) |
-| Billing | Insert-only wallet ledger; credits reserved with the run row; one settlement per run |
-| Storage | Cloud SQL PostgreSQL 16 with pgvector; Cloud Storage for raw provider payloads |
-| LLM | `LlmPort`: Claude on Vertex AI or the Anthropic API; model ids only in config (D-19) |
-| Cloud | Google Cloud, one project per environment, Terraform in `infra/` (ADR-0017, D-20) |
-| Wiring | `src/account_intelligence/app/container.py` is the only place adapters are chosen |
-
-Decisions are recorded as ADRs in [docs/decisions](docs/decisions/).
-
-## Repository layout
-
-```
-src/account_intelligence/
-├── app/container.py       the single wiring point (APP_ENV picks hermetic or Google Cloud adapters)
-├── api/                   FastAPI: /v1/runs, /tasks/* (Cloud Tasks, OIDC), /healthz, /readyz
-├── runs/lifecycle.py      run creation, transitions, finish and the single settlement
-├── workflow/              Workflow v1: spec, engine, runner (slices), the 13 stage handlers
-├── connectors/            broker connectors: ledger, budget, pacing, routing, five providers
-├── tracker/               coverage rows with ledger-verified proof; the completion guard
-├── grading/               the grading engine and the single fact write path
-├── platform/              ports and adapters (hermetic and Google Cloud), LLM, checkpointer
-├── safety/                the client-output scanner used on every export
-├── agents/                versioned prompts, model output parsing, the grading facade
-└── db/                    tenant_txn, models, vocabularies
-src/jobs/                  the job posting pipeline
-infra/                     Terraform modules and envs/{dev,staging,production}
-config/                    versioned YAML (checklist, workflow, tracker, grading, providers, ...)
-migrations/                Alembic revisions, each applying a reviewed SQL file
-tests/                     isolation (hard gate), system (whole runs), and per-package suites
-docs/                      ADRs, audit, runbooks, open items, generated references
+```mermaid
+flowchart LR
+  Browser --> Web[Next.js client]
+  Web --> API[FastAPI API]
+  API --> DB[(PostgreSQL + forced tenant RLS)]
+  API --> Lifecycle[Run lifecycle and ledger]
+  Lifecycle --> Workflow[Resumable workflow]
+  Workflow --> Ports[Provider, model, storage, task ports]
+  Ports --> Local[Hermetic adapters and fakes]
+  Ports -. configured deployment only .-> Cloud[Google Cloud adapters]
 ```
 
-## Getting started
+`src/account_intelligence/app/container.py` selects adapters. The database is the source of truth
+for tenant isolation and run lifecycle. Local Compose currently provides only PostgreSQL, Cloud
+Storage and Cloud Tasks emulators, and Redis; it does not run the complete stack shown above.
 
-Requires Python 3.11 or 3.12, [uv](https://docs.astral.sh/uv/), Docker, and `psql` for `make check`.
+## Local development
+
+Requires Python 3.12, `uv`, Docker Compose, Node.js 22, and npm. From the repository root:
 
 ```bash
 cp .env.example .env
-make install          # dependencies and pre-commit hooks
-make up               # Postgres (pgvector), Cloud Storage and Cloud Tasks emulators, Redis
-make migrate          # schema, RLS policies, runtime role, checkpointer tables
-make run              # API on http://localhost:8080
+uv sync --frozen
+make up
+make migrate
+make run
 ```
 
-Run `make` to list every target.
+Then in a separate terminal, install and run the web app with `npm --prefix web ci && npm --prefix
+web run dev`. The local Compose stack does not seed fake OIDC users; authenticated browser flows are
+not currently proven end to end. Keep all data synthetic.
 
-## Testing
+## Checks
 
 ```bash
-make lint             # ruff format, ruff check, mypy --strict
-make test             # isolation suite first, then everything except evals
-make check            # the full pre-PR gate on a throwaway database
-make static           # import contracts (W1), docstrings, comments, guarantees, loops, bandit, vulture
-make emulators        # Cloud Storage and Cloud Tasks emulators for the port contract tests
-make infra-fmt infra-validate   # terraform fmt and validate (no backend, nothing applied)
-make smoke            # build the image; non-root, /readyz 200, clean SIGTERM
-make deploy-staging   # PRINTS the deploy commands; runs nothing
+make lint
+make static
+uv run --frozen pytest tests/unit -q
+npm --prefix web run typecheck && npm --prefix web run lint && npm --prefix web test
+uv run --frozen python scripts/wiring_audit.py --check
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, the static gates, the isolation suite and every test
-with a 90% coverage floor, Terraform validation and the image build; on main it deploys staging
-through Workload Identity Federation after approval. Runbooks: [docs/runbooks](docs/runbooks/).
+Three captured post-fix full backend runs passed. Each isolation phase passed 378/378. The latest
+run passed 3,343 tests, skipped 12 provider-source verification cases, deselected 2 eval tests, and
+reported 94.17% coverage. An earlier run also skipped three local-service checks while the
+emulators were offline; a follow-up passed those 9/9. Browser E2E, API fuzz, full accessibility,
+production load, and backup/restore remain unproven. See
+[docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md) for exact evidence and remaining gates.
 
-Database tests create and drop their own scratch database and use synthetic tenants only.
+## Project docs
 
-## Contributing
+- [Deployment preparation and required owner inputs](docs/DEPLOY.md)
+- [Operations guide](docs/OPERATIONS.md) and [runbooks](docs/runbooks/)
+- [Current status](docs/STATUS.md), [open items](docs/open-items.md), and
+  [decision/conflict registers](docs/decisions/conflicts.md)
+- [Static frontend/backend wiring inventory](docs/WIRING.md)
+- [Build history](BUILD_LOG.md)
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. It lists the rules that must
-never be broken, starting with: isolation is enforced by the database, never by application code.
+## External inputs that remain
 
-Report security issues as described in [SECURITY.md](SECURITY.md).
+Before any real deployment or pilot, the owner must provide Google Cloud project IDs, region,
+billing and residency choices, Workload Identity Federation setup and approvers, identity-provider
+and Workspace details, provider/model registrations and secrets, retention/legal decisions, and
+on-call ownership. A real provider call, real identity-provider login, cloud deployment, production
+load test, external penetration test, or pilot-tenant run has not been performed.
+
+Do not use real tenant data or credentials in local tests. See [SECURITY.md](SECURITY.md) for
+security reporting.
