@@ -26,6 +26,7 @@ NOT_JSON = {
     ("get", "/v1/sso/{slug}/start"),
     ("get", "/v1/sso/oidc/callback"),
     ("post", "/v1/sso/saml/acs"),
+    ("post", "/v1/chat/threads/{thread_id}/turns/stream"),
 }
 
 

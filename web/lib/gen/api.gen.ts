@@ -761,7 +761,8 @@ export type NewThread = z.infer<typeof NewThread>;
 export const NewTurn = z.object({
   "account_id": z.string().nullable().optional(),
   "content": z.string(),
-  "model": z.string(),
+  "enforce_project_scope": z.boolean().optional(),
+  "fresh_output": z.boolean().optional(),
   "request_id": z.string(),
 }).strict();
 export type NewTurn = z.infer<typeof NewTurn>;

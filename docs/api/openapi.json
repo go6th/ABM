@@ -3620,7 +3620,7 @@
       },
       "NewTurn": {
         "additionalProperties": false,
-        "description": "One append-only user turn. The provider key and limit fields are never accepted.",
+        "description": "One append-only user turn. Model selection is handled automatically by the backend router.",
         "properties": {
           "account_id": {
             "anyOf": [
@@ -3640,11 +3640,17 @@
             "title": "Content",
             "type": "string"
           },
-          "model": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Model",
-            "type": "string"
+          "enforce_project_scope": {
+            "default": true,
+            "description": "Reject queries outside the domain of ABM and account intelligence.",
+            "title": "Enforce Project Scope",
+            "type": "boolean"
+          },
+          "fresh_output": {
+            "default": true,
+            "description": "Guarantee fresh, non-cached output unique to this user.",
+            "title": "Fresh Output",
+            "type": "boolean"
           },
           "request_id": {
             "format": "uuid",
@@ -3654,7 +3660,6 @@
         },
         "required": [
           "request_id",
-          "model",
           "content"
         ],
         "title": "NewTurn",
@@ -8365,6 +8370,33 @@
                 }
               ],
               "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "enforce_project_scope",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Enforce Project Scope",
+              "type": "boolean"
             }
           },
           {
