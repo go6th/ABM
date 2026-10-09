@@ -18,8 +18,9 @@ x-app-env: &app-env
   JWT_ISSUER: http://fake-idp:9090/
   JWT_AUDIENCE: account-intelligence-local
   PAYLOAD_DIR: /tmp/payloads
-  # hermetic by default: no provider connectors and no model key (see compose.live.yml)
+  # hermetic by default: no provider connectors and no model key unless set in .env
   CONNECTORS: "off"
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
 services:
   db:

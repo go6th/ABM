@@ -78,7 +78,6 @@ class NewTurn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
-    model: str | None = Field(default=None, max_length=100)
     content: str = Field(min_length=1, max_length=60000)
     account_id: UUID | None = None
 

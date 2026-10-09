@@ -51,6 +51,12 @@ class PipelinePhase(str, Enum):
     CHAT = "follow_up_chat"
 
 
+class PhaseFailureAction(str, Enum):
+    RETRY = "retry_same_model"
+    HOLD = "hold_run_for_review"
+
+
+
 @dataclass(frozen=True)
 class ModelPricing:
     """Token pricing in USD per 1M tokens."""
@@ -255,6 +261,76 @@ class ModelRouter:
             return QualityCheckResult(passed=False, held_for_review=True, reasons=reasons)
 
         return QualityCheckResult(passed=True, held_for_review=False)
+
+    def handle_phase_failure(
+        self,
+        phase: PipelinePhase,
+        attempt: int,
+        error: Exception,
+    ) -> PhaseFailureAction:
+        """On Phase 1 (Opus) failure: retry once, then hold the run. Never silently fall back."""
+        policy = self._policies[phase]
+        _log.warning(
+            "model_routing.phase_failure",
+            extra={
+                "event": "model_routing.phase_failure",
+                "phase": phase.value,
+                "model": policy.model_id,
+                "attempt": attempt,
+                "error": str(error),
+            },
+        )
+        if attempt <= 1:
+            return PhaseFailureAction.RETRY
+        return PhaseFailureAction.HOLD
+
+    def log_call_usage(
+        self,
+        tenant_id: UUID | str,
+        account_id: UUID | str | None,
+        phase: PipelinePhase,
+        model_id: str,
+        usage: ModelCallUsage,
+        cost_usd: Decimal,
+    ) -> None:
+        """Log tokens and cost per call tagged tenant / account / phase / model."""
+        _log.info(
+            "model_routing.call_usage",
+            extra={
+                "event": "model_routing.call_usage",
+                "tenant": str(tenant_id),
+                "account": str(account_id) if account_id else None,
+                "phase": phase.value,
+                "model": model_id,
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "cached_read_tokens": usage.cached_read_tokens,
+                "cache_write_tokens": usage.cache_write_tokens,
+                "cost_usd": str(cost_usd),
+            },
+        )
+
+    def cached_prefix_block(self, content: str) -> dict[str, Any]:
+        """Wrap prefix text (skill, rules, checklist) in an Anthropic ephemeral cache control block."""
+        return {
+            "type": "text",
+            "text": content,
+            "cache_control": {"type": "ephemeral"},
+        }
+
+    def get_inference_region(self, tenant_industry: str | None) -> str:
+        """US-only inference routing for healthcare tenants; default region for other tenants."""
+        if tenant_industry and tenant_industry.lower() in {
+            "healthcare", "health", "medical", "pharma", "biotech", "life sciences",
+        }:
+            return "us-central1"
+        return "us-central1"
+
+    @property
+    def workspace_retention_days(self) -> int:
+        """30-day retention on the production workspace."""
+        return 30
+
 
 
 _router_instance: ModelRouter | None = None
