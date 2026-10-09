@@ -136,6 +136,7 @@ def select_diverse(
         return ()
     picked: list[int] = [0]
     remaining = set(range(1, len(examples)))
+    # LOOP(farthest-point-selection): cap=count; exit=count reached or candidates empty.
     while len(picked) < count and remaining:
         best: int | None = None
         best_score = float("inf")

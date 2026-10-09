@@ -60,7 +60,7 @@ async def build_csv(
     events = (
         await s.execute(
             text(
-                "SELECT seq, at, actor, actor_kind, audit_class, action, resource_type,"
+                "SELECT seq, at, actor, actor_kind, audit_class, action, resource_type,"  # nosec B608 -- fixed SQL; values are bound.
                 f" resource_id, route, request_id, outcome, support_grant_id FROM audit_events"
                 f" WHERE {where} ORDER BY seq LIMIT :n"  # noqa: S608 - fixed clause
             ),
@@ -70,7 +70,7 @@ async def build_csv(
     sign_ins = (
         await s.execute(
             text(
-                "SELECT id, at, user_id, event, reason_code, request_id FROM auth_events"
+                "SELECT id, at, user_id, event, reason_code, request_id FROM auth_events"  # nosec B608 -- fixed SQL; values are bound.
                 f" WHERE {where} ORDER BY id LIMIT :n"  # noqa: S608 - fixed clause
             ),
             window,
@@ -79,7 +79,7 @@ async def build_csv(
     accesses = (
         await s.execute(
             text(
-                "SELECT id, at, principal, kind, purpose, outcome, resource_id, connection_id"
+                "SELECT id, at, principal, kind, purpose, outcome, resource_id, connection_id"  # nosec B608 -- fixed SQL; values are bound.
                 f" FROM connector_access_log WHERE {where} ORDER BY id LIMIT :n"  # noqa: S608
             ),
             window,

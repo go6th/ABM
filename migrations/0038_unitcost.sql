@@ -1,3 +1,4 @@
+-- Tenant-scoped unit-cost rollups and anomaly events (revision 0038).
 CREATE TABLE unit_cost_rollups (
     id bigserial PRIMARY KEY,
     tenant_id uuid NOT NULL,

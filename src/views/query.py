@@ -256,7 +256,7 @@ def compile_query(
         [f"{e} AS s{i}" for i, (e, _) in enumerate(order_exprs)]
         + ["position", "ref", "row_id", "cells", "source_code", "source_url", "source_state"]
     )
-    sql = f"SELECT {select} FROM view_rows WHERE {' AND '.join(where)} ORDER BY {order} LIMIT :n"
+    sql = f"SELECT {select} FROM view_rows WHERE {' AND '.join(where)} ORDER BY {order} LIMIT :n"  # nosec B608 -- identifiers are allow-listed; values are bound.
     return sql, params
 
 

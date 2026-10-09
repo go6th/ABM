@@ -99,6 +99,7 @@ class SemanticCache:
         key = self._key(embedding)
         self._entries[key] = CacheEntry(tuple(embedding), answer, now)
         self._entries.move_to_end(key)
+        # LOOP(cache-eviction): cap=max_entries excess; exit=capacity reached.
         while len(self._entries) > self.max_entries:
             self._entries.popitem(last=False)
 

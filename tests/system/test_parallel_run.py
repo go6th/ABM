@@ -52,7 +52,13 @@ async def test_parallel_whole_run_completes_with_the_same_rows_as_sequential(
     assert finished == {
         f"body|{b}"
         for b in (
-            "baseline", "jobs", "name_searches", "news", "pass1_relationship", "people", "tech",
+            "baseline",
+            "jobs",
+            "name_searches",
+            "news",
+            "pass1_relationship",
+            "people",
+            "tech",
             "verification",
         )
     }

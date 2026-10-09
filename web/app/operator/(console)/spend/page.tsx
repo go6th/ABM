@@ -1,6 +1,7 @@
 "use client";
 
 import { formatDate, formatMicros } from "@/lib/operator-render";
+import { providerName } from "@/lib/provider-labels";
 import { OperatorRequestState } from "../OperatorStates";
 import { SupportGrantLookup, type SupportLookup } from "../SupportGrantLookup";
 import { useOperatorApi } from "../useOperatorApi";
@@ -21,7 +22,7 @@ function SpendView({ lookup }: { lookup: SupportLookup }) {
       </div>
       <section className="operator-section">
         <div className="operator-section-title"><h2>Provider allocation</h2><span className="muted">Live spend response</span></div>
-        {data.by_provider.length ? <div className="operator-table-scroll"><table className="operator-table"><caption className="sr-only">Spend data returned per provider</caption><thead><tr><th scope="col">Provider</th><th scope="col">Response fields</th></tr></thead><tbody>{data.by_provider.map((row, index) => <tr key={index}><td><code>{String(row.provider_code ?? row.provider ?? ("Provider " + (index + 1)))}</code></td><td><code>{Object.entries(row).filter(([key]) => key !== "provider_code" && key !== "provider").map(([key, value]) => key + ": " + (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null ? String(value) : "[structured value]")).join(" · ") || "No additional fields"}</code></td></tr>)}</tbody></table></div> : <div className="empty"><strong>No provider allocation returned</strong><p>The API returned no provider breakdown for this run.</p></div>}
+        {data.by_provider.length ? <div className="operator-table-scroll"><table className="operator-table"><caption className="sr-only">Spend data returned per provider</caption><thead><tr><th scope="col">Provider</th><th scope="col">Response fields</th></tr></thead><tbody>{data.by_provider.map((row, index) => { const code = String(row.provider_code ?? row.provider ?? ("Provider " + (index + 1))); return <tr key={index}><td><strong>{providerName(code)}</strong> <code>{code}</code></td><td><code>{Object.entries(row).filter(([key]) => key !== "provider_code" && key !== "provider").map(([key, value]) => key + ": " + (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null ? String(value) : "[structured value]")).join(" · ") || "No additional fields"}</code></td></tr>; })}</tbody></table></div> : <div className="empty"><strong>No provider allocation returned</strong><p>The API returned no provider breakdown for this run.</p></div>}
       </section>
       <section className="operator-section operator-card"><h2>Projection fields</h2><dl className="operator-data-list">{Object.entries(data.projection).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null ? String(value) : "Structured value returned"}</dd></div>)}</dl></section>
     </> : null}

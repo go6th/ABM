@@ -28,7 +28,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
-from xml.sax.saxutils import escape, quoteattr
+from xml.sax.saxutils import (  # nosec B406 -- generates XML; lxml parses responses.
+    escape,
+    quoteattr,
+)
 
 from lxml import etree
 from signxml.algorithms import SignatureMethod

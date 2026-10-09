@@ -6,7 +6,7 @@ exports check it before rendering; restoring from a backup re-applies pending
 erasures and suppressions before the system serves traffic (the restore drill).
 Pure hashing here; the check is one membership test.
 
-GUARANTEE(test_an_erased_person_stays_erased)
+GUARANTEE(test_an_erased_subject_is_recognised_before_storing_or_rendering)
 """
 
 from __future__ import annotations
@@ -78,6 +78,4 @@ def is_suppressed(
     """Whether a subject is suppressed (pure; the pipelines' pre-store check)."""
     if profile_url and ("url", subject_hash(profile_url.strip().casefold(), salt)) in known:
         return True
-    if name and ("name", subject_hash(normalise_name(name), salt)) in known:
-        return True
-    return False
+    return bool(name and ("name", subject_hash(normalise_name(name), salt)) in known)

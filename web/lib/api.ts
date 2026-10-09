@@ -2,6 +2,8 @@
 // Cookie session, CSRF token on every state-changing call, problem-details errors with their
 // stable type. No token is ever put in a URL, local storage or a log.
 
+import { operations } from "@/lib/gen/api.gen";
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -23,12 +25,14 @@ export interface Session {
 let csrfToken: string | null = null;
 
 export async function session(): Promise<Session | null> {
-  const reply = await fetch("/v1/sso/session", { credentials: "same-origin", cache: "no-store" });
-  if (reply.status === 401) return null;
-  if (!reply.ok) throw await problem(reply);
-  const body = (await reply.json()) as Session;
-  csrfToken = body.csrf_token ?? null;
-  return body;
+  try {
+    const body = await api<Session>("GET", "/v1/sso/session");
+    csrfToken = body.csrf_token ?? null;
+    return body;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) return null;
+    throw error;
+  }
 }
 
 async function problem(reply: Response): Promise<ApiError> {
@@ -46,6 +50,29 @@ async function problem(reply: Response): Promise<ApiError> {
 
 const SAFE = new Set(["GET", "HEAD", "OPTIONS"]);
 
+function routeMatches(template: string, actual: string): boolean {
+  const pattern = template
+    .split("/")
+    .map((part) => part.startsWith("{") && part.endsWith("}")
+      ? "[^/]+"
+      : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("/");
+  return new RegExp(`^${pattern}$`).test(actual);
+}
+
+function operationFor(method: string, path: string) {
+  const pathname = new URL(path, "http://same-origin.invalid").pathname;
+  return Object.values(operations).find((operation) =>
+    operation.plane === "tenant" &&
+    operation.method === method.toUpperCase() &&
+    routeMatches(operation.path, pathname),
+  );
+}
+
+function contractError(type: string): ApiError {
+  return new ApiError(502, type, "The API response did not match its generated contract.");
+}
+
 export async function api<T>(
   method: string,
   path: string,
@@ -53,17 +80,28 @@ export async function api<T>(
   extraHeaders: Record<string, string> = {},
 ): Promise<T> {
   if (!path.startsWith("/v1/")) throw new Error("API paths start with /v1/");
+  const operation = operationFor(method, path);
+  if (!operation) throw new ApiError(500, "operation_not_in_contract", "This API operation is not in the generated contract.");
   const headers: Record<string, string> = { Accept: "application/json", ...extraHeaders };
-  if (!SAFE.has(method.toUpperCase())) {
-    if (csrfToken === null) await session();
-    if (csrfToken !== null) headers["X-CSRF-Token"] = csrfToken;
-  }
   let payload: BodyInit | undefined;
   if (body instanceof Blob) {
     payload = body;
   } else if (body !== undefined) {
+    if (operation.request) {
+      try {
+        body = operation.request.parse(body);
+      } catch {
+        throw new ApiError(0, "request_contract_mismatch", "The request did not match its API contract.");
+      }
+    }
     headers["Content-Type"] = "application/json";
     payload = JSON.stringify(body);
+  } else if (operation.requestRequired) {
+    throw new ApiError(0, "request_contract_mismatch", "This API operation requires a request body.");
+  }
+  if (!SAFE.has(method.toUpperCase())) {
+    if (csrfToken === null) await session();
+    if (csrfToken !== null) headers["X-CSRF-Token"] = csrfToken;
   }
   const reply = await fetch(path, {
     method,
@@ -73,8 +111,12 @@ export async function api<T>(
     cache: "no-store",
   });
   if (!reply.ok) throw await problem(reply);
-  if (reply.status === 204) return undefined as T;
-  return (await reply.json()) as T;
+  if (reply.status === 204 || operation.response === null) return undefined as T;
+  try {
+    return operation.response.parse(await reply.json()) as T;
+  } catch {
+    throw contractError("contract_mismatch");
+  }
 }
 
 export function newIdempotencyKey(): string {

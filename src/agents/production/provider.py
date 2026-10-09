@@ -11,7 +11,7 @@
   connector error, an unsupported operation or a blocked route is ``ProviderFailed`` with a
   neutral reason code. Profile enrichment needs profile URLs from an earlier pull: Blocked.
 
-GUARANTEE(test_connector_provider_pulls_through_the_real_ledger)
+GUARANTEE(test_runner_executes_an_abm_run_end_to_end_on_postgres)
 GUARANTEE(test_connector_provider_maps_refusals_and_failures)
 """
 

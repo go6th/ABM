@@ -38,8 +38,12 @@ def render() -> str:
         "concurrency equals the governor ceiling.",
         "",
     ]
-    cases = [("1 run, unconstrained", 1, 10_000, 10_000), ("1 run, provider limit 4", 1, 4, 8),
-             ("1 run, provider limit 1", 1, 1, 8), ("50 runs, provider limit 3", 50, 3, 8)]
+    cases = [
+        ("1 run, unconstrained", 1, 10_000, 10_000),
+        ("1 run, provider limit 4", 1, 4, 8),
+        ("1 run, provider limit 1", 1, 1, 8),
+        ("50 runs, provider limit 3", 50, 3, 8),
+    ]
     for title, runs, limit, in_flight in cases:
         report = simulate(
             cfg,

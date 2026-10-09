@@ -102,9 +102,7 @@ async def create_task(
 
 async def open_items(s: Any) -> list[str]:
     """Items already used by any earlier task (never drawn twice)."""
-    rows = (
-        await s.execute(text("SELECT items FROM analyst_label_tasks ORDER BY id"))
-    ).fetchall()
+    rows = (await s.execute(text("SELECT items FROM analyst_label_tasks ORDER BY id"))).fetchall()
     out: set[str] = set()
     for (blob,) in rows:
         out |= set(blob if isinstance(blob, list) else json.loads(blob))

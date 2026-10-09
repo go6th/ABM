@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -36,15 +37,30 @@ class NoGrant(RuntimeError):
     """The request has no recorded tenant grant; cross-tenant reads are refused."""
 
 
-def deadlines(path: Any = None) -> dict[str, int]:
+def deadlines(path: Path | None = None) -> dict[str, int]:
     """The configured response deadlines in days (source on every value)."""
     doc = yaml.safe_load((path or _path("dsar.yaml")).read_text())
-    return doc["deadline_days"]
+    if not isinstance(doc, dict):
+        raise ValueError("dsar.yaml: expected a mapping")
+    values = doc.get("deadline_days")
+    if not isinstance(values, dict):
+        raise ValueError("dsar.yaml: deadline_days must be a mapping")
+    parsed: dict[str, int] = {}
+    for kind, days in values.items():
+        if (
+            not isinstance(kind, str)
+            or not isinstance(days, int)
+            or isinstance(days, bool)
+            or days < 1
+        ):
+            raise ValueError("dsar.yaml: deadline_days must map request kinds to positive integers")
+        parsed[kind] = days
+    if set(parsed) != {"access", "erasure"}:
+        raise ValueError("dsar.yaml: deadline_days must define access and erasure")
+    return parsed
 
 
-def _path(rel: str) -> Any:
-    from pathlib import Path
-
+def _path(rel: str) -> Path:
     return Path(__file__).resolve().parents[2] / "config" / rel
 
 
@@ -98,12 +114,16 @@ async def verify_identity(s: Any, *, request_id: int, ok: bool, at: datetime) ->
     await event(s, request_id=request_id, step="identity_verification", detail={"ok": ok}, at=at)
     if ok:
         await s.execute(
-            text("UPDATE dsar_requests SET status = 'verified' WHERE id = :i AND status = 'received'"),
+            text(
+                "UPDATE dsar_requests SET status = 'verified' WHERE id = :i AND status = 'received'"
+            ),
             {"i": request_id},
         )
 
 
-async def event(s: Any, *, request_id: int, step: str, detail: dict[str, Any], at: datetime) -> None:
+async def event(
+    s: Any, *, request_id: int, step: str, detail: dict[str, Any], at: datetime
+) -> None:
     """One audited step (insert-only)."""
     await s.execute(
         text(
@@ -115,7 +135,12 @@ async def event(s: Any, *, request_id: int, step: str, detail: dict[str, Any], a
 
 
 async def scoped_search(
-    s: Any, *, request: Request, tenant_id: UUID, profile_url: str | None = None, name: str | None = None
+    s: Any,
+    *,
+    request: Request,
+    tenant_id: UUID,
+    profile_url: str | None = None,
+    name: str | None = None,
 ) -> list[int]:
     """The narrow operator-plane search: **ids only**, and only inside the
     request's recorded grant (a session already bound to that tenant)."""
@@ -124,15 +149,19 @@ async def scoped_search(
     if not profile_url and not name:
         raise ValueError("search by profile URL or name")
     rows = (
-        await s.execute(
-            text(
-                "SELECT id FROM people WHERE tenant_id = :t"
-                " AND ((CAST(:u AS text) IS NOT NULL AND profile_url_canonical = :u)"
-                " OR (CAST(:n AS text) IS NOT NULL AND lower(name) = lower(:n)))"
-            ),
-            {"t": tenant_id, "u": profile_url, "n": name},
+        (
+            await s.execute(
+                text(
+                    "SELECT id FROM people WHERE tenant_id = :t"
+                    " AND ((CAST(:u AS text) IS NOT NULL AND profile_url_canonical = :u)"
+                    " OR (CAST(:n AS text) IS NOT NULL AND lower(name) = lower(:n)))"
+                ),
+                {"t": tenant_id, "u": profile_url, "n": name},
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     await event(
         s,
         request_id=request.id,
@@ -144,25 +173,38 @@ async def scoped_search(
 
 
 def UTC() -> Any:  # noqa: N802 (kept tiny: the module has one now() caller)
+    """Return the standard UTC timezone singleton."""
     from datetime import UTC
 
     return UTC
 
 
-async def export_subject(s: Any, *, request: Request, tenant_id: UUID, person_ids: list[int]) -> dict[str, Any]:
+async def export_subject(
+    s: Any, *, request: Request, tenant_id: UUID, person_ids: list[int]
+) -> dict[str, Any]:
     """Access request: the person's data as JSON (the tenant-safe export)."""
     if request.kind != "access":
         raise ValueError("export is for access requests")
     rows = (
-        await s.execute(
-            text(
-                "SELECT id, profile_url, name, title, job_level, created_at FROM people"
-                " WHERE tenant_id = :t AND id = ANY(:ids)"
-            ),
-            {"t": tenant_id, "ids": person_ids},
+        (
+            await s.execute(
+                text(
+                    "SELECT id, profile_url, name, title, job_level, created_at FROM people"
+                    " WHERE tenant_id = :t AND id = ANY(:ids)"
+                ),
+                {"t": tenant_id, "ids": person_ids},
+            )
         )
-    ).mappings().all()
-    await event(s, request_id=request.id, step="export", detail={"rows": len(rows)}, at=datetime.now(tz=UTC()))
+        .mappings()
+        .all()
+    )
+    await event(
+        s,
+        request_id=request.id,
+        step="export",
+        detail={"rows": len(rows)},
+        at=datetime.now(tz=UTC()),
+    )
     return {"people": [dict(r) for r in rows]}
 
 
@@ -185,7 +227,7 @@ async def erase(
         row = (
             await s.execute(
                 text(
-                    "SELECT profile_url, name, erased_at FROM people"
+                    "SELECT profile_url, profile_url_canonical, name, erased_at FROM people"
                     " WHERE tenant_id = :t AND id = :p"
                 ),
                 {"t": tenant_id, "p": pid},
@@ -193,11 +235,18 @@ async def erase(
         ).first()
         if row is None or row.erased_at is not None:
             continue  # already erased: a crash mid-run resumes without double work
-        content = tombstones.content_hash({"profile_url": row.profile_url, "name": row.name})
+        content = tombstones.content_hash(
+            {
+                "profile_url": row.profile_url,
+                "profile_url_canonical": row.profile_url_canonical,
+                "name": row.name,
+            }
+        )
         await s.execute(
             text(
                 "UPDATE people SET name = NULL, title = NULL, headline = NULL, location = NULL,"
-                " profile_url = NULL, erased_at = :at, erasure_reason = :r"
+                " profile_url = NULL, profile_url_canonical = NULL,"
+                " erased_at = :at, erasure_reason = :r"
                 " WHERE tenant_id = :t AND id = :p AND erased_at IS NULL"
             ),
             {"at": now, "r": f"dsar:{request.id}", "t": tenant_id, "p": pid},
@@ -215,9 +264,7 @@ async def erase(
             s, profile_url=row.profile_url, name=row.name, salt=salt, reason=f"dsar:{request.id}"
         )
         erased += 1
-    await event(
-        s, request_id=request.id, step="erasure", detail={"erased": erased}, at=now
-    )
+    await event(s, request_id=request.id, step="erasure", detail={"erased": erased}, at=now)
     return erased
 
 
@@ -243,12 +290,16 @@ async def confirm(s: Any, *, request: Request, at: datetime) -> str:
 async def overdue(s: Any, *, now: datetime) -> list[int]:
     """Open requests past their deadline (the operator's view)."""
     rows = (
-        await s.execute(
-            text(
-                "SELECT id FROM dsar_requests"
-                " WHERE status NOT IN ('done', 'refused') AND deadline_at < :now"
-            ),
-            {"now": now},
+        (
+            await s.execute(
+                text(
+                    "SELECT id FROM dsar_requests"
+                    " WHERE status NOT IN ('done', 'refused') AND deadline_at < :now"
+                ),
+                {"now": now},
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(rows)

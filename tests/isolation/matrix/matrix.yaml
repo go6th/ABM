@@ -14,6 +14,7 @@ status: generated-coverage
 tables:
   account_runs: {}
   account_source_counters: {}
+  link_checks: {}
   audit_chain_checks:
     plant: {ok: true, first_bad_seq: null, from_seq: 0, to_seq: 1}
   audit_events:
@@ -109,6 +110,8 @@ tables:
   provider_leases: {}
   provider_waiters: {}
   report_sections: {}
+  review_samples: {}
+  run_anomaly_events: {}
   run_cap_events: {}
   run_cap_versions: {}
   run_coverage_meta: {}
@@ -127,11 +130,13 @@ tables:
   spend_reports: {}
   stuck_run_observations: {}
   tech_detections: {}
+  tombstones: {}
   tenant_events:
     plant: {event: created, actor_plane: system}
   tenant_settings_versions: {}
   tool_call_events:
     plant: {event: submitted}
+  tool_call_records: {}
   tool_calls: {}
   usage_counters:
     plant: {period: all}
@@ -226,6 +231,7 @@ tables:
   wallets: {}
   work_unit_events: {}
   work_units: {}
+  unit_cost_rollups: {}
 views:
   run_spend_by_provider: {tenant_column: tenant_id}
 # Definer functions run with their owner's rights: each must be narrow and return identifiers
@@ -244,6 +250,9 @@ functions:
   idp_connection_tenant:
     returns: (tenant_id, connection_id) of one active connection by slug
     proof: tests/phase3/test_ws2_sso_api.py
+  write_platform_tombstone:
+    returns: whether one content-free platform tombstone was inserted; cannot read tenant data
+    proof: tests/crosscut/test_x4_privacy.py
   login_state_tenant:
     returns: the tenant of one pending sign-in by the hash of its 256-bit state
     proof: tests/phase3/test_ws2_sso_api.py
@@ -358,6 +367,7 @@ routes:
     body: {kind: first_call_question_used, subject_id: report_sections.id, via: marked}
   GET /v1/usefulness/metric: {probe: tenant}
   GET /operator/v1/pilot/aggregate: {probe: staff, public: [owner]}
+  GET /operator/v1/session: {probe: staff}
   GET /v1/support/grants: {probe: tenant}
   GET /v1/support/events: {probe: tenant}
   POST /v1/support/grants:

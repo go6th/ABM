@@ -35,7 +35,7 @@ def as_json(row: Any) -> dict[str, Any]:
 
 async def listing(s: AsyncSession) -> list[dict[str, Any]]:
     """The context tenant's connections."""
-    sql = text(f"SELECT {COLUMNS} FROM idp_connections ORDER BY slug")  # noqa: S608
+    sql = text(f"SELECT {COLUMNS} FROM idp_connections ORDER BY slug")  # nosec B608 -- fixed return columns.
     return [as_json(r) for r in (await s.execute(sql)).all()]
 
 
@@ -47,7 +47,7 @@ async def create(s: AsyncSession, values: dict[str, Any], secret_ref: str | None
             row = (
                 await s.execute(
                     text(
-                        "INSERT INTO idp_connections (slug, protocol, issuer, client_id,"
+                        "INSERT INTO idp_connections (slug, protocol, issuer, client_id,"  # nosec B608 -- fixed statement and return columns.
                         " client_secret_ref, authorization_endpoint, token_endpoint, jwks_uri,"
                         " saml_sso_url, saml_idp_cert_pem, sp_entity_id, verified_domains,"
                         " group_role_map, jit_enabled, require_admin_mfa) VALUES (:slug,"
@@ -85,7 +85,7 @@ async def update(
             row = (
                 await s.execute(
                     text(
-                        "UPDATE idp_connections SET slug = :slug, protocol = :protocol,"
+                        "UPDATE idp_connections SET slug = :slug, protocol = :protocol,"  # nosec B608 -- fixed statement and return columns.
                         " issuer = :issuer, client_id = :client_id,"
                         " client_secret_ref = COALESCE(:ref, client_secret_ref),"
                         " authorization_endpoint = :authorization_endpoint,"

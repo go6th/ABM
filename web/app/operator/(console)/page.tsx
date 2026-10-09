@@ -5,6 +5,7 @@ import { useOperatorViewer } from "./OperatorSessionGate";
 import { OperatorRequestState, DevelopmentOnlyNotice } from "./OperatorStates";
 import { useOperatorApi } from "./useOperatorApi";
 import { formatCount, formatDate } from "@/lib/operator-render";
+import { providerName } from "@/lib/provider-labels";
 
 export default function OperatorHomePage() {
   const viewer = useOperatorViewer();
@@ -85,7 +86,7 @@ export default function OperatorHomePage() {
           <section className="operator-card" aria-labelledby="keys-title">
             <div className="operator-section-title"><h2 id="keys-title">Key references</h2><span className="badge tone-slate">Write-only values</span></div>
             <OperatorRequestState loading={keys.loading} error={keys.error} empty={Boolean(keys.data && keys.data.keys.length === 0)} onRetry={keys.reload} />
-            {keys.data && keys.data.keys.length > 0 ? <ul className="operator-compact-list">{keys.data.keys.slice(0, 6).map((key) => <li key={`${key.provider_code}:${key.version}`}><span><code>{key.provider_code}</code><small>Added {formatDate(key.created_at)}</small></span><code>v{formatCount(key.version)}</code></li>)}</ul> : null}
+            {keys.data && keys.data.keys.length > 0 ? <ul className="operator-compact-list">{keys.data.keys.slice(0, 6).map((key) => <li key={`${key.provider_code}:${key.version}`}><span>{providerName(key.provider_code)}<small><code>{key.provider_code}</code> · Added {formatDate(key.created_at)}</small></span><code>v{formatCount(key.version)}</code></li>)}</ul> : null}
           </section>
         </div>
       ) : (

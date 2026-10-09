@@ -92,6 +92,7 @@ class KnowledgeGraph:
             if seed in self.entities and seed not in seen:
                 seen[seed] = 0
                 queue.append((seed, 0))
+        # LOOP(graph-neighbors): cap=entity_count; exit=queue empty or max_hops.
         while queue:
             entity_id, depth = queue.popleft()
             if depth >= max_hops:
@@ -118,6 +119,7 @@ class KnowledgeGraph:
         queue: deque[tuple[str, tuple[Relation, ...]]] = deque()
         queue.append((start, ()))
         visited = {start}
+        # LOOP(evidence-path): cap=entity_count; exit=found or queue empty or max_hops.
         while queue:
             entity_id, path = queue.popleft()
             if len(path) >= max_hops:

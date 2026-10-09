@@ -27,7 +27,7 @@ class GateStep(StrEnum):
 class Verdict(StrEnum):
     """Terminal package verdict: PASS may be delivered, FAIL blocks it."""
 
-    PASS = "PASS"
+    PASS = "PASS"  # nosec B105 -- result enum, not a credential.
     FAIL = "FAIL"
 
 

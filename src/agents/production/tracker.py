@@ -9,7 +9,7 @@
   parent pull run (a Phase 2 run's rows are proven by the pull it was built on, G16). The parent's
   real ledger record is returned for this run; a reference in neither run is refused.
 
-GUARANTEE(test_tracker_adapter_derives_rows_from_real_ledger_proof)
+GUARANTEE(test_full_abm_run_grades_through_the_engine_and_tracks_every_row)
 GUARANTEE(test_inherited_proof_comes_only_from_the_declared_parent)
 """
 

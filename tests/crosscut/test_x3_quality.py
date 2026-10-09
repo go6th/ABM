@@ -55,18 +55,12 @@ def test_regressions_and_skipped_evals_block_the_merge() -> None:
     d = regression.decide(eval_required=True, eval_ran=False, eval_score=None, baseline=0.8)
     assert not d.merge and "skipped" in d.reason
     # equal or better passes, worse blocks
-    assert regression.decide(
-        eval_required=True, eval_ran=True, eval_score=0.8, baseline=0.8
-    ).merge
-    assert regression.decide(
-        eval_required=True, eval_ran=True, eval_score=0.85, baseline=0.8
-    ).merge
+    assert regression.decide(eval_required=True, eval_ran=True, eval_score=0.8, baseline=0.8).merge
+    assert regression.decide(eval_required=True, eval_ran=True, eval_score=0.85, baseline=0.8).merge
     d = regression.decide(eval_required=True, eval_ran=True, eval_score=0.7, baseline=0.8)
     assert not d.merge and "< baseline" in d.reason
     # first watched change with no baseline: it establishes the baseline
-    assert regression.decide(
-        eval_required=True, eval_ran=True, eval_score=0.5, baseline=None
-    ).merge
+    assert regression.decide(eval_required=True, eval_ran=True, eval_score=0.5, baseline=None).merge
 
 
 def test_the_rules_config_is_valid_and_hash_stable() -> None:
@@ -86,8 +80,13 @@ async def test_the_release_and_baseline_round_trip() -> None:
         assert v.released
         # a worse candidate records but is not released: the baseline stays 0.9
         await release_check.record(
-            s, candidate=candidate + "-worse", gate=True, verify=True, eval_=True,
-            eval_score=0.7, released=False,
+            s,
+            candidate=candidate + "-worse",
+            gate=True,
+            verify=True,
+            eval_=True,
+            eval_score=0.7,
+            released=False,
         )
         assert await release_check.baseline(s) == pytest.approx(0.9)
         # the DB keeps the verdicts insert-only (a separate session discards the aborted txn)
@@ -140,15 +139,25 @@ async def test_the_analyst_loop_samples_fresh_and_makes_cases() -> None:
         used_before = set(await analyst_loop.open_items(s))
         pool = [f"fresh-{i}" for i in range(12)]
         t1 = await analyst_loop.create_task(
-            s, quarter=quarter, pool=pool, k=4, seed=42,
-            exclude=used_before, due_at=datetime(2026, 4, 1, tzinfo=UTC),
+            s,
+            quarter=quarter,
+            pool=pool,
+            k=4,
+            seed=42,
+            exclude=used_before,
+            due_at=datetime(2026, 4, 1, tzinfo=UTC),
         )
         assert len(t1.items) == 4
         # a second task the same quarter never redraws a used item
         used = set(await analyst_loop.open_items(s))
         t2 = await analyst_loop.create_task(
-            s, quarter=quarter, pool=pool, k=4, seed=42,
-            exclude=used, due_at=datetime(2026, 4, 1, tzinfo=UTC),
+            s,
+            quarter=quarter,
+            pool=pool,
+            k=4,
+            seed=42,
+            exclude=used,
+            due_at=datetime(2026, 4, 1, tzinfo=UTC),
         )
         assert not (set(t2.items) & set(t1.items))
         # labels are insert-only; a disagreement becomes an eval case
@@ -160,9 +169,7 @@ async def test_the_analyst_loop_samples_fresh_and_makes_cases() -> None:
                 await s2.execute(
                     sa.text("DELETE FROM analyst_labels WHERE task_id = :t"), {"t": t1.id}
                 )
-        cases = analyst_loop.make_cases(
-            [(t1.items[0], "confirmed", "probable", f"task-{t1.id}")]
-        )
+        cases = analyst_loop.make_cases([(t1.items[0], "confirmed", "probable", f"task-{t1.id}")])
         assert cases[0].provenance == f"task-{t1.id}"
         # the operator sees the quarter and the overdue state
         got = {t.id: t for t in await analyst_loop.tasks(s)}

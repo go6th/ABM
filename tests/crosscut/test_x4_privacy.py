@@ -24,7 +24,9 @@ SALT = b"crosscut-test-salt"
 def test_a_person_field_without_a_consumer_fails() -> None:
     fields = {"name": {"consumers": ["people_list"]}, "nickname": {"consumers": []}}
     assert minimise.check(["name"], fields) == []
-    assert minimise.check(["nickname"], fields) == ["nickname: no consumer; it may not be collected"]
+    assert minimise.check(["nickname"], fields) == [
+        "nickname: no consumer; it may not be collected"
+    ]
     assert minimise.check(["salary"], fields) == [
         "salary: not in the minimisation map; it may not be collected"
     ]
@@ -53,13 +55,13 @@ def _row(rid: str, cls: str, age: int, held: bool = False) -> retention.Row:
 
 def test_retention_selects_exactly_the_dry_run() -> None:
     rows = [
-        _row("a1", "checkpoints", 8),       # older than 7 days: remove
-        _row("a2", "checkpoints", 3),       # inside the window: keep
+        _row("a1", "checkpoints", 8),  # older than 7 days: remove
+        _row("a2", "checkpoints", 3),  # inside the window: keep
         _row("a3", "checkpoints", 99, held=True),  # legal hold survives
-        _row("w1", "run_metadata", 395),    # at the limit: remove
-        _row("w2", "run_metadata", 100),    # keep
+        _row("w1", "run_metadata", 395),  # at the limit: remove
+        _row("w2", "run_metadata", 100),  # keep
         _row("p1", "wallet_ledger", 100000),  # permanent: never removed
-        _row("x1", "unknown_class", 999),   # no window: keep (conservative)
+        _row("x1", "unknown_class", 999),  # no window: keep (conservative)
     ]
     plan = retention.select(rows, CFG)
     assert plan.remove == {"checkpoints": ("a1",), "run_metadata": ("w1",)}
@@ -75,9 +77,10 @@ def test_batches_resume_from_the_cursor_without_double_work() -> None:
     assert len(first) == 4
     second = retention.batches(plan, cursor=4, size=4)
     assert len(second) == 4 and not (set(first) & set(second))
-    assert retention.batches(plan, cursor=8, size=4) == retention.batches(plan, cursor=8, size=4)[
-        :
-    ] or len(retention.batches(plan, cursor=8, size=4)) == 2
+    assert (
+        retention.batches(plan, cursor=8, size=4) == retention.batches(plan, cursor=8, size=4)[:]
+        or len(retention.batches(plan, cursor=8, size=4)) == 2
+    )
 
 
 def test_deadline_and_age_helpers() -> None:
@@ -115,7 +118,9 @@ async def test_retention_removes_exactly_the_dry_run() -> None:
         # the oracle
         ages = {
             rid: retention.age_days(at=NOW, since=c)
-            for rid, c in (await s.execute(sa.text("SELECT row_id, created_at FROM retention_demo"))).all()
+            for rid, c in (
+                await s.execute(sa.text("SELECT row_id, created_at FROM retention_demo"))
+            ).all()
         }
         rows = [
             retention.Row(rid, "checkpoints", age, held=(rid == "held-1"))
@@ -125,38 +130,47 @@ async def test_retention_removes_exactly_the_dry_run() -> None:
         assert plan.remove["checkpoints"] == tuple(f"old-{i}" for i in range(7))
         # execute: bounded batches with a cursor; tombstones written; the held row survives
         removed: list[str] = []
+        new_tombstones = 0
         cursor = 0
         while True:
             batch = retention.batches(plan, cursor=cursor, size=3)
             if not batch:
                 break
-            for cls, rid in batch:
+            for _cls, rid in batch:
                 await s.execute(sa.text("DELETE FROM retention_demo WHERE row_id = :r"), {"r": rid})
-                await tombstones.write(
-                    s, subject_type="retention_demo", subject_id=rid,
-                    reason="window", content_sha256=None, at=NOW,
+                inserted = await tombstones.write(
+                    s,
+                    subject_type="retention_demo",
+                    subject_id=rid,
+                    reason="window",
+                    content_sha256=None,
+                    at=NOW,
                 )
+                new_tombstones += int(inserted)
                 removed.append(rid)
             cursor += len(batch)
         assert removed == [rid for _, rid in retention.batches(plan, cursor=0, size=10_000)]
-        assert "held-1" in [r[0] for r in (await s.execute(sa.text("SELECT row_id FROM retention_demo"))).all()]
+        assert "held-1" in [
+            r[0] for r in (await s.execute(sa.text("SELECT row_id FROM retention_demo"))).all()
+        ]
         # resume after a "crash": re-running the same plan removes nothing new and
         # writes no second tombstone
         again = retention.batches(plan, cursor=0, size=10_000)
         for _, rid in again:
-            await tombstones.write(
-                s, subject_type="retention_demo", subject_id=rid,
-                reason="window", content_sha256=None, at=NOW,
+            inserted = await tombstones.write(
+                s,
+                subject_type="retention_demo",
+                subject_id=rid,
+                reason="window",
+                content_sha256=None,
+                at=NOW,
             )
-        n = (
-            await s.execute(
-                sa.text("SELECT count(*) FROM tombstones WHERE subject_type = 'retention_demo'")
-            )
-        ).scalar_one()
-        assert n == 7
+            assert not inserted
+        assert new_tombstones == 7
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:  # cleanup outside the app role
         c.execute("DROP TABLE IF EXISTS retention_demo")
         c.execute("DELETE FROM tombstones WHERE subject_type = 'retention_demo'")
+        c.execute("DELETE FROM platform_tombstones WHERE subject_type = 'retention_demo'")
 
 
 # --- PD4: suppression ---------------------------------------------------------------------------
@@ -195,23 +209,31 @@ def test_an_erased_subject_is_recognised_before_storing_or_rendering() -> None:
 async def test_a_dsar_runs_end_to_end() -> None:
     from tests.phase4.conftest import db as admin_db
 
-    t = admin_db(
-        "INSERT INTO tenants (name) VALUES (%s) RETURNING id", f"dsar-{uuid4().hex[:6]}"
-    )[0][0]
+    t = admin_db("INSERT INTO tenants (name) VALUES (%s) RETURNING id", f"dsar-{uuid4().hex[:6]}")[
+        0
+    ][0]
     a = admin_db(
         "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id", t, "dsar.example"
     )[0][0]
     run = admin_db(
         "INSERT INTO account_runs (tenant_id, account_id, status, graph_version, budget_json,"
-        " reserved_credits, idempotency_key, budget_usd, finished_at) VALUES (%s, %s, 'COMPLETED', 'g',"
+        " reserved_credits, idempotency_key, budget_usd, finished_at) VALUES (%s, %s, 'COMPLETED',"
+        " 'g',"
         " '{}', 1, %s, 5, now()) RETURNING id",
-        t, a, uuid4().hex,
+        t,
+        a,
+        uuid4().hex,
     )[0][0]
     person = admin_db(
         "INSERT INTO people (tenant_id, account_id, run_id, profile_url, profile_url_canonical,"
         " name, title, job_level, person_key, source_ref) VALUES"
         " (%s, %s, %s, %s, %s, 'Jane Doe', 'CIO', 'c_level', %s, 'fixture') RETURNING id",
-        t, a, run, "https://x.example/jane", "https://x.example/jane", uuid4().hex,
+        t,
+        a,
+        run,
+        "https://x.example/jane",
+        "https://x.example/jane",
+        uuid4().hex,
     )[0][0]
 
     async with SessionLocal() as s, s.begin():
@@ -222,31 +244,44 @@ async def test_a_dsar_runs_end_to_end() -> None:
         await dsar.verify_identity(s, request_id=req.id, ok=True, at=NOW)
     # the narrow search: ids only, inside the recorded grant
     async with tenant_txn(t) as s:
-        ids = await dsar.scoped_search(s, request=req, tenant_id=t, profile_url="https://x.example/jane")
+        ids = await dsar.scoped_search(
+            s, request=req, tenant_id=t, profile_url="https://x.example/jane"
+        )
         assert ids == [person]
         # no grant, no read: a different tenant is refused outright
         with pytest.raises(dsar.NoGrant):
             await dsar.scoped_search(s, request=req, tenant_id=uuid4(), name="Jane Doe")
         data = await dsar.export_subject(
-            s, request=dsar.Request(req.id, "access", req.subject_ref, req.tenant_scope, req.status, req.deadline_at),
-            tenant_id=t, person_ids=ids,
+            s,
+            request=dsar.Request(
+                req.id, "access", req.subject_ref, req.tenant_scope, req.status, req.deadline_at
+            ),
+            tenant_id=t,
+            person_ids=ids,
         )
         assert data["people"][0]["name"] == "Jane Doe"
         # erasure: redact, tombstone, suppress
-        erased = await dsar.erase(
-            s, request=req, tenant_id=t, person_ids=ids, salt=SALT, now=NOW
-        )
+        erased = await dsar.erase(s, request=req, tenant_id=t, person_ids=ids, salt=SALT, now=NOW)
         assert erased == 1
-        again = await dsar.erase(
-            s, request=req, tenant_id=t, person_ids=ids, salt=SALT, now=NOW
-        )
+        again = await dsar.erase(s, request=req, tenant_id=t, person_ids=ids, salt=SALT, now=NOW)
         assert again == 0  # idempotent: a resumed run never double-erases
-    async with SessionLocal() as s, s.begin():
+    async with tenant_txn(t) as s:
         # the person is gone; the tombstone and the suppression remain
         row = (
-            await s.execute(sa.text("SELECT name, profile_url, erased_at FROM people WHERE id = :p"), {"p": person})
+            await s.execute(
+                sa.text(
+                    "SELECT name, profile_url, profile_url_canonical, erased_at"
+                    " FROM people WHERE id = :p"
+                ),
+                {"p": person},
+            )
         ).first()
-        assert row.erased_at is not None and row.name is None and row.profile_url is None
+        assert (
+            row.erased_at is not None
+            and row.name is None
+            and row.profile_url is None
+            and row.profile_url_canonical is None
+        )
         tom = (
             await s.execute(
                 sa.text("SELECT reason, content_sha256 FROM tombstones WHERE subject_id = :s"),
@@ -255,7 +290,9 @@ async def test_a_dsar_runs_end_to_end() -> None:
         ).first()
         assert tom.reason == f"dsar:{req.id}" and tom.content_sha256
         known = await suppression.suppressed(s)
-        assert suppression.is_suppressed(known, profile_url="https://x.example/jane", name=None, salt=SALT)
+        assert suppression.is_suppressed(
+            known, profile_url="https://x.example/jane", name=None, salt=SALT
+        )
         # the pipeline's pre-store check refuses the same subject
         assert suppression.is_suppressed(
             known, profile_url="https://x.example/jane", name="Jane Doe", salt=SALT
@@ -264,20 +301,35 @@ async def test_a_dsar_runs_end_to_end() -> None:
         steps = [
             r.step
             for r in (
-                await s.execute(sa.text("SELECT step FROM dsar_events WHERE request_id = :r ORDER BY id"), {"r": req.id})
+                await s.execute(
+                    sa.text("SELECT step FROM dsar_events WHERE request_id = :r ORDER BY id"),
+                    {"r": req.id},
+                )
             ).all()
         ]
-        assert steps == ["intake", "identity_verification", "scoped_search", "erasure", "erasure"]
+        assert steps == [
+            "intake",
+            "identity_verification",
+            "scoped_search",
+            "export",
+            "erasure",
+            "erasure",
+        ]
         msg = await dsar.confirm(s, request=req, at=NOW)
         assert msg == dsar.CONFIRMATION
         assert not await dsar.overdue(s, now=NOW)
         # an open request past its deadline is visible to operators
         req2 = await dsar.open_request(
-            s, kind="access", subject_ref="other@example", tenant_scope=t,
+            s,
+            kind="access",
+            subject_ref="other@example",
+            tenant_scope=t,
             now=NOW - timedelta(days=60),
         )
         assert req2.id in await dsar.overdue(s, now=NOW)
-        await s.execute(sa.text("UPDATE dsar_requests SET status = 'done' WHERE id = :r"), {"r": req2.id})
+        await s.execute(
+            sa.text("UPDATE dsar_requests SET status = 'done' WHERE id = :r"), {"r": req2.id}
+        )
 
 
 # --- PD5: templates, not assertions -------------------------------------------------------------

@@ -14,8 +14,8 @@
   superseded facts are skipped. The write goes through ``repo.supersede``.
 * ``record_people`` has no production binding yet (``NotConfigured``, OI-ABM-4).
 
-GUARANTEE(test_engine_grading_records_facts_through_the_single_write_path)
-GUARANTEE(test_inherited_ledger_reads_only_the_declared_parent)
+GUARANTEE(test_full_abm_run_grades_through_the_engine_and_tracks_every_row)
+GUARANTEE(test_phase_two_on_a_stored_pull_inherits_its_ledger)
 GUARANTEE(test_mark_conflicting_caps_and_never_raises_a_grade)
 """
 

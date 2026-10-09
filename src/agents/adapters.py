@@ -61,7 +61,8 @@ class PgManifestStore:
         async with tenant_txn(tenant_id) as s:
             row = (
                 await s.execute(
-                    text(f"SELECT manifest FROM pull_manifests WHERE {where}"), dict(params)
+                    text(f"SELECT manifest FROM pull_manifests WHERE {where}"),  # nosec B608 -- private callers pass fixed predicates.
+                    dict(params),
                 )
             ).first()
         return None if row is None else PullManifest.model_validate(row.manifest)

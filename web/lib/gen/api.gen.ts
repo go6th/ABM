@@ -6,12 +6,12 @@ export const AccountAdded = z.object({
   "account_id": z.string(),
   "created": z.boolean(),
   "domain": z.string(),
-});
+}).strict();
 export type AccountAdded = z.infer<typeof AccountAdded>;
 
 export const AccountBody = z.object({
   "domain": z.string(),
-});
+}).strict();
 export type AccountBody = z.infer<typeof AccountBody>;
 
 export const AccountRun = z.object({
@@ -21,7 +21,7 @@ export const AccountRun = z.object({
   "mode": z.string(),
   "run_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type AccountRun = z.infer<typeof AccountRun>;
 
 export const AccountDetail = z.object({
@@ -29,27 +29,27 @@ export const AccountDetail = z.object({
   "domain": z.string(),
   "name": z.string().nullable(),
   "runs": z.array(AccountRun),
-});
+}).strict();
 export type AccountDetail = z.infer<typeof AccountDetail>;
 
 export const LatestRun = z.object({
   "created_at": z.string(),
   "run_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type LatestRun = z.infer<typeof LatestRun>;
 
 export const AccountItem = z.object({
   "domain": z.string(),
   "latest_run": LatestRun.nullable(),
   "name": z.string().nullable(),
-});
+}).strict();
 export type AccountItem = z.infer<typeof AccountItem>;
 
 export const AccountPage = z.object({
   "accounts": z.array(AccountItem),
   "next_after": z.string().nullable(),
-});
+}).strict();
 export type AccountPage = z.infer<typeof AccountPage>;
 
 export const AddBody = z.object({
@@ -57,7 +57,7 @@ export const AddBody = z.object({
   "email": z.string().nullable().optional(),
   "role": z.string(),
   "user_id": z.string(),
-});
+}).strict();
 export type AddBody = z.infer<typeof AddBody>;
 
 export const Alert = z.object({
@@ -68,13 +68,13 @@ export const Alert = z.object({
   "rule": z.string(),
   "subject": z.string(),
   "tier": z.string(),
-});
+}).strict();
 export type Alert = z.infer<typeof Alert>;
 
 export const AlertRated = z.object({
   "alert_id": z.string(),
   "verdict": z.string(),
-});
+}).strict();
 export type AlertRated = z.infer<typeof AlertRated>;
 
 export const AlertUsefulness = z.object({
@@ -85,33 +85,33 @@ export const AlertUsefulness = z.object({
   "target": z.number(),
   "target_is_a_result": z.boolean(),
   "useful": z.number().int(),
-});
+}).strict();
 export type AlertUsefulness = z.infer<typeof AlertUsefulness>;
 
 export const Alerts = z.object({
   "alerts": z.array(Alert),
-});
+}).strict();
 export type Alerts = z.infer<typeof Alerts>;
 
 export const Approval = z.object({
   "write_ids": z.array(z.string()),
-});
+}).strict();
 export type Approval = z.infer<typeof Approval>;
 
 export const ApproveBody = z.object({
   "proposal_hash": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type ApproveBody = z.infer<typeof ApproveBody>;
 
 export const ApprovePauseBody = z.object({
   "amount_usd": z.string().nullable().optional(),
-});
+}).strict();
 export type ApprovePauseBody = z.infer<typeof ApprovePauseBody>;
 
 export const Archive = z.object({
   "expected_version": z.number().int(),
-});
+}).strict();
 export type Archive = z.infer<typeof Archive>;
 
 export const AuditEvent = z.object({
@@ -127,13 +127,13 @@ export const AuditEvent = z.object({
   "route": z.string().nullable(),
   "seq": z.number().int(),
   "support_grant_id": z.string().nullable(),
-});
+}).strict();
 export type AuditEvent = z.infer<typeof AuditEvent>;
 
 export const AuditPage = z.object({
   "events": z.array(AuditEvent),
   "next_before_seq": z.number().int().nullable(),
-});
+}).strict();
 export type AuditPage = z.infer<typeof AuditPage>;
 
 export const Body_saml_acs_v1_sso_saml_acs_post = z.object({
@@ -147,7 +147,7 @@ export const Branding = z.object({
   "attribution": z.string(),
   "display_name": z.string().nullable(),
   "logo_sha256": z.string().nullable(),
-});
+}).strict();
 export type Branding = z.infer<typeof Branding>;
 
 export const BrandingBody = z.object({
@@ -155,7 +155,7 @@ export const BrandingBody = z.object({
   "display_name": z.string(),
   "expected_version": z.number().int(),
   "logo_sha256": z.string().nullable().optional(),
-});
+}).strict();
 export type BrandingBody = z.infer<typeof BrandingBody>;
 
 export const BrandingSaved = z.object({
@@ -164,7 +164,7 @@ export const BrandingSaved = z.object({
   "display_name": z.string().nullable(),
   "logo_sha256": z.string().nullable(),
   "version": z.number().int(),
-});
+}).strict();
 export type BrandingSaved = z.infer<typeof BrandingSaved>;
 
 export const CapApproved = z.object({
@@ -172,21 +172,21 @@ export const CapApproved = z.object({
   "resumed": z.boolean(),
   "run_id": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type CapApproved = z.infer<typeof CapApproved>;
 
 export const CapExtended = z.object({
   "run_id": z.string(),
   "status": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type CapExtended = z.infer<typeof CapExtended>;
 
 export const CapRejected = z.object({
   "decision": z.string(),
   "run_id": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type CapRejected = z.infer<typeof CapRejected>;
 
 export const ChangeBody = z.object({
@@ -195,13 +195,13 @@ export const ChangeBody = z.object({
   "role": z.string().nullable().optional(),
   "status": z.string().nullable().optional(),
   "user_id": z.string(),
-});
+}).strict();
 export type ChangeBody = z.infer<typeof ChangeBody>;
 
 export const CompleteBody = z.object({
   "account_confirmed": z.boolean(),
   "pull_date": z.string().nullable().optional(),
-});
+}).strict();
 export type CompleteBody = z.infer<typeof CompleteBody>;
 
 export const Connection = z.object({
@@ -213,7 +213,7 @@ export const Connection = z.object({
   "quarantined": z.number().int(),
   "scopes": z.array(z.string()),
   "status": z.string(),
-});
+}).strict();
 export type Connection = z.infer<typeof Connection>;
 
 export const ConnectionBody = z.object({
@@ -232,7 +232,7 @@ export const ConnectionBody = z.object({
   "sp_entity_id": z.string().nullable().optional(),
   "token_endpoint": z.string().nullable().optional(),
   "verified_domains": z.array(z.string()).optional(),
-});
+}).strict();
 export type ConnectionBody = z.infer<typeof ConnectionBody>;
 
 export const ConnectionUpdate = z.object({
@@ -253,24 +253,24 @@ export const ConnectionUpdate = z.object({
   "status": z.string().optional(),
   "token_endpoint": z.string().nullable().optional(),
   "verified_domains": z.array(z.string()).optional(),
-});
+}).strict();
 export type ConnectionUpdate = z.infer<typeof ConnectionUpdate>;
 
 export const Connections = z.object({
   "connections": z.array(Connection),
-});
+}).strict();
 export type Connections = z.infer<typeof Connections>;
 
 export const ConnectorGranted = z.object({
   "connection_id": z.string(),
   "granted": z.string(),
-});
+}).strict();
 export type ConnectorGranted = z.infer<typeof ConnectorGranted>;
 
 export const ConnectorStarted = z.object({
   "authorize_url": z.string(),
   "connection_id": z.string(),
-});
+}).strict();
 export type ConnectorStarted = z.infer<typeof ConnectorStarted>;
 
 export const CostLine = z.object({
@@ -280,7 +280,7 @@ export const CostLine = z.object({
   "provider_code": z.string(),
   "route": z.string().nullable(),
   "unknown_cost_calls": z.number().int(),
-});
+}).strict();
 export type CostLine = z.infer<typeof CostLine>;
 
 export const CoverageRow = z.object({
@@ -290,24 +290,24 @@ export const CoverageRow = z.object({
   "row": z.string(),
   "status": z.string(),
   "tools": z.array(z.string()),
-});
+}).strict();
 export type CoverageRow = z.infer<typeof CoverageRow>;
 
 export const CoverageView = z.object({
   "rows": z.array(CoverageRow),
   "tally": z.array(z.string()),
-});
+}).strict();
 export type CoverageView = z.infer<typeof CoverageView>;
 
 export const CrmApproved = z.object({
   "approved": z.number().int(),
-});
+}).strict();
 export type CrmApproved = z.infer<typeof CrmApproved>;
 
 export const CrmMapping = z.object({
   "domain": z.string(),
   "record_id": z.string(),
-});
+}).strict();
 export type CrmMapping = z.infer<typeof CrmMapping>;
 
 export const CrmPreview = z.object({
@@ -315,13 +315,13 @@ export const CrmPreview = z.object({
   "kind": z.string(),
   "record_id": z.string(),
   "title": z.string(),
-});
+}).strict();
 export type CrmPreview = z.infer<typeof CrmPreview>;
 
 export const CrmToggle = z.object({
   "crm": z.string(),
   "enabled": z.boolean(),
-});
+}).strict();
 export type CrmToggle = z.infer<typeof CrmToggle>;
 
 export const CrmWrite = z.object({
@@ -330,23 +330,23 @@ export const CrmWrite = z.object({
   "id": z.string(),
   "kind": z.string(),
   "title": z.string(),
-});
+}).strict();
 export type CrmWrite = z.infer<typeof CrmWrite>;
 
 export const CrmWriteRequested = z.object({
   "new": z.boolean(),
   "write_id": z.string(),
-});
+}).strict();
 export type CrmWriteRequested = z.infer<typeof CrmWriteRequested>;
 
 export const CrmWrites = z.object({
   "writes": z.array(CrmWrite),
-});
+}).strict();
 export type CrmWrites = z.infer<typeof CrmWrites>;
 
 export const DeletionRequested = z.object({
   "request_id": z.string(),
-});
+}).strict();
 export type DeletionRequested = z.infer<typeof DeletionRequested>;
 
 export const DeletionStep = z.object({
@@ -357,14 +357,14 @@ export const DeletionStep = z.object({
   "exit_reason": z.string().nullable().optional(),
   "plan": z.string().nullable().optional(),
   "request_id": z.string(),
-});
+}).strict();
 export type DeletionStep = z.infer<typeof DeletionStep>;
 
 export const Disconnected = z.object({
   "connection_id": z.string(),
   "status": z.string(),
   "upstream_revocation": z.union([z.string(), z.boolean()]).nullable(),
-});
+}).strict();
 export type Disconnected = z.infer<typeof Disconnected>;
 
 export const ExportBody = z.object({
@@ -372,7 +372,7 @@ export const ExportBody = z.object({
   "kind": z.string().optional(),
   "run_id": z.string().nullable().optional(),
   "table": z.string().nullable().optional(),
-});
+}).strict();
 export type ExportBody = z.infer<typeof ExportBody>;
 
 export const ExportFile = z.object({
@@ -381,14 +381,14 @@ export const ExportFile = z.object({
   "name": z.string(),
   "sha256": z.string(),
   "size": z.number().int(),
-});
+}).strict();
 export type ExportFile = z.infer<typeof ExportFile>;
 
 export const ParityVerdict = z.object({
   "compared": z.number().int(),
   "ok": z.boolean(),
   "problems": z.number().int(),
-});
+}).strict();
 export type ParityVerdict = z.infer<typeof ParityVerdict>;
 
 export const ExportPackage = z.object({
@@ -400,30 +400,30 @@ export const ExportPackage = z.object({
   "reason": z.string().nullable(),
   "run_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type ExportPackage = z.infer<typeof ExportPackage>;
 
 export const ExportPackages = z.object({
   "packages": z.array(ExportPackage),
-});
+}).strict();
 export type ExportPackages = z.infer<typeof ExportPackages>;
 
 export const ExtendBody = z.object({
   "cap_usd": z.string(),
   "reason": z.string(),
-});
+}).strict();
 export type ExtendBody = z.infer<typeof ExtendBody>;
 
 export const FailureRow = z.object({
   "reason": z.string(),
   "runs": z.number().int(),
   "status": z.string(),
-});
+}).strict();
 export type FailureRow = z.infer<typeof FailureRow>;
 
 export const Failures = z.object({
   "rows": z.array(FailureRow),
-});
+}).strict();
 export type Failures = z.infer<typeof Failures>;
 
 export const FeedbackBody = z.object({
@@ -434,19 +434,19 @@ export const FeedbackBody = z.object({
   "run_id": z.string().nullable().optional(),
   "table": z.string().nullable().optional(),
   "verdict": z.string(),
-});
+}).strict();
 export type FeedbackBody = z.infer<typeof FeedbackBody>;
 
 export const FeedbackCount = z.object({
   "count": z.number().int(),
   "reason": z.string(),
   "verdict": z.string(),
-});
+}).strict();
 export type FeedbackCount = z.infer<typeof FeedbackCount>;
 
 export const FeedbackCreated = z.object({
   "id": z.union([z.number().int(), z.string()]),
-});
+}).strict();
 export type FeedbackCreated = z.infer<typeof FeedbackCreated>;
 
 export const FeedbackItem = z.object({
@@ -461,12 +461,12 @@ export const FeedbackItem = z.object({
   "table": z.string().nullable(),
   "user_id": z.string(),
   "verdict": z.string(),
-});
+}).strict();
 export type FeedbackItem = z.infer<typeof FeedbackItem>;
 
 export const FeedbackList = z.object({
   "feedback": z.array(FeedbackItem),
-});
+}).strict();
 export type FeedbackList = z.infer<typeof FeedbackList>;
 
 export const FetchResult = z.object({
@@ -475,50 +475,50 @@ export const FetchResult = z.object({
   "held": z.number().int(),
   "pages": z.number().int(),
   "skipped": z.number().int(),
-});
+}).strict();
 export type FetchResult = z.infer<typeof FetchResult>;
 
 export const Filter = z.object({
   "column": z.string(),
   "op": z.string(),
   "value": z.union([z.string(), z.number().int(), z.array(z.string())]).nullable().optional(),
-});
+}).strict();
 export type Filter = z.infer<typeof Filter>;
 
 export const Flag = z.object({
   "flag": z.string(),
   "rule": z.record(z.string(), z.unknown()),
   "version": z.number().int(),
-});
+}).strict();
 export type Flag = z.infer<typeof Flag>;
 
 export const FlagBody = z.object({
   "flag": z.string(),
   "reason_code": z.string(),
   "rule": z.record(z.string(), z.unknown()),
-});
+}).strict();
 export type FlagBody = z.infer<typeof FlagBody>;
 
 export const FlagSet = z.object({
   "flag": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type FlagSet = z.infer<typeof FlagSet>;
 
 export const Flags = z.object({
   "flags": z.array(Flag),
-});
+}).strict();
 export type Flags = z.infer<typeof Flags>;
 
 export const GrantCreated = z.object({
   "grant_id": z.string(),
-});
+}).strict();
 export type GrantCreated = z.infer<typeof GrantCreated>;
 
 export const GrantRevoked = z.object({
   "grant_id": z.string(),
   "revoked": z.boolean(),
-});
+}).strict();
 export type GrantRevoked = z.infer<typeof GrantRevoked>;
 
 export const ValidationError = z.object({
@@ -537,7 +537,7 @@ export type HTTPValidationError = z.infer<typeof HTTPValidationError>;
 
 export const Health = z.object({
   "status": z.string(),
-});
+}).strict();
 export type Health = z.infer<typeof Health>;
 
 export const HistoryItem = z.object({
@@ -548,12 +548,12 @@ export const HistoryItem = z.object({
   "grade": z.string().nullable(),
   "reason": z.string(),
   "signal_type": z.string(),
-});
+}).strict();
 export type HistoryItem = z.infer<typeof HistoryItem>;
 
 export const History = z.object({
   "history": z.array(HistoryItem),
-});
+}).strict();
 export type History = z.infer<typeof History>;
 
 export const IdpConnection = z.object({
@@ -574,43 +574,43 @@ export const IdpConnection = z.object({
   "token_endpoint": z.string().nullable(),
   "verified_domains": z.array(z.string()),
   "version": z.number().int(),
-});
+}).strict();
 export type IdpConnection = z.infer<typeof IdpConnection>;
 
 export const IdpConnections = z.object({
   "connections": z.array(IdpConnection),
-});
+}).strict();
 export type IdpConnections = z.infer<typeof IdpConnections>;
 
 export const IntentBody = z.object({
   "intent_id": z.string(),
-});
+}).strict();
 export type IntentBody = z.infer<typeof IntentBody>;
 
 export const IntentEvent = z.object({
   "at": z.string(),
   "event": z.string(),
   "reason_code": z.string().nullable(),
-});
+}).strict();
 export type IntentEvent = z.infer<typeof IntentEvent>;
 
 export const IntentEvents = z.object({
   "events": z.array(IntentEvent),
   "intent_id": z.string(),
-});
+}).strict();
 export type IntentEvents = z.infer<typeof IntentEvents>;
 
 export const KeyAdded = z.object({
   "provider_code": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type KeyAdded = z.infer<typeof KeyAdded>;
 
 export const KeyBody = z.object({
   "provider_code": z.string(),
   "reason_code": z.string(),
   "secret_ref": z.string(),
-});
+}).strict();
 export type KeyBody = z.infer<typeof KeyBody>;
 
 export const KeyVersion = z.object({
@@ -618,32 +618,32 @@ export const KeyVersion = z.object({
   "created_by": z.string(),
   "provider_code": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type KeyVersion = z.infer<typeof KeyVersion>;
 
 export const KeyVersions = z.object({
   "keys": z.array(KeyVersion),
-});
+}).strict();
 export type KeyVersions = z.infer<typeof KeyVersions>;
 
 export const LogoUploaded = z.object({
   "height": z.number().int(),
   "logo_sha256": z.string(),
   "width": z.number().int(),
-});
+}).strict();
 export type LogoUploaded = z.infer<typeof LogoUploaded>;
 
 export const MappingBody = z.object({
   "domain": z.string(),
   "record_id": z.string(),
-});
+}).strict();
 export type MappingBody = z.infer<typeof MappingBody>;
 
 export const Materialization = z.object({
   "counts": z.record(z.string(), z.number().int()),
   "reason": z.string().nullable(),
   "status": z.string(),
-});
+}).strict();
 export type Materialization = z.infer<typeof Materialization>;
 
 export const Member = z.object({
@@ -651,23 +651,23 @@ export const Member = z.object({
   "status": z.string(),
   "user_id": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type Member = z.infer<typeof Member>;
 
 export const Members = z.object({
   "members": z.array(Member),
-});
+}).strict();
 export type Members = z.infer<typeof Members>;
 
 export const MonitoringBudget = z.object({
   "percent": z.number().int(),
   "period": z.string(),
-});
+}).strict();
 export type MonitoringBudget = z.infer<typeof MonitoringBudget>;
 
 export const NewTenant = z.object({
   "name": z.string(),
-});
+}).strict();
 export type NewTenant = z.infer<typeof NewTenant>;
 
 export const OperatorLiveSpend = z.object({
@@ -682,14 +682,14 @@ export const OperatorLiveSpend = z.object({
   "remaining_micros": z.number().int().nullable(),
   "run_id": z.string(),
   "soft_micros": z.number().int().nullable(),
-});
+}).strict();
 export type OperatorLiveSpend = z.infer<typeof OperatorLiveSpend>;
 
 export const OperatorSession = z.object({
   "mfa_fresh": z.boolean(),
   "role": z.string(),
   "staff_id": z.string(),
-});
+}).strict();
 export type OperatorSession = z.infer<typeof OperatorSession>;
 
 export const PauseApproved = z.object({
@@ -697,7 +697,7 @@ export const PauseApproved = z.object({
   "request_id": z.string(),
   "resumed": z.boolean(),
   "run_id": z.string(),
-});
+}).strict();
 export type PauseApproved = z.infer<typeof PauseApproved>;
 
 export const PauseDeclined = z.object({
@@ -705,7 +705,7 @@ export const PauseDeclined = z.object({
   "request_id": z.string(),
   "resumed": z.boolean(),
   "run_id": z.string(),
-});
+}).strict();
 export type PauseDeclined = z.infer<typeof PauseDeclined>;
 
 export const PilotTenant = z.object({
@@ -714,24 +714,24 @@ export const PilotTenant = z.object({
   "questions_used": z.number().int(),
   "tenant_id": z.string(),
   "useful": z.number().int(),
-});
+}).strict();
 export type PilotTenant = z.infer<typeof PilotTenant>;
 
 export const PilotAggregate = z.object({
   "tenants": z.array(PilotTenant),
-});
+}).strict();
 export type PilotAggregate = z.infer<typeof PilotAggregate>;
 
 export const PlanBody = z.object({
   "plan_code": z.string(),
   "reason_code": z.string(),
-});
+}).strict();
 export type PlanBody = z.infer<typeof PlanBody>;
 
 export const PlanSet = z.object({
   "plan_code": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type PlanSet = z.infer<typeof PlanSet>;
 
 export const PullOption = z.object({
@@ -740,7 +740,7 @@ export const PullOption = z.object({
   "pulled_at": z.string().nullable().optional(),
   "rows_blocked": z.number().int().nullable().optional(),
   "rows_stored": z.number().int().nullable().optional(),
-});
+}).strict();
 export type PullOption = z.infer<typeof PullOption>;
 
 export const QuarantineItem = z.object({
@@ -749,24 +749,24 @@ export const QuarantineItem = z.object({
   "reason": z.string(),
   "resource_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type QuarantineItem = z.infer<typeof QuarantineItem>;
 
 export const Quarantine = z.object({
   "items": z.array(QuarantineItem),
-});
+}).strict();
 export type Quarantine = z.infer<typeof Quarantine>;
 
 export const QuarantineDecided = z.object({
   "resource_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type QuarantineDecided = z.infer<typeof QuarantineDecided>;
 
 export const Sort = z.object({
   "column": z.string(),
   "direction": z.string().optional(),
-});
+}).strict();
 export type Sort = z.infer<typeof Sort>;
 
 export const QuerySpec = z.object({
@@ -774,20 +774,20 @@ export const QuerySpec = z.object({
   "page_size": z.number().int().nullable().optional(),
   "search": z.string().nullable().optional(),
   "sort": z.array(Sort).optional(),
-});
+}).strict();
 export type QuerySpec = z.infer<typeof QuerySpec>;
 
 export const QuotaBody = z.object({
   "dimension": z.string(),
   "limit_value": z.number().int(),
   "reason_code": z.string(),
-});
+}).strict();
 export type QuotaBody = z.infer<typeof QuotaBody>;
 
 export const QuotaSet = z.object({
   "dimension": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type QuotaSet = z.infer<typeof QuotaSet>;
 
 export const Rate = z.object({
@@ -795,24 +795,24 @@ export const Rate = z.object({
   "rate": z.number().nullable(),
   "small_base": z.boolean(),
   "used": z.number().int(),
-});
+}).strict();
 export type Rate = z.infer<typeof Rate>;
 
 export const Rating = z.object({
   "reason": z.string(),
   "verdict": z.string(),
-});
+}).strict();
 export type Rating = z.infer<typeof Rating>;
 
 export const Ready = z.object({
   "checks": z.record(z.string(), z.string()),
   "ready": z.boolean(),
-});
+}).strict();
 export type Ready = z.infer<typeof Ready>;
 
 export const Reason = z.object({
   "reason_code": z.string(),
-});
+}).strict();
 export type Reason = z.infer<typeof Reason>;
 
 export const Reconcile = z.object({
@@ -820,20 +820,20 @@ export const Reconcile = z.object({
   "ledger_micros": z.number().int(),
   "rollup_micros": z.number().int(),
   "unknown_cost_calls": z.number().int(),
-});
+}).strict();
 export type Reconcile = z.infer<typeof Reconcile>;
 
 export const RejectBody = z.object({
   "reason": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type RejectBody = z.infer<typeof RejectBody>;
 
 export const RowSource = z.object({
   "code": z.string().nullable(),
   "state": z.string().nullable(),
   "url": z.string().nullable(),
-});
+}).strict();
 export type RowSource = z.infer<typeof RowSource>;
 
 export const RunBody = z.object({
@@ -844,21 +844,21 @@ export const RunBody = z.object({
   "mode": z.string().nullable().optional(),
   "parent_run_id": z.string().nullable().optional(),
   "pursuing_client": z.boolean().optional(),
-});
+}).strict();
 export type RunBody = z.infer<typeof RunBody>;
 
 export const RunCost = z.object({
   "lines": z.array(CostLine),
   "reconcile": Reconcile,
   "run_id": z.string(),
-});
+}).strict();
 export type RunCost = z.infer<typeof RunCost>;
 
 export const RunCreated = z.object({
   "replayed": z.boolean(),
   "run_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type RunCreated = z.infer<typeof RunCreated>;
 
 export const RunListItem = z.object({
@@ -867,13 +867,13 @@ export const RunListItem = z.object({
   "label": z.string(),
   "run_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type RunListItem = z.infer<typeof RunListItem>;
 
 export const RunPage = z.object({
   "next_cursor": z.string().nullable(),
   "runs": z.array(RunListItem),
-});
+}).strict();
 export type RunPage = z.infer<typeof RunPage>;
 
 export const RunProgress = z.object({
@@ -885,13 +885,13 @@ export const RunProgress = z.object({
   "stages_total": z.number().int(),
   "status": z.string(),
   "text": z.string(),
-});
+}).strict();
 export type RunProgress = z.infer<typeof RunProgress>;
 
 export const RunState = z.object({
   "run_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type RunState = z.infer<typeof RunState>;
 
 export const RunStatusView = z.object({
@@ -899,7 +899,7 @@ export const RunStatusView = z.object({
   "reason": z.string().nullable(),
   "run_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type RunStatusView = z.infer<typeof RunStatusView>;
 
 export const TimelineUnit = z.object({
@@ -908,7 +908,7 @@ export const TimelineUnit = z.object({
   "queue_wait_s": z.number().nullable(),
   "run_s": z.number().nullable(),
   "unit_key": z.string(),
-});
+}).strict();
 export type TimelineUnit = z.infer<typeof TimelineUnit>;
 
 export const RunTimeline = z.object({
@@ -922,7 +922,7 @@ export const RunTimeline = z.object({
   "status": z.string(),
   "trace_id": z.string(),
   "units": z.array(TimelineUnit),
-});
+}).strict();
 export type RunTimeline = z.infer<typeof RunTimeline>;
 
 export const SavedView = z.object({
@@ -933,12 +933,12 @@ export const SavedView = z.object({
   "spec": z.record(z.string(), z.unknown()),
   "table": z.string(),
   "version": z.number().int(),
-});
+}).strict();
 export type SavedView = z.infer<typeof SavedView>;
 
 export const SavedViews = z.object({
   "views": z.array(SavedView),
-});
+}).strict();
 export type SavedViews = z.infer<typeof SavedViews>;
 
 export const Session = z.object({
@@ -947,12 +947,12 @@ export const Session = z.object({
   "role": z.string(),
   "step_up_fresh": z.boolean(),
   "user_id": z.string(),
-});
+}).strict();
 export type Session = z.infer<typeof Session>;
 
 export const SessionsEnded = z.object({
   "sessions_ended": z.number().int(),
-});
+}).strict();
 export type SessionsEnded = z.infer<typeof SessionsEnded>;
 
 export const Settings = z.object({
@@ -961,13 +961,13 @@ export const Settings = z.object({
   "muted_accounts": z.array(z.string()).optional(),
   "slack": z.boolean().optional(),
   "threshold": z.number().int().optional(),
-});
+}).strict();
 export type Settings = z.infer<typeof Settings>;
 
 export const SettingsBody = z.object({
   "expected_version": z.number().int(),
   "settings": z.record(z.string(), z.unknown()),
-});
+}).strict();
 export type SettingsBody = z.infer<typeof SettingsBody>;
 
 export const SignalEvent = z.object({
@@ -983,31 +983,31 @@ export const SignalEvent = z.object({
   "sensitive": z.boolean(),
   "signal_type": z.string(),
   "source_codes": z.array(z.string()),
-});
+}).strict();
 export type SignalEvent = z.infer<typeof SignalEvent>;
 
 export const SignalPage = z.object({
   "items": z.array(SignalEvent),
   "next_cursor": z.string().nullable(),
   "schema": z.string(),
-});
+}).strict();
 export type SignalPage = z.infer<typeof SignalPage>;
 
 export const SignedOut = z.object({
   "signed_out": z.boolean(),
-});
+}).strict();
 export type SignedOut = z.infer<typeof SignedOut>;
 
 export const SliceTask = z.object({
   "run_id": z.string(),
   "slice": z.number().int().optional(),
   "tenant_id": z.string(),
-});
+}).strict();
 export type SliceTask = z.infer<typeof SliceTask>;
 
 export const StartBody = z.object({
   "kind": z.string(),
-});
+}).strict();
 export type StartBody = z.infer<typeof StartBody>;
 
 export const StuckRow = z.object({
@@ -1016,12 +1016,12 @@ export const StuckRow = z.object({
   "reason": z.string().nullable(),
   "run_id": z.string(),
   "state": z.string(),
-});
+}).strict();
 export type StuckRow = z.infer<typeof StuckRow>;
 
 export const Stuck = z.object({
   "rows": z.array(StuckRow),
-});
+}).strict();
 export type Stuck = z.infer<typeof Stuck>;
 
 export const Subscription = z.object({
@@ -1030,7 +1030,7 @@ export const Subscription = z.object({
   "muted_accounts": z.array(z.string()),
   "slack": z.boolean(),
   "threshold": z.number().int(),
-});
+}).strict();
 export type Subscription = z.infer<typeof Subscription>;
 
 export const SupportEvent = z.object({
@@ -1040,12 +1040,12 @@ export const SupportEvent = z.object({
   "operator": z.string(),
   "outcome": z.string(),
   "route": z.string(),
-});
+}).strict();
 export type SupportEvent = z.infer<typeof SupportEvent>;
 
 export const SupportEvents = z.object({
   "events": z.array(SupportEvent),
-});
+}).strict();
 export type SupportEvents = z.infer<typeof SupportEvents>;
 
 export const SupportGrant = z.object({
@@ -1057,12 +1057,12 @@ export const SupportGrant = z.object({
   "reason": z.string(),
   "revoked_at": z.string().nullable(),
   "scope": z.string(),
-});
+}).strict();
 export type SupportGrant = z.infer<typeof SupportGrant>;
 
 export const SupportGrants = z.object({
   "grants": z.array(SupportGrant),
-});
+}).strict();
 export type SupportGrants = z.infer<typeof SupportGrants>;
 
 export const TableColumn = z.object({
@@ -1071,7 +1071,7 @@ export const TableColumn = z.object({
   "kind": z.string(),
   "operators": z.array(z.string()),
   "sortable": z.boolean(),
-});
+}).strict();
 export type TableColumn = z.infer<typeof TableColumn>;
 
 export const TableRow = z.object({
@@ -1080,7 +1080,7 @@ export const TableRow = z.object({
   "ref": z.string().nullable(),
   "row_id": z.string().nullable(),
   "source": RowSource,
-});
+}).strict();
 export type TableRow = z.infer<typeof TableRow>;
 
 export const TablePage = z.object({
@@ -1090,24 +1090,24 @@ export const TablePage = z.object({
   "rows": z.array(TableRow),
   "run_id": z.string(),
   "table": z.string(),
-});
+}).strict();
 export type TablePage = z.infer<typeof TablePage>;
 
 export const Target = z.object({
   "domain": z.string(),
   "kind": z.string().optional(),
-});
+}).strict();
 export type Target = z.infer<typeof Target>;
 
 export const TenantCreated = z.object({
   "tenant_id": z.string(),
-});
+}).strict();
 export type TenantCreated = z.infer<typeof TenantCreated>;
 
 export const TenantLifecycle = z.object({
   "status": z.string(),
   "tenant_id": z.string(),
-});
+}).strict();
 export type TenantLifecycle = z.infer<typeof TenantLifecycle>;
 
 export const TenantLiveSpend = z.object({
@@ -1115,7 +1115,7 @@ export const TenantLiveSpend = z.object({
   "calls_by_category": z.record(z.string(), z.number().int()),
   "run_id": z.string(),
   "status": z.string(),
-});
+}).strict();
 export type TenantLiveSpend = z.infer<typeof TenantLiveSpend>;
 
 export const TenantOverview = z.object({
@@ -1126,25 +1126,25 @@ export const TenantOverview = z.object({
   "plan": z.string().nullable(),
   "suspended": z.boolean(),
   "tenant_id": z.string(),
-});
+}).strict();
 export type TenantOverview = z.infer<typeof TenantOverview>;
 
 export const TenantSettings = z.object({
   "hash": z.string().nullable(),
   "settings": z.record(z.string(), z.unknown()),
   "version": z.number().int(),
-});
+}).strict();
 export type TenantSettings = z.infer<typeof TenantSettings>;
 
 export const TenantsOverview = z.object({
   "tenants": z.array(TenantOverview),
-});
+}).strict();
 export type TenantsOverview = z.infer<typeof TenantsOverview>;
 
 export const TimeoutTask = z.object({
   "run_id": z.string(),
   "tenant_id": z.string(),
-});
+}).strict();
 export type TimeoutTask = z.infer<typeof TimeoutTask>;
 
 export const UploadTarget = z.object({
@@ -1152,14 +1152,14 @@ export const UploadTarget = z.object({
   "expires_at": z.string(),
   "max_bytes": z.number().int(),
   "url": z.string(),
-});
+}).strict();
 export type UploadTarget = z.infer<typeof UploadTarget>;
 
 export const UploadIntent = z.object({
   "intent_id": z.string(),
   "spec": z.record(z.string(), z.unknown()),
   "upload": UploadTarget,
-});
+}).strict();
 export type UploadIntent = z.infer<typeof UploadIntent>;
 
 export const UploadVerdict = z.object({
@@ -1168,7 +1168,7 @@ export const UploadVerdict = z.object({
   "operations": z.array(z.string()),
   "reason_code": z.string().nullable(),
   "record_count": z.number().int().nullable(),
-});
+}).strict();
 export type UploadVerdict = z.infer<typeof UploadVerdict>;
 
 export const UsageEvents = z.object({
@@ -1176,7 +1176,7 @@ export const UsageEvents = z.object({
   "events": z.number().int(),
   "kind": z.string(),
   "units": z.number().int(),
-});
+}).strict();
 export type UsageEvents = z.infer<typeof UsageEvents>;
 
 export const UsageItem = z.object({
@@ -1185,7 +1185,7 @@ export const UsageItem = z.object({
   "percent": z.number().int().nullable(),
   "unit": z.string(),
   "used": z.number().int(),
-});
+}).strict();
 export type UsageItem = z.infer<typeof UsageItem>;
 
 export const Usage = z.object({
@@ -1193,19 +1193,19 @@ export const Usage = z.object({
   "events": z.array(UsageEvents),
   "items": z.array(UsageItem),
   "period": z.string(),
-});
+}).strict();
 export type Usage = z.infer<typeof Usage>;
 
 export const UsefulBody = z.object({
   "kind": z.string(),
   "subject_id": z.string(),
   "via": z.string(),
-});
+}).strict();
 export type UsefulBody = z.infer<typeof UsefulBody>;
 
 export const UsefulRecorded = z.object({
   "recorded": z.boolean(),
-});
+}).strict();
 export type UsefulRecorded = z.infer<typeof UsefulRecorded>;
 
 export const UsefulnessMetric = z.object({
@@ -1214,25 +1214,25 @@ export const UsefulnessMetric = z.object({
   "question_use": Rate,
   "status": z.string(),
   "window_days": z.number().int(),
-});
+}).strict();
 export type UsefulnessMetric = z.infer<typeof UsefulnessMetric>;
 
 export const ViewArchived = z.object({
   "archived": z.boolean(),
   "id": z.string(),
-});
+}).strict();
 export type ViewArchived = z.infer<typeof ViewArchived>;
 
 export const ViewAsAccount = z.object({
   "domain": z.string(),
   "latest_run_status": z.string().nullable(),
-});
+}).strict();
 export type ViewAsAccount = z.infer<typeof ViewAsAccount>;
 
 export const ViewAsAccounts = z.object({
   "accounts": z.array(ViewAsAccount),
   "support_grant": z.string(),
-});
+}).strict();
 export type ViewAsAccounts = z.infer<typeof ViewAsAccounts>;
 
 export const ViewAsSettings = z.object({
@@ -1240,7 +1240,7 @@ export const ViewAsSettings = z.object({
   "settings": z.record(z.string(), z.unknown()).nullable(),
   "support_grant": z.string(),
   "version": z.number().int().nullable(),
-});
+}).strict();
 export type ViewAsSettings = z.infer<typeof ViewAsSettings>;
 
 export const ViewBody = z.object({
@@ -1248,7 +1248,7 @@ export const ViewBody = z.object({
   "shared": z.boolean().optional(),
   "spec": QuerySpec,
   "table": z.string(),
-});
+}).strict();
 export type ViewBody = z.infer<typeof ViewBody>;
 
 export const ViewEdit = z.object({
@@ -1256,13 +1256,13 @@ export const ViewEdit = z.object({
   "name": z.string().nullable().optional(),
   "shared": z.boolean().nullable().optional(),
   "spec": QuerySpec.nullable().optional(),
-});
+}).strict();
 export type ViewEdit = z.infer<typeof ViewEdit>;
 
 export const account_intelligence__api__routes__connectors__GrantBody = z.object({
   "grant_kind": z.string(),
   "resource_id": z.string(),
-});
+}).strict();
 export type account_intelligence__api__routes__connectors__GrantBody = z.infer<typeof account_intelligence__api__routes__connectors__GrantBody>;
 
 export const account_intelligence__api__routes__support__GrantBody = z.object({
@@ -1270,7 +1270,7 @@ export const account_intelligence__api__routes__support__GrantBody = z.object({
   "minutes": z.number().int(),
   "reason_code": z.string(),
   "scope": z.string().optional(),
-});
+}).strict();
 export type account_intelligence__api__routes__support__GrantBody = z.infer<typeof account_intelligence__api__routes__support__GrantBody>;
 
 /** Known values of enumerated fields (labels map them; others are Unknown). */
@@ -1424,118 +1424,120 @@ export interface Operation {
   path: string;
   plane: "tenant" | "operator";
   status: number;
+  request: z.ZodType | null;
+  requestRequired: boolean;
   response: z.ZodType | null;
 }
 
 export const operations = {
-  "GET /healthz": { method: "GET", path: "/healthz", plane: "tenant", status: 200, response: Health },
-  "GET /operator/v1/flags": { method: "GET", path: "/operator/v1/flags", plane: "operator", status: 200, response: Flags },
-  "POST /operator/v1/flags": { method: "POST", path: "/operator/v1/flags", plane: "operator", status: 201, response: FlagSet },
-  "GET /operator/v1/keys": { method: "GET", path: "/operator/v1/keys", plane: "operator", status: 200, response: KeyVersions },
-  "POST /operator/v1/keys": { method: "POST", path: "/operator/v1/keys", plane: "operator", status: 201, response: KeyAdded },
-  "GET /operator/v1/ops/cost/{run_id}": { method: "GET", path: "/operator/v1/ops/cost/{run_id}", plane: "operator", status: 200, response: RunCost },
-  "GET /operator/v1/ops/failures": { method: "GET", path: "/operator/v1/ops/failures", plane: "operator", status: 200, response: Failures },
-  "GET /operator/v1/ops/stuck": { method: "GET", path: "/operator/v1/ops/stuck", plane: "operator", status: 200, response: Stuck },
-  "GET /operator/v1/pilot/aggregate": { method: "GET", path: "/operator/v1/pilot/aggregate", plane: "operator", status: 200, response: PilotAggregate },
-  "POST /operator/v1/runs/{run_id}/prepulled/intents": { method: "POST", path: "/operator/v1/runs/{run_id}/prepulled/intents", plane: "operator", status: 200, response: UploadIntent },
-  "GET /operator/v1/runs/{run_id}/prepulled/{intent_id}": { method: "GET", path: "/operator/v1/runs/{run_id}/prepulled/{intent_id}", plane: "operator", status: 200, response: IntentEvents },
-  "POST /operator/v1/runs/{run_id}/prepulled/{intent_id}/complete": { method: "POST", path: "/operator/v1/runs/{run_id}/prepulled/{intent_id}/complete", plane: "operator", status: 200, response: UploadVerdict },
-  "GET /operator/v1/runs/{run_id}/spend/live": { method: "GET", path: "/operator/v1/runs/{run_id}/spend/live", plane: "operator", status: 200, response: OperatorLiveSpend },
-  "GET /operator/v1/runs/{run_id}/timeline": { method: "GET", path: "/operator/v1/runs/{run_id}/timeline", plane: "operator", status: 200, response: RunTimeline },
-  "GET /operator/v1/session": { method: "GET", path: "/operator/v1/session", plane: "operator", status: 200, response: OperatorSession },
-  "GET /operator/v1/tenants": { method: "GET", path: "/operator/v1/tenants", plane: "operator", status: 200, response: TenantsOverview },
-  "POST /operator/v1/tenants": { method: "POST", path: "/operator/v1/tenants", plane: "operator", status: 201, response: TenantCreated },
-  "POST /operator/v1/tenants/{tenant_id}/deletion": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion", plane: "operator", status: 201, response: DeletionRequested },
-  "POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/approve": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion/{request_id}/approve", plane: "operator", status: 200, response: DeletionStep },
-  "POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/dry-run": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion/{request_id}/dry-run", plane: "operator", status: 200, response: DeletionStep },
-  "POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/execute": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion/{request_id}/execute", plane: "operator", status: 200, response: DeletionStep },
-  "POST /operator/v1/tenants/{tenant_id}/plan": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/plan", plane: "operator", status: 201, response: PlanSet },
-  "POST /operator/v1/tenants/{tenant_id}/quotas": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/quotas", plane: "operator", status: 201, response: QuotaSet },
-  "POST /operator/v1/tenants/{tenant_id}/reactivate": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/reactivate", plane: "operator", status: 200, response: TenantLifecycle },
-  "POST /operator/v1/tenants/{tenant_id}/suspend": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/suspend", plane: "operator", status: 200, response: TenantLifecycle },
-  "GET /operator/v1/view/accounts": { method: "GET", path: "/operator/v1/view/accounts", plane: "operator", status: 200, response: ViewAsAccounts },
-  "GET /operator/v1/view/settings": { method: "GET", path: "/operator/v1/view/settings", plane: "operator", status: 200, response: ViewAsSettings },
-  "GET /readyz": { method: "GET", path: "/readyz", plane: "tenant", status: 200, response: Ready },
-  "GET /v1/accounts": { method: "GET", path: "/v1/accounts", plane: "tenant", status: 200, response: AccountPage },
-  "POST /v1/accounts": { method: "POST", path: "/v1/accounts", plane: "tenant", status: 201, response: AccountAdded },
-  "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, response: AccountDetail },
-  "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, response: History },
-  "GET /v1/accounts/{domain}/tables/{table}": { method: "GET", path: "/v1/accounts/{domain}/tables/{table}", plane: "tenant", status: 200, response: TablePage },
-  "GET /v1/alerts": { method: "GET", path: "/v1/alerts", plane: "tenant", status: 200, response: Alerts },
-  "GET /v1/alerts/usefulness": { method: "GET", path: "/v1/alerts/usefulness", plane: "tenant", status: 200, response: AlertUsefulness },
-  "POST /v1/alerts/{alert_id}/feedback": { method: "POST", path: "/v1/alerts/{alert_id}/feedback", plane: "tenant", status: 201, response: AlertRated },
-  "GET /v1/audit": { method: "GET", path: "/v1/audit", plane: "tenant", status: 200, response: AuditPage },
-  "GET /v1/audit/export": { method: "GET", path: "/v1/audit/export", plane: "tenant", status: 200, response: null },
-  "GET /v1/branding": { method: "GET", path: "/v1/branding", plane: "tenant", status: 200, response: Branding },
-  "GET /v1/connectors": { method: "GET", path: "/v1/connectors", plane: "tenant", status: 200, response: Connections },
-  "POST /v1/connectors": { method: "POST", path: "/v1/connectors", plane: "tenant", status: 201, response: ConnectorStarted },
-  "GET /v1/connectors/oauth/callback": { method: "GET", path: "/v1/connectors/oauth/callback", plane: "tenant", status: 200, response: null },
-  "POST /v1/connectors/{connection_id}/disconnect": { method: "POST", path: "/v1/connectors/{connection_id}/disconnect", plane: "tenant", status: 200, response: Disconnected },
-  "POST /v1/connectors/{connection_id}/fetch": { method: "POST", path: "/v1/connectors/{connection_id}/fetch", plane: "tenant", status: 200, response: FetchResult },
-  "POST /v1/connectors/{connection_id}/grants": { method: "POST", path: "/v1/connectors/{connection_id}/grants", plane: "tenant", status: 201, response: ConnectorGranted },
-  "GET /v1/connectors/{connection_id}/quarantine": { method: "GET", path: "/v1/connectors/{connection_id}/quarantine", plane: "tenant", status: 200, response: Quarantine },
-  "POST /v1/connectors/{connection_id}/quarantine/{item_id}/{decision}": { method: "POST", path: "/v1/connectors/{connection_id}/quarantine/{item_id}/{decision}", plane: "tenant", status: 200, response: QuarantineDecided },
-  "POST /v1/crm/{crm}/enable": { method: "POST", path: "/v1/crm/{crm}/enable", plane: "tenant", status: 200, response: CrmToggle },
-  "POST /v1/crm/{crm}/mappings": { method: "POST", path: "/v1/crm/{crm}/mappings", plane: "tenant", status: 201, response: CrmMapping },
-  "POST /v1/crm/{crm}/preview": { method: "POST", path: "/v1/crm/{crm}/preview", plane: "tenant", status: 200, response: CrmPreview },
-  "POST /v1/crm/{crm}/revoke": { method: "POST", path: "/v1/crm/{crm}/revoke", plane: "tenant", status: 200, response: CrmToggle },
-  "GET /v1/crm/{crm}/writes": { method: "GET", path: "/v1/crm/{crm}/writes", plane: "tenant", status: 200, response: CrmWrites },
-  "POST /v1/crm/{crm}/writes": { method: "POST", path: "/v1/crm/{crm}/writes", plane: "tenant", status: 201, response: CrmWriteRequested },
-  "POST /v1/crm/{crm}/writes/approve": { method: "POST", path: "/v1/crm/{crm}/writes/approve", plane: "tenant", status: 200, response: CrmApproved },
-  "GET /v1/exports": { method: "GET", path: "/v1/exports", plane: "tenant", status: 200, response: ExportPackages },
-  "POST /v1/exports": { method: "POST", path: "/v1/exports", plane: "tenant", status: 201, response: ExportPackage },
-  "GET /v1/exports/{package_id}": { method: "GET", path: "/v1/exports/{package_id}", plane: "tenant", status: 200, response: ExportPackage },
-  "GET /v1/exports/{package_id}/files/{index}": { method: "GET", path: "/v1/exports/{package_id}/files/{index}", plane: "tenant", status: 200, response: null },
-  "GET /v1/feedback": { method: "GET", path: "/v1/feedback", plane: "tenant", status: 200, response: FeedbackList },
-  "POST /v1/feedback": { method: "POST", path: "/v1/feedback", plane: "tenant", status: 201, response: FeedbackCreated },
-  "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, response: MonitoringBudget },
-  "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, response: RunPage },
-  "POST /v1/runs": { method: "POST", path: "/v1/runs", plane: "tenant", status: 202, response: RunCreated },
-  "GET /v1/runs/pull-option": { method: "GET", path: "/v1/runs/pull-option", plane: "tenant", status: 200, response: PullOption },
-  "GET /v1/runs/{run_id}": { method: "GET", path: "/v1/runs/{run_id}", plane: "tenant", status: 200, response: RunStatusView },
-  "POST /v1/runs/{run_id}/approve": { method: "POST", path: "/v1/runs/{run_id}/approve", plane: "tenant", status: 200, response: RunState },
-  "POST /v1/runs/{run_id}/cancel": { method: "POST", path: "/v1/runs/{run_id}/cancel", plane: "tenant", status: 200, response: RunState },
-  "POST /v1/runs/{run_id}/cap/approve": { method: "POST", path: "/v1/runs/{run_id}/cap/approve", plane: "tenant", status: 200, response: CapApproved },
-  "POST /v1/runs/{run_id}/cap/extend": { method: "POST", path: "/v1/runs/{run_id}/cap/extend", plane: "tenant", status: 200, response: CapExtended },
-  "POST /v1/runs/{run_id}/cap/pauses/{request_id}/approve": { method: "POST", path: "/v1/runs/{run_id}/cap/pauses/{request_id}/approve", plane: "tenant", status: 200, response: PauseApproved },
-  "POST /v1/runs/{run_id}/cap/pauses/{request_id}/decline": { method: "POST", path: "/v1/runs/{run_id}/cap/pauses/{request_id}/decline", plane: "tenant", status: 200, response: PauseDeclined },
-  "POST /v1/runs/{run_id}/cap/reject": { method: "POST", path: "/v1/runs/{run_id}/cap/reject", plane: "tenant", status: 200, response: CapRejected },
-  "GET /v1/runs/{run_id}/events": { method: "GET", path: "/v1/runs/{run_id}/events", plane: "tenant", status: 200, response: null },
-  "GET /v1/runs/{run_id}/progress": { method: "GET", path: "/v1/runs/{run_id}/progress", plane: "tenant", status: 200, response: RunProgress },
-  "GET /v1/runs/{run_id}/spend": { method: "GET", path: "/v1/runs/{run_id}/spend", plane: "tenant", status: 200, response: z.record(z.string(), z.unknown()) },
-  "GET /v1/runs/{run_id}/spend/live": { method: "GET", path: "/v1/runs/{run_id}/spend/live", plane: "tenant", status: 200, response: TenantLiveSpend },
-  "GET /v1/settings": { method: "GET", path: "/v1/settings", plane: "tenant", status: 200, response: TenantSettings },
-  "PUT /v1/settings": { method: "PUT", path: "/v1/settings", plane: "tenant", status: 200, response: TenantSettings },
-  "PUT /v1/settings/branding": { method: "PUT", path: "/v1/settings/branding", plane: "tenant", status: 200, response: BrandingSaved },
-  "POST /v1/settings/branding/logo": { method: "POST", path: "/v1/settings/branding/logo", plane: "tenant", status: 201, response: LogoUploaded },
-  "GET /v1/signals": { method: "GET", path: "/v1/signals", plane: "tenant", status: 200, response: SignalPage },
-  "GET /v1/sso/connections": { method: "GET", path: "/v1/sso/connections", plane: "tenant", status: 200, response: IdpConnections },
-  "POST /v1/sso/connections": { method: "POST", path: "/v1/sso/connections", plane: "tenant", status: 201, response: IdpConnection },
-  "PUT /v1/sso/connections/{connection_id}": { method: "PUT", path: "/v1/sso/connections/{connection_id}", plane: "tenant", status: 200, response: IdpConnection },
-  "POST /v1/sso/logout": { method: "POST", path: "/v1/sso/logout", plane: "tenant", status: 200, response: SignedOut },
-  "POST /v1/sso/logout-all": { method: "POST", path: "/v1/sso/logout-all", plane: "tenant", status: 200, response: SessionsEnded },
-  "GET /v1/sso/oidc/callback": { method: "GET", path: "/v1/sso/oidc/callback", plane: "tenant", status: 200, response: null },
-  "POST /v1/sso/saml/acs": { method: "POST", path: "/v1/sso/saml/acs", plane: "tenant", status: 200, response: null },
-  "GET /v1/sso/session": { method: "GET", path: "/v1/sso/session", plane: "tenant", status: 200, response: Session },
-  "GET /v1/sso/{slug}/start": { method: "GET", path: "/v1/sso/{slug}/start", plane: "tenant", status: 200, response: null },
-  "GET /v1/subscriptions": { method: "GET", path: "/v1/subscriptions", plane: "tenant", status: 200, response: Subscription },
-  "PUT /v1/subscriptions": { method: "PUT", path: "/v1/subscriptions", plane: "tenant", status: 200, response: Subscription },
-  "POST /v1/subscriptions/subscribe-all": { method: "POST", path: "/v1/subscriptions/subscribe-all", plane: "tenant", status: 200, response: Subscription },
-  "GET /v1/support/events": { method: "GET", path: "/v1/support/events", plane: "tenant", status: 200, response: SupportEvents },
-  "GET /v1/support/grants": { method: "GET", path: "/v1/support/grants", plane: "tenant", status: 200, response: SupportGrants },
-  "POST /v1/support/grants": { method: "POST", path: "/v1/support/grants", plane: "tenant", status: 201, response: GrantCreated },
-  "POST /v1/support/grants/{grant_id}/revoke": { method: "POST", path: "/v1/support/grants/{grant_id}/revoke", plane: "tenant", status: 200, response: GrantRevoked },
-  "GET /v1/usage": { method: "GET", path: "/v1/usage", plane: "tenant", status: 200, response: Usage },
-  "GET /v1/usage/export": { method: "GET", path: "/v1/usage/export", plane: "tenant", status: 200, response: null },
-  "POST /v1/usefulness": { method: "POST", path: "/v1/usefulness", plane: "tenant", status: 202, response: UsefulRecorded },
-  "GET /v1/usefulness/metric": { method: "GET", path: "/v1/usefulness/metric", plane: "tenant", status: 200, response: UsefulnessMetric },
-  "GET /v1/users": { method: "GET", path: "/v1/users", plane: "tenant", status: 200, response: Members },
-  "PATCH /v1/users": { method: "PATCH", path: "/v1/users", plane: "tenant", status: 200, response: Member },
-  "POST /v1/users": { method: "POST", path: "/v1/users", plane: "tenant", status: 201, response: Member },
-  "GET /v1/views": { method: "GET", path: "/v1/views", plane: "tenant", status: 200, response: SavedViews },
-  "POST /v1/views": { method: "POST", path: "/v1/views", plane: "tenant", status: 201, response: SavedView },
-  "PUT /v1/views/{view_id}": { method: "PUT", path: "/v1/views/{view_id}", plane: "tenant", status: 200, response: SavedView },
-  "POST /v1/views/{view_id}/archive": { method: "POST", path: "/v1/views/{view_id}/archive", plane: "tenant", status: 200, response: ViewArchived },
+  "GET /healthz": { method: "GET", path: "/healthz", plane: "tenant", status: 200, request: null, requestRequired: false, response: Health },
+  "GET /operator/v1/flags": { method: "GET", path: "/operator/v1/flags", plane: "operator", status: 200, request: null, requestRequired: false, response: Flags },
+  "POST /operator/v1/flags": { method: "POST", path: "/operator/v1/flags", plane: "operator", status: 201, request: FlagBody, requestRequired: true, response: FlagSet },
+  "GET /operator/v1/keys": { method: "GET", path: "/operator/v1/keys", plane: "operator", status: 200, request: null, requestRequired: false, response: KeyVersions },
+  "POST /operator/v1/keys": { method: "POST", path: "/operator/v1/keys", plane: "operator", status: 201, request: KeyBody, requestRequired: true, response: KeyAdded },
+  "GET /operator/v1/ops/cost/{run_id}": { method: "GET", path: "/operator/v1/ops/cost/{run_id}", plane: "operator", status: 200, request: null, requestRequired: false, response: RunCost },
+  "GET /operator/v1/ops/failures": { method: "GET", path: "/operator/v1/ops/failures", plane: "operator", status: 200, request: null, requestRequired: false, response: Failures },
+  "GET /operator/v1/ops/stuck": { method: "GET", path: "/operator/v1/ops/stuck", plane: "operator", status: 200, request: null, requestRequired: false, response: Stuck },
+  "GET /operator/v1/pilot/aggregate": { method: "GET", path: "/operator/v1/pilot/aggregate", plane: "operator", status: 200, request: null, requestRequired: false, response: PilotAggregate },
+  "POST /operator/v1/runs/{run_id}/prepulled/intents": { method: "POST", path: "/operator/v1/runs/{run_id}/prepulled/intents", plane: "operator", status: 200, request: IntentBody, requestRequired: true, response: UploadIntent },
+  "GET /operator/v1/runs/{run_id}/prepulled/{intent_id}": { method: "GET", path: "/operator/v1/runs/{run_id}/prepulled/{intent_id}", plane: "operator", status: 200, request: null, requestRequired: false, response: IntentEvents },
+  "POST /operator/v1/runs/{run_id}/prepulled/{intent_id}/complete": { method: "POST", path: "/operator/v1/runs/{run_id}/prepulled/{intent_id}/complete", plane: "operator", status: 200, request: CompleteBody, requestRequired: true, response: UploadVerdict },
+  "GET /operator/v1/runs/{run_id}/spend/live": { method: "GET", path: "/operator/v1/runs/{run_id}/spend/live", plane: "operator", status: 200, request: null, requestRequired: false, response: OperatorLiveSpend },
+  "GET /operator/v1/runs/{run_id}/timeline": { method: "GET", path: "/operator/v1/runs/{run_id}/timeline", plane: "operator", status: 200, request: null, requestRequired: false, response: RunTimeline },
+  "GET /operator/v1/session": { method: "GET", path: "/operator/v1/session", plane: "operator", status: 200, request: null, requestRequired: false, response: OperatorSession },
+  "GET /operator/v1/tenants": { method: "GET", path: "/operator/v1/tenants", plane: "operator", status: 200, request: null, requestRequired: false, response: TenantsOverview },
+  "POST /operator/v1/tenants": { method: "POST", path: "/operator/v1/tenants", plane: "operator", status: 201, request: NewTenant, requestRequired: true, response: TenantCreated },
+  "POST /operator/v1/tenants/{tenant_id}/deletion": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion", plane: "operator", status: 201, request: Reason, requestRequired: true, response: DeletionRequested },
+  "POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/approve": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion/{request_id}/approve", plane: "operator", status: 200, request: null, requestRequired: false, response: DeletionStep },
+  "POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/dry-run": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion/{request_id}/dry-run", plane: "operator", status: 200, request: null, requestRequired: false, response: DeletionStep },
+  "POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/execute": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion/{request_id}/execute", plane: "operator", status: 200, request: null, requestRequired: false, response: DeletionStep },
+  "POST /operator/v1/tenants/{tenant_id}/plan": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/plan", plane: "operator", status: 201, request: PlanBody, requestRequired: true, response: PlanSet },
+  "POST /operator/v1/tenants/{tenant_id}/quotas": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/quotas", plane: "operator", status: 201, request: QuotaBody, requestRequired: true, response: QuotaSet },
+  "POST /operator/v1/tenants/{tenant_id}/reactivate": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/reactivate", plane: "operator", status: 200, request: Reason, requestRequired: true, response: TenantLifecycle },
+  "POST /operator/v1/tenants/{tenant_id}/suspend": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/suspend", plane: "operator", status: 200, request: Reason, requestRequired: true, response: TenantLifecycle },
+  "GET /operator/v1/view/accounts": { method: "GET", path: "/operator/v1/view/accounts", plane: "operator", status: 200, request: null, requestRequired: false, response: ViewAsAccounts },
+  "GET /operator/v1/view/settings": { method: "GET", path: "/operator/v1/view/settings", plane: "operator", status: 200, request: null, requestRequired: false, response: ViewAsSettings },
+  "GET /readyz": { method: "GET", path: "/readyz", plane: "tenant", status: 200, request: null, requestRequired: false, response: Ready },
+  "GET /v1/accounts": { method: "GET", path: "/v1/accounts", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountPage },
+  "POST /v1/accounts": { method: "POST", path: "/v1/accounts", plane: "tenant", status: 201, request: AccountBody, requestRequired: true, response: AccountAdded },
+  "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountDetail },
+  "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, request: null, requestRequired: false, response: History },
+  "GET /v1/accounts/{domain}/tables/{table}": { method: "GET", path: "/v1/accounts/{domain}/tables/{table}", plane: "tenant", status: 200, request: null, requestRequired: false, response: TablePage },
+  "GET /v1/alerts": { method: "GET", path: "/v1/alerts", plane: "tenant", status: 200, request: null, requestRequired: false, response: Alerts },
+  "GET /v1/alerts/usefulness": { method: "GET", path: "/v1/alerts/usefulness", plane: "tenant", status: 200, request: null, requestRequired: false, response: AlertUsefulness },
+  "POST /v1/alerts/{alert_id}/feedback": { method: "POST", path: "/v1/alerts/{alert_id}/feedback", plane: "tenant", status: 201, request: Rating, requestRequired: true, response: AlertRated },
+  "GET /v1/audit": { method: "GET", path: "/v1/audit", plane: "tenant", status: 200, request: null, requestRequired: false, response: AuditPage },
+  "GET /v1/audit/export": { method: "GET", path: "/v1/audit/export", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "GET /v1/branding": { method: "GET", path: "/v1/branding", plane: "tenant", status: 200, request: null, requestRequired: false, response: Branding },
+  "GET /v1/connectors": { method: "GET", path: "/v1/connectors", plane: "tenant", status: 200, request: null, requestRequired: false, response: Connections },
+  "POST /v1/connectors": { method: "POST", path: "/v1/connectors", plane: "tenant", status: 201, request: StartBody, requestRequired: true, response: ConnectorStarted },
+  "GET /v1/connectors/oauth/callback": { method: "GET", path: "/v1/connectors/oauth/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "POST /v1/connectors/{connection_id}/disconnect": { method: "POST", path: "/v1/connectors/{connection_id}/disconnect", plane: "tenant", status: 200, request: null, requestRequired: false, response: Disconnected },
+  "POST /v1/connectors/{connection_id}/fetch": { method: "POST", path: "/v1/connectors/{connection_id}/fetch", plane: "tenant", status: 200, request: null, requestRequired: false, response: FetchResult },
+  "POST /v1/connectors/{connection_id}/grants": { method: "POST", path: "/v1/connectors/{connection_id}/grants", plane: "tenant", status: 201, request: account_intelligence__api__routes__connectors__GrantBody, requestRequired: true, response: ConnectorGranted },
+  "GET /v1/connectors/{connection_id}/quarantine": { method: "GET", path: "/v1/connectors/{connection_id}/quarantine", plane: "tenant", status: 200, request: null, requestRequired: false, response: Quarantine },
+  "POST /v1/connectors/{connection_id}/quarantine/{item_id}/{decision}": { method: "POST", path: "/v1/connectors/{connection_id}/quarantine/{item_id}/{decision}", plane: "tenant", status: 200, request: null, requestRequired: false, response: QuarantineDecided },
+  "POST /v1/crm/{crm}/enable": { method: "POST", path: "/v1/crm/{crm}/enable", plane: "tenant", status: 200, request: null, requestRequired: false, response: CrmToggle },
+  "POST /v1/crm/{crm}/mappings": { method: "POST", path: "/v1/crm/{crm}/mappings", plane: "tenant", status: 201, request: MappingBody, requestRequired: true, response: CrmMapping },
+  "POST /v1/crm/{crm}/preview": { method: "POST", path: "/v1/crm/{crm}/preview", plane: "tenant", status: 200, request: Target, requestRequired: true, response: CrmPreview },
+  "POST /v1/crm/{crm}/revoke": { method: "POST", path: "/v1/crm/{crm}/revoke", plane: "tenant", status: 200, request: null, requestRequired: false, response: CrmToggle },
+  "GET /v1/crm/{crm}/writes": { method: "GET", path: "/v1/crm/{crm}/writes", plane: "tenant", status: 200, request: null, requestRequired: false, response: CrmWrites },
+  "POST /v1/crm/{crm}/writes": { method: "POST", path: "/v1/crm/{crm}/writes", plane: "tenant", status: 201, request: Target, requestRequired: true, response: CrmWriteRequested },
+  "POST /v1/crm/{crm}/writes/approve": { method: "POST", path: "/v1/crm/{crm}/writes/approve", plane: "tenant", status: 200, request: Approval, requestRequired: true, response: CrmApproved },
+  "GET /v1/exports": { method: "GET", path: "/v1/exports", plane: "tenant", status: 200, request: null, requestRequired: false, response: ExportPackages },
+  "POST /v1/exports": { method: "POST", path: "/v1/exports", plane: "tenant", status: 201, request: ExportBody, requestRequired: true, response: ExportPackage },
+  "GET /v1/exports/{package_id}": { method: "GET", path: "/v1/exports/{package_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ExportPackage },
+  "GET /v1/exports/{package_id}/files/{index}": { method: "GET", path: "/v1/exports/{package_id}/files/{index}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "GET /v1/feedback": { method: "GET", path: "/v1/feedback", plane: "tenant", status: 200, request: null, requestRequired: false, response: FeedbackList },
+  "POST /v1/feedback": { method: "POST", path: "/v1/feedback", plane: "tenant", status: 201, request: FeedbackBody, requestRequired: true, response: FeedbackCreated },
+  "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, request: null, requestRequired: false, response: MonitoringBudget },
+  "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunPage },
+  "POST /v1/runs": { method: "POST", path: "/v1/runs", plane: "tenant", status: 202, request: RunBody, requestRequired: true, response: RunCreated },
+  "GET /v1/runs/pull-option": { method: "GET", path: "/v1/runs/pull-option", plane: "tenant", status: 200, request: null, requestRequired: false, response: PullOption },
+  "GET /v1/runs/{run_id}": { method: "GET", path: "/v1/runs/{run_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunStatusView },
+  "POST /v1/runs/{run_id}/approve": { method: "POST", path: "/v1/runs/{run_id}/approve", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunState },
+  "POST /v1/runs/{run_id}/cancel": { method: "POST", path: "/v1/runs/{run_id}/cancel", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunState },
+  "POST /v1/runs/{run_id}/cap/approve": { method: "POST", path: "/v1/runs/{run_id}/cap/approve", plane: "tenant", status: 200, request: ApproveBody, requestRequired: true, response: CapApproved },
+  "POST /v1/runs/{run_id}/cap/extend": { method: "POST", path: "/v1/runs/{run_id}/cap/extend", plane: "tenant", status: 200, request: ExtendBody, requestRequired: true, response: CapExtended },
+  "POST /v1/runs/{run_id}/cap/pauses/{request_id}/approve": { method: "POST", path: "/v1/runs/{run_id}/cap/pauses/{request_id}/approve", plane: "tenant", status: 200, request: ApprovePauseBody, requestRequired: true, response: PauseApproved },
+  "POST /v1/runs/{run_id}/cap/pauses/{request_id}/decline": { method: "POST", path: "/v1/runs/{run_id}/cap/pauses/{request_id}/decline", plane: "tenant", status: 200, request: null, requestRequired: false, response: PauseDeclined },
+  "POST /v1/runs/{run_id}/cap/reject": { method: "POST", path: "/v1/runs/{run_id}/cap/reject", plane: "tenant", status: 200, request: RejectBody, requestRequired: true, response: CapRejected },
+  "GET /v1/runs/{run_id}/events": { method: "GET", path: "/v1/runs/{run_id}/events", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "GET /v1/runs/{run_id}/progress": { method: "GET", path: "/v1/runs/{run_id}/progress", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunProgress },
+  "GET /v1/runs/{run_id}/spend": { method: "GET", path: "/v1/runs/{run_id}/spend", plane: "tenant", status: 200, request: null, requestRequired: false, response: z.record(z.string(), z.unknown()) },
+  "GET /v1/runs/{run_id}/spend/live": { method: "GET", path: "/v1/runs/{run_id}/spend/live", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantLiveSpend },
+  "GET /v1/settings": { method: "GET", path: "/v1/settings", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantSettings },
+  "PUT /v1/settings": { method: "PUT", path: "/v1/settings", plane: "tenant", status: 200, request: SettingsBody, requestRequired: true, response: TenantSettings },
+  "PUT /v1/settings/branding": { method: "PUT", path: "/v1/settings/branding", plane: "tenant", status: 200, request: BrandingBody, requestRequired: true, response: BrandingSaved },
+  "POST /v1/settings/branding/logo": { method: "POST", path: "/v1/settings/branding/logo", plane: "tenant", status: 201, request: null, requestRequired: false, response: LogoUploaded },
+  "GET /v1/signals": { method: "GET", path: "/v1/signals", plane: "tenant", status: 200, request: null, requestRequired: false, response: SignalPage },
+  "GET /v1/sso/connections": { method: "GET", path: "/v1/sso/connections", plane: "tenant", status: 200, request: null, requestRequired: false, response: IdpConnections },
+  "POST /v1/sso/connections": { method: "POST", path: "/v1/sso/connections", plane: "tenant", status: 201, request: ConnectionBody, requestRequired: true, response: IdpConnection },
+  "PUT /v1/sso/connections/{connection_id}": { method: "PUT", path: "/v1/sso/connections/{connection_id}", plane: "tenant", status: 200, request: ConnectionUpdate, requestRequired: true, response: IdpConnection },
+  "POST /v1/sso/logout": { method: "POST", path: "/v1/sso/logout", plane: "tenant", status: 200, request: null, requestRequired: false, response: SignedOut },
+  "POST /v1/sso/logout-all": { method: "POST", path: "/v1/sso/logout-all", plane: "tenant", status: 200, request: null, requestRequired: false, response: SessionsEnded },
+  "GET /v1/sso/oidc/callback": { method: "GET", path: "/v1/sso/oidc/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "POST /v1/sso/saml/acs": { method: "POST", path: "/v1/sso/saml/acs", plane: "tenant", status: 200, request: Body_saml_acs_v1_sso_saml_acs_post, requestRequired: true, response: null },
+  "GET /v1/sso/session": { method: "GET", path: "/v1/sso/session", plane: "tenant", status: 200, request: null, requestRequired: false, response: Session },
+  "GET /v1/sso/{slug}/start": { method: "GET", path: "/v1/sso/{slug}/start", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "GET /v1/subscriptions": { method: "GET", path: "/v1/subscriptions", plane: "tenant", status: 200, request: null, requestRequired: false, response: Subscription },
+  "PUT /v1/subscriptions": { method: "PUT", path: "/v1/subscriptions", plane: "tenant", status: 200, request: Settings, requestRequired: true, response: Subscription },
+  "POST /v1/subscriptions/subscribe-all": { method: "POST", path: "/v1/subscriptions/subscribe-all", plane: "tenant", status: 200, request: null, requestRequired: false, response: Subscription },
+  "GET /v1/support/events": { method: "GET", path: "/v1/support/events", plane: "tenant", status: 200, request: null, requestRequired: false, response: SupportEvents },
+  "GET /v1/support/grants": { method: "GET", path: "/v1/support/grants", plane: "tenant", status: 200, request: null, requestRequired: false, response: SupportGrants },
+  "POST /v1/support/grants": { method: "POST", path: "/v1/support/grants", plane: "tenant", status: 201, request: account_intelligence__api__routes__support__GrantBody, requestRequired: true, response: GrantCreated },
+  "POST /v1/support/grants/{grant_id}/revoke": { method: "POST", path: "/v1/support/grants/{grant_id}/revoke", plane: "tenant", status: 200, request: null, requestRequired: false, response: GrantRevoked },
+  "GET /v1/usage": { method: "GET", path: "/v1/usage", plane: "tenant", status: 200, request: null, requestRequired: false, response: Usage },
+  "GET /v1/usage/export": { method: "GET", path: "/v1/usage/export", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "POST /v1/usefulness": { method: "POST", path: "/v1/usefulness", plane: "tenant", status: 202, request: UsefulBody, requestRequired: true, response: UsefulRecorded },
+  "GET /v1/usefulness/metric": { method: "GET", path: "/v1/usefulness/metric", plane: "tenant", status: 200, request: null, requestRequired: false, response: UsefulnessMetric },
+  "GET /v1/users": { method: "GET", path: "/v1/users", plane: "tenant", status: 200, request: null, requestRequired: false, response: Members },
+  "PATCH /v1/users": { method: "PATCH", path: "/v1/users", plane: "tenant", status: 200, request: ChangeBody, requestRequired: true, response: Member },
+  "POST /v1/users": { method: "POST", path: "/v1/users", plane: "tenant", status: 201, request: AddBody, requestRequired: true, response: Member },
+  "GET /v1/views": { method: "GET", path: "/v1/views", plane: "tenant", status: 200, request: null, requestRequired: false, response: SavedViews },
+  "POST /v1/views": { method: "POST", path: "/v1/views", plane: "tenant", status: 201, request: ViewBody, requestRequired: true, response: SavedView },
+  "PUT /v1/views/{view_id}": { method: "PUT", path: "/v1/views/{view_id}", plane: "tenant", status: 200, request: ViewEdit, requestRequired: true, response: SavedView },
+  "POST /v1/views/{view_id}/archive": { method: "POST", path: "/v1/views/{view_id}/archive", plane: "tenant", status: 200, request: Archive, requestRequired: true, response: ViewArchived },
 } as const satisfies Record<string, Operation>;
 
 export type OperationKey = keyof typeof operations;

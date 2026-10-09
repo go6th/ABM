@@ -128,11 +128,10 @@ def staff_verifier_from_env() -> JwtStaffVerifier:
     )
     if not (issuer and audience and jwks):
         raise NotConfigured("the staff identity provider is not configured")
+
     def email_set(key: str) -> frozenset[str]:
         return frozenset(
-            value.strip().lower()
-            for value in os.environ.get(key, "").split(",")
-            if value.strip()
+            value.strip().lower() for value in os.environ.get(key, "").split(",") if value.strip()
         )
 
     return JwtStaffVerifier(

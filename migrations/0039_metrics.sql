@@ -1,3 +1,4 @@
+-- Tenant-scoped link checks and product metric snapshots (revision 0039).
 CREATE TABLE link_checks (
     id bigserial PRIMARY KEY,
     tenant_id uuid NOT NULL,

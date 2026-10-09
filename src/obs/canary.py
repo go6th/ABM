@@ -46,7 +46,7 @@ async def probe(
                 raise ValueError(f"{table} is not a probe table")
             seen: Any = (
                 await s.execute(
-                    text(f"SELECT count(*) FROM {table} WHERE id = :i"),  # noqa: S608 - allow-listed
+                    text(f"SELECT count(*) FROM {table} WHERE id = :i"),  # nosec B608 -- table is checked against PROBE_TABLES.
                     {"i": row_id},
                 )
             ).scalar_one()

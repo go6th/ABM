@@ -62,7 +62,7 @@ async def reconcile(s: Any, at: datetime, *, batch: int = 5000) -> Drift:
         for r in (
             await s.execute(
                 text(
-                    f"SELECT run_id FROM ({settled}) x WHERE run_id IS NOT NULL AND NOT EXISTS"  # noqa: S608
+                    f"SELECT run_id FROM ({settled}) x WHERE run_id IS NOT NULL AND NOT EXISTS"  # nosec B608 -- fixed subquery; batch is bound.
                     " (SELECT 1 FROM usage_events e"
                     " WHERE e.idempotency_key = 'run_settled:' || x.run_id)"
                     " ORDER BY run_id LIMIT :n"
@@ -78,7 +78,7 @@ async def reconcile(s: Any, at: datetime, *, batch: int = 5000) -> Drift:
                 text(
                     "SELECT e.subject_id FROM usage_events e WHERE e.kind = 'run_settled'"
                     " AND NOT EXISTS"
-                    f" (SELECT 1 FROM ({settled}) x WHERE x.run_id::text = e.subject_id)"  # noqa: S608
+                    f" (SELECT 1 FROM ({settled}) x WHERE x.run_id::text = e.subject_id)"  # nosec B608 -- fixed subquery.
                     " ORDER BY e.subject_id LIMIT :n"
                 ),
                 {"n": batch},

@@ -77,9 +77,7 @@ def classify(
     *,
     old_enums: dict[str, frozenset[str]] | None = None,
     new_enums: dict[str, frozenset[str]] | None = None,
-    breaking_kinds: frozenset[str] = frozenset(
-        {"field_removed", "type_changed", "enum_removed"}
-    ),
+    breaking_kinds: frozenset[str] = frozenset({"field_removed", "type_changed", "enum_removed"}),
 ) -> Verdict:
     """Same, additive or breaking (pure). ``breaking_kinds`` comes from
     ``config/drift.yaml``; the defaults above are the conservative set."""

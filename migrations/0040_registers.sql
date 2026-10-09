@@ -1,3 +1,4 @@
+-- Persist product metric snapshots (revision 0040).
 CREATE TABLE metric_snapshots (
     id bigserial PRIMARY KEY,
     name text NOT NULL,

@@ -238,7 +238,7 @@ async def counts(session: AsyncSession, plan: DeletionPlan) -> dict[str, int]:
     out: dict[str, int] = {}
     for table in (*plan.erase, *[t for t in plan.blocked if not t.endswith("_objects")]):
         # the table names come from the validated plan, never from a request
-        sql = text(f"SELECT count(*) FROM {table}")  # noqa: S608
+        sql = text(f"SELECT count(*) FROM {table}")  # nosec B608 -- table comes from the validated deletion plan.
         n: int = (await session.execute(sql)).scalar_one()
         out[table] = int(n)
     return out

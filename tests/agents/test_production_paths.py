@@ -5,6 +5,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -15,12 +18,21 @@ from agents.config import load_skill_config
 from agents.ports import RunContext
 from agents.production.credit import CreditAdapter
 from agents.production.delivery import ExportBuilderPort, GateAdapter, RunnerSettles
+from spend import pause
 
 pytestmark = pytest.mark.asyncio
 
 
 def ctx() -> RunContext:
     return RunContext(uuid4(), uuid4(), "acme.example", "Acme", "acme.example", False, "sk-1")
+
+
+@dataclass(frozen=True)
+class _Clock:
+    at: datetime
+
+    def now(self) -> datetime:
+        return self.at
 
 
 @dataclass
@@ -125,6 +137,50 @@ async def test_no_cap_means_no_approval_request_and_no_proposal_without_deps() -
     assert await adapter.propose_cap(ctx()) is False
     state = await adapter.cap_state(ctx())
     assert (state.cap_required, state.cap_version) == (True, None)  # unknown run: refused
+
+
+async def test_credit_adapter_reads_the_cap_and_opens_a_pause_request(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from agents.production import credit as credit_module
+
+    when = datetime(2026, 10, 8, 9, tzinfo=UTC)
+    run_row = SimpleNamespace(
+        spent_usd=Decimal("4.90"),
+        held_usd=Decimal("0"),
+        budget_usd=Decimal("5.00"),
+        cap_version=3,
+        pause_open=False,
+        stopped=False,
+    )
+    deps = _Deps(rows={"spent_usd": run_row})
+    opened: list[tuple[Any, Any, Any, Any]] = []
+    request_id = uuid4()
+
+    async def price(self: CreditAdapter, need: str) -> tuple[int, bool]:
+        assert need == "web_search"
+        return 250_000, True
+
+    async def open_pause(
+        session: Any, run_id: UUID, request: pause.PauseRequest, now: datetime, cfg: Any
+    ) -> tuple[UUID, bool]:
+        opened.append((session, run_id, request, now))
+        return request_id, True
+
+    monkeypatch.setattr(CreditAdapter, "price", price)
+    monkeypatch.setattr(credit_module.pause, "open_pause", open_pause)
+    adapter = CreditAdapter(deps.txn, _Clock(when), load_skill_config())  # type: ignore[arg-type]
+    context = ctx()
+
+    result = await adapter.request_approval(
+        context, [{"row_key": "leadership_changes", "need": "web_search"}], 250_000
+    )
+
+    assert result == str(request_id)
+    assert len(opened) == 1
+    _, run_id, request, opened_at = opened[0]
+    assert run_id == context.run_id
+    assert request.cap_version == 3
+    assert request.rows_at_risk == ("leadership_changes",)
+    assert opened_at == when
 
 
 async def test_tracker_partial_downgrade_keeps_blocked_and_unset_rows() -> None:

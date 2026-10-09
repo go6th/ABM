@@ -41,7 +41,10 @@ class CheckResult:
 
 
 def _rules() -> dict[str, Any]:
-    return yaml.safe_load((CONFIG_DIR / "drift.yaml").read_text())
+    doc = yaml.safe_load((CONFIG_DIR / "drift.yaml").read_text())
+    if not isinstance(doc, dict):
+        raise ValueError("drift.yaml: expected a mapping")
+    return {str(key): value for key, value in doc.items()}
 
 
 def error_body(payload: Any) -> bool:

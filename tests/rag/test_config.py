@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -53,7 +54,9 @@ def test_load_explicit_path() -> None:
 def test_missing_section_raises(tmp_path: Path) -> None:
     """A dropped section is a configuration error, not a default."""
     path = tmp_path / "rag.yaml"
-    path.write_text(yaml.safe_dump({"version": "1.0.0", "retrieval": {}}))
+    raw = yaml.safe_load((Path(__file__).parent.parent.parent / "config" / "rag.yaml").read_text())
+    del raw["cache"]
+    path.write_text(yaml.safe_dump(raw))
     with pytest.raises(ValueError, match="cache"):
         load_rag_config(path)
 
@@ -79,7 +82,7 @@ def test_non_mapping_raises(tmp_path: Path) -> None:
 def test_config_is_frozen() -> None:
     """The loaded configuration cannot be mutated at runtime."""
     config = load_rag_config()
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         config.retrieval.top_k = 4  # type: ignore[misc]
 
 

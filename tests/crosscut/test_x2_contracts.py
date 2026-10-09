@@ -82,7 +82,10 @@ def test_a_type_change_a_removal_and_a_nested_change_are_breaking() -> None:
     )
     assert v.severity == "additive"
     v = drift.classify(
-        old, old, old_enums={"status": frozenset({"ok", "degraded"})}, new_enums={"status": frozenset({"ok"})}
+        old,
+        old,
+        old_enums={"status": frozenset({"ok", "degraded"})},
+        new_enums={"status": frozenset({"ok"})},
     )
     assert v.severity == "breaking"
     assert v.changes[0].kind == "enum_removed"
@@ -122,23 +125,28 @@ async def test_breaking_drift_disables_the_operation_fail_closed() -> None:
         with pytest.raises(mon.OperationDisabled):
             await mon.check(s, provider=P, operation=op, payload=_body())
         # the operator records a new fixture, then re-enables: working again
-        await mon.record_fixture(s, provider=P, operation=op, payload={"status": "ok", "results": "gone"}, source="operator")
+        await mon.record_fixture(
+            s,
+            provider=P,
+            operation=op,
+            payload={"status": "ok", "results": "gone"},
+            source="operator",
+        )
         await mon.enable(s, provider=P, operation=op, enable_it=True)
-        r = await mon.check(s, provider=P, operation=op, payload={"status": "ok", "results": "gone"})
+        r = await mon.check(
+            s, provider=P, operation=op, payload={"status": "ok", "results": "gone"}
+        )
         assert r.severity == "same"
         # the drift trail: one additive, one breaking event with the changes
         rows = (
-            (
-                await s.execute(
-                    __import__("sqlalchemy").text(
-                        "SELECT severity, changes FROM contract_drift_events"
-                        " WHERE provider_code = :p AND operation = :o ORDER BY id"
-                    ),
-                    {"p": P, "o": op},
-                )
+            await s.execute(
+                __import__("sqlalchemy").text(
+                    "SELECT severity, changes FROM contract_drift_events"
+                    " WHERE provider_code = :p AND operation = :o ORDER BY id"
+                ),
+                {"p": P, "o": op},
             )
-            .all()
-        )
+        ).all()
         assert [r.severity for r in rows] == ["additive", "breaking"]
         kinds = {c["kind"] for c in rows[1].changes}
         assert "type_changed" in kinds

@@ -74,9 +74,7 @@ async def operator_session(
     return {
         "staff_id": who.staff_id,
         "role": who.role,
-        "mfa_fresh": step_up_fresh(
-            who.step_up_at, plane_of(request).clock.now(), load_policy()
-        ),
+        "mfa_fresh": step_up_fresh(who.step_up_at, plane_of(request).clock.now(), load_policy()),
     }
 
 

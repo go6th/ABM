@@ -51,7 +51,7 @@ async def list_audit(
         rows = (
             await s.execute(
                 text(
-                    f"SELECT {_COLUMNS} FROM audit_events"  # noqa: S608 - fixed columns
+                    f"SELECT {_COLUMNS} FROM audit_events"  # nosec B608 -- fixed column list.
                     " WHERE (CAST(:actor AS text) IS NULL OR actor = :actor)"
                     " AND (CAST(:action AS text) IS NULL OR action LIKE :action || '%')"
                     " AND (CAST(:rtype AS text) IS NULL OR resource_type = :rtype)"

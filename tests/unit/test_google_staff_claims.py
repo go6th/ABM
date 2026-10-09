@@ -1,3 +1,5 @@
+"""Google Workspace staff identity and role-claim unit tests."""
+
 from datetime import UTC, datetime
 
 import jwt
@@ -21,7 +23,7 @@ def _verifier(monkeypatch: pytest.MonkeyPatch, claims: dict[str, object]) -> Jwt
         "operator-client-id",
         "https://www.googleapis.com/oauth2/v3/certs",
         workspace_domain="sixth.example",
-        operator_emails=frozenset({"rajesh@sixth.example"}),
+        operator_emails=frozenset({"operator@sixth.example"}),
         support_emails=frozenset({"support@sixth.example"}),
     )
     verifier.jwks = _Jwks()  # type: ignore[assignment]
@@ -36,7 +38,7 @@ def _claims(**updates: object) -> dict[str, object]:
         "sub": "google-stable-subject",
         "iat": 1_800_000_000,
         "exp": 1_800_000_600,
-        "email": "rajesh@sixth.example",
+        "email": "operator@sixth.example",
         "email_verified": True,
         "hd": "sixth.example",
         "auth_time": int(datetime.now(UTC).timestamp()),

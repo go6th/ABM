@@ -50,7 +50,7 @@ _LATEST = (
     " ORDER BY version DESC LIMIT 1"
 )
 _INSERT = (
-    "INSERT INTO deliverables (tenant_id, account_id, run_id, set_hash, kind, version, supersedes,"
+    "INSERT INTO deliverables (tenant_id, account_id, run_id, set_hash, kind, version, supersedes,"  # nosec B608 -- fixed INSERT and return columns.
     " filename, sha256, size_bytes, object_key, manifest_json, content_hash, snapshot_hash,"
     " theme_hash, rules_hash, built_at) VALUES (:t, :a, :r, :h, :k, :v, :sup, :fn, :sha, :size,"
     " :key, CAST(:m AS jsonb), :ch, :sh, :th, :rh, :at) RETURNING " + _COLS
@@ -128,7 +128,7 @@ class PgDeliverableStore:
             rows = (
                 await s.execute(
                     text(
-                        f"SELECT {_COLS} FROM deliverables WHERE run_id = :r AND set_hash = :h"
+                        f"SELECT {_COLS} FROM deliverables WHERE run_id = :r AND set_hash = :h"  # nosec B608 -- fixed return columns.
                         " ORDER BY kind"
                     ),
                     {"r": UUID(run_id), "h": set_hash},

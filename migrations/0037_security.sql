@@ -1,3 +1,4 @@
+-- Security evidence, review samples, and provider-call records (revision 0037).
 CREATE TABLE rotation_events (
     id bigserial PRIMARY KEY,
     secret_id text NOT NULL,

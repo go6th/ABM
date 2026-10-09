@@ -1,3 +1,5 @@
+"""Fresh-MFA step-up policy unit tests."""
+
 from datetime import UTC, datetime, timedelta
 
 from identity.sessions import SessionPolicy, step_up_fresh

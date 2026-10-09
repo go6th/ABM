@@ -56,6 +56,12 @@ jobs:
         run: make lint
       - name: Static gates (W1 imports, docstrings, comments, guarantees, loops, bandit, vulture)
         run: make static
+      - name: API and frontend wiring contract
+        run: |
+          uv run --frozen python scripts/export_openapi.py --check
+          uv run --frozen python scripts/gen_web_client.py --check
+          uv run --frozen python scripts/check_route_catalog.py
+          uv run --frozen python scripts/wiring_audit.py --check
       - name: Observability contract (catalogs, generated Terraform, runbooks, canary suite)
         run: |
           uv run --frozen python scripts/check_telemetry.py
@@ -74,6 +80,31 @@ jobs:
       - name: terraform fmt and validate (no backend, no credentials, nothing applied)
         run: make infra-fmt infra-validate
 
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked web dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: web
+      - name: TypeScript contract
+        run: npm run typecheck
+        working-directory: web
+      - name: ESLint
+        run: npm run lint
+        working-directory: web
+      - name: Web unit tests
+        run: npm test
+        working-directory: web
+      - name: Production build
+        run: npm run build
+        working-directory: web
+
   image:
     runs-on: ubuntu-latest
     steps:
@@ -82,7 +113,7 @@ jobs:
 
   deploy-staging:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_WIF_PROVIDER != ''
-    needs: [quality, infra, image]
+    needs: [quality, infra, image, web]
     runs-on: ubuntu-latest
     environment: staging
     permissions:

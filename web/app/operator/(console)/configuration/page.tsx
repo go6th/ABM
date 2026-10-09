@@ -7,6 +7,7 @@ import { formatDate, formatCount } from "@/lib/operator-render";
 import { useOperatorViewer } from "../OperatorSessionGate";
 import { OperatorRequestState } from "../OperatorStates";
 import { useOperatorApi } from "../useOperatorApi";
+import { providerName, PROVIDERS } from "@/lib/provider-labels";
 
 function messageFrom(error: unknown): string {
   return error instanceof ApiError ? error.detail : "The change could not be completed.";
@@ -55,14 +56,15 @@ export default function OperatorConfigurationPage() {
     setKeyBusy(true);
     setKeyMessage("");
     try {
+      const providerCode = String(fields.get("provider_code") ?? "");
       const result = await operatorRequest("POST /operator/v1/keys", {
         body: {
-          provider_code: fields.get("provider_code"),
+          provider_code: providerCode,
           secret_ref: fields.get("secret_ref"),
           reason_code: fields.get("reason_code"),
         },
       });
-      setKeyMessage("Saved " + result.provider_code + " reference as version " + result.version + ". The reference value was not returned by the API.");
+      setKeyMessage("Saved " + providerName(result.provider_code) + " (" + result.provider_code + ") reference as version " + result.version + ". The reference value was not returned by the API.");
       form.reset();
       keys.reload();
     } catch (error) { setKeyMessage(messageFrom(error)); }
@@ -89,7 +91,7 @@ export default function OperatorConfigurationPage() {
         <h2>Add broker key reference</h2>
         <p className="muted">Enter a secret-manager reference path only. The API never returns this value; do not paste a provider key here.</p>
         <form className="operator-admin-form" onSubmit={(event) => void addKeyReference(event)}>
-          <label className="field"><span>Provider code</span><input name="provider_code" pattern="p_[a-z]+" maxLength={40} placeholder="p_search" required /></label>
+          <label className="field"><span>Provider</span><select className="select" name="provider_code" defaultValue="" required><option value="" disabled>Select a provider</option>{PROVIDERS.map((provider) => <option key={provider.code} value={provider.code}>{provider.name} ({provider.code})</option>)}</select></label>
           <label className="field"><span>Secret manager reference</span><input name="secret_ref" pattern="[A-Za-z0-9/_.:-]{1,255}" maxLength={255} autoComplete="off" spellCheck={false} required /></label>
           <label className="field"><span>Reason code</span><input name="reason_code" pattern="[a-z_]{1,40}" maxLength={40} placeholder="key_rotation" required /></label>
           <button className="btn primary" type="submit" disabled={keyBusy}>{keyBusy ? "Saving…" : "Add reference"}</button>
@@ -106,7 +108,7 @@ export default function OperatorConfigurationPage() {
     <section className="operator-section">
       <div className="operator-section-title"><h2>Broker key reference versions</h2><span className="badge tone-slate">Write-only values</span></div>
       <OperatorRequestState loading={keys.loading} error={keys.error} empty={Boolean(keys.data && keys.data.keys.length === 0)} onRetry={keys.reload} />
-      {keys.data && keys.data.keys.length ? <div className="operator-table-scroll"><table className="operator-table"><caption className="sr-only">Key reference versions; secret references are not returned</caption><thead><tr><th scope="col">Provider</th><th scope="col">Version</th><th scope="col">Created by</th><th scope="col">Created at</th></tr></thead><tbody>{keys.data.keys.map((key) => <tr key={key.provider_code + ":" + key.version}><td><code>{key.provider_code}</code></td><td>v{formatCount(key.version)}</td><td><code>{key.created_by}</code></td><td>{formatDate(key.created_at)}</td></tr>)}</tbody></table></div> : null}
+      {keys.data && keys.data.keys.length ? <div className="operator-table-scroll"><table className="operator-table"><caption className="sr-only">Key reference versions; secret references are not returned</caption><thead><tr><th scope="col">Provider</th><th scope="col">Version</th><th scope="col">Created by</th><th scope="col">Created at</th></tr></thead><tbody>{keys.data.keys.map((key) => <tr key={key.provider_code + ":" + key.version}><td><strong>{providerName(key.provider_code)}</strong> <code>{key.provider_code}</code></td><td>v{formatCount(key.version)}</td><td><code>{key.created_by}</code></td><td>{formatDate(key.created_at)}</td></tr>)}</tbody></table></div> : null}
     </section>
   </section>;
 }

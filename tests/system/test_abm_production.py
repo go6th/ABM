@@ -327,7 +327,7 @@ async def test_full_abm_run_grades_through_the_engine_and_tracks_every_row(
     sense = admin("SELECT count(*) FROM abm_sense_checks WHERE run_id = %s", run.run)[0][0]
     assert sense >= 1  # G6: the sense check ran before the build was attempted
     distilled = admin("SELECT audience FROM abm_distill_outputs WHERE run_id = %s", run.run)
-    assert {d[0] for d in distilled} == {"client", "internal"}
+    assert len(distilled) == 2 and {d[0] for d in distilled} == {"client", "internal"}
     assert settled_once(run.run)
 
 

@@ -1,3 +1,4 @@
+-- Remove revision 0037 security tables in dependency-safe order.
 DROP TABLE IF EXISTS review_samples CASCADE;
 DROP TABLE IF EXISTS tool_call_records CASCADE;
 DROP TABLE IF EXISTS pentest_tracker CASCADE;

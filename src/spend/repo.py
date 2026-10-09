@@ -48,7 +48,7 @@ async def run_money(s: AsyncSession, run_id: UUID, *, lock: bool = True) -> RunM
     row = (
         await s.execute(
             text(
-                "SELECT r.id, r.tenant_id, r.status, r.cap_required, r.cap_version, r.budget_usd,"
+                "SELECT r.id, r.tenant_id, r.status, r.cap_required, r.cap_version, r.budget_usd,"  # nosec B608 -- only a fixed lock clause is appended.
                 " r.spent_usd, r.cap_overshoot_usd, r.unreconciled_usd, r.attended, a.domain"
                 " FROM account_runs r JOIN accounts a ON a.id = r.account_id WHERE r.id = :r"
                 + (" FOR UPDATE OF r" if lock else "")

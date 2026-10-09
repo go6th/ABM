@@ -22,7 +22,7 @@ import io
 import re
 import zipfile
 from datetime import date
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape  # nosec B406 -- escapes generated XML; does not parse input.
 
 CONTENT_TYPES = "[Content_Types].xml"
 CORE = "docProps/core.xml"

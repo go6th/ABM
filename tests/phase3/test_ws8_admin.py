@@ -93,10 +93,10 @@ async def test_operator_session_identifies_verified_staff_and_mfa_state(plane: P
         missing = await staff.get("/operator/v1/session")
         assert missing.status_code == 401
 
-        operator = await staff.get("/operator/v1/session", headers=_as("operator:rajesh"))
+        operator = await staff.get("/operator/v1/session", headers=_as("operator:ops-1"))
         assert operator.status_code == 200
         assert operator.json() == {
-            "staff_id": "rajesh",
+            "staff_id": "ops-1",
             "role": "operator",
             "mfa_fresh": True,
         }

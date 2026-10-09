@@ -46,3 +46,7 @@ infra/envs/*/terraform.tfvars
 *.tfstate
 *.tfstate.*
 mutants/
+
+# User-owned source documents (kept locally, never committed)
+*.docx
+.~lock.*#

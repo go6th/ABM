@@ -48,20 +48,28 @@ async def write(
     content_sha256: str | None,
     tenant_id: UUID | None = None,
     at: datetime,
-) -> None:
-    """Record one tombstone (insert-only; idempotent per subject)."""
-    await s.execute(
+) -> bool:
+    """Record one tenant or platform tombstone; return whether it was newly inserted."""
+    values = {
+        "t": subject_type,
+        "i": subject_id,
+        "r": reason,
+        "h": content_sha256,
+        "at": at,
+    }
+    if tenant_id is None:
+        result = await s.execute(
+            text("SELECT write_platform_tombstone(:t, :i, :r, :h, :at)"),
+            values,
+        )
+        return bool(result.scalar_one())
+
+    result = await s.execute(
         text(
             "INSERT INTO tombstones (subject_type, subject_id, tenant_id, reason,"
             " content_sha256, at) VALUES (:t, :i, :tn, :r, :h, :at)"
-            " ON CONFLICT (subject_type, subject_id) DO NOTHING"
+            " ON CONFLICT (subject_type, subject_id) DO NOTHING RETURNING id"
         ),
-        {
-            "t": subject_type,
-            "i": subject_id,
-            "tn": tenant_id,
-            "r": reason,
-            "h": content_sha256,
-            "at": at,
-        },
+        {**values, "tn": tenant_id},
     )
+    return result.first() is not None

@@ -13,10 +13,20 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from obs.catalog import load_catalog  # noqa: E402
 
-CLI = {"src/people/docs.py", "src/exports/docs.py", "src/account_intelligence/grading/docs.py",
-       "src/spend/jobs.py", "src/evalgate/cli.py"}
-CREATE = {"create_counter", "create_histogram", "create_gauge", "create_up_down_counter",
-          "create_observable_gauge"}
+CLI = {
+    "src/people/docs.py",
+    "src/exports/docs.py",
+    "src/account_intelligence/grading/docs.py",
+    "src/spend/jobs.py",
+    "src/evalgate/cli.py",
+}
+CREATE = {
+    "create_counter",
+    "create_histogram",
+    "create_gauge",
+    "create_up_down_counter",
+    "create_observable_gauge",
+}
 
 
 def problems() -> list[str]:
@@ -37,8 +47,11 @@ def problems() -> list[str]:
             literal = first.value if isinstance(first, ast.Constant) else None
             if name in CREATE and literal is not None and literal not in cat.metrics:
                 out.append(f"{rel}:{node.lineno}: metric {literal} not in the catalog")
-            if name in ("start_as_current_span", "start_span") and isinstance(literal, str) \
-                    and literal not in cat.spans:
+            if (
+                name in ("start_as_current_span", "start_span")
+                and isinstance(literal, str)
+                and literal not in cat.spans
+            ):
                 out.append(f"{rel}:{node.lineno}: span {literal} not in the catalog")
             if name in ("get_tracer", "get_meter", "getLogger") and not edge:
                 out.append(f"{rel}:{node.lineno}: {name} outside src/obs and obs.py edges")

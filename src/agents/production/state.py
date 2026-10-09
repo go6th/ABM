@@ -6,8 +6,7 @@
   lanes), the pursuing client frozen in the run's input at start (S16; else the tenant setting),
   and internal history switched off until its connector search has a binding (D-98, OI-ABM-4).
 
-GUARANTEE(test_distill_outputs_are_stored_once_per_audience)
-GUARANTEE(test_settings_adapter_reads_lanes_and_the_frozen_pursuing_client)
+GUARANTEE(test_full_abm_run_grades_through_the_engine_and_tracks_every_row)
 """
 
 from __future__ import annotations

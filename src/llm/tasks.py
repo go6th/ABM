@@ -17,7 +17,7 @@ LEGACY_TIER: dict[str, str] = {
     "plan_gaps": "planner",
     "extract_facts": "extractor",
     "classify_posting": "classifier",
-    "second_pass_posting": "judge",
+    "second_pass_posting": "judge",  # nosec B105 -- model role label, not a credential.
     "classify_person": "extractor",
     "lead_queries": "planner",
     "synthesise_hypotheses": "planner",

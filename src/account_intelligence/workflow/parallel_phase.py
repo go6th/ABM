@@ -146,18 +146,15 @@ class WorkflowHooks:
         async with self.deps.txn(self.deps.tenant_id) as s:
             tracker = self.deps.tracker(s)
             for row in spec.coverage:
-                try:
-                    result = await tracker.record_outcome(
-                        self.deps.tenant_id,
-                        self.deps.run_id,
-                        row,
-                        [],
-                        Actor.STAGE,
-                        not_attempted_reason=code,
-                        stage=spec.id,
-                    )
-                except Exception:  # a row the stage already settled keeps its status
-                    continue
+                result = await tracker.record_outcome(
+                    self.deps.tenant_id,
+                    self.deps.run_id,
+                    row,
+                    [],
+                    Actor.STAGE,
+                    not_attempted_reason=code,
+                    stage=spec.id,
+                )
                 updates[row] = {"status": result.status.value}
         return {"coverage_updates": updates, "completed_stages": [spec.id]}
 

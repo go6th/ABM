@@ -107,7 +107,10 @@ def zod(node: dict[str, Any]) -> str:
                 if key not in required:
                     expr += ".optional()"
                 fields.append(f"  {json.dumps(key)}: {expr},")
-            return "z.object({\n" + "\n".join(fields) + "\n})"
+            expression = "z.object({\n" + "\n".join(fields) + "\n})"
+            if node.get("additionalProperties") is False:
+                expression += ".strict()"
+            return expression
         extra = node.get("additionalProperties")
         if isinstance(extra, dict) and extra:
             return f"z.record(z.string(), {zod(extra)})"
@@ -123,6 +126,15 @@ def _success(op: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
             schema = content.get("application/json", {}).get("schema")
             return code, schema if schema else None
     return "204", None
+
+
+def _request(op: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
+    """The JSON request schema and whether the request body is required."""
+    request = op.get("requestBody") or {}
+    content = request.get("content", {})
+    media = content.get("application/json") or next(iter(content.values()), {})
+    schema = media.get("schema") if isinstance(media, dict) else None
+    return schema, bool(request.get("required", False))
 
 
 def _plane(path: str) -> str:
@@ -156,6 +168,8 @@ def api_module(doc: dict[str, Any]) -> str:
     lines.append("  path: string;")
     lines.append('  plane: "tenant" | "operator";')
     lines.append("  status: number;")
+    lines.append("  request: z.ZodType | null;")
+    lines.append("  requestRequired: boolean;")
     lines.append("  response: z.ZodType | null;")
     lines.append("}")
     lines.append("")
@@ -164,11 +178,14 @@ def api_module(doc: dict[str, Any]) -> str:
         for method in sorted(doc["paths"][path]):
             op = doc["paths"][path][method]
             code, schema = _success(op)
+            request_schema, request_required = _request(op)
+            request = zod(request_schema) if request_schema is not None else "null"
             response = zod(schema) if schema is not None else "null"
             key = f"{method.upper()} {path}"
             lines.append(
                 f"  {json.dumps(key)}: {{ method: {json.dumps(method.upper())}, path:"
                 f" {json.dumps(path)}, plane: {json.dumps(_plane(path))}, status: {code},"
+                f" request: {request}, requestRequired: {str(request_required).lower()},"
                 f" response: {response} }},"
             )
     lines.append("} as const satisfies Record<string, Operation>;")
