@@ -12,7 +12,7 @@ htmlcov/
 coverage.xml
 
 .env*
-!.env.example
+gha-creds-*.json
 docs/sources/
 _review/
 *.zip
