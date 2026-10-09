@@ -1,7 +1,5 @@
-import Link from "next/link";
 import { cookies, headers } from "next/headers";
 import { tenantAccent } from "@/design/contrast";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -39,32 +37,13 @@ export default async function ClientLayout({ children }: { children: React.React
   const [brand, requestHeaders] = await Promise.all([getBranding(), headers()]);
   const accent = tenantAccent(brand?.accent);
   const nonce = requestHeaders.get("x-nonce") ?? undefined;
-  const displayName = brand?.display_name ?? "6th agents";
 
   return (
-    <div className="client-frame">
-      <a className="skip" href="#main">Skip to content</a>
-      <header className="client-header">
-        <Link className="wordmark" href="/" aria-label={`${displayName} workspace home`}>
-          <span className="mark" aria-hidden="true">6</span>
-          <span>{displayName}</span>
-          <span className="sub">Workspace</span>
-        </Link>
-        <nav className="client-nav" aria-label="Workspace navigation">
-          <Link href="/">Accounts</Link>
-          <Link href="/chat">Chat</Link>
-          <Link href="/alerts">Alerts</Link>
-          <Link href="/usage">Usage</Link>
-          <Link href="/audit">Audit</Link>
-          <Link href="/settings">Settings</Link>
-        </nav>
-        <ThemeToggle />
-      </header>
-      <main id="main" className="client-main">{children}</main>
-      <footer className="client-footer">Prepared by {brand?.attribution ?? "6th agents"}</footer>
+    <>
+      {children}
       {accent.ok ? (
         <style nonce={nonce}>{`:root{--brand:${accent.used}}`}</style>
       ) : null}
-    </div>
+    </>
   );
 }

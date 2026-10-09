@@ -1,6 +1,7 @@
 @import "../design/tokens.css";
 @import "../design/system.css";
 @import "../design/panels.css";
+@import "../design/claude.css";
 
 @font-face {
   font-family: "6th Inter";
