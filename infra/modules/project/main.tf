@@ -24,6 +24,11 @@ locals {
     "monitoring.googleapis.com",
     "redis.googleapis.com",
     "aiplatform.googleapis.com",
+    "identitytoolkit.googleapis.com",
+    "cloudscheduler.googleapis.com",
+    "billingbudgets.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
+    "iam.googleapis.com",
   ]
 }
 

@@ -1,0 +1,23 @@
+# Copy to terraform.tfvars (not committed) and fill in. Every value here is a placeholder; no
+# secret belongs in this file (secrets are Secret Manager values added out of band).
+project_id         = "REPLACE-prod-project-id"
+region             = "REPLACE-region"            # e.g. us-central1 (US-only inference for healthcare)
+billing_account    = "000000-000000-000000"
+domain             = "REPLACE.example.com"
+github_repository  = "OWNER/REPO"
+images = {
+  api    = "REGION-docker.pkg.dev/PROJECT/ai-prod-images/api@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  worker = "REGION-docker.pkg.dev/PROJECT/ai-prod-images/worker@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  web    = "REGION-docker.pkg.dev/PROJECT/ai-prod-images/web@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+}
+db_tier            = "REPLACE-tier"
+llm_access         = "anthropic_api"
+monthly_budget_usd = 0
+alert_channels     = []
+raw_retention_days = 30
+staff = {
+  workspace_domain = "example.com"
+  operator_emails  = ""
+  support_emails   = ""
+  oauth_client_id  = "REPLACE.apps.googleusercontent.com"
+}
