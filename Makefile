@@ -5,6 +5,8 @@ MIGRATOR_DATABASE_URL ?= postgresql://postgres:dev@localhost:5432/ai
 CHECKPOINT_DATABASE_URL ?= postgresql://app_rw:local-dev-only@localhost:5432/ai
 APP_RW_PASSWORD ?= local-dev-only
 TEST_DB ?= ai_test
+E2E_TEST_DB ?= ai_e2e
+E2E_ARGS ?=
 TEST_ADMIN_DSN ?= postgresql://postgres:dev@localhost:5432/postgres
 TEST_ENV = PGPASSWORD=dev APP_RW_PASSWORD="$(APP_RW_PASSWORD)" TEST_DB="$(TEST_DB)" ADMIN_MAINT_DSN="$(TEST_ADMIN_DSN)" MIGRATOR_DATABASE_URL="postgresql://postgres:dev@localhost:5432/$(TEST_DB)" CHECKPOINT_DATABASE_URL="postgresql://postgres:dev@localhost:5432/$(TEST_DB)" DATABASE_URL="postgresql+asyncpg://app_rw:$(APP_RW_PASSWORD)@localhost:5432/$(TEST_DB)"
 MIGRATION_ENV = MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
@@ -14,7 +16,8 @@ MIGRATION_ENV = MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
 .DEFAULT_GOAL := help
 .PHONY: help install up down reset emulators db-shell migrate migration run fmt lint types test check \
 	test-isolation static infra-fmt infra-validate image build smoke deploy-staging obs-verify \
-	seed e2e contract wiring scan verify doctor
+	seed e2e contract wiring scan verify doctor up-deps env-check load-smoke backup-restore fuzz \
+	infra-test logs clean
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -23,14 +26,25 @@ install: ## Install dependencies and pre-commit hooks
 	$(UV) sync --frozen
 	$(UV) run --frozen pre-commit install
 
-up: ## Start local database and infrastructure emulators (not the full application stack)
-	$(COMPOSE) up -d db gcs tasks redis
+up: ## Build and start the COMPLETE local stack (db, migrate, api, worker, web, fake IdP, emulators)
+	$(COMPOSE) up -d --build --wait --remove-orphans
+
+up-deps: ## Start only the database, emulators and Redis (backend tests)
+	$(COMPOSE) up -d --wait db gcs tasks redis
 
 emulators: ## Start only the Cloud Storage and Cloud Tasks emulators (port contract tests)
 	$(COMPOSE) up -d gcs tasks
 
 down: ## Stop local services
 	$(COMPOSE) down
+
+logs: ## Tail logs of all local stack services
+	$(COMPOSE) logs -f
+
+clean: ## Remove build artifacts, bytecode and cache directories (preserves .env, user data, skills)
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .hypothesis .import_linter_cache .coverage htmlcov dist build mutants
+	rm -rf web/.next web/node_modules/.cache
 
 reset: ## Stop local services and DELETE their named volumes and database data
 	$(COMPOSE) down -v --remove-orphans
@@ -88,7 +102,7 @@ infra-fmt: ## terraform fmt (check) over infra/
 	$(TF) fmt -recursive -check
 
 infra-validate: ## terraform init -backend=false and validate for every environment
-	for env in dev staging production; do \
+	for env in staging prod; do \
 	  $(TF) -chdir=envs/$$env init -backend=false -input=false >/dev/null && \
 	  $(TF) -chdir=envs/$$env validate -no-color || exit 1; done
 
@@ -101,8 +115,15 @@ obs-verify: ## Telemetry contract, generated Terraform diff, runbook lint, canar
 	$(TF) -chdir=modules/observability init -backend=false -input=false >/dev/null && \
 	  $(TF) -chdir=modules/observability validate -no-color
 
-image: ## Build the service image
-	docker build -t account-intelligence:local .
+infra-test: ## Offline terraform plan of the whole stack and module tests (mock providers, no cloud)
+	for dir in stack modules/iam modules/secret_manager; do \
+	  $(TF) -chdir=$$dir init -backend=false -input=false >/dev/null && \
+	  $(TF) -chdir=$$dir test -no-color || exit 1; done
+
+image: ## Build the api, worker and web images
+	docker build -f docker/api.Dockerfile -t account-intelligence-api:local .
+	docker build -f docker/worker.Dockerfile -t account-intelligence-worker:local .
+	docker build -t account-intelligence-web:local web
 
 smoke: image ## Run the image against the local database: non-root, /readyz 200, clean SIGTERM
 	bash scripts/smoke_image.sh
@@ -111,15 +132,18 @@ deploy-staging: ## PRINT (never run) the commands that deploy staging; needs the
 	@bash scripts/deploy_staging.sh
 
 
-build: ## Build the API image and Next.js production assets
+build: ## Build every image (the web image runs the Next.js production build)
 	$(MAKE) image
-	npm --prefix web run build
 
 seed: ## Add synthetic pilot tenant and account fixtures (does not start a run)
 	APP_ENV=dev $(UV) run --env-file .env --frozen python scripts/seed_pilot.py
 
-e2e: ## Run the Playwright browser suite (requires a separately running app stack)
-	npm --prefix web run e2e
+e2e: ## Run the Playwright suite with a dedicated synthetic API and test database
+	$(COMPOSE) up -d --wait db gcs tasks redis
+	$(COMPOSE) exec -T db psql -U postgres -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$(E2E_TEST_DB)'" | grep -q 1 || $(COMPOSE) exec -T db createdb -U postgres $(E2E_TEST_DB)
+	PGPASSWORD=dev TEST_DB=$(E2E_TEST_DB) ADMIN_MAINT_DSN=postgresql://postgres:dev@localhost:5432/postgres MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/$(E2E_TEST_DB) CHECKPOINT_DATABASE_URL=postgresql://postgres:dev@localhost:5432/$(E2E_TEST_DB) DATABASE_URL=postgresql+asyncpg://app_rw:local-dev-only@localhost:5432/$(E2E_TEST_DB) APP_RW_PASSWORD=local-dev-only $(UV) run --frozen alembic upgrade head
+	API_ORIGIN=http://127.0.0.1:8088 npm --prefix web run build
+	PGPASSWORD=dev TEST_DB=$(E2E_TEST_DB) ADMIN_MAINT_DSN=postgresql://postgres:dev@localhost:5432/postgres MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/$(E2E_TEST_DB) CHECKPOINT_DATABASE_URL=postgresql://postgres:dev@localhost:5432/$(E2E_TEST_DB) DATABASE_URL=postgresql+asyncpg://app_rw:local-dev-only@localhost:5432/$(E2E_TEST_DB) APP_RW_PASSWORD=local-dev-only E2E_API_ORIGIN=http://127.0.0.1:8088 E2E_WEB_ORIGIN=http://localhost:3008 npm --prefix web run e2e -- $(E2E_ARGS)
 
 contract: ## Check OpenAPI, generated client, policy catalog, and static wiring inventory
 	$(UV) run --frozen python scripts/export_openapi.py --check
@@ -139,6 +163,19 @@ verify: ## Run local quality, contract, isolation, test, Terraform, and build ch
 	npm --prefix web run lint
 	npm --prefix web test
 	$(MAKE) infra-fmt infra-validate build
+
+env-check: ## Validate the current environment against the typed registry (names only)
+	$(UV) run --frozen --env-file .env python -m account_intelligence.config
+
+load-smoke: ## k6 load smoke (Docker) against the running local stack; seeds the synthetic member first
+	$(MAKE) doctor >/dev/null || true
+	docker run --rm -i --add-host=host.docker.internal:host-gateway -v "$(CURDIR)/ops/load:/scripts:ro" grafana/k6:0.54.0 run /scripts/smoke.js
+
+backup-restore: ## Backup/restore test: pg_dump -> pg_restore equivalence and isolation
+	$(TEST_ENV) $(UV) run --frozen pytest tests/ops/test_backup_restore.py -q
+
+fuzz: ## OpenAPI-driven API fuzz (Hypothesis) against the real app on the test database
+	$(TEST_ENV) $(UV) run --frozen pytest tests/fuzz -q
 
 doctor: ## Diagnose local toolchain and synthetic service readiness without printing secrets
 	$(UV) run --frozen python scripts/doctor.py

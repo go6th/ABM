@@ -1,30 +1,108 @@
-# Local development stack. Production runs on Google Cloud (infra/); locally the same ports are
-# served by hermetic stand-ins: Postgres with pgvector, the Cloud Storage and Cloud Tasks
-# emulators (port contract tests run against them), and Redis for the shared rate limiter.
+# Local stack (`make up`): the complete application on hermetic stand-ins for Google Cloud.
+#   db        Postgres 16 + pgvector (Cloud SQL stand-in)
+#   migrate   one-shot `alembic upgrade head` (the deploy-time migration step)
+#   api       FastAPI (Cloud Run service `api`)            http://localhost:8080
+#   worker    run executor serving /tasks (Cloud Run Job)   http://localhost:8081
+#   web       Next.js standalone (Cloud Run service `web`)  http://localhost:3000
+#   fake-idp  synthetic OIDC discovery/JWKS/token issuer    http://localhost:9090
+#   gcs       Cloud Storage emulator   tasks  Cloud Tasks emulator (queue)   redis  rate limiter
+# Hermetic by default: no container reads .env, so no provider or model call can happen. To use
+# real keys locally: `docker compose -f compose.yml -f compose.live.yml up` (reads the ignored
+# .env). Every credential below is a local placeholder; in the cloud, secrets live in Secret Manager.
+x-app-env: &app-env
+  APP_ENV: dev
+  LOG_LEVEL: INFO
+  DATABASE_URL: postgresql+asyncpg://app_rw:local-dev-only@db:5432/ai
+  CHECKPOINT_DATABASE_URL: postgresql://app_rw:local-dev-only@db:5432/ai
+  JWKS_URL: http://fake-idp:9090/jwks
+  JWT_ISSUER: http://fake-idp:9090/
+  JWT_AUDIENCE: account-intelligence-local
+  PAYLOAD_DIR: /tmp/payloads
+  # hermetic by default: no provider connectors and no model key (see compose.live.yml)
+  CONNECTORS: "off"
+
 services:
   db:
     image: pgvector/pgvector:pg16
     environment: { POSTGRES_PASSWORD: dev, POSTGRES_DB: ai }
     ports: ["5432:5432"]
-    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, retries: 10 }
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres -d ai"], interval: 5s, retries: 20 }
+    restart: unless-stopped
+
   gcs:
     image: fsouza/fake-gcs-server:latest
     command: -scheme http -port 4443 -public-host localhost:4443
     ports: ["4443:4443"]
+    restart: unless-stopped
+
   tasks:
     image: ghcr.io/aertje/cloud-tasks-emulator:latest
     command: -host 0.0.0.0 -port 8123 -initial-queue projects/dev/locations/here/queues/runs
     ports: ["8123:8123"]
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
-  api:
-    build: .
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10 }
+    restart: unless-stopped
+
+  migrate:
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    image: account-intelligence-api:local
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      SERVICE_ROLE: migrate
+      MIGRATOR_DATABASE_URL: postgresql://postgres:dev@db:5432/ai
+      APP_RW_PASSWORD: local-dev-only
     depends_on: { db: { condition: service_healthy } }
-    env_file: .env
+    restart: "no"
+
+  worker:
+    build: { context: ., dockerfile: docker/worker.Dockerfile }
+    image: account-intelligence-worker:local
+    entrypoint: ["uvicorn", "account_intelligence.api.main:app", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      <<: *app-env
+      SERVICE_ROLE: worker
+      ALLOW_UNAUTHENTICATED_TASKS: "1"
+    ports: ["8081:8081"]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+    restart: unless-stopped
+
+  fake-idp:
+    image: account-intelligence-worker:local
+    entrypoint: ["python", "/dev-tools/fake_idp.py"]
     environment:
       APP_ENV: dev
-      DATABASE_URL: postgresql+asyncpg://app_rw:local-dev-only@db/ai
-      CHECKPOINT_DATABASE_URL: postgresql://app_rw:local-dev-only@db/ai
-      ALLOW_UNAUTHENTICATED_TASKS: "1"
+      FAKE_IDP_ISSUER: http://fake-idp:9090/
+      FAKE_IDP_AUDIENCE: account-intelligence-local
+    volumes: ["./ops/dev:/dev-tools:ro"]
+    ports: ["9090:9090"]
+    depends_on: { worker: { condition: service_started } }
+    restart: unless-stopped
+
+  api:
+    image: account-intelligence-api:local
+    environment:
+      <<: *app-env
+      SERVICE_ROLE: api
+      WORKER_URL: http://worker:8081
     ports: ["8080:8080"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  web:
+    build: { context: ./web }
+    image: account-intelligence-web:local
+    environment:
+      API_ORIGIN: http://api:8080
+    ports: ["3000:3000"]
+    depends_on: { api: { condition: service_healthy } }
+    restart: unless-stopped
+
+volumes:
+  pgdata:

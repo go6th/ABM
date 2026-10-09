@@ -1,0 +1,8 @@
+# Opt-in override: give the local api and worker the real keys from the ignored .env file
+# (model key, provider keys, CONNECTORS=on). Live calls cost money; use deliberately:
+#   docker compose -f compose.yml -f compose.live.yml up -d
+services:
+  api:
+    env_file: [{ path: .env, required: true }]
+  worker:
+    env_file: [{ path: .env, required: true }]
