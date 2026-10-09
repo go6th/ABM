@@ -141,6 +141,7 @@ class LibreOffice:
                 src = Path(tmp) / f"in{suffix}"
                 src.write_bytes(body)
                 out_dir = Path(tmp) / "out"
+                out_dir.mkdir()
                 cmd = [
                     self.binary,
                     f"-env:UserInstallation=file://{tmp}/profile",
@@ -158,7 +159,12 @@ class LibreOffice:
                         check=True,
                         capture_output=True,
                         timeout=self.timeout_s,
-                        env={"HOME": tmp, "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+                        env={
+                            "HOME": tmp,
+                            "TMPDIR": tmp,
+                            "LC_ALL": "C.UTF-8",
+                            "PATH": "/usr/bin:/bin",
+                        },
                     )
                 except (subprocess.SubprocessError, OSError):
                     continue

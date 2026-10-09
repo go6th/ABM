@@ -178,7 +178,9 @@ class TrackerService:
             self._authorise(actor, stage, stored.owner_stage, row_key)
             if stored.state.swept:
                 raise IllegalTransition(f"{row_key} was swept at a terminal state (T12)")
-            records = await self._resolve(tenant_id, run_id, call_refs)
+            prior_refs = stored.proof.call_refs if not_attempted_reason and stored.proof else ()
+            effective_refs = tuple(dict.fromkeys((*prior_refs, *call_refs)))
+            records = await self._resolve(tenant_id, run_id, effective_refs)
             scope = True
             if row_cfg is not None and row_cfg.lane:
                 scope = await self.run_input.is_lane_in_scope(tenant_id, run_id, row_cfg.lane)

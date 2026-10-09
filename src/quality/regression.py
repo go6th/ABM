@@ -31,9 +31,20 @@ class Decision:
 def rules(path: Path | None = None) -> dict[str, Any]:
     """The watched-path rules (validated at call time; every value has a source)."""
     doc = yaml.safe_load((path or ROOT / "config/regression.yaml").read_text())
-    if not doc.get("watched_paths"):
+    if not isinstance(doc, dict):
+        raise ValueError("regression.yaml: expected a mapping")
+    watched_paths = doc.get("watched_paths")
+    if not isinstance(watched_paths, list) or not watched_paths:
         raise ValueError("regression.yaml: watched_paths must not be empty")
-    return doc
+    if any(not isinstance(value, str) or not value for value in watched_paths):
+        raise ValueError("regression.yaml: watched_paths must contain non-empty strings")
+    skipped_eval_is_failure = doc.get("skipped_eval_is_failure")
+    if not isinstance(skipped_eval_is_failure, bool):
+        raise ValueError("regression.yaml: skipped_eval_is_failure must be a boolean")
+    return {
+        "watched_paths": watched_paths,
+        "skipped_eval_is_failure": skipped_eval_is_failure,
+    }
 
 
 def needs_eval(changed_paths: list[str], cfg: dict[str, Any] | None = None) -> bool:
