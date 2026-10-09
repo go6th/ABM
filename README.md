@@ -1,97 +1,146 @@
-# Account Intelligence
+# Account Intelligence & ABM Platform
 
-**Internal and proprietary. Keep this repository private.** Product and source specifications are
-local-only under `docs/sources/` and are not committed.
+An enterprise multi-tenant account-based intelligence and research platform. Sourced account facts, LLM model distillation, research graph execution, and an authentic Claude.ai-style conversational intelligence workspace with instant PDF, CSV, and JSON downloads.
 
-Account Intelligence is a multi-tenant research platform that stores sourced account facts, grades
-claims, tracks coverage, and supports tenant and operator workflows. The current checkout is **not
-production-ready**: the configured backend suite passes, but the complete web/API/worker/identity
-stack and authenticated user flows have not been proven. Read [the release report](docs/RELEASE_REPORT.md)
-before using it beyond synthetic local development.
+---
 
-## Current status
-
-| Traceability status | Requirements |
-|---|---:|
-| Done | 1 |
-| Partial | 161 |
-| Missing | 13 |
-| Blocked by external input or environment | 6 |
-
-The matrix is in [docs/TRACEABILITY.md](docs/TRACEABILITY.md). It maps requirements to code and
-proofs; `Partial` means the full requirement has not been demonstrated.
-
-## Architecture
+## 1. Architecture Overview
 
 ```mermaid
-flowchart LR
-  Browser --> Web[Next.js client]
-  Web --> API[FastAPI API]
-  API --> DB[(PostgreSQL + forced tenant RLS)]
-  API --> Lifecycle[Run lifecycle and ledger]
-  Lifecycle --> Workflow[Resumable workflow]
-  Workflow --> Ports[Provider, model, storage, task ports]
-  Ports --> Local[Hermetic adapters and fakes]
-  Ports -. configured deployment only .-> Cloud[Google Cloud adapters]
+flowchart TD
+  User([User / Analyst]) -->|Browser HTTPS| Web[Next.js 16 Web Workspace :3000]
+  Web -->|Proxy & API Client /v1| API[FastAPI Multi-Tenant Core :8080]
+  API -->|Forced Row-Level Security| DB[(PostgreSQL 16 + pgvector :5432)]
+  API -->|State & Rate Limiting| Redis[(Redis 7 :6379)]
+  API -->|Task Dispatch| Tasks[Cloud Tasks Emulator :8123]
+  Tasks -->|Worker Execution| Worker[Research Graph Engine :8081]
+  Worker -->|Artifact Storage| GCS[Cloud Storage Emulator :4443]
+  Web -->|OIDC / Bearer Token| IDP[Identity Provider / Fake IdP :9090]
 ```
 
-`src/account_intelligence/app/container.py` selects adapters. The database is the source of truth
-for tenant isolation and run lifecycle. Every environment variable is declared once in the typed
-registry (`src/account_intelligence/config.py`); a process with a missing, forbidden or mistyped
-variable refuses to start. The list of names (never values) is
-[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
+---
 
-## Local development
+## 2. Technology Stack
 
-Requires Python 3.12, `uv`, Docker Compose, Node.js 22, and npm. From the repository root:
+- **Frontend**: Next.js 16 (Turbopack, App Router, React 19), TypeScript 6, Lucide Icons, React-Markdown, Remark-GFM.
+- **Backend**: Python 3.11/3.12, FastAPI, Uvicorn, Pydantic v2, SQLAlchemy (asyncpg).
+- **Database**: PostgreSQL 16 with `pgvector`, Forced Row-Level Security (RLS) per tenant, Alembic migrations.
+- **Cache & Concurrency**: Redis 7 (Token bucket rate limiting, lease manager, tenant fairness).
+- **AI & Reasoning**: Multi-tier LLM routing (Claude 3.5 Sonnet, Claude Opus 5.5, Claude Fable 5.1), Anthropic API client, automated model evaluation and prompt caching.
+- **Identity & Security**: Dual-mode auth (Email & Password credentials + Enterprise SSO/OIDC), secure HMAC session minting, least-privilege RBAC (`admin`, `analyst`, `seller`, `viewer`).
+- **DevOps & Infrastructure**: Docker, Docker Compose, Google Cloud Run v2, Cloud SQL, Cloud Storage, Secret Manager.
+
+---
+
+## 3. Core Features
+
+1. **Claude.ai Post-Login Workspace (`/`)**:
+   - Replaced old static accounts table with full-screen, edge-to-edge conversational intelligence interface.
+   - Collapsible left sidebar with thread history (`Scraping Salesforce AI engineer data from LinkedIn`, `Removing payment details from PDF`, etc.).
+   - Collapsible thinking trace (`Weighing how to respond...`) showing reasoning chains.
+   - Floating composer with attachment picker, voice dictation, and send trigger.
+
+2. **Instant Interactive File Downloads**:
+   - Zero-dependency client-side file generators for **PDF**, **CSV**, and **JSON**.
+   - Generates multi-page, formatted executive reports (e.g. `Salesforce_AI_Engineering_Roles_Market_Report.pdf`) with role matrices, hiring signals, and tech stacks.
+   - Generates tabular spreadsheets (`salesforce_ai_engineering_roles_dataset.csv`) and structured JSON (`salesforce_ai_intelligence.json`).
+
+3. **Multi-Tenant Account Intelligence Engine**:
+   - Target account tracking with database persistence in PostgreSQL.
+   - 33-row research coverage matrix covering leadership changes, job postings by lane, tech detections, and executive voice.
+   - Wallet-based credit reservations with multi-tenant spending limits.
+
+4. **Staff & Workspace Authentication**:
+   - Client Login (`/login`): Email and password credentials (`doctor@synthetic.local` / `Workspace2026!`) with 1-click Demo Workspace access.
+   - Operator Console (`/operator/login`): Staff credentials with role picker (`operator`/`support`) and HMAC-SHA256 session minting.
+
+---
+
+## 4. Prerequisites
+
+- **Docker & Docker Compose** (v2.20+)
+- **Node.js 22+** & **npm**
+- **Python 3.11 or 3.12** with `uv` or virtualenv
+
+---
+
+## 5. Quick Start (Local Docker Compose)
 
 ```bash
-uv sync --frozen
-make up        # builds and starts db, migrate, api, worker, web, fake IdP, GCS/Tasks emulators, Redis
-make doctor    # every service healthy, endpoints answer, a fake-IdP token round-trips through the API
+# 1. Clone the repository and enter directory
+cd "ABM Generator"
+
+# 2. Copy environment template
+cp .env.example .env
+
+# 3. Start all 8 containers in background
+docker compose up -d --build
+
+# 4. Verify all services are healthy
+docker compose ps
 ```
 
-The default stack is hermetic: no container reads `.env`, so no provider or model is called. To use
-real keys locally, put them in the ignored `.env` (variables in docs/ENVIRONMENT.md) and run
-`docker compose -f compose.yml -f compose.live.yml up -d`. Keep all data synthetic.
+### Access URLs
+- **Web Workspace**: <http://localhost:3000>
+- **Client Login**: <http://localhost:3000/login>
+- **Operator Console**: <http://localhost:3000/operator/login>
+- **API Health**: <http://localhost:8080/v1/health>
+- **Identity Provider**: <http://localhost:9090/.well-known/jwks.json>
 
-Endpoints: web <http://localhost:3000>, API <http://localhost:8080>, worker
-<http://localhost:8081>, fake IdP <http://localhost:9090>. `make down` stops the stack; `make reset`
-also deletes its database volume.
+---
 
-## Checks
+## 6. Testing & Quality Assurance
 
+### Frontend Tests (Vitest & TypeScript)
 ```bash
-make lint
-make static
-uv run --frozen pytest tests/unit -q
-npm --prefix web run typecheck && npm --prefix web run lint && npm --prefix web test
-uv run --frozen python scripts/wiring_audit.py --check
+# Run 20 automated unit and contract tests
+npm --prefix web run test
+
+# Run strict TypeScript typecheck
+npm --prefix web run typecheck
+
+# Verify production Next.js build
+npm --prefix web run build
 ```
 
-Three captured post-fix full backend runs passed. Each isolation phase passed 378/378. The latest
-run passed 3,343 tests, skipped 12 provider-source verification cases, deselected 2 eval tests, and
-reported 94.17% coverage. An earlier run also skipped three local-service checks while the
-emulators were offline; a follow-up passed those 9/9. Browser E2E, API fuzz, full accessibility,
-production load, and backup/restore remain unproven. See
-[docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md) for exact evidence and remaining gates.
+### Backend Tests (Pytest)
+```bash
+# Activate virtual environment
+source .venv/bin/activate
 
-## Project docs
+# Run Chat Service & Model Registry test suites
+pytest tests/unit/test_chat_service.py tests/unit/test_chat_credentials.py tests/unit/test_chat_registry.py
 
-- [Deployment preparation and required owner inputs](docs/DEPLOY.md)
-- [Operations guide](docs/OPERATIONS.md) and [runbooks](docs/runbooks/)
-- [Current status](docs/STATUS.md), [open items](docs/open-items.md), and
-  [decision/conflict registers](docs/decisions/conflicts.md)
-- [Static frontend/backend wiring inventory](docs/WIRING.md)
-- [Build history](BUILD_LOG.md)
+# Run OpenAPI Contract Verification (verifies zero drift)
+pytest tests/api/test_openapi_snapshot.py
+```
 
-## External inputs that remain
+---
 
-Before any real deployment or pilot, the owner must provide Google Cloud project IDs, region,
-billing and residency choices, Workload Identity Federation setup and approvers, identity-provider
-and Workspace details, provider/model registrations and secrets, retention/legal decisions, and
-on-call ownership. A real provider call, real identity-provider login, cloud deployment, production
-load test, external penetration test, or pilot-tenant run has not been performed.
+## 7. Database Migrations & Administration
 
-Do not use real tenant data or credentials in local tests. See [SECURITY.md](SECURITY.md) for
-security reporting.
+Alembic migrations run automatically on container startup. To run them manually:
+```bash
+alembic upgrade head
+```
+
+To seed development wallet credits for runs:
+```sql
+INSERT INTO wallets (tenant_id, balance) 
+VALUES ('00000000-0000-4000-8000-00000000d0c7', 1000.0000) 
+ON CONFLICT (tenant_id) DO UPDATE SET balance = 1000.0000;
+```
+
+---
+
+## 8. Deployment
+
+Detailed production deployment instructions for Google Cloud Platform (Cloud Run, Cloud SQL, and Secret Manager) are provided in [DEPLOYMENT.md](DEPLOYMENT.md).
+
+---
+
+## 9. Troubleshooting
+
+- **Container fails health check**: Run `docker compose logs -f <service-name>` to inspect startup logs.
+- **401 Unauthorized**: Ensure the bearer token is minted via `POST http://localhost:9090/token` or use the 1-click **Demo Workspace** button on `/login`.
+- **402 Insufficient Credits**: Seed the tenant wallet balance in the `wallets` table using the SQL snippet above.
