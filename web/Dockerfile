@@ -11,6 +11,8 @@ RUN npm ci --no-audit --no-fund
 FROM node:22-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG API_ORIGIN=http://api:8080
+ENV API_ORIGIN=${API_ORIGIN}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

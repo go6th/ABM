@@ -89,9 +89,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   );
 
   if (token) {
+    const isHttps = request.nextUrl.protocol === "https:";
     response.cookies.set("ai_token", token, {
       httpOnly: false, // Accessible by client JS to set Authorization header
-      secure: process.env.NODE_ENV === "production",
+      secure: isHttps,
       sameSite: "lax",
       path: "/",
       maxAge: 7 * 86400,

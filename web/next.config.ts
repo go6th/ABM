@@ -4,15 +4,10 @@
 // the Content-Security-Policy with a per-request nonce is set in proxy.ts.
 import type { NextConfig } from "next";
 
-const API_ORIGIN = process.env.API_ORIGIN ?? "http://127.0.0.1:8080";
-
 const config: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
-  async rewrites() {
-    return [{ source: "/v1/:path*", destination: `${API_ORIGIN}/v1/:path*` }];
-  },
   async headers() {
     return [
       {
