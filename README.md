@@ -46,7 +46,7 @@ provider/model stubs, or notification sinks, so a clean-checkout full-stack run 
 Requires Python 3.12, `uv`, Docker Compose, Node.js 22, and npm. From the repository root:
 
 ```bash
-cp .env.example .env
+test -f .env || cp .env.example .env
 uv sync --frozen
 make up
 make migrate
