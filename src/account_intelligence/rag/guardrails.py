@@ -24,7 +24,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 _INJECTION_PATTERNS = (
-    re.compile(r"ignore\s+(all\s+)?(previous|above)\s+(instructions?|prompts?)", re.I),
+    re.compile(
+        r"ignore\s+(?:all\s+)?(?:your\s+)?(?:previous|above)\s+(instructions?|prompts?)", re.I
+    ),
     re.compile(r"forget\s+(your\s+)?(instructions?|rules?)", re.I),
     re.compile(r"repeat\s+(your\s+)?(system\s+)?(prompt|instructions?)", re.I),
     re.compile(r"print\s+(your\s+)?(system\s+)?(prompt|instructions?)", re.I),

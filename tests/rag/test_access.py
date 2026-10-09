@@ -70,8 +70,10 @@ class TestFilterByAcl:
     def test_clearance_floor(self) -> None:
         """Clearance below the chunk's floor is dropped."""
         chunks = (_chunk("a", clearance=3),)
-        assert filter_by_acl(chunks, Subject("t1", clearance=2)) == ()
-        assert filter_by_acl(chunks, Subject("t1", clearance=3)) == chunks
+        subject_below_floor = Subject("t1", roles=frozenset({"analyst"}), clearance=2)
+        subject_at_floor = Subject("t1", roles=frozenset({"analyst"}), clearance=3)
+        assert filter_by_acl(chunks, subject_below_floor) == ()
+        assert filter_by_acl(chunks, subject_at_floor) == chunks
 
     def test_open_acl_keeps_any_role(self) -> None:
         """A chunk with no role restriction matches any role."""

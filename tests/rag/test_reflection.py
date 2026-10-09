@@ -116,28 +116,40 @@ class TestDecide:
         """A sufficient verdict routes to the generator."""
         from account_intelligence.rag.models import ReflectionVerdict
 
-        verdict = ReflectionVerdict(sufficient=True, relevance=1.0)
+        verdict = ReflectionVerdict(sufficient=True, relevance=1.0, completeness=1.0, quality=1.0)
         assert decide(verdict, passes=0, config=CONFIG) == "generate"
 
     def test_insufficient_retries_while_passes_remain(self) -> None:
         """A refinement with passes left loops back to retrieval."""
         from account_intelligence.rag.models import ReflectionVerdict
 
-        verdict = ReflectionVerdict(sufficient=False, relevance=0.1, refined_query="acme (growth)")
+        verdict = ReflectionVerdict(
+            sufficient=False,
+            relevance=0.1,
+            completeness=0.0,
+            quality=0.0,
+            refined_query="acme (growth)",
+        )
         assert decide(verdict, passes=2, config=CONFIG) == "retry"
 
     def test_pass_cap_refuses(self) -> None:
         """Out of passes, the loop refuses instead of spinning."""
         from account_intelligence.rag.models import ReflectionVerdict
 
-        verdict = ReflectionVerdict(sufficient=False, relevance=0.1, refined_query="acme (growth)")
+        verdict = ReflectionVerdict(
+            sufficient=False,
+            relevance=0.1,
+            completeness=0.0,
+            quality=0.0,
+            refined_query="acme (growth)",
+        )
         assert decide(verdict, passes=3, config=CONFIG) == "refuse"
 
     def test_no_refinement_refuses(self) -> None:
         """An insufficient verdict with no gaps has nothing to retry."""
         from account_intelligence.rag.models import ReflectionVerdict
 
-        verdict = ReflectionVerdict(sufficient=False, relevance=0.1)
+        verdict = ReflectionVerdict(sufficient=False, relevance=0.1, completeness=0.0, quality=0.0)
         assert decide(verdict, passes=0, config=CONFIG) == "refuse"
 
 

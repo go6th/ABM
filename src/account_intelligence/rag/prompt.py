@@ -117,6 +117,9 @@ def parse_answer(text: str) -> QaAnswer:
     payload = parse_json(text)
     if not isinstance(payload, dict):
         return refusal("generator returned no JSON object")
+    confidence = payload.get("confidence_score")
+    if isinstance(confidence, int | float) and not isinstance(confidence, bool):
+        payload = {**payload, "confidence_score": min(1.0, max(0.0, float(confidence)))}
     try:
         answer = QaAnswer.model_validate(payload)
     except Exception:

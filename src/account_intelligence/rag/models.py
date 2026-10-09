@@ -72,7 +72,9 @@ class QaAnswer(BaseModel):
     @property
     def is_refusal(self) -> bool:
         """True when the answer is the protocol's refusal payload."""
-        return self.requires_more_info and not self.final_answer.strip()
+        return self.requires_more_info and (
+            not self.final_answer.strip() or self.final_answer == INSUFFICIENT_CONTEXT
+        )
 
 
 class RetrievalResult(BaseModel):
