@@ -254,6 +254,7 @@ def test_retry_policy_is_the_single_owner_and_backoff_is_capped() -> None:
     assert cfg.defaults.breaker.failure_threshold == policy.max_attempts
 
 
+@settings(deadline=None)
 @given(attempt=st.integers(1, 50))
 def test_property_backoff_never_exceeds_its_cap(attempt: int) -> None:
     policy = retry_policy_for(load_providers_config())

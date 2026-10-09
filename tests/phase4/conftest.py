@@ -37,12 +37,24 @@ def tenant_with_account(name: str, domain: str | None = None) -> tuple[UUID, UUI
 
 def fact(tenant: UUID, account: UUID, *, key: str = "news.event", grade: str = "probable") -> UUID:
     """A fact with its evidence row (no fact without a source)."""
+    question = (
+        "What evidence would confirm this synthetic hypothesis?" if grade == "hypothesis" else None
+    )
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c, c.transaction():
         f = c.execute(
             "INSERT INTO facts (tenant_id, account_id, attribute_key, value_json, fingerprint,"
-            " product_grade, read_in_primary_this_run, may_state_to_prospect) VALUES"
-            " (%s, %s, %s, '{}', %s, %s, %s, %s) RETURNING id",
-            (tenant, account, key, uuid4().hex, grade, grade == "confirmed", grade == "confirmed"),
+            " confirming_question, product_grade, read_in_primary_this_run, may_state_to_prospect)"
+            " VALUES (%s, %s, %s, '{}', %s, %s, %s, %s, %s) RETURNING id",
+            (
+                tenant,
+                account,
+                key,
+                uuid4().hex,
+                question,
+                grade,
+                grade == "confirmed",
+                grade == "confirmed",
+            ),
         ).fetchone()[0]
         c.execute(
             "INSERT INTO fact_evidence (tenant_id, fact_id, evidence_kind,"

@@ -42,14 +42,15 @@ class FakeGrader:
                 return Graded(row[0], row[1], read, "S-0001")
             fid = c.execute(
                 "INSERT INTO facts (tenant_id, account_id, attribute_key, value_json, fingerprint,"
-                " product_grade, read_in_primary_this_run, may_state_to_prospect) VALUES (%s, %s,"
-                " %s, %s, %s, %s, %s, %s) RETURNING id",
+                " confirming_question, product_grade, read_in_primary_this_run,"
+                " may_state_to_prospect) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (
                     tenant,
                     account_id,
                     f"signal.{SIGNAL_OF[obs.kind]}",
                     json.dumps({"item_key": obs.item_key, "kind": obs.kind, "title": obs.title}),
                     uuid4().hex,
+                    f"What evidence would confirm {obs.title}?" if grade == "hypothesis" else None,
                     grade,
                     grade == "confirmed",
                     grade == "confirmed",
