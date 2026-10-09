@@ -64,10 +64,25 @@ async def exclusion_rule(s: Any) -> settings.ExclusionFilter:
 async def list_accounts(
     request: Request,
     after: str | None = Query(default=None, max_length=253),
+    search: str | None = Query(default=None, max_length=200),
+    enforce_project_scope: bool = Query(default=True),
     limit: int = Query(default=50, ge=1, le=200),
     ident: Identity = Depends(authorize),
 ) -> dict[str, Any]:
     """The tenant's accounts by domain, each with its latest run (excluded companies hidden)."""
+    if search and enforce_project_scope:
+        from account_intelligence.chat.service import OutOfContextError, validate_project_context
+        try:
+            validate_project_context(search, strict=True)
+        except OutOfContextError as err:
+            raise APIProblem(
+                422,
+                "out_of_context",
+                "Search query out of project context",
+                str(err),
+            ) from None
+
+    search_pattern = f"%{search.strip()}%" if search and search.strip() else None
     async with tenant_txn(ident.tenant_id) as s:
         rule = await exclusion_rule(s)
         rows = (
@@ -77,9 +92,10 @@ async def list_accounts(
                     " FROM accounts a LEFT JOIN LATERAL (SELECT id, status, created_at"
                     " FROM account_runs WHERE account_id = a.id ORDER BY created_at DESC LIMIT 1)"
                     " r ON true WHERE (CAST(:after AS text) IS NULL OR a.domain > :after)"
+                    " AND (CAST(:sp AS text) IS NULL OR a.domain ILIKE :sp OR a.name ILIKE :sp)"
                     " ORDER BY a.domain LIMIT :n"
                 ),
-                {"after": after, "n": limit + 1},
+                {"after": after, "sp": search_pattern, "n": limit + 1},
             )
         ).all()
     page = rows[:limit]

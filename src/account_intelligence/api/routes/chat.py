@@ -30,7 +30,14 @@ from account_intelligence.chat.credentials import (
     save_encrypted_key,
 )
 from account_intelligence.chat.registry import ChatConfigInvalid, get_chat_registry
-from account_intelligence.chat.service import AnthropicChatProvider, ChatService, ChatUsage, sse
+from account_intelligence.chat.service import (
+    AnthropicChatProvider,
+    ChatService,
+    ChatUsage,
+    OutOfContextError,
+    sse,
+    validate_project_context,
+)
 from account_intelligence.chat.store import (
     ThreadBusy,
     ThreadLimitReached,
@@ -80,6 +87,14 @@ class NewTurn(BaseModel):
     request_id: UUID
     content: str = Field(min_length=1, max_length=60000)
     account_id: UUID | None = None
+    enforce_project_scope: bool = Field(
+        default=True,
+        description="Reject queries outside the domain of ABM and account intelligence.",
+    )
+    fresh_output: bool = Field(
+        default=True,
+        description="Guarantee fresh, non-cached output unique to this user.",
+    )
 
 
 class TenantModelKeyBody(BaseModel):
@@ -230,6 +245,19 @@ async def stream_turn(
     # Phase 5: Automatic model routing: all follow-up chat is automatically routed to claude-fable-5-1.
     # Callers cannot override model selection.
     model = service.registry.model("claude-fable-5-1")
+
+    # Enforce project/domain scope: reject off-topic queries outside ABM and account intelligence
+    if body.enforce_project_scope:
+        try:
+            validate_project_context(body.content, strict=True)
+        except OutOfContextError as err:
+            raise APIProblem(
+                422,
+                "out_of_context",
+                "Query out of project context",
+                str(err),
+            ) from None
+
     try:
         reservation = await reserve_turn(
             ident.tenant_id,
@@ -317,6 +345,9 @@ async def stream_turn(
                 reservation.model,
                 reservation.messages,
                 service.registry.limits.max_output_tokens,
+                user_id=str(ident.user_id),
+                request_id=str(body.request_id),
+                fresh_output=body.fresh_output,
             ):
                 if event.kind == "text":
                     output_chars += len(event.text)

@@ -329,6 +329,8 @@ function ChatWorkspace({ canChat, canManageKey }: { canChat: boolean; canManageK
       const reply = await apiStream(`/v1/chat/threads/${activeId}/turns/stream`, {
         request_id: crypto.randomUUID(),
         content: text,
+        enforce_project_scope: true,
+        fresh_output: true,
       });
 
       let received = false;
@@ -344,7 +346,8 @@ function ChatWorkspace({ canChat, canManageKey }: { canChat: boolean; canManageK
         }
         if (frame.event === "error") {
           setPipelineStage("review");
-          throw new Error("The model response could not be completed.");
+          const errMsg = typeof frame.data.message === "string" ? frame.data.message : "The model response could not be completed.";
+          throw new Error(errMsg);
         }
         if (frame.event === "done") {
           setPipelineStage("done");
@@ -357,11 +360,18 @@ function ChatWorkspace({ canChat, canManageKey }: { canChat: boolean; canManageK
       await refreshThreads();
     } catch (cause) {
       setMessages((items) => items.filter((item) => item.id !== assistantId));
-      const message = cause instanceof ApiError && cause.status === 429
-        ? "This conversation reached its usage limit. Start a new chat to continue."
-        : cause instanceof ApiError && cause.status === 422
-          ? "That message is too long for this conversation."
-          : "The response could not be completed. Please try again.";
+      let message = "The response could not be completed. Please try again.";
+      if (cause instanceof ApiError) {
+        if (cause.status === 429) {
+          message = "This conversation reached its usage limit. Start a new chat to continue.";
+        } else if (cause.type === "out_of_context" || cause.status === 422) {
+          message = cause.detail || cause.message || "Query is out of project context: Please submit a query related to ABM, account intelligence, or company research.";
+        } else if (cause.message) {
+          message = cause.message;
+        }
+      } else if (cause instanceof Error && cause.message) {
+        message = cause.message;
+      }
       setError(message);
       setNotice("");
       setDraft(text);
@@ -465,6 +475,8 @@ function ChatWorkspace({ canChat, canManageKey }: { canChat: boolean; canManageK
             <div className="chat-composer-toolbar">
               <div className="chat-model-info" title="Models are routed automatically by the backend system">
                 <span className="chat-model-pill">Claude Fable 5.1 · Automatic Routing</span>
+                <span className="chat-model-pill" title="Project scope strictly enforced: off-topic queries outside ABM and account intelligence are rejected">Project Scope: Enforced</span>
+                <span className="chat-model-pill" title="Dynamic per-user session salting: identical commands receive fresh, independent output per user">Fresh Output: Guaranteed</span>
               </div>
               {pipelineStage !== "idle" && (
                 <div className={`chat-pipeline-status ${pipelineStage}`}>
