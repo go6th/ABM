@@ -45,9 +45,10 @@ research workflows, tracker and grading, billing ledger, exports, privacy workfl
 and an operator console. Coverage and production readiness vary by area; the traceability matrix
 and open-items register record gaps.
 
-The local Compose stack starts PostgreSQL, Cloud Storage and Cloud Tasks emulators, and Redis. It
-does not include the API, worker, scheduler, Next.js app, fake OIDC users, scripted provider/LLM
-servers, or email/Slack sinks. Production sign-in, provider calls, cloud deployment, production
+Compose defines PostgreSQL, Cloud Storage and Cloud Tasks emulators, Redis, and an API container;
+`make up` starts only the dependency services. Clean-checkout startup with DB bootstrap/migrations
+is not proven. A worker, scheduler, Next.js app, fake OIDC users, scripted provider/LLM servers,
+and email/Slack sinks are absent. Production sign-in, provider calls, cloud deployment, production
 load, DR, external penetration testing, and pilot-tenant operation remain unproven.
 
 ## Current release blockers

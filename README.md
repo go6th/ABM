@@ -5,9 +5,9 @@ local-only under `docs/sources/` and are not committed.
 
 Account Intelligence is a multi-tenant research platform that stores sourced account facts, grades
 claims, tracks coverage, and supports tenant and operator workflows. The current checkout is **not
-production-ready**: the configured backend suite passes, but Compose does not start the complete
-web/API/worker/identity stack and authenticated user flows have not been proven. Read [the release
-report](docs/RELEASE_REPORT.md) before using it beyond synthetic local development.
+production-ready**: the configured backend suite passes, but the complete web/API/worker/identity
+stack and authenticated user flows have not been proven. Read [the release report](docs/RELEASE_REPORT.md)
+before using it beyond synthetic local development.
 
 ## Current status
 
@@ -36,8 +36,10 @@ flowchart LR
 ```
 
 `src/account_intelligence/app/container.py` selects adapters. The database is the source of truth
-for tenant isolation and run lifecycle. Local Compose currently provides only PostgreSQL, Cloud
-Storage and Cloud Tasks emulators, and Redis; it does not run the complete stack shown above.
+for tenant isolation and run lifecycle. Compose defines PostgreSQL, Cloud Storage and Cloud Tasks
+emulators, Redis, and an API container. `make up` starts only the dependency services. Compose
+does not provide migration/bootstrap ordering, a worker, scheduler, web app, fake identity provider,
+provider/model stubs, or notification sinks, so a clean-checkout full-stack run is not proven.
 
 ## Local development
 

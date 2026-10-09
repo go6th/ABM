@@ -232,9 +232,11 @@ refuses to restore the old identity constraint if erased rows depend on the rela
 database upgrade twice, RLS catalog check, downgrade, re-upgrade twice, and the isolation suite all
 passed on disposable scratch databases.
 
-Release status: **not production-ready**. Compose still lacks the web, API, worker, scheduler, fake
-identity provider, scripted provider/LLM, and notification services needed for end-to-end proof.
-The existing API image built and passed a scratch-DB smoke as UID 10001, with `/readyz` 200 and
+Release status: **not production-ready**. Compose declares an API container, but `make up` starts
+only its dependency services and API startup from a clean checkout with DB bootstrap/migrations was
+not proven. Worker, web, scheduler, fake identity provider, scripted provider/LLM, and notification
+services needed for end-to-end proof are absent. The existing API image built and passed a
+scratch-DB smoke as UID 10001, with `/readyz` 200 and
 clean SIGTERM. Terraform validation passed. CI lint, separate service images, image scanning,
 SBOM/signing, authenticated multi-role E2E, production load, real cloud/identity/provider checks,
 external penetration testing, and pilot tenants were not performed. See `docs/RELEASE_REPORT.md` for

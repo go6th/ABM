@@ -11,7 +11,7 @@ that were not run or did not pass.
 | Backup | PASS | `../backup-before-finalize-20261008-164539.zip`; non-empty and ZIP integrity check passed; tag `backup/pre-finalize-20261008` points at the pre-audit commit. |
 | Specification matrix | PARTIAL | `docs/TRACEABILITY.md` contains source-linked requirements and conservative statuses; original source files are local and gitignored. Matrix completeness has not been independently checked requirement-by-requirement against every source page. |
 | Deletions | PARTIAL | Removed archived prompt docs, an unreferenced review-store stub, an obsolete deploy stub, and obsolete login screenshots in reviewed commits. Per-category fast checks ran; complete duplicate/dead dependency scans and full final cleanup are not done. |
-| Structure | PARTIAL | Existing `src/`, `web/`, `migrations/`, `infra/`, `config/`, `scripts/`, and `docs/` retained. Local Compose is only a dependency stack; worker/web/migrator/fake IdP services are absent. |
+| Structure | PARTIAL | Existing `src/`, `web/`, `migrations/`, `infra/`, `config/`, `scripts/`, and `docs/` retained. Compose declares an API container, but `make up` starts only dependencies and API startup from a clean checkout with bootstrap/migrations was not proven. Worker, web, scheduler, fake IdP, provider/model stubs, and notification sinks are absent. |
 | Wiring | PARTIAL | `scripts/wiring_audit.py --check`: passed static cross-check of 69 frontend call sites; zero static breaks. It does not run the stack, enumerate every running OpenAPI policy/schema detail, or prove browser flows. |
 | Environment | FAIL | No single typed registry for all environment readers; `.env.example` is not generated from one registry; the full synthetic stack is absent. The `doctor` target exists but reports unavailable API/web/fake IdP and missing host `pg_isready`. `scripts/preflight_deploy.py` checks only reviewed Terraform inputs and secret references. |
 | Tests | FAIL | Three captured post-fix `TMPDIR=/dev/shm make test` runs passed. The latest: isolation 378/378 in 53.08s; backend 3,343 passed, 12 skipped, 2 deselected, 4 warnings, 94.17% coverage in 1,454.45s; exit 0. The configured backend suite is green, but browser E2E, API fuzz, full accessibility, production-load, and backup/restore are not proven. |
@@ -113,8 +113,9 @@ The product tree (excluding `.git`, `node_modules`, and `.venv`) is organized as
 
 ## Remaining release blockers and owner inputs
 
-- Complete a hermetic Compose stack with API, worker, scheduler, web, seeded fake OIDC users,
-  scripted model/provider stubs, and email/Slack sinks; run browser E2E across roles and tenants.
+- Make the declared API container start reliably from a clean checkout with DB bootstrap and
+  migrations; add worker, scheduler, web, seeded fake OIDC users, scripted model/provider stubs,
+  and email/Slack sinks; run browser E2E across roles and tenants.
 - Add a single typed environment registry and generated `.env.example`; finish settings/secrets
   scanning and a useful `make doctor`.
 - Split and validate API, worker, migrator, and web images; add image vulnerability scan, SBOM,
