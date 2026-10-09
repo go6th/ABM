@@ -1,57 +1,79 @@
-# Model routing per task. The Phase 0 model split benchmark decides which arm becomes active;
-# until the decision log is signed, the choice is PROPOSED and reversible by editing this file.
-# Source: roadmap s6 model split benchmark, s8 model routing, s12 LLM access; service design s4.3.
-version: "1.0.0"
+# Automatic Model Routing and Pricing Configuration
+# Strictly enforced by the backend model router. Callers cannot override model selection.
+version: "2026-10-09.1"
 
-# Tasks a run delegates to a model. Each must be routed in every arm.
-tasks:
-  - pull_planning        # deciding which pulls and queries to run
-  - extraction           # reading pulled sources into rows
-  - classification       # job posting classes, levels, lanes
-  - synthesis            # hypotheses and what changes a decision
-  - narrative            # Summary narrative and first call questions
-  - verification         # re-reading sources for claims
+# Hard allowlist of approved models
+allowlist:
+  - claude-opus-5-5
+  - claude-fable-5-1
 
-# Model profiles. Prices are left empty until confirmed from the provider's price list;
-# the benchmark reports tokens and leaves cost blank while a price is missing.
-profiles:
-  fast:
+models:
+  claude-opus-5-5:
     provider: anthropic
-    model: claude-haiku-4-5-20251001
-    input_usd_per_mtok: null
-    output_usd_per_mtok: null
-  strong:
+    display_name: "Claude Opus 5.5"
+    responsibility: "Data collection and judgment calls"
+    context_window: 1000000
+    max_output_tokens: 128000
+    pricing:
+      input_usd_per_million: 4.00
+      cached_read_usd_per_million: 0.20
+      cache_write_usd_per_million: 5.00
+      output_usd_per_million: 20.00
+
+  claude-fable-5-1:
     provider: anthropic
+    display_name: "Claude Fable 5.1"
+    responsibility: "Prediction, analysis, and follow-up chat"
+    context_window: 1000000
+    max_output_tokens: 128000
+    pricing:
+      input_usd_per_million: 10.00
+      cached_read_usd_per_million: 0.25
+      cache_write_usd_per_million: 12.50
+      output_usd_per_million: 50.00
+
+# Pipeline Phase Routing
+routing:
+  phase_1_collection:
     model: claude-opus-5-5
-    input_usd_per_mtok: null
-    output_usd_per_mtok: null
-  offline:
-    provider: fake
-    model: fake-model
-    input_usd_per_mtok: 0
-    output_usd_per_mtok: 0
+    description: "Data collection, approved sources, boundary judgment calls, lane discovery, job matching"
+    gcs_raw_layout: "tenants/{tenant}/runs/{run_id}/raw/"
+    turn_limit: 30
+    spend_limit_usd: 5.00
+    allow_analysis_tasks: false
+    retry_policy:
+      max_retries: 1
+      fallback_to_other_model: false
+      hold_on_failure: true
 
-# Benchmark arms (roadmap s6): one model for everything versus a split by task.
-arms:
-  single:
-    description: "One model for the whole run (today's setup)"
-    routes:
-      pull_planning: strong
-      extraction: strong
-      classification: strong
-      synthesis: strong
-      narrative: strong
-      verification: strong
-  split:
-    description: "Fast model for pulls and extraction, strong model for analysis and deliverables"
-    routes:
-      pull_planning: fast
-      extraction: fast
-      classification: fast
-      synthesis: strong
-      narrative: strong
-      verification: strong
+  phase_2_analysis:
+    model: claude-fable-5-1
+    description: "Prediction, sense checks, explanations, Word and Excel deliverables"
+    fresh_session: true
+    allow_collection_tools: false
+    read_only_raw_artifacts: true
+    turn_limit: 20
+    spend_limit_usd: 5.00
+    retry_policy:
+      max_retries: 1
+      fallback_to_other_model: false
+      hold_on_failure: true
 
-# Arm used by runs. Status PROPOSED until the decision log is signed.
-active_arm: single
-decision_status: Proposed
+  phase_3_quality_checks:
+    validator: "runtime_quality_checks"
+    hold_on_failure: true
+    checks:
+      - source_traceability
+      - unsupported_or_missing_source_references
+      - prohibited_tool_or_vendor_names
+      - cross_tenant_content_isolation
+      - required_output_deliverables
+      - artifact_structural_integrity
+
+  follow_up_chat:
+    model: claude-fable-5-1
+    description: "Follow-up questions regarding completed account runs"
+    allow_new_collection: false
+    read_only_saved_artifacts: true
+    turn_limit: 20
+    spend_limit_usd: 2.00

@@ -26,6 +26,10 @@ def include_object(
 ) -> bool:
     """Compare only modelled tables. Starter, library (LangGraph checkpoints) and
     partitioned vector tables exist only in SQL migrations and are not drift."""
+    # The account_runs table is an external lifecycle table; Source references its composite key
+    # for account-run integrations, but the application does not model the table in this metadata.
+    if type_ == "table" and name == "account_runs":
+        return False
     return not (type_ == "table" and reflected and compare_to is None)
 
 

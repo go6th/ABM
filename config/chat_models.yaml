@@ -1,0 +1,34 @@
+# Public chat model catalogue. Prices are USD per million tokens.
+# Enforced by the backend model router. Callers cannot override model selection.
+version: 1
+default_model: claude-fable-5-1
+limits:
+  max_turns: 20
+  max_input_chars: 60000
+  max_output_tokens: 2048
+  max_spend_usd_per_thread: "2.00"
+providers:
+  anthropic:
+    enabled: true
+    credential_source: env_or_secret_manager
+models:
+  - id: claude-fable-5-1
+    provider: anthropic
+    display_name: Claude Fable 5.1
+    input_usd_per_million: "10.00"
+    output_usd_per_million: "50.00"
+    cache_write_usd_per_million: "12.50"
+    cache_read_usd_per_million: "0.25"
+    context_window: 1000000
+    max_output_tokens: 128000
+    capabilities: {streaming: true, vision: false, tool_use: false}
+  - id: claude-opus-5-5
+    provider: anthropic
+    display_name: Claude Opus 5.5
+    input_usd_per_million: "4.00"
+    output_usd_per_million: "20.00"
+    cache_write_usd_per_million: "5.00"
+    cache_read_usd_per_million: "0.20"
+    context_window: 1000000
+    max_output_tokens: 128000
+    capabilities: {streaming: true, vision: false, tool_use: false}
