@@ -16,7 +16,7 @@ that were not run or did not pass.
 | Environment | FAIL | No single typed registry for all environment readers; `.env.example` is not generated from one registry; the full synthetic stack is absent. The `doctor` target exists but reports unavailable API/web/fake IdP and missing host `pg_isready`. `scripts/preflight_deploy.py` checks only reviewed Terraform inputs and secret references. |
 | Tests | FAIL | Three captured post-fix `TMPDIR=/dev/shm make test` runs passed. The latest: isolation 378/378 in 53.08s; backend 3,343 passed, 12 skipped, 2 deselected, 4 warnings, 94.17% coverage in 1,454.45s; exit 0. The configured backend suite is green, but browser E2E, API fuzz, full accessibility, production-load, and backup/restore are not proven. |
 | Deployability | FAIL | The existing API image built with a 7.391 MB context and passed a non-root/readiness/graceful-shutdown smoke. Terraform format/validation passed with `-backend=false`. Separate API/worker/migrator/web images, vulnerability scan, SBOM/signing, full Compose run, CI configuration lint, and cloud deployment were not proven. |
-| Cleanup | PARTIAL | Reviewed prompt/docs/screenshots removed and references updated. User-owned `ABM_Skill_Readers_Guide_v2.docx` and its lock file were preserved. Ignored build/cache directories still need final inventory and cleanup. |
+| Cleanup | PARTIAL | Reviewed prompt/docs/screenshots removed and references updated. Generated caches, coverage data, mutmut output, Terraform cache, Playwright results, and the Next.js build output were removed after the final run. User-owned documents, local environment/tool directories, and `.env` were preserved for review. |
 
 ## Recorded checks
 
@@ -82,6 +82,34 @@ across the three captured post-fix runs (project threshold 80%).
 One additional dead API option was removed without deleting its containing file. These counts refer
 to committed repository deletions so far, not ignored cache/build output. The backup ZIP is outside
 the repository at `../backup-before-finalize-20261008-164539.zip`.
+
+## Final tree and inventory
+
+The product tree (excluding `.git`, `node_modules`, and `.venv`) is organized as follows:
+
+```text
+.
+├── .claude/skills/account-intelligence-platform/
+├── .github/workflows/
+├── config/
+├── docs/ (API, architecture, decisions, runbooks, sources, status, traceability)
+├── evals/
+├── infra/ (Terraform environments and modules)
+├── migrations/ (SQL and Alembic versions)
+├── ops/
+├── scripts/
+├── src/
+├── tests/ (unit, integration, isolation, system, e2e, fixtures)
+├── web/ (Next.js app, components, library, tests)
+└── root files: Dockerfile, Makefile, compose.yml, README.md, BUILD_LOG.md,
+    pyproject.toml, uv.lock, .env.example, and project policy/config files
+```
+
+| Disposition | Top-level paths and file groups | Reason |
+|---|---|---|
+| KEEP | `.git`, `.claude`, `.github`, `config`, `docs`, `evals`, `infra`, `migrations`, `ops`, `scripts`, `src`, `tests`, `web`; root files `.dockerignore`, `.editorconfig`, `.env.example`, `.gitattributes`, `.gitignore`, `.pre-commit-config.yaml`, `BUILD_LOG.md`, `CONTRIBUTING.md`, `Dockerfile`, `Makefile`, `NOTICE`, `README.md`, `SECURITY.md`, `alembic.ini`, `compose.yml`, `pyproject.toml`, `run_sql.py`, and `uv.lock` | Product source, tests, deployment materials, policy, and required development guidance. `docs/sources/` holds the three local, gitignored source specifications. |
+| REVIEW / LOCAL ONLY | `.env`, `.freebuff`, `.kilo`, `.venv`, `venv`, `venv2`, `ABM_Skill_Readers_Guide_v2.docx`, its LibreOffice lock file, and installed `node_modules` | Preserved because they contain local credentials, tool state, environments, dependencies, or a user-owned guide; excluded from commits and the printed product tree. `.env.example` remains a tracked template and contains no real values. |
+| DELETE | The 18 committed files in the cleanup table above; generated cache/build/test outputs listed in the cleanup gate | Removed after backup and review. No `docs/prompts/`, repository ZIPs, screenshots, coverage files, or mutmut output remain in the product tree. |
 
 ## Remaining release blockers and owner inputs
 
