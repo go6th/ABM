@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 export interface GoogleOperatorOidcConfig {
   clientId: string;
   clientSecret: string;
@@ -6,12 +8,26 @@ export interface GoogleOperatorOidcConfig {
   secureCookies: boolean;
 }
 
+function setting(name: string): string | undefined {
+  const direct = process.env[name];
+  if (direct) return direct;
+  const file = process.env[`${name}_FILE`];
+  if (!file) return undefined;
+  try {
+    // This helper is only used by server route handlers; secret bytes never enter client code.
+    return readFileSync(file, "utf8").trim();
+  } catch {
+    return undefined;
+  }
+}
+
 export function operatorApiOrigin(): URL | null {
   const value = process.env.API_ORIGIN ?? "http://127.0.0.1:8080";
   try {
     const origin = new URL(value);
     const localHttp = process.env.NODE_ENV !== "production" && origin.protocol === "http:" && ["localhost", "127.0.0.1"].includes(origin.hostname);
-    if ((!localHttp && origin.protocol !== "https:") ||
+    const privateServiceHttp = origin.protocol === "http:" && origin.hostname === "api" && origin.port === "8080";
+    if ((!localHttp && !privateServiceHttp && origin.protocol !== "https:") ||
         origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) return null;
     return new URL(origin.origin);
   } catch {
@@ -20,8 +36,8 @@ export function operatorApiOrigin(): URL | null {
 }
 
 export function googleOperatorOidcConfig(): GoogleOperatorOidcConfig | null {
-  const clientId = process.env.OPERATOR_GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.OPERATOR_GOOGLE_CLIENT_SECRET;
+  const clientId = setting("OPERATOR_GOOGLE_CLIENT_ID");
+  const clientSecret = setting("OPERATOR_GOOGLE_CLIENT_SECRET");
   const redirectValue = process.env.OPERATOR_GOOGLE_REDIRECT_URI;
   const workspaceDomain = process.env.STAFF_WORKSPACE_DOMAIN?.trim().toLowerCase();
   if (!clientId || !clientSecret || !redirectValue || !workspaceDomain || !operatorApiOrigin()) return null;

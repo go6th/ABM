@@ -8,6 +8,7 @@ import { api, type Session } from "@/lib/api";
 import { SignedIn } from "@/components/SignedIn";
 import { useApi } from "@/lib/useApi";
 import { FeedbackForm, markUseful } from "@/components/Feedback";
+import { AccountNavigation } from "@/components/AccountNavigation";
 import { cellText, LINK_REL, safeLink } from "@/lib/render";
 import { addFilter, emptySpec, needsValue, removeFilter, tableUrl, toggleSort, withSearch, type Column, type Op, type QuerySpec } from "@/lib/query";
 
@@ -45,6 +46,7 @@ function TableView({ s, domain, table }: { s: Session; domain: string; table: st
   };
   return (
     <section>
+      <AccountNavigation domain={domain} />
       <h1>{cellText(table)} for {domain}</h1>
       <div className="row">
         <label htmlFor="view">Saved view</label>

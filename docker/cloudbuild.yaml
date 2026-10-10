@@ -1,0 +1,52 @@
+steps:
+  # 1. Build API image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'docker/api.Dockerfile'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:$COMMIT_SHA'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:latest'
+      - '.'
+
+  # 2. Build Worker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'docker/worker.Dockerfile'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/worker:$COMMIT_SHA'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/worker:latest'
+      - '.'
+
+  # 3. Build Web image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'web/Dockerfile'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/web:$COMMIT_SHA'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/web:latest'
+      - 'web'
+
+images:
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:latest'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/worker:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/worker:latest'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/web:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/web:latest'
+
+substitutions:
+  _REGION: 'asia-south1'
+  _REPO: 'abm-repo'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

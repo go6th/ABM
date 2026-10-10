@@ -12,6 +12,7 @@ The models only describe what the handlers already return; they add no value and
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -72,6 +73,66 @@ class SessionsEnded(Out):
     """Response body: sessions ended."""
 
     sessions_ended: int
+
+
+class SessionSummary(Out):
+    """Safe metadata for one active session; never includes the bearer or cookie token."""
+
+    session_id: str
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    amr: list[str]
+    current: bool
+
+
+class SessionList(Out):
+    """The active sessions belonging to the verified user in this tenant."""
+
+    sessions: list[SessionSummary]
+
+
+class EmailVerificationSent(Out):
+    """A generic response that does not reveal whether an address has an account."""
+
+    verification_sent: bool
+
+
+class EmailVerified(Out):
+    """One single-use verification token was accepted."""
+
+    verified: bool
+
+
+class PasswordResetAccepted(Out):
+    """Generic acknowledgement for a password reset request."""
+
+    accepted: bool
+
+
+class PasswordResetCompleted(Out):
+    """A single reset token was consumed and the credential was updated."""
+
+    password_updated: bool
+
+
+class Me(Out):
+    """Authenticated tenant identity and server-evaluated capabilities."""
+
+    user_id: str
+    email: str | None
+    display_name: str | None
+    tenant_id: str
+    tenant_name: str
+    role: Literal["admin", "analyst", "seller", "viewer"]
+    plan: str
+    isolation_tier: str
+    capabilities: list[str]
+    feature_flags: dict[str, bool]
+    plan_limits: dict[str, int]
+    mfa_enabled: bool
+    mfa_required: bool
+    mfa_step_up_fresh: bool
 
 
 class IdpConnection(Out):

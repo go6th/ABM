@@ -8,16 +8,37 @@ import { api, ApiError } from "@/lib/api";
 export interface Loaded<T> { data: T | null; error: ApiError | null; reload: () => void }
 
 export function useApi<T>(path: string | null): Loaded<T> {
-  const [state, setState] = useState<{ data: T | null; error: ApiError | null }>({ data: null, error: null });
+  const [state, setState] = useState<{ path: string | null; data: T | null; error: ApiError | null }>({
+    path: null,
+    data: null,
+    error: null,
+  });
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (path === null) return;
     let alive = true;
-    api<T>("GET", path)
-      .then((data) => { if (alive) setState({ data, error: null }); })
-      .catch((e: unknown) => { if (alive) setState({ data: null, error: e instanceof ApiError ? e : new ApiError(0, "network", "unavailable") }); });
-    return () => { alive = false; };
+    const controller = new AbortController();
+    api<T>("GET", path, undefined, {}, controller.signal)
+      .then((data) => { if (alive) setState({ path, data, error: null }); })
+      .catch((e: unknown) => {
+        if (alive) {
+          setState({
+            path,
+            data: null,
+            error: e instanceof ApiError ? e : new ApiError(0, "network", "unavailable"),
+          });
+        }
+      });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
   }, [path, tick]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
-  return { ...state, reload };
+  const current = state.path === path;
+  return {
+    data: current ? state.data : null,
+    error: current ? state.error : null,
+    reload,
+  };
 }

@@ -277,6 +277,33 @@ functions:
   provision_tenant:
     returns: the id of one new tenant with an empty wallet; reads and changes nothing else
     proof: tests/phase3/test_ws8_admin.py
+  local_auth_create:
+    returns: the new identity UUID; no credential tables are directly accessible to app_rw
+    proof: tests/phase3/test_ws2_local_auth.py
+  local_auth_failure:
+    returns: the atomic failure count and lock expiry for one normalized email; never logs email
+    proof: tests/phase3/test_ws2_local_auth.py
+  local_auth_issue_token:
+    returns: whether a short-lived single-use hashed token was created
+    proof: tests/phase3/test_ws2_local_auth.py
+  local_auth_lookup:
+    returns: credential fields for one normalized email to the backend authenticator only
+    proof: tests/phase3/test_ws2_local_auth.py
+  local_auth_memberships:
+    returns: active tenant ids and roles for one verified local identity
+    proof: tests/phase3/test_ws2_local_auth.py
+  local_auth_reset_email:
+    returns: the email for one live reset token only
+    proof: tests/phase3/test_ws2_local_auth_api.py
+  local_auth_reset_password:
+    returns: identity UUID after consuming one reset token and replacing its password hash
+    proof: tests/phase3/test_ws2_local_auth_api.py
+  local_auth_success:
+    returns: whether one verified active identity's lockout was cleared
+    proof: tests/phase3/test_ws2_local_auth.py
+  local_auth_verify_email:
+    returns: the identity UUID after one live verification hash is consumed
+    proof: tests/phase3/test_ws2_local_auth.py
 # Routes. probe: tenant (called as tenant B with the authorisation layer replaced by a fixed
 # tenant-B principal; path parameters filled from tenant A's canary rows; the reply must carry no
 # value of A's canaries), operator (the same through an operator principal of tenant B), machine
@@ -333,7 +360,6 @@ routes:
     params: {thread_id: chat_threads.id}
     body:
       request_id: "00000000-0000-4000-8000-000000000001"
-      model: claude-opus-5-5
       content: Synthetic isolation probe
   GET /v1/settings: {probe: tenant}
   GET /v1/audit: {probe: tenant}
@@ -492,6 +518,11 @@ routes:
     probe: tenant
     body: {user_id: memberships.user_id, expected_version: 1, role: viewer}
   GET /v1/sso/session: {probe: tenant}
+  GET /v1/me: {probe: tenant, allow_service_unavailable: true}
+  GET /v1/sso/sessions: {probe: tenant}
+  DELETE /v1/sso/sessions/{session_id}:
+    probe: tenant
+    params: {session_id: auth_sessions.id}
   POST /v1/sso/logout: {probe: tenant}
   POST /v1/sso/logout-all: {probe: tenant}
   GET /v1/sso/connections: {probe: tenant}
@@ -516,6 +547,25 @@ routes:
   POST /v1/sso/saml/acs:
     probe: anonymous
     form: {SAMLResponse: PHg+, RelayState: login_states.state_hash}
+  POST /v1/auth/login:
+    probe: anonymous
+    body: {email: matrix-isolation@synthetic.test, password: synthetic-isolation-password}
+  POST /v1/auth/email/resend:
+    probe: anonymous
+    body: {email: matrix-isolation@synthetic.test}
+  POST /v1/auth/email/verify:
+    probe: anonymous
+    body: {token: matrix-isolation-token-0123456789abcdef0123456789abcdef}
+  POST /v1/auth/password/reset/request:
+    probe: anonymous
+    body: {email: matrix-isolation@synthetic.test}
+  POST /v1/auth/password/reset:
+    probe: anonymous
+    body: {token: matrix-isolation-token-0123456789abcdef0123456789abcdef,
+           password: synthetic-isolation-password}
+  POST /v1/auth/password/enroll:
+    probe: tenant
+    body: {password: synthetic-isolation-password}
   GET /operator/v1/runs/{run_id}/prepulled/{intent_id}:
     probe: operator
     params: {run_id: prepulled_intents.run_id, intent_id: prepulled_intents.id}

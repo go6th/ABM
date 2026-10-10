@@ -36,6 +36,7 @@ ORACLE: dict[str, set[str]] = {
     "edit_tracker_notes": {ADM, ANA},
     "give_feedback": {ADM, ANA, SEL, VIE},
     "revoke_own_session": {ADM, ANA, SEL, VIE},
+    "manage_own_auth": {ADM, ANA, SEL, VIE},
     "approve_cap": {ADM},
     "manage_users": {ADM},
     "manage_sso": {ADM},

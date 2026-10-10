@@ -17,6 +17,7 @@ function Settings({ s }: { s: Session }) {
   const [companies, setCompanies] = useState(""); const [people, setPeople] = useState(""); const [regions, setRegions] = useState("");
   const [name, setName] = useState(""); const [accent, setAccent] = useState("#1f4e79");
   const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const admin = s.role === "admin";
   const [seen, setSeen] = useState<number | null>(null);
   const fresh = loaded.data;
@@ -28,34 +29,47 @@ function Settings({ s }: { s: Session }) {
     if (fresh.settings.branding) { setName(fresh.settings.branding.display_name); setAccent(fresh.settings.branding.accent_hex); }
   }
   const load = loaded.reload;
-  if (!st) return <p className="muted">Loading</p>;
+  if (loaded.error && !loaded.data) return <div className="client-data-state error-box" role="alert"><strong>Settings could not be loaded</strong><p>{loaded.error.detail}</p><button className="btn" type="button" onClick={load}>Try again</button></div>;
+  if (!st) return <p className="client-loading" role="status">Loading workspace settings…</p>;
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
+    setMsg(null);
     try {
       await api("PUT", "/v1/settings", { expected_version: version, settings: { ...st, people_scope: { ...st.people_scope, regions: lines(regions) }, exclusions: { companies: lines(companies), people: lines(people) } } });
-      setMsg("Saved."); load();
-    } catch (err) { setMsg(err instanceof ApiError ? `Not saved (${err.type}).` : "Not saved."); }
+      setMsg("Research preferences saved."); load();
+    } catch (err) { setMsg(err instanceof ApiError ? `Research preferences were not saved (${err.type}).` : "Research preferences were not saved."); }
+    finally { setBusy(false); }
   };
   const saveBrand = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!/^#[0-9a-fA-F]{6}$/.test(accent)) { setMsg("Enter a valid six-digit hex accent colour."); return; }
+    setBusy(true);
+    setMsg(null);
     try { await api("PUT", "/v1/settings/branding", { expected_version: version, display_name: name, accent_hex: accent, logo_sha256: st.branding?.logo_sha256 ?? null }); setMsg("Branding saved."); load(); }
-    catch (err) { setMsg(err instanceof ApiError ? `Branding refused (${err.type}).` : "Branding refused."); }
+    catch (err) { setMsg(err instanceof ApiError ? `Branding was not saved (${err.type}).` : "Branding was not saved."); }
+    finally { setBusy(false); }
   };
   const upload = async (file: File | undefined) => {
     if (!file) return;
+    if (!["image/png", "image/jpeg"].includes(file.type)) { setMsg("Choose a PNG or JPEG image."); return; }
+    setBusy(true);
+    setMsg(null);
     try {
       const logo = await api<{ logo_sha256: string }>("POST", "/v1/settings/branding/logo", file, { "Content-Type": "application/octet-stream" });
       await api("PUT", "/v1/settings/branding", { expected_version: version, display_name: name || "Brand", accent_hex: accent, logo_sha256: logo.logo_sha256 });
       setMsg("Logo saved."); load();
-    } catch (err) { setMsg(err instanceof ApiError ? `Logo refused (${err.type}).` : "Logo refused."); }
+    } catch (err) { setMsg(err instanceof ApiError ? `Logo was not saved (${err.type}).` : "Logo was not saved."); }
+    finally { setBusy(false); }
   };
   return (
-    <section>
-      <h1>Settings</h1>
+    <section className="client-dashboard">
+      <header className="client-dashboard-heading"><div><p className="eyebrow">WORKSPACE ADMINISTRATION</p><h1>Organisation settings</h1>
+        <p className="secondary">Configure tenant research defaults and branding.</p></div></header>
       {msg ? <p role="status">{msg}</p> : null}
       <form className="card" onSubmit={save}>
         <h2>Research</h2>
-        <fieldset disabled={!admin}><legend>Platform lanes</legend>
+        <fieldset disabled={!admin || busy}><legend>Platform lanes</legend>
           {LANES.map((l) => (
             <label key={l} className="row"><input type="checkbox" checked={st.platform_lanes.includes(l)}
               onChange={(e) => setSt({ ...st, platform_lanes: e.target.checked ? [...st.platform_lanes, l] : st.platform_lanes.filter((x) => x !== l) })} />{l.replaceAll("_", " ")}</label>
@@ -68,17 +82,17 @@ function Settings({ s }: { s: Session }) {
           <textarea id="xc" rows={4} value={companies} onChange={(e) => setCompanies(e.target.value)} />
           <label htmlFor="xp">Excluded people (profile links or names, one per line)</label>
           <textarea id="xp" rows={4} value={people} onChange={(e) => setPeople(e.target.value)} />
-          <div><button className="primary" type="submit">Save settings</button></div>
+          <div><button className="btn primary" type="submit" disabled={!admin || busy}>{busy ? "Saving…" : "Save research preferences"}</button></div>
         </fieldset>
       </form>
       <form className="card" onSubmit={saveBrand}>
         <h2>Branding</h2>
         <p className="muted">Branding changes the name, colour and logo in views and document headers. The attribution stays &quot;6th agents&quot;.</p>
-        <fieldset disabled={!admin}>
+        <fieldset disabled={!admin || busy}>
           <label htmlFor="bn">Display name</label><input id="bn" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
           <label htmlFor="ba">Accent colour</label><input id="ba" value={accent} maxLength={7} onChange={(e) => setAccent(e.target.value)} />
           <label htmlFor="bl">Logo (PNG or JPEG)</label><input id="bl" type="file" accept="image/png,image/jpeg" onChange={(e) => void upload(e.target.files?.[0])} />
-          <div><button className="primary" type="submit">Save branding</button></div>
+          <div><button className="btn primary" type="submit" disabled={!admin || busy}>{busy ? "Saving…" : "Save branding"}</button></div>
         </fieldset>
       </form>
     </section>

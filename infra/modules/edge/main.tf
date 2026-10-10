@@ -52,6 +52,26 @@ resource "google_compute_security_policy" "web" {
   }
   rule {
     action      = "rate_based_ban"
+    priority    = 1500
+    description = "Stricter per-client rate limit for authentication endpoints"
+    match {
+      expr {
+        expression = "request.path.matches('^/v1/auth/(login|email/(resend|verify)|password/enroll)$')"
+      }
+    }
+    rate_limit_options {
+      conform_action   = "allow"
+      exceed_action    = "deny(429)"
+      ban_duration_sec = 600
+      enforce_on_key   = "IP"
+      rate_limit_threshold {
+        count        = 30
+        interval_sec = 60
+      }
+    }
+  }
+  rule {
+    action      = "rate_based_ban"
     priority    = 2000
     description = "Per-client rate limit"
     match {

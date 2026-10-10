@@ -10,12 +10,13 @@ replays paid calls).
 
 from __future__ import annotations
 
+import logging
 import signal
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -33,6 +34,8 @@ from account_intelligence.api.routes import (
 )
 from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 from account_intelligence.platform.ports import PayloadMissing
+
+_logger = logging.getLogger(__name__)
 
 
 def _on_sigterm(app: FastAPI, previous: Any) -> Any:
@@ -63,12 +66,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     container = build_container()
     app.state.container = container
     from account_intelligence.chat.registry import get_chat_registry
-    from account_intelligence.chat.service import AnthropicChatProvider, ChatService
+    from account_intelligence.chat.service import (
+        AnthropicChatProvider,
+        ChatService,
+        LocalIntelligenceChatProvider,
+    )
 
     client = getattr(container.llm, "client", None)
-    app.state.chat_service = ChatService(
-        get_chat_registry(), AnthropicChatProvider(client) if client is not None else None
+    provider = (
+        AnthropicChatProvider(client) if client is not None else LocalIntelligenceChatProvider()
     )
+    app.state.chat_service = ChatService(get_chat_registry(), provider)
     from account_intelligence.chat.credentials import TenantModelKeyStore
 
     app.state.tenant_model_keys = TenantModelKeyStore(settings.byok_kms_key)
@@ -88,6 +96,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         signal.signal(signal.SIGTERM, previous)
+        from identity.rate_limit import close as close_identity_rate_limiter
+
+        await close_identity_rate_limiter()
         if connector is not None:
             await connector.close_async()
 
@@ -121,8 +132,13 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def request_context(request: Request, call_next: Any) -> Any:
-        """Attach a fresh request id and baseline browser security headers to every response."""
-        request_id = str(uuid4())
+        """Keep the BFF's UUID request id or create one for direct API clients."""
+        supplied_id = request.headers.get("x-request-id", "")
+        try:
+            parsed_id = uuid4() if not supplied_id else UUID(supplied_id)
+            request_id = str(parsed_id) if supplied_id.lower() == str(parsed_id) else str(uuid4())
+        except ValueError:
+            request_id = str(uuid4())
         request.state.request_id = request_id
         started = time.monotonic()
         response = await call_next(request)
@@ -223,6 +239,7 @@ def create_app() -> FastAPI:
     async def internal_problem(request: Request, _error: Exception) -> JSONResponse:
         """Return no exception text or traceback to clients."""
         request_id = getattr(request.state, "request_id", "unavailable")
+        _logger.exception("unhandled request exception", extra={"request_id": request_id})
         return JSONResponse(
             problem_body(500, request_id),
             status_code=500,

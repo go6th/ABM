@@ -2263,6 +2263,70 @@
         "title": "Disconnected",
         "type": "object"
       },
+      "EmailBody": {
+        "additionalProperties": false,
+        "description": "Address used for an enumeration-resistant verification resend.",
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "EmailBody",
+        "type": "object"
+      },
+      "EmailVerificationSent": {
+        "additionalProperties": false,
+        "description": "A generic response that does not reveal whether an address has an account.",
+        "properties": {
+          "verification_sent": {
+            "title": "Verification Sent",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "verification_sent"
+        ],
+        "title": "EmailVerificationSent",
+        "type": "object"
+      },
+      "EmailVerified": {
+        "additionalProperties": false,
+        "description": "One single-use verification token was accepted.",
+        "properties": {
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "verified"
+        ],
+        "title": "EmailVerified",
+        "type": "object"
+      },
+      "EnrollPasswordBody": {
+        "additionalProperties": false,
+        "description": "Password to link to the authenticated tenant user's verified address.",
+        "properties": {
+          "password": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "EnrollPasswordBody",
+        "type": "object"
+      },
       "ExportBody": {
         "additionalProperties": false,
         "description": "What to export. No tenant field.",
@@ -3444,6 +3508,42 @@
         "title": "LatestRun",
         "type": "object"
       },
+      "LoginBody": {
+        "additionalProperties": false,
+        "description": "Local login request. Tenant IDs are checked against verified membership.",
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginBody",
+        "type": "object"
+      },
       "LogoUploaded": {
         "additionalProperties": false,
         "description": "Response body: logo uploaded.",
@@ -3524,6 +3624,115 @@
           "counts"
         ],
         "title": "Materialization",
+        "type": "object"
+      },
+      "Me": {
+        "additionalProperties": false,
+        "description": "Authenticated tenant identity and server-evaluated capabilities.",
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "feature_flags": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Feature Flags",
+            "type": "object"
+          },
+          "isolation_tier": {
+            "title": "Isolation Tier",
+            "type": "string"
+          },
+          "mfa_enabled": {
+            "title": "Mfa Enabled",
+            "type": "boolean"
+          },
+          "mfa_required": {
+            "title": "Mfa Required",
+            "type": "boolean"
+          },
+          "mfa_step_up_fresh": {
+            "title": "Mfa Step Up Fresh",
+            "type": "boolean"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          },
+          "plan_limits": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Plan Limits",
+            "type": "object"
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "analyst",
+              "seller",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "title": "Tenant Name",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "display_name",
+          "tenant_id",
+          "tenant_name",
+          "role",
+          "plan",
+          "isolation_tier",
+          "capabilities",
+          "feature_flags",
+          "plan_limits",
+          "mfa_enabled",
+          "mfa_required",
+          "mfa_step_up_fresh"
+        ],
+        "title": "Me",
         "type": "object"
       },
       "Member": {
@@ -3815,6 +4024,36 @@
           "problems"
         ],
         "title": "ParityVerdict",
+        "type": "object"
+      },
+      "PasswordResetAccepted": {
+        "additionalProperties": false,
+        "description": "Generic acknowledgement for a password reset request.",
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "title": "PasswordResetAccepted",
+        "type": "object"
+      },
+      "PasswordResetCompleted": {
+        "additionalProperties": false,
+        "description": "A single reset token was consumed and the credential was updated.",
+        "properties": {
+          "password_updated": {
+            "title": "Password Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "password_updated"
+        ],
+        "title": "PasswordResetCompleted",
         "type": "object"
       },
       "PauseApproved": {
@@ -4366,6 +4605,30 @@
           "reason"
         ],
         "title": "RejectBody",
+        "type": "object"
+      },
+      "ResetPasswordBody": {
+        "additionalProperties": false,
+        "description": "Reset secret and replacement password.",
+        "properties": {
+          "password": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 200,
+            "minLength": 32,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "ResetPasswordBody",
         "type": "object"
       },
       "RowSource": {
@@ -4922,6 +5185,70 @@
           "step_up_fresh"
         ],
         "title": "Session",
+        "type": "object"
+      },
+      "SessionList": {
+        "additionalProperties": false,
+        "description": "The active sessions belonging to the verified user in this tenant.",
+        "properties": {
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionSummary"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "title": "SessionList",
+        "type": "object"
+      },
+      "SessionSummary": {
+        "additionalProperties": false,
+        "description": "Safe metadata for one active session; never includes the bearer or cookie token.",
+        "properties": {
+          "amr": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Amr",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current": {
+            "title": "Current",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "created_at",
+          "last_seen_at",
+          "expires_at",
+          "amr",
+          "current"
+        ],
+        "title": "SessionSummary",
         "type": "object"
       },
       "SessionsEnded": {
@@ -6277,6 +6604,23 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VerifyEmailBody": {
+        "additionalProperties": false,
+        "description": "Single-use verification secret, submitted in the POST body rather than a URL.",
+        "properties": {
+          "token": {
+            "maxLength": 200,
+            "minLength": 32,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "VerifyEmailBody",
         "type": "object"
       },
       "ViewArchived": {
@@ -9169,6 +9513,274 @@
         ]
       }
     },
+    "/v1/auth/email/resend": {
+      "post": {
+        "description": "Resend a pending address verification with a generic response for unknown or active users.",
+        "operationId": "resend_verification_v1_auth_email_resend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailVerificationSent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resend Verification",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/email/verify": {
+      "post": {
+        "description": "Consume one live email-verification token; replay and expiry are generic refusals.",
+        "operationId": "verify_email_v1_auth_email_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailVerified"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Email",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "description": "Verify a password and establish one tenant-bound server-side session.",
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/password/enroll": {
+      "post": {
+        "description": "Start password enrollment for an already authenticated tenant member.\n\nThe SSO session establishes which member is enrolling. The database email is never accepted\nfrom the request, and the new credential remains unusable until its email is verified.",
+        "operationId": "enroll_password_v1_auth_password_enroll_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollPasswordBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailVerificationSent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enroll Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/password/reset": {
+      "post": {
+        "description": "Consume one reset token, replace the Argon2id hash and revoke active sessions.",
+        "operationId": "reset_password_v1_auth_password_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordResetCompleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reset Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/password/reset/request": {
+      "post": {
+        "description": "Send a reset link when the address is eligible, with an enumeration-resistant response.",
+        "operationId": "request_password_reset_v1_auth_password_reset_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordResetAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Password Reset",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/v1/branding": {
       "get": {
         "description": "The tokens views and documents use (the attribution is fixed).",
@@ -11032,6 +11644,56 @@
         ]
       }
     },
+    "/v1/me": {
+      "get": {
+        "description": "Return only the active session's tenant and capability metadata.",
+        "operationId": "current_user_v1_me_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Current User",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
     "/v1/models": {
       "get": {
         "description": "The current allowlist and public costs; no provider credential is returned.",
@@ -12869,6 +13531,109 @@
           }
         },
         "summary": "Whoami",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
+    "/v1/sso/sessions": {
+      "get": {
+        "description": "List active sessions for this user in this tenant. Session tokens are never returned.",
+        "operationId": "list_sessions_v1_sso_sessions_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Sessions",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
+    "/v1/sso/sessions/{session_id}": {
+      "delete": {
+        "description": "Revoke one of the caller's sessions without revealing other users' session ids.",
+        "operationId": "revoke_session_v1_sso_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Session",
         "tags": [
           "sso"
         ]

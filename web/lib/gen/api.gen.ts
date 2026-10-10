@@ -452,6 +452,26 @@ export const Disconnected = z.object({
 }).strict();
 export type Disconnected = z.infer<typeof Disconnected>;
 
+export const EmailBody = z.object({
+  "email": z.string(),
+}).strict();
+export type EmailBody = z.infer<typeof EmailBody>;
+
+export const EmailVerificationSent = z.object({
+  "verification_sent": z.boolean(),
+}).strict();
+export type EmailVerificationSent = z.infer<typeof EmailVerificationSent>;
+
+export const EmailVerified = z.object({
+  "verified": z.boolean(),
+}).strict();
+export type EmailVerified = z.infer<typeof EmailVerified>;
+
+export const EnrollPasswordBody = z.object({
+  "password": z.string(),
+}).strict();
+export type EnrollPasswordBody = z.infer<typeof EnrollPasswordBody>;
+
 export const ExportBody = z.object({
   "domain": z.string(),
   "kind": z.string().optional(),
@@ -711,6 +731,13 @@ export const KeyVersions = z.object({
 }).strict();
 export type KeyVersions = z.infer<typeof KeyVersions>;
 
+export const LoginBody = z.object({
+  "email": z.string(),
+  "password": z.string(),
+  "workspace_id": z.string().nullable().optional(),
+}).strict();
+export type LoginBody = z.infer<typeof LoginBody>;
+
 export const LogoUploaded = z.object({
   "height": z.number().int(),
   "logo_sha256": z.string(),
@@ -730,6 +757,24 @@ export const Materialization = z.object({
   "status": z.string(),
 }).strict();
 export type Materialization = z.infer<typeof Materialization>;
+
+export const Me = z.object({
+  "capabilities": z.array(z.string()),
+  "display_name": z.string().nullable(),
+  "email": z.string().nullable(),
+  "feature_flags": z.record(z.string(), z.boolean()),
+  "isolation_tier": z.string(),
+  "mfa_enabled": z.boolean(),
+  "mfa_required": z.boolean(),
+  "mfa_step_up_fresh": z.boolean(),
+  "plan": z.string(),
+  "plan_limits": z.record(z.string(), z.number().int()),
+  "role": z.string(),
+  "tenant_id": z.string(),
+  "tenant_name": z.string(),
+  "user_id": z.string(),
+}).strict();
+export type Me = z.infer<typeof Me>;
 
 export const Member = z.object({
   "role": z.string(),
@@ -788,6 +833,16 @@ export const OperatorSession = z.object({
   "staff_id": z.string(),
 }).strict();
 export type OperatorSession = z.infer<typeof OperatorSession>;
+
+export const PasswordResetAccepted = z.object({
+  "accepted": z.boolean(),
+}).strict();
+export type PasswordResetAccepted = z.infer<typeof PasswordResetAccepted>;
+
+export const PasswordResetCompleted = z.object({
+  "password_updated": z.boolean(),
+}).strict();
+export type PasswordResetCompleted = z.infer<typeof PasswordResetCompleted>;
 
 export const PauseApproved = z.object({
   "cap_micros": z.number().int().nullable(),
@@ -926,6 +981,12 @@ export const RejectBody = z.object({
 }).strict();
 export type RejectBody = z.infer<typeof RejectBody>;
 
+export const ResetPasswordBody = z.object({
+  "password": z.string(),
+  "token": z.string(),
+}).strict();
+export type ResetPasswordBody = z.infer<typeof ResetPasswordBody>;
+
 export const RowSource = z.object({
   "code": z.string().nullable(),
   "state": z.string().nullable(),
@@ -1046,6 +1107,21 @@ export const Session = z.object({
   "user_id": z.string(),
 }).strict();
 export type Session = z.infer<typeof Session>;
+
+export const SessionSummary = z.object({
+  "amr": z.array(z.string()),
+  "created_at": z.string(),
+  "current": z.boolean(),
+  "expires_at": z.string(),
+  "last_seen_at": z.string(),
+  "session_id": z.string(),
+}).strict();
+export type SessionSummary = z.infer<typeof SessionSummary>;
+
+export const SessionList = z.object({
+  "sessions": z.array(SessionSummary),
+}).strict();
+export type SessionList = z.infer<typeof SessionList>;
 
 export const SessionsEnded = z.object({
   "sessions_ended": z.number().int(),
@@ -1331,6 +1407,11 @@ export const UsefulnessMetric = z.object({
 }).strict();
 export type UsefulnessMetric = z.infer<typeof UsefulnessMetric>;
 
+export const VerifyEmailBody = z.object({
+  "token": z.string(),
+}).strict();
+export type VerifyEmailBody = z.infer<typeof VerifyEmailBody>;
+
 export const ViewArchived = z.object({
   "archived": z.boolean(),
   "id": z.string(),
@@ -1451,6 +1532,12 @@ export const KNOWN_VALUES = {
     "lte",
     "is_empty",
     "not_empty"
+  ],
+  "Me.role": [
+    "admin",
+    "analyst",
+    "seller",
+    "viewer"
   ],
   "OperatorSession.role": [
     "operator",
@@ -1582,6 +1669,12 @@ export const operations = {
   "POST /v1/alerts/{alert_id}/feedback": { method: "POST", path: "/v1/alerts/{alert_id}/feedback", plane: "tenant", status: 201, request: Rating, requestRequired: true, response: AlertRated },
   "GET /v1/audit": { method: "GET", path: "/v1/audit", plane: "tenant", status: 200, request: null, requestRequired: false, response: AuditPage },
   "GET /v1/audit/export": { method: "GET", path: "/v1/audit/export", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "POST /v1/auth/email/resend": { method: "POST", path: "/v1/auth/email/resend", plane: "tenant", status: 202, request: EmailBody, requestRequired: true, response: EmailVerificationSent },
+  "POST /v1/auth/email/verify": { method: "POST", path: "/v1/auth/email/verify", plane: "tenant", status: 200, request: VerifyEmailBody, requestRequired: true, response: EmailVerified },
+  "POST /v1/auth/login": { method: "POST", path: "/v1/auth/login", plane: "tenant", status: 200, request: LoginBody, requestRequired: true, response: null },
+  "POST /v1/auth/password/enroll": { method: "POST", path: "/v1/auth/password/enroll", plane: "tenant", status: 202, request: EnrollPasswordBody, requestRequired: true, response: EmailVerificationSent },
+  "POST /v1/auth/password/reset": { method: "POST", path: "/v1/auth/password/reset", plane: "tenant", status: 200, request: ResetPasswordBody, requestRequired: true, response: PasswordResetCompleted },
+  "POST /v1/auth/password/reset/request": { method: "POST", path: "/v1/auth/password/reset/request", plane: "tenant", status: 202, request: EmailBody, requestRequired: true, response: PasswordResetAccepted },
   "GET /v1/branding": { method: "GET", path: "/v1/branding", plane: "tenant", status: 200, request: null, requestRequired: false, response: Branding },
   "DELETE /v1/chat/provider-key": { method: "DELETE", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyDeleted },
   "GET /v1/chat/provider-key": { method: "GET", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyStatus },
@@ -1612,6 +1705,7 @@ export const operations = {
   "GET /v1/exports/{package_id}/files/{index}": { method: "GET", path: "/v1/exports/{package_id}/files/{index}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/feedback": { method: "GET", path: "/v1/feedback", plane: "tenant", status: 200, request: null, requestRequired: false, response: FeedbackList },
   "POST /v1/feedback": { method: "POST", path: "/v1/feedback", plane: "tenant", status: 201, request: FeedbackBody, requestRequired: true, response: FeedbackCreated },
+  "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
   "GET /v1/models": { method: "GET", path: "/v1/models", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatModels },
   "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, request: null, requestRequired: false, response: MonitoringBudget },
   "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunPage },
@@ -1642,6 +1736,8 @@ export const operations = {
   "GET /v1/sso/oidc/callback": { method: "GET", path: "/v1/sso/oidc/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/sso/saml/acs": { method: "POST", path: "/v1/sso/saml/acs", plane: "tenant", status: 200, request: Body_saml_acs_v1_sso_saml_acs_post, requestRequired: true, response: null },
   "GET /v1/sso/session": { method: "GET", path: "/v1/sso/session", plane: "tenant", status: 200, request: null, requestRequired: false, response: Session },
+  "GET /v1/sso/sessions": { method: "GET", path: "/v1/sso/sessions", plane: "tenant", status: 200, request: null, requestRequired: false, response: SessionList },
+  "DELETE /v1/sso/sessions/{session_id}": { method: "DELETE", path: "/v1/sso/sessions/{session_id}", plane: "tenant", status: 204, request: null, requestRequired: false, response: null },
   "GET /v1/sso/{slug}/start": { method: "GET", path: "/v1/sso/{slug}/start", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/subscriptions": { method: "GET", path: "/v1/subscriptions", plane: "tenant", status: 200, request: null, requestRequired: false, response: Subscription },
   "PUT /v1/subscriptions": { method: "PUT", path: "/v1/subscriptions", plane: "tenant", status: 200, request: Settings, requestRequired: true, response: Subscription },

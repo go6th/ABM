@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { SignedIn } from "@/components/SignedIn";
 import { useApi } from "@/lib/useApi";
 import { cellText } from "@/lib/render";
+import { AccountNavigation } from "@/components/AccountNavigation";
 
 interface Expired { fact_id: string; signal_type: string; reason: string; expired_at: string; attribute: string; grade: string | null }
 
@@ -12,6 +13,7 @@ function History({ domain }: { domain: string }) {
   const rows = h.data?.history ?? [];
   return (
     <section>
+      <AccountNavigation domain={domain} />
       <h1>History for {domain}</h1>
       <p className="muted">Signals that expired or were removed after two absent checks. Nothing is deleted.</p>
       {rows.length === 0 ? <p className="muted">Nothing has expired yet.</p> : (

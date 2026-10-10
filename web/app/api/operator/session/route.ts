@@ -2,7 +2,6 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { OperatorSession } from "@/lib/gen/api.gen";
 import { googleOperatorOidcConfig, operatorApiOrigin, operatorOAuthCookieNames } from "@/lib/operator-oidc";
-import { verifyStaffSession } from "@/lib/operator-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,16 +44,6 @@ export async function GET(): Promise<NextResponse> {
   const token = (await cookies()).get(cookie)?.value;
   if (!token) return problem(401, "operator_session_required", "Staff sign-in is required.");
 
-  // Check locally signed staff session
-  const localStaff = verifyStaffSession(token);
-  if (localStaff) {
-    return NextResponse.json(
-      { staff_id: localStaff.staff_id, role: localStaff.role, mfa_fresh: localStaff.mfa_fresh },
-      { headers: { "Cache-Control": "no-store" } },
-    );
-  }
-
-  // Fallback to upstream verification (Google Workspace ID token)
   const session = await verifyToken(token);
   if (!session || !session.mfa_fresh) {
     const response = problem(401, "operator_session_invalid", "Staff sign-in must be renewed.");
@@ -88,14 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return problem(400, "invalid_sign_in_response", "The sign-in response is invalid.");
   }
 
-  // Check locally signed staff session
-  const localStaff = verifyStaffSession(token);
-  let sessionResult: { staff_id: string; role: string; mfa_fresh: boolean } | null = null;
-  if (localStaff) {
-    sessionResult = { staff_id: localStaff.staff_id, role: localStaff.role, mfa_fresh: localStaff.mfa_fresh };
-  } else {
-    sessionResult = await verifyToken(token);
-  }
+  const sessionResult = await verifyToken(token);
 
   if (!sessionResult) return problem(401, "invalid_staff_token", "Staff sign-in could not be verified.");
   if (!sessionResult.mfa_fresh) return problem(403, "step_up_required", "A recent staff MFA sign-in is required.");

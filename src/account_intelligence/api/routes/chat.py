@@ -242,7 +242,8 @@ async def stream_turn(
     service = getattr(request.app.state, "chat_service", None)
     if not isinstance(service, ChatService) or service.provider is None:
         raise DependencyUnavailable()
-    # Phase 5: Automatic model routing: all follow-up chat is automatically routed to claude-fable-5-1.
+    # Phase 5: Automatic model routing: all follow-up chat is automatically routed to
+    # claude-fable-5-1.
     # Callers cannot override model selection.
     model = service.registry.model("claude-fable-5-1")
 

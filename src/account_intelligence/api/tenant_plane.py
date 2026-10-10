@@ -11,6 +11,7 @@ GUARANTEE(test_unconfigured_tenant_plane_fails_closed)
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,6 +58,33 @@ class UnconfiguredScanner:
     async def scan(self, key: str) -> bool:
         """Refuse: no scanner is configured."""
         raise NotConfigured("scanner is not configured")
+
+
+class DevelopmentSecretStore:
+    """Process-local secrets for the hermetic dev/test API; values never survive a restart."""
+
+    def __init__(self) -> None:
+        self._values = {CSRF_KEY_REF: secrets.token_bytes(32)}
+
+    async def put(self, name: str, value: bytes) -> str:
+        """Store a new local secret reference without replacing an existing value."""
+        if not name or not value:
+            raise ValueError("secret name and value must be non-empty")
+        if name in self._values:
+            raise ValueError("secret reference already exists")
+        self._values[name] = bytes(value)
+        return name
+
+    async def read(self, ref: str) -> bytes:
+        """Read a local secret or fail closed when the reference is unknown."""
+        try:
+            return self._values[ref]
+        except KeyError:
+            raise NotConfigured(f"local secret {ref} is not configured") from None
+
+    async def destroy(self, ref: str) -> None:
+        """Remove a local secret reference."""
+        self._values.pop(ref, None)
 
 
 @dataclass
@@ -177,6 +205,8 @@ def plane_of(request: Any) -> TenantPlane:
     container = request.app.state.container
     plane = getattr(container, "tenant_plane", None)
     if plane is None:
-        plane = unconfigured_plane(container.clock)
+        from account_intelligence.config import get_settings
+
+        plane = unconfigured_plane(container.clock, get_settings().public_base_url)
         container.tenant_plane = plane
     return plane

@@ -24,6 +24,11 @@ export interface Session {
 
 let csrfToken: string | null = null;
 
+/** Clear session-bound client state after logout or an account/workspace change. */
+export function clearSession(): void {
+  csrfToken = null;
+}
+
 export async function session(): Promise<Session | null> {
   try {
     const body = await api<Session>("GET", "/v1/sso/session");
@@ -78,15 +83,12 @@ export async function api<T>(
   path: string,
   body?: unknown,
   extraHeaders: Record<string, string> = {},
+  signal?: AbortSignal,
 ): Promise<T> {
   if (!path.startsWith("/v1/")) throw new Error("API paths start with /v1/");
   const operation = operationFor(method, path);
   if (!operation) throw new ApiError(500, "operation_not_in_contract", "This API operation is not in the generated contract.");
   const headers: Record<string, string> = { Accept: "application/json", ...extraHeaders };
-  if (typeof window !== "undefined" && !headers["Authorization"]) {
-    const token = window.localStorage.getItem("ai_token");
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-  }
   let payload: BodyInit | undefined;
   if (body instanceof Blob) {
     payload = body;
@@ -113,6 +115,7 @@ export async function api<T>(
     body: payload,
     credentials: "same-origin",
     cache: "no-store",
+    signal,
   });
   if (!reply.ok) throw await problem(reply);
   if (reply.status === 204 || operation.response === null) return undefined as T;

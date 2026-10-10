@@ -1020,3 +1020,271 @@
     box-shadow: 5px 0 25px rgba(0, 0, 0, 0.5);
   }
 }
+
+/* ========================================================================= */
+/* Dedicated Staff Login Screen                                              */
+/* ========================================================================= */
+.staff-login-viewport {
+  min-height: 100vh;
+  width: 100%;
+  background: #141413;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.staff-login-card {
+  width: 100%;
+  max-width: 440px;
+  background: #1e1e1b;
+  border: 1px solid #33322e;
+  border-radius: 16px;
+  padding: 36px 32px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.staff-login-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.staff-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(217, 119, 87, 0.12);
+  border: 1px solid rgba(217, 119, 87, 0.3);
+  color: #d97757;
+  font-size: 11.5px;
+  font-weight: 600;
+  width: fit-content;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+
+.staff-shield-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.staff-login-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #f5f4ef;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.staff-login-subtitle {
+  font-size: 13.5px;
+  color: #8c8a82;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.staff-error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 13px;
+}
+
+.staff-error-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #ef4444;
+}
+
+.staff-error-content {
+  flex: 1;
+}
+
+.staff-error-content strong {
+  display: block;
+  font-weight: 600;
+  color: #f87171;
+  margin-bottom: 2px;
+}
+
+.staff-error-content p {
+  margin: 0;
+  color: #fca5a5;
+  line-height: 1.4;
+}
+
+.staff-error-dismiss {
+  background: transparent;
+  border: none;
+  color: #fca5a5;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.staff-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.staff-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.staff-field-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #c9c7bf;
+}
+
+.staff-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.staff-leading-icon {
+  position: absolute;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  color: #7d7b74;
+  pointer-events: none;
+}
+
+.staff-text-input {
+  width: 100%;
+  background: #141412;
+  border: 1px solid #363530;
+  border-radius: 8px;
+  color: #f5f4ef;
+  font-size: 14px;
+  padding: 10px 12px 10px 38px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.staff-text-input:focus {
+  border-color: #d97757;
+  box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.2);
+}
+
+.staff-password-input {
+  padding-right: 40px;
+}
+
+.staff-eye-toggle-btn {
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: #7d7b74;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s ease;
+}
+
+.staff-eye-toggle-btn:hover {
+  color: #d1cfc7;
+}
+
+.staff-eye-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.staff-submit-btn {
+  width: 100%;
+  background: #d97757;
+  border: 1px solid #d97757;
+  border-radius: 8px;
+  color: #ffffff;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.staff-submit-btn:hover:not(:disabled) {
+  background: #e28566;
+  border-color: #e28566;
+}
+
+.staff-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.staff-btn-normal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.staff-btn-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.staff-arrow-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.staff-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: staffSpin 0.7s linear infinite;
+}
+
+@keyframes staffSpin {
+  to { transform: rotate(360deg); }
+}
+
+.staff-security-footer {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #282723;
+  color: #6e6c66;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.staff-sec-icon {
+  width: 14px;
+  height: 14px;
+  color: #8c8a82;
+  flex-shrink: 0;
+  margin-top: 1px;
+}

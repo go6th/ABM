@@ -1,0 +1,112 @@
+"""Current tenant identity and the backend's authorization/capability view."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy import text
+
+from account_intelligence.api import contract as C
+from account_intelligence.api.auth import Identity
+from account_intelligence.api.guard import authorize
+from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.tenant_plane import plane_of
+from account_intelligence.db.session import tenant_txn
+from admin import flags
+from identity import roles, sessions
+from metering import limits
+
+router = APIRouter(tags=["identity"])
+register("GET", "/v1/me", tenant_route("read_public", "read", step_up=False))
+
+CAPABILITIES: dict[str, str] = {
+    "read_public": "brief:public:read",
+    "read_internal": "brief:internal:read",
+    "start_run": "runs:create",
+    "cancel_run": "runs:cancel",
+    "approve_run": "runs:approve",
+    "configure_alerts": "alerts:manage",
+    "save_own_view": "views:save",
+    "edit_shared_views": "views:share",
+    "edit_tracker_notes": "tracker:notes:write",
+    "give_feedback": "feedback:write",
+    "revoke_own_session": "sessions:revoke:self",
+    "manage_own_auth": "auth:manage:self",
+    "approve_cap": "wallet:cap:approve",
+    "manage_users": "users:manage",
+    "manage_sso": "sso:manage",
+    "manage_settings": "settings:manage",
+    "manage_connectors": "connectors:manage",
+    "read_audit": "audit:read",
+    "export_audit": "audit:export",
+    "read_usage": "usage:read",
+    "grant_support": "support:grant",
+    "request_deletion": "tenant:delete:request",
+}
+
+
+@router.get("/me", response_model=C.Me)
+async def current_user(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
+    """Return only the active session's tenant and capability metadata."""
+    async with tenant_txn(ident.tenant_id) as s:
+        row = (
+            await s.execute(
+                text(
+                    "SELECT t.name, t.plan, t.isolation_tier, u.email, u.display_name"
+                    " FROM tenants t LEFT JOIN users u"
+                    " ON u.tenant_id = t.id AND u.subject = :subject"
+                    " WHERE t.id = :tenant_id"
+                ),
+                {"subject": ident.user_id, "tenant_id": ident.tenant_id},
+            )
+        ).first()
+        if row is None:
+            # Tenant context is verified before this handler; missing metadata is a closed failure.
+            from account_intelligence.api.problem import DependencyUnavailable
+
+            raise DependencyUnavailable()
+        plan = await limits.plan_code(s)
+        plan_limits = await limits.limits(s)
+        flag_rows = (
+            await s.execute(
+                text(
+                    "SELECT DISTINCT ON (flag) flag, rule FROM feature_flags"
+                    " ORDER BY flag, version DESC"
+                )
+            )
+        ).all()
+        enabled_flags = {
+            str(flag_row.flag): flags.evaluate(
+                dict(flag_row.rule), str(flag_row.flag), ident.tenant_id, plan
+            )
+            for flag_row in flag_rows
+        }
+
+    role_table = roles.load_table()
+    capabilities = sorted(
+        CAPABILITIES[action]
+        for action, role_set in role_table.actions.items()
+        if action in CAPABILITIES and ident.role in role_set
+    )
+    plane = plane_of(request)
+    mfa_enabled = "mfa" in ident.amr
+    mfa_required = ident.role == "admin" and plane.policy.admin_requires_mfa
+    return {
+        "user_id": ident.user_id,
+        "email": row.email,
+        "display_name": row.display_name,
+        "tenant_id": str(ident.tenant_id),
+        "tenant_name": row.name,
+        "role": ident.role,
+        "plan": plan,
+        "isolation_tier": row.isolation_tier,
+        "capabilities": capabilities,
+        "feature_flags": enabled_flags,
+        "plan_limits": plan_limits,
+        "mfa_enabled": mfa_enabled,
+        "mfa_required": mfa_required,
+        "mfa_step_up_fresh": sessions.step_up_fresh(
+            ident.step_up_at, plane.clock.now(), plane.policy
+        ),
+    }

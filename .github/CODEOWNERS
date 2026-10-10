@@ -1,0 +1,6 @@
+# Credential storage and issuer boundaries require review from the repository security owner.
+/migrations/0047_local_auth.sql @Sakib-11
+/migrations/0047_local_auth.down.sql @Sakib-11
+/migrations/versions/0047_local_auth.py @Sakib-11
+/src/identity/local_password.py @Sakib-11
+/src/account_intelligence/api/routes/auth.py @Sakib-11

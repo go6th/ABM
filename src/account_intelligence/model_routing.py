@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 import yaml
@@ -44,17 +44,16 @@ class QualityCheckFailed(RuntimeError):
     """Raised when completed artifacts fail runtime quality verification."""
 
 
-class PipelinePhase(str, Enum):
+class PipelinePhase(StrEnum):
     COLLECTION = "phase_1_collection"
     ANALYSIS = "phase_2_analysis"
     QUALITY_CHECKS = "phase_3_quality_checks"
     CHAT = "follow_up_chat"
 
 
-class PhaseFailureAction(str, Enum):
+class PhaseFailureAction(StrEnum):
     RETRY = "retry_same_model"
     HOLD = "hold_run_for_review"
-
 
 
 @dataclass(frozen=True)
@@ -129,9 +128,15 @@ class ModelRouter:
             pricing_data = mdata.get("pricing", {})
             pricing = ModelPricing(
                 input_usd_per_million=Decimal(str(pricing_data.get("input_usd_per_million", "0"))),
-                cached_read_usd_per_million=Decimal(str(pricing_data.get("cached_read_usd_per_million", "0"))),
-                cache_write_usd_per_million=Decimal(str(pricing_data.get("cache_write_usd_per_million", "0"))),
-                output_usd_per_million=Decimal(str(pricing_data.get("output_usd_per_million", "0"))),
+                cached_read_usd_per_million=Decimal(
+                    str(pricing_data.get("cached_read_usd_per_million", "0"))
+                ),
+                cache_write_usd_per_million=Decimal(
+                    str(pricing_data.get("cache_write_usd_per_million", "0"))
+                ),
+                output_usd_per_million=Decimal(
+                    str(pricing_data.get("output_usd_per_million", "0"))
+                ),
             )
             self._models[mid] = ModelDefinition(
                 id=mid,
@@ -184,7 +189,8 @@ class ModelRouter:
         """Hard validation rejecting any model outside the allowlist."""
         if model_id not in APPROVED_MODELS:
             raise ModelRoutingError(
-                f"Model {model_id!r} is not on the allowlist. Only {sorted(APPROVED_MODELS)} are permitted."
+                f"Model {model_id!r} is not on the allowlist. Only {sorted(APPROVED_MODELS)} are "
+                f"permitted."
             )
 
     def calculate_cost(self, model_id: str, usage: ModelCallUsage) -> Decimal:
@@ -195,8 +201,12 @@ class ModelRouter:
         million = Decimal(1_000_000)
 
         input_cost = (Decimal(usage.input_tokens) * p.input_usd_per_million) / million
-        cached_read_cost = (Decimal(usage.cached_read_tokens) * p.cached_read_usd_per_million) / million
-        cache_write_cost = (Decimal(usage.cache_write_tokens) * p.cache_write_usd_per_million) / million
+        cached_read_cost = (
+            Decimal(usage.cached_read_tokens) * p.cached_read_usd_per_million
+        ) / million
+        cache_write_cost = (
+            Decimal(usage.cache_write_tokens) * p.cache_write_usd_per_million
+        ) / million
         output_cost = (Decimal(usage.output_tokens) * p.output_usd_per_million) / million
 
         return input_cost + cached_read_cost + cache_write_cost + output_cost
@@ -210,9 +220,13 @@ class ModelRouter:
         """Enforce per-phase turn and spending limits."""
         policy = self._policies[phase]
         if turns_used >= policy.turn_limit:
-            raise PhaseLimitBreached(f"Phase {phase.value} exceeded turn limit of {policy.turn_limit}")
+            raise PhaseLimitBreached(
+                f"Phase {phase.value} exceeded turn limit of {policy.turn_limit}"
+            )
         if spend_used_usd >= policy.spend_limit_usd:
-            raise PhaseLimitBreached(f"Phase {phase.value} exceeded spend ceiling of ${policy.spend_limit_usd}")
+            raise PhaseLimitBreached(
+                f"Phase {phase.value} exceeded spend ceiling of ${policy.spend_limit_usd}"
+            )
 
     def execute_quality_checks(
         self,
@@ -311,7 +325,8 @@ class ModelRouter:
         )
 
     def cached_prefix_block(self, content: str) -> dict[str, Any]:
-        """Wrap prefix text (skill, rules, checklist) in an Anthropic ephemeral cache control block."""
+        """Wrap prefix text (skill, rules, checklist) in an Anthropic ephemeral cache
+        control block."""
         return {
             "type": "text",
             "text": content,
@@ -321,7 +336,12 @@ class ModelRouter:
     def get_inference_region(self, tenant_industry: str | None) -> str:
         """US-only inference routing for healthcare tenants; default region for other tenants."""
         if tenant_industry and tenant_industry.lower() in {
-            "healthcare", "health", "medical", "pharma", "biotech", "life sciences",
+            "healthcare",
+            "health",
+            "medical",
+            "pharma",
+            "biotech",
+            "life sciences",
         }:
             return "us-central1"
         return "us-central1"
@@ -330,7 +350,6 @@ class ModelRouter:
     def workspace_retention_days(self) -> int:
         """30-day retention on the production workspace."""
         return 30
-
 
 
 _router_instance: ModelRouter | None = None

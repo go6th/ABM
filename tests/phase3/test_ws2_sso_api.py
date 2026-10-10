@@ -273,6 +273,54 @@ async def test_sessions_expire_rotate_and_revoke(plane: Plane, browser: Browser)
     assert "session_revoked" in [None, *[r for r in ("session_revoked",)]]
 
 
+async def test_session_list_and_revocation_are_scoped_to_the_current_user(
+    plane: Plane,
+) -> None:
+    tenant = new_tenant("session-list")
+    slug = f"acme-{uid()}"
+    add_oidc_connection(tenant, plane, slug)
+    add_member(tenant, f"{slug}:ann", "seller")
+    add_member(tenant, f"{slug}:bob", "seller")
+    owner, another_device, other_user = Browser(plane), Browser(plane), Browser(plane)
+    try:
+        assert (await owner.oidc_sign_in(slug, "ann")).status_code == 303
+        assert (await another_device.oidc_sign_in(slug, "ann")).status_code == 303
+        assert (await other_user.oidc_sign_in(slug, "bob")).status_code == 303
+
+        request_id = str(UUID(int=101))
+        traced = await owner.client.get("/v1/sso/session", headers={"x-request-id": request_id})
+        assert traced.status_code == 200 and traced.headers["x-request-id"] == request_id
+
+        listed = await owner.client.get("/v1/sso/sessions")
+        assert listed.status_code == 200
+        sessions = listed.json()["sessions"]
+        assert len(sessions) == 2 and sum(row["current"] for row in sessions) == 1
+        assert all("token" not in row and "token_hash" not in row for row in sessions)
+        other_id = next(row["session_id"] for row in sessions if not row["current"])
+        bob_id = await other_user.client.get("/v1/sso/sessions")
+        bob_session_id = bob_id.json()["sessions"][0]["session_id"]
+
+        no_csrf = await owner.client.delete(f"/v1/sso/sessions/{other_id}")
+        assert no_csrf.status_code == 403
+        cross_user = await owner.call("DELETE", f"/v1/sso/sessions/{bob_session_id}")
+        assert cross_user.status_code == 404
+        revoked = await owner.call("DELETE", f"/v1/sso/sessions/{other_id}")
+        assert revoked.status_code == 204
+        assert (await another_device.client.get("/v1/sso/session")).status_code == 401
+
+        remaining = await owner.client.get("/v1/sso/sessions")
+        assert remaining.status_code == 200
+        assert len(remaining.json()["sessions"]) == 1
+        current_id = remaining.json()["sessions"][0]["session_id"]
+        signed_out = await owner.call("DELETE", f"/v1/sso/sessions/{current_id}")
+        assert signed_out.status_code == 204
+        assert (await owner.client.get("/v1/sso/session")).status_code == 401
+    finally:
+        await owner.close()
+        await another_device.close()
+        await other_user.close()
+
+
 def _unsafe_session_routes() -> list[tuple[str, str]]:
     out = []
     for (method, path), policy in ROUTE_POLICIES.items():

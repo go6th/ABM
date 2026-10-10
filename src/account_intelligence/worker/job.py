@@ -130,6 +130,7 @@ async def run_job(tenant_id: UUID, run_id: UUID) -> JobResult:
         checkpointer = checkpointer_factory(container.checkpoint_dsn)
 
         async def one(scheduler: LoopScheduler, slice_no: int) -> tuple[str, str]:
+            """Run a single scheduler slice for a tenant run."""
             out = await execute_slice(
                 container.deps_for,
                 checkpointer,

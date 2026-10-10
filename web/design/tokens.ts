@@ -24,39 +24,39 @@ export interface Palette {
 
 export const palettes: Record<Theme, Palette> = {
   light: {
-    backdrop: "#efe9f3", canvas: "#faf7f4", raised: "#ffffff", sunken: "#f2ede7",
+    backdrop: "#f7f8fc", canvas: "#f7f8fc", raised: "#ffffff", sunken: "#f0f2f7",
     glass: "rgb(255 255 255 / 0.66)", glassStrong: "rgb(255 255 255 / 0.84)",
-    border: "#e5ddd3", borderStrong: "#857c90", focus: "#5b45b0",
-    textPrimary: "#1f1b24", textSecondary: "#4a4452", textMuted: "#615a6b", textInverse: "#ffffff",
-    brand: "#5b45b0", brandText: "#ffffff", brandSoft: "#ece6fb",
+    border: "#e4e8f0", borderStrong: "#8793a5", focus: "#4d69a8",
+    textPrimary: "#243047", textSecondary: "#4a5870", textMuted: "#5e6a7e", textInverse: "#ffffff",
+    brand: "#4d69a8", brandText: "#ffffff", brandSoft: "#e8f0ff",
     operator: "#2a2230", operatorText: "#ffd9bf", operatorSoft: "#fde3d3",
-    shadowTint: "62 44 92", highlight: "rgb(255 255 255 / 0.9)",
+    shadowTint: "44 60 92", highlight: "rgb(255 255 255 / 0.9)",
     accents: {
-      peach: { soft: "#fde6d8", mid: "#f6b996", strong: "#9a4320" },
-      lavender: { soft: "#ece6fb", mid: "#c5b6f1", strong: "#4f3aa3" },
-      mint: { soft: "#dcf3e7", mid: "#9fd9bc", strong: "#1c6b45" },
-      sky: { soft: "#ddedfa", mid: "#a1cbef", strong: "#1d5788" },
-      rose: { soft: "#fbe2e7", mid: "#f0abb9", strong: "#9b2c45" },
-      butter: { soft: "#fbf0cc", mid: "#eed584", strong: "#735409" },
-      slate: { soft: "#ebe8e4", mid: "#c8c2ba", strong: "#4a4540" },
+      peach: { soft: "#fcebdd", mid: "#efc3a9", strong: "#915134" },
+      lavender: { soft: "#f0ebfb", mid: "#c9bde5", strong: "#66528f" },
+      mint: { soft: "#e4f3eb", mid: "#a9d7bf", strong: "#326f5a" },
+      sky: { soft: "#e8f0ff", mid: "#b8cbed", strong: "#4d69a8" },
+      rose: { soft: "#f8e8ed", mid: "#e8bbc8", strong: "#a94c67" },
+      butter: { soft: "#fff3d5", mid: "#e9d58f", strong: "#806613" },
+      slate: { soft: "#eef1f5", mid: "#cbd2de", strong: "#4b576a" },
     },
   },
   dark: {
-    backdrop: "#100e15", canvas: "#16141c", raised: "#1f1c27", sunken: "#121017",
-    glass: "rgb(31 28 39 / 0.66)", glassStrong: "rgb(31 28 39 / 0.86)",
-    border: "#2f2a3a", borderStrong: "#7d7490", focus: "#c9bbff",
-    textPrimary: "#f4f0fa", textSecondary: "#d0c9dc", textMuted: "#aaa2b8", textInverse: "#16141c",
-    brand: "#c9bbff", brandText: "#1b1530", brandSoft: "#2b2443",
+    backdrop: "#10151e", canvas: "#151b27", raised: "#1c2431", sunken: "#111722",
+    glass: "rgb(28 36 49 / 0.66)", glassStrong: "rgb(28 36 49 / 0.86)",
+    border: "#2e394b", borderStrong: "#738198", focus: "#a6c0f5",
+    textPrimary: "#eef3fa", textSecondary: "#c5cfde", textMuted: "#aab6c9", textInverse: "#151b27",
+    brand: "#a6c0f5", brandText: "#15223a", brandSoft: "#242f43",
     operator: "#ffcfae", operatorText: "#2a1a10", operatorSoft: "#3a2a20",
     shadowTint: "0 0 0", highlight: "rgb(255 255 255 / 0.06)",
     accents: {
       peach: { soft: "#3a261c", mid: "#7a4a33", strong: "#ffc6a6" },
-      lavender: { soft: "#2a2342", mid: "#4f4180", strong: "#cdbfff" },
-      mint: { soft: "#17322a", mid: "#2d6650", strong: "#a6e6c6" },
-      sky: { soft: "#172b3e", mid: "#2c5579", strong: "#a9d3f5" },
+      lavender: { soft: "#2b2639", mid: "#52476f", strong: "#d1c4f1" },
+      mint: { soft: "#1b332b", mid: "#376b55", strong: "#afe6ca" },
+      sky: { soft: "#1b2a40", mid: "#395881", strong: "#aec8fa" },
       rose: { soft: "#3a1d27", mid: "#77384b", strong: "#f6b3c2" },
       butter: { soft: "#342b12", mid: "#6e5a20", strong: "#f2dc94" },
-      slate: { soft: "#26232c", mid: "#4a4553", strong: "#d6d0de" },
+      slate: { soft: "#252d3a", mid: "#465365", strong: "#d3dceb" },
     },
   },
 };
@@ -109,7 +109,7 @@ export const motion = {
   spring: "cubic-bezier(0.3, 1.4, 0.5, 1)",
 } as const;
 export const z = { base: 0, raised: 10, sticky: 20, sidebar: 30, panel: 40, overlay: 50, dialog: 60, toast: 70, banner: 80 } as const;
-export const layout = { sidebar: "272px", sidebarCollapsed: "72px", column: "880px", panel: "440px", gutter: "16px" } as const;
+export const layout = { sidebar: "248px", sidebarCollapsed: "72px", column: "880px", panel: "440px", gutter: "16px" } as const;
 
 /** Text and icon pairs that must pass WCAG contrast in both themes. `mid` steps are decorative
  *  only (a chip's edge beside its text label, a blob); any meaningful border, meter or icon uses

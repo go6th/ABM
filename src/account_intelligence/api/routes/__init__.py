@@ -7,12 +7,14 @@ from account_intelligence.api.guard import authorize, route_guard
 from account_intelligence.api.routes import (
     accounts,
     audit,
+    auth,
     chat,
     connectors,
     crm,
     exports,
     feedback,
     health,
+    me,
     operator_admin,
     operator_view,
     ops,
@@ -34,9 +36,11 @@ from account_intelligence.api.routes import (
 v1_router = APIRouter(prefix="/v1", dependencies=[Depends(route_guard), Depends(authorize)])
 v1_router.include_router(runs.router)
 v1_router.include_router(chat.router)
+v1_router.include_router(me.router)
 v1_router.include_router(spend.router)
 v1_router.include_router(spend_v2.router)
 v1_router.include_router(sso.router)
+v1_router.include_router(auth.router)
 v1_router.include_router(users.router)
 v1_router.include_router(settings.router)
 v1_router.include_router(settings.branding_router)
@@ -54,6 +58,7 @@ v1_router.include_router(crm.router)
 # principal is resolved; the tenant comes from the IdP connection the URL names.
 public_v1_router = APIRouter(prefix="/v1", dependencies=[Depends(route_guard)])
 public_v1_router.include_router(sso.public_router)
+public_v1_router.include_router(auth.public_router)
 operator_router = APIRouter(dependencies=[Depends(route_guard)])
 operator_router.include_router(spend_v2.operator_router)
 operator_router.include_router(ops.router)
@@ -64,12 +69,14 @@ operator_router.include_router(feedback.operator_router)
 __all__ = [
     "accounts",
     "audit",
+    "auth",
     "chat",
     "connectors",
     "usage",
     "exports",
     "views",
     "health",
+    "me",
     "public_v1_router",
     "settings",
     "sso",

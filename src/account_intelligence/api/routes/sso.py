@@ -41,6 +41,12 @@ register("GET", "/v1/sso/{slug}/start", ANONYMOUS)
 register("GET", "/v1/sso/oidc/callback", ANONYMOUS)
 register("POST", "/v1/sso/saml/acs", ANONYMOUS)
 register("GET", "/v1/sso/session", tenant_route("read_public", "none"))
+register("GET", "/v1/sso/sessions", tenant_route("read_public", "read", step_up=False))
+register(
+    "DELETE",
+    "/v1/sso/sessions/{session_id}",
+    tenant_route("revoke_own_session", "none"),
+)
 register("POST", "/v1/sso/logout", tenant_route("revoke_own_session", "none"))
 register("POST", "/v1/sso/logout-all", tenant_route("revoke_own_session", "none"))
 register("GET", "/v1/sso/connections", tenant_route("manage_sso", "read", step_up=False))
@@ -159,6 +165,49 @@ async def whoami(request: Request, ident: Identity = Depends(authorize)) -> dict
     if ident.kind == "session" and ident.session_id:
         body["csrf_token"] = csrf_token(await plane.key(CSRF_KEY_REF), ident.session_id)
     return body
+
+
+@router.get("/sessions", response_model=C.SessionList)
+async def list_sessions(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
+    """List active sessions for this user in this tenant. Session tokens are never returned."""
+    if ident.kind != "session" or ident.session_id is None:
+        raise HTTPException(409, "session listing requires a cookie session")
+    plane = plane_of(request)
+    async with tenant_txn(ident.tenant_id) as s:
+        rows = await sessions.list_active(s, ident.user_id, plane.clock.now())
+    return {
+        "sessions": [
+            {
+                "session_id": str(row.id),
+                "created_at": row.created_at,
+                "last_seen_at": row.last_seen_at,
+                "expires_at": row.expires_at,
+                "amr": list(row.amr),
+                "current": str(row.id) == ident.session_id,
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.delete("/sessions/{session_id}", status_code=204, response_class=Response)
+async def revoke_session(
+    request: Request, session_id: UUID, ident: Identity = Depends(authorize)
+) -> Response:
+    """Revoke one of the caller's sessions without revealing other users' session ids."""
+    if ident.kind != "session" or ident.session_id is None:
+        raise HTTPException(409, "session revocation requires a cookie session")
+    plane = plane_of(request)
+    async with tenant_txn(ident.tenant_id) as s:
+        revoked = await sessions.revoke_owned(
+            s, session_id, ident.user_id, "user_revoked", plane.clock.now()
+        )
+    if not revoked:
+        raise HTTPException(404, "session not found")
+    response = Response(status_code=204)
+    if str(session_id) == ident.session_id:
+        response.delete_cookie(plane.policy.session_cookie, path="/", secure=True, httponly=True)
+    return response
 
 
 @router.post("/logout", responses={200: {"model": C.SignedOut}})

@@ -56,28 +56,80 @@ docker compose down
 3. Service accounts created with least-privilege roles (`roles/cloudsql.client`, `roles/secretmanager.secretAccessor`).
 
 ### Deployment Steps
-```bash
-# Authenticate with Google Cloud
-gcloud auth login
-gcloud config set project <YOUR_PROJECT_ID>
 
-# Build and push container images to Artifact Registry
+#### Option A: Quick Automated Deployment Script
+```bash
+# 1. Authenticate with Google Cloud
+gcloud auth login
+gcloud config set project abmgenerator
+
+# 2. Build, push images to Artifact Registry, and deploy to Cloud Run
+bash scripts/deploy_to_cloud_run.sh --all
+```
+
+#### Option B: Step-by-Step Manual Deployment
+```bash
+# 1. Authenticate with Google Cloud
+gcloud auth login
+gcloud config set project abmgenerator
+
+# 2. Configure Docker authentication
+gcloud auth configure-docker asia-south1-docker.pkg.dev
+
+# 3. Build container images locally
+docker build -f docker/api.Dockerfile -t asia-south1-docker.pkg.dev/abmgenerator/abm-repo/api:latest .
+docker build -f docker/worker.Dockerfile -t asia-south1-docker.pkg.dev/abmgenerator/abm-repo/worker:latest .
+docker build -f web/Dockerfile -t asia-south1-docker.pkg.dev/abmgenerator/abm-repo/web:latest web
+
+# (Alternatively, build in the cloud with Cloud Build)
 gcloud builds submit --config=docker/cloudbuild.yaml .
 
-# Deploy database migrations
-gcloud run jobs execute migrate --region=us-central1
+# 4. Push images to Artifact Registry
+docker push asia-south1-docker.pkg.dev/abmgenerator/abm-repo/api:latest
+docker push asia-south1-docker.pkg.dev/abmgenerator/abm-repo/worker:latest
+docker push asia-south1-docker.pkg.dev/abmgenerator/abm-repo/web:latest
 
-# Deploy API and Web services to Cloud Run
-gcloud run deploy api \
-  --image=us-central1-docker.pkg.dev/<YOUR_PROJECT_ID>/abm/api:latest \
-  --region=us-central1 \
-  --vpc-connector=abm-vpc-conn \
-  --set-env-vars=ENV=production
+# 5. Run Database Migrations (using Cloud Run Jobs)
+gcloud run jobs create abm-migrate \
+  --project=abmgenerator \
+  --region=asia-south1 \
+  --image=asia-south1-docker.pkg.dev/abmgenerator/abm-repo/api:latest \
+  --command="alembic" \
+  --args="upgrade,head" \
+  --set-env-vars="SERVICE_ROLE=migrate,MIGRATOR_DATABASE_URL=$DATABASE_URL"
 
-gcloud run deploy web \
-  --image=us-central1-docker.pkg.dev/<YOUR_PROJECT_ID>/abm/web:latest \
-  --region=us-central1 \
-  --set-env-vars=API_ORIGIN=https://api-internal-url
+gcloud run jobs execute abm-migrate --project=abmgenerator --region=asia-south1 --wait
+
+# 6. Deploy Backend API to Cloud Run
+gcloud run deploy abm-api \
+  --project=abmgenerator \
+  --region=asia-south1 \
+  --image=asia-south1-docker.pkg.dev/abmgenerator/abm-repo/api:latest \
+  --port=8080 \
+  --allow-unauthenticated \
+  --set-env-vars="SERVICE_ROLE=api,DATABASE_URL=$DATABASE_URL,CHECKPOINT_DATABASE_URL=$CHECKPOINT_DATABASE_URL,ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+
+# 7. Deploy Worker to Cloud Run
+gcloud run deploy abm-worker \
+  --project=abmgenerator \
+  --region=asia-south1 \
+  --image=asia-south1-docker.pkg.dev/abmgenerator/abm-repo/worker:latest \
+  --port=8081 \
+  --command="uvicorn" \
+  --args="account_intelligence.api.main:app,--host,0.0.0.0,--port,8081" \
+  --allow-unauthenticated \
+  --set-env-vars="SERVICE_ROLE=worker,DATABASE_URL=$DATABASE_URL,CHECKPOINT_DATABASE_URL=$CHECKPOINT_DATABASE_URL,ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+
+# 8. Deploy Frontend Web to Cloud Run
+API_URL=$(gcloud run services describe abm-api --project=abmgenerator --region=asia-south1 --format='value(status.url)')
+
+gcloud run deploy abm-web \
+  --project=abmgenerator \
+  --region=asia-south1 \
+  --image=asia-south1-docker.pkg.dev/abmgenerator/abm-repo/web:latest \
+  --port=3000 \
+  --allow-unauthenticated \
+  --set-env-vars="API_ORIGIN=$API_URL"
 ```
 
 ---

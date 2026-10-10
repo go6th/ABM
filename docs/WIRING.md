@@ -9,12 +9,12 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **117**.
-- Frontend literal call sites found: **77**.
-- Frontend call sites mapped to backend operations: **74**.
-- Backend operations without a direct frontend call site: **49**.
+- Backend operations in OpenAPI: **126**.
+- Frontend literal call sites found: **96**.
+- Frontend call sites mapped to backend operations: **91**.
+- Backend operations without a direct frontend call site: **46**.
 - Route-policy/catalog violations: **0**.
-- Unmapped frontend calls: **0**.
+- Unmapped frontend calls: **1**.
 
 Uncalled backend operations remain part of the documented OpenAPI surface and may support
 non-browser clients or later screens. This count is not treated as an orphan deletion list.
@@ -25,6 +25,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 
 | Source | Call type | Method and path | Request schema | Response schema | Access rule |
 |---|---|---|---|---|---|
+| `web/components/SignOutButton.tsx` | same-origin or external fetch | `POST /api/auth/logout` | Next.js route | Next.js route | staff session / same-origin |
 | `web/app/operator/(console)/OperatorSignOut.tsx` | same-origin or external fetch | `DELETE /api/operator/session` | Next.js route | Next.js route | staff session / same-origin |
 | `web/app/operator/(console)/OperatorSessionGate.tsx` | same-origin or external fetch | `GET /api/operator/session` | Next.js route | Next.js route | staff session / same-origin |
 | `web/app/operator/(console)/configuration/page.tsx` | generated operator operation reference | `GET /operator/v1/flags` | — | Flags | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
@@ -50,13 +51,23 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/operator/(console)/tenants/page.tsx` | generated operator operation reference | `POST /operator/v1/tenants/{tenant_id}/suspend` | Reason (required) | TenantLifecycle | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `web/app/operator/(console)/support/page.tsx` | generated operator operation reference | `GET /operator/v1/view/accounts` | — | ViewAsAccounts | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
 | `web/app/operator/(console)/support/page.tsx` | generated operator operation reference | `GET /operator/v1/view/settings` | — | ViewAsSettings | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
+| `web/app/readyz/route.ts` | server API fetch | `GET /readyz` | — | Ready | public health probe |
 | `web/app/(client)/accounts/[domain]/page.tsx` | tenant page query | `GET /v1/accounts` | — | AccountPage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(client)/chat/page.tsx` | tenant client | `GET /v1/accounts` | — | AccountPage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/page.tsx` | tenant page query | `GET /v1/accounts` | — | AccountPage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/components/AdminOverview.tsx` | tenant page query | `GET /v1/accounts` | — | AccountPage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/page.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/app/(client)/accounts/[domain]/history/page.tsx` | tenant page query | `GET /v1/accounts/{domain}/history` | — | History | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/alerts/page.tsx` | tenant page query | `GET /v1/alerts` | — | Alerts | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/alerts/page.tsx` | tenant client | `POST /v1/alerts/{alert_id}/feedback` | Rating (required) | AlertRated | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/app/(client)/audit/page.tsx` | tenant client | `GET /v1/audit` | — | AuditPage | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `web/components/AdminOverview.tsx` | tenant page query | `GET /v1/audit` | — | AuditPage | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(auth)/login/page.tsx` | same-origin or external fetch | `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `web/app/(auth)/verify-email/page.tsx` | same-origin or external fetch | `POST /v1/auth/email/verify` | VerifyEmailBody (required) | EmailVerified | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `web/app/(auth)/login/page.tsx` | same-origin or external fetch | `POST /v1/auth/login` | LoginBody (required) | — | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `web/app/(client)/settings/security/page.tsx` | tenant client | `POST /v1/auth/password/enroll` | EnrollPasswordBody (required) | EmailVerificationSent | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
+| `web/app/(auth)/reset/page.tsx` | same-origin or external fetch | `POST /v1/auth/password/reset` | ResetPasswordBody (required) | PasswordResetCompleted | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `web/app/(auth)/forgot/page.tsx` | same-origin or external fetch | `POST /v1/auth/password/reset/request` | EmailBody (required) | PasswordResetAccepted | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `web/app/(client)/layout.tsx` | same-origin or external fetch | `GET /v1/branding` | — | Branding | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/chat/page.tsx` | tenant client | `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/chat/page.tsx` | tenant client | `GET /v1/chat/provider-key` | — | TenantModelKeyStatus | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
@@ -77,8 +88,11 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/(client)/settings/crm/page.tsx` | dynamic tenant wrapper | `POST /v1/crm/{crm}/writes/approve` | Approval (required) | CrmApproved | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/accounts/[domain]/page.tsx` | tenant client | `POST /v1/exports` | ExportBody (required) | ExportPackage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `web/components/Feedback.tsx` | tenant client | `POST /v1/feedback` | FeedbackBody (required) | FeedbackCreated | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
-| `web/app/(client)/chat/page.tsx` | tenant client | `GET /v1/models` | — | ChatModels | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(client)/layout.tsx` | same-origin or external fetch | `GET /v1/me` | — | Me | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(client)/runs/[run_id]/page.tsx` | tenant page query | `GET /v1/me` | — | Me | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/settings/alerts/page.tsx` | tenant page query | `GET /v1/monitoring/budget` | — | MonitoringBudget | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(client)/page.tsx` | tenant page query | `GET /v1/runs` | — | RunPage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/components/AdminOverview.tsx` | tenant page query | `GET /v1/runs` | — | RunPage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/accounts/[domain]/page.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/app/(client)/accounts/[domain]/page.tsx` | tenant page query | `GET /v1/runs/pull-option` | — | PullOption | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/Progress.tsx` | progress event stream | `GET /v1/runs/{run_id}/events` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -88,15 +102,20 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/(client)/settings/page.tsx` | tenant client | `PUT /v1/settings` | SettingsBody (required) | TenantSettings | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/settings/page.tsx` | tenant client | `PUT /v1/settings/branding` | BrandingBody (required) | BrandingSaved | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/settings/page.tsx` | tenant client | `POST /v1/settings/branding/logo` | — | LogoUploaded | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
+| `web/app/(client)/page.tsx` | tenant page query | `GET /v1/signals` | — | SignalPage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/settings/sso/page.tsx` | tenant client | `GET /v1/sso/connections` | — | IdpConnections | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `web/app/api/auth/logout/route.ts` | server API fetch | `GET /v1/sso/logout` | unmapped | unmapped | unverified |
 | `web/app/(client)/settings/users/page.tsx` | tenant client | `POST /v1/sso/logout-all` | — | SessionsEnded | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `web/app/api/auth/logout/route.ts` | server API fetch | `GET /v1/sso/session` | — | Session | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `web/app/(client)/settings/security/page.tsx` | tenant page query | `GET /v1/sso/sessions` | — | SessionList | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/app/(client)/settings/security/page.tsx` | tenant client | `DELETE /v1/sso/sessions/{session_id}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/app/(client)/settings/alerts/page.tsx` | tenant page query | `GET /v1/subscriptions` | — | Subscription | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/settings/alerts/page.tsx` | tenant client | `PUT /v1/subscriptions` | Settings (required) | Subscription | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/settings/alerts/page.tsx` | tenant client | `POST /v1/subscriptions/subscribe-all` | — | Subscription | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/settings/support/page.tsx` | tenant client | `POST /v1/support/grants` | account_intelligence__api__routes__support__GrantBody (required) | GrantCreated | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/settings/support/page.tsx` | tenant client | `POST /v1/support/grants/{grant_id}/revoke` | — | GrantRevoked | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
-| `web/app/(client)/usage/page.tsx` | tenant client | `GET /v1/usage` | — | Usage | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `web/components/Feedback.tsx` | tenant client | `POST /v1/usefulness` | UsefulBody (required) | UsefulRecorded | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `web/components/AdminOverview.tsx` | tenant page query | `GET /v1/users` | — | Members | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `web/app/(client)/settings/users/page.tsx` | tenant client | `PATCH /v1/users` | ChangeBody (required) | Member | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/settings/users/page.tsx` | tenant client | `POST /v1/users` | AddBody (required) | Member | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/(client)/accounts/[domain]/tables/[table]/page.tsx` | tenant page query | `GET /v1/views` | — | SavedViews | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -112,6 +131,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 |---|---|---|---|
 | `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
+| `DELETE /v1/sso/sessions/{session_id}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `GET /healthz` | — | Health (200) | public health probe |
 | `GET /operator/v1/flags` | — | Flags (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
 | `GET /operator/v1/keys` | — | KeyVersions (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
@@ -147,6 +167,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/exports/{package_id}` | — | ExportPackage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/exports/{package_id}/files/{index}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/feedback` | — | FeedbackList (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/me` | — | Me (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/models` | — | ChatModels (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/monitoring/budget` | — | MonitoringBudget (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs` | — | RunPage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -161,6 +182,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/sso/connections` | — | IdpConnections (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/sso/oidc/callback` | — | — | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `GET /v1/sso/session` | — | Session (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `GET /v1/sso/sessions` | — | SessionList (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/sso/{slug}/start` | — | — | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `GET /v1/subscriptions` | — | Subscription (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/support/events` | — | SupportEvents (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
@@ -186,6 +208,12 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /operator/v1/tenants/{tenant_id}/suspend` | Reason (required) | TenantLifecycle (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `POST /v1/accounts` | AccountBody (required) | AccountAdded (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/alerts/{alert_id}/feedback` | Rating (required) | AlertRated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent (202) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `POST /v1/auth/email/verify` | VerifyEmailBody (required) | EmailVerified (200) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `POST /v1/auth/login` | LoginBody (required) | — | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `POST /v1/auth/password/enroll` | EnrollPasswordBody (required) | EmailVerificationSent (202) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
+| `POST /v1/auth/password/reset` | ResetPasswordBody (required) | PasswordResetCompleted (200) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `POST /v1/auth/password/reset/request` | EmailBody (required) | PasswordResetAccepted (202) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `POST /v1/chat/threads` | NewThread (required) | ChatThreadCreated (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/chat/threads/{thread_id}/turns/stream` | NewTurn (required) | — | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/connectors` | StartBody (required) | ConnectorStarted (201) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
@@ -247,4 +275,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 
 ## Findings
 
-- **No static frontend route breaks or route-policy gaps found.**
+Static breaks found:
+
+- GET /v1/sso/logout from web/app/api/auth/logout/route.ts matched 0 backend operations

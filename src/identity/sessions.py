@@ -97,6 +97,17 @@ class ActiveSession:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class SessionSummary:
+    """A user-visible live session record without any credential material."""
+
+    id: UUID
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    amr: tuple[str, ...]
+
+
 async def event(
     s: AsyncSession,
     kind: str,
@@ -214,6 +225,51 @@ async def revoke_all(s: AsyncSession, user_id: str, reason: str, now: datetime) 
     ).all()
     await event(s, "revoked_all", now, user_id=user_id, reason=reason)
     return len(rows)
+
+
+async def list_active(
+    s: AsyncSession, user_id: str, now: datetime, *, limit: int = 100
+) -> list[SessionSummary]:
+    """List only the caller's active sessions in the context tenant, newest first."""
+    if not 1 <= limit <= 100:
+        raise ValueError("session listing limit must be between 1 and 100")
+    rows = (
+        await s.execute(
+            text(
+                "SELECT id, created_at, last_seen_at, absolute_expires_at, amr"
+                " FROM auth_sessions WHERE user_id = :u AND revoked_at IS NULL"
+                " AND absolute_expires_at > :now"
+                " AND last_seen_at + make_interval(secs => idle_timeout_s) > :now"
+                " ORDER BY last_seen_at DESC, id DESC LIMIT :n"
+            ),
+            {"u": user_id, "now": now, "n": limit},
+        )
+    ).all()
+    return [
+        SessionSummary(
+            row.id, row.created_at, row.last_seen_at, row.absolute_expires_at, tuple(row.amr or ())
+        )
+        for row in rows
+    ]
+
+
+async def revoke_owned(
+    s: AsyncSession, session_id: UUID, user_id: str, reason: str, now: datetime
+) -> bool:
+    """Revoke one active session only when it belongs to the verified caller."""
+    row = (
+        await s.execute(
+            text(
+                "UPDATE auth_sessions SET revoked_at = :now, revoke_reason = :r"
+                " WHERE id = :i AND user_id = :u AND revoked_at IS NULL RETURNING user_id"
+            ),
+            {"now": now, "r": reason, "i": session_id, "u": user_id},
+        )
+    ).first()
+    if row is None:
+        return False
+    await event(s, "session_revoked", now, user_id=user_id, session_id=session_id, reason=reason)
+    return True
 
 
 async def load(

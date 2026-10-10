@@ -72,6 +72,7 @@ async def list_accounts(
     """The tenant's accounts by domain, each with its latest run (excluded companies hidden)."""
     if search and enforce_project_scope:
         from account_intelligence.chat.service import OutOfContextError, validate_project_context
+
         try:
             validate_project_context(search, strict=True)
         except OutOfContextError as err:

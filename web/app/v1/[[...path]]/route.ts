@@ -1,19 +1,30 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HOP_BY_HOP_HEADERS = new Set([
-  "host",
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-]);
+const FORWARDED_HEADERS = [
+  "accept",
+  "content-type",
+  "idempotency-key",
+  "if-none-match",
+  "last-event-id",
+  "origin",
+  "traceparent",
+  "x-csrf-token",
+] as const;
+
+const AUTH_COOKIES = new Set(["__Host-ai_session", "__Host-ai_preauth"]);
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function tenantCookies(raw: string): string {
+  return raw
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => AUTH_COOKIES.has(part.split("=", 1)[0] ?? ""))
+    .join("; ");
+}
 
 function getApiOrigin(): string {
   if (process.env.API_ORIGIN) {
@@ -23,22 +34,26 @@ function getApiOrigin(): string {
 }
 
 async function handleProxy(request: NextRequest): Promise<NextResponse> {
+  if (!SAFE_METHODS.has(request.method)) {
+    const origin = request.headers.get("origin");
+    if (!origin || origin !== request.nextUrl.origin) {
+      return NextResponse.json(
+        { type: "urn:6th:problem:403", title: "Request refused", status: 403, detail: "A same-origin request is required." },
+        { status: 403, headers: { "Content-Type": "application/problem+json", "Cache-Control": "no-store" } },
+      );
+    }
+  }
   const origin = getApiOrigin();
   const targetUrl = new URL(request.nextUrl.pathname + request.nextUrl.search, origin);
 
   const forwardHeaders = new Headers();
-  request.headers.forEach((value, key) => {
-    if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
-      forwardHeaders.set(key, value);
-    }
-  });
-
-  const clientIp = request.headers.get("x-forwarded-for");
-  if (clientIp) {
-    forwardHeaders.set("x-forwarded-for", clientIp);
+  forwardHeaders.set("x-request-id", randomUUID());
+  for (const name of FORWARDED_HEADERS) {
+    const value = request.headers.get(name);
+    if (value) forwardHeaders.set(name, value);
   }
-  forwardHeaders.set("x-forwarded-proto", request.nextUrl.protocol.replace(":", ""));
-  forwardHeaders.set("x-forwarded-host", request.nextUrl.host);
+  const cookie = tenantCookies(request.headers.get("cookie") ?? "");
+  if (cookie) forwardHeaders.set("cookie", cookie);
 
   let body: ArrayBuffer | undefined = undefined;
   if (request.method !== "GET" && request.method !== "HEAD") {

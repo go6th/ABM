@@ -2,6 +2,7 @@
 // The tenant's audit trail (admins): reads, runs, exports, administration and support access,
 // identifiers only. The CSV export shows categories, never providers, credits or cost.
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api, type Session } from "@/lib/api";
 import { SignedIn } from "@/components/SignedIn";
 import { cellText } from "@/lib/render";
@@ -15,7 +16,7 @@ function Audit({ s }: { s: Session }) {
   return (
     <section>
       <h1>Audit</h1>
-      <p><a href="/v1/audit/export">Download the audit trail (CSV)</a></p>
+      <p><Link href="/v1/audit/export">Download the audit trail (CSV)</Link></p>
       <table className="data"><thead><tr><th scope="col">#</th><th scope="col">When</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Resource</th><th scope="col">Outcome</th></tr></thead>
         <tbody>{events.map((e) => (
           <tr key={e.seq}><td>{e.seq}</td><td>{cellText(e.at)}</td><td>{cellText(e.actor)}{e.actor_kind === "support" ? " (6th support)" : ""}</td>

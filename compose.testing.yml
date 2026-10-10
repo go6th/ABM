@@ -1,0 +1,12 @@
+services:
+  api:
+    environment:
+      PUBLIC_BASE_URL: http://localhost:3000
+  db:
+    ports: !override ["5433:5432"]
+  gcs:
+    ports: !override ["4444:4443"]
+  tasks:
+    ports: !override ["8124:8123"]
+  redis:
+    ports: !override ["6380:6379"]

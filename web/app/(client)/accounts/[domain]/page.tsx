@@ -9,8 +9,9 @@ import { RunProgress } from "@/components/Progress";
 import { cellText } from "@/lib/render";
 import { useApi } from "@/lib/useApi";
 import { FeedbackForm } from "@/components/Feedback";
+import { AccountNavigation } from "@/components/AccountNavigation";
 
-interface Account { domain: string; latest_run: { run_id: string; status: string } | null }
+interface Account { domain: string; name: string | null; latest_run: { run_id: string; status: string } | null }
 interface Settings { settings: { platform_lanes: string[]; pursuing_client: string | null } }
 // D-102 run modes: an explicit choice; "Run both" sends no mode (the API's default is both phases).
 interface PullOption { available: boolean; pull_run_id?: string; pulled_at?: string; rows_stored?: number; rows_blocked?: number }
@@ -58,9 +59,15 @@ function Summary({ s, domain }: { s: Session; domain: string }) {
   };
   return (
     <section>
-      <h1>{domain}</h1>
+      <AccountNavigation domain={domain} />
+      <h1>{cellText(account?.name ?? domain)}</h1>
+      <p className="secondary">{cellText(domain)}</p>
       {account?.latest_run ? (
-        <div className="card"><h2>Latest run</h2><RunProgress runId={account.latest_run.run_id} /></div>
+        <div className="card">
+          <h2>Latest run</h2>
+          <RunProgress runId={account.latest_run.run_id} />
+          <a href={`/runs/${encodeURIComponent(account.latest_run.run_id)}`}>Open run details</a>
+        </div>
       ) : <p className="muted">No run yet.</p>}
       {canRun ? (
         <form className="card" onSubmit={start} aria-label="Start a run">
@@ -96,21 +103,23 @@ function Summary({ s, domain }: { s: Session; domain: string }) {
       {account?.latest_run ? <FeedbackForm label="Feedback on this account" target={{ domain }} /> : null}
       <h2>Tables</h2>
       <ul>{TABLES.map(([key, label]) => <li key={key}><a href={`/accounts/${encodeURIComponent(domain)}/tables/${key}`}>{label}</a></li>)}</ul>
-      <h2>Exports</h2>
-      <div className="row">
+      <section className="card" id="exports" aria-labelledby="exports-title">
+        <h2 id="exports-title">Exports</h2>
+        <div className="row">
         <button type="button" onClick={() => void exportAs("files")}>Word and Excel files</button>
         <button type="button" onClick={() => void exportAs("pdf")}>Account Summary PDF</button>
         {TABLES.map(([key, label]) => <button key={key} type="button" onClick={() => void exportAs("csv", key)}>{label} CSV</button>)}
-      </div>
-      <ul>
-        {packages.map((p) => (
-          <li key={p.package_id}>
-            {p.kind}: {p.status === "delivered" ? p.files.map((f) => (
-              <a key={f.index} href={`/v1/exports/${p.package_id}/files/${f.index}`}>{cellText(f.name)} </a>
-            )) : <span className="error">not delivered ({cellText(p.reason)})</span>}
-          </li>
-        ))}
-      </ul>
+        </div>
+        <ul>
+          {packages.map((p) => (
+            <li key={p.package_id}>
+              {p.kind}: {p.status === "delivered" ? p.files.map((f) => (
+                <a key={f.index} href={`/v1/exports/${p.package_id}/files/${f.index}`}>{cellText(f.name)} </a>
+              )) : <span className="error">not delivered ({cellText(p.reason)})</span>}
+            </li>
+          ))}
+        </ul>
+      </section>
     </section>
   );
 }

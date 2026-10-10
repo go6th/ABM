@@ -30,6 +30,20 @@ describe("operator Google Workspace configuration", () => {
     expect(operatorApiOrigin()).toBeNull();
   });
 
+  it("allows only the exact in-cluster API service over private HTTP", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("API_ORIGIN", "http://api:8080");
+    vi.stubEnv("OPERATOR_GOOGLE_CLIENT_ID", "client-id");
+    vi.stubEnv("OPERATOR_GOOGLE_CLIENT_SECRET", "server-secret");
+    vi.stubEnv("OPERATOR_GOOGLE_REDIRECT_URI", "https://accounts.example.com/api/operator/callback");
+    vi.stubEnv("STAFF_WORKSPACE_DOMAIN", "example.com");
+
+    expect(operatorApiOrigin()?.origin).toBe("http://api:8080");
+    expect(googleOperatorOidcConfig()?.secureCookies).toBe(true);
+    vi.stubEnv("API_ORIGIN", "http://api.attacker.test:8080");
+    expect(operatorApiOrigin()).toBeNull();
+  });
+
   it("uses host cookies for secure origins and refuses off-site return paths", () => {
     expect(operatorOAuthCookieNames(true).session).toBe("__Host-6th_operator_session");
     expect(operatorOAuthCookieNames(false).session).toBe("6th_operator_session");

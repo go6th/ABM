@@ -29,6 +29,11 @@ ANONYMOUS_ALLOWED = {
     ("GET", "/v1/sso/{slug}/start"),
     ("GET", "/v1/sso/oidc/callback"),
     ("POST", "/v1/sso/saml/acs"),
+    ("POST", "/v1/auth/login"),
+    ("POST", "/v1/auth/email/resend"),
+    ("POST", "/v1/auth/email/verify"),
+    ("POST", "/v1/auth/password/reset/request"),
+    ("POST", "/v1/auth/password/reset"),
 }
 
 

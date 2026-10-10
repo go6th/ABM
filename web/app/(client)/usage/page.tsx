@@ -1,23 +1,50 @@
 "use client";
 // Plan usage in units, never cost or credits (MT1, D-63).
-import { useEffect, useState } from "react";
-import { api, type Session } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
+import type { Session } from "@/lib/api";
 import { SignedIn } from "@/components/SignedIn";
-
-interface Item { dimension: string; used: number; limit: number | null; unit: string; percent: number | null }
+import { DataTable, EmptyState, type DataColumn } from "@/design/components";
+import type { Usage as UsageReply, UsageItem } from "@/lib/gen/api.gen";
+import { cellText } from "@/lib/render";
 
 function Usage({ s }: { s: Session }) {
-  const [items, setItems] = useState<Item[]>([]);
-  const [period, setPeriod] = useState("");
-  useEffect(() => { if (s.role === "admin") void api<{ period: string; items: Item[] }>("GET", "/v1/usage").then((b) => { setItems(b.items); setPeriod(b.period); }); }, [s.role]);
+  const usage = useApi<UsageReply>(s.role === "admin" ? "/v1/usage" : null);
   if (s.role !== "admin") return <p>Only admins see plan usage.</p>;
+  const columns: DataColumn<UsageItem>[] = [
+    { key: "dimension", header: "Allowance", render: (item) => cellText(item.dimension.replaceAll("_", " ")) },
+    { key: "used", header: "Used", render: (item) => `${item.used} ${cellText(item.unit)}` },
+    { key: "limit", header: "Plan limit", render: (item) => item.limit === null ? "Not set" : `${item.limit} ${cellText(item.unit)}` },
+    { key: "percent", header: "Share used", render: (item) => item.percent === null ? "Unavailable" : `${item.percent}%` },
+  ];
   return (
-    <section>
-      <h1>Usage {period}</h1>
-      <table className="data"><thead><tr><th scope="col">Allowance</th><th scope="col">Used</th><th scope="col">Plan</th><th scope="col">Share used</th></tr></thead>
-        <tbody>{items.map((i) => (
-          <tr key={i.dimension}><td>{i.dimension.replaceAll("_", " ")}</td><td>{i.used} {i.unit}</td><td>{i.limit ?? "not set"}</td><td>{i.percent === null ? "" : `${i.percent}%`}</td></tr>
-        ))}</tbody></table>
+    <section className="client-dashboard">
+      <header className="client-dashboard-heading">
+        <div><p className="eyebrow">WORKSPACE ADMINISTRATION</p><h1>Usage &amp; plan</h1>
+          <p className="secondary">Unit-based tenant usage; provider costs and internal credit details are not displayed.</p></div>
+      </header>
+      {usage.error ? (
+        <div className="client-data-state error-box" role="alert">
+          <strong>Usage could not be loaded</strong><p>{usage.error.detail}</p>
+          <button className="btn" type="button" onClick={usage.reload}>Try again</button>
+        </div>
+      ) : !usage.data ? (
+        <p className="client-loading" role="status">Loading usage…</p>
+      ) : (
+        <>
+          <p className="muted">Period: {cellText(usage.data.period)} · As of {cellText(usage.data.as_of)}</p>
+          {usage.data.items.length === 0 ? (
+            <EmptyState title="No usage recorded" description="The service returned no usage items for this period." />
+          ) : (
+            <DataTable
+              caption="Workspace usage by allowance"
+              columns={columns}
+              rows={usage.data.items}
+              rowKey={(item) => item.dimension}
+              emptyMessage="No usage items are available."
+            />
+          )}
+        </>
+      )}
     </section>
   );
 }

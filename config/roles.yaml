@@ -23,6 +23,7 @@ actions:
   edit_tracker_notes: [admin, analyst]
   give_feedback: [admin, analyst, seller, viewer]
   revoke_own_session: [admin, analyst, seller, viewer]
+  manage_own_auth: [admin, analyst, seller, viewer]
   approve_cap: [admin]
   manage_users: [admin]
   manage_sso: [admin]

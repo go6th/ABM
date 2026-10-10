@@ -308,6 +308,10 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     if app_env == "dev" and env.get("CONNECTORS") == "on":
         connectors, retry = build_connectors(env, payloads, env.get("REDIS_HOST"))
     clock = SystemClock()
+    from account_intelligence.api.tenant_plane import DevelopmentSecretStore, unconfigured_plane
+
+    tenant_plane = unconfigured_plane(clock, env.get("PUBLIC_BASE_URL"))
+    tenant_plane.secrets = DevelopmentSecretStore()
     return Container(
         env=app_env,
         connectors=connectors,
@@ -327,6 +331,7 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         limits=_limits(spec, env),
         slices=_slices(spec),
         checkpoint_dsn=env.get("CHECKPOINT_DATABASE_URL", ""),
+        tenant_plane=tenant_plane,
     )
 
 

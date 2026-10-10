@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -90,7 +90,7 @@ class JwtStaffVerifier:
             )
         except jwt.PyJWTError:
             raise PermissionError("invalid staff token") from None
-        role = claims.get("staff_role")
+        role = cast(Literal["operator", "support"], claims.get("staff_role"))
         # Google Workspace ID tokens do not carry a product-specific staff_role by default.
         # Map only verified, workspace-domain identities from explicit server-side allowlists.
         hosted_domain = claims.get("hd")
@@ -118,7 +118,7 @@ class JwtStaffVerifier:
             if mfa and isinstance(auth_time, int)
             else None
         )
-        return StaffIdentity(str(claims["sub"]), role, step)
+        return StaffIdentity(str(claims["sub"]), _role_of(role), step)
 
 
 class DevStaffVerifier:
@@ -128,6 +128,7 @@ class DevStaffVerifier:
         self.now = now or datetime.now(UTC)
 
     def verify(self, token: str) -> StaffIdentity:
+        """Verify a staff token and return the resolved StaffIdentity."""
         clean = token.strip()
         if ":" in clean:
             role, _, who = clean.partition(":")
@@ -141,7 +142,12 @@ class DevStaffVerifier:
         if not who:
             who = "dev-operator"
         mfa_at = None if no_mfa else self.now
-        return StaffIdentity(who, role, mfa_at)
+        return StaffIdentity(who, _role_of(role), mfa_at)
+
+
+def _role_of(raw: object) -> Literal["operator", "support"]:
+    """Narrow an unverified role value to the StaffIdentity role literal."""
+    return cast(Literal["operator", "support"], raw)
 
 
 def staff_verifier_from_env() -> Any:
