@@ -197,6 +197,12 @@ export const m = {
     offline: "You are offline. Answers and refreshes resume when the connection is back.",
     wait: (seconds: number) => `Too many requests. Try again in ${seconds} seconds.`,
   },
+  theme: {
+    label: "Appearance",
+    light: "Light",
+    dark: "Dark",
+    system: "Match system",
+  },
   when: {
     today: "today",
     yesterday: "yesterday",
