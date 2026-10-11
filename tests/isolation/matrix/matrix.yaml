@@ -315,6 +315,7 @@ functions:
 # params: path parameter -> "table.column" of A's canary row.
 routes:
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
+  GET /v1/runs/{run_id}/cap: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/spend: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/spend/live: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/progress: {probe: tenant, params: {run_id: account_runs.id}}

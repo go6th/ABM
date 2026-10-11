@@ -108,6 +108,38 @@ async def propose(
     return Proposed(version, proposal, False)
 
 
+async def current_proposal(txn: TxnFactory, tenant_id: UUID, run_id: UUID) -> dict[str, Any] | None:
+    """The latest cap version as an approver sees it: the ``version`` and ``proposal_hash`` an
+    approval binds to (K3), the cap, the decision state and calls per category. No provider code,
+    operation or per-line amount leaves this function (D-30). ``None`` when the run has no
+    proposal or belongs to another tenant (RLS returns no row)."""
+    async with txn(tenant_id) as s:
+        run = await repo.run_money(s, run_id, lock=False)
+        latest = await repo.latest_version(s, run_id) if run is not None else 0
+        if run is None or not latest:
+            return None
+        record = await repo.version_record(s, run_id, latest, run.tenant_id)
+        stored = await repo.proposal_of(s, run_id, latest)
+    if record is None or stored is None:
+        return None
+    calls: dict[str, int] = {}
+    for line in stored.get("lines", []):
+        category = str(line.get("category", "other"))
+        calls[category] = calls.get(category, 0) + int(line.get("calls", 0))
+    return {
+        "run_id": str(run_id),
+        "version": latest,
+        "proposal_hash": record.proposal_hash,
+        "state": state_of(record.events),
+        "cap_micros": record.cap_micros,
+        "calls_by_category": dict(sorted(calls.items())),
+        "has_exclusions": record.has_exclusions,
+        "has_unknown_costs": bool(stored.get("unknown_operations")),
+        "is_extension": record.is_extension,
+        "proposed_at": record.created_at.isoformat(),
+    }
+
+
 def _sample_ops(proposal_json: dict[str, Any], cfg: SpendConfig) -> dict[str, int]:
     out: dict[str, int] = {}
     for line in proposal_json.get("lines", []):

@@ -853,6 +853,76 @@
         "title": "CapExtended",
         "type": "object"
       },
+      "CapProposalView": {
+        "additionalProperties": false,
+        "description": "Response body: the latest cap proposal an approver binds to (no provider or line amount).",
+        "properties": {
+          "calls_by_category": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Calls By Category",
+            "type": "object"
+          },
+          "cap_micros": {
+            "title": "Cap Micros",
+            "type": "integer"
+          },
+          "has_exclusions": {
+            "title": "Has Exclusions",
+            "type": "boolean"
+          },
+          "has_unknown_costs": {
+            "title": "Has Unknown Costs",
+            "type": "boolean"
+          },
+          "is_extension": {
+            "title": "Is Extension",
+            "type": "boolean"
+          },
+          "proposal_hash": {
+            "title": "Proposal Hash",
+            "type": "string"
+          },
+          "proposed_at": {
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "proposed",
+              "approved",
+              "rejected",
+              "expired",
+              "extension_declined"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "version",
+          "proposal_hash",
+          "state",
+          "cap_micros",
+          "calls_by_category",
+          "has_exclusions",
+          "has_unknown_costs",
+          "is_extension",
+          "proposed_at"
+        ],
+        "title": "CapProposalView",
+        "type": "object"
+      },
       "CapRejected": {
         "additionalProperties": false,
         "description": "Response body: cap rejected.",
@@ -5437,6 +5507,26 @@
         "title": "SignalPage",
         "type": "object"
       },
+      "SignedIn": {
+        "additionalProperties": false,
+        "description": "Response body: password sign-in established a session for this tenant.",
+        "properties": {
+          "signed_in": {
+            "title": "Signed In",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signed_in",
+          "tenant_id"
+        ],
+        "title": "SignedIn",
+        "type": "object"
+      },
       "SignedOut": {
         "additionalProperties": false,
         "description": "Response body: signed out.",
@@ -5931,6 +6021,26 @@
         "title": "Target",
         "type": "object"
       },
+      "TenantChoice": {
+        "additionalProperties": false,
+        "description": "One tenant the verified identity may enter.",
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "role"
+        ],
+        "title": "TenantChoice",
+        "type": "object"
+      },
       "TenantCreated": {
         "additionalProperties": false,
         "description": "Response body: tenant created.",
@@ -6119,6 +6229,30 @@
           "live_runs"
         ],
         "title": "TenantOverview",
+        "type": "object"
+      },
+      "TenantSelectionRequired": {
+        "additionalProperties": false,
+        "description": "Response body (409): the identity belongs to several tenants; resend with one.",
+        "properties": {
+          "code": {
+            "const": "tenant_selection_required",
+            "title": "Code",
+            "type": "string"
+          },
+          "tenants": {
+            "items": {
+              "$ref": "#/components/schemas/TenantChoice"
+            },
+            "title": "Tenants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "tenants"
+        ],
+        "title": "TenantSelectionRequired",
         "type": "object"
       },
       "TenantSettings": {
@@ -9615,10 +9749,22 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SignedIn"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantSelectionRequired"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -12194,6 +12340,66 @@
         "summary": "Cancel",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/cap": {
+      "get": {
+        "description": "The latest cap proposal of the run; 404 when none exists for this tenant.",
+        "operationId": "current_cap_v1_runs__run_id__cap_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapProposalView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Current Cap",
+        "tags": [
+          "spend"
         ]
       }
     },

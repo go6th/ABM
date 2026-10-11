@@ -48,6 +48,9 @@ def test_every_json_operation_has_a_typed_response() -> None:
         for method, op in item.items():
             if (method, path) in NOT_JSON:
                 continue
+            codes = set(op.get("responses", {}))
+            if "204" in codes and not codes & {"200", "201", "202"}:
+                continue  # a 204 has no body to type
             schema = _success_schema(op)
             typed = "$ref" in schema or schema.get("type") == "object"
             if not typed:

@@ -80,6 +80,8 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
     ("POST", "/v1/runs/{run_id}/approve"): _tenant(_SELLERS, "run"),
     ("POST", "/v1/runs/{run_id}/cancel"): _tenant(_SELLERS, "run"),
     # Cap decisions move spend, so only admins may take them (ADR-0010 precedence).
+    # Every role may see the proposal; the hash it carries is what an admin approval binds to.
+    ("GET", "/v1/runs/{run_id}/cap"): _tenant(_EVERYONE, "read"),
     ("POST", "/v1/runs/{run_id}/cap/approve"): _tenant({"admin"}, "run"),
     ("POST", "/v1/runs/{run_id}/cap/reject"): _tenant({"admin"}, "run"),
     ("POST", "/v1/runs/{run_id}/cap/extend"): _tenant({"admin"}, "run"),

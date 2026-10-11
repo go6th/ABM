@@ -116,6 +116,27 @@ class PasswordResetCompleted(Out):
     password_updated: bool
 
 
+class SignedIn(Out):
+    """Response body: password sign-in established a session for this tenant."""
+
+    signed_in: bool
+    tenant_id: str
+
+
+class TenantChoice(Out):
+    """One tenant the verified identity may enter."""
+
+    tenant_id: str
+    role: str
+
+
+class TenantSelectionRequired(Out):
+    """Response body (409): the identity belongs to several tenants; resend with one."""
+
+    code: Literal["tenant_selection_required"]
+    tenants: list[TenantChoice]
+
+
 class Me(Out):
     """Authenticated tenant identity and server-evaluated capabilities."""
 
@@ -860,6 +881,21 @@ class CrmWrites(Out):
 
 
 # ---- spend (tenant view: no amount or provider; the denylist drop removes the rest) ---------
+
+
+class CapProposalView(Out):
+    """Response body: the latest cap proposal an approver binds to (no provider or line amount)."""
+
+    run_id: str
+    version: int
+    proposal_hash: str
+    state: Literal["proposed", "approved", "rejected", "expired", "extension_declined"]
+    cap_micros: int
+    calls_by_category: dict[str, int]
+    has_exclusions: bool
+    has_unknown_costs: bool
+    is_extension: bool
+    proposed_at: str
 
 
 class CapApproved(Out):

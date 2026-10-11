@@ -1,6 +1,8 @@
 """Credit cap endpoints (thin; ``spend`` owns the rules). The tenant and the approver come only
 from the verified token; no endpoint accepts a tenant id or a principal in the body.
 
+* ``GET /v1/runs/{id}/cap``: the latest proposal's version, hash, cap, state and calls by
+  category, so an approver can bind an approval to what was shown (no provider, D-30).
 * ``POST /v1/runs/{id}/cap/approve`` {version, proposal_hash}: binds the approval to the shown
   proposal (K3), writes the run's enforcement columns, then moves an AWAITING_APPROVAL run on.
 * ``POST /v1/runs/{id}/cap/reject`` {version, reason}.
@@ -62,6 +64,17 @@ def _principal(ident: Identity) -> Principal:
     return Principal(
         kind="human", subject=ident.user_id, tenant_id=str(ident.tenant_id), role=ident.role
     )
+
+
+@router.get("/{run_id}/cap", response_model=C.CapProposalView)
+async def current_cap(
+    run_id: UUID, ident: Identity = Depends(require_role("admin", "seller", "viewer"))
+) -> dict[str, Any]:
+    """The latest cap proposal of the run; 404 when none exists for this tenant."""
+    view = await service.current_proposal(tenant_txn, ident.tenant_id, run_id)
+    if view is None:
+        raise HTTPException(404, "no cap proposal for this run")
+    return view
 
 
 @router.post("/{run_id}/cap/approve", response_model=C.CapApproved)

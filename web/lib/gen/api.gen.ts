@@ -182,6 +182,20 @@ export const CapExtended = z.object({
 }).strict();
 export type CapExtended = z.infer<typeof CapExtended>;
 
+export const CapProposalView = z.object({
+  "calls_by_category": z.record(z.string(), z.number().int()),
+  "cap_micros": z.number().int(),
+  "has_exclusions": z.boolean(),
+  "has_unknown_costs": z.boolean(),
+  "is_extension": z.boolean(),
+  "proposal_hash": z.string(),
+  "proposed_at": z.string(),
+  "run_id": z.string(),
+  "state": z.string(),
+  "version": z.number().int(),
+}).strict();
+export type CapProposalView = z.infer<typeof CapProposalView>;
+
 export const CapRejected = z.object({
   "decision": z.string(),
   "run_id": z.string(),
@@ -1166,6 +1180,12 @@ export const SignalPage = z.object({
 }).strict();
 export type SignalPage = z.infer<typeof SignalPage>;
 
+export const SignedIn = z.object({
+  "signed_in": z.boolean(),
+  "tenant_id": z.string(),
+}).strict();
+export type SignedIn = z.infer<typeof SignedIn>;
+
 export const SignedOut = z.object({
   "signed_out": z.boolean(),
 }).strict();
@@ -1272,6 +1292,12 @@ export const Target = z.object({
 }).strict();
 export type Target = z.infer<typeof Target>;
 
+export const TenantChoice = z.object({
+  "role": z.string(),
+  "tenant_id": z.string(),
+}).strict();
+export type TenantChoice = z.infer<typeof TenantChoice>;
+
 export const TenantCreated = z.object({
   "tenant_id": z.string(),
 }).strict();
@@ -1318,6 +1344,12 @@ export const TenantOverview = z.object({
   "tenant_id": z.string(),
 }).strict();
 export type TenantOverview = z.infer<typeof TenantOverview>;
+
+export const TenantSelectionRequired = z.object({
+  "code": z.literal("tenant_selection_required"),
+  "tenants": z.array(TenantChoice),
+}).strict();
+export type TenantSelectionRequired = z.infer<typeof TenantSelectionRequired>;
 
 export const TenantSettings = z.object({
   "hash": z.string().nullable(),
@@ -1475,6 +1507,13 @@ export const KNOWN_VALUES = {
     "analyst",
     "seller",
     "viewer"
+  ],
+  "CapProposalView.state": [
+    "proposed",
+    "approved",
+    "rejected",
+    "expired",
+    "extension_declined"
   ],
   "ChangeBody.role": [
     "admin",
@@ -1671,7 +1710,7 @@ export const operations = {
   "GET /v1/audit/export": { method: "GET", path: "/v1/audit/export", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/auth/email/resend": { method: "POST", path: "/v1/auth/email/resend", plane: "tenant", status: 202, request: EmailBody, requestRequired: true, response: EmailVerificationSent },
   "POST /v1/auth/email/verify": { method: "POST", path: "/v1/auth/email/verify", plane: "tenant", status: 200, request: VerifyEmailBody, requestRequired: true, response: EmailVerified },
-  "POST /v1/auth/login": { method: "POST", path: "/v1/auth/login", plane: "tenant", status: 200, request: LoginBody, requestRequired: true, response: null },
+  "POST /v1/auth/login": { method: "POST", path: "/v1/auth/login", plane: "tenant", status: 200, request: LoginBody, requestRequired: true, response: SignedIn },
   "POST /v1/auth/password/enroll": { method: "POST", path: "/v1/auth/password/enroll", plane: "tenant", status: 202, request: EnrollPasswordBody, requestRequired: true, response: EmailVerificationSent },
   "POST /v1/auth/password/reset": { method: "POST", path: "/v1/auth/password/reset", plane: "tenant", status: 200, request: ResetPasswordBody, requestRequired: true, response: PasswordResetCompleted },
   "POST /v1/auth/password/reset/request": { method: "POST", path: "/v1/auth/password/reset/request", plane: "tenant", status: 202, request: EmailBody, requestRequired: true, response: PasswordResetAccepted },
@@ -1714,6 +1753,7 @@ export const operations = {
   "GET /v1/runs/{run_id}": { method: "GET", path: "/v1/runs/{run_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunStatusView },
   "POST /v1/runs/{run_id}/approve": { method: "POST", path: "/v1/runs/{run_id}/approve", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunState },
   "POST /v1/runs/{run_id}/cancel": { method: "POST", path: "/v1/runs/{run_id}/cancel", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunState },
+  "GET /v1/runs/{run_id}/cap": { method: "GET", path: "/v1/runs/{run_id}/cap", plane: "tenant", status: 200, request: null, requestRequired: false, response: CapProposalView },
   "POST /v1/runs/{run_id}/cap/approve": { method: "POST", path: "/v1/runs/{run_id}/cap/approve", plane: "tenant", status: 200, request: ApproveBody, requestRequired: true, response: CapApproved },
   "POST /v1/runs/{run_id}/cap/extend": { method: "POST", path: "/v1/runs/{run_id}/cap/extend", plane: "tenant", status: 200, request: ExtendBody, requestRequired: true, response: CapExtended },
   "POST /v1/runs/{run_id}/cap/pauses/{request_id}/approve": { method: "POST", path: "/v1/runs/{run_id}/cap/pauses/{request_id}/approve", plane: "tenant", status: 200, request: ApprovePauseBody, requestRequired: true, response: PauseApproved },
