@@ -58,9 +58,10 @@ class Reservation:
         return self.replay_content is not None and self.replay_usage is not None
 
 
-async def create_thread(tenant_id: UUID, user_id: str) -> UUID:
-    """Create an empty private conversation for the verified tenant member."""
-    async with tenant_txn(tenant_id) as session:
+async def create_thread(tenant_id: UUID, user_id: str, *, txn: Any = tenant_txn) -> UUID:
+    """Create an empty private conversation for the verified tenant member (``txn`` is a
+    ``tenant_txn``-shaped factory; the route passes its audited one)."""
+    async with txn(tenant_id) as session:
         value = await session.execute(
             text("INSERT INTO chat_threads (owner_user_id) VALUES (:u) RETURNING id"),
             {"u": user_id},
@@ -192,9 +193,12 @@ async def reserve_turn(
     registry: ChatRegistry,
     service: ChatService,
     account_id: UUID | None,
+    *,
+    txn: Any = tenant_txn,
 ) -> Reservation:
-    """Lock a thread, enforce limits, persist user input and reserve worst-case token cost."""
-    async with tenant_txn(tenant_id) as session:
+    """Lock a thread, enforce limits, persist user input and reserve worst-case token cost
+    (``txn`` as in ``create_thread``)."""
+    async with txn(tenant_id) as session:
         thread = (
             await session.execute(
                 text(

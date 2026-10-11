@@ -10,7 +10,6 @@ replays paid calls).
 
 from __future__ import annotations
 
-import logging
 import signal
 import time
 from collections.abc import AsyncIterator
@@ -34,8 +33,9 @@ from account_intelligence.api.routes import (
 )
 from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 from account_intelligence.platform.ports import PayloadMissing
+from obs.logging import logger
 
-_logger = logging.getLogger(__name__)
+_logger = logger(__name__)
 
 
 def _on_sigterm(app: FastAPI, previous: Any) -> Any:
@@ -66,16 +66,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     container = build_container()
     app.state.container = container
     from account_intelligence.chat.registry import get_chat_registry
-    from account_intelligence.chat.service import (
-        AnthropicChatProvider,
-        ChatService,
-        LocalIntelligenceChatProvider,
-    )
+    from account_intelligence.chat.service import AnthropicChatProvider, ChatService
 
+    # Fail closed: with no model client the chat routes answer 503. Never substitute canned
+    # text; an answer without a source must not be shown as account intelligence.
     client = getattr(container.llm, "client", None)
-    provider = (
-        AnthropicChatProvider(client) if client is not None else LocalIntelligenceChatProvider()
-    )
+    provider = AnthropicChatProvider(client) if client is not None else None
     app.state.chat_service = ChatService(get_chat_registry(), provider)
     from account_intelligence.chat.credentials import TenantModelKeyStore
 
@@ -146,6 +142,8 @@ def create_app() -> FastAPI:
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
+        # JSON only: nothing may load or frame. The nonce CSP for HTML is set by the web BFF.
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
         return response

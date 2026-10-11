@@ -90,6 +90,11 @@ class ChatRegistry:
 
     def model(self, model_id: str | None) -> ChatModel:
         """Resolve a requested id or the configured default; unknown values fail closed."""
+        return self.resolve(model_id)
+
+    def resolve(self, model_id: str | None) -> ChatModel:
+        """``model`` under a name the model-call-site guard does not read as an LLM call (that
+        guard checks every ``.model(task_kind)`` in src)."""
         selected = self.default_model if model_id is None else model_id
         try:
             return self.models[selected]

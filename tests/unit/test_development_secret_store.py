@@ -1,3 +1,5 @@
+"""The development secret store: a stable CSRF key for the process lifetime, nothing else."""
+
 from __future__ import annotations
 
 import pytest

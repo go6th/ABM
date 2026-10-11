@@ -206,6 +206,7 @@ def test_model_ids_only_in_config_and_judge_check() -> None:
 
     routes = load_routes()
     assert set(routes) == {"planner", "extractor", "classifier", "synthesis", "narrative", "judge"}
-    # active arm "single" routes every task to one model: the judge is NOT distinct, so the
-    # grading layer caps judged claims (G12). Reported as an open decision, not hidden.
-    assert judge_differs_from_generator(routes) is False
+    # G12 and workflow spec 2.3: the judge must not be the generator's model. config/models.yaml
+    # now routes verification to a different model from extraction (this once pinned False while
+    # a single model served every task).
+    assert judge_differs_from_generator(routes) is True

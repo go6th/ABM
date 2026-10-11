@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from account_intelligence.chat.registry import ChatConfigInvalid, load_chat_registry
+from account_intelligence.config import CONFIG_DIR
 
 
 def _catalog(tmp_path: Path) -> Path:
@@ -46,7 +47,8 @@ def _catalog(tmp_path: Path) -> Path:
 def test_catalog_exposes_public_facts_and_exact_decimal_costs() -> None:
     registry = load_chat_registry()
     model = registry.model(None)
-    assert model.id == registry.default_model == "claude-sonnet-5-5"
+    raw = yaml.safe_load((CONFIG_DIR / "chat_models.yaml").read_text())
+    assert model.id == registry.default_model == raw["default_model"]
     assert model.public()["provider"] == "anthropic"
     assert model.public()["capabilities"] == {
         "streaming": True,

@@ -9,13 +9,12 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from anthropic import AsyncAnthropic
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from account_intelligence.api import contract as C
-from account_intelligence.api.audit_log import audit_action
+from account_intelligence.api.audit_log import audit_action, audited_txn
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
@@ -51,6 +50,8 @@ from account_intelligence.chat.store import (
     reserve_turn,
 )
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.model_routing import PipelinePhase, get_model_router
+from account_intelligence.platform.llm import anthropic_api_client
 
 router = APIRouter(tags=["chat"])
 register("GET", "/v1/models", tenant_route("read_public", "read", step_up=False))
@@ -197,9 +198,18 @@ async def remove_provider_key(
 
 
 @router.post("/chat/threads", response_model=C.ChatThreadCreated, status_code=201)
-async def new_thread(_body: NewThread, ident: Identity = Depends(authorize)) -> dict[str, str]:
+async def new_thread(
+    _body: NewThread, request: Request, ident: Identity = Depends(authorize)
+) -> dict[str, str]:
     """Create an empty private history owned by the verified user and tenant."""
-    return {"id": str(await create_thread(ident.tenant_id, ident.user_id))}
+    txn = audited_txn(
+        request,
+        audit_class="run",
+        action="chat_thread_create",
+        resource_type="chat_thread",
+        resource_id=None,
+    )
+    return {"id": str(await create_thread(ident.tenant_id, ident.user_id, txn=txn))}
 
 
 @router.get("/chat/threads", response_model=C.ChatThreads)
@@ -242,10 +252,9 @@ async def stream_turn(
     service = getattr(request.app.state, "chat_service", None)
     if not isinstance(service, ChatService) or service.provider is None:
         raise DependencyUnavailable()
-    # Phase 5: Automatic model routing: all follow-up chat is automatically routed to
-    # claude-fable-5-1.
-    # Callers cannot override model selection.
-    model = service.registry.model("claude-fable-5-1")
+    # Automatic model routing: follow-up chat uses the model config/models.yaml names for the
+    # chat phase. Callers cannot override model selection.
+    model = service.registry.resolve(get_model_router().select_model(PipelinePhase.CHAT).id)
 
     # Enforce project/domain scope: reject off-topic queries outside ABM and account intelligence
     if body.enforce_project_scope:
@@ -270,6 +279,13 @@ async def stream_turn(
             service.registry,
             service,
             body.account_id,
+            txn=audited_txn(
+                request,
+                audit_class="run",
+                action="chat_turn",
+                resource_type="chat_thread",
+                resource_id=thread_id,
+            ),
         )
     except ThreadNotFound:
         raise APIProblem(404, "not_found", "Not found", "not found") from None
@@ -303,7 +319,7 @@ async def stream_turn(
                 if not isinstance(key_store, TenantModelKeyStore) or not key_store.configured:
                     raise TenantKeyUnavailable("tenant model key KMS is unavailable")
                 tenant_key = await key_store.decrypt(ident.tenant_id, ciphertext)
-                owned_client = AsyncAnthropic(api_key=tenant_key, max_retries=0)
+                owned_client = anthropic_api_client(tenant_key)
                 tenant_key = ""
                 turn_provider = AnthropicChatProvider(owned_client)
                 owned_provider = True

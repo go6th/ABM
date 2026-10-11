@@ -1,10 +1,9 @@
 """Centralized backend automatic model router and runtime governance (Phase 5).
 
 Enforces:
-1. Strict model allowlist:
-   - ``claude-opus-5-5``: Phase 1 Data Collection and judgment calls
-   - ``claude-fable-5-1``: Phase 2 Prediction, Analysis, and Follow-Up Chat
-   All models outside this allowlist are strictly rejected; no silent substitutions.
+1. Strict model allowlist (``allowlist`` in ``config/models.yaml``); each phase's model comes
+   from that file's ``routing`` section. Model ids appear only in configuration (R1). A model
+   outside the allowlist is rejected; no silent substitutions.
 2. Server-side automatic routing: users and API clients cannot override model selection.
 3. Centralized pricing and token cost calculation from ``config/models.yaml``.
 4. Raw artifact isolation under ``tenants/{tenant}/runs/{run_id}/raw/``.
@@ -24,12 +23,10 @@ from uuid import UUID
 import yaml
 
 from account_intelligence.config import CONFIG_DIR
+from account_intelligence.safety.client_output import scan_text
 from obs.logging import logger
 
 _log = logger(__name__)
-
-# Hard allowlist of approved model identifiers
-APPROVED_MODELS = frozenset({"claude-opus-5-5", "claude-fable-5-1"})
 
 
 class ModelRoutingError(RuntimeError):
@@ -45,6 +42,8 @@ class QualityCheckFailed(RuntimeError):
 
 
 class PipelinePhase(StrEnum):
+    """The run phase a model call belongs to; each phase has its own model and caps."""
+
     COLLECTION = "phase_1_collection"
     ANALYSIS = "phase_2_analysis"
     QUALITY_CHECKS = "phase_3_quality_checks"
@@ -52,6 +51,8 @@ class PipelinePhase(StrEnum):
 
 
 class PhaseFailureAction(StrEnum):
+    """What happens when a phase fails: retry on the same model or hold the run for review."""
+
     RETRY = "retry_same_model"
     HOLD = "hold_run_for_review"
 
@@ -117,13 +118,15 @@ class ModelRouter:
         self._path = config_path or (CONFIG_DIR / "models.yaml")
         self._models: dict[str, ModelDefinition] = {}
         self._policies: dict[PipelinePhase, PhasePolicy] = {}
+        self.approved_models: frozenset[str] = frozenset()
         self._load_config()
 
     def _load_config(self) -> None:
         raw = yaml.safe_load(self._path.read_text())
+        self.approved_models = frozenset(str(m) for m in raw.get("allowlist", []))
         raw_models = raw.get("models", {})
         for mid, mdata in raw_models.items():
-            if mid not in APPROVED_MODELS:
+            if mid not in self.approved_models:
                 continue
             pricing_data = mdata.get("pricing", {})
             pricing = ModelPricing(
@@ -147,33 +150,23 @@ class ModelRouter:
                 max_output_tokens=int(mdata.get("max_output_tokens", 128_000)),
             )
 
-        # Configure pipeline phase policies
-        self._policies[PipelinePhase.COLLECTION] = PhasePolicy(
-            phase=PipelinePhase.COLLECTION,
-            model_id="claude-opus-5-5",
-            turn_limit=30,
-            spend_limit_usd=Decimal("5.00"),
-            fresh_session=False,
-            allow_collection_tools=True,
-            gcs_raw_layout="tenants/{tenant}/runs/{run_id}/raw/",
-        )
-        self._policies[PipelinePhase.ANALYSIS] = PhasePolicy(
-            phase=PipelinePhase.ANALYSIS,
-            model_id="claude-fable-5-1",
-            turn_limit=20,
-            spend_limit_usd=Decimal("5.00"),
-            fresh_session=True,
-            allow_collection_tools=False,
-            gcs_raw_layout="tenants/{tenant}/runs/{run_id}/raw/",
-        )
-        self._policies[PipelinePhase.CHAT] = PhasePolicy(
-            phase=PipelinePhase.CHAT,
-            model_id="claude-fable-5-1",
-            turn_limit=20,
-            spend_limit_usd=Decimal("2.00"),
-            fresh_session=True,
-            allow_collection_tools=False,
-        )
+        # Phase policies come from the ``routing`` section; a phase without a model (the quality
+        # checks) has no policy here.
+        for phase in PipelinePhase:
+            spec = (raw.get("routing") or {}).get(phase.value) or {}
+            if "model" not in spec:
+                continue
+            self._policies[phase] = PhasePolicy(
+                phase=phase,
+                model_id=str(spec["model"]),
+                turn_limit=int(spec["turn_limit"]),
+                spend_limit_usd=Decimal(str(spec["spend_limit_usd"])),
+                fresh_session=bool(spec.get("fresh_session", False)),
+                allow_collection_tools=bool(spec.get("allow_collection_tools", True)),
+                gcs_raw_layout=str(
+                    spec.get("gcs_raw_layout", "tenants/{tenant}/runs/{run_id}/raw/")
+                ),
+            )
 
     def select_model(self, phase: PipelinePhase) -> ModelDefinition:
         """Automatically select the required model for the phase. Callers cannot override."""
@@ -187,10 +180,10 @@ class ModelRouter:
 
     def validate_model_id(self, model_id: str) -> None:
         """Hard validation rejecting any model outside the allowlist."""
-        if model_id not in APPROVED_MODELS:
+        if model_id not in self.approved_models:
             raise ModelRoutingError(
-                f"Model {model_id!r} is not on the allowlist. Only {sorted(APPROVED_MODELS)} are "
-                f"permitted."
+                f"Model {model_id!r} is not on the allowlist. Only "
+                f"{sorted(self.approved_models)} are permitted."
             )
 
     def calculate_cost(self, model_id: str, usage: ModelCallUsage) -> Decimal:
@@ -245,12 +238,10 @@ class ModelRouter:
         if missing_sources:
             reasons.append(f"Missing source citations: {missing_sources}")
 
-        # 2. Prohibited tool / vendor names in customer deliverables
-        prohibited_vendors = {"parallel", "firecrawl", "predictleads", "bitscale", "sumble"}
-        report_text = str(artifacts.get("report_content", "")).lower()
-        for vendor in prohibited_vendors:
-            if vendor in report_text:
-                reasons.append(f"Prohibited vendor name {vendor!r} appeared in report output")
+        # 2. Prohibited terms (data providers, credit counts...) from the client-output denylist;
+        # the reason names the pattern, never the matched text
+        for hit in scan_text(str(artifacts.get("report_content", ""))):
+            reasons.append(f"Prohibited term (pattern {hit.pattern!r}) appeared in report output")
 
         # 3. Tenant cross-contamination
         artifact_tenant = artifacts.get("tenant_id")

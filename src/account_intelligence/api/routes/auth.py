@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.api import contract as C
+from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import ANONYMOUS, register, tenant_route
@@ -119,7 +120,10 @@ def _cookie(response: Response, token: str, request: Request) -> None:
     response.delete_cookie(policy.preauth_cookie, path="/", secure=True, httponly=True)
 
 
-@public_router.post("/login")
+@public_router.post(
+    "/login",
+    responses={200: {"model": C.SignedIn}, 409: {"model": C.TenantSelectionRequired}},
+)
 async def login(body: LoginBody, request: Request) -> Response:
     """Verify a password and establish one tenant-bound server-side session."""
     plane = plane_of(request)
@@ -376,6 +380,14 @@ async def enroll_password(
                     now=now,
                     token=token,
                 )
+            await audit_action(
+                tenant_session,
+                request,
+                audit_class="admin",
+                action="password_enroll",
+                resource_type="user",
+                resource_id=ident.user_id,
+            )
     except IntegrityError:
         raise HTTPException(409, "a password credential already exists for this email") from None
     return JSONResponse({"verification_sent": True}, status_code=202)
@@ -521,4 +533,4 @@ async def reset_password(body: ResetPasswordBody, request: Request) -> Response:
     for member in memberships:
         async with tenant_txn(UUID(str(member.tenant_id))) as session:
             await sessions.revoke_all(session, str(member.user_id), "password_reset", now)
-    return JSONResponse({"password_updated": True})
+    return JSONResponse({"password_updated": True})  # nosec B105 -- a response flag, not a secret.

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 from account_intelligence.chat.registry import ChatConfigInvalid, ChatModel, get_chat_registry
 from account_intelligence.chat.service import (
@@ -20,6 +21,7 @@ from account_intelligence.chat.service import (
     estimated_tokens,
     sse,
 )
+from account_intelligence.config import CONFIG_DIR
 
 
 def test_message_and_context_limits_fail_before_provider_calls() -> None:
@@ -51,14 +53,25 @@ def test_message_and_context_limits_fail_before_provider_calls() -> None:
 
 
 def test_estimates_and_actual_cost_include_cache_usage() -> None:
-    model = get_chat_registry().model("claude-opus-5-5")
+    model = get_chat_registry().model(None)
+    raw = next(
+        m
+        for m in yaml.safe_load((CONFIG_DIR / "chat_models.yaml").read_text())["models"]
+        if m["id"] == model.id
+    )
+    expected_price = (
+        100 * Decimal(raw["input_usd_per_million"])
+        + 20 * Decimal(raw["output_usd_per_million"])
+        + 30 * Decimal(raw["cache_read_usd_per_million"])
+        + 10 * Decimal(raw["cache_write_usd_per_million"])
+    ) / Decimal(1_000_000)
     messages = [ChatMessage("user", "hello"), ChatMessage("assistant", "world")]
     assert estimated_tokens(messages) >= len("helloworld") + 1024
     price = actual_cost(
         model,
         ChatUsage(input_tokens=100, output_tokens=20, cache_read_tokens=30, cache_write_tokens=10),
     )
-    assert price == Decimal("0.000856")
+    assert price == expected_price
     registry = get_chat_registry()
     service = ChatService(registry, None)
     messages = [ChatMessage("user", "prompt")]

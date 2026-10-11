@@ -67,6 +67,9 @@ async def test_validation_problem_does_not_echo_submitted_values(monkeypatch) ->
     assert response.headers["content-type"].startswith("application/problem+json")
     assert response.headers["x-request-id"]
     assert response.headers["x-content-type-options"] == "nosniff"
+    assert (
+        response.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+    )
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["errors"][0]["loc"] == ["body", "count"]
 
