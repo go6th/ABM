@@ -67,6 +67,7 @@ services:
     image: account-intelligence-worker:local
     volumes:
       - ./src:/app/src:ro
+      - payloads:/tmp/payloads
     entrypoint: ["uvicorn", "account_intelligence.api.main:app", "--host", "0.0.0.0", "--port", "8081"]
     environment:
       <<: *app-env
@@ -94,6 +95,8 @@ services:
     volumes:
       - ./src:/app/src:ro
       - ./migrations:/app/migrations:ro
+      # the worker writes run payloads and the api reads them back (tables, exports)
+      - payloads:/tmp/payloads
     environment:
       <<: *app-env
       PYTHONPATH: /app/src
@@ -116,3 +119,4 @@ services:
 
 volumes:
   pgdata:
+  payloads:

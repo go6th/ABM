@@ -16,6 +16,8 @@ RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim AS runtime
 RUN useradd --system --uid 10001 --no-create-home app
+# Local payload store (compose mounts the shared `payloads` volume here; it inherits this owner).
+RUN mkdir -p /tmp/payloads && chown 10001:10001 /tmp/payloads
 WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
 COPY alembic.ini ./
