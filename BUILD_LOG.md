@@ -241,3 +241,59 @@ clean SIGTERM. Terraform validation passed. CI lint, separate service images, im
 SBOM/signing, authenticated multi-role E2E, production load, real cloud/identity/provider checks,
 external penetration testing, and pilot tenants were not performed. See `docs/RELEASE_REPORT.md` for
 blockers and the next safe step.
+
+## 2026-10-11: backend verification against the build prompt (preflight, full suite, live smoke)
+
+Preflight: the backend exists and runs (compose stack: api 8080, worker 8081, db 5432 with
+PostgreSQL 16.15 and pgvector 0.8.7, redis 6379, web 3000, fake-idp 9090; `/healthz` ok, `/readyz`
+ready with database ok). Per the prompt's decision rule nothing was rebuilt; the suite was run and
+real failures fixed.
+
+Gates run: `make test-isolation` 408 passed; catalog RLS check on the dev database returned no rows;
+ruff, mypy (573 files), lint-imports (18 contracts), interrogate 100%, comments, guarantees,
+telemetry, bandit, vulture, route catalog and OpenAPI snapshot all clean after the fixes below.
+First full run (`pytest -m "not eval" --cov`): 3418 passed, 13 failed, 12 skipped; coverage 91%.
+Final full run after the fixes: 3441 passed, 0 failed, 12 skipped; line coverage 93%, below the
+project gate of 94% (the build prompt's 80% is met). Grading maths modules are at 100%; grading and
+billing I/O modules are at 87 to 98% (runs/lifecycle.py 93%, spend/pause.py 94%,
+spend/prepulled.py 87%), so the prompt's "100% on grading and billing" is not met.
+
+Fixes (each with a test that fails without it):
+- No API exposed a run's credit-cap proposal, so a capped run could not leave AWAITING_APPROVAL
+  through the API. Added `GET /v1/runs/{id}/cap` (version, hash, cap, state, calls by category; no
+  provider or line amount, D-30), policy entry, matrix entry, contract model, docs.
+- Settlement wrote the post-refund balance on the `commit` ledger row; it now carries the balance
+  before the refund, so a row-by-row replay reproduces every `balance_after`.
+- The chat endpoint streamed hard-coded, unsourced "intelligence" (including a table of "verified"
+  roles at a named company) whenever no model key was set (`LocalIntelligenceChatProvider`, added
+  in 4fc79bd). Removed; chat fails closed with 503 again, as it did before that commit.
+- Model ids written into six agent prompts, `model_routing.py` and the chat route moved back to
+  configuration (R1); `model_routing.py` reads the allowlist and phase policies from
+  `config/models.yaml` and scans report text with the client-output denylist (it previously
+  substring-matched five names, so the English word "parallel" tripped it).
+- The chat route imported the model SDK directly; it now uses `platform.llm.anthropic_api_client`.
+- Password enrollment, chat thread creation and chat turns now record their audit events.
+- Chat tables declared in the single-writer registry; `POST /v1/auth/login` declares its 200 and
+  409 response models; the typed-response check treats a 204 as bodiless.
+- `tests/ops/test_backup_restore.py` backs up a database it migrates itself; it used to dump the
+  shared scratch database, where the isolation matrix plants canary rows with foreign keys off, so
+  `pg_restore` failed whenever the isolation suite ran first.
+- The `account_runs` reference stub in `db/models/source.py` now marks `id` as its key (an
+  order-dependent failure in `tests/db/test_conventions.py`).
+- The API sends `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` on every
+  response (the per-request nonce CSP for HTML stays in the web BFF).
+- The judge-distinct pin flipped: config now routes verification to a different model from
+  extraction (same provider family; family independence is still open, D-48).
+- compose: api and worker now share a `payloads` volume (each had its own `/tmp/payloads`, so every
+  table and export read of worker-written payloads answered 409 `source_missing`); both images
+  create `/tmp/payloads` owned by UID 10001. Needs `make up` (image rebuild) to take effect; the
+  running shared stack was not restarted.
+
+Live smoke (bearer tokens from the fake IdP, synthetic tenant `smoke-synthetic`): `/v1/me` resolves
+the role from the database membership (a token claiming another role is refused 401); `POST
+/v1/runs` 202 and the same Idempotency-Key replays the same run; the cap read and admin approval
+resumed the run (seller approval 403); the run ended PARTIAL with all 33 coverage rows carrying a
+status and reason; wallet reserve 6, commit 0, refund 6, balance back to 500. Not COMPLETED: with
+no model key the distill stage writes no narrative and the Summary build fails closed
+(`missing_narrative`); no test reaches COMPLETED end to end either. Operator login not verifiable
+locally (staff IdP is Google with a placeholder client id).
