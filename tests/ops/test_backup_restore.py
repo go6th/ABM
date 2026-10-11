@@ -1,9 +1,10 @@
 """Backup and restore: a logical backup of the application database restores to an equivalent,
 still-isolated database.
 
-The backup is ``pg_dump --format=custom`` of the migrated test database after seeding two
-synthetic tenants; it is restored with ``pg_restore`` into a fresh database (owners and grants
-kept: the roles are cluster-global). On the restored copy:
+The backup is ``pg_dump --format=custom`` of a freshly migrated database of its own (not the
+shared scratch database, where the isolation matrix plants canary rows with foreign keys off)
+after seeding two synthetic tenants; it is restored with ``pg_restore`` into a fresh database
+(owners and grants kept: the roles are cluster-global). On the restored copy:
 
 * every table in ``public`` has the same row count as the source;
 * every table keeps its RLS flags (enabled and forced) and every policy is present unchanged;
@@ -23,6 +24,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -34,7 +36,9 @@ from tests.conftest import ADMIN_DSN, ADMIN_MAINT_DSN, ADMIN_USER, APP_PASSWORD,
 
 pytestmark = [pytest.mark.requires_postgres]
 ROOT = Path(__file__).resolve().parents[2]
+SOURCE = f"{TEST_DB}_backup_src"
 RESTORED = f"{TEST_DB}_restored"
+SOURCE_ADMIN = ADMIN_DSN.rsplit("/", 1)[0] + f"/{SOURCE}"
 
 
 def _tool(name: str) -> list[str] | None:
@@ -89,8 +93,27 @@ def _snapshot(dsn: str) -> dict[str, object]:
     return {"counts": counts, "rls": rls, "policies": policies, "revision": revision}
 
 
+def _recreate(name: str) -> None:
+    with psycopg.connect(ADMIN_MAINT_DSN, autocommit=True) as c:
+        c.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name)))
+        c.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+
+
+def _migrated_source() -> None:
+    """A fresh database migrated by the same Alembic path as the session fixture."""
+    _recreate(SOURCE)
+    env = os.environ | {
+        "MIGRATOR_DATABASE_URL": SOURCE_ADMIN,
+        "CHECKPOINT_DATABASE_URL": SOURCE_ADMIN,
+        "APP_RW_PASSWORD": APP_PASSWORD,
+    }
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"], check=True, cwd=ROOT, env=env
+    )
+
+
 def _seed() -> tuple[uuid.UUID, uuid.UUID]:
-    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+    with psycopg.connect(SOURCE_ADMIN, autocommit=True) as c:
         ids = []
         for name in ("restore-a", "restore-b"):
             t = c.execute(
@@ -107,20 +130,17 @@ def test_backup_restores_an_equivalent_isolated_database(tmp_path: Path) -> None
     dump, restore = _tool("pg_dump"), _tool("pg_restore")
     if dump is None or restore is None:
         pytest.skip("no pg_dump/pg_restore on the host and no compose db container")
+    _migrated_source()
     tenant_a, tenant_b = _seed()
-    source = _snapshot(ADMIN_DSN)
+    source = _snapshot(SOURCE_ADMIN)
 
     backup = subprocess.run(
-        [*dump, "--format=custom", "--dbname", TEST_DB], capture_output=True, check=True
+        [*dump, "--format=custom", "--dbname", SOURCE], capture_output=True, check=True
     ).stdout
     assert len(backup) > 10_000
     (tmp_path / "backup.dump").write_bytes(backup)
 
-    with psycopg.connect(ADMIN_MAINT_DSN, autocommit=True) as c:
-        c.execute(
-            sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(RESTORED))
-        )
-        c.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(RESTORED)))
+    _recreate(RESTORED)
     try:
         restored = subprocess.run(
             [*restore, "--exit-on-error", "--dbname", RESTORED],
@@ -144,6 +164,7 @@ def test_backup_restores_an_equivalent_isolated_database(tmp_path: Path) -> None
             assert tenant_b not in seen
     finally:
         with psycopg.connect(ADMIN_MAINT_DSN, autocommit=True) as c:
-            c.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(RESTORED))
-            )
+            for name in (RESTORED, SOURCE):
+                c.execute(
+                    sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
+                )

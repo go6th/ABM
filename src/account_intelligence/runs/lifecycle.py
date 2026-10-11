@@ -408,14 +408,19 @@ async def settle_once(
             {"refund": refunded, "t": run.tenant_id},
         )
     ).scalar_one()
-    for entry, amount in (("commit", committed), ("refund", refunded)):
+    # The commit moves no money (the reserve already did); its balance_after is the balance
+    # before the refund, so replaying the ledger row by row reproduces every balance_after.
+    for entry, amount, after in (
+        ("commit", committed, balance - refunded),
+        ("refund", refunded, balance),
+    ):
         await session.execute(
             text(
                 "INSERT INTO wallet_ledger (tenant_id, run_id, entry, amount, balance_after)"
                 " VALUES (:t, :r, :e, :a, :b)"
                 " ON CONFLICT (run_id, entry) WHERE entry IN ('commit', 'refund') DO NOTHING"
             ),
-            {"t": run.tenant_id, "r": run_id, "e": entry, "a": amount, "b": balance},
+            {"t": run.tenant_id, "r": run_id, "e": entry, "a": amount, "b": after},
         )
     await _usage_settled(session, run_id)
     return Settlement(reserved, committed, refunded, False)

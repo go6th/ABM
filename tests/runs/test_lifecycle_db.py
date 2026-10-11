@@ -122,6 +122,28 @@ async def test_finish_with_gaps_is_partial_swept_and_settled_proportionally() ->
     assert balance(t) == Decimal("97")
 
 
+async def test_ledger_balance_after_replays_row_by_row() -> None:
+    """Replaying the ledger row by row reproduces every balance_after. The reserve moved the
+    money out, so a commit records its amount but moves nothing; the refund moves money back. The
+    commit row once carried the post-refund balance."""
+    t = tenant()
+    run = (await _create(t, req())).run_id
+    await _to_verifying(t, run)
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        c.execute("UPDATE account_runs SET spent_usd = 2.5 WHERE id = %s", (run,))
+    async with tenant_txn(t) as s:
+        await finish(s, tracker(s), run, S.COMPLETED)
+    rows = fetch(
+        "SELECT entry, amount, balance_after FROM wallet_ledger WHERE run_id = %s ORDER BY id", run
+    )
+    assert [e for e, _, _ in rows] == ["reserve", "commit", "refund"]
+    running = Decimal("100")
+    for entry, amount, after in rows:
+        running += 0 if entry == "commit" else amount
+        assert after == running, entry
+    assert running == balance(t) == Decimal("97")
+
+
 async def test_settlement_is_exactly_once_and_balances() -> None:
     t = tenant()
     run = (await _create(t, req())).run_id

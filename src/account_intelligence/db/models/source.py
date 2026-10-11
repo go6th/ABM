@@ -41,7 +41,7 @@ if "account_runs" not in Base.metadata.tables:
         Base.metadata,
         Column("tenant_id", Uuid, nullable=False),
         Column("account_id", Uuid, nullable=False),
-        Column("id", Uuid, nullable=False),
+        Column("id", Uuid, primary_key=True),
         UniqueConstraint("tenant_id", "account_id", "id"),
     )
 
