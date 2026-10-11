@@ -7,13 +7,14 @@ import { formatDate, formatCount } from "@/lib/operator-render";
 import { useOperatorViewer } from "../OperatorSessionGate";
 import { OperatorRequestState } from "../OperatorStates";
 import { useOperatorApi } from "../useOperatorApi";
-import { providerName, PROVIDERS } from "@/lib/provider-labels";
+import { useProviderLabels } from "@/lib/provider-labels";
 
 function messageFrom(error: unknown): string {
   return error instanceof ApiError ? error.detail : "The change could not be completed.";
 }
 
 export default function OperatorConfigurationPage() {
+  const { providerName, providers: PROVIDERS } = useProviderLabels();
   const viewer = useOperatorViewer();
   const isOperator = viewer.role === "operator";
   const flags = useOperatorApi("GET /operator/v1/flags", {}, isOperator);

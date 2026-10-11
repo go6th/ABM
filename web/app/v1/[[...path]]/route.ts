@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { isSameOriginRequest } from "@/lib/same-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,8 +36,13 @@ function getApiOrigin(): string {
 
 async function handleProxy(request: NextRequest): Promise<NextResponse> {
   if (!SAFE_METHODS.has(request.method)) {
-    const origin = request.headers.get("origin");
-    if (!origin || origin !== request.nextUrl.origin) {
+    if (!isSameOriginRequest({
+      origin: request.headers.get("origin"),
+      host: request.headers.get("host"),
+      forwardedHost: request.headers.get("x-forwarded-host"),
+      protocol: request.nextUrl.protocol,
+      forwardedProtocol: request.headers.get("x-forwarded-proto"),
+    })) {
       return NextResponse.json(
         { type: "urn:6th:problem:403", title: "Request refused", status: 403, detail: "A same-origin request is required." },
         { status: 403, headers: { "Content-Type": "application/problem+json", "Cache-Control": "no-store" } },

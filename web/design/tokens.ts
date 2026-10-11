@@ -29,7 +29,7 @@ export const palettes: Record<Theme, Palette> = {
     border: "#e4e8f0", borderStrong: "#8793a5", focus: "#4d69a8",
     textPrimary: "#243047", textSecondary: "#4a5870", textMuted: "#5e6a7e", textInverse: "#ffffff",
     brand: "#4d69a8", brandText: "#ffffff", brandSoft: "#e8f0ff",
-    operator: "#2a2230", operatorText: "#ffd9bf", operatorSoft: "#fde3d3",
+    operator: "#4d69a8", operatorText: "#ffffff", operatorSoft: "#e8f0ff",
     shadowTint: "44 60 92", highlight: "rgb(255 255 255 / 0.9)",
     accents: {
       peach: { soft: "#fcebdd", mid: "#efc3a9", strong: "#915134" },

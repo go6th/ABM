@@ -5,9 +5,10 @@ import { useOperatorViewer } from "./OperatorSessionGate";
 import { OperatorRequestState, DevelopmentOnlyNotice } from "./OperatorStates";
 import { useOperatorApi } from "./useOperatorApi";
 import { formatCount, formatDate } from "@/lib/operator-render";
-import { providerName } from "@/lib/provider-labels";
+import { useProviderLabels } from "@/lib/provider-labels";
 
 export default function OperatorHomePage() {
+  const { providerName } = useProviderLabels();
   const viewer = useOperatorViewer();
   const isOperator = viewer.role === "operator";
   const tenants = useOperatorApi("GET /operator/v1/tenants");

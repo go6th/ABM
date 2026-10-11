@@ -1,19 +1,42 @@
-export const PROVIDERS = [
-  { code: "p_search", name: "Parallel", credential: "P_SEARCH_API_KEY" },
-  { code: "p_scrape", name: "Firecrawl", credential: "P_SCRAPE_API_KEY" },
-  {
-    code: "p_signals",
-    name: "PredictLeads",
-    credential: "P_SIGNALS_API_KEY + P_SIGNALS_API_TOKEN",
-  },
-  { code: "p_people", name: "BitScale", credential: "P_PEOPLE_API_KEY" },
-  { code: "p_org", name: "Sumble", credential: "P_ORG_API_KEY" },
-] as const;
+"use client";
+// Provider labels for the operator console, fetched from /api/operator/providers (staff session
+// only). Vendor names are deliberately absent from this module so they never ship in a public
+// static chunk; until the labels arrive, or without a staff session, the provider code is shown.
+import { useEffect, useState } from "react";
 
-const PROVIDER_NAMES: Readonly<Record<string, string>> = Object.fromEntries(
-  PROVIDERS.map(({ code, name }) => [code, name]),
-);
+export interface ProviderLabel {
+  code: string;
+  name: string;
+  credential: string;
+}
 
-export function providerName(code: string): string {
-  return PROVIDER_NAMES[code] ?? code;
+let cached: Promise<ProviderLabel[]> | null = null;
+
+function load(): Promise<ProviderLabel[]> {
+  cached ??= fetch("/api/operator/providers", { cache: "no-store", credentials: "same-origin" })
+    .then(async (reply) => {
+      if (!reply.ok) throw new Error(String(reply.status));
+      const body = (await reply.json()) as { providers?: ProviderLabel[] };
+      return Array.isArray(body.providers) ? body.providers : [];
+    })
+    .catch(() => {
+      cached = null; // retry on the next mount (for example after signing in again)
+      return [];
+    });
+  return cached;
+}
+
+export function useProviderLabels(): { providers: ProviderLabel[]; providerName: (code: string) => string } {
+  const [providers, setProviders] = useState<ProviderLabel[]>([]);
+  useEffect(() => {
+    let live = true;
+    void load().then((value) => {
+      if (live) setProviders(value);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const names = new Map(providers.map(({ code, name }) => [code, name]));
+  return { providers, providerName: (code: string) => names.get(code) ?? code };
 }

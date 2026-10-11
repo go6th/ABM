@@ -1,5 +1,5 @@
-// Renders `tokens.css` from `tokens.ts` (the one source). Light is the default; dark applies with
-// `data-theme="dark"`, or with `data-theme="system"` (and no attribute) when the OS prefers dark.
+// Renders `tokens.css` from `tokens.ts` (the one source). The application uses the light palette
+// consistently so every route matches the customer sign-in experience.
 import { ACCENTS, blur, elevation, fonts, layout, motion, palettes, radii, shadow, space, type, z, type Palette } from "./tokens.ts";
 
 function kebab(s: string): string {
@@ -39,8 +39,6 @@ export function tokensCss(): string {
   return [
     "/* GENERATED from design/tokens.ts by `npm run tokens`. Do not edit. */",
     `:root {\n${indent(constants())}\n${indent(colours(palettes.light))}\n  color-scheme: light;\n}`,
-    `:root[data-theme="dark"] {\n${indent(colours(palettes.dark))}\n  color-scheme: dark;\n}`,
-    `@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]):not([data-theme="dark"]) {\n${indent(colours(palettes.dark), 4)}\n    color-scheme: dark;\n  }\n}`,
     "",
   ].join("\n");
 }

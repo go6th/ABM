@@ -1,12 +1,13 @@
 "use client";
 
 import { formatDate, formatMicros } from "@/lib/operator-render";
-import { providerName } from "@/lib/provider-labels";
+import { useProviderLabels } from "@/lib/provider-labels";
 import { OperatorRequestState } from "../OperatorStates";
 import { SupportGrantLookup, type SupportLookup } from "../SupportGrantLookup";
 import { useOperatorApi } from "../useOperatorApi";
 
 function SpendView({ lookup }: { lookup: SupportLookup }) {
+  const { providerName } = useProviderLabels();
   const result = useOperatorApi("GET /operator/v1/runs/{run_id}/spend/live", {
     params: { run_id: lookup.runId ?? "" }, headers: { "X-Support-Grant": lookup.grantId },
   });
