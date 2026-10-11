@@ -146,6 +146,17 @@ def build() -> Any:
     plane = make_app()
     plane.clock.current = datetime.now(UTC)
     plane.app.state.container.tenant_plane.base_url = WEB_ORIGIN
+
+    # Operator console: the dev staff verifier stamps MFA with the wall clock, which is ahead of
+    # this harness's frozen clock, so every step-up check would fail; stamp it with the harness
+    # clock instead ("operator:<name>" and "support:<name>" tokens, as in dev).
+    from account_intelligence.api.operator import DevStaffVerifier
+
+    class _HarnessStaffVerifier:
+        def verify(self, token: str) -> Any:
+            return DevStaffVerifier(now=plane.clock.now()).verify(token)
+
+    plane.app.state.container.tenant_plane.staff_verifier = _HarnessStaffVerifier()
     # the synthetic plan's cap proposal (about $9.75) fits a $20 run budget, so the tenant policy
     # auto-approves it like the system tests (tests/system/world.py); no approval UI is needed
     from dataclasses import replace
@@ -160,8 +171,11 @@ def build() -> Any:
     from account_intelligence.chat.service import ChatEvent, ChatService, ChatUsage
 
     class SyntheticChatProvider:
-        async def stream(self, model: Any, messages: Any, max_output_tokens: int) -> Any:
-            """A deterministic stream for browser coverage; never contacts a model provider."""
+        async def stream(
+            self, model: Any, messages: Any, max_output_tokens: int, **_: Any
+        ) -> Any:
+            """A deterministic stream for browser coverage; never contacts a model provider.
+            The route also passes user_id, request_id and fresh_output, which it ignores."""
             del model, messages, max_output_tokens
             yield ChatEvent("text", text="Synthetic response")
             yield ChatEvent("usage", usage=ChatUsage(input_tokens=24, output_tokens=4))
