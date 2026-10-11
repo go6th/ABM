@@ -11,12 +11,14 @@ test.beforeAll(async ({ request }) => {
 
 test("an admin signs in with SSO, sees only the tenant's accounts and adds one", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
+  await page.goto("/accounts");
   await expect(page.getByText("acme-a.example").first()).toBeVisible();
   await expect(page.getByText("beta-only.example")).toHaveCount(0);
   await noSeriousA11y(page);
   await page.getByLabel("Company domain").fill("added-by-e2e.example");
   await page.getByRole("button", { name: "Add account" }).click();
-  await expect(page.getByText("added-by-e2e.example").first()).toBeVisible();
+  await expect(page).toHaveURL(/\/accounts\/added-by-e2e\.example$/);
+  await expect(page.getByRole("heading", { name: "added-by-e2e.example" })).toBeVisible();
   const pages: [string, string][] = [["/settings/users", "Users"], ["/settings/support", "Support access"], ["/audit", "Audit"], ["/usage", "Usage"], ["/settings", "Settings"]];
   for (const [path, heading] of pages) {
     await page.goto(path);
@@ -34,37 +36,38 @@ test("an admin signs in with SSO, sees only the tenant's accounts and adds one",
 
 test("a viewer reads but cannot add, run or administer", async ({ page }) => {
   await signIn(page, seeded.slug_a, "val", "viewer");
+  await page.goto("/accounts");
+  await expect(page.getByText("acme-a.example").first()).toBeVisible();
   await expect(page.getByLabel("Company domain")).toHaveCount(0);
   await page.goto("/accounts/acme-a.example");
   await expect(page.getByRole("heading", { name: "acme-a.example" })).toBeVisible();
-  await expect(page.getByRole("form", { name: "Start a run" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Refresh from web" })).toHaveCount(0);
   await page.goto("/settings/users");
   await expect(page.getByText("Only admins manage users.")).toBeVisible();
   expect((await page.request.get("/v1/users")).status()).toBe(403);
 });
 
-test("Claude chat streams, persists history and passes accessibility checks", async ({ page }) => {
+test("a conversation streams, persists and passes accessibility checks in dark mode", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await signIn(page, seeded.slug_a, "ana", "analyst");
   await page.goto("/chat");
-  await expect(page.getByRole("heading", { name: "How can I help?" })).toBeVisible();
-  await expect(page.getByLabel("Model")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What do you want to know?" })).toBeVisible();
+  const ground = await page.locator(".ws").evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(ground).toBe("rgb(18, 25, 31)");
   await noSeriousA11y(page);
-  await page.getByLabel("Message Claude").fill("Summarize our account notes");
+  await page.getByLabel("Your question").fill("Summarize our account notes");
   await page.keyboard.press("Enter");
   await expect(page.getByText("Synthetic response")).toBeVisible();
-  await expect(page.locator(".chat-message.user").getByText("Summarize our account notes", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Summarize our account notes", exact: true })).toBeVisible();
+  await expect(page.locator(".ws-q").getByText("Summarize our account notes", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\?t=/);
+  const thread = page.getByRole("button", { name: "Summarize our account notes", exact: true });
+  await expect(thread).toBeVisible();
   await noSeriousA11y(page);
-  await expect(page.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Light" }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await expect(page.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "New chat" }).click();
-  await expect(page.getByText("Start a conversation")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Summarize our account notes", exact: true })).toBeVisible();
+  await expect(page.getByText("Synthetic response")).toBeVisible();
+  await page.getByRole("button", { name: "New conversation" }).click();
+  await expect(page.getByRole("heading", { name: "What do you want to know?" })).toBeVisible();
+  await expect(thread).toBeVisible();
 });
 
 test("chat history is private to its tenant member", async ({ page }) => {
@@ -89,8 +92,8 @@ test("chat history is private to its tenant member", async ({ page }) => {
 
 test("admins see BYO key availability without a key value", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
-  await page.goto("/chat");
-  await page.getByText("Provider key", { exact: true }).click();
+  await page.goto("/settings/model-key");
+  await expect(page.getByRole("heading", { name: "Provider key" })).toBeVisible();
   await expect(page.getByText("This environment does not enable encrypted tenant keys.")).toBeVisible();
   await expect(page.getByLabel("Anthropic API key")).toHaveCount(0);
   await noSeriousA11y(page);
@@ -100,9 +103,10 @@ const members: [string, string][] = [["sam", "seller"], ["ana", "analyst"]];
 for (const [subject, role] of members) {
   test(`a ${role} can add accounts and start runs but not administer`, async ({ page }) => {
     await signIn(page, seeded.slug_a, subject, role);
+    await page.goto("/accounts");
     await expect(page.getByLabel("Company domain")).toBeVisible();
     await page.goto("/accounts/acme-a.example");
-    await expect(page.getByRole("form", { name: "Start a run" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh from web" })).toBeVisible();
     await page.goto("/settings/support");
     await expect(page.getByText("Only admins manage support access.")).toBeVisible();
     expect((await page.request.get("/v1/audit")).status()).toBe(403);
@@ -111,8 +115,16 @@ for (const [subject, role] of members) {
 
 test("a second tenant sees nothing of the first", async ({ page }) => {
   await signIn(page, seeded.slug_b, "bob", "admin");
+  await page.goto("/accounts");
   await expect(page.getByText("beta-only.example").first()).toBeVisible();
   await expect(page.getByText("acme-a.example")).toHaveCount(0);
+  // another client's account and an account that does not exist render the same page
+  await page.goto("/accounts/acme-a.example");
+  const foreign = await page.locator("main").innerText();
+  await page.goto("/accounts/does-not-exist.example");
+  const missing = await page.locator("main").innerText();
+  expect(foreign).toBe(missing);
+  expect(foreign).toContain("Account not found");
   for (const path of ["/v1/accounts/acme-a.example/tables/people", "/v1/accounts/acme-b.example/runs"]) {
     const status = (await page.request.get(path)).status();
     expect([403, 404]).toContain(status);

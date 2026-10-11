@@ -6,6 +6,9 @@ import type { NextConfig } from "next";
 
 const config: NextConfig = {
   output: "standalone",
+  // *.dev.tsx files are pages only in development (the /__design gallery); a production build
+  // has no such routes and none of their sample content.
+  pageExtensions: process.env.NODE_ENV === "production" ? ["tsx", "ts"] : ["dev.tsx", "tsx", "ts"],
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {

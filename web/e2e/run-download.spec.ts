@@ -15,19 +15,25 @@ test("sign in, add an account, run it and download the deliverables", async ({ p
   test.setTimeout(180_000);
   await signIn(page, seeded.slug_a, "ada", "admin");
 
+  await page.goto("/accounts");
   await page.getByLabel("Company domain").fill(DOMAIN);
   await page.getByRole("button", { name: "Add account" }).click();
-  await page.getByRole("link", { name: DOMAIN }).first().click();
-  await expect(page.getByRole("heading", { name: "Start a run" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: DOMAIN })).toBeVisible();
   await noSeriousA11y(page);
 
+  await page.getByRole("button", { name: "Refresh from web" }).click();
+  await expect(page.getByRole("dialog", { name: "Refresh from web" })).toBeVisible();
   await page.getByLabel("Include history with Synthetic Partner Co").check();
-  await page.getByRole("button", { name: "Start run" }).click();
-  await expect(page.getByText("Run started.")).toBeVisible();
+  await noSeriousA11y(page);
+  const confirm = page.getByRole("button", { name: "Confirm refresh" });
+  await confirm.dblclick();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByText("Research in progress")).toBeVisible();
 
   const runs = await (await page.request.get("/v1/runs")).json();
-  const run = runs.runs.find((r: { domain: string }) => r.domain === DOMAIN);
-  expect(run, "the run is listed for the tenant").toBeTruthy();
+  const mine = runs.runs.filter((r: { domain: string }) => r.domain === DOMAIN);
+  expect(mine, "a double click starts exactly one run").toHaveLength(1);
+  const run = mine[0];
   const driven = await page.request.post(`${API}/fake-idp/drive`, { data: { run_id: run.run_id } });
   expect(driven.ok()).toBeTruthy();
   const { status, finished_reason, build_error_codes } = await driven.json();
@@ -36,7 +42,8 @@ test("sign in, add an account, run it and download the deliverables", async ({ p
     .toEqual([]);
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Latest run" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Downloads" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What we know" })).toBeVisible();
   await page.getByRole("button", { name: "Word and Excel files" }).click();
   const files = page.locator('a[href^="/v1/exports/"]');
   await expect(files.first()).toBeVisible({ timeout: 60_000 });
