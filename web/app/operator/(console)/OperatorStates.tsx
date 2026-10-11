@@ -1,6 +1,8 @@
 "use client";
 
+import { Inbox } from "lucide-react";
 import type { ApiError } from "@/lib/api";
+import { Banner, EmptyState } from "@/ui/primitives";
 
 export function OperatorRequestState({
   loading,
@@ -13,27 +15,18 @@ export function OperatorRequestState({
   empty?: boolean;
   onRetry: () => void;
 }) {
-  if (loading) return <div className="operator-gate-loading" aria-live="polite"><span className="spinner" /> Loading from the operator API…</div>;
+  if (loading) return <p className="row ink-2" aria-live="polite"><span className="spinner" aria-hidden="true" />Loading from the operator API</p>;
   if (error) {
     return (
-      <div className="operator-gate-message" role="alert">
-        <strong>{error.status === 403 ? "Access is restricted" : error.status === 503 ? "Operator API unavailable" : "Request failed"}</strong>
-        <span>{error.detail}</span>
-        <button className="btn sm" type="button" onClick={onRetry}>Try again</button>
-      </div>
+      <Banner
+        kind="error"
+        title={error.status === 403 ? "Access is restricted" : error.status === 503 ? "Operator API unavailable" : "Request failed"}
+        action={<button className="btn sm" type="button" onClick={onRetry}>Try again</button>}
+      >
+        {error.detail}
+      </Banner>
     );
   }
-  if (empty) return <div className="empty"><span className="empty-icon" aria-hidden="true">⌕</span><strong>No rows returned</strong><p>The operator API returned an empty result.</p></div>;
+  if (empty) return <EmptyState title="No rows returned" body="The operator API returned an empty result." icon={<Inbox size={20} strokeWidth={1.8} />} />;
   return null;
-}
-
-export function DevelopmentOnlyNotice({ title, detail }: { title: string; detail: string }) {
-  if (process.env.NODE_ENV === "production") return null;
-  return (
-    <aside className="operator-unconnected" role="note">
-      <span className="operator-unconnected-mark" aria-hidden="true">i</span>
-      <div><strong>{title}</strong><p>{detail}</p></div>
-      <span className="badge tone-butter">Not connected</span>
-    </aside>
-  );
 }

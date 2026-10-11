@@ -1,52 +1,43 @@
 "use client";
-
+// The operator console navigation in two groups: the platform, and the grant-based support tools.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Activity,
-  Bell,
-  ClipboardList,
-  Coins,
-  FileClock,
-  Gauge,
-  Megaphone,
-  Eye,
-  SlidersHorizontal,
-  ShieldAlert,
-  Store,
-} from "lucide-react";
+import { Activity, Coins, Eye, Gauge, Receipt, ShieldAlert, SlidersHorizontal, Store } from "lucide-react";
 
-const entries = [
-  { href: "/operator", label: "Overview", icon: Gauge, connected: true },
-  { href: "/operator/tenants", label: "Tenants", icon: Store, connected: true },
-  { href: "/operator/configuration", label: "Flags & keys", icon: SlidersHorizontal, connected: true },
-  { href: "/operator/support", label: "Support view", icon: Eye, connected: true },
-  { href: "/operator/runs", label: "Runs", icon: Activity, connected: true },
-  { href: "/operator/spend", label: "Spend", icon: Coins, connected: true },
-  { href: "/operator/review", label: "Review queue", icon: ClipboardList, connected: false },
-  { href: "/operator/cost", label: "Unit costs", icon: Coins, connected: true },
-  { href: "/operator/failures", label: "Failures", icon: ShieldAlert, connected: true },
-  { href: "/operator/monitors", label: "Monitors", icon: Bell, connected: false },
-  { href: "/operator/audit", label: "Audit explorer", icon: FileClock, connected: false },
-  { href: "/operator/announcements", label: "Status & notices", icon: Megaphone, connected: false },
-];
+export const GROUPS = [
+  { label: "Platform", entries: [
+    { href: "/operator", label: "Overview", icon: Gauge },
+    { href: "/operator/tenants", label: "Tenants", icon: Store },
+    { href: "/operator/configuration", label: "Flags and keys", icon: SlidersHorizontal },
+  ] },
+  { label: "Support tools", entries: [
+    { href: "/operator/support", label: "Support view", icon: Eye },
+    { href: "/operator/runs", label: "Runs", icon: Activity },
+    { href: "/operator/spend", label: "Spend", icon: Coins },
+    { href: "/operator/cost", label: "Unit costs", icon: Receipt },
+    { href: "/operator/failures", label: "Failures", icon: ShieldAlert },
+  ] },
+] as const;
+
+export function isCurrentOperator(pathname: string, href: string): boolean {
+  return pathname === href || (href !== "/operator" && pathname.startsWith(`${href}/`));
+}
 
 export function OperatorNav() {
   const pathname = usePathname();
-  const production = process.env.NODE_ENV === "production";
   return (
-    <nav className="operator-nav" aria-label="Operator console navigation">
-      {entries.filter((entry) => !production || entry.connected).map((entry) => {
-        const Icon = entry.icon;
-        const current = pathname === entry.href || (entry.href !== "/operator" && pathname.startsWith(`${entry.href}/`));
-        return (
-          <Link key={entry.href} className="operator-nav-link" href={entry.href} aria-current={current ? "page" : undefined}>
-            <Icon aria-hidden="true" />
-            <span>{entry.label}</span>
-            {!entry.connected ? <span className="nav-dev-tag">preview</span> : null}
-          </Link>
-        );
-      })}
+    <nav className="app-nav" aria-label="Operator console navigation">
+      {GROUPS.map((group) => (
+        <div key={group.label} className="stack-tight">
+          <p className="nav-label">{group.label}</p>
+          {group.entries.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href} aria-current={isCurrentOperator(pathname, href) ? "page" : undefined}>
+              <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
+              <span>{label}</span>
+            </Link>
+          ))}
+        </div>
+      ))}
     </nav>
   );
 }
