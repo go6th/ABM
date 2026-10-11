@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { headers } from "next/headers";
 import "./globals.css";
+import "../design/motion.css";
 
 // The proxy creates a request-scoped CSP nonce. Dynamic rendering lets Next attach that nonce
 // to its client scripts instead of serving prerendered HTML with unusable nonce-less scripts.

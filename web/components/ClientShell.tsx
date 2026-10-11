@@ -22,6 +22,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { SignOutButton } from "@/components/SignOutButton";
+import { GlassLight, Materialize } from "@/components/motion/LiquidGlass";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import type { Me } from "@/lib/gen/api.gen";
 
@@ -297,7 +298,10 @@ export function ClientShell({ me, displayName, attribution, children }: ClientSh
           </div>
         </header>
 
-        <main id="main" className="column wide client-content">{children}</main>
+        <main id="main" className="column wide client-content">
+          <GlassLight />
+          <Materialize>{children}</Materialize>
+        </main>
         <footer className="client-footer">Prepared by {attribution}</footer>
       </div>
     </div>

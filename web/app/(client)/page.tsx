@@ -9,6 +9,9 @@ import { cellText } from "@/lib/render";
 import { useApi } from "@/lib/useApi";
 import type { AccountPage, RunPage, SignalPage } from "@/lib/gen/api.gen";
 import { AdminOverview } from "@/components/AdminOverview";
+import { EvidenceHero } from "@/components/motion/EvidenceHero";
+import type { OrbTone } from "@/components/motion/EvidenceOrb";
+import { TiltCard } from "@/components/motion/TiltCard";
 
 const EMPTY_ACCOUNTS: AccountPage["accounts"] = [];
 
@@ -28,8 +31,15 @@ function runTone(status: string): string {
   return "tone-slate";
 }
 
-function accountNameForRun(run: { domain: string; name?: string | null }) {
-  return cellText(run.name ?? run.domain);
+/** Run rows carry only a domain; the company name comes from the account list when loaded. */
+function RunAccount({ domain, names }: { domain: string; names: Map<string, string> }) {
+  const name = names.get(domain);
+  return (
+    <Link className="client-account-name" href={`/accounts/${encodeURIComponent(domain)}`}>
+      <span>{cellText(name ?? domain)}</span>
+      {name ? <span className="row-muted">{cellText(domain)}</span> : null}
+    </Link>
+  );
 }
 
 export function AccountWorkspace({ canAdd }: { canAdd: boolean }) {
@@ -71,37 +81,56 @@ export function AccountWorkspace({ canAdd }: { canAdd: boolean }) {
   const total = list.data ? accounts.length : null;
   const withRuns = list.data ? accounts.filter((account) => account.latest_run !== null).length : null;
   const withoutRuns = total === null || withRuns === null ? null : total - withRuns;
-  const attentionRuns = recentRuns.data?.runs.filter((run) =>
+  const accountNames = useMemo(
+    () => new Map(accounts.flatMap((account) => account.name ? [[account.domain, account.name] as const] : [])),
+    [accounts],
+  );
+  const orbTones = useMemo<OrbTone[]>(
+    () => accounts.slice(0, 60).map((account) =>
+      account.latest_run ? (runTone(account.latest_run.status).replace("tone-", "") as OrbTone) : "slate",
+    ),
+    [accounts],
+  );
+  const attentionRuns =recentRuns.data?.runs.filter((run) =>
     ["partial", "failed", "error", "blocked", "awaiting_approval", "budget_exceeded"].includes(run.status.toLowerCase()),
   ) ?? [];
 
   return (
     <div className="client-dashboard">
-      <section className="client-dashboard-heading" aria-labelledby="workspace-title">
-        <div>
-          <p className="eyebrow">ACCOUNT INTELLIGENCE</p>
-          <h1 id="workspace-title">Your workspace</h1>
-          <p className="secondary">Keep company research organized and ready for your team.</p>
-        </div>
+      <EvidenceHero tones={orbTones}>
+        <h1 id="workspace-title">Your workspace</h1>
+        <p>Every account you research, held in one place. Each point orbiting here is one of your accounts.</p>
+        <ul className="evidence-hero-legend" aria-label="Point colours">
+          <li><span className="status-dot mint" aria-hidden="true" />Research complete</li>
+          <li><span className="status-dot sky" aria-hidden="true" />In progress</li>
+          <li><span className="status-dot butter" aria-hidden="true" />Needs review</li>
+          <li><span className="status-dot slate" aria-hidden="true" />Not started</li>
+        </ul>
         {canAdd ? <a className="btn primary" href="#add-account"><CirclePlus aria-hidden="true" /> Add account</a> : null}
-      </section>
+      </EvidenceHero>
 
       <div className="client-stat-grid" aria-label="Workspace summary">
-        <div className="client-stat-card">
-          <span className="stat-icon client-stat-icon lavender"><Building2 aria-hidden="true" /></span>
-          <div><span className="stat-value">{list.error ? "—" : total ?? "…"}</span><span className="stat-label">Accounts loaded</span></div>
-          <span className="stat-foot">{list.data?.next_after ? "More accounts available" : "Current account-list response"}</span>
-        </div>
-        <div className="client-stat-card">
-          <span className="stat-icon client-stat-icon mint"><ArrowRight aria-hidden="true" /></span>
-          <div><span className="stat-value">{list.error ? "—" : withRuns ?? "…"}</span><span className="stat-label">With research</span></div>
-          <span className="stat-foot">Among loaded accounts</span>
-        </div>
-        <div className="client-stat-card">
-          <span className="stat-icon client-stat-icon peach"><CirclePlus aria-hidden="true" /></span>
-          <div><span className="stat-value">{list.error ? "—" : withoutRuns ?? "…"}</span><span className="stat-label">Ready to start</span></div>
-          <span className="stat-foot">Among loaded accounts</span>
-        </div>
+        <TiltCard>
+          <div className="client-stat-card">
+            <span className="stat-icon client-stat-icon lavender" data-depth="2"><Building2 aria-hidden="true" /></span>
+            <div data-depth="1"><span className="stat-value">{list.error ? "—" : total ?? "…"}</span><span className="stat-label">Accounts loaded</span></div>
+            <span className="stat-foot">{list.data?.next_after ? "More accounts available" : "Current account-list response"}</span>
+          </div>
+        </TiltCard>
+        <TiltCard>
+          <div className="client-stat-card">
+            <span className="stat-icon client-stat-icon mint" data-depth="2"><ArrowRight aria-hidden="true" /></span>
+            <div data-depth="1"><span className="stat-value">{list.error ? "—" : withRuns ?? "…"}</span><span className="stat-label">With research</span></div>
+            <span className="stat-foot">Among loaded accounts</span>
+          </div>
+        </TiltCard>
+        <TiltCard>
+          <div className="client-stat-card">
+            <span className="stat-icon client-stat-icon peach" data-depth="2"><CirclePlus aria-hidden="true" /></span>
+            <div data-depth="1"><span className="stat-value">{list.error ? "—" : withoutRuns ?? "…"}</span><span className="stat-label">Ready to start</span></div>
+            <span className="stat-foot">Among loaded accounts</span>
+          </div>
+        </TiltCard>
       </div>
 
       <section className="client-accounts-panel" aria-labelledby="recent-runs-title">
@@ -132,12 +161,7 @@ export function AccountWorkspace({ canAdd }: { canAdd: boolean }) {
                     <td style={{ width: "24px" }}>
                       <span className={`status-dot ${dotClass}`} title={cellText(run.label)} />
                     </td>
-                    <td>
-                      <Link className="client-account-name" href={`/accounts/${encodeURIComponent(run.domain)}`}>
-                        <span>{cellText(accountNameForRun(run))}</span>
-                        <span className="row-muted">{cellText(run.domain)}</span>
-                      </Link>
-                    </td>
+                    <td><RunAccount domain={run.domain} names={accountNames} /></td>
                     <td style={{ width: "120px" }} className="row-muted">{formattedDate(run.created_at)}</td>
                     <td className="row-actions">
                       <Link className="client-row-link" href={`/runs/${encodeURIComponent(run.run_id)}`}>
@@ -178,12 +202,7 @@ export function AccountWorkspace({ canAdd }: { canAdd: boolean }) {
                     <td style={{ width: "24px" }}>
                       <span className={`status-dot ${dotClass}`} title={cellText(run.label)} />
                     </td>
-                    <td>
-                      <Link className="client-account-name" href={`/accounts/${encodeURIComponent(run.domain)}`}>
-                        <span>{cellText(accountNameForRun(run))}</span>
-                        <span className="row-muted">{cellText(run.domain)}</span>
-                      </Link>
-                    </td>
+                    <td><RunAccount domain={run.domain} names={accountNames} /></td>
                     <td style={{ width: "120px" }} className="row-muted">{formattedDate(run.created_at)}</td>
                     <td className="row-actions">
                       <Link className="client-row-link" href={`/runs/${encodeURIComponent(run.run_id)}`}>
