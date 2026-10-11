@@ -28,6 +28,7 @@ from account_intelligence.chat.credentials import (
     key_status,
     save_encrypted_key,
 )
+from account_intelligence.chat.grounding import workspace_context
 from account_intelligence.chat.registry import ChatConfigInvalid, get_chat_registry
 from account_intelligence.chat.service import (
     AnthropicChatProvider,
@@ -332,6 +333,17 @@ async def stream_turn(
     if turn_provider is None:
         await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
         raise DependencyUnavailable()
+    grounding = ""
+    if not reservation.is_replay:
+        try:
+            grounding = await workspace_context(
+                ident.tenant_id,
+                [m.content for m in reservation.messages if m.role == "user"],
+                reservation.account_id,
+            )
+        except Exception:
+            await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
+            raise DependencyUnavailable() from None
 
     async def events() -> AsyncIterator[bytes]:
         """Stream sanitized chunks, save the final response, and charge failures conservatively."""
@@ -365,6 +377,7 @@ async def stream_turn(
                 user_id=str(ident.user_id),
                 request_id=str(body.request_id),
                 fresh_output=body.fresh_output,
+                context=grounding,
             ):
                 if event.kind == "text":
                     output_chars += len(event.text)

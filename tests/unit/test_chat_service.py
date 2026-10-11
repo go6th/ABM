@@ -12,6 +12,7 @@ import yaml
 
 from account_intelligence.chat.registry import ChatConfigInvalid, ChatModel, get_chat_registry
 from account_intelligence.chat.service import (
+    GROUNDING_MAX_CHARS,
     AnthropicChatProvider,
     ChatEvent,
     ChatMessage,
@@ -75,7 +76,7 @@ def test_estimates_and_actual_cost_include_cache_usage() -> None:
     registry = get_chat_registry()
     service = ChatService(registry, None)
     messages = [ChatMessage("user", "prompt")]
-    estimate = estimated_tokens(messages)
+    estimate = estimated_tokens(messages) + GROUNDING_MAX_CHARS + 2_048
     reserved = service.reserve_cost(model, messages)
     expected = (
         Decimal(estimate) * model.cache_write_usd_per_million
@@ -138,3 +139,5 @@ async def test_anthropic_adapter_streams_only_text_and_final_usage() -> None:
     assert events[-1] == ChatEvent("usage", usage=ChatUsage(3, 2, 1, 0))
     assert calls[0]["model"] == model.id and calls[0]["max_tokens"] == 1024
     assert calls[0]["messages"] == [{"role": "user", "content": "question"}]
+    assert "temperature" not in calls[0]
+    assert "Answer ONLY from the WORKSPACE DATA" in calls[0]["system"]
