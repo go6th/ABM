@@ -94,6 +94,7 @@ async def test_held_account_without_research_says_so_and_block_is_bounded() -> N
 def test_system_prompt_forbids_general_knowledge_and_bounds_length() -> None:
     prompt = grounded_system_prompt("CTX", 2048)
     assert prompt.endswith("WORKSPACE DATA:\nCTX")
-    assert "Never state company facts" in prompt and "only after the user" in prompt
+    assert "Never state company facts" in prompt and "click Refresh from web" in prompt
+    assert "You cannot add accounts or start research yourself" in prompt
     assert "under about 1126 words" in prompt
     assert "No workspace data was loaded" in grounded_system_prompt("", 2048)
