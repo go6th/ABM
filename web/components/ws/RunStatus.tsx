@@ -36,16 +36,16 @@ export function RunStatus({ runId, startedAt }: { runId: string; startedAt: stri
     try { await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`); router.refresh(); } catch { setCancelling(false); }
   };
   return (
-    <div className="ws-status" role="status" aria-live="polite">
+    <div className="status-card" role="status" aria-live="polite">
       <div className="line">
         <div className="grow">
-          <p className="ws-label">{m.workspace.runTitle}</p>
-          <p className="ws-small ws-muted">{p ? m.workspace.runStep(done, total) : m.state.loading}, {elapsed(startedAt)}</p>
+          <p className="strong">{m.workspace.runTitle}</p>
+          <p className="t-footnote ink-2">{p ? m.workspace.runStep(done, total) : m.state.loading}, {elapsed(startedAt)}</p>
         </div>
-        <a className="ws-link ws-small" href={`/runs/${encodeURIComponent(runId)}`}>{m.workspace.openRun}</a>
-        <button type="button" className="ws-btn quiet" onClick={() => void cancel()} disabled={cancelling}>{m.workspace.cancel}</button>
+        <a className="link t-footnote" href={`/runs/${encodeURIComponent(runId)}`}>{m.workspace.openRun}</a>
+        <button type="button" className="btn quiet" onClick={() => void cancel()} disabled={cancelling}>{m.workspace.cancel}</button>
       </div>
-      <div className="ws-progress" aria-hidden="true">
+      <div className="slices" aria-hidden="true">
         {Array.from({ length: total }, (_, i) => (
           <span key={i} data-done={i < done} data-current={i === done && !p?.finished} />
         ))}

@@ -1,17 +1,13 @@
 "use client";
 // EvidenceDrawer: opens from a citation chip. Focus moves in on open, Esc closes, and focus goes
 // back to the chip that opened it. A right side panel on wide screens, a bottom sheet at 1100px
-// and below (CSS). Rendered inside the workspace root so it inherits the theme tokens.
+// and below (CSS). The theme is on <html>, so the portal in <body> inherits it.
 import * as Dialog from "@radix-ui/react-dialog";
 import { ExternalLink, X } from "lucide-react";
 import { GradeMark } from "./GradeMark";
 import type { Evidence } from "./evidence";
 import { m } from "@/lib/messages";
 import { LINK_REL } from "@/lib/render";
-
-export function wsRoot(): HTMLElement | undefined {
-  return typeof document === "undefined" ? undefined : document.getElementById("ws-root") ?? undefined;
-}
 
 function Excerpt({ text, span }: { text: string; span: [number, number] | null }) {
   if (!span || span[0] < 0 || span[1] > text.length || span[0] >= span[1]) return <p className="excerpt">{text}</p>;
@@ -34,10 +30,10 @@ export function EvidenceDrawer({
   const current = items.find((e) => e.n === open) ?? null;
   return (
     <Dialog.Root open={current !== null} onOpenChange={(v) => { if (!v) onOpenChange(null); }}>
-      <Dialog.Portal container={wsRoot()}>
-        <Dialog.Overlay className="ws-drawer-overlay" />
+      <Dialog.Portal>
+        <Dialog.Overlay className="overlay" />
         <Dialog.Content
-          className="ws-drawer"
+          className="sheet evidence"
           aria-describedby={undefined}
           onCloseAutoFocus={(e) => { if (returnFocus) { e.preventDefault(); returnFocus.focus(); } }}
         >
@@ -45,16 +41,16 @@ export function EvidenceDrawer({
             <>
               <header>
                 <Dialog.Title>{m.evidence.source(current.n)}</Dialog.Title>
-                <Dialog.Close className="ws-icon-btn" aria-label={m.evidence.close}><X size={18} strokeWidth={1.6} /></Dialog.Close>
+                <Dialog.Close className="icon-btn" aria-label={m.evidence.close}><X size={18} strokeWidth={1.6} /></Dialog.Close>
               </header>
               <div className="body">
                 <div>
                   <GradeMark grade={current.grade} />
-                  {current.reason ? <p className="reason ws-small">{current.reason}</p> : null}
+                  {current.reason ? <p className="reason t-footnote">{current.reason}</p> : null}
                 </div>
                 <div>
                   <p className="src-title">{current.title}</p>
-                  <p className="ws-small ws-muted">
+                  <p className="t-footnote ink-2">
                     {current.retrieved ? m.evidence.retrieved(current.sourceName, current.retrieved) : current.sourceName}
                   </p>
                 </div>
@@ -66,10 +62,10 @@ export function EvidenceDrawer({
                 ) : <span className="archive">{m.evidence.archive}</span>}
                 {items.length > 1 ? (
                   <div className="others">
-                    <p className="ws-label ws-muted">{m.evidence.others}</p>
+                    <p className="strong ink-2">{m.evidence.others}</p>
                     {items.filter((e) => e.n !== current.n).map((e) => (
                       <button key={e.n} type="button" onClick={() => onPick(e.n)}>
-                        <span className="ws-small ws-muted">{e.n}</span>
+                        <span className="t-footnote ink-2">{e.n}</span>
                         <GradeMark grade={e.grade} showLabel={false} />
                         <span>{e.title}</span>
                       </button>

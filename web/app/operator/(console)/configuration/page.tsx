@@ -8,6 +8,7 @@ import { useOperatorViewer } from "../OperatorSessionGate";
 import { OperatorRequestState } from "../OperatorStates";
 import { useOperatorApi } from "../useOperatorApi";
 import { useProviderLabels } from "@/lib/provider-labels";
+import { Badge, Banner, PageHead, Section } from "@/ui/primitives";
 
 function messageFrom(error: unknown): string {
   return error instanceof ApiError ? error.detail : "The change could not be completed.";
@@ -23,6 +24,7 @@ export default function OperatorConfigurationPage() {
   const [keyBusy, setKeyBusy] = useState(false);
   const [flagMessage, setFlagMessage] = useState("");
   const [keyMessage, setKeyMessage] = useState("");
+  const isSaved = (text: string) => text.startsWith("Saved");
 
   async function addFlag(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,44 +74,61 @@ export default function OperatorConfigurationPage() {
     finally { setKeyBusy(false); }
   }
 
-  if (!isOperator) return <section><div className="operator-page-heading"><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Flags & keys</h1><p>Read-only support role.</p></div></div><div className="banner tone-sky"><span aria-hidden="true">ⓘ</span><div className="banner-body"><strong>Restricted to operator staff</strong><p>Feature flag changes and broker key references require the operator role.</p></div></div></section>;
+  if (!isOperator) {
+    return (
+      <div>
+        <PageHead title="Flags and keys" sub="Read-only support role." />
+        <Banner kind="info" title="Restricted to operator staff">Feature flag changes and broker key references require the operator role.</Banner>
+      </div>
+    );
+  }
 
-  return <section>
-    <div className="operator-page-heading"><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Flags & keys</h1><p>Versioned configuration changes with backend audit records.</p></div></div>
-    <div className="operator-grid">
-      <section className="operator-card">
-        <h2>Add feature flag version</h2>
-        <p className="muted">The API validates the rule and writes a new version. The form accepts a JSON object.</p>
-        <form className="operator-admin-form" onSubmit={(event) => void addFlag(event)}>
-          <label className="field"><span>Flag identifier</span><input name="flag" pattern="[a-z_]{1,60}" maxLength={60} placeholder="new_workspace_flow" required /></label>
-          <label className="field"><span>Reason code</span><input name="reason_code" pattern="[a-z_]{1,40}" maxLength={40} placeholder="approved_change" required /></label>
-          <label className="field"><span>Rule JSON</span><textarea name="rule" rows={5} spellCheck={false} placeholder='{"enabled": true}' required /></label>
-          <button className="btn primary" type="submit" disabled={flagBusy}>{flagBusy ? "Saving…" : "Add version"}</button>
-          {flagMessage ? <p className="operator-action-message" role="status">{flagMessage}</p> : null}
-        </form>
-      </section>
-      <section className="operator-card">
-        <h2>Add broker key reference</h2>
-        <p className="muted">Enter a secret-manager reference path only. The API never returns this value; do not paste a provider key here.</p>
-        <form className="operator-admin-form" onSubmit={(event) => void addKeyReference(event)}>
-          <label className="field"><span>Provider</span><select className="select" name="provider_code" defaultValue="" required><option value="" disabled>Select a provider</option>{PROVIDERS.map((provider) => <option key={provider.code} value={provider.code}>{provider.name} ({provider.code})</option>)}</select></label>
-          <label className="field"><span>Secret manager reference</span><input name="secret_ref" pattern="[A-Za-z0-9/_.:-]{1,255}" maxLength={255} autoComplete="off" spellCheck={false} required /></label>
-          <label className="field"><span>Reason code</span><input name="reason_code" pattern="[a-z_]{1,40}" maxLength={40} placeholder="key_rotation" required /></label>
-          <button className="btn primary" type="submit" disabled={keyBusy}>{keyBusy ? "Saving…" : "Add reference"}</button>
-          {keyMessage ? <p className="operator-action-message" role="status">{keyMessage}</p> : null}
-        </form>
-      </section>
+  return (
+    <div>
+      <PageHead title="Flags and keys" sub="Versioned configuration changes, each with an audit record." />
+      <div className="grid-2">
+        <section className="card" aria-labelledby="add-flag-title">
+          <h2 id="add-flag-title" className="card-title">Add a feature flag version</h2>
+          <p className="card-sub">The API validates the rule and writes a new version. Rules take tenants, plans and a percent.</p>
+          <form className="form gap-top" onSubmit={(event) => void addFlag(event)}>
+            <div className="field"><label htmlFor="flag-id">Flag identifier</label><input id="flag-id" className="input mono" name="flag" pattern="[a-z_]{1,60}" maxLength={60} placeholder="new_workspace_flow" required /></div>
+            <div className="field"><label htmlFor="flag-reason">Reason code</label><input id="flag-reason" className="input mono" name="reason_code" pattern="[a-z_]{1,40}" maxLength={40} placeholder="approved_change" required /></div>
+            <div className="field"><label htmlFor="flag-rule">Rule JSON</label><textarea id="flag-rule" className="textarea mono" name="rule" rows={5} spellCheck={false} placeholder='{"percent": 10}' required /></div>
+            <div><button className="btn primary" type="submit" disabled={flagBusy}>{flagBusy ? "Saving" : "Add version"}</button></div>
+            {flagMessage ? <p className={isSaved(flagMessage) ? "inline-status" : "inline-error"} role="status">{flagMessage}</p> : null}
+          </form>
+        </section>
+        <section className="card" aria-labelledby="add-key-title">
+          <h2 id="add-key-title" className="card-title">Add a broker key reference</h2>
+          <p className="card-sub">A secret manager reference path only. The API never returns it. Never paste a provider key here.</p>
+          <form className="form gap-top" onSubmit={(event) => void addKeyReference(event)}>
+            <div className="field"><label htmlFor="key-provider">Provider</label><select id="key-provider" className="select" name="provider_code" defaultValue="" required><option value="" disabled>Select a provider</option>{PROVIDERS.map((provider) => <option key={provider.code} value={provider.code}>{provider.name} ({provider.code})</option>)}</select></div>
+            <div className="field"><label htmlFor="key-ref">Secret manager reference</label><input id="key-ref" className="input mono" name="secret_ref" pattern="[A-Za-z0-9/_.:\-]{1,255}" maxLength={255} autoComplete="off" spellCheck={false} required /></div>
+            <div className="field"><label htmlFor="key-reason">Reason code</label><input id="key-reason" className="input mono" name="reason_code" pattern="[a-z_]{1,40}" maxLength={40} placeholder="key_rotation" required /></div>
+            <div><button className="btn primary" type="submit" disabled={keyBusy}>{keyBusy ? "Saving" : "Add reference"}</button></div>
+            {keyMessage ? <p className={isSaved(keyMessage) ? "inline-status" : "inline-error"} role="status">{keyMessage}</p> : null}
+          </form>
+        </section>
+      </div>
+
+      <Section title="Current feature flags" id="flags" sub="The latest version of each flag.">
+        <OperatorRequestState loading={flags.loading} error={flags.error} empty={Boolean(flags.data && flags.data.flags.length === 0)} onRetry={flags.reload} />
+        {flags.data && flags.data.flags.length ? (
+          <div className="table-wrap"><table className="table"><caption className="sr-only">Current feature flag rule versions</caption>
+            <thead><tr><th scope="col">Flag</th><th scope="col">Version</th><th scope="col">Rule</th></tr></thead>
+            <tbody>{flags.data.flags.map((flag) => <tr key={flag.flag}><td><code className="mono">{flag.flag}</code></td><td><Badge tone="peri">{formatCount(flag.version)}</Badge></td><td><pre className="code">{JSON.stringify(flag.rule, null, 2)}</pre></td></tr>)}</tbody>
+          </table></div>
+        ) : null}
+      </Section>
+      <Section title="Broker key reference versions" id="keys" action={<Badge>Values are write-only</Badge>}>
+        <OperatorRequestState loading={keys.loading} error={keys.error} empty={Boolean(keys.data && keys.data.keys.length === 0)} onRetry={keys.reload} />
+        {keys.data && keys.data.keys.length ? (
+          <div className="table-wrap"><table className="table"><caption className="sr-only">Key reference versions; secret references are not returned</caption>
+            <thead><tr><th scope="col">Provider</th><th scope="col">Version</th><th scope="col">Created by</th><th scope="col">Created</th></tr></thead>
+            <tbody>{keys.data.keys.map((key) => <tr key={key.provider_code + ":" + key.version}><td><strong>{providerName(key.provider_code)}</strong> <code className="mono t-footnote ink-2">{key.provider_code}</code></td><td><Badge tone="peri">{formatCount(key.version)}</Badge></td><td><code className="mono t-footnote">{key.created_by}</code></td><td className="nowrap">{formatDate(key.created_at)}</td></tr>)}</tbody>
+          </table></div>
+        ) : null}
+      </Section>
     </div>
-
-    <section className="operator-section">
-      <div className="operator-section-title"><h2>Current feature flags</h2><span className="muted">Latest server versions</span></div>
-      <OperatorRequestState loading={flags.loading} error={flags.error} empty={Boolean(flags.data && flags.data.flags.length === 0)} onRetry={flags.reload} />
-      {flags.data && flags.data.flags.length ? <div className="operator-table-scroll"><table className="operator-table"><caption className="sr-only">Current feature flag rule versions</caption><thead><tr><th scope="col">Flag</th><th scope="col">Version</th><th scope="col">Rule</th></tr></thead><tbody>{flags.data.flags.map((flag) => <tr key={flag.flag}><td><code>{flag.flag}</code></td><td>v{formatCount(flag.version)}</td><td><pre className="operator-code-block">{JSON.stringify(flag.rule, null, 2)}</pre></td></tr>)}</tbody></table></div> : null}
-    </section>
-    <section className="operator-section">
-      <div className="operator-section-title"><h2>Broker key reference versions</h2><span className="badge tone-slate">Write-only values</span></div>
-      <OperatorRequestState loading={keys.loading} error={keys.error} empty={Boolean(keys.data && keys.data.keys.length === 0)} onRetry={keys.reload} />
-      {keys.data && keys.data.keys.length ? <div className="operator-table-scroll"><table className="operator-table"><caption className="sr-only">Key reference versions; secret references are not returned</caption><thead><tr><th scope="col">Provider</th><th scope="col">Version</th><th scope="col">Created by</th><th scope="col">Created at</th></tr></thead><tbody>{keys.data.keys.map((key) => <tr key={key.provider_code + ":" + key.version}><td><strong>{providerName(key.provider_code)}</strong> <code>{key.provider_code}</code></td><td>v{formatCount(key.version)}</td><td><code>{key.created_by}</code></td><td>{formatDate(key.created_at)}</td></tr>)}</tbody></table></div> : null}
-    </section>
-  </section>;
+  );
 }

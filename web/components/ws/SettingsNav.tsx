@@ -14,6 +14,7 @@ const GROUPS = [
     { href: "/settings", label: m.settings.general, cap: "settings:manage" },
     { href: "/settings/users", label: m.settings.users, cap: "users:manage" },
     { href: "/usage", label: m.settings.usage, cap: "usage:read" },
+    { href: "/feedback", label: m.settings.feedback, cap: "usage:read" },
     { href: "/audit", label: m.settings.audit, cap: "audit:read" },
   ] },
   { label: m.settings.connections, items: [
@@ -24,19 +25,19 @@ const GROUPS = [
   ] },
 ] as const;
 
-export const SETTINGS_PATHS = ["/settings", "/usage", "/audit"];
+export const SETTINGS_PATHS = ["/settings", "/usage", "/audit", "/feedback"];
 
 export function SettingsNav({ capabilities, admin }: { capabilities: string[]; admin: boolean }) {
   const pathname = usePathname();
   const has = (cap: string) => admin || capabilities.includes(cap);
   return (
-    <nav className="ws-settings-nav" aria-label={m.nav.settings}>
+    <nav className="settings-nav" aria-label={m.nav.settings}>
       {GROUPS.map((g) => {
         const items = g.items.filter((i) => has(i.cap));
         if (!items.length) return null;
         return (
           <div key={g.label}>
-            <p className="ws-small ws-muted">{g.label}</p>
+            <p className="t-footnote ink-2">{g.label}</p>
             {items.map((i) => (
               <Link key={i.href} href={i.href} aria-current={pathname === i.href ? "page" : undefined}>{i.label}</Link>
             ))}

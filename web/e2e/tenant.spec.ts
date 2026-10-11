@@ -58,7 +58,7 @@ test("a conversation streams, persists and passes accessibility checks in dark m
   await page.getByLabel("Your question").fill("Summarize our account notes");
   await page.keyboard.press("Enter");
   await expect(page.getByText("Synthetic response")).toBeVisible();
-  await expect(page.locator(".ws-q").getByText("Summarize our account notes", { exact: true })).toBeVisible();
+  await expect(page.locator(".q").getByText("Summarize our account notes", { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\?t=/);
   const thread = page.getByRole("button", { name: "Summarize our account notes", exact: true });
   await expect(thread).toBeVisible();

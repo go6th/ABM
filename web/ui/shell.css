@@ -52,6 +52,8 @@
 .app-main > .reading { max-width: var(--reading-width); margin: 0 auto; }
 .app-mobile-brand { display: none; }
 
+.menu .menu-theme { display: none; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s1) var(--s3) var(--s2); }
+@media (max-width: 760px) { .menu .menu-theme { display: flex; } }
 .cap { display: flex; align-items: center; gap: var(--s2); color: var(--ink-2); font-size: var(--t-footnote); white-space: nowrap; }
 .cap .meter { width: 3.5rem; }
 
@@ -175,6 +177,10 @@ a.list-row:hover { background: var(--hover); }
 @media (max-width: 760px) { .list-row { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding: var(--s3) var(--s4); } .list-row .meta { flex-wrap: wrap; gap: var(--s3); } }
 
 .add-account { margin-top: var(--s10); max-width: 36rem; }
+.add-account h2 { margin-bottom: var(--s3); }
+.add-account .line { display: flex; gap: var(--s2); margin-bottom: var(--s2); }
+.add-account .line .input { flex: 1; }
+@media (max-width: 520px) { .add-account .line { flex-direction: column; } }
 .add-account:target .input { border-color: var(--primary); box-shadow: 0 0 0 4px var(--focus-ring); }
 
 /* Account workspace */
@@ -256,4 +262,13 @@ a.list-row:hover { background: var(--hover); }
 
 @media (prefers-reduced-motion: reduce) {
   .app-main, .turn, .rows > li { animation: fade-in 120ms ease both; }
+}
+
+/* Operator navigation groups */
+.app[data-plane="operator"] .app-nav { gap: var(--s1); }
+.stack-tight { display: flex; flex-direction: column; gap: 2px; }
+.session-line { margin-bottom: var(--s4); }
+@media (max-width: 760px) {
+  .app[data-plane="operator"] .stack-tight { flex-direction: row; }
+  .app[data-plane="operator"] .nav-label { display: none; }
 }

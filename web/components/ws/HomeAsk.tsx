@@ -1,7 +1,8 @@
 "use client";
 // Home's question box, scoped to all accounts. With no accounts yet it offers three starting
 // questions and Add account instead of an empty page.
-import Link from "next/link";
+import { Building2 } from "lucide-react";
+import { EmptyState } from "@/ui/primitives";
 import { useRouter } from "next/navigation";
 import { Conversation } from "./Conversation";
 import { m } from "@/lib/messages";
@@ -15,11 +16,7 @@ export function HomeAsk({ hasAccounts }: { hasAccounts: boolean }) {
       onThread={() => router.refresh()}
       suggestions={hasAccounts ? undefined : m.home.suggestions}
       empty={hasAccounts ? undefined : (
-        <div className="ws-empty home-empty">
-          <h3>{m.home.noAccountsTitle}</h3>
-          <p>{m.home.noAccountsBody}</p>
-          <div className="actions"><Link className="ws-btn primary" href="/accounts#add">{m.nav.add}</Link></div>
-        </div>
+        <EmptyState title={m.home.noAccountsTitle} body={m.home.noAccountsBody} icon={<Building2 size={20} strokeWidth={1.8} />} action={{ href: "/accounts#add", label: m.nav.add }} />
       )}
     />
   );

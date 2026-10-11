@@ -54,22 +54,22 @@ export function Conversations() {
   const initial = useMemo(() => (!live && ready ? turns.turns : []), [live, ready, turns]);
 
   return (
-    <div className="ws-convs">
+    <div className="convs">
       <nav aria-label={m.conversation.title}>
-        <button type="button" className="ws-btn convs-new" onClick={() => { setAdopted(null); setFresh((n) => n + 1); go(null); }}>
+        <button type="button" className="btn convs-new" onClick={() => { setAdopted(null); setFresh((n) => n + 1); go(null); }}>
           <Plus size={16} strokeWidth={1.8} aria-hidden="true" />{m.conversation.newChat}
         </button>
-        {threads.length === 0 ? <p className="ws-small ws-muted convs-empty">{m.conversation.empty}</p> : null}
+        {threads.length === 0 ? <p className="t-footnote ink-2 convs-empty">{m.conversation.empty}</p> : null}
         {threads.map((t) => (
           <div key={t.id} className="convs-item">
-            <button type="button" className="item" aria-current={open === t.id} onClick={() => go(t.id)}>{cellText(t.title, 80)}</button>
-            <button type="button" className="ws-icon-btn" aria-label={`${m.conversation.remove}: ${cellText(t.title, 80)}`} onClick={() => void remove(t.id)}>
+            <button type="button" className="item" aria-current={open === t.id} onClick={() => go(t.id)}>{cellText(t.title, 80) || m.conversation.untitled}</button>
+            <button type="button" className="icon-btn" aria-label={`${m.conversation.remove}: ${cellText(t.title, 80)}`} onClick={() => void remove(t.id)}>
               <Trash2 size={15} strokeWidth={1.6} aria-hidden="true" />
             </button>
           </div>
         ))}
       </nav>
-      <div className="ws-column convs-main">
+      <div className="reading convs-main">
         {ready ? (
           <Conversation
             key={live ? `fresh-${fresh}` : open ?? "new"}
@@ -77,9 +77,10 @@ export function Conversations() {
             initialTurns={initial}
             placeholder={m.composer.allAccounts}
             onThread={(id) => { setAdopted(id); go(id); loadList(); }}
-            empty={<h1 className="ws-display convs-title">{m.home.title}</h1>}
+            onTurnEnd={loadList}
+            empty={<h1 className="display convs-title">{m.home.title}</h1>}
           />
-        ) : <span className="ws-skel title" />}
+        ) : <span className="skeleton title" />}
       </div>
     </div>
   );

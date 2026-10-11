@@ -1,5 +1,5 @@
 // Every user-facing string of the client workspace screens lives here, so the copy lint
-// (scripts/copy-lint.mjs) can check them in one place: sentence case, no dash characters, no
+// (tests/unit/ws-copy.test.ts) can check them in one place: sentence case, no dash characters, no
 // spaced hyphen dashes, no arrows, no middle-dot meta strings, no vendor or provider names.
 
 export const m = {
@@ -13,6 +13,7 @@ export const m = {
     conversations: "Conversations",
     alerts: "Alerts",
     runs: "Research runs",
+    downloads: "Files",
     settings: "Settings",
     signOut: "Sign out",
   },
@@ -24,6 +25,7 @@ export const m = {
     general: "Workspace settings",
     users: "Team and access",
     usage: "Usage and plan",
+    feedback: "Feedback",
     audit: "Audit trail",
     connections: "Connections",
     integrations: "Integrations",
@@ -46,6 +48,7 @@ export const m = {
   },
   home: {
     title: "What do you want to know?",
+    sub: "Ask across every account in this workspace. Answers cite what is held here.",
     since: "Since you last looked",
     sinceEmpty: "Nothing new since you last looked. New signals appear here when an account changes.",
     seeAll: "See all alerts",
@@ -92,6 +95,7 @@ export const m = {
       jobs: "Job postings",
       tech: "Tech stack and teams",
       sources: "Sources",
+      coverage: "Coverage",
     },
     overview: "Overview",
     divesLabel: "Deep dive",
@@ -134,6 +138,7 @@ export const m = {
   conversation: {
     title: "Conversations",
     newChat: "New conversation",
+    untitled: "Untitled conversation",
     empty: "No conversations yet.",
     you: "You asked",
     copy: "Copy answer",

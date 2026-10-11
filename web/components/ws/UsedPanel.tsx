@@ -12,10 +12,10 @@ export interface Used {
 
 export function UsedPanel({ used }: { used: Used }) {
   return (
-    <details className="ws-used">
+    <details className="used">
       <summary>
         <ChevronRight size={14} strokeWidth={1.6} aria-hidden="true" />
-        <span className="ws-sr">{m.used.title}: </span>
+        <span className="sr-only">{m.used.title}: </span>
         {m.used.summary(used.facts, used.web !== null)}
       </summary>
       <dl>

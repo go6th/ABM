@@ -6,7 +6,7 @@ import { m } from "@/lib/messages";
 
 export function AccountAsk({ name }: { name: string }) {
   return (
-    <div className="ws-section account-ask">
+    <div className="section">
       <Conversation placeholder={m.composer.account(name)} />
     </div>
   );

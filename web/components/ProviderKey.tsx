@@ -4,6 +4,7 @@
 // stays a reading screen. The key value is never returned by the API or shown again.
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { Badge, Banner } from "@/ui/primitives";
 
 interface ProviderKeyStatus { available: boolean; configured: boolean; updated_at: string | null }
 
@@ -51,21 +52,26 @@ export function ProviderKeyManager() {
     }
   };
 
-  if (status === null) return <p role="status">{feedback || "Loading key settings"}</p>;
-  if (!status.available) return <p>This environment does not enable encrypted tenant keys.</p>;
+  if (status === null) return <p className="ink-2" role="status">{feedback || "Loading key settings"}</p>;
+  if (!status.available) return <Banner kind="neutral">This environment does not enable encrypted tenant keys.</Banner>;
   return (
-    <div className="ws-key">
-      <p>{status.configured ? "A workspace key is active for new conversations." : "The default key is active."}</p>
-      <form className="line" onSubmit={(event) => void save(event)}>
-        <label className="ws-label" htmlFor="tenant-provider-key">Anthropic API key</label>
-        <input
-          id="tenant-provider-key" className="ws-input" type="password" autoComplete="new-password" spellCheck={false}
-          value={keyValue} onChange={(event) => setKeyValue(event.target.value)} maxLength={512} disabled={saving}
-        />
-        <button className="ws-btn primary" type="submit" disabled={saving || !keyValue}>Save encrypted key</button>
+    <div className="card stack">
+      <div className="row between">
+        <span>{status.configured ? "A workspace key is active for new conversations." : "The default key is active."}</span>
+        <Badge tone={status.configured ? "mint" : "peri"} dot>{status.configured ? "Workspace key" : "Default"}</Badge>
+      </div>
+      <form className="form-row" onSubmit={(event) => void save(event)}>
+        <div className="field">
+          <label htmlFor="tenant-provider-key">Model provider key</label>
+          <input
+            id="tenant-provider-key" className="input" type="password" autoComplete="new-password" spellCheck={false}
+            value={keyValue} onChange={(event) => setKeyValue(event.target.value)} maxLength={512} disabled={saving}
+          />
+        </div>
+        <button className="btn primary" type="submit" disabled={saving || !keyValue}>Save encrypted key</button>
       </form>
-      {status.configured ? <button className="ws-btn quiet" type="button" onClick={() => void remove()} disabled={saving}>Remove saved key</button> : null}
-      {feedback ? <p role="status">{feedback}</p> : null}
+      {status.configured ? <div><button className="btn danger sm" type="button" onClick={() => void remove()} disabled={saving}>Remove saved key</button></div> : null}
+      {feedback ? <p className="t-footnote" role="status">{feedback}</p> : null}
     </div>
   );
 }

@@ -128,7 +128,7 @@ and on the sign-in pages. `theme-color` metadata follows the system scheme.
 
 ## Copy rules
 
-These rules are enforced by `scripts/copy-lint.mjs` and `tests/unit/ws-copy.test.ts`:
+These rules are enforced by `web/tests/unit/ws-copy.test.ts`, which reads `lib/messages.ts` and the JSX text of every client and sign-in screen:
 - Sentence case.
 - No en or em dashes, and no spaced hyphens.
 - No arrows on buttons.

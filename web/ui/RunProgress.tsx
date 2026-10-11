@@ -116,13 +116,20 @@ export function RunProgress({ runId, onFinished }: { runId: string; onFinished?:
     };
   }, [runId, onFinished]);
 
-  if (!progress) return <p className="muted" role="status">{failure ?? "Checking progress"}</p>;
+  if (!progress) return <p className="ink-2" role="status">{failure ?? "Checking progress"}</p>;
+  const total = Math.max(progress.stages_total, 1);
+  const done = Math.min(progress.stages_done, total);
   return (
-    <div className="row" aria-live="polite">
-      <span className="badge">{progress.label}</span>
-      <div className="progress"><progress max={progress.stages_total} value={progress.stages_done} aria-label="Stages done" /></div>
-      <span>{progress.text} stages{progress.current_stage ? `, now: ${progress.current_stage}` : ""}</span>
-      {failure ? <span role="status" className="muted">{failure}</span> : null}
+    <div className="stack" aria-live="polite">
+      <div className="row">
+        <span className="badge peri dot">{progress.label}</span>
+        <span>{progress.text} stages{progress.current_stage ? `, now: ${progress.current_stage}` : ""}</span>
+      </div>
+      <progress className="sr-only" max={total} value={done} aria-label="Stages done" />
+      <div className="slices" aria-hidden="true">
+        {Array.from({ length: total }, (_, i) => <span key={i} data-done={i < done} data-current={i === done && !progress.finished} />)}
+      </div>
+      {failure ? <span role="status" className="t-footnote ink-2">{failure}</span> : null}
     </div>
   );
 }

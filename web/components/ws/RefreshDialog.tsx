@@ -7,7 +7,6 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Globe } from "lucide-react";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
 import { m } from "@/lib/messages";
-import { wsRoot } from "./EvidenceDrawer";
 
 type Depth = "standard" | "deep";
 
@@ -43,36 +42,36 @@ export function RefreshDialog({ domain, disabled, pursuing }: { domain: string; 
   };
   return (
     <Dialog.Root open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setError(null); key.current = null; } }}>
-      <Dialog.Trigger className="ws-btn web" disabled={disabled}>
+      <Dialog.Trigger className="btn web" disabled={disabled}>
         <Globe size={16} strokeWidth={1.6} aria-hidden="true" />{m.workspace.refresh}
       </Dialog.Trigger>
-      <Dialog.Portal container={wsRoot()}>
-        <Dialog.Overlay className="ws-dialog-overlay" />
-        <Dialog.Content className="ws-dialog">
+      <Dialog.Portal>
+        <Dialog.Overlay className="overlay" />
+        <Dialog.Content className="dialog">
           <Dialog.Title>{m.refresh.title}</Dialog.Title>
           <Dialog.Description className="desc">{m.refresh.desc}</Dialog.Description>
-          <fieldset className="ws-choices">
-            <legend className="ws-sr">{m.refresh.title}</legend>
+          <fieldset className="choices">
+            <legend className="sr-only">{m.refresh.title}</legend>
             {(["standard", "deep"] as const).map((d) => (
               <label key={d}>
                 <input type="radio" name="depth" value={d} checked={depth === d} onChange={() => setDepth(d)} />
                 <span>
-                  <span className="ws-label">{d === "standard" ? m.refresh.standard : m.refresh.deep}</span>
-                  <span className="ws-small ws-muted block">{d === "standard" ? m.refresh.standardHint : m.refresh.deepHint}</span>
+                  <span className="strong">{d === "standard" ? m.refresh.standard : m.refresh.deep}</span>
+                  <span className="hint">{d === "standard" ? m.refresh.standardHint : m.refresh.deepHint}</span>
                 </span>
               </label>
             ))}
           </fieldset>
           {pursuing ? (
-            <label className="ws-check">
+            <label className="check">
               <input type="checkbox" checked={forClient} onChange={(e) => setForClient(e.target.checked)} />
               {m.refresh.pursuing(pursuing)}
             </label>
           ) : null}
-          {error ? <p className="ws-banner error ws-small top-gap" role="alert">{error}</p> : null}
+          {error ? <p className="banner error t-footnote gap-top" role="alert">{error}</p> : null}
           <div className="actions">
-            <Dialog.Close className="ws-btn quiet">{m.refresh.stay}</Dialog.Close>
-            <button type="button" className="ws-btn web-solid" disabled={busy} onClick={() => void confirm()}>{m.refresh.confirm}</button>
+            <Dialog.Close className="btn quiet">{m.refresh.stay}</Dialog.Close>
+            <button type="button" className="btn web-solid" disabled={busy} onClick={() => void confirm()}>{m.refresh.confirm}</button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

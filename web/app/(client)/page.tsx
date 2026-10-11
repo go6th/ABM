@@ -5,7 +5,7 @@ import type { AccountPage, SignalPage } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { HomeAsk } from "@/components/ws/HomeAsk";
 import { GradeMark, toGrade } from "@/components/ws/GradeMark";
-import { LoadError } from "@/components/ws/States";
+import { LoadError } from "@/ui/primitives";
 import { m } from "@/lib/messages";
 import { ago, humanize } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
@@ -30,23 +30,26 @@ export default async function Home() {
   const hasAccounts = (accounts?.accounts.length ?? 0) > 0;
 
   return (
-    <div className="ws-column home">
-      <h1 className="ws-display home-title">{m.home.title}</h1>
+    <div className="reading">
+      <header className="hero">
+        <h1>{m.home.title}</h1>
+        <p className="sub">{m.home.sub}</p>
+      </header>
       {reference !== undefined ? <LoadError reference={reference} retryHref="/" /> : null}
       <HomeAsk hasAccounts={hasAccounts} />
       {hasAccounts ? (
-        <section className="ws-section" aria-labelledby="since">
-          <div className="ws-section-head">
+        <section className="section" aria-labelledby="since">
+          <div className="section-head">
             <h2 id="since">{m.home.since}</h2>
-            {recent.length ? <Link className="ws-link ws-small" href="/alerts">{m.home.seeAll}</Link> : null}
+            {recent.length ? <Link className="link t-footnote" href="/alerts">{m.home.seeAll}</Link> : null}
           </div>
           {recent.length ? (
-            <ul className="ws-rows">
+            <ul className="rows">
               {recent.map((s) => {
                 const grade = toGrade(s.grade);
                 return (
                   <li key={s.event_id}>
-                    <Link className="ws-row" href={`/accounts/${encodeURIComponent(s.account)}`}>
+                    <Link className="list-row" href={`/accounts/${encodeURIComponent(s.account)}`}>
                       <div>
                         <p className="name">{cellText(names.get(s.account) ?? s.account)}</p>
                         <p className="context">{humanize(s.signal_type)}</p>
@@ -60,7 +63,7 @@ export default async function Home() {
                 );
               })}
             </ul>
-          ) : <p className="ws-muted">{m.home.sinceEmpty}</p>}
+          ) : <p className="ink-2">{m.home.sinceEmpty}</p>}
         </section>
       ) : null}
     </div>

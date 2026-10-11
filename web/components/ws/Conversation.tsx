@@ -1,5 +1,5 @@
 "use client";
-// One conversation: the question in sans, the answer in serif, streamed from the backend's
+// One conversation: the question as a tinted bubble, the answer as reading text, streamed from the backend's
 // first-party event stream. Model output is untrusted: markdown without raw HTML, only http(s)
 // links, opened with noopener noreferrer nofollow. Question text is never logged or stored by
 // the browser; it goes only to the API.
@@ -63,7 +63,7 @@ const markdown: Components = {
 
 export function Answer({ text, streaming }: { text: string; streaming: boolean }) {
   return (
-    <div className={streaming ? "ws-a ws-prose streaming" : "ws-a ws-prose"}>
+    <div className={streaming ? "a prose streaming" : "a prose"}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={markdown}>{text}</ReactMarkdown>
       {streaming && !text ? <p /> : null}
     </div>
@@ -81,16 +81,16 @@ function AnswerTools({ text }: { text: string }) {
     URL.revokeObjectURL(url);
   };
   return (
-    <div className="ws-answer-tools">
+    <div className="answer-tools">
       <button
         type="button"
-        className="ws-icon-btn"
+        className="icon-btn"
         aria-label={copied ? m.conversation.copied : m.conversation.copy}
         onClick={() => void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); })}
       >
         {copied ? <Check size={16} strokeWidth={1.6} /> : <Copy size={16} strokeWidth={1.6} />}
       </button>
-      <button type="button" className="ws-icon-btn" aria-label={m.conversation.download} onClick={download}>
+      <button type="button" className="icon-btn" aria-label={m.conversation.download} onClick={download}>
         <Download size={16} strokeWidth={1.6} />
       </button>
     </div>
@@ -113,6 +113,7 @@ export function Conversation({
   empty,
   suggestions,
   onThread,
+  onTurnEnd,
   largeComposer = false,
 }: {
   threadId?: string | null;
@@ -121,6 +122,8 @@ export function Conversation({
   empty?: React.ReactNode;
   suggestions?: readonly string[];
   onThread?: (id: string) => void;
+  /** Called when a turn ends (done, stopped or failed); the thread's title exists from then. */
+  onTurnEnd?: () => void;
   largeComposer?: boolean;
 }) {
   const [threadId, setThreadId] = useState<string | null>(initialThread);
@@ -174,14 +177,15 @@ export function Conversation({
       setDraft(text);
     } finally {
       abort.current = null;
+      onTurnEnd?.();
     }
-  }, [streaming, threadId, onThread]);
+  }, [streaming, threadId, onThread, onTurnEnd]);
 
   return (
     <>
       {turns.length === 0 ? empty : null}
       {turns.length === 0 && suggestions?.length ? (
-        <div className="ws-suggest">
+        <div className="suggest">
           {suggestions.map((q) => (
             <button key={q} type="button" onClick={() => void ask(q)}>
               <MessageSquare size={16} strokeWidth={1.6} aria-hidden="true" />{q}
@@ -190,23 +194,23 @@ export function Conversation({
         </div>
       ) : null}
       {turns.length > 0 ? (
-        <div className="ws-thread">
+        <div className="thread">
           {turns.map((t) => (
-            <article key={t.id} aria-busy={t.status === "streaming"}>
-              <p className="ws-q"><span className="ws-sr">{m.conversation.you}: </span>{t.question}</p>
+            <article key={t.id} className="turn" aria-busy={t.status === "streaming"}>
+              <p className="q"><span className="sr-only">{m.conversation.you}: </span>{t.question}</p>
               <div aria-live="polite">
                 {t.answer || t.status === "streaming" ? <Answer text={t.answer} streaming={t.status === "streaming"} /> : null}
               </div>
-              {t.status === "streaming" && !t.answer ? <p className="ws-small ws-muted">{m.conversation.streaming}</p> : null}
-              {t.status === "stopped" ? <p className="ws-small ws-muted">{m.conversation.stopped}</p> : null}
+              {t.status === "streaming" && !t.answer ? <p className="t-footnote ink-2">{m.conversation.streaming}</p> : null}
+              {t.status === "stopped" ? <p className="t-footnote ink-2">{m.conversation.stopped}</p> : null}
               {t.status === "done" && t.answer ? <AnswerTools text={t.answer} /> : null}
             </article>
           ))}
         </div>
       ) : null}
-      <div className="ws-dock">
-        {error ? <div className="ws-banner error" role="alert"><span className="grow">{error}</span></div> : null}
-        <div className={error ? "ws-dock-gap" : undefined}>
+      <div className="dock">
+        {error ? <div className="banner error" role="alert"><span className="grow">{error}</span></div> : null}
+        <div className={error ? "gap-top" : undefined}>
           <Composer
             value={draft}
             onChange={setDraft}

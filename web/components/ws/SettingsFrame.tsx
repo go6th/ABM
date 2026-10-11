@@ -6,9 +6,9 @@ import { SettingsNav } from "./SettingsNav";
 export async function SettingsFrame({ children }: { children: React.ReactNode }) {
   const me = await serverGet<Me>("/v1/me");
   return (
-    <div className="ws-settings">
+    <div className="settings">
       <SettingsNav capabilities={me?.capabilities ?? []} admin={me?.role === "admin"} />
-      <div className="ws-settings-page">{children}</div>
+      <div className="settings-page">{children}</div>
     </div>
   );
 }

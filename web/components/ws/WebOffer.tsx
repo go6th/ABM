@@ -29,7 +29,7 @@ export function WebOffer({
     }
   };
   return (
-    <section className="ws-offer" aria-label={m.offer.title}>
+    <section className="offer" aria-label={m.offer.title}>
       <h3><Globe size={16} strokeWidth={1.6} aria-hidden="true" />{m.offer.title}</h3>
       <p>{offer.what}</p>
       <div className="facts">
@@ -39,8 +39,8 @@ export function WebOffer({
         <span>{m.offer.left} <b>{offer.left}</b></span>
       </div>
       <div className="actions">
-        <button type="button" className="ws-btn web-solid" disabled={busy} onClick={() => void confirm()}>{m.offer.confirm}</button>
-        <button type="button" className="ws-btn quiet" onClick={onStay}>{m.offer.stay}</button>
+        <button type="button" className="btn web-solid" disabled={busy} onClick={() => void confirm()}>{m.offer.confirm}</button>
+        <button type="button" className="btn quiet" onClick={onStay}>{m.offer.stay}</button>
       </div>
     </section>
   );

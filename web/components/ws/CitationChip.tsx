@@ -9,7 +9,7 @@ export function CitationChip({
   return (
     <button
       type="button"
-      className={settle ? "ws-cite settle" : "ws-cite"}
+      className={settle ? "cite settle" : "cite"}
       aria-pressed={pressed}
       aria-label={`${m.evidence.source(n)}, ${m.grade[grade]}`}
       onClick={(e) => onOpen(n, e.currentTarget)}

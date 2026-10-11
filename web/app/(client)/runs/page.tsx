@@ -1,19 +1,29 @@
 "use client";
-
-import { Activity, ArrowUpRight } from "lucide-react";
+// Research runs: one page of runs from the API with search and a status filter applied to that
+// page. Status and label come from the API as they are; nothing is inferred.
+import { Activity, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { DataTable, EmptyState, Input, type DataColumn } from "@/design/components";
-import { SignedIn } from "@/components/SignedIn";
+import { DataTable, type DataColumn } from "@/ui/DataTable";
+import { Input } from "@/ui/Input";
+import { SignedIn } from "@/ui/SignedIn";
+import { Badge, EmptyState, LoadError, Monogram, PageHead } from "@/ui/primitives";
 import type { RunListItem, RunPage } from "@/lib/gen/api.gen";
 import { cellText } from "@/lib/render";
+import { runState } from "@/lib/ws-format";
 import { useApi } from "@/lib/useApi";
 
 function formattedDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
-    ? "—"
+    ? "Unknown"
     : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function StatusBadge({ run }: { run: RunListItem }) {
+  const state = runState(run.status);
+  const tone = state === "done" ? "mint" : state === "running" ? "peri" : state === "failed" ? "rose" : "butter";
+  return <Badge tone={tone} dot>{cellText(run.label)}</Badge>;
 }
 
 function ResearchRunList() {
@@ -41,118 +51,85 @@ function ResearchRunList() {
       key: "account",
       header: "Account",
       render: (run) => (
-        <Link className="client-account-name" href={`/accounts/${encodeURIComponent(run.domain)}`}>
-          <strong>{cellText(run.domain)}</strong>
-          <span>{cellText(run.run_id)}</span>
+        <Link className="row nowrap" href={`/accounts/${encodeURIComponent(run.domain)}`}>
+          <Monogram name={run.domain} />
+          <span className="truncate"><span className="strong">{cellText(run.domain)}</span><br /><span className="t-caption ink-2 mono">{cellText(run.run_id)}</span></span>
         </Link>
       ),
     },
-    { key: "status", header: "Status", render: (run) => cellText(run.label) },
-    { key: "started", header: "Started", render: (run) => formattedDate(run.created_at) },
+    { key: "status", header: "Status", render: (run) => <StatusBadge run={run} /> },
+    { key: "started", header: "Started", render: (run) => <span className="nowrap">{formattedDate(run.created_at)}</span> },
     {
       key: "details",
       header: "Details",
-      render: (run) => (
-        <Link className="client-row-link" href={`/runs/${encodeURIComponent(run.run_id)}`}>
-          Open run <ArrowUpRight aria-hidden="true" />
-        </Link>
-      ),
+      render: (run) => <Link className="btn sm" href={`/runs/${encodeURIComponent(run.run_id)}`}>Open run</Link>,
     },
   ];
 
   return (
-    <div className="client-dashboard">
-      <section className="client-dashboard-heading">
-        <div>
-          <p className="eyebrow">RESEARCH ACTIVITY</p>
-          <h1>Research runs</h1>
-          <p className="secondary">Review actual run states and open the corresponding execution details.</p>
-        </div>
-      </section>
-
-      <section className="client-accounts-panel" aria-label="Research run history">
-        <div className="client-list-heading">
-          <div>
-            <h2>Run history</h2>
-            <p className="secondary">The API status and label are shown without inferred progress or transitions.</p>
-          </div>
-          <div className="runs-filters">
-            <Input
-              label="Search this page"
-              type="search"
-              value={search}
-              placeholder="Account, run ID, or label"
-              onChange={(event) => setSearch(event.target.value)}
-            />
-            <label className="field">
-              <span className="label">Status on this page</span>
-              <select className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+    <div className="content">
+      <PageHead title="Research runs" sub="Every research run in this workspace, with the state the service reports." />
+      {page.error ? <LoadError reference={null} retryHref="/runs" /> : page.data?.runs.length === 0 && !cursor ? (
+        <EmptyState
+          title="No research activity yet"
+          body="Refresh an account from the web to start a run. It appears here with its state."
+          icon={<Activity size={20} strokeWidth={1.8} />}
+          action={{ href: "/accounts", label: "Go to accounts" }}
+        />
+      ) : (
+        <>
+          <div className="form-row toolbar">
+            <Input label="Search this page" type="search" value={search} placeholder="Account, run ID or label" onChange={(event) => setSearch(event.target.value)} />
+            <div className="field">
+              <label htmlFor="run-status">Status on this page</label>
+              <select id="run-status" className="select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
                 <option value="">All statuses</option>
                 {statuses.map((status) => <option key={status} value={status}>{cellText(status)}</option>)}
               </select>
-            </label>
+            </div>
           </div>
-        </div>
-
-        {page.error ? (
-          <div className="client-data-state error-box" role="alert">
-            <strong>Research runs could not be loaded</strong>
-            <p>{page.error.detail}</p>
-            <button className="btn" type="button" onClick={page.reload}>Try again</button>
-          </div>
-        ) : (
-          <>
-            {page.data?.runs.length === 0 ? (
-              <EmptyState
-                title="No research activity yet"
-                description="Start a run from an account workspace to see its actual execution state here."
-                icon={<Activity aria-hidden="true" />}
-              />
-            ) : (
-              <DataTable
-                caption="Research runs"
-                columns={columns}
-                rows={filteredRuns}
-                rowKey={(run) => run.run_id}
-                loading={!page.data}
-                emptyMessage="No runs on this page match the filters."
-              />
-            )}
-            {page.data ? (
-              <div className="client-pagination" aria-label="Research run pages">
-                <span className="muted">Filtering applies to this page of results.</span>
-                <div className="design-swatch-row">
-                  <button
-                    className="btn sm"
-                    type="button"
-                    disabled={history.length === 0}
-                    onClick={() => {
-                      const nextHistory = [...history];
-                      const previous = nextHistory.pop() ?? null;
-                      setHistory(nextHistory);
-                      setCursor(previous);
-                    }}
-                  >
-                    Previous
-                  </button>
-                  <button
-                    className="btn sm"
-                    type="button"
-                    disabled={!page.data.next_cursor}
-                    onClick={() => {
-                      if (!page.data?.next_cursor) return;
-                      setHistory((items) => [...items, cursor]);
-                      setCursor(page.data.next_cursor);
-                    }}
-                  >
-                    Next
-                  </button>
-                </div>
+          <DataTable
+            caption="Research runs"
+            columns={columns}
+            rows={filteredRuns}
+            rowKey={(run) => run.run_id}
+            loading={!page.data}
+            emptyMessage="No runs on this page match the filters."
+          />
+          {page.data ? (
+            <div className="table-foot" aria-label="Research run pages">
+              <span>Search and status apply to this page of results.</span>
+              <div className="row">
+                <button
+                  className="btn sm"
+                  type="button"
+                  disabled={history.length === 0}
+                  onClick={() => {
+                    const nextHistory = [...history];
+                    const previous = nextHistory.pop() ?? null;
+                    setHistory(nextHistory);
+                    setCursor(previous);
+                  }}
+                >
+                  <ChevronLeft size={16} aria-hidden="true" />Previous
+                </button>
+                <button
+                  className="btn sm"
+                  type="button"
+                  disabled={!page.data.next_cursor}
+                  onClick={() => {
+                    if (!page.data?.next_cursor) return;
+                    setHistory((items) => [...items, cursor]);
+                    setCursor(page.data.next_cursor);
+                  }}
+                >
+                  Next<ChevronRight size={16} aria-hidden="true" />
+                </button>
               </div>
-            ) : null}
-          </>
-        )}
-      </section>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

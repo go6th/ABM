@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import type { AccountPage, Me } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { AccountList } from "@/components/ws/AccountList";
-import { LoadError } from "@/components/ws/States";
+import { LoadError, PageHead } from "@/ui/primitives";
 import { m } from "@/lib/messages";
 
 export const dynamic = "force-dynamic";
@@ -21,13 +21,8 @@ export default async function Accounts() {
   const accounts = page?.accounts ?? [];
   const limit = me?.plan_limits.accounts ?? 0;
   return (
-    <div className="ws-wide">
-      <div className="ws-head">
-        <div>
-          <h1 className="ws-display">{m.accounts.title}</h1>
-          <p className="sub">{m.accounts.sub(accounts.length)}</p>
-        </div>
-      </div>
+    <div className="content">
+      <PageHead title={m.accounts.title} sub={m.accounts.sub(accounts.length)} />
       {reference !== undefined ? <LoadError reference={reference} retryHref="/accounts" /> : (
         <Suspense>
           <AccountList accounts={accounts} atCap={limit > 0 && accounts.length >= limit} canAdd={me?.capabilities.includes("runs:create") ?? false} />

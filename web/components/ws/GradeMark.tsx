@@ -26,12 +26,12 @@ export function GradeMark({ grade, showLabel = true }: { grade: Grade; showLabel
   const fill = FILL[grade];
   const label = m.grade[grade];
   return (
-    <span className="ws-grade" data-grade={grade} title={m.grade.help[grade]}>
+    <span className="grade" data-grade={grade} title={m.grade.help[grade]}>
       <svg viewBox="0 0 10 10" aria-hidden="true" focusable="false">
         <circle className="ring" cx="5" cy="5" r="4.3" />
         {fill >= 1 ? <circle className="wedge" cx="5" cy="5" r="3.2" /> : <path className="wedge" d={wedgePath(fill)} />}
       </svg>
-      {showLabel ? <span>{label}</span> : <span className="ws-sr">{label}</span>}
+      {showLabel ? <span>{label}</span> : <span className="sr-only">{label}</span>}
     </span>
   );
 }

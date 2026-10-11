@@ -46,7 +46,7 @@ export function Badge({ tone, dot, children }: { tone?: Tone; dot?: boolean; chi
 
 const BANNER_ICON = { info: Info, success: CheckCircle2, warn: TriangleAlert, error: AlertCircle, web: Info, neutral: Info } as const;
 
-export function Banner({ kind = "info", title, children, action, role }: { kind?: keyof typeof BANNER_ICON; title?: ReactNode; children?: ReactNode; action?: ReactNode; role?: "alert" | "status" }) {
+export function Banner({ kind = "info", title, children, action, role }: { kind?: keyof typeof BANNER_ICON; title?: ReactNode; children?: ReactNode; action?: ReactNode; role?: "alert" | "status" | "note" }) {
   const Icon = BANNER_ICON[kind];
   return (
     <div className={cx("banner", kind)} role={role ?? (kind === "error" ? "alert" : undefined)}>

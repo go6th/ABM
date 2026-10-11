@@ -71,3 +71,7 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
   *, *::before, *::after { animation-duration: 120ms !important; animation-iteration-count: 1 !important; transition-duration: 0ms !important; scroll-behavior: auto !important; }
   .page-enter { animation-name: fade-in; }
 }
+
+fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+legend { padding: 0; }
+ul.row, ol.row, ul.stack, ol.stack, ul.group, ol.group { list-style: none; margin: 0; padding: 0; }

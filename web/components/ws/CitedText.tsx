@@ -28,7 +28,7 @@ export function CitedText({
         return (
           <Fragment key={i}>
             {head}
-            <span className="ws-nowrap">
+            <span className="nowrap">
               {tail}
               <CitationChip n={next.n} grade={next.grade} pressed={pressed === next.n} onOpen={onOpen} settle={settle} />
             </span>

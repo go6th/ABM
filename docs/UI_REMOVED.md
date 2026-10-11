@@ -26,7 +26,9 @@ in `docs/UI_BACKEND_AUDIT.md`). Nothing here was backed by a working operation.
 | `web/design/ws/ws.css` | The Evidence workspace styles, superseded by `web/ui/*` |
 | `web/design/fonts/` and the `@fontsource-variable/*` packages (Hanken Grotesk, Source Serif 4, Fraunces, Inter, JetBrains Mono) | The system font stack plus one self-hosted Inter variable file |
 | `web/public/theme-init.js` | Forced light mode with a script; the theme now comes from the `ai_theme` cookie on the server |
-| `web/components/AccountNavigation.tsx`, `Progress.tsx`, `Feedback.tsx`, `SignedIn.tsx`, `SignOutButton.tsx` | Old account tabs, progress, feedback, sign-in gate and sign-out button; their behaviour lives in the rebuilt screens |
+| `web/components/AccountNavigation.tsx`, `SignOutButton.tsx` | Old account tabs and sign-out button; the Deep dive tabs and the account menu replace them |
+| `web/components/Progress.tsx`, `Feedback.tsx`, `SignedIn.tsx`, `web/components/ws/States.tsx` | Moved to `web/ui/RunProgress.tsx`, `ui/Feedback.tsx`, `ui/SignedIn.tsx` and `ui/primitives.tsx` with the new markup; same behaviour |
+| `web/tests/unit/ws-tokens.test.ts` | Tested the deleted token pipeline; `tests/unit/ui-tokens.test.ts` covers the new tokens |
 | Liquid Glass and Claude-styled layers (`components/motion/*`, `ClientShell.tsx`, `AdminOverview.tsx`, `design/motion.css`, `design/claude.css`, `ThemeToggle.tsx`) | Removed earlier on this branch (b865997) |
 
 The search that proves nothing references the removed code is recorded in the final report.

@@ -4,7 +4,8 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Building2, Plus, Search } from "lucide-react";
+import { EmptyState, Monogram } from "@/ui/primitives";
 import type { AccountItem } from "@/lib/gen/api.gen";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
 import { m } from "@/lib/messages";
@@ -44,21 +45,21 @@ function AddAccount({ atCap }: { atCap: boolean }) {
     }
   };
   return (
-    <form className="ws-add" id="add" onSubmit={(e) => void submit(e)} aria-labelledby="add-title">
-      <h2 id="add-title" className="ws-label">{m.nav.add}</h2>
+    <form className="add-account" id="add" onSubmit={(e) => void submit(e)} aria-labelledby="add-title">
+      <h2 id="add-title" className="strong">{m.nav.add}</h2>
       <div className="line">
-        <label className="ws-sr" htmlFor="add-domain">{m.addAccount.label}</label>
+        <label className="sr-only" htmlFor="add-domain">{m.addAccount.label}</label>
         <input
-          id="add-domain" className="ws-input" inputMode="url" autoComplete="off" spellCheck={false}
+          id="add-domain" className="input" inputMode="url" autoComplete="off" spellCheck={false}
           placeholder={m.addAccount.placeholder} value={domain} disabled={atCap}
           onChange={(e) => setDomain(e.target.value)}
         />
-        <button className="ws-btn primary" type="submit" disabled={atCap || busy || !domain.trim()}>
+        <button className="btn primary" type="submit" disabled={atCap || busy || !domain.trim()}>
           <Plus size={16} strokeWidth={1.8} aria-hidden="true" />{m.nav.add}
         </button>
       </div>
-      {atCap ? <p className="ws-small ws-muted">{m.cap.full}</p> : <p className="ws-small ws-muted">{m.addAccount.hint}</p>}
-      {error ? <p className="ws-small ws-error" role="alert">{error}</p> : null}
+      {atCap ? <p className="t-footnote ink-2">{m.cap.full}</p> : <p className="t-footnote ink-2">{m.addAccount.hint}</p>}
+      {error ? <p className="t-footnote inline-error" role="alert">{error}</p> : null}
     </form>
   );
 }
@@ -86,37 +87,40 @@ export function AccountList({ accounts, atCap, canAdd }: { accounts: AccountItem
   return (
     <>
       {accounts.length > 0 ? (
-        <div className="ws-toolbar">
-          <div className="ws-search">
+        <div className="toolbar">
+          <div className="search">
             <Search size={16} strokeWidth={1.6} aria-hidden="true" />
             <input
-              className="ws-input" type="search" aria-label={m.accounts.search} placeholder={m.accounts.search}
+              className="input" type="search" aria-label={m.accounts.search} placeholder={m.accounts.search}
               value={query} onChange={(e) => { setQuery(e.target.value); setParam("q", e.target.value || null); }}
             />
           </div>
-          <div className="ws-seg" role="group" aria-label={m.accounts.sortLabel}>
+          <div className="seg" role="group" aria-label={m.accounts.sortLabel}>
             <button type="button" aria-pressed={sort === "recent"} onClick={() => setParam("sort", null)}>{m.accounts.sortRecent}</button>
             <button type="button" aria-pressed={sort === "name"} onClick={() => setParam("sort", "name")}>{m.accounts.sortName}</button>
           </div>
         </div>
       ) : null}
       {accounts.length === 0 ? (
-        <div className="ws-empty"><h3>{m.accounts.emptyTitle}</h3><p>{m.accounts.emptyBody}</p></div>
+        <EmptyState title={m.accounts.emptyTitle} body={m.accounts.emptyBody} icon={<Building2 size={20} strokeWidth={1.8} />} />
       ) : shown.length === 0 ? (
-        <p className="ws-muted">{m.accounts.noMatch(query.trim())}</p>
+        <p className="ink-2">{m.accounts.noMatch(query.trim())}</p>
       ) : (
-        <ul className="ws-rows">
+        <ul className="rows">
           {shown.map((a) => {
             const line = stateLine(a);
             return (
               <li key={a.domain}>
-                <Link className="ws-row" href={`/accounts/${encodeURIComponent(a.domain)}`}>
-                  <div>
-                    <p className="name">{cellText(a.name ?? a.domain)}</p>
-                    <p className="context">{a.name ? cellText(a.domain) : m.accounts.noProfile}</p>
+                <Link className="list-row" href={`/accounts/${encodeURIComponent(a.domain)}`}>
+                  <div className="lead">
+                    <Monogram name={a.domain} />
+                    <div className="truncate">
+                      <p className="name">{cellText(a.name ?? a.domain)}</p>
+                      <p className="context">{a.name ? cellText(a.domain) : m.accounts.noProfile}</p>
+                    </div>
                   </div>
                   <div className="meta">
-                    <span className={line.tone ? `ws-state ${line.tone}` : "ws-state"}>{line.text}</span>
+                    <span className={line.tone ? `state ${line.tone}` : "state"}>{line.text}</span>
                   </div>
                 </Link>
               </li>

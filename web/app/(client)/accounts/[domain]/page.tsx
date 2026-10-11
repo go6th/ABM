@@ -8,7 +8,7 @@ import { RefreshDialog } from "@/components/ws/RefreshDialog";
 import { RunStatus } from "@/components/ws/RunStatus";
 import { AccountAsk } from "@/components/ws/AccountAsk";
 import { Downloads } from "@/components/ws/Downloads";
-import { Empty, LoadError } from "@/components/ws/States";
+import { Banner, EmptyState, LoadError, Monogram } from "@/ui/primitives";
 import { m } from "@/lib/messages";
 import { day, humanize, runState } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
@@ -41,11 +41,11 @@ export default async function AccountWorkspace({ params }: { params: Promise<{ d
     if (!(e instanceof ServerApiError)) throw e;
     reference = e.reference;
   }
-  if (reference !== undefined) return <div className="ws-column"><LoadError reference={reference} retryHref={here} /></div>;
+  if (reference !== undefined) return <div className="reading"><LoadError reference={reference} retryHref={here} /></div>;
   if (!account) {
     return (
-      <div className="ws-column">
-        <Empty title={m.workspace.notFoundTitle} body={m.workspace.notFoundBody} action={{ href: "/accounts", label: m.workspace.backToAccounts }} />
+      <div className="reading">
+        <EmptyState title={m.workspace.notFoundTitle} body={m.workspace.notFoundBody} action={{ href: "/accounts", label: m.workspace.backToAccounts }} />
       </div>
     );
   }
@@ -63,50 +63,53 @@ export default async function AccountWorkspace({ params }: { params: Promise<{ d
   const changed = (history?.history ?? []).slice(0, 5);
 
   return (
-    <div className="ws-column account">
-      <div className="ws-head">
+    <div className="content">
+      <div className="account-head">
+        <Monogram name={account.domain} />
         <div>
-          <h1 className="ws-display">{cellText(name)}</h1>
+          <h1>{cellText(name)}</h1>
           <p className="sub">
             {account.name ? <>{cellText(account.domain)}. </> : null}
             {lastDone ? m.workspace.refreshed(day(lastDone.finished_at ?? lastDone.created_at)) : m.workspace.notResearched}
           </p>
         </div>
         {me?.capabilities.includes("runs:create") ? (
-          <RefreshDialog domain={account.domain} disabled={active !== null} pursuing={settings?.settings.pursuing_client ?? null} />
+          <div className="actions">
+            <RefreshDialog domain={account.domain} disabled={active !== null} pursuing={settings?.settings.pursuing_client ?? null} />
+          </div>
         ) : null}
       </div>
       <DeepDiveLinks domain={account.domain} />
 
-      {active ? <div className="ws-block"><RunStatus runId={active.run_id} startedAt={active.created_at} /></div> : null}
-      {!active && lastFailed ? <div className="ws-block"><p className="ws-banner error ws-small" role="status">{m.workspace.runFailed}</p></div> : null}
+      {active ? <div className="block-gap"><RunStatus runId={active.run_id} startedAt={active.created_at} /></div> : null}
+      {!active && lastFailed ? <div className="block-gap"><Banner kind="error" role="status">{m.workspace.runFailed}</Banner></div> : null}
 
-      <section className="ws-section" aria-labelledby="known">
+      <section className="section" aria-labelledby="known">
         <h2 id="known">{m.workspace.known}</h2>
         {known.length ? (
-          <ul className="ws-facts">
+          <ul className="facts">
             {known.map((f) => (
               <li key={f.id}>
                 <GradeMark grade={f.grade!} />
                 <div>
                   <p className="claim">{f.finding}</p>
-                  {f.grade === "hypothesis" && f.question ? <p className="ws-small ws-muted">{f.question}</p> : null}
+                  {f.grade === "hypothesis" && f.question ? <p className="t-footnote ink-2">{f.question}</p> : null}
                 </div>
               </li>
             ))}
           </ul>
-        ) : <p className="ws-muted">{m.workspace.knownEmpty}</p>}
+        ) : <p className="ink-2">{m.workspace.knownEmpty}</p>}
       </section>
 
       {lastDone ? (
-        <section className="ws-section" aria-labelledby="changed">
+        <section className="section" aria-labelledby="changed">
           <h2 id="changed">{m.workspace.changed}</h2>
           {changed.length ? (
-            <ul className="ws-rows">
+            <ul className="rows">
               {changed.map((c) => {
                 const grade = toGrade(c.grade);
                 return (
-                  <li key={c.fact_id} className="ws-row">
+                  <li key={c.fact_id} className="list-row">
                     <div>
                       <p>{humanize(c.signal_type)}{c.attribute ? `: ${cellText(c.attribute, 120)}` : ""}</p>
                       <p className="context">{cellText(c.reason, 200)}</p>
@@ -116,7 +119,7 @@ export default async function AccountWorkspace({ params }: { params: Promise<{ d
                 );
               })}
             </ul>
-          ) : <p className="ws-muted">{m.workspace.changedEmpty}</p>}
+          ) : <p className="ink-2">{m.workspace.changedEmpty}</p>}
         </section>
       ) : null}
 

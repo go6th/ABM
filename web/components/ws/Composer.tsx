@@ -28,10 +28,10 @@ export function Composer({
   return (
     <div>
       <form
-        className={large ? "ws-composer large" : "ws-composer"}
+        className={large ? "composer large" : "composer"}
         onSubmit={(e) => { e.preventDefault(); if (canSend) onSend(); }}
       >
-        <label className="ws-sr" htmlFor="ws-question">{m.composer.label}</label>
+        <label className="sr-only" htmlFor="ws-question">{m.composer.label}</label>
         <textarea
           id="ws-question"
           ref={ref}
@@ -49,16 +49,16 @@ export function Composer({
           }}
         />
         {streaming && onStop ? (
-          <button type="button" className="ws-send stop" aria-label={m.composer.stop} onClick={onStop}>
+          <button type="button" className="send stop" aria-label={m.composer.stop} onClick={onStop}>
             <Square size={14} strokeWidth={2} fill="currentColor" aria-hidden="true" />
           </button>
         ) : (
-          <button type="submit" className="ws-send" aria-label={m.composer.send} disabled={!canSend}>
+          <button type="submit" className="send" aria-label={m.composer.send} disabled={!canSend}>
             <ArrowUp size={18} strokeWidth={1.8} aria-hidden="true" />
           </button>
         )}
       </form>
-      {note ? <p className="ws-composer-note">{m.composer.note}</p> : null}
+      {note ? <p className="composer-note">{m.composer.note}</p> : null}
     </div>
   );
 }

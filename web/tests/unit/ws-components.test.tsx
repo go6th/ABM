@@ -27,7 +27,7 @@ const EVIDENCE: Evidence[] = [
 test("grade marks always carry the plain label and never a raw score", () => {
   render(<><GradeMark grade="probable" /><GradeMark grade="lead" showLabel={false} /></>);
   expect(screen.getByText("Probable")).toBeTruthy();
-  expect(screen.getByText("Lead").className).toBe("ws-sr");
+  expect(screen.getByText("Lead").className).toBe("sr-only");
   expect(toGrade("Confirmed")).toBe("confirmed");
   expect(toGrade("A")).toBeNull();
   expect(toGrade(0.82)).toBeNull();
@@ -39,7 +39,7 @@ function Harness() {
   const [open, setOpen] = useState<number | null>(null);
   const [chip, setChip] = useState<HTMLButtonElement | null>(null);
   return (
-    <div id="ws-root">
+    <div>
       <p><CitedText text="The team leads it [1]. Funding is likely [2]. Unknown [7]." evidence={EVIDENCE} pressed={open} onOpen={(n, el) => { setChip(el); setOpen(n); }} /></p>
       <EvidenceDrawer items={EVIDENCE} open={open} onOpenChange={setOpen} onPick={setOpen} returnFocus={chip} />
     </div>

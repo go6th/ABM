@@ -1,10 +1,8 @@
-import "@fontsource-variable/hanken-grotesk/wght.css";
-import "@fontsource-variable/source-serif-4/wght.css";
-import "@/design/ws/ws.css";
 import { redirect } from "next/navigation";
 import { AccountPage, Me } from "@/lib/gen/api.gen";
 import { serverGet } from "@/lib/server-api";
 import { WorkspaceShell } from "@/components/ws/WorkspaceShell";
+import { currentTheme } from "@/ui/theme-server";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +18,7 @@ export default async function ClientLayout({ children }: { children: React.React
       email={me.email}
       used={accounts?.accounts.length ?? 0}
       limit={limit}
+      theme={await currentTheme()}
     >
       {children}
     </WorkspaceShell>
