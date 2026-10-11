@@ -263,7 +263,6 @@ class AnthropicChatProvider:
         async with self._client.messages.stream(
             model=model.id,
             max_tokens=max_output_tokens,
-            temperature=0.75,
             system=system_instruction,
             messages=request_messages,
         ) as stream:
