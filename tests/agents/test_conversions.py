@@ -44,9 +44,9 @@ def test_conversion_trigger_is_a_typed_request() -> None:
 
 @pytest.mark.asyncio
 async def test_conversion_cap_confirmation_is_setting_plus_approval(h: Harness) -> None:
-    h.settings.settings = TenantAgentSettings(pursuing_client=None, lanes=())
+    h.settings.settings = TenantAgentSettings(pursuing_client=None, lanes=("cobol",))
     _, state = await h.run("a")
-    assert state["error_code"] == "invalid_setup"  # pursuing client is a required setting
+    assert state["error_code"] == "invalid_setup"  # lanes must be skill lanes
     h.settings.settings = TenantAgentSettings(pursuing_client="Partner", lanes=("salesforce",))
     record = await h.start("b", attended=True, budget=None)
     await h.service.execute(h.tenant, record.run_id)

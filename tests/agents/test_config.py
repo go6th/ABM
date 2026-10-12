@@ -120,7 +120,7 @@ def test_skill_facts_from_the_guide() -> None:
         "delivery",
     )
     assert cfg.salesforce_includes == ("MuleSoft",)  # D-100, guide S14
-    assert cfg.consent_text_version is None  # D-97: no approved text yet
+    assert cfg.consent_text_version == "pdc-1"  # D-97: approved by the product owner 2026-10-12
     assert cfg.internal_history_default is False  # D-98
     assert cfg.update_channel == "repository"  # D-101
     assert (cfg.min_phrasings, cfg.min_tool_categories) == (3, 2)

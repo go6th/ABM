@@ -56,7 +56,9 @@ class ConnectorPostingSource(_Calls):
 
     def __init__(self, deps: Any, careers_host: str | None) -> None:
         super().__init__(deps)
-        self.careers_host = careers_host
+        # a verified host is often "www.<domain>"; search filters take the bare lowercase host
+        host = (careers_host or "").strip().lower().removeprefix("www.")
+        self.careers_host = host or None
 
     async def search_board(self, lane: str, keyword: str) -> SourceBatch:
         """One live board search for a lane keyword on the verified careers host."""
@@ -92,8 +94,12 @@ class ConnectorPostingSource(_Calls):
         )
 
     async def pull_window(self, start: date, end: date) -> SourceBatch:
-        """The job openings feed, pulled once (replayed from the ledger on re-entry)."""
-        result = await self.call(Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain))
+        """The job openings feed for the window, pulled once (replayed from the ledger on
+        re-entry). Postings first seen before ``start`` are not asked for: without the bound the
+        feed pages through the account's whole history and stops at the page cap."""
+        result = await self.call(
+            Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain, since=start)
+        )
         rows = []
         for record in result.records:
             if not isinstance(record, JobOpeningRecord):

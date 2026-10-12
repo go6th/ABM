@@ -16,13 +16,15 @@ phrasings:
     - "{account} {topic} {year}"
 
 # step: pass1 | pass2 | people (guide S3). need: config/routing.yaml routes[].need.
-# people: true marks a people pull (G8 consent). internal_history: true marks the Pass 1 rows the
+# people: true marks a people pull (G8 consent). Profile and post rows search the open web for the
+# account's people (profile_enrichment needs the p_people grid contract and profile URLs; 2026-10-12).
+# internal_history: true marks the Pass 1 rows the
 # skill searched in mail, call notes and Drive (guide S20); that part is off by default (D-98).
 rows:
   prior_customer_status:        {step: pass1,  need: web_search, internal_history: true}
   connections_alumni:           {step: pass1,  need: web_search, internal_history: true}
   platform_vendor_account_team: {step: pass1,  need: web_search}
-  key_contact_profiles_posts:   {step: pass1,  need: profile_enrichment, people: true}
+  key_contact_profiles_posts:   {step: pass1,  need: web_search, people: true}
   basic_fit_check:              {step: pass1,  need: web_search}
   company_news:                 {step: pass2,  need: structured_signals}
   earnings_filings:             {step: pass2,  need: web_search}
@@ -32,8 +34,8 @@ rows:
   job_postings_12_months:       {step: pass2,  need: structured_signals}
   technology_detections:        {step: pass2,  need: structured_signals}
   people_by_platform:           {step: people, need: people_by_technology, people: true}
-  full_profiles_senior_people:  {step: people, need: profile_enrichment, people: true}
-  posts_priority_people:        {step: people, need: profile_enrichment, people: true}
+  full_profiles_senior_people:  {step: people, need: web_search, people: true}
+  posts_priority_people:        {step: people, need: web_search, people: true}
   executive_voice_earnings:     {step: pass2,  need: web_search}
   financial_baseline_verified:  {step: pass2,  need: web_search}
   vendor_customer_stories:      {step: pass2,  need: web_search}

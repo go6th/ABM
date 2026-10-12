@@ -4,5 +4,20 @@
 services:
   api:
     env_file: [{ path: .env, required: true }]
+    # compose.yml's `environment` outranks env_file, so the hermetic CONNECTORS=off is undone here
+    environment:
+      PUBLIC_BASE_URL: http://localhost:3000
+      CONNECTORS: "on"
+      # no credit cap on new runs: each keeps RUN_BUDGET_USD (src/account_intelligence/dev_limits.py)
+      DEV_UNCAPPED: "1"
   worker:
     env_file: [{ path: .env, required: true }]
+    environment:
+      PUBLIC_BASE_URL: http://localhost:3000
+      CONNECTORS: "on"
+      # unattended local runs: no balance endpoint exists yet and no local admin can sign in
+      # (password login refuses admins without MFA), so fund providers and auto-approve caps
+      DEV_ASSUME_PROVIDER_BALANCE: "1"
+      DEV_AUTO_APPROVE_CAPS: "1"
+      # read everything: pagination, job, people and agent caps lifted (dev_limits.py)
+      DEV_UNCAPPED: "1"

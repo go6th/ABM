@@ -18,6 +18,7 @@ from account_intelligence.config import CONFIG_DIR
 from account_intelligence.grading.config import EngineGrade, GradingConfig, ProductGrade
 from account_intelligence.grading.errors import ConfigError, JudgeUnavailable, NotConfigured
 from account_intelligence.grading.ports import SupportJudgePort
+from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 
 
 class JudgeVerdict(BaseModel):
@@ -88,7 +89,14 @@ async def call_judge(
         attempts += 1
         try:
             raw = await port.judge(claim, sentence)
-        except (NotConfigured, JudgeUnavailable, TimeoutError, ConnectionError, OSError):
+        except (
+            NotConfigured,
+            PlatformNotConfigured,
+            JudgeUnavailable,
+            TimeoutError,
+            ConnectionError,
+            OSError,
+        ):
             return JudgeResult("unavailable", attempts, "judge_unavailable")
         try:
             verdict = JudgeVerdict.model_validate(raw)

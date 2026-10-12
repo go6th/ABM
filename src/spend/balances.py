@@ -10,7 +10,8 @@ GUARANTEE(test_balances_unknown_when_not_configured): no balance is ever guessed
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
+from decimal import Decimal
 
 from spend.errors import BalanceUnknown, NotConfigured
 from spend.models import BalanceSnapshot
@@ -38,6 +39,23 @@ async def preflight(
                 taken_at=now,
             )
     return out
+
+
+class DevAssumedBalances:
+    """Local stack only (``DEV_ASSUME_PROVIDER_BALANCE=1`` with ``APP_ENV=dev``): every provider
+    reads ``ok`` so its rows are funded. The figure is nominal (unit ``dev_assumed``, the snapshot
+    table requires one on ``ok``); the source names the assumption."""
+
+    async def balance(self, provider_code: str) -> BalanceSnapshot:
+        """An ``ok`` snapshot with a nominal, labelled figure."""
+        return BalanceSnapshot(
+            provider_code=provider_code,
+            status="ok",
+            balance=Decimal("1000000"),
+            unit="dev_assumed",
+            source="dev assumption: DEV_ASSUME_PROVIDER_BALANCE",
+            taken_at=datetime.now(UTC),
+        )
 
 
 class UnconfiguredBalances:

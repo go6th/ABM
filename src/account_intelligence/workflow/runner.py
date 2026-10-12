@@ -13,7 +13,8 @@ One slice:
    (defect 8: the timeout cancels and refunds, it never loops into the same interrupt); a cap
    pause interrupt (parallel execution, D-45) waits the same way with ``awaiting_kind = 'cap'``,
    and its timeout records the decline and resumes the run to end BUDGET_EXCEEDED;
-4. a slice that runs out of time enqueues the next slice (named task, idempotent);
+4. a slice that runs out of time enqueues the next slice (named task, idempotent) after it
+   released the run lease;
 5. a finished graph ends the run through ``lifecycle.finish``: BUDGET_EXCEEDED when the cap was
    hit, PARTIAL with the reason when builders or the gate did not pass, else COMPLETED (which the
    tracker guard still refuses if a row is open);
@@ -23,6 +24,7 @@ One slice:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
@@ -35,6 +37,7 @@ from sqlalchemy import text
 
 from account_intelligence.agents.prompts import prompts_hash
 from account_intelligence.connectors.errors import LeaseUnavailable
+from account_intelligence.connectors.governance import SlotUnavailable
 from account_intelligence.platform.ports import RunScheduler
 from account_intelligence.runs import lifecycle
 from account_intelligence.workflow.deps import RunDeps
@@ -185,7 +188,7 @@ async def execute_slice(
             return SliceOutcome("busy", (await _status(deps)).value)
         owner = deps.connectors.worker_id
     try:
-        return await _slice(
+        outcome = await _slice(
             deps,
             checkpointer,
             scheduler,
@@ -199,6 +202,42 @@ async def execute_slice(
     finally:
         if owner is not None and deps.connectors is not None:
             await deps.connectors.ledger.release_lease(deps.call_context(), owner)
+    if outcome.outcome == "continue":
+        # only after the release: the next slice takes a fresh lease epoch, so a call this slice's
+        # timeout cut off reads as abandoned, never as still in flight
+        await scheduler.enqueue_slice(tenant_id, run_id, slice_no + 1)
+    return outcome
+
+
+CANCEL_POLL_S = 10.0
+
+
+async def _drive(graph: Any, graph_input: Any, config: Mapping[str, Any], deps: RunDeps) -> bool:
+    """Run the graph; True when the run was canceled. The status is read after every update and
+    every ``CANCEL_POLL_S`` inside a long node, so a canceled run stops calling providers within
+    seconds instead of when its node ends."""
+
+    async def stream() -> bool:
+        async for _ in graph.astream(graph_input, config, stream_mode="updates"):
+            if await _status(deps) is RunStatus.CANCELED:
+                return True
+        return False
+
+    task = asyncio.create_task(stream())
+    try:
+        # LOOP(cancel watch): one status read per CANCEL_POLL_S; exit=graph done, canceled, or the
+        # slice timeout around it
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=CANCEL_POLL_S)
+            if done:
+                return task.result()
+            if await _status(deps) is RunStatus.CANCELED:
+                return True
+    finally:
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 async def _slice(
@@ -246,11 +285,11 @@ async def _slice(
                 graph_input = None
             try:
                 async with asyncio.timeout(settings.slice_seconds):
-                    async for _ in graph.astream(graph_input, config, stream_mode="updates"):
-                        if await _status(deps) is RunStatus.CANCELED:
-                            return SliceOutcome("canceled", RunStatus.CANCELED.value)
-            except TimeoutError:
-                await scheduler.enqueue_slice(tenant_id, run_id, slice_no + 1)
+                    if await _drive(graph, graph_input, config, deps):
+                        return SliceOutcome("canceled", RunStatus.CANCELED.value)
+            except (TimeoutError, SlotUnavailable):
+                # a slot the governor could not grant in its bounded wait is queueing, not a
+                # failure: the slice ends like a timeout and the next one re-runs the node
                 return SliceOutcome("continue", (await _status(deps)).value)
             snap = await graph.aget_state(config)
     except Exception as error:

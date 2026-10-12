@@ -2,6 +2,8 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { MailCheck } from "lucide-react";
+import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -22,51 +24,56 @@ export default function ForgotPasswordPage() {
         cache: "no-store",
       });
       if (!response.ok) {
-        setError("Password reset is temporarily unavailable. Please try again later.");
+        setError("Password reset is temporarily unavailable. Try again later.");
         return;
       }
       setSubmitted(true);
     } catch {
-      setError("Password reset is temporarily unavailable. Please try again later.");
+      setError("Password reset is temporarily unavailable. Try again later.");
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <main className="auth-frame">
-      <section className="auth-card surface" aria-labelledby="forgot-title">
-        <p className="eyebrow">Account Intelligence</p>
-        <h1 id="forgot-title">Reset your password</h1>
-        {submitted ? (
-          <p role="status" aria-live="polite">
-            If that address has an active account, a reset link has been sent.
-          </p>
-        ) : (
-          <>
-            <p className="muted">Enter your account email and we’ll send a single-use reset link if eligible.</p>
-            {error ? <p className="error" role="alert">{error}</p> : null}
-            <form onSubmit={requestReset}>
+    <AuthFrame plane="client">
+      <AuthBrand plane="client" />
+      <div>
+        <h1 id="auth-title">Reset your password</h1>
+        {!submitted ? <p className="lede">Enter your work email. If it has an account, we send a single-use reset link.</p> : null}
+      </div>
+      {submitted ? (
+        <div className="banner success" role="status" aria-live="polite">
+          <MailCheck size={18} aria-hidden="true" />
+          <p className="grow">If that address has an active account, a reset link has been sent.</p>
+        </div>
+      ) : (
+        <>
+          {error ? <div className="banner error" role="alert"><p className="grow">{error}</p></div> : null}
+          <form onSubmit={requestReset}>
+            <div className="field">
               <label htmlFor="email">Work email</label>
               <input
                 id="email"
+                className="input"
                 type="email"
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
                 required
                 maxLength={320}
+                placeholder="name@company.com"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
               />
-              <button className="button primary" type="submit" disabled={pending}>
-                {pending ? "Sending…" : "Send reset link"}
-              </button>
-            </form>
-          </>
-        )}
-        <p className="small"><Link href="/login">Return to sign in</Link></p>
-      </section>
-    </main>
+            </div>
+            <button className="btn primary lg block" type="submit" disabled={pending}>
+              {pending ? "Sending" : "Send reset link"}
+            </button>
+          </form>
+        </>
+      )}
+      <p className="auth-links"><Link className="link" href="/login">Return to sign in</Link></p>
+    </AuthFrame>
   );
 }

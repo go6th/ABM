@@ -116,10 +116,12 @@ async def current_proposal(txn: TxnFactory, tenant_id: UUID, run_id: UUID) -> di
     async with txn(tenant_id) as s:
         run = await repo.run_money(s, run_id, lock=False)
         latest = await repo.latest_version(s, run_id) if run is not None else 0
-        if run is None or not latest:
-            return None
-        record = await repo.version_record(s, run_id, latest, run.tenant_id)
-        stored = await repo.proposal_of(s, run_id, latest)
+        record = (
+            await repo.version_record(s, run_id, latest, run.tenant_id)
+            if run is not None and latest
+            else None
+        )
+        stored = await repo.proposal_of(s, run_id, latest) if record is not None else None
     if record is None or stored is None:
         return None
     calls: dict[str, int] = {}

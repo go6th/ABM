@@ -23,9 +23,21 @@ import yaml
 
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.enums import normalize_key
+from account_intelligence.dev_limits import UNCAPPED, dev_uncapped
 from jobs.config import load_jobs_config
 from jobs.errors import ConfigError as JobsConfigError
 from people.errors import ConfigError
+
+# caps that bound how many people, profiles and posts are read: lifted by DEV_UNCAPPED (dev only)
+_BREADTH_CAPS = (
+    "max_people_per_run",
+    "max_pages_per_source",
+    "max_profiles_per_run",
+    "max_posts_per_person",
+    "mention_queries_per_person",
+    "mention_run_cap",
+    "max_extractor_calls",
+)
 
 PRIORITIES = ("A", "B", "C")
 
@@ -100,7 +112,7 @@ class PeopleConfig:
     title_fallback: str
     level_words: dict[str, tuple[str, ...]]
     association_functions: tuple[str, ...]
-    technology_by_lane: dict[str, str]
+    technologies_per_lane: int
     tenure_buckets: tuple[TenureBucket, ...]
     alumni_aliases: dict[str, tuple[str, ...]]
     profile_url: ProfileUrlRule
@@ -264,6 +276,8 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
     for name, cap in rubric["caps"].items():
         _provenance(cap, f"cap {name}")
         caps[str(name)] = float(cap["value"])
+    if dev_uncapped():  # local stack: every person, profile and post (dev_limits)
+        caps.update({k: float(UNCAPPED) for k in _BREADTH_CAPS})
     return PeopleConfig(
         levels_in_scope=levels,
         level_order=order,
@@ -281,9 +295,9 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
         title_fallback=str(fallback["value"]),
         level_words={k: v for k, v in _tuple_map(words).items() if k != "status"},
         association_functions=tuple(str(f) for f in association["functions"]),
-        technology_by_lane={
-            str(k): str(v) for k, v in (association.get("technology_by_lane") or {}).items()
-        },
+        technologies_per_lane=(
+            UNCAPPED if dev_uncapped() else int(association["technologies_per_lane"])
+        ),
         tenure_buckets=buckets,
         alumni_aliases=_tuple_map(alumni.get("aliases")),
         profile_url=ProfileUrlRule(

@@ -114,13 +114,15 @@ async def test_distill_grade_stage_persists_and_returns_only_counters(tenant_a: 
         pinned = c.execute(
             "SELECT grading_config_hash FROM account_runs WHERE id = %s", (run,)
         ).fetchone()[0]
-    # The repository's model config uses one profile for judge and generator: the claim is capped.
-    assert judge_profile_ok(load_grading_config()) is False
-    assert grade[0] == "probable" and "unjudged" in grade[1]
+    # The repository's model config: the judge runs on a different model from the one that
+    # proposes claims, so the judged claim keeps its grade (no ``unjudged`` cap).
+    assert judge_profile_ok(load_grading_config()) is True
+    # a full read of the account's careers page, judged supported: Confirmed
+    assert grade[0] == "confirmed" and "unjudged" not in grade[1], grade
     assert drops == 1 and pinned == load_grading_config().content_hash
     repo = GradingFactRepo(tenant_txn)
     listed = await repo.list_for_run(str(tenant_a), str(run))
-    assert [r["product_grade"] for r in listed] == ["probable"]
+    assert [r["product_grade"] for r in listed] == [grade[0]]
 
 
 async def test_stage_without_proposals_reports_no_progress(tenant_a: UUID) -> None:

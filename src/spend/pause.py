@@ -53,7 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from spend import notify, repo
 from spend.config import SpendConfig, V2Config
 from spend.errors import ApprovalInvalid, NotConfigured
-from spend.money import round_up_to_step, usd_to_micros
+from spend.money import round_up_to_step
 
 CAP_GRANULE_MICROS = 100  # account_runs.budget_usd keeps 4 decimals (spend.service)
 
@@ -472,7 +472,3 @@ async def expire(s: AsyncSession, run_id: UUID, now: datetime, cfg: V2Config) ->
             return UUID(str(p.request_id))
     return None
 
-
-def usd(value: str) -> int:
-    """A decimal USD string to micro-dollars (API input)."""
-    return usd_to_micros(value)

@@ -352,3 +352,42 @@ def _admin_dsn() -> str:
     from tests.conftest import ADMIN_DSN
 
     return ADMIN_DSN
+
+
+@pytest.mark.asyncio
+async def test_a_web_search_reads_the_accounts_own_pages_in_full(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    seen: list[tuple[str, Any]] = []
+
+    async def fake(route: str, args: Any, cc: Any, rt: Any, *, operation: Any = None) -> Any:
+        seen.append((route, args))
+        if route == "open_web_search":
+            return ConnectorResult(
+                status="ok",
+                records=(
+                    page("https://news.example/acme"),
+                    page("https://www.acme.example/about"),
+                    page("https://www.acme.example/about"),
+                    page("https://ir.acme.example/results"),
+                    page("https://jobs.acme.example/slow"),
+                ),
+                call_refs=("s1",),
+            )
+        if "ir." in args.url:
+            raise SchemaDriftError()  # one unreadable page never loses the search
+        if "slow" in args.url:
+            raise RetryableProviderError("timeout: ReadTimeout")  # nor a slow one the slice
+        return ConnectorResult(status="ok", records=(page(args.url),), call_refs=("r1",))
+
+    monkeypatch.setattr(provider_module, "call_need", fake)
+    result = await ConnectorProvider(_Runtime(), uuid4()).call(  # type: ignore[arg-type]
+        ctx(), "web_search", "acme results", "company_news"
+    )
+    reads = [(r, a.url, a.page_kind) for r, a in seen if r != "open_web_search"]
+    # only the account's own hosts are read, each once, as a live scrape (a full page read, G5;
+    # an extract read may be a cached copy); other hosts stay snippets
+    assert reads == [
+        ("job_boards_and_pages", "https://www.acme.example/about", "account_page"),
+        ("job_boards_and_pages", "https://ir.acme.example/results", "account_page"),
+        ("job_boards_and_pages", "https://jobs.acme.example/slow", "account_page"),
+    ]
+    assert result.call_refs == ("s1", "r1")

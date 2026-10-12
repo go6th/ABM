@@ -256,6 +256,30 @@ async def test_judge_outcomes(cfg: GradingConfig) -> None:
     assert (await call_judge(ScriptedJudge([extra, extra]), "c", "s", cfg)).outcome == "unavailable"
 
 
+@pytest.mark.asyncio
+async def test_judge_failures_of_any_configured_kind_cap_instead_of_failing_the_run(
+    cfg: GradingConfig,
+) -> None:
+    """A judge port raising the platform ``NotConfigured`` (not the grading subclass) or
+    ``JudgeUnavailable`` (a reply without JSON) ends unavailable: the claim is capped and the run
+    goes on. Before this, a truncated judge reply failed the whole run ``NotConfigured``."""
+    from account_intelligence.grading.errors import JudgeUnavailable
+    from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
+
+    class Raising:
+        model_task = "verification"
+
+        def __init__(self, error: Exception) -> None:
+            self.error = error
+
+        async def judge(self, claim: str, sentence: str) -> Any:
+            raise self.error
+
+    for error in (PlatformNotConfigured("judge returned no JSON"), JudgeUnavailable("no JSON")):
+        result = await call_judge(Raising(error), "c", "s", cfg)
+        assert (result.outcome, result.reason) == ("unavailable", "judge_unavailable")
+
+
 @pytest.mark.parametrize(
     ("engine", "product", "outcome", "expect"),
     [
@@ -282,11 +306,11 @@ def test_judge_must_differ_from_the_generator(cfg: GradingConfig, tmp_path: Path
     with pytest.raises(ConfigError):
         ensure_judge_differs(cfg, "same-model", "same-model")
     ensure_judge_differs(cfg, "judge-model", "generator-model")
-    # The repository's current model config routes both tasks to one profile: refused.
-    with pytest.raises(ConfigError):
-        ensure_judge_differs(
-            cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task)
-        )
+    # The repository's model config: claims come from the extraction task, the judge runs on a
+    # different model (verification), so the judge is allowed.
+    ensure_judge_differs(
+        cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task)
+    )
     assert (
         needs_judge("A", "probable", cfg)
         and needs_judge("C", "confirmed", cfg)

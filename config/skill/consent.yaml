@@ -1,13 +1,22 @@
 # D-97 people data consent and D-98 internal history. INTERNAL.
-# The consent TEXT must come from the archive (tools.md line 66; phase1-pull.md line 29, guide S19)
-# and be approved by the product owner. Until then there is no current text version, so no consent
-# record can be valid and every people pull is Blocked `consent_required` (the conservative state).
+# The consent text below was approved by the product owner on 2026-10-12 (version pdc-1). A people
+# pull runs only for a tenant whose admin recorded consent to the current version (G8); a new text
+# version requires consent again, and a revocation blocks people pulls (`consent_required`).
 version: "1.0.0"
 people_consent:
   scope: {value: people_data, source: "D-97 proposal"}
   tenant_label: {value: "People data consent", source: "D-97 proposal (never a provider name)"}
-  current_text_version: {value: null, status: "TODO: archive text (guide S19) and owner approval (D-97)"}
-  text: {value: null, status: "TODO: archive tools.md line 66 (absent)"}
+  current_text_version: {value: "pdc-1", source: "D-97: text approved by the product owner on 2026-10-12"}
+  text:
+    value: >-
+      This workspace authorises the platform to research people who work at the accounts it
+      researches, using public professional information only: names, job titles, employers,
+      tenure, public profiles and public posts, retrieved from the open web and from people-data
+      providers. The platform never collects contact details (email addresses or phone numbers).
+      People data is used only to prepare account research for this workspace, is kept within this
+      workspace, follows the workspace's retention settings, and can be withdrawn by an admin at
+      any time, after which no new people research runs.
+    source: "D-97: text approved by the product owner on 2026-10-12 (replaces the absent archive text)"
 internal_history:
   default_enabled: {value: false, source: "D-98 proposal; guide S15 (decide deliberately, do not inherit)"}
   requires: {value: [admin_consent, named_folders, narrow_scopes, access_logged], source: "D-98 proposal; Phase 3 connector framework"}

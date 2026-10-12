@@ -144,16 +144,44 @@ def _people(out: PeopleOutput, given: Mapping[str, PayloadView], result: Extract
             result.people.append(person)
 
 
+# One extraction call reads at most this much payload text (about 30k tokens), far inside the
+# model's context: a group with more is split into several calls, and one payload larger than
+# this is cut to it (quotes are checked against the text the call was given, so G4 still holds).
+MAX_CALL_CHARS = 120_000
+
+
+def _batches(views: Sequence[PayloadView], limit: int) -> list[tuple[PayloadView, ...]]:
+    out: list[tuple[PayloadView, ...]] = []
+    batch: list[PayloadView] = []
+    size = 0
+    for view in views:
+        if len(view.text) > limit:
+            view = view.model_copy(update={"text": view.text[:limit]})
+        if batch and size + len(view.text) > limit:
+            out.append(tuple(batch))
+            batch, size = [], 0
+        batch.append(view)
+        size += len(view.text)
+    if batch:
+        out.append(tuple(batch))
+    return out
+
+
 def groups(
-    cfg: SkillConfig, payloads: Sequence[PayloadView], step: Literal["pass1", "pass2", "people"]
+    cfg: SkillConfig,
+    payloads: Sequence[PayloadView],
+    step: Literal["pass1", "pass2", "people"],
+    max_chars: int = MAX_CALL_CHARS,
 ) -> list[ExtractionInput]:
-    """The step's source groups (route need), each with its payloads, in a stable order."""
+    """The step's source groups (route need), each with its payloads, in a stable order; a group
+    whose text exceeds ``max_chars`` becomes several consecutive inputs."""
     by_need: dict[str, list[PayloadView]] = {}
     for p in sorted(payloads, key=lambda v: (v.row_key, v.payload_ref)):
         row = cfg.plan[p.row_key]
         if row.step == step:
             by_need.setdefault(row.need, []).append(p)
     return [
-        ExtractionInput(step=step, group=need, payloads=tuple(views))
+        ExtractionInput(step=step, group=need, payloads=batch)
         for need, views in sorted(by_need.items())
+        for batch in _batches(views, max_chars)
     ]

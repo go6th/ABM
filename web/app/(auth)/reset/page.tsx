@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
+import { CheckCircle2 } from "lucide-react";
+import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 
 export default function ResetPasswordPage() {
   const [token, setToken] = useState("");
@@ -10,11 +12,12 @@ export default function ResetPasswordPage() {
   const [pending, setPending] = useState(false);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     const secret = window.location.hash.slice(1);
     window.history.replaceState(window.history.state, "", window.location.pathname);
-    void Promise.resolve().then(() => setToken(secret));
+    void Promise.resolve().then(() => { setToken(secret); setChecked(true); });
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -48,27 +51,38 @@ export default function ResetPasswordPage() {
       setPassword("");
       setConfirm("");
     } catch {
-      setError("Password reset is temporarily unavailable. Please try again.");
+      setError("Password reset is temporarily unavailable. Try again.");
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <main className="auth-frame">
-      <section className="auth-card surface" aria-labelledby="reset-title">
-        <p className="eyebrow">Account Intelligence</p>
-        <h1 id="reset-title">Choose a new password</h1>
-        {complete ? (
-          <p role="status" aria-live="polite">Password updated. Other active sessions have been signed out.</p>
-        ) : (
-          <>
-            <p className="muted">Use at least 12 characters. Don’t include your email or name.</p>
-            {error ? <p className="error" role="alert">{error}</p> : null}
-            <form onSubmit={submit}>
+    <AuthFrame plane="client">
+      <AuthBrand plane="client" />
+      <div>
+        <h1 id="auth-title">Choose a new password</h1>
+        {!complete ? <p className="lede">Use at least 12 characters. Leave out your email and name.</p> : null}
+      </div>
+      {complete ? (
+        <div className="banner success" role="status" aria-live="polite">
+          <CheckCircle2 size={18} aria-hidden="true" />
+          <p className="grow">Password updated. Other active sessions have been signed out.</p>
+        </div>
+      ) : (
+        <>
+          {checked && !token ? (
+            <div className="banner warn" role="status">
+              <p className="grow">This reset link is incomplete or expired. <Link className="link" href="/forgot">Request a new one.</Link></p>
+            </div>
+          ) : null}
+          {error ? <div className="banner error" role="alert"><p className="grow">{error}</p></div> : null}
+          <form onSubmit={submit}>
+            <div className="field">
               <label htmlFor="password">New password</label>
               <input
                 id="password"
+                className="input"
                 type="password"
                 autoComplete="new-password"
                 minLength={12}
@@ -77,9 +91,12 @@ export default function ResetPasswordPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
+            </div>
+            <div className="field">
               <label htmlFor="confirm">Confirm new password</label>
               <input
                 id="confirm"
+                className="input"
                 type="password"
                 autoComplete="new-password"
                 minLength={12}
@@ -88,14 +105,14 @@ export default function ResetPasswordPage() {
                 value={confirm}
                 onChange={(event) => setConfirm(event.target.value)}
               />
-              <button className="button primary" type="submit" disabled={pending || !token}>
-                {pending ? "Updating…" : "Update password"}
-              </button>
-            </form>
-          </>
-        )}
-        <p className="small"><Link href="/login">Return to sign in</Link></p>
-      </section>
-    </main>
+            </div>
+            <button className="btn primary lg block" type="submit" disabled={pending || !token}>
+              {pending ? "Updating" : "Update password"}
+            </button>
+          </form>
+        </>
+      )}
+      <p className="auth-links"><Link className="link" href="/login">Return to sign in</Link></p>
+    </AuthFrame>
   );
 }

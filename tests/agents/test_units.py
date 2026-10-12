@@ -139,12 +139,10 @@ def test_setup_takes_client_and_lanes_from_tenant_settings() -> None:
     out = validate_setup(req, settings(lanes=()), CFG, 5)
     assert (out.account_name, out.domain, out.lanes) == ("Acme", "acme.example", CFG.lanes)
     assert validate_setup(req, settings(depth="deep"), CFG, 0).depth == "deep"
-    for bad, code in (
-        (settings(pursuing_client=None), "pursuing_client_missing"),
-        (settings(lanes=("cobol",)), "unknown lanes"),
-    ):
-        with pytest.raises(SetupInvalid, match=code):
-            validate_setup(req, bad, CFG, 0)
+    # no pursuing client: the account is researched by its name alone
+    assert validate_setup(req, settings(pursuing_client=None), CFG, 0).pursuing_client is None
+    with pytest.raises(SetupInvalid, match="unknown lanes"):
+        validate_setup(req, settings(lanes=("cobol",)), CFG, 0)
     with pytest.raises(SetupInvalid, match="cap_request_negative"):
         validate_setup(req, settings(), CFG, -1)
     with pytest.raises(SetupInvalid, match="invalid_account_or_domain"):

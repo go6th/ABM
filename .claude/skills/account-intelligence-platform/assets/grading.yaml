@@ -35,7 +35,8 @@ engine:                   # Architecture v2 chapter 6.2 (starting values, tune o
     T2_curated_structured: {weight: 0.75, examples: "curated structured brokers"}
     T3_reputable_news:     {weight: 0.70}
     T4_scraped_aggregated: {weight: 0.40}
-  half_life_days: {hiring: 21, technology: 90, leadership: 180, funding: 365}
+  # company and content: proposal (C38, 2026-10-12), pending product owner sign-off
+  half_life_days: {hiring: 21, technology: 90, leadership: 180, funding: 365, company: 90, content: 180}
   recency: "r = 0.5 ** (age_days / half_life_days)"
   lineage_rule: "sources sharing an upstream origin are one lineage group; take the max within a group, never the sum"
   confidence: "c = 1 - product over lineage groups of (1 - w_i * r_i)"

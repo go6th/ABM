@@ -47,7 +47,7 @@ class SetupInput(_Strict):
     account_name: str = Field(min_length=1, max_length=200)
     domain: str = Field(min_length=3, max_length=253, pattern=r"^([a-z0-9-]{1,63}\.)+[a-z]{2,63}$")
     lanes: tuple[str, ...] = Field(min_length=1)
-    pursuing_client: str = Field(min_length=1, max_length=200)
+    pursuing_client: str | None = Field(default=None, min_length=1, max_length=200)
     depth: Literal["standard", "deep"] = "standard"
     cap_request_micros: int = Field(ge=0)
     visited_pages: tuple[VisitedPage, ...] = ()

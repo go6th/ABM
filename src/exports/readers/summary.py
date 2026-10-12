@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 
 from account_intelligence.grading.product import display_label, statement_policy
@@ -208,6 +208,28 @@ def _block(ctx: MapContext, s: SectionRow) -> AuthoredBlock:
     )
 
 
+def _why_no_narrative(facts: Sequence[FactRow], evidence: Sequence[EvidenceRow]) -> str:
+    """A readable reason for a missing narrative: the narrative may only state Confirmed facts,
+    and only a full page read of a primary source this run can make a fact Confirmed (G5)."""
+    grades = Counter(f.product_grade for f in facts)
+    confirmed = grades.get("confirmed", 0)
+    full = {e.url for e in evidence if e.origin == "full_page_read" and e.url}
+    origins = Counter(e.origin or "unknown" for e in evidence)
+    by_grade = ", ".join(f"{g} {n}" for g, n in sorted(grades.items())) or "none"
+    by_origin = ", ".join(f"{o} {n}" for o, n in sorted(origins.items())) or "none"
+    why = (
+        "no facts were graded"
+        if not facts
+        else "no fact was read in full in a primary source this run"
+        if confirmed == 0
+        else "distill wrote no narrative section"
+    )
+    return (
+        f"{confirmed} Confirmed facts of {len(facts)} ({by_grade}); "
+        f"{len(full)} pages cited from full reads; evidence by origin: {by_origin}; reason: {why}"
+    )
+
+
 def map_summary(ctx: MapContext, people: PeopleModel | None) -> Mapped[SummaryModel]:
     """The Summary render model, or ``Mapped(None)`` when a required part is missing."""
     c = ctx.content
@@ -218,7 +240,7 @@ def map_summary(ctx: MapContext, people: PeopleModel | None) -> Mapped[SummaryMo
     tracker, tally = map_tracker(ctx)
     sections = _sections(ctx, by_fact, rendered)
     if not sections.get("narrative"):
-        ctx.fail("missing_narrative", "summary", "distill writes report_sections")
+        ctx.fail("missing_narrative", "summary", _why_no_narrative(c.facts, c.evidence))
         return Mapped(None)
 
     key_people: list[KeyPersonRow] = []

@@ -3,10 +3,10 @@
 version: 1
 default_model: claude-sonnet-5-5
 limits:
-  max_turns: 20
+  max_turns: 1000
   max_input_chars: 60000
   max_output_tokens: 2048
-  max_spend_usd_per_thread: "2.00"
+  max_spend_usd_per_thread: "1000.00"
 providers:
   anthropic:
     enabled: true

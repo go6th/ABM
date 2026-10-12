@@ -123,8 +123,10 @@ gap_rule:
 association:
   functions: [IT, engineering, product]
   functions_source: "PRD s4.2 step 7: association search only to fill gaps (IT, engineering, product functions)"
-  technology_by_lane: {}
-  technology_by_lane_source: "TODO, needs product owner (technology identifiers per lane)"
+  # technologies come from the account's own stack, matched to each lane by the lane's name
+  # (people.technology); no lane is mapped to a technology by hand
+  technologies_per_lane: 10
+  technologies_per_lane_source: "proposal: most used first; bounds people credits per lane"
 
 # ---- counts definitions (D-22) --------------------------------------------------------------
 tenure_buckets:

@@ -102,7 +102,9 @@ async def test_g7_declined_spend_blocks_paid_rows_and_keeps_free_ones(h: Harness
     state = await h.service.resume(h.tenant, record.run_id, False)
     rows = manifest(h, record.run_id)
     paid = [r for k, r in rows.items() if h.cfg.plan[k].need in PAID and not h.cfg.plan[k].people]
-    free = [r for k, r in rows.items() if h.cfg.plan[k].need not in PAID]
+    free = [
+        r for k, r in rows.items() if h.cfg.plan[k].need not in PAID and not h.cfg.plan[k].people
+    ]
     assert paid and all(r.blocked_reason == "spend_not_approved" for r in paid)
     assert free and all(r.status == "stored" for r in free)
     assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "partial"
@@ -252,11 +254,18 @@ async def test_gate_failure_stops_delivery(h: Harness) -> None:
     assert not h.delivery.released
 
 
-async def test_setup_without_pursuing_client_fails_fast(h: Harness) -> None:
-    h.settings.settings = TenantAgentSettings(pursuing_client=None, lanes=())
+async def test_setup_with_an_unknown_lane_fails_fast(h: Harness) -> None:
+    h.settings.settings = TenantAgentSettings(pursuing_client="Partner", lanes=("cobol",))
     record, state = await h.run("r")
     assert (state["outcome"], state["error_code"]) == ("failed", "invalid_setup")
     assert h.provider.new_calls == 0 and h.wallet.settlements[record.run_id] == 1
+
+
+async def test_a_run_without_a_pursuing_client_researches_the_account_by_name(h: Harness) -> None:
+    h.settings.settings = TenantAgentSettings(pursuing_client=None, lanes=())
+    _, state = await h.run("r")
+    assert state.get("error_code") != "invalid_setup"
+    assert h.provider.new_calls > 0
 
 
 async def test_prompts_and_documents_are_never_logged(make, caplog) -> None:  # type: ignore[no-untyped-def]

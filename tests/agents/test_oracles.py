@@ -73,3 +73,20 @@ async def test_tangled_account(make) -> None:  # type: ignore[no-untyped-def]
     assert state["counters"]["targeted_pulls"] == 1
     assert state["exits"]["sense_check"] == "second_pass_recorded"
     assert h.records.sense_saves == 1
+
+
+async def test_a_deep_run_keeps_following_up_until_its_rounds_are_used(make) -> None:  # type: ignore[no-untyped-def]
+    from agents.ports import TenantAgentSettings
+
+    standard = make(worlds.tangled())
+    _, first = await standard.run("s")
+    deep = make(worlds.tangled())
+    deep.settings.settings = TenantAgentSettings(
+        pursuing_client="Synthetic Partner Co", lanes=("salesforce", "data_ai"), depth="deep"
+    )
+    _, state = await deep.run("d")
+    rounds = deep.cfg.follow_up_rounds
+    # the tangled world proposes a pull on every check: standard follows up once, deep each round
+    assert first["sense_pass"] == rounds["standard"] + 1
+    assert state["sense_pass"] == rounds["deep"] + 1
+    assert state["exits"]["sense_check"] == "second_pass_recorded"

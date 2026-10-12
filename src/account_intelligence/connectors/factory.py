@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import re
 import uuid
 from collections.abc import Mapping
 
@@ -74,18 +75,43 @@ def http_settings(cfg: ProviderCfg) -> HttpSettings:
     )
 
 
+# Template and placeholder values are "not set": they must never reach a provider as a credential.
+_PLACEHOLDER = re.compile(r"(?i)^(your[-_]|replace[-_]with|changeme|placeholder|<)|example")
+
+
+def credential_names(cfg: ProviderCfg) -> tuple[str, ...]:
+    """Every variable a provider needs (signals needs its key AND its token)."""
+    extra = (cfg.auth.extra_env,) if cfg.auth.extra_header and cfg.auth.extra_env else ()
+    return (cfg.auth.env, *extra)
+
+
+def _usable(env: Mapping[str, str] | None, name: str) -> Secret | None:
+    secret = load_secret(dict(env) if env is not None else None, name)
+    if secret is None or _PLACEHOLDER.search(secret.reveal().strip()):
+        return None
+    return secret
+
+
+def provider_configured(cfg: ProviderCfg, env: Mapping[str, str] | None) -> bool:
+    """A provider counts as configured only when every credential it needs is set and none is a
+    template placeholder. Readiness and the request path share this one rule."""
+    return all(_usable(env, name) is not None for name in credential_names(cfg))
+
+
 def auth_headers(cfg: ProviderCfg, env: Mapping[str, str] | None) -> dict[str, str]:
-    """Authentication headers from the environment or mounted secrets (never logged)."""
-    source = dict(env) if env is not None else None
-    secret = load_secret(source, cfg.auth.env)
+    """Authentication headers from the environment or mounted secrets (never logged). An
+    unconfigured provider gets NO credential header at all (not a partial or placeholder one), so
+    its calls fail as unauthenticated and the run marks the affected rows not checked."""
     headers = {"accept": "application/json", "user-agent": "account-intelligence-connectors/1"}
-    if secret is None:
-        return headers  # calls fail with AuthError; never a placeholder credential
+    if not provider_configured(cfg, env):
+        return headers
+    secret = _usable(env, cfg.auth.env)
+    assert secret is not None
     headers[cfg.auth.header] = _render(cfg.auth.scheme, secret)
     if cfg.auth.extra_header and cfg.auth.extra_env:
-        extra = load_secret(source, cfg.auth.extra_env)
-        if extra is not None:
-            headers[cfg.auth.extra_header] = extra.reveal()
+        extra = _usable(env, cfg.auth.extra_env)
+        assert extra is not None
+        headers[cfg.auth.extra_header] = extra.reveal()
     return headers
 
 

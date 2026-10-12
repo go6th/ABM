@@ -19,6 +19,8 @@ from uuid import UUID
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from account_intelligence.grading.config import load_grading_config
+from account_intelligence.grading.product import statement_policy
 from account_intelligence.grading.repo import TxnFactory
 from agents.adapters import PgSenseChecks
 from agents.config import SkillConfig
@@ -78,11 +80,14 @@ class PgRunRecords(PgSenseChecks):
                 }
             )
             codes_by_fact: dict[str, set[str]] = {}
+            grade_by_fact: dict[str, str] = {}
+            grading = load_grading_config()
             if fact_ids:
                 rows = (
                     await s.execute(
                         text(
-                            "SELECT DISTINCT f.id::text AS fact_id, src.source_code"
+                            "SELECT DISTINCT f.id::text AS fact_id, f.product_grade,"
+                            " src.source_code"
                             " FROM facts f JOIN fact_evidence e ON e.fact_id = f.id"
                             " JOIN sources src ON src.id = e.source_id"
                             " WHERE f.run_id = :r AND f.account_id = :a"
@@ -95,6 +100,7 @@ class PgRunRecords(PgSenseChecks):
                 ).all()
                 for row in rows:
                     codes_by_fact.setdefault(row.fact_id, set()).add(row.source_code)
+                    grade_by_fact[row.fact_id] = str(row.product_grade)
 
             async def project(
                 kind: str,
@@ -104,10 +110,19 @@ class PgRunRecords(PgSenseChecks):
                 question: str | None = None,
                 require_citation: bool = False,
             ) -> None:
-                """Persist one checked section; uncited narrative is withheld from the renderer."""
+                """Persist one checked section; uncited narrative is withheld from the renderer, and
+                so is narrative that states a fact the grading policy does not let a client file
+                state (a Lead or Probable is asked about, never asserted)."""
                 ids = sorted(set(claim.fact_ids))
                 codes = sorted({code for fid in ids for code in codes_by_fact.get(fid, set())})
                 if require_citation and not codes:
+                    return
+                states = kind == "narrative" and not claim.text.rstrip().endswith("?")
+                if states and any(
+                    not statement_policy(grade_by_fact[fid], grading)
+                    for fid in ids
+                    if fid in grade_by_fact
+                ):
                     return
                 # A run's client report is immutable. Conflicts are safe replays of the same
                 # graph node, not edits or replacement of previously rendered prose.
@@ -176,11 +191,15 @@ class SettingsAdapter:
         """The run's per-client settings."""
         async with self.txn(tenant_id) as s:
             current = await tenant_settings.current(s)
-            run_input: dict[str, Any] = (
+            row = (
                 await s.execute(
-                    text("SELECT run_input FROM account_runs WHERE id = :r"), {"r": self.run_id}
+                    text("SELECT run_input, budget_json FROM account_runs WHERE id = :r"),
+                    {"r": self.run_id},
                 )
-            ).scalar_one_or_none() or {}
+            ).first()
+            run_input: dict[str, Any] = dict(row.run_input or {}) if row else {}
+            # the depth the run was started with (the request's standard or deep)
+            requested = dict(row.budget_json or {}).get("depth") if row else None
         frozen = run_input.get("pursuing_client")
         client = frozen if isinstance(frozen, str) and frozen.strip() else None
         off = set(run_input.get("lanes_off") or ())
@@ -193,4 +212,5 @@ class SettingsAdapter:
             pursuing_client=client or current.settings.pursuing_client,
             lanes=lanes,
             internal_history=InternalHistorySettings(),
+            depth="deep" if requested == "deep" else "standard",
         )

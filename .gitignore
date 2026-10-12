@@ -50,3 +50,6 @@ mutants/
 # User-owned source documents (kept locally, never committed)
 *.docx
 .~lock.*#
+
+# Playwright output
+test-results/

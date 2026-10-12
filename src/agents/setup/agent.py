@@ -1,7 +1,8 @@
 """Setup assistant (step 1). Validation is code; the model only picks a careers page.
 
 * ``validate_setup`` turns the typed run request and the tenant's settings into ``SetupInput``:
-  pursuing client and lanes come from tenant settings (they replace the operator's answers, guide
+  pursuing client (optional: a run researches the account by its name alone) and lanes come
+  from tenant settings (they replace the operator's answers, guide
   S16), lanes must be skill lanes (S13), the domain is normalised in code, and the cap request is
   carried to the approval step (never spent here). A tenant id never comes from the request
   (``RunRequest`` has no such field; ``extra`` is forbidden).
@@ -37,8 +38,6 @@ def validate_setup(
     visited_pages: tuple[VisitedPage, ...] = (),
 ) -> SetupInput:
     """See the module docstring."""
-    if not settings.pursuing_client:
-        raise SetupInvalid("pursuing_client_missing")
     lanes = settings.lanes or cfg.lanes
     unknown = set(lanes) - set(cfg.lanes)
     if unknown:
@@ -50,7 +49,7 @@ def validate_setup(
             account_name=request.account_name.strip(),
             domain=request.domain.strip().lower().rstrip("."),
             lanes=tuple(lanes),
-            pursuing_client=settings.pursuing_client,
+            pursuing_client=settings.pursuing_client or None,
             depth="deep" if settings.depth == "deep" else "standard",
             cap_request_micros=cap_request_micros,
             visited_pages=visited_pages,

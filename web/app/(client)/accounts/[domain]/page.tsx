@@ -1,131 +1,131 @@
-"use client";
-// Account Summary: the latest run and its progress, the start-run form (D-63 proposal: depth
-// tiers, never credits, dollars or provider names), the five tables and the exports.
-import { useState } from "react";
-import { useParams } from "next/navigation";
-import { api, ApiError, newIdempotencyKey, type Session } from "@/lib/api";
-import { SignedIn } from "@/components/SignedIn";
-import { RunProgress } from "@/components/Progress";
+// Account workspace: the account, its research state, what we know and what changed, then a
+// composer for questions. A missing account and another client's account render the same page.
+import type { AccountDetail, History, Me, TablePage } from "@/lib/gen/api.gen";
+import { serverGet, ServerApiError } from "@/lib/server-api";
+import { GradeMark, toGrade } from "@/components/ws/GradeMark";
+import { DeepDiveLinks } from "@/components/ws/DeepDiveLinks";
+import { RefreshDialog } from "@/components/ws/RefreshDialog";
+import { RunStatus } from "@/components/ws/RunStatus";
+import { AccountAsk } from "@/components/ws/AccountAsk";
+import { Downloads } from "@/components/ws/Downloads";
+import { Banner, EmptyState, LoadError, Monogram } from "@/ui/primitives";
+import { m } from "@/lib/messages";
+import { day, humanize, runState } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
-import { useApi } from "@/lib/useApi";
-import { FeedbackForm } from "@/components/Feedback";
-import { AccountNavigation } from "@/components/AccountNavigation";
 
-interface Account { domain: string; name: string | null; latest_run: { run_id: string; status: string } | null }
-interface Settings { settings: { platform_lanes: string[]; pursuing_client: string | null } }
-// D-102 run modes: an explicit choice; "Run both" sends no mode (the API's default is both phases).
-interface PullOption { available: boolean; pull_run_id?: string; pulled_at?: string; rows_stored?: number; rows_blocked?: number }
-type Mode = "full" | "pull" | "build";
-interface Pkg { package_id: string; kind: string; status: string; reason: string | null; files: { index: number; name: string }[] }
+export const dynamic = "force-dynamic";
 
-const TABLES: [string, string][] = [["people", "People"], ["jobs", "Job postings"], ["facts", "Facts by grade"], ["tech", "Tech stack"], ["coverage", "Coverage tracker"]];
-const LANES = ["salesforce", "servicenow", "sap", "tableau_analytics", "veeva", "data_ai", "other"];
+const KNOWN_LIMIT = 6;
 
-function Summary({ s, domain }: { s: Session; domain: string }) {
-  const list = useApi<{ accounts: Account[] }>("/v1/accounts?limit=200");
-  const st = useApi<Settings>("/v1/settings");
-  const account = list.data?.accounts.find((a) => a.domain === domain) ?? null;
-  const tenantLanes = st.data?.settings.platform_lanes ?? LANES;
-  const client = st.data?.settings.pursuing_client ?? null;
-  const [depth, setDepth] = useState<"standard" | "deep">("standard");
-  const [lanesOff, setLanesOff] = useState<string[]>([]);
-  const [forClient, setForClient] = useState(false);
-  const [mode, setMode] = useState<Mode>("full");
-  const pull = useApi<PullOption>(`/v1/runs/pull-option?domain=${encodeURIComponent(domain)}`);
-  const pullReady = pull.data?.available === true && !!pull.data.pull_run_id;
-  const [packages, setPackages] = useState<Pkg[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
-  const canRun = s.role !== "viewer";
-  const start = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const base = { domain, depth, lanes_off: lanesOff, pursuing_client: forClient };
-      const body = mode === "full" ? base
-        : mode === "pull" ? { ...base, mode }
-        : { ...base, mode, parent_run_id: pull.data?.pull_run_id };
-      await api("POST", "/v1/runs", body, { "Idempotency-Key": newIdempotencyKey() });
-      setMessage("Run started."); list.reload(); pull.reload();
-    } catch (err) {
-      setMessage(err instanceof ApiError ? `The run could not start (${err.type}).` : "The run could not start.");
+export default async function AccountWorkspace({ params }: { params: Promise<{ domain: string }> }) {
+  const domain = decodeURIComponent((await params).domain);
+  const base = `/v1/accounts/${encodeURIComponent(domain)}`;
+  const here = `/accounts/${encodeURIComponent(domain)}`;
+  let account: AccountDetail | null = null;
+  let facts: TablePage | null = null;
+  let history: History | null = null;
+  let me: Me | null = null;
+  let settings: { settings: { pursuing_client?: string | null } } | null = null;
+  let reference: string | null | undefined;
+  try {
+    account = await serverGet<AccountDetail>(base, here);
+    if (account) {
+      [facts, history, me, settings] = await Promise.all([
+        serverGet<TablePage>(`${base}/tables/facts`, here, [409]),
+        serverGet<History>(`${base}/history`, here),
+        serverGet<Me>("/v1/me", here),
+        serverGet<{ settings: { pursuing_client?: string | null } }>("/v1/settings", here, [403]),
+      ]);
     }
-  };
-  const exportAs = async (kind: "files" | "csv" | "pdf", table?: string) => {
-    try {
-      const pkg = await api<Pkg>("POST", "/v1/exports", table ? { domain, kind, table } : { domain, kind });
-      setPackages((p) => [pkg, ...p]);
-    } catch (err) {
-      setMessage(err instanceof ApiError ? `Export failed (${err.type}).` : "Export failed.");
-    }
-  };
+  } catch (e) {
+    if (!(e instanceof ServerApiError)) throw e;
+    reference = e.reference;
+  }
+  if (reference !== undefined) return <div className="reading"><LoadError reference={reference} retryHref={here} /></div>;
+  if (!account) {
+    return (
+      <div className="reading">
+        <EmptyState title={m.workspace.notFoundTitle} body={m.workspace.notFoundBody} action={{ href: "/accounts", label: m.workspace.backToAccounts }} />
+      </div>
+    );
+  }
+
+  const name = account.name ?? account.domain;
+  const runs = [...account.runs].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const active = runs.find((r) => runState(r.status) === "running") ?? null;
+  const lastDone = runs.find((r) => runState(r.status) === "done") ?? null;
+  const lastFailed = runs[0] && runState(runs[0].status) === "failed" ? runs[0] : null;
+  const known = (facts?.rows ?? [])
+    .map((r) => ({ id: r.row_id ?? String(r.position), grade: toGrade(r.cells.grade), finding: cellText(r.cells.finding, 400), question: cellText(r.cells.question, 300) }))
+    .filter((f) => f.finding && f.grade)
+    .sort((a, b) => ["confirmed", "probable", "hypothesis", "lead"].indexOf(a.grade!) - ["confirmed", "probable", "hypothesis", "lead"].indexOf(b.grade!))
+    .slice(0, KNOWN_LIMIT);
+  const changed = (history?.history ?? []).slice(0, 5);
+
   return (
-    <section>
-      <AccountNavigation domain={domain} />
-      <h1>{cellText(account?.name ?? domain)}</h1>
-      <p className="secondary">{cellText(domain)}</p>
-      {account?.latest_run ? (
-        <div className="card">
-          <h2>Latest run</h2>
-          <RunProgress runId={account.latest_run.run_id} />
-          <a href={`/runs/${encodeURIComponent(account.latest_run.run_id)}`}>Open run details</a>
+    <div className="content">
+      <div className="account-head">
+        <Monogram name={account.domain} />
+        <div>
+          <h1>{cellText(name)}</h1>
+          <p className="sub">
+            {account.name ? <>{cellText(account.domain)}. </> : null}
+            {lastDone ? m.workspace.refreshed(day(lastDone.finished_at ?? lastDone.created_at)) : m.workspace.notResearched}
+          </p>
         </div>
-      ) : <p className="muted">No run yet.</p>}
-      {canRun ? (
-        <form className="card" onSubmit={start} aria-label="Start a run">
-          <h2>Start a run</h2>
-          <fieldset><legend>What to run</legend>
-            <label className="row"><input type="radio" name="mode" checked={mode === "full"} onChange={() => setMode("full")} /> Run both (default)</label>
-            <label className="row"><input type="radio" name="mode" checked={mode === "pull"} onChange={() => setMode("pull")} /> Phase 1 only (gather sources, no files)</label>
-            {pullReady ? (
-              <label className="row"><input type="radio" name="mode" checked={mode === "build"} onChange={() => setMode("build")} /> Phase 2 only, on sources gathered {cellText(pull.data?.pulled_at?.slice(0, 10) ?? "")} ({pull.data?.rows_stored ?? 0} sources stored, {pull.data?.rows_blocked ?? 0} blocked)</label>
-            ) : <p className="muted">Phase 2 only becomes available after a Phase 1 run.</p>}
-          </fieldset>
-          <div className="row">
-            <label htmlFor="depth">Depth</label>
-            <select id="depth" value={depth} onChange={(e) => setDepth(e.target.value === "deep" ? "deep" : "standard")}>
-              <option value="standard">Standard</option><option value="deep">Deep</option>
-            </select>
+        {me?.capabilities.includes("runs:create") ? (
+          <div className="actions">
+            <RefreshDialog domain={account.domain} disabled={active !== null} pursuing={settings?.settings.pursuing_client ?? null} />
           </div>
-          <fieldset><legend>Platform lanes for this run</legend>
-            {tenantLanes.map((lane) => (
-              <label key={lane} className="row">
-                <input type="checkbox" checked={!lanesOff.includes(lane)} onChange={(e) => setLanesOff((o) => e.target.checked ? o.filter((x) => x !== lane) : [...o, lane])} />
-                {lane.replaceAll("_", " ")}
-              </label>
-            ))}
-          </fieldset>
-          {client ? (
-            <label className="row"><input type="checkbox" checked={forClient} onChange={(e) => setForClient(e.target.checked)} /> Include history with {cellText(client)}</label>
-          ) : null}
-          <button className="primary" type="submit">Start run</button>
-        </form>
-      ) : null}
-      {message ? <p role="status">{message}</p> : null}
-      {account?.latest_run ? <FeedbackForm label="Feedback on this account" target={{ domain }} /> : null}
-      <h2>Tables</h2>
-      <ul>{TABLES.map(([key, label]) => <li key={key}><a href={`/accounts/${encodeURIComponent(domain)}/tables/${key}`}>{label}</a></li>)}</ul>
-      <section className="card" id="exports" aria-labelledby="exports-title">
-        <h2 id="exports-title">Exports</h2>
-        <div className="row">
-        <button type="button" onClick={() => void exportAs("files")}>Word and Excel files</button>
-        <button type="button" onClick={() => void exportAs("pdf")}>Account Summary PDF</button>
-        {TABLES.map(([key, label]) => <button key={key} type="button" onClick={() => void exportAs("csv", key)}>{label} CSV</button>)}
-        </div>
-        <ul>
-          {packages.map((p) => (
-            <li key={p.package_id}>
-              {p.kind}: {p.status === "delivered" ? p.files.map((f) => (
-                <a key={f.index} href={`/v1/exports/${p.package_id}/files/${f.index}`}>{cellText(f.name)} </a>
-              )) : <span className="error">not delivered ({cellText(p.reason)})</span>}
-            </li>
-          ))}
-        </ul>
-      </section>
-    </section>
-  );
-}
+        ) : null}
+      </div>
+      <DeepDiveLinks domain={account.domain} />
 
-export default function AccountPage() {
-  const params = useParams<{ domain: string }>();
-  const domain = decodeURIComponent(params.domain);
-  return <SignedIn>{(s) => <Summary s={s} domain={domain} />}</SignedIn>;
+      {active ? <div className="block-gap"><RunStatus runId={active.run_id} startedAt={active.created_at} /></div> : null}
+      {!active && lastFailed ? <div className="block-gap"><Banner kind="error" role="status">{m.workspace.runFailed}</Banner></div> : null}
+
+      <section className="section" aria-labelledby="known">
+        <h2 id="known">{m.workspace.known}</h2>
+        {known.length ? (
+          <ul className="facts">
+            {known.map((f) => (
+              <li key={f.id}>
+                <GradeMark grade={f.grade!} />
+                <div>
+                  <p className="claim">{f.finding}</p>
+                  {f.grade === "hypothesis" && f.question ? <p className="t-footnote ink-2">{f.question}</p> : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="ink-2">{m.workspace.knownEmpty}</p>}
+      </section>
+
+      {lastDone ? (
+        <section className="section" aria-labelledby="changed">
+          <h2 id="changed">{m.workspace.changed}</h2>
+          {changed.length ? (
+            <ul className="rows">
+              {changed.map((c) => {
+                const grade = toGrade(c.grade);
+                return (
+                  <li key={c.fact_id} className="list-row">
+                    <div>
+                      <p>{humanize(c.signal_type)}{c.attribute ? `: ${cellText(c.attribute, 120)}` : ""}</p>
+                      <p className="context">{cellText(c.reason, 200)}</p>
+                    </div>
+                    <div className="meta">{grade ? <GradeMark grade={grade} /> : null}<span>{day(c.expired_at)}</span></div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : <p className="ink-2">{m.workspace.changedEmpty}</p>}
+        </section>
+      ) : null}
+
+      {lastDone ? <Downloads domain={account.domain} /> : null}
+
+      <AccountAsk name={cellText(name)} />
+    </div>
+  );
 }

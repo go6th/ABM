@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { CheckCircle2, TriangleAlert } from "lucide-react";
+import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 
 export default function VerifyEmailPage() {
-  const [status, setStatus] = useState("Checking your verification link…");
+  const [status, setStatus] = useState("Checking your verification link");
   const [finished, setFinished] = useState(false);
+  const [ok, setOk] = useState(false);
 
   useEffect(() => {
     const token = window.location.hash.slice(1);
@@ -26,20 +29,22 @@ export default function VerifyEmailPage() {
       cache: "no-store",
     })
       .then((response) => {
+        setOk(response.ok);
         setStatus(response.ok ? "Your email is verified. You can now sign in with your password." : "This verification link is invalid or expired. Request a new link from Security settings.");
       })
-      .catch(() => setStatus("Email verification is temporarily unavailable. Please try again."))
+      .catch(() => setStatus("Email verification is temporarily unavailable. Try again."))
       .finally(() => setFinished(true));
   }, []);
 
   return (
-    <main className="auth-frame">
-      <section className="auth-card surface" aria-labelledby="verify-title">
-        <p className="eyebrow">Account Intelligence</p>
-        <h1 id="verify-title">Email verification</h1>
-        <p role="status" aria-live="polite">{status}</p>
-        {finished ? <Link className="button primary" href="/login">Continue to sign in</Link> : null}
-      </section>
-    </main>
+    <AuthFrame plane="client">
+      <AuthBrand plane="client" />
+      <h1 id="auth-title">Email verification</h1>
+      <div className={!finished ? "banner neutral" : ok ? "banner success" : "banner warn"} role="status" aria-live="polite">
+        {!finished ? <span className="spinner" aria-hidden="true" /> : ok ? <CheckCircle2 size={18} aria-hidden="true" /> : <TriangleAlert size={18} aria-hidden="true" />}
+        <p className="grow">{status}</p>
+      </div>
+      {finished ? <Link className="btn primary lg block" href="/login">Continue to sign in</Link> : null}
+    </AuthFrame>
   );
 }

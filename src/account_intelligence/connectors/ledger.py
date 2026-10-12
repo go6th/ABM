@@ -184,7 +184,11 @@ class Ledger:
                     "VALUES (:r, :o, 1, :exp, :now) "
                     "ON CONFLICT (run_id) DO UPDATE SET "
                     " owner = EXCLUDED.owner,"
+                    # a live lease renewed by its owner keeps its epoch; any lease taken anew (a
+                    # new owner, or the same owner after a release or expiry: the next slice)
+                    # starts a new epoch, so the previous holder's unfinished calls are stale
                     " epoch = CASE WHEN run_leases.owner = EXCLUDED.owner"
+                    "   AND run_leases.expires_at > EXCLUDED.heartbeat_at"
                     "   THEN run_leases.epoch ELSE run_leases.epoch + 1 END,"
                     " expires_at = EXCLUDED.expires_at, heartbeat_at = EXCLUDED.heartbeat_at "
                     "WHERE run_leases.owner = EXCLUDED.owner"

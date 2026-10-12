@@ -80,10 +80,11 @@ class ReadPageArgs(_Args):
 
 
 class ScrapeJobPageArgs(_Args):
-    """p_scrape POST /v2/scrape. Plain markdown only, and only on job pages."""
+    """p_scrape POST /v2/scrape. Plain markdown only, on job pages or the account's own pages."""
 
     url: HttpsUrl
-    page_kind: Literal["job_page"]
+    # account_page: a page on the account's own domain, read live so a fact can be Confirmed (G5)
+    page_kind: Literal["job_page", "account_page"]
     mode: Literal["plain", "json_extraction", "search_with_scrape"] = "plain"
     expensive_mode_reason: Annotated[str, Field(min_length=10, max_length=300)] | None = None
 

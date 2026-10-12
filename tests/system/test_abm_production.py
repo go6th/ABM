@@ -62,7 +62,7 @@ class AbmScript:
         match = AGENT.search(system)
         agent = match.group(1) if match else "unknown"
         self.calls[agent] = self.calls.get(agent, 0) + 1
-        data = json.loads(user)
+        data = json.loads(user.split("\nYour previous", 1)[0])  # a re-ask appends a note
         if agent == "setup":
             page = next((p for p in data["visited_pages"] if "careers" in p["url"]), None)
             return json.dumps({"careers_page_id": page["page_id"] if page else None})
@@ -387,12 +387,13 @@ async def test_lying_extractor_in_production_writes_nothing_fabricated(harness: 
     )
 
 
-async def test_missing_pursuing_client_fails_before_any_spend(harness: Harness) -> None:
+async def test_a_run_without_a_pursuing_client_researches_by_the_account_name(
+    harness: Harness,
+) -> None:
     run = await run_abm(harness, mode="pull", pursuing_client=None)
-    assert status(run.run) == ("FAILED", "invalid_setup")
-    assert not admin("SELECT 1 FROM tool_call_events WHERE run_id = %s", run.run)
-    refund = admin("SELECT 1 FROM wallet_ledger WHERE run_id = %s AND entry = 'refund'", run.run)
-    assert refund and settled_once(run.run)
+    assert status(run.run) != ("FAILED", "invalid_setup")
+    assert admin("SELECT 1 FROM tool_call_events WHERE run_id = %s", run.run)
+    assert settled_once(run.run)
 
 
 async def test_another_tenant_cannot_read_the_manifest(harness: Harness) -> None:

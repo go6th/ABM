@@ -18,7 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.connectors.base import CallContext
 from account_intelligence.grading.config import load_grading_config
-from account_intelligence.platform.ports import Clock, LlmPort, LlmResult, LlmUsage, PayloadStore
+from account_intelligence.platform.ports import (
+    Clock,
+    LlmPort,
+    LlmResult,
+    LlmUsage,
+    PayloadMissing,
+    PayloadStore,
+)
 from account_intelligence.tracker.adapters import LedgerCallAdapter, RunInputAdapter
 from account_intelligence.tracker.repo import CoverageRepo
 from account_intelligence.tracker.service import TrackerService
@@ -61,6 +68,9 @@ class RunDeps:
     # until a balance endpoint and a notifier exist (balances then read ``unknown``)
     balances: Any | None = None
     notifier: Any | None = None
+    # local stack only (DEV_AUTO_APPROVE_CAPS=1): the cap is approved as tenant policy, as if the
+    # tenant had set ``auto_approve_within_reserve``; ``spend.approval`` rules still hold
+    dev_auto_approve: bool = False
     # model routing (D-48): with a router every call goes through it; None uses ``llm`` directly
     router: Any | None = None
 
@@ -89,12 +99,12 @@ class RunDeps:
     ) -> LlmResult:
         """One model call named by its task kind (R2): the knobs come from config (R7); with a
         router the call is routed, recorded and replayable; otherwise the legacy port serves it."""
-        from llm.tasks import LEGACY_TIER, require
+        from llm.tasks import require
 
         kind = require(task_kind)
         if self.router is None:
-            return await self.llm.complete(
-                LEGACY_TIER[task_kind], system, user, max_tokens=kind.max_tokens
+            return await self._legacy_model(
+                task_kind, system, user, kind.max_tokens, bool(kind.cacheable)
             )
         from llm.models import Scope
         from llm.prompts import prompt_hash
@@ -121,6 +131,52 @@ class RunDeps:
             ),
             extra={"degraded": routed.record.degraded, "replayed": routed.replayed},
         )
+
+    async def _legacy_model(
+        self, task_kind: str, system: str, user: str, max_tokens: int, replayable: bool
+    ) -> LlmResult:
+        """The legacy port, replayable within the run like the router (R-replay): an answer is
+        stored under the hash of its request, so a node that a slice timeout cut off and the next
+        slice re-runs gets the same answers back instead of paying for (and waiting on) them
+        again. A stored answer reports zero usage. A task kind the routing config marks not
+        cacheable is always asked afresh."""
+        import hashlib
+        import json
+
+        from llm.tasks import LEGACY_TIER
+
+        tier = LEGACY_TIER[task_kind]
+        if not replayable:
+            return await self._complete(tier, system, user, max_tokens)
+        digest = hashlib.sha256(
+            json.dumps([task_kind, tier, max_tokens, system, user]).encode()
+        ).hexdigest()
+        key = self.payload_key("model_replies", f"{digest}.json")
+        try:
+            stored = json.loads(await self.payloads.get(key))
+            return LlmResult(stored["text"], stored["model"], LlmUsage(0, 0))
+        except PayloadMissing:
+            pass
+        result = await self._complete(tier, system, user, max_tokens)
+        if result.text.strip():  # an empty answer is not kept: a re-run asks again
+            await self.payloads.put(
+                key, json.dumps({"text": result.text, "model": result.model}).encode()
+            )
+        return result
+
+    async def _complete(self, tier: str, system: str, user: str, max_tokens: int) -> LlmResult:
+        """One legacy call, its SDK errors typed like the router's adapter: a 429, overload, 5xx,
+        timeout or dropped connection is ``Overloaded`` (retryable), so the node RetryPolicy
+        retries it (W6; the SDK client's own retries are off)."""
+        from llm.adapters.anthropic_api import map_error
+
+        try:
+            return await self.llm.complete(tier, system, user, max_tokens=max_tokens)
+        except Exception as error:
+            mapped = map_error(error)
+            if mapped is error:
+                raise
+            raise mapped from error
 
     def payload_key(self, kind: str, name: str) -> str:
         """Neutral key under this run (no provider name, no account name)."""

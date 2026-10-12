@@ -6,7 +6,7 @@ source: "P0-3; p_people is NotSupportedYet until its grid contract is supplied (
 active: p_org
 sources:
   p_org:
-    operations: [people_by_technology, org_teams]
+    operations: [org_resolve, org_tech_stack, people_by_technology, org_teams]
     note: "Sourced contract; people by technology are one credit per person plus attributes"
   p_people:
     operations: [people_by_title, profile_enrichment]

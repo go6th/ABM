@@ -25,6 +25,7 @@ from account_intelligence.agents.prompts import prompt
 from account_intelligence.grading import repo
 from account_intelligence.grading.adapters import LedgerAdapter
 from account_intelligence.grading.config import load_grading_config
+from account_intelligence.grading.errors import JudgeUnavailable
 from account_intelligence.grading.integration import judge_profile_ok, load_run_info
 from account_intelligence.grading.leads import (
     LeadVerification,
@@ -82,7 +83,9 @@ class LlmJudge:
             {"claim": claim, "sentence": sentence},
         )
         if answer is None:
-            raise NotConfigured("judge returned no JSON")
+            # a reply without JSON (truncated or prose) is an unavailable judge, never a
+            # missing adapter: the claim is capped (G12) and the run goes on
+            raise JudgeUnavailable("judge returned no JSON")
         return answer
 
 

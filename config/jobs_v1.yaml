@@ -2,8 +2,8 @@
 version: "2026-10-02.1"
 status: proposal
 caps:
-  max_page_reads: {value: 20, status: proposal, source: "needs product owner; escalation reads per run"}
-  max_extractor_calls: {value: 20, status: proposal, source: "needs product owner; first-pass extractor calls per run"}
+  max_page_reads: {value: 40, status: proposal, source: "needs product owner; escalation reads per run"}
+  max_extractor_calls: {value: 40, status: proposal, source: "needs product owner; first-pass extractor calls per run"}
   batch_size: {value: 25, status: proposal, source: needs product owner}
   max_description_chars: {value: 100000, status: proposal, source: needs product owner}
   minimum_text_length: {value: 200, status: proposal, source: "needs product owner; shorter text is treated as an excerpt"}

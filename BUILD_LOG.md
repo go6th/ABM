@@ -297,3 +297,49 @@ status and reason; wallet reserve 6, commit 0, refund 6, balance back to 500. No
 no model key the distill stage writes no narrative and the Summary build fails closed
 (`missing_narrative`); no test reaches COMPLETED end to end either. Operator login not verifiable
 locally (staff IdP is Google with a placeholder client id).
+
+## 2026-10-11 (second pass): follow-up fixes and SaaS gap closure
+
+### Preflight (measured)
+
+* Branch `chore/finalize-clean-deploy`; 49 files uncommitted at start (994 insertions, 437
+  deletions). The previous pass was committed first in five groups (`edcafed` chat, `f1607a4`
+  wallet and backup test, `a4508c7` cap route, `336e79e` compose volume, `1b1d559` log). Left
+  uncommitted as unrelated to the backend pass: the web theme and operator sign-in page edits
+  (`web/app/globals.css`, `web/app/operator/(auth)/*`, `web/components/ClientShell.tsx`,
+  `web/components/ThemeToggle.tsx` deletion, `web/design/*`, `web/public/theme-init.js`,
+  `web/app/v1/[[...path]]/route.ts`, untracked `web/lib/same-origin.ts` and its test),
+  `compose.live.yml` (`PUBLIC_BASE_URL`), `TECHNICAL_DOCUMENTATION.md`, `screenshot_all.*`,
+  `web/screenshot_test.spec.ts`, `test-results/`.
+* `make up` rebuilt the images; api and worker now both mount `abmgenerator_payloads` at
+  `/tmp/payloads`; `/healthz` ok, `/readyz` ready.
+* `TMPDIR=/dev/shm make test`: isolation 409 passed; full suite 3441 passed, 0 failed, 12 skipped,
+  2 deselected (1672 s); coverage 92.90% (29801 statements, 1715 missed, 6592 branches, 596
+  partial) against `fail_under = 94`: the gate fails (exit 2). Matches the previous pass.
+* Critical modules before: grading/adapters 95%, grading/pipeline 97%, grading/repo 96%,
+  grading/integration 97%, grading/lineage 98%, grading/docs 94%, runs/lifecycle 93%,
+  spend/prepulled 87%, spend/pause 94%, spend/upload 95%, spend/config 95%, spend/service 98%,
+  spend/repo 97%, spend/limits 98%, spend/plan 96%, spend/models 99%; every other grading and
+  spend module 100%.
+
+### B0 audit (before any Part B change)
+
+| Requirement | State | Where | Covering test |
+|---|---|---|---|
+| B1 single client role | MISSING: four roles (`config/roles.yaml`), route catalog role sets (`api/policy.py` `_SELLERS`, `{"admin"}`), spend approver roles (`spend.yaml` `approver_roles`), admin-only MFA at sign-in (`api/routes/auth.py` local login, `identity/broker.py` SSO) | as listed | role-denial tests in `tests/phase3` (they pin the old tiers) |
+| B1 other tenant == not found | PARTIAL: RLS hides other tenants' rows and routes answer 404 | `api/routes/*`, isolation matrix | `tests/isolation/test_matrix.py` probes status only, not body or header shape |
+| B1 no tenant names or ids except own | PARTIAL: `/v1/me` returns the caller's own `tenant_name`; local login 409 lists the caller's own memberships | `api/routes/me.py`, `api/routes/auth.py` | none for payload scanning |
+| B1 login and reset do not reveal existence | PRESENT: one 401 message, reset always 202, dummy hash on miss | `api/routes/auth.py` | `tests/phase3` local auth tests (no identical-response test) |
+| B1 ids not sequential | PRESENT for tenant resources (`gen_random_uuid()`); bigserial only on ledgers and audit (never client ids) | migrations | none |
+| B2 per-user account cap | MISSING (a tenant-wide `accounts` plan limit exists: `metering/limits.py`, atomic) | `api/routes/accounts.py` | `test_limits_are_atomic_under_concurrency` (tenant limit only) |
+| B3 inactivity expiry | MISSING | none | none |
+| B4 6th Library | MISSING (no library tables, importer or publish path); client-output scanner exists (`scripts/scan_client_output.py`, `exports` `assert_client_safe`) without the dash, internal-call or dead-link rules | `exports/`, `config/client_output_denylist.txt` | scanner tests in `tests/exports` |
+| B5 grounded answers with fact citations | MISSING: `/v1/chat` streams a general model answer (no facts, no citations); the RAG loop (`rag/graph.py`) is unwired and was untested | `api/routes/chat.py`, `rag/` | none for grounding |
+| B5 "what this answer used" record | MISSING | none | none |
+| B5 refresh on confirmation with estimate and scopes | PARTIAL: refresh planner and slots exist (`refresh/planner.py`, `refresh/slots.py`); no API estimate or scope confirmation | `refresh/` | `tests/phase4` refresh tests |
+| B5 per-account schedule (3 days, weekly, 2 weeks, monthly, off) | MISSING (shelf-life cadences weekly, monthly, quarterly only; no account setting) | `refresh/schedule.py` | `test_slot_periods_jitter_and_catch_up_are_bounded` |
+| B6 monthly credit pool, usage by purpose, per-pull cap | PARTIAL: per-run credit cap and reservation exist (`spend/`, `runs/lifecycle.py`); no monthly pool, no purpose | `spend/`, `metering/events.py` | `tests/spend` |
+| B7 operator overview, clients, lifecycle, quotas, flags, keys, runs, failures | PRESENT | `api/routes/operator_admin.py`, `ops.py` | `tests/phase3/test_ws8_admin.py` |
+| B7 usage (who uses, who does not), client caps, expiry, library assignment, library upload, platform defaults, stored isolation check | MISSING | none | none |
+| B7 question text never operator-readable | MISSING (no question store yet) | none | none |
+| B8 mailbox and drive connectors | PARTIAL: Gmail and Drive clients, OAuth, exact scopes, quarantine and access log exist (`connectors_client/`), but grants are tenant-admin folder grants, not per-user scopes limited to the user's accounts | `connectors_client/` | `tests/phase3/test_ws6_connectors.py` |

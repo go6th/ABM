@@ -297,6 +297,9 @@ async def deliver(deps: RunDeps, state: RunState) -> dict[str, Any]:
         reason = str(refs["build"])
     elif str(refs.get("gate", "")).startswith("failed"):
         reason = str(refs["gate"])
+    elif refs.get("gate") != "passed":
+        # built files that no quality gate checked are never a COMPLETED delivery
+        reason = "gate_not_run"
     else:
         reason = None
     return {

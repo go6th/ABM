@@ -236,6 +236,29 @@ def test_redirect_to_private_or_off_list_is_refused() -> None:
         check_final_url("https://jobs.acme.com/1", "https://evil.com/", "acme.com", ())
 
 
+def test_the_accounts_own_redirect_to_its_job_board_is_allowed() -> None:
+    check_final_url(
+        "https://www.acme.com/careers/finance",
+        "https://acmeclinical.wd1.myworkdayjobs.com/Search",
+        "acme.com",
+        (),
+    )
+    check_final_url("https://acme.com/jobs", "https://careers-acme.icims.com/", "acme.com", ())
+    # a job board reached from a host that is only on the extra list is not the account's word
+    with pytest.raises(SecurityError):
+        check_final_url(
+            "https://partner.example/jobs",
+            "https://x.myworkdayjobs.com/",
+            "acme.com",
+            ["partner.example"],
+        )
+    # the top-level domain never counts and an ordinary host is still refused
+    with pytest.raises(SecurityError):
+        check_final_url("https://acme.com/careers", "https://evil.jobs/", "acme.com", ())
+    with pytest.raises(SecurityError):
+        check_final_url("https://acme.com/careers", "https://evil.com/careers", "acme.com", ())
+
+
 def test_read_page_args_refuse_bad_urls_at_construction() -> None:
     with pytest.raises((ValidationError, SecurityError)):
         ReadPageArgs(url="http://acme.com/")

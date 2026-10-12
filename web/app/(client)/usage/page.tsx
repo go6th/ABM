@@ -1,51 +1,48 @@
 "use client";
-// Plan usage in units, never cost or credits (MT1, D-63).
+// Plan usage in units, never cost or credits (MT1, D-63), with the CSV download (GET /v1/usage/export).
+import { Download } from "lucide-react";
 import { useApi } from "@/lib/useApi";
 import type { Session } from "@/lib/api";
-import { SignedIn } from "@/components/SignedIn";
-import { DataTable, EmptyState, type DataColumn } from "@/design/components";
+import { SignedIn } from "@/ui/SignedIn";
+import { DataTable, type DataColumn } from "@/ui/DataTable";
+import { Banner, EmptyState, LoadError, Meter, PageHead, PageSkeleton } from "@/ui/primitives";
 import type { Usage as UsageReply, UsageItem } from "@/lib/gen/api.gen";
 import { cellText } from "@/lib/render";
+import { humanize } from "@/lib/ws-format";
 
 function Usage({ s }: { s: Session }) {
   const usage = useApi<UsageReply>(s.role === "admin" ? "/v1/usage" : null);
-  if (s.role !== "admin") return <p>Only admins see plan usage.</p>;
+  if (s.role !== "admin") return <div className="content"><PageHead title="Usage and plan" /><Banner kind="neutral">Only admins see plan usage.</Banner></div>;
   const columns: DataColumn<UsageItem>[] = [
-    { key: "dimension", header: "Allowance", render: (item) => cellText(item.dimension.replaceAll("_", " ")) },
-    { key: "used", header: "Used", render: (item) => `${item.used} ${cellText(item.unit)}` },
-    { key: "limit", header: "Plan limit", render: (item) => item.limit === null ? "Not set" : `${item.limit} ${cellText(item.unit)}` },
-    { key: "percent", header: "Share used", render: (item) => item.percent === null ? "Unavailable" : `${item.percent}%` },
+    { key: "dimension", header: "Allowance", render: (item) => humanize(cellText(item.dimension)) },
+    { key: "used", header: "Used", numeric: true, render: (item) => `${item.used} ${cellText(item.unit)}` },
+    { key: "limit", header: "Plan limit", numeric: true, render: (item) => item.limit === null ? "Not set" : `${item.limit} ${cellText(item.unit)}` },
+    {
+      key: "percent",
+      header: "Share used",
+      render: (item) => item.percent === null ? <span className="ink-2">Unavailable</span> : (
+        <span className="row nowrap"><span className="grow"><Meter value={item.percent} max={100} tone={item.percent >= 100 ? "full" : item.percent >= 80 ? "warn" : undefined} /></span><span className="num">{item.percent}%</span></span>
+      ),
+    },
   ];
   return (
-    <section className="client-dashboard">
-      <header className="client-dashboard-heading">
-        <div><p className="eyebrow">WORKSPACE ADMINISTRATION</p><h1>Usage &amp; plan</h1>
-          <p className="secondary">Unit-based tenant usage; provider costs and internal credit details are not displayed.</p></div>
-      </header>
-      {usage.error ? (
-        <div className="client-data-state error-box" role="alert">
-          <strong>Usage could not be loaded</strong><p>{usage.error.detail}</p>
-          <button className="btn" type="button" onClick={usage.reload}>Try again</button>
-        </div>
-      ) : !usage.data ? (
-        <p className="client-loading" role="status">Loading usage…</p>
-      ) : (
-        <>
-          <p className="muted">Period: {cellText(usage.data.period)} · As of {cellText(usage.data.as_of)}</p>
+    <div className="content">
+      <PageHead
+        title="Usage and plan"
+        sub="What this workspace has used this period, in units."
+        actions={<a className="btn sm" href="/v1/usage/export" download><Download size={16} aria-hidden="true" />Download CSV</a>}
+      />
+      {usage.error ? <LoadError reference={null} retryHref="/usage" /> : !usage.data ? <PageSkeleton /> : (
+        <div className="stack">
+          <p className="t-footnote ink-2">Period {cellText(usage.data.period)}, as of {new Date(usage.data.as_of).toLocaleString()}</p>
           {usage.data.items.length === 0 ? (
-            <EmptyState title="No usage recorded" description="The service returned no usage items for this period." />
+            <EmptyState title="No usage recorded" body="Nothing has been used this period yet." />
           ) : (
-            <DataTable
-              caption="Workspace usage by allowance"
-              columns={columns}
-              rows={usage.data.items}
-              rowKey={(item) => item.dimension}
-              emptyMessage="No usage items are available."
-            />
+            <DataTable caption="Workspace usage by allowance" columns={columns} rows={usage.data.items} rowKey={(item) => item.dimension} emptyMessage="No usage items are available." />
           )}
-        </>
+        </div>
       )}
-    </section>
+    </div>
   );
 }
 

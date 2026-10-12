@@ -208,3 +208,25 @@ def test_class_vocabulary() -> None:
     assert ClassificationLabel("unclear") is ClassificationLabel.UNCLEAR
     with pytest.raises(ValueError):
         ClassificationLabel("manager")
+
+
+@pytest.mark.parametrize(
+    ("verified", "expected"),
+    [
+        ("www.quidelortho.com", "quidelortho.com"),
+        ("Careers.Example.org", "careers.example.org"),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_board_search_uses_the_bare_careers_host(
+    verified: str | None, expected: str | None
+) -> None:
+    """A verified careers host of "www.<domain>" must not reach the search filter with www."""
+    from account_intelligence.connectors.models import WebSearchArgs
+    from jobs.adapters import ConnectorPostingSource
+
+    source = ConnectorPostingSource(object(), verified)
+    assert source.careers_host == expected
+    if expected:
+        WebSearchArgs(queries=("role jobs",), include_domains=(expected,))

@@ -31,6 +31,7 @@ GUARANTEE(test_sense_check_always_precedes_build)
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -82,11 +83,13 @@ from agents.ports import (
     WalletPort,
 )
 from agents.pull.agent import PullAgent, SpendPause
-from agents.schemas import PayloadView, SenseCheckInput, StoredFact
+from agents.schemas import ExtractionInput, PayloadView, SenseCheckInput, StoredFact
 from agents.sense_check.agent import sense_check
 
 MAX_SPEND_PAUSES = 3
 STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "people")
+# extraction calls in flight at once per step (each call is independent; see _interpret)
+EXTRACT_CONCURRENCY = 8
 STEP_ORDER: dict[str, int] = {step: index for index, step in enumerate(STEPS)}
 
 
@@ -170,6 +173,11 @@ def _plan_order(cfg: SkillConfig) -> list[str]:
     return sorted(cfg.plan, key=lambda k: (STEP_ORDER[cfg.plan[k].step], k))
 
 
+RETRIED_NODES = frozenset(
+    {"setup", "pull", "interpret", "sense_check", "targeted_pulls", "distill"}
+)
+
+
 def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmState]:
     """The uncompiled graph; compile with the run checkpointer (see the module docstring)."""
     cfg, reg = deps.cfg, deps.registry
@@ -179,11 +187,10 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
 
     # Step 1 ------------------------------------------------------------------------------------
     async def setup(state: AbmState) -> dict[str, Any]:
-        """Step 1: per-client settings must be valid before anything runs."""
+        """Step 1: per-client settings must be valid before anything runs. A pursuing client is
+        optional: without one the account is researched by its name alone."""
         ctx = context(state)
         settings = await deps.settings.get(ctx.tenant_id)
-        if not settings.pursuing_client:
-            return _fail("invalid_setup")
         if set(settings.lanes) - set(cfg.lanes):
             return _fail("invalid_setup")
         return {"scope": state["mode"], "outcome": "running", "exits": {"setup": "validated"}}
@@ -319,12 +326,25 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             if step == "people" and not consent_ok:
                 continue
             m = meter(step)
-            for group in groups(cfg, views, step):
-                try:
-                    res: ExtractionResult = await extract(reg[step], deps.model, m, ctx, group, cfg)
-                except BudgetExceeded:
+            gate = asyncio.Semaphore(EXTRACT_CONCURRENCY)
+
+            async def one(
+                group: ExtractionInput,
+                m: BudgetMeter = m,
+                gate: asyncio.Semaphore = gate,
+                agent: AgentContract = reg[step],
+            ) -> ExtractionResult | None:
+                async with gate:
+                    try:
+                        return await extract(agent, deps.model, m, ctx, group, cfg)
+                    except BudgetExceeded:
+                        return None
+
+            # batches are independent calls: run them side by side, keep their order
+            for res in await asyncio.gather(*(one(g) for g in groups(cfg, views, step))):
+                if res is None:
                     drops[f"{step}_budget_exceeded"] += 1
-                    break
+                    continue
                 candidates += res.candidates
                 people += res.people
                 drops.update(res.drops)
@@ -396,7 +416,10 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
     async def sense(state: AbmState) -> dict[str, Any]:
         """Step 5a: the mandatory sense check and the routing of its proposals (G6, D-96)."""
         ctx = context(state)
-        second = state.get("sense_pass", 0) >= 1
+        # the last round records what is left; earlier rounds pull for it (deep runs more rounds)
+        depth = (await deps.settings.get(ctx.tenant_id)).depth
+        rounds = cfg.follow_up_rounds.get(depth, cfg.follow_up_rounds.get("standard", 1))
+        second = state.get("sense_pass", 0) >= rounds
         facts = await deps.grading.facts(ctx)
         inp = SenseCheckInput(
             manifest_digest=state["manifest_digest"],
@@ -481,8 +504,9 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         for item in state.get("to_run") or []:
             try:
                 result = await deps.provider.call(ctx, item["need"], item["query"], item["row_key"])
-            except (CapPause, ProviderFailed):
-                await deps.tracker.mark_partial(ctx, item["row_key"], "pull_not_approved")
+            except (CapPause, ProviderFailed) as error:
+                # the true reason (a failed source is not an unapproved pull)
+                await deps.tracker.mark_partial(ctx, item["row_key"], error.reason)
                 continue
             for source in result.items:
                 ref = await deps.payloads.put(ctx, item["row_key"], source, "public")
@@ -595,8 +619,10 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         ("deliver", deliver),
         ("finish", finish),
     ):
-        # The node RetryPolicy is the single retry owner for retryable provider errors (W6).
-        policy = retry_policy if name in ("pull", "targeted_pulls") else None
+        # The node RetryPolicy is the single retry owner for retryable provider errors (W6): a
+        # broker 429/5xx in the pulls, and a model overload, timeout or dropped connection in the
+        # model nodes (stored replies replay, so a retry never pays twice for a finished call).
+        policy = retry_policy if name in RETRIED_NODES else None
         g.add_node(name, cast(Any, fn), retry_policy=policy)
     g.add_edge(START, "setup")
     g.add_conditional_edges(

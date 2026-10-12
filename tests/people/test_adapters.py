@@ -17,7 +17,12 @@ from account_intelligence.connectors.errors import (
     NotSupportedYet,
     RateLimited,
 )
-from account_intelligence.connectors.models import OrganizationRecord, PersonRecord, Provenance
+from account_intelligence.connectors.models import (
+    OrganizationRecord,
+    PersonRecord,
+    Provenance,
+    TechStackRecord,
+)
 from people import adapters
 from people.config import load_people_config
 from people.errors import NotConfigured
@@ -25,7 +30,13 @@ from people.ports import SourceUnavailable
 
 DOMAIN = "synthetic-acme.example.com"
 ALL_OPS = frozenset(
-    {"people_by_title", "people_by_technology", "org_resolve", "profile_enrichment"}
+    {
+        "people_by_title",
+        "people_by_technology",
+        "org_resolve",
+        "org_tech_stack",
+        "profile_enrichment",
+    }
 )
 
 
@@ -153,18 +164,26 @@ async def test_source_switch_and_missing_runtime_mean_not_available_yet(calls: l
     assert len(calls) == 1  # no connector call was made
 
 
-@pytest.mark.asyncio
-async def test_association_needs_a_technology_id_then_resolves_the_org(calls: list[Any]) -> None:
-    from dataclasses import replace
-
-    cfg = load_people_config()
-    search = adapters.ConnectorPeopleSearch(_deps(), ALL_OPS, cfg)
-    with pytest.raises(SourceUnavailable) as caught:
-        await search.search_association("salesforce", ("IT",), None)
-    assert caught.value.reason == "not_available_yet"
-    configured = adapters.ConnectorPeopleSearch(
-        _deps(), ALL_OPS, replace(cfg, technology_by_lane={"salesforce": "salesforce"})
+def _tech(name: str, slug: str, used: int, index: int = 0) -> TechStackRecord:
+    return TechStackRecord(
+        kind="tech_stack_item",
+        provenance=_prov(Operation.ORG_TECH_STACK, index),
+        lineage_hint=None,
+        organization_id=7,
+        business_function="it",
+        category_slug="crm",
+        category_name="CRM",
+        technology_name=name,
+        technology_slug=slug,
+        job_post_used_count=used,
     )
+
+
+@pytest.mark.asyncio
+async def test_association_searches_every_stack_technology_named_by_the_lane(
+    calls: list[Any],
+) -> None:
+    search = adapters.ConnectorPeopleSearch(_deps(), ALL_OPS, load_people_config())
     org = OrganizationRecord(
         kind="organization",
         provenance=_prov(Operation.ORG_RESOLVE),
@@ -182,16 +201,31 @@ async def test_association_needs_a_technology_id_then_resolves_the_org(calls: li
     calls[0][Operation.ORG_RESOLVE] = ConnectorResult(
         status="done", records=(org,), call_refs=("o1",)
     )
+    calls[0][Operation.ORG_TECH_STACK] = ConnectorResult(
+        status="done",
+        records=(
+            _tech("Salesforce Service Cloud", "salesforce-service-cloud", 4),
+            _tech("Salesforce", "salesforce", 9, 1),
+            _tech("Workday", "workday", 20, 2),
+        ),
+        call_refs=("s1",),
+    )
     calls[0][Operation.PEOPLE_BY_TECHNOLOGY] = ConnectorResult(
         status="partial", records=(_person(0, "https://www.linkedin.com/in/z"),), call_refs=("t1",)
     )
-    page = await configured.search_association("salesforce", ("IT",), None)
+    # no technology in the stack carries the lane's name: nothing to search
+    with pytest.raises(SourceUnavailable) as caught:
+        await search.search_association("veeva", ("IT",), None)
+    assert caught.value.reason == "not_available_yet"
+    page = await search.search_association("salesforce", ("IT",), None)
     assert page.records[0].origin == "association" and not page.complete
+    searched = [c[1].technology_slug for c in calls[1:] if hasattr(c[1], "technology_slug")]
+    assert searched == ["salesforce", "salesforce-service-cloud"]  # most used first, no Workday
     assert calls[-1][1].organization_id == 7
-    assert (await configured.search_association("salesforce", ("IT",), "next")).records == ()
+    assert (await search.search_association("salesforce", ("IT",), "next")).records == ()
     calls[0][Operation.ORG_RESOLVE] = ConnectorResult(status="done", records=(), call_refs=("o2",))
     with pytest.raises(SourceUnavailable) as caught:
-        await configured.search_association("salesforce", ("IT",), None)
+        await search.search_association("salesforce", ("IT",), None)
     assert (caught.value.reason, caught.value.call_ref) == ("source_unavailable", "o2")
 
 

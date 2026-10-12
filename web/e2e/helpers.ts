@@ -27,11 +27,13 @@ export async function signIn(page: Page, slug: string, subject: string, role: st
   // before it. Retry the submit (bounded) until the signed-in page shows.
   await expect(async () => {
     if (!page.url().includes("/login")) return;
-    await page.getByLabel("Workspace name").fill(slug);
-    await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible({ timeout: 3_000 });
+    // The sign-in page opens on email and password; SSO is the second tab.
+    await page.getByRole("tab", { name: "Enterprise SSO" }).click();
+    await page.getByLabel("Organization sign-in ID").fill(slug);
+    await page.getByRole("button", { name: "Continue with SSO" }).click();
+    await expect(page.getByRole("navigation", { name: "Workspace" })).toBeVisible({ timeout: 3_000 });
   }).toPass({ timeout: 30_000 });
-  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Workspace" })).toBeVisible();
 }
 
 export async function noSeriousA11y(page: Page) {

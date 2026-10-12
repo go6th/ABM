@@ -149,8 +149,9 @@ class HttpTaskScheduler:
 
         if delay_s:
             await asyncio.sleep(delay_s)
-        # a slice runs up to 240 s: a bounded read well above it, short connect/write/pool
-        timeout = httpx.Timeout(connect=5.0, read=600.0, write=30.0, pool=5.0)
+        # a slice runs up to 240 s (1200 s on the uncapped local stack): a bounded read well above
+        # it, short connect/write/pool
+        timeout = httpx.Timeout(connect=5.0, read=1800.0, write=30.0, pool=5.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             await client.post(f"{self.worker_url}{path}", json=body)
 

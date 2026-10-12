@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next-parity/
 playwright-report/
 test-results/
 next-env.d.ts

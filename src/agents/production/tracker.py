@@ -96,19 +96,24 @@ class TrackerAdapter:
     async def report(
         self, ctx: RunContext, row_key: str, call_refs: Sequence[str], reason: str | None
     ) -> RowOutcome:
-        """Record the row's evidence (or its not-attempted reason) as its owning stage."""
+        """Record the row's evidence (or its not-attempted reason) as its owning stage. A row is
+        reported again by a follow-up pull: its proof is cumulative, so the calls it already
+        recorded are kept and the new ones added."""
         async with self.txn(ctx.tenant_id) as s:
             service = await self._service(s, ctx)
+            stored = await service.repo.get_row(ctx.run_id, row_key)
+            prior = stored.proof.call_refs if stored.proof is not None else ()
+            refs = tuple(dict.fromkeys((*prior, *call_refs)))
             result = await service.record_outcome(
                 ctx.tenant_id,
                 ctx.run_id,
                 row_key,
-                tuple(call_refs),
+                refs,
                 Actor.STAGE,
-                None if call_refs else reason_for(reason or "source_failed"),
+                None if refs else reason_for(reason or "source_failed"),
                 stage=self.owners.get(row_key),
             )
-        return _outcome(result.status, result.reason_code, len(set(call_refs)))
+        return _outcome(result.status, result.reason_code, len(set(refs)))
 
     async def rows(self, ctx: RunContext) -> Mapping[str, RowOutcome]:
         """Every row of the run."""

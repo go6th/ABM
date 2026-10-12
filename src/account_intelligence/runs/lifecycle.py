@@ -99,6 +99,8 @@ class RunLimits:
     budget_usd: Decimal
     tool_call_cap: int
     reserved_credits: Decimal
+    # False only on the local stack with DEV_UNCAPPED=1: no credit-cap gate, the budget above holds
+    cap_required: bool = True
 
 
 @dataclass(frozen=True)
@@ -155,9 +157,9 @@ async def create_run(
             text(
                 "INSERT INTO account_runs (id, tenant_id, account_id, graph_version, budget_json,"
                 " reserved_credits, idempotency_key, request_hash, budget_usd, tool_call_cap,"
-                " run_input, checklist_version, model_versions) VALUES (:id, :t, :a, :gv,"
-                " CAST(:budget AS jsonb), :credits, :k, :h, :usd, :cap, CAST(:input AS jsonb),"
-                " :cl, CAST(:mv AS jsonb))"
+                " run_input, checklist_version, model_versions, cap_required) VALUES (:id, :t,"
+                " :a, :gv, CAST(:budget AS jsonb), :credits, :k, :h, :usd, :cap,"
+                " CAST(:input AS jsonb), :cl, CAST(:mv AS jsonb), :capreq)"
                 " ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING id"
             ),
             {
@@ -174,6 +176,7 @@ async def create_run(
                 "input": json.dumps(request.run_input, sort_keys=True),
                 "cl": pins.checklist_version(),
                 "mv": json.dumps(pins.model_versions(), sort_keys=True),
+                "capreq": limits.cap_required,
             },
         )
     ).first()
@@ -294,15 +297,14 @@ async def move(
     )
     if updated.rowcount == 0:  # type: ignore[attr-defined]
         raise RunStateConflict(f"run is no longer {expected.value}")
-    target = _RUNS_ACTIVE.get(new)
-    if target is not None:
-        await session.execute(
-            text(
-                "UPDATE runs SET status = :s, started_at = COALESCE(started_at, now())"
-                " WHERE id = :r AND status <> :s"
-            ),
-            {"s": target, "r": run_id},
-        )
+    # every legal non-terminal target is active (no transition leads back to QUEUED)
+    await session.execute(
+        text(
+            "UPDATE runs SET status = :s, started_at = COALESCE(started_at, now())"
+            " WHERE id = :r AND status <> :s"
+        ),
+        {"s": _RUNS_ACTIVE[new], "r": run_id},
+    )
 
 
 async def finish(

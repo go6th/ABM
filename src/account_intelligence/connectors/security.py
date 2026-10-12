@@ -128,15 +128,31 @@ async def validate_target_url(
         raise SecurityError("host resolves to a non-public address")
 
 
+# Words that mark a host as a job board (an applicant tracking system such as
+# ``<tenant>.wd1.myworkdayjobs.com``): companies commonly send their careers pages there.
+JOB_BOARD_WORDS = ("career", "job", "talent", "recruit")
+
+
+def is_job_board_host(host: str) -> bool:
+    """True when a label of the host (the top-level domain aside) names a job board."""
+    labels = host.lower().rstrip(".").split(".")[:-1]
+    return any(word in label for label in labels for word in JOB_BOARD_WORDS)
+
+
 def check_final_url(
     requested: str, final: str | None, account_domain: str, extra: Iterable[str]
 ) -> None:
-    """A provider followed redirects: the final page must still be allowed (shape and host)."""
+    """A provider followed redirects: the final page must still be allowed (shape and host).
+    One exception: the account's own site redirected to its job board, which the account itself
+    vouches for; any other host off the allow-list is refused."""
     if final is None or final == requested:
         return
     check_url_shape(final)
-    if not host_allowed(host_of(final), account_domain, extra):
-        raise SecurityError("provider redirect left the account allow-list")
+    if host_allowed(host_of(final), account_domain, extra):
+        return
+    if host_allowed(host_of(requested), account_domain, ()) and is_job_board_host(host_of(final)):
+        return
+    raise SecurityError("provider redirect left the account allow-list")
 
 
 # --------------------------------------------------------------------------- secrets

@@ -153,7 +153,7 @@ def _selftest() -> int:
     check("no evidence is reported as no_evidence (caller records Hypothesis)", grade_attribute([], "hiring", t0)["status"] == "no_evidence")
 
     w, h = load_config()
-    check("config loads: weights T1..T4 and four half-lives", set(w) >= {"T1", "T2", "T3", "T4"} and len(h) == 4)
+    check("config loads: weights T1..T4 and the four base half-lives", set(w) >= {"T1", "T2", "T3", "T4"} and set(h) >= {"hiring", "technology", "leadership", "funding"})
     print("selftest OK" if ok else "selftest FAILED")
     return 0 if ok else 1
 

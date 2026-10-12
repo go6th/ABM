@@ -29,14 +29,15 @@ feed_operation_by_row:
 
 # Titles and technologies searched for people rows. The skill's lists are in the archive (absent).
 people_titles: {value: ["Chief Information Officer", "Chief Technology Officer", "Chief Digital Officer"], status: "proposal: archive TODO (C31)"}
-technology_slugs: {value: {salesforce: salesforce, servicenow: servicenow, sap: sap, tableau_analytics: tableau, veeva: veeva, data_ai: snowflake}, status: "proposal: archive TODO (C31)"}
+# Technologies for people_by_technology come from the account's stack, matched to each lane by
+# the lane's name (people.technology), never from a list here.
 
 # Attribute key prefix per coverage row: the grading engine grades only keys whose first segment
 # has an attribute class (config/grading_policy.yaml attributes.classes: exec, people, jobs,
 # hiring, tech, funding). Rows with no fitting class are not mapped: the engine refuses their
 # claims as unknown_attribute_class (counted). Adding classes needs half-lives: owner (C38).
 attribute_prefix_by_row:
-  status: "proposal (existing classes only; C38)"
+  status: "proposal (C38): company and content classes added 2026-10-12 with proposed half-lives (config/grading.yaml)"
   value:
     leadership_changes: exec
     executive_voice_earnings: exec
@@ -53,3 +54,21 @@ attribute_prefix_by_row:
     earnings_filings: funding
     financial_baseline_verified: funding
     major_holders_activists: funding
+    financial_position_peers: funding
+    company_news: company
+    competitor_moves: company
+    regulatory_quality_events: company
+    events_sponsored: company
+    research_papers: company
+    vendor_customer_stories: company
+    platform_vendor_account_team: company
+    basic_fit_check: company
+    lead_verification: company
+    prior_customer_status: company
+    connections_alumni: company
+    customers_partners_matched: company
+    podcasts: content
+    youtube: content
+    medium_substack: content
+    review_sites: content
+    vendor_communities: content

@@ -18,6 +18,8 @@ x-app-env: &app-env
   JWT_ISSUER: http://fake-idp:9090/
   JWT_AUDIENCE: account-intelligence-local
   PAYLOAD_DIR: /tmp/payloads
+  # the web origin the browser sends; login and other credential routes refuse any other Origin
+  PUBLIC_BASE_URL: http://localhost:3000
   # hermetic by default: no provider connectors and no model key unless set in .env
   CONNECTORS: "off"
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -67,6 +69,8 @@ services:
     image: account-intelligence-worker:local
     volumes:
       - ./src:/app/src:ro
+      # config is read at run time: mount it like src, or edits only land on an image rebuild
+      - ./config:/app/config:ro
       - payloads:/tmp/payloads
     entrypoint: ["uvicorn", "account_intelligence.api.main:app", "--host", "0.0.0.0", "--port", "8081"]
     environment:
@@ -74,6 +78,9 @@ services:
       PYTHONPATH: /app/src
       SERVICE_ROLE: worker
       ALLOW_UNAUTHENTICATED_TASKS: "1"
+      # a slice that runs out of time posts the next one to itself; without this the worker falls
+      # back to the in-process scheduler, which nothing drains, and a run stalls after slice one
+      WORKER_URL: http://worker:8081
     ports: ["8081:8081"]
     depends_on: { migrate: { condition: service_completed_successfully } }
     restart: unless-stopped
@@ -94,6 +101,7 @@ services:
     image: account-intelligence-api:local
     volumes:
       - ./src:/app/src:ro
+      - ./config:/app/config:ro
       - ./migrations:/app/migrations:ro
       # the worker writes run payloads and the api reads them back (tables, exports)
       - payloads:/tmp/payloads

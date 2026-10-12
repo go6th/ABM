@@ -375,6 +375,8 @@ async def test_missing_narrative_refuses_the_summary(make_builder: Make) -> None
     c = c.model_copy(update={"sections": tuple(s for s in c.sections if s.kind != "narrative")})
     result, store = await run(make_builder, c)
     assert_failed(result, store, "missing_content", "missing_narrative")
+    # the reason is readable: how many facts were Confirmed and why none could be stated
+    assert any("Confirmed facts of" in e and "reason:" in e for e in result.errors), result.errors
 
 
 async def test_section_kind_outside_the_vocabulary(make_builder: Make) -> None:

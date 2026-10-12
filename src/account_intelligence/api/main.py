@@ -224,9 +224,14 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(PlatformNotConfigured)
-    async def not_configured(request: Request, _error: PlatformNotConfigured) -> JSONResponse:
+    async def not_configured(request: Request, error: PlatformNotConfigured) -> JSONResponse:
         """A production adapter that is not wired: fail closed with 503, never a fake success."""
         request_id = getattr(request.state, "request_id", "unavailable")
+        _logger.error(
+            "not configured: %s",
+            error,
+            extra={"request_id": request_id, "error_class": "NotConfigured"},
+        )
         return JSONResponse(
             problem_body(503, request_id),
             status_code=503,

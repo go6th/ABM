@@ -1,0 +1,12 @@
+{
+  "name": "budget_exhausted",
+  "narrative": [
+    "What activity does the public source record for this account?"
+  ],
+  "hypotheses": [
+    "The account may be expanding its engineering base."
+  ],
+  "questions": [
+    "Which teams will the new office host?"
+  ]
+}

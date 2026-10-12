@@ -180,7 +180,14 @@ class ResearchStage:
                         stage=self.spec.id,
                     )
         budget = bool((state.get("counters") or {}).get("budget_exhausted", 0))
-        row_refs: dict[str, list[str]] = {r: [] for r in researched}
+        # a node cut off by the slice timeout replays from its checkpoint: start from the proofs it
+        # already recorded, since a proof is cumulative and the replanned calls may differ
+        async with self.deps.txn(self.deps.tenant_id) as session:
+            proofs = await self.deps.tracker(session).repo.get_proofs(self.deps.run_id)
+        row_refs: dict[str, list[str]] = {
+            r: list(((proofs.get(r) or {}).get("proof") or {}).get("call_refs") or [])
+            for r in researched
+        }
         proposals: list[dict[str, Any]] = []
         calls_made = refused = 0
         passes = 1 + int(self.deps.spec.settings.get("planner_gap_passes", 2))

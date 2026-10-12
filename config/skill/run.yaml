@@ -50,6 +50,9 @@ sense_check:
     value: [entity_boundary, adjacent_organisation, hidden_title, contradictory_fact]
     source: "guide S10"
   questions: {value: null, status: "TODO: phase2-build.md lines 10-21 (archive absent)"}
+  # Follow-up rounds per research depth: sense check, targeted pulls on its proposals, interpret
+  # and grade them, check again. A round with nothing left to chase ends the loop early.
+  follow_up_rounds: {value: {standard: 1, deep: 5}, status: "proposal (2026-10-12): deep keeps researching gaps"}
 
 # D-100. Lanes as the skill description lists them, plus MuleSoft counted under Salesforce.
 lanes:

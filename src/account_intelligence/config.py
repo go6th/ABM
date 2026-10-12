@@ -195,6 +195,14 @@ class Settings(BaseSettings):
     allow_unauthenticated_tasks: Literal["0", "1"] = var(
         "0", purpose="Accept unsigned task calls (local stack only).", forbidden_in=CLOUD
     )
+    llm_fake: Literal["hermetic"] | None = var(
+        purpose="Select the deterministic fake model (hermetic dev and test only).",
+        forbidden_in=CLOUD,
+    )
+    fake_model_scenario: str | None = var(
+        purpose="Fake model scenario file under config/hermetic/fake_model (default happy).",
+        forbidden_in=CLOUD,
+    )
     p_search_api_key: SecretStr | None = var(purpose="Web search provider key.", secret=True)
     p_scrape_api_key: SecretStr | None = var(purpose="Page scrape provider key.", secret=True)
     p_signals_api_key: SecretStr | None = var(purpose="Signals provider key.", secret=True)

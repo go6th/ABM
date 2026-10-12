@@ -7,9 +7,10 @@ What exists and what does not (nothing here guesses a provider shape):
   (``config/people_sources.yaml``, P0-3) may name a source without it. Either way the source ends
   ``not_available_yet``. Pagination happens inside ``call_operation``; the adapter returns the
   whole sequence as one page ([VERIFY] V-PEOPLE-1: a provider cursor is not exposed).
-* Association search (``people_by_technology``): sourced, but it needs the organisation id
-  (``org_resolve``) and a technology identifier per lane, which the configuration does not have
-  yet (D-21, ``association.technology_by_lane``); without one the lane ends ``not_available_yet``.
+* Association search (``people_by_technology``): resolves the organisation (``org_resolve``),
+  pulls its tech stack (``org_tech_stack``) and searches every technology matched to the lane by
+  the lane's name (``people.technology``); a lane with no matching technology ends
+  ``not_available_yet``.
 * Profiles (``profile_enrichment``) and posts: no sourced contract and no posts operation; they
   raise ``not_available_yet`` ([VERIFY] V-PEOPLE-2, V-PEOPLE-3).
 * Mentions and their resolution: no stage stores people named in research as structured data
@@ -39,9 +40,11 @@ from account_intelligence.connectors.errors import (
 from account_intelligence.connectors.models import (
     OrganizationRecord,
     OrgResolveArgs,
+    OrgTechStackArgs,
     PeopleByTechnologyArgs,
     PeopleByTitleArgs,
     PersonRecord,
+    TechStackRecord,
 )
 from account_intelligence.connectors.service import call_operation
 from account_intelligence.tracker.model import Actor, ReasonCode
@@ -49,6 +52,7 @@ from people.config import PeopleConfig
 from people.errors import NotConfigured
 from people.models import Mention, PersonPage, PostsBatch, RawPerson, RawProfile
 from people.ports import SourceUnavailable
+from people.technology import technologies_by_lane
 
 ROW_STAGE = "people"
 
@@ -128,10 +132,7 @@ class ConnectorPeopleSearch(_Calls):
     async def search_association(
         self, lane: str, functions: tuple[str, ...], cursor: str | None
     ) -> PersonPage:
-        """People by the lane's technology at the resolved organisation."""
-        slug = self.cfg.technology_by_lane.get(lane)
-        if not slug:
-            raise SourceUnavailable("not_available_yet")  # D-21: no technology id for the lane
+        """People by every technology of the lane in the resolved organisation's stack."""
         if cursor is not None:
             return PersonPage()
         org = await self.call(Operation.ORG_RESOLVE, OrgResolveArgs(domain=self.deps.domain))
@@ -142,17 +143,33 @@ class ConnectorPeopleSearch(_Calls):
             raise SourceUnavailable(
                 "source_unavailable", org.call_refs[0] if org.call_refs else None
             )
-        result = await self.call(
-            Operation.PEOPLE_BY_TECHNOLOGY,
-            PeopleByTechnologyArgs(organization_id=found.organization_id, technology_slug=slug),
+        stack = await self.call(
+            Operation.ORG_TECH_STACK, OrgTechStackArgs(organization_id=found.organization_id)
         )
-        page = _people_page(result, self.deps.domain)
-        return page.model_copy(
-            update={
-                "records": tuple(
-                    r.model_copy(update={"origin": "association"}) for r in page.records
-                )
-            }
+        items = [r for r in stack.records if isinstance(r, TechStackRecord)]
+        slugs = technologies_by_lane((lane,), items, self.cfg.technologies_per_lane).get(lane, ())
+        if not slugs:
+            raise SourceUnavailable("not_available_yet")  # the stack has nothing for this lane
+        pages = [
+            _people_page(
+                await self.call(
+                    Operation.PEOPLE_BY_TECHNOLOGY,
+                    PeopleByTechnologyArgs(
+                        organization_id=found.organization_id, technology_slug=slug
+                    ),
+                ),
+                self.deps.domain,
+            )
+            for slug in slugs
+        ]
+        return PersonPage(
+            records=tuple(
+                r.model_copy(update={"origin": "association"}) for p in pages for r in p.records
+            ),
+            next_cursor=None,
+            call_ref=pages[0].call_ref,
+            complete=all(p.complete for p in pages),
+            reported_count=sum(p.reported_count or 0 for p in pages),
         )
 
 

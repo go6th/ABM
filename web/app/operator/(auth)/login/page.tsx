@@ -1,4 +1,8 @@
+// Operator sign-in: Google Workspace through /api/operator/login (verified by the backend), with
+// error messages by code. A server component: it reads the error code from the query.
 import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
+import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 
 const ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled by your identity provider.",
@@ -6,7 +10,7 @@ const ERRORS: Record<string, string> = {
   exchange_failed: "Your identity provider could not complete sign-in. Try again.",
   invalid_token_response: "The sign-in response was invalid. Start again.",
   invalid_nonce: "The sign-in response could not be verified. Start again.",
-  staff_access_refused: "This account is not authorized for the operator console or needs a fresh MFA sign-in.",
+  staff_access_refused: "This account is not authorized for the operator console or needs a fresh multi-factor sign-in.",
 };
 
 export default async function OperatorLoginPage({
@@ -18,16 +22,16 @@ export default async function OperatorLoginPage({
   const message = error ? ERRORS[error] : undefined;
 
   return (
-    <section className="operator-login-card">
-      <p className="eyebrow">6th · Internal systems</p>
-      <h1>Operator sign in</h1>
-      <p className="muted">Use your authorized Google Workspace account. A recent MFA sign-in is required.</p>
-      {message ? <p className="error" role="alert">{message}</p> : null}
-      <Link className="button primary" href="/api/operator/login?return_to=%2Foperator">
-        Continue with Google Workspace
-      </Link>
-      <p className="muted small">Operator access is separate from customer accounts and is audited.</p>
-      <Link href="/login">Customer sign in</Link>
-    </section>
+    <AuthFrame plane="operator">
+      <AuthBrand plane="operator" />
+      <div>
+        <h1 id="auth-title">Staff sign in</h1>
+        <p className="lede">Use your authorized Google Workspace account. A recent multi-factor sign-in is required.</p>
+      </div>
+      {message ? <div className="banner error" role="alert"><p className="grow">{message}</p></div> : null}
+      <Link className="btn primary lg block" href="/api/operator/login?return_to=%2Foperator">Continue with Google Workspace</Link>
+      <p className="auth-links"><Link className="link" href="/login">Client sign in</Link></p>
+      <p className="auth-foot"><ShieldCheck size={16} aria-hidden="true" />Staff access only. Every action is audited.</p>
+    </AuthFrame>
   );
 }

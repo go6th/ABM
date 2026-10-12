@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -40,12 +41,14 @@ from account_intelligence.connectors.models import (
     FeedArgs,
     OrganizationRecord,
     OrgResolveArgs,
+    OrgTechStackArgs,
     PeopleByTechnologyArgs,
     PeopleByTitleArgs,
     ReadPageArgs,
     Record,
     ScrapeJobPageArgs,
     TechDetectionRecord,
+    TechStackRecord,
     WebPageRecord,
     WebSearchArgs,
 )
@@ -54,6 +57,9 @@ from account_intelligence.connectors.service import ConnectorRuntime, call_opera
 from account_intelligence.grading.adapters import record_text
 from account_intelligence.grading.config import load_grading_config
 from agents.ports import CapPause, ProviderFailed, ProviderResult, RunContext, SourceItem
+from jobs.window import window_start
+from people.config import load_people_config
+from people.technology import technologies_by_lane
 from spend.money import usd_to_micros
 
 _CODE = re.compile(r"[^a-z0-9]+")
@@ -66,6 +72,11 @@ def reason_code(error: BaseException) -> str:
     return _CODE.sub("_", snake).strip("_") or "source_failed"
 
 
+# full reads of the account's own pages per web search (D-30 allow-list; lifted on the uncapped
+# local stack)
+OWN_PAGE_READS_PER_SEARCH = 3
+
+
 @dataclass(frozen=True)
 class RoutesConfig:
     """The validated translation table."""
@@ -73,7 +84,6 @@ class RoutesConfig:
     needs: Mapping[str, Mapping[str, Any]]
     feed_by_row: Mapping[str, str]
     people_titles: tuple[str, ...]
-    technology_slugs: Mapping[str, str]
     attribute_prefix: Mapping[str, str]
 
 
@@ -85,7 +95,6 @@ def load_routes(path: Path | None = None) -> RoutesConfig:
         needs={k: v["value"] for k, v in doc["needs"].items()},
         feed_by_row=dict(doc["feed_operation_by_row"]["value"]),
         people_titles=tuple(doc["people_titles"]["value"]),
-        technology_slugs=dict(doc["technology_slugs"]["value"]),
         attribute_prefix=dict(doc["attribute_prefix_by_row"]["value"]),
     )
 
@@ -180,8 +189,12 @@ class ConnectorProvider:
             return [search, await call_need(route, args, cc, self.rt)]
         if route == "news_tech_job_feeds":
             feed = Operation(self.routes.feed_by_row.get(row, str(spec["operation"])))
+            # job postings are a 12-month row: an unbounded feed pages the whole history
+            since = window_start(date.today()) if feed is Operation.JOB_OPENINGS else None
             return [
-                await call_need(route, FeedArgs(domain=ctx.domain), cc, self.rt, operation=feed)
+                await call_need(
+                    route, FeedArgs(domain=ctx.domain, since=since), cc, self.rt, operation=feed
+                )
             ]
         if operation is Operation.PEOPLE_BY_TITLE:
             args = PeopleByTitleArgs(domain=ctx.domain, titles=self.routes.people_titles)
@@ -197,20 +210,63 @@ class ConnectorProvider:
             ]
             if not ids:
                 return [org]
-            out = [org]
-            for lane in self.lanes or tuple(self.routes.technology_slugs):
-                slug = self.routes.technology_slugs.get(lane)
-                if slug:
-                    out.append(
-                        await call_need(
-                            route,
-                            PeopleByTechnologyArgs(organization_id=ids[0], technology_slug=slug),
-                            cc,
-                            self.rt,
-                        )
+            # the account's own stack, matched to each lane by name (people.technology)
+            stack = await call_operation(
+                Operation.ORG_TECH_STACK, OrgTechStackArgs(organization_id=ids[0]), cc, self.rt
+            )
+            items = [r for r in stack.records if isinstance(r, TechStackRecord)]
+            per_lane = technologies_by_lane(
+                self.lanes, items, load_people_config().technologies_per_lane
+            )
+            out = [org, stack]
+            for slug in dict.fromkeys(s for slugs in per_lane.values() for s in slugs):
+                out.append(
+                    await call_need(
+                        route,
+                        PeopleByTechnologyArgs(organization_id=ids[0], technology_slug=slug),
+                        cc,
+                        self.rt,
                     )
+                )
             return out
-        return [await call_need(route, WebSearchArgs(queries=(query[:200],)), cc, self.rt)]
+        search = await call_need(route, WebSearchArgs(queries=(query[:200],)), cc, self.rt)
+        return [search, *await self._read_own_pages(search, cc, ctx)]
+
+    async def _read_own_pages(
+        self, search: ConnectorResult, cc: CallContext, ctx: RunContext
+    ) -> list[ConnectorResult]:
+        """Full reads of the account's own pages a search found. A snippet is never more than a
+        Lead (G5): only a full page read in a primary source (the company's own site is T1) can
+        make a fact Confirmed. The read is a live scrape (maxAge 0, origin full_page_read): an
+        extract read may be a cached copy and never qualifies. Other hosts stay snippets (D-30)."""
+        from account_intelligence.dev_limits import UNCAPPED, dev_uncapped
+
+        own = list(
+            dict.fromkeys(
+                r.url
+                for r in search.records
+                if isinstance(r, WebPageRecord) and _on_domain(r.url, ctx.domain)
+            )
+        )
+        limit = UNCAPPED if dev_uncapped() else OWN_PAGE_READS_PER_SEARCH
+        reads = []
+        for url in own[:limit]:
+            try:
+                reads.append(
+                    await call_need(
+                        "job_boards_and_pages",
+                        ScrapeJobPageArgs(url=url, page_kind="account_page"),
+                        cc,
+                        self.rt,
+                    )
+                )
+            except (CapRefused, BudgetExceeded):
+                raise
+            except ConnectorError:
+                # one unreadable or slow page (a timeout after the connector's own retries)
+                # never loses the search it came from, nor fails the slice and replays the pull
+                continue
+        return reads
 
 
 def _on_domain(url: str, domain: str) -> bool:

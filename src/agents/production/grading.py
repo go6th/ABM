@@ -33,9 +33,9 @@ from sqlalchemy import text
 from account_intelligence.grading import repo
 from account_intelligence.grading.adapters import LedgerAdapter
 from account_intelligence.grading.config import GradingConfig
-from account_intelligence.grading.integration import load_run_info
+from account_intelligence.grading.integration import judge_profile_ok, load_run_info
 from account_intelligence.grading.pipeline import _hash, grade_claims, load_inputs
-from account_intelligence.grading.ports import FetchRecord, RunInfo, RunSource
+from account_intelligence.grading.ports import FetchRecord, RunInfo, RunSource, SupportJudgePort
 from account_intelligence.grading.product import statement_policy
 from account_intelligence.grading.repo import TxnFactory
 from account_intelligence.grading.schema import GradedClaim, GradedEvidence, LeadRecord
@@ -151,6 +151,9 @@ class EngineGrading:
     ledger: InheritedLedger
     cfg: GradingConfig
     clock: Clock
+    # G12: the support judge. Without it (or when the judge would be the generator's model) every
+    # claim that needs a judge, Confirmed included, is capped and flagged ``unjudged``.
+    judge: SupportJudgePort | None = None
 
     async def grade(self, ctx: RunContext, items: Sequence[GradingCandidate]) -> GradeBatch:
         """Grade and record a batch; every item ends as a fact or a counted drop."""
@@ -166,7 +169,14 @@ class EngineGrading:
             if i.visibility == "private"
         )
         result = await grade_claims(
-            raws, run, inputs, self.cfg, self.clock.now(), internal_only_keys=private
+            raws,
+            run,
+            inputs,
+            self.cfg,
+            self.clock.now(),
+            internal_only_keys=private,
+            judge=self.judge,
+            judge_profile_ok=judge_profile_ok(self.cfg),
         )
         by_hash = {_hash(r): i for i, r in enumerate(raws)}
         facts, index, read = [], [], []

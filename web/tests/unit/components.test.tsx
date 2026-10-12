@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, act } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { RunProgress } from "@/components/Progress";
-import { Button, DataTable, GradeBadge, Input, Progress, StatusChip } from "@/design/components";
+import { RunProgress } from "@/ui/RunProgress";
+import { DataTable } from "@/ui/DataTable";
+import { Input } from "@/ui/Input";
+import { Meter } from "@/ui/primitives";
+import { GradeMark } from "@/components/ws/GradeMark";
 import { useApi } from "@/lib/useApi";
 
 class FakeEventSource {
@@ -87,15 +90,9 @@ test("falls back to same-origin ETag polling when EventSource is unavailable", a
   }));
 });
 
-test("buttons expose disabled loading state and input validation is associated with its label", () => {
-  render(
-    <>
-      <Button loading>Save account</Button>
-      <Input label="Company domain" required hint="Use the primary domain." error="This domain is already in use." />
-    </>,
-  );
+test("input validation is associated with its label", () => {
+  render(<Input label="Company domain" required hint="Use the primary domain." error="This domain is already in use." />);
 
-  expect(screen.getByRole("button", { name: "Save account" }).hasAttribute("disabled")).toBe(true);
   const input = screen.getByRole("textbox", { name: "Company domain" });
   expect(input.getAttribute("aria-invalid")).toBe("true");
   expect((input as HTMLInputElement).required).toBe(true);
@@ -104,27 +101,21 @@ test("buttons expose disabled loading state and input validation is associated w
   expect(describedBy).toContain(screen.getByText("This domain is already in use.").id);
 });
 
-test("evidence and coverage badges use explicit human-readable labels", () => {
-  render(
-    <>
-      <GradeBadge grade="hypothesis" />
-      <StatusChip status="partial" />
-    </>,
-  );
-
-  expect(screen.getByLabelText("Evidence grade: Hypothesis")).toBeTruthy();
-  expect(screen.getByLabelText("Coverage status: Partial")).toBeTruthy();
+test("a grade mark carries its plain label, shown or as text for assistive technology", () => {
+  const { rerender } = render(<GradeMark grade="hypothesis" />);
+  expect(screen.getByText("Hypothesis")).toBeTruthy();
+  rerender(<GradeMark grade="probable" showLabel={false} />);
+  expect(screen.getByText("Probable").className).toBe("sr-only");
 });
 
-test("progress remains indeterminate when the backend has no valid measured value", () => {
-  const { rerender } = render(<Progress label="Research progress" />);
-  expect(screen.getByRole("progressbar", { name: "Research progress" }).hasAttribute("value")).toBe(false);
-
-  rerender(<Progress label="Research progress" value={2} max={4} />);
-  expect(screen.getByRole("progressbar", { name: "Research progress" }).getAttribute("value")).toBe("2");
-
-  rerender(<Progress label="Research progress" value={5} max={4} />);
-  expect(screen.getByRole("progressbar", { name: "Research progress" }).hasAttribute("value")).toBe(false);
+test("a meter is labelled and its fill never leaves the track", () => {
+  const { container, rerender } = render(<Meter value={2} max={4} label="Half used" />);
+  expect(screen.getByRole("img", { name: "Half used" })).toBeTruthy();
+  expect(container.querySelector(".fill")?.getAttribute("width")).toBe("50");
+  rerender(<Meter value={9} max={4} label="Over" />);
+  expect(container.querySelector(".fill")?.getAttribute("width")).toBe("100");
+  rerender(<Meter value={0} max={0} />);
+  expect(container.querySelector(".fill")?.getAttribute("width")).toBe("0");
 });
 
 test("data table renders rows and communicates empty, loading, and error states", () => {
@@ -138,7 +129,7 @@ test("data table renders rows and communicates empty, loading, and error states"
   expect(screen.getByText("No records to show.")).toBeTruthy();
 
   rerender(<DataTable caption="Accounts" columns={columns} rows={[]} loading rowKey={(row) => row.name} />);
-  expect(screen.getByRole("status").textContent).toBe("Loading records…");
+  expect(screen.getByRole("status").textContent).toBe("Loading records");
 
   rerender(<DataTable caption="Accounts" columns={columns} rows={[]} error="Accounts are unavailable." rowKey={(row) => row.name} />);
   expect(screen.getByRole("alert").textContent).toBe("Accounts are unavailable.");

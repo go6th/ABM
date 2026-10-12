@@ -53,6 +53,26 @@ async def test_released_lease_lets_the_next_worker_in_immediately(tenant_a: UUID
 
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
+async def test_the_next_slice_on_the_same_worker_sees_a_cut_off_call_as_abandoned(
+    tenant_a: UUID,
+) -> None:
+    # slice 1's timeout cancelled a call after "started"; slice 2 runs on the same worker
+    account, run, domain = make_run(tenant_a)
+    ctx = context(tenant_a, account, run, domain)
+    ledger = Ledger(tenant_txn, FakeClock(), lease_ttl_s=300, budget_defaults=DEFAULTS)
+    key = CallKey(args_hash="f" * 64, tool="t")
+    assert await ledger.acquire_lease(ctx, "w") == 1
+    cut_off = await ledger.claim(ctx, "w", key, 0.0, charge_budget=False)
+    assert isinstance(cut_off, Claimed) and cut_off.lease_epoch == 1
+    await ledger.release_lease(ctx, "w")
+    assert await ledger.acquire_lease(ctx, "w") == 2  # a lease taken anew is a new epoch
+    again = await ledger.claim(ctx, "w", key, 0.0, charge_budget=False)
+    assert isinstance(again, Claimed) and again.attempt == 2 and again.possible_duplicate
+    assert [e["event"] for e in event_rows(run)] == ["started", "abandoned", "started"]
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
 async def test_unbudgeted_stale_attempt_and_late_failure_of_an_abandoned_attempt(
     tenant_a: UUID,
 ) -> None:

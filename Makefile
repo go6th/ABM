@@ -17,7 +17,7 @@ MIGRATION_ENV = MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
 .PHONY: help install up down reset emulators db-shell migrate migration run fmt lint types test check \
 	test-isolation static infra-fmt infra-validate image build smoke deploy-staging obs-verify \
 	seed e2e contract wiring scan verify doctor up-deps env-check load-smoke backup-restore fuzz \
-	infra-test logs clean
+	infra-test logs clean verify-wiring smoke-live
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -176,6 +176,9 @@ backup-restore: ## Backup/restore test: pg_dump -> pg_restore equivalence and is
 
 fuzz: ## OpenAPI-driven API fuzz (Hypothesis) against the real app on the test database
 	$(TEST_ENV) $(UV) run --frozen pytest tests/fuzz -q
+
+verify-wiring: ## Hermetic end-to-end wiring matrix (LAYER | CHECK | RESULT | EVIDENCE); needs `make up`, no keys
+	$(UV) run --frozen python scripts/verify_wiring.py
 
 doctor: ## Diagnose local toolchain and synthetic service readiness without printing secrets
 	$(UV) run --frozen python scripts/doctor.py

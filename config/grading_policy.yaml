@@ -23,7 +23,8 @@ judge:
   max_reasks: 1
   unavailable_cap: {engine_grade: C, product_grade: probable, flag: unjudged}
   judge_task: verification             # config/models.yaml task the judge runs
-  generator_task: synthesis            # config/models.yaml task that proposes claims
+  generator_task: extraction           # config/models.yaml task that proposes claims (extract_facts
+                                       # and the ABM extract agents run on the extractor tier)
 
 # D-11 extension: a lineage group of unknown provenance counts toward confidence, but if it
 # is what lets the claim reach engine A, the claim is capped at B and flagged.
@@ -88,6 +89,8 @@ attributes:
     hiring: hiring
     tech: technology
     funding: funding
+    company: company    # proposal (C38): news, market, relationship and fit facts
+    content: content    # proposal (C38): podcasts, video, articles, reviews, communities
   normalisers:          # casefold_text | number | iso_date | opaque
     exec: casefold_text
     people: casefold_text
@@ -95,6 +98,8 @@ attributes:
     hiring: opaque
     tech: casefold_text
     funding: number
+    company: opaque
+    content: opaque
 
 # G9: "differently worded" (PRD 3.4). Metric and threshold are not in any source.
 lead_similarity:

@@ -72,4 +72,9 @@ def test_people_comparison_counts_with_bases_and_the_switch_filters_the_stage() 
 
     from account_intelligence.workflow.handlers import people_operations
 
-    assert people_operations() == {"people_by_technology", "org_teams"}
+    assert people_operations() == {
+        "org_resolve",
+        "org_tech_stack",
+        "people_by_technology",
+        "org_teams",
+    }

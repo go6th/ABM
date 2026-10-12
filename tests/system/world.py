@@ -157,8 +157,19 @@ def scrape_reply(request: httpx.Request) -> Reply:
     return Reply(body=out)
 
 
+def org_reply(request: httpx.Request) -> Reply:
+    """The organisation lookup finds no match: people search ends without a people call."""
+    asked = json.loads(request.content)["organizations"]
+    out = _cassette("p_org", "org_resolve")
+    out["matched_count"] = 0
+    out["organizations"] = [{"input": dict(entry), "attributes": {}} for entry in asked]
+    return Reply(body=out)
+
+
 def install(harness: Harness) -> None:
-    """Route every provider to its synthetic replies (p_people stays unsupported, p_org unused)."""
+    """Route every provider to its synthetic replies (p_people stays unsupported; p_org finds no
+    organisation, so people search spends nothing)."""
+    harness.providers[ProviderCode.P_ORG].fallback = org_reply
     harness.providers[ProviderCode.P_SEARCH].fallback = search_reply
     harness.providers[ProviderCode.P_SIGNALS].fallback = signals_reply
     harness.providers[ProviderCode.P_SCRAPE].fallback = scrape_reply

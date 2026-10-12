@@ -26,6 +26,7 @@ from account_intelligence.grading.adapters import LedgerAdapter
 from account_intelligence.grading.config import load_grading_config
 from account_intelligence.platform.ports import NotConfigured
 from account_intelligence.workflow.deps import RunDeps
+from account_intelligence.workflow.stages.grading_stages import LlmJudge
 from account_intelligence.workflow.transitions import RunStatus
 from agents.adapters import PgConsentStore, PgManifestStore
 from agents.config import SkillConfig, skill_config
@@ -40,7 +41,7 @@ from agents.production.provider import ConnectorProvider
 from agents.production.state import PgRunRecords, SettingsAdapter
 from agents.production.tracker import TrackerAdapter
 from llm.errors import SchemaInvalid
-from llm.schema import validate
+from llm.schema import REASK_NOTE, validate
 
 M = TypeVar("M", bound=BaseModel)
 FLAG = "abm_agents"
@@ -62,14 +63,28 @@ class RunDepsModel:
         output: type[M],
         ctx: RunContext,
     ) -> tuple[M, int]:
-        """One call; a reply that fails its schema is ``SchemaInvalid`` (never kept)."""
+        """One call with the output's JSON Schema in the instructions (the prompt says "matching
+        the schema"; without the schema itself the model invents field names). A reply that fails
+        it is asked once more; a second failure is ``SchemaInvalid`` (never kept)."""
         import json
 
-        result = await self.deps.model(task_kind, prompt_text, json.dumps(dict(payload)))
-        validated = validate(result.text, output)
-        if validated is None:
-            raise SchemaInvalid(f"{task_kind}: output failed its schema")
-        return validated, int(result.usage.input_tokens + result.usage.output_tokens)
+        schema = json.dumps(output.model_json_schema(), separators=(",", ":"))
+        system = (
+            f"{prompt_text}\n\nAnswer with one JSON object, no prose and no code fence, that"
+            f" validates against this JSON Schema:\n{schema}"
+        )
+        user = json.dumps(dict(payload))
+        tokens = 0
+        # LOOP(agent schema re-ask): cap=2 attempts; exit=valid reply, SchemaInvalid
+        for attempt in range(2):
+            result = await self.deps.model(
+                task_kind, system, user + (REASK_NOTE if attempt else "")
+            )
+            tokens += int(result.usage.input_tokens + result.usage.output_tokens)
+            validated = validate(result.text, output)
+            if validated is not None:
+                return validated, tokens
+        raise SchemaInvalid(f"{task_kind}: output failed its schema")
 
 
 class _NoConnectors:
@@ -111,7 +126,7 @@ def abm_deps(deps: RunDeps, lanes: tuple[str, ...] = (), cfg: SkillConfig | None
         manifests=PgManifestStore(),
         consent=PgConsentStore(),
         settings=SettingsAdapter(deps.txn, deps.run_id, cfg),
-        grading=EngineGrading(deps.txn, ledger, grading_cfg, deps.clock),
+        grading=EngineGrading(deps.txn, ledger, grading_cfg, deps.clock, LlmJudge(deps)),
         tracker=TrackerAdapter(deps.txn, deps.spec.coverage_owners),
         credit=CreditAdapter(deps.txn, deps.clock, cfg, deps),
         records=PgRunRecords(deps.txn),
@@ -158,8 +173,12 @@ class AbmGraphFactory:
                     text("SELECT run_input FROM account_runs WHERE id = :r"), {"r": deps.run_id}
                 )
             ).scalar_one_or_none() or {}
+            # the tenant's own lanes (settings), not the skill's list: people search follows them
+            from tenancy import settings as tenant_settings
+
+            configured = (await tenant_settings.current(s)).settings.platform_lanes
         off = set(dict(run_input).get("lanes_off") or ())
-        lanes = tuple(lane for lane in cfg.lanes if lane not in off)
+        lanes = tuple(lane for lane in configured if lane not in off)
         policy = None
         if deps.connectors is not None:
             from account_intelligence.connectors.service import retry_policy_for

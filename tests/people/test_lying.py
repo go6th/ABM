@@ -148,7 +148,13 @@ async def test_p9_extractor_adding_an_email_is_dropped() -> None:
 
 
 def test_p14_only_allow_listed_operations_are_used() -> None:
-    allowed = {"PEOPLE_BY_TITLE", "PEOPLE_BY_TECHNOLOGY", "PROFILE_ENRICHMENT", "ORG_RESOLVE"}
+    allowed = {
+        "PEOPLE_BY_TITLE",
+        "PEOPLE_BY_TECHNOLOGY",
+        "PROFILE_ENRICHMENT",
+        "ORG_RESOLVE",
+        "ORG_TECH_STACK",  # organisation-level technology list, no personal data
+    }
     used: set[str] = set()
     for path in SRC.glob("*.py"):
         used |= set(re.findall(r"Operation\.([A-Z_]+)", path.read_text()))

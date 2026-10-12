@@ -69,6 +69,7 @@ class SkillConfig:
     min_phrasings: int
     min_tool_categories: int
     sense_kinds: tuple[str, ...]
+    follow_up_rounds: Mapping[str, int]
     lanes: tuple[str, ...]
     salesforce_includes: tuple[str, ...]
     phrasings: tuple[str, ...]
@@ -171,6 +172,12 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
         min_phrasings=min_phrasings,
         min_tool_categories=min_tools,
         sense_kinds=tuple(_val(run["sense_check"]["kinds"], "sense_check.kinds")),
+        follow_up_rounds={
+            str(depth): max(1, int(rounds))
+            for depth, rounds in _val(
+                run["sense_check"]["follow_up_rounds"], "sense_check.follow_up_rounds"
+            ).items()
+        },
         lanes=tuple(_val(run["lanes"]["description_lanes"], "lanes")),
         salesforce_includes=tuple(_val(run["lanes"]["salesforce_includes"], "salesforce")),
         phrasings=tuple(str(p) for p in _val(plan_doc["phrasings"], "phrasings")),

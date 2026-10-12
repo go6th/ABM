@@ -24,7 +24,10 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.dev_limits import dev_uncapped
+from account_intelligence.platform.fake_model import FakeModel, load_scenario
 from account_intelligence.platform.hermetic import (
     EnvSecrets,
     HttpTaskScheduler,
@@ -56,7 +59,9 @@ HERMETIC_TYPES = (
     LocalPayloadStore,
     EnvSecrets,
     UnconfiguredLlm,
+    FakeModel,
 )
+FAKE_MODEL_DIR = CONFIG_DIR / "hermetic" / "fake_model"
 
 
 class RuntimeMisconfigured(RuntimeError):
@@ -107,6 +112,12 @@ class Container:
     verify_task_token: Callable[[str, str, str], None] | None = None
     extras: dict[str, Any] = field(default_factory=dict)
     builder: Any | None = None  # BuilderPort (exports.wiring); None ends builds PARTIAL
+    # the quality gate (``gate`` package); None: the gate does not run and the run ends PARTIAL
+    gate: Any | None = None
+    # provider balance snapshots (credit cap K15 preflight); None: every balance reads unknown
+    balances: Any | None = None
+    # local stack only: approve run caps as tenant policy (DEV_AUTO_APPROVE_CAPS=1)
+    dev_auto_approve: bool = False
     # Credit manager v2 ports: production placeholders fail closed (NotConfigured, or an
     # unavailable scanner that rejects every upload) until real adapters exist; never a fake success
     wallet: Any = field(default_factory=lambda: _unconfigured("wallet"))
@@ -151,6 +162,9 @@ class Container:
             spec=self.spec,
             connectors=self.connectors,
             builder=self.builder,
+            gate=self.gate,
+            balances=self.balances,
+            dev_auto_approve=self.dev_auto_approve,
             extra_allowed_hosts=frozenset(h for h in hosts if h),
             run_input=dict(row.run_input or {}),
             router=self.router,
@@ -260,14 +274,20 @@ def _limits(spec: WorkflowSpec, env: Mapping[str, str]) -> RunLimits:
         budget_usd=Decimal(str(env.get("RUN_BUDGET_USD", settings.get("max_budget_usd", 5.0)))),
         tool_call_cap=int(env.get("RUN_TOOL_CALL_CAP", settings.get("max_calls", 60))),
         reserved_credits=Decimal(str(env.get("RUN_RESERVE_CREDITS", "6.0"))),
+        cap_required=not dev_uncapped(env),
     )
 
 
 def _slices(spec: WorkflowSpec) -> SliceSettings:
     s = spec.settings
+    from account_intelligence.dev_limits import DEV_SLICE_SECONDS, UNCAPPED
+
     return SliceSettings(
-        slice_seconds=float(s.get("slice_seconds", 240)),
-        max_slices=int(s.get("max_slices", 60)),
+        # local stack, DEV_UNCAPPED=1: a slice long enough for one long model reply (a 16k-token
+        # extraction takes minutes; a call the slice timer cuts off is lost and asked again)
+        slice_seconds=DEV_SLICE_SECONDS if dev_uncapped() else float(s.get("slice_seconds", 240)),
+        # local stack, DEV_UNCAPPED=1: a run takes as many slices as its research needs
+        max_slices=UNCAPPED if dev_uncapped() else int(s.get("max_slices", 60)),
         approval_hours=float(s.get("approval_timeout_hours", 24)),
     )
 
@@ -283,6 +303,9 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     """Build the container for ``APP_ENV`` (default ``dev``)."""
     env = dict(os.environ if env is None else env)
     app_env = env.get("APP_ENV", "dev")
+    if env.get("LLM_FAKE") and app_env not in ("dev", "test"):
+        # the deterministic fake model is hermetic only: refuse before anything else is built
+        raise RuntimeMisconfigured(f"LLM_FAKE is hermetic only and refused for APP_ENV={app_env}")
     spec = load_spec()
     if app_env in CLOUD_ENVS:
         container = _cloud(env, app_env, spec)
@@ -294,7 +317,9 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         LocalPayloadStore(env["PAYLOAD_DIR"]) if env.get("PAYLOAD_DIR") else MemoryPayloadStore()
     )
     llm: LlmPort = UnconfiguredLlm()
-    if app_env == "dev" and env.get("ANTHROPIC_API_KEY"):
+    if env.get("LLM_FAKE"):
+        llm = hermetic_fake_model(env)
+    elif app_env == "dev" and env.get("ANTHROPIC_API_KEY"):
         from account_intelligence.platform.llm import (
             AnthropicLlm,
             anthropic_api_client,
@@ -307,8 +332,23 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     connectors, retry = (None, None)
     if app_env == "dev" and env.get("CONNECTORS") == "on":
         connectors, retry = build_connectors(env, payloads, env.get("REDIS_HOST"))
+        if dev_uncapped(env):
+            from dataclasses import replace
+
+            from account_intelligence.connectors.paginate import PageLimits
+            from account_intelligence.dev_limits import DEV_SLICE_SECONDS, UNCAPPED
+
+            # the run lease outlives one (longer) local slice, as the configured one outlives 240 s
+            connectors.ledger.lease_ttl_s = int(DEV_SLICE_SECONDS) + 300
+
+            # every page a provider has; repeated cursors and the run deadline still stop a loop
+            size = connectors.config.defaults.pagination.max_bytes * 100
+            connectors = replace(
+                connectors, page_limits_override=PageLimits(UNCAPPED, UNCAPPED, size)
+            )
     clock = SystemClock()
     from account_intelligence.api.tenant_plane import DevelopmentSecretStore, unconfigured_plane
+    from spend.balances import DevAssumedBalances
 
     tenant_plane = unconfigured_plane(clock, env.get("PUBLIC_BASE_URL"))
     tenant_plane.secrets = DevelopmentSecretStore()
@@ -332,7 +372,27 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         slices=_slices(spec),
         checkpoint_dsn=env.get("CHECKPOINT_DATABASE_URL", ""),
         tenant_plane=tenant_plane,
+        # local stack opt-ins (never in CLOUD_ENVS, which return above): fund every provider and
+        # approve caps without a person, so a live run goes end to end unattended
+        balances=(
+            DevAssumedBalances()
+            if app_env == "dev" and env.get("DEV_ASSUME_PROVIDER_BALANCE") == "1"
+            else None
+        ),
+        dev_auto_approve=app_env == "dev" and env.get("DEV_AUTO_APPROVE_CAPS") == "1",
     )
+
+
+def hermetic_fake_model(env: Mapping[str, str]) -> FakeModel:
+    """The deterministic fake model selected by ``LLM_FAKE=hermetic`` (dev and test only); the
+    scenario is a file name under ``config/hermetic/fake_model`` (default ``happy``)."""
+    if env.get("LLM_FAKE") != "hermetic":
+        raise RuntimeMisconfigured("LLM_FAKE must be 'hermetic' when set")
+    name = env.get("FAKE_MODEL_SCENARIO", "happy")
+    path = (FAKE_MODEL_DIR / f"{name}.json").resolve()
+    if path.parent != FAKE_MODEL_DIR.resolve() or not path.is_file():
+        raise RuntimeMisconfigured(f"unknown fake model scenario {name!r}")
+    return FakeModel(load_scenario(path))
 
 
 def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Container:

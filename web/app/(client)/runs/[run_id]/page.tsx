@@ -1,12 +1,17 @@
 "use client";
-
+// One research run: its state, progress, outcome and coverage; approve or cancel; the spend cap
+// decision the run is waiting on (GET /v1/runs/{id}/cap, approve or reject that exact proposal)
+// and the live work counts by category while it runs (GET /v1/runs/{id}/spend/live).
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { RunProgress } from "@/components/Progress";
-import { SignedIn } from "@/components/SignedIn";
+import * as Dialog from "@radix-ui/react-dialog";
+import { RunProgress } from "@/ui/RunProgress";
+import { SignedIn } from "@/ui/SignedIn";
 import { ApiError, api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { humanize } from "@/lib/ws-format";
+import { Badge, Banner, LoadError, PageHead, PageSkeleton, Section, Tile } from "@/ui/primitives";
 import type { Me, RunStatusView } from "@/lib/gen/api.gen";
 
 const STATE_LABELS: Record<string, string> = {
@@ -24,25 +29,136 @@ const STATE_LABELS: Record<string, string> = {
 
 const TERMINAL = new Set(["COMPLETED", "PARTIAL", "BUDGET_EXCEEDED", "CANCELED", "FAILED"]);
 
+interface CapProposal {
+  run_id: string; version: number; proposal_hash: string; state: string; cap_micros: number; is_extension: boolean;
+  has_exclusions: boolean; has_unknown_costs: boolean; calls_by_category: Record<string, number>;
+}
+interface LiveSpend { status: string; as_of: string; calls_by_category: Record<string, number> }
+
+function money(micros: number): string {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(micros / 1_000_000);
+}
+
+/** A confirmation dialog in place of window.confirm. */
+function Confirm({ trigger, title, body, action, tone = "primary", busy, onConfirm, children }: {
+  trigger: string; title: string; body: string; action: string; tone?: "primary" | "danger"; busy: boolean; onConfirm: () => void; children?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger className={tone === "danger" ? "btn danger" : "btn primary"} disabled={busy}>{trigger}</Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="overlay" />
+        <Dialog.Content className="dialog">
+          <Dialog.Title>{title}</Dialog.Title>
+          <Dialog.Description className="desc">{body}</Dialog.Description>
+          {children}
+          <div className="actions">
+            <Dialog.Close className="btn quiet">Keep as is</Dialog.Close>
+            <button type="button" className={tone === "danger" ? "btn danger" : "btn primary"} disabled={busy} onClick={() => { setOpen(false); onConfirm(); }}>{action}</button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function Counts({ counts }: { counts: Record<string, number> }) {
+  const entries = Object.entries(counts).filter(([, n]) => n > 0);
+  if (!entries.length) return <p className="ink-2">No work recorded yet.</p>;
+  return (
+    <dl className="dl">
+      {entries.map(([k, n]) => <div key={k} className="contents"><dt>{humanize(k)}</dt><dd className="num">{n}</dd></div>)}
+    </dl>
+  );
+}
+
+function CapDecision({ runId, canDecide, onDecided }: { runId: string; canDecide: boolean; onDecided: () => void }) {
+  const cap = useApi<CapProposal>(`/v1/runs/${encodeURIComponent(runId)}/cap`);
+  const [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState("");
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  if (!cap.data) return null;
+  const p = cap.data;
+  const pending = p.state.toLowerCase() === "proposed" || p.state.toLowerCase() === "pending";
+  const decide = async (kind: "approve" | "reject") => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cap/${kind}`, kind === "approve"
+        ? { version: p.version, proposal_hash: p.proposal_hash }
+        : { version: p.version, reason: reason.trim() || "Not approved" });
+      setMessage({ ok: true, text: kind === "approve" ? "Spend limit approved." : "Spend limit rejected." });
+      cap.reload();
+      onDecided();
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof ApiError && error.status === 409 ? "The proposal changed. Review the new one before deciding." : "The decision was not saved. Try again." });
+      cap.reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title={p.is_extension ? "Spend limit extension" : "Spend limit"} sub="Approving lets the run spend up to this amount. It stops there.">
+      <div className="card stack">
+        <div className="row between">
+          <span className="t-title2 num">{money(p.cap_micros)}</span>
+          <Badge tone={pending ? "butter" : "mint"} dot>{humanize(p.state)}</Badge>
+        </div>
+        {p.has_unknown_costs ? <Banner kind="warn">Some work has no known price yet, so the final amount may be lower than the limit.</Banner> : null}
+        {p.has_exclusions ? <Banner kind="info">Some sources are excluded by your workspace settings.</Banner> : null}
+        <div><p className="strong">Planned work</p><Counts counts={p.calls_by_category} /></div>
+        {pending && !canDecide ? <p className="ink-2">Only a workspace admin can approve this spend limit. The run stays paused until one does.</p> : null}
+        {pending && canDecide ? (
+          <div className="row">
+            <Confirm trigger="Approve spend limit" title="Approve this spend limit?" body={`The run may spend up to ${money(p.cap_micros)} and stops there.`} action="Approve" busy={busy} onConfirm={() => void decide("approve")} />
+            <Confirm trigger="Reject" tone="danger" title="Reject this spend limit?" body="The run will not continue past this point." action="Reject" busy={busy} onConfirm={() => void decide("reject")}>
+              <div className="field gap-top">
+                <label htmlFor="reject-reason">Reason (optional)</label>
+                <input id="reject-reason" className="input" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
+              </div>
+            </Confirm>
+          </div>
+        ) : null}
+        {message ? <p className={message.ok ? "inline-status" : "inline-error"} role="status">{message.text}</p> : null}
+      </div>
+    </Section>
+  );
+}
+
+function LiveWork({ runId }: { runId: string }) {
+  const live = useApi<LiveSpend>(`/v1/runs/${encodeURIComponent(runId)}/spend/live`);
+  if (!live.data) return null;
+  return (
+    <Section title="Work so far" sub="Counts of completed work by category. Refreshes when you reload.">
+      <div className="card"><Counts counts={live.data.calls_by_category} /></div>
+    </Section>
+  );
+}
+
 function RunDetails({ runId, me }: { runId: string; me: Me }) {
   const path = `/v1/runs/${encodeURIComponent(runId)}`;
   const run = useApi<RunStatusView>(path);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const canApprove = me.capabilities.includes("runs:approve");
   const canCancel = me.capabilities.includes("runs:cancel");
   const status = run.data?.status.toUpperCase() ?? "";
   const isTerminal = TERMINAL.has(status);
+  // every role may read the cap and spend (analyst does whatever a seller does, D-61)
+  const seesSpend = me.role === "admin" || me.role === "seller" || me.role === "analyst" || me.role === "viewer";
 
   async function transition(action: "approve" | "cancel") {
     setBusy(true);
     setMessage(null);
     try {
       await api("POST", `${path}/${action}`);
-      setMessage(action === "approve" ? "Run approved and resumed." : "Run canceled.");
+      setMessage({ ok: true, text: action === "approve" ? "Run approved and resumed." : "Run canceled." });
       run.reload();
     } catch (error) {
-      setMessage(error instanceof ApiError ? `Action failed (${error.type}). Reload the run before trying again.` : "Action failed. Reload the run before trying again.");
+      // the run route answers 409 while the spend limit above is still undecided (K2)
+      const capFirst = action === "approve" && error instanceof ApiError && error.status === 409;
+      setMessage({ ok: false, text: capFirst ? "Approve the spend limit first. The run resumes once it is approved." : error instanceof ApiError ? `Action failed (${error.type}). Reload the run before trying again.` : "Action failed. Reload the run before trying again." });
       run.reload();
     } finally {
       setBusy(false);
@@ -51,86 +167,86 @@ function RunDetails({ runId, me }: { runId: string; me: Me }) {
 
   if (run.error) {
     return (
-      <section className="client-data-state error-box" role="alert">
-        <h1>Run could not be loaded</h1>
-        <p>{run.error.status === 404 ? "This run was not found in your workspace." : "The run service could not be reached."}</p>
-        <button className="btn" type="button" onClick={run.reload}>Try again</button>
-      </section>
+      <div className="content stack">
+        <PageHead title="Research run" />
+        {run.error.status === 404
+          ? <Banner kind="error" title="Run could not be loaded">This run was not found in your workspace.</Banner>
+          : <LoadError reference={null} retryHref={`/runs/${encodeURIComponent(runId)}`} />}
+      </div>
     );
   }
-  if (!run.data) return <p className="client-loading" role="status">Loading run…</p>;
+  if (!run.data) return <PageSkeleton />;
 
   const coverageRows = run.data.coverage.rows;
+  const done = coverageRows.filter((r) => r.status.toLowerCase() === "done").length;
   return (
-    <div className="client-dashboard">
-      <section className="client-dashboard-heading" aria-labelledby="run-title">
-        <div>
-          <p className="eyebrow"><Link href="/">ACCOUNT INTELLIGENCE</Link></p>
-          <h1 id="run-title">Research run</h1>
-          <p className="secondary">Run ID: <code>{run.data.run_id}</code></p>
-        </div>
-        <span className={`badge ${isTerminal ? "tone-slate" : "tone-sky"}`} aria-live="polite">
-          {STATE_LABELS[status] ?? status.toLowerCase().replaceAll("_", " ")}
-        </span>
-      </section>
+    <div className="content">
+      <PageHead
+        eyebrow={<Link className="link" href="/runs">Research runs</Link>}
+        title="Research run"
+        sub={<span className="mono t-footnote">{run.data.run_id}</span>}
+        actions={<span aria-live="polite"><Badge tone={isTerminal ? (status === "COMPLETED" ? "mint" : status === "FAILED" ? "rose" : "butter") : "peri"} dot>{STATE_LABELS[status] ?? humanize(status)}</Badge></span>}
+      />
 
       {!isTerminal ? (
-        <section className="client-accounts-panel" aria-labelledby="progress-title">
-          <h2 id="progress-title">Progress</h2>
-          <RunProgress runId={runId} onFinished={run.reload} />
-        </section>
+        <Section title="Progress" id="progress">
+          <div className="card"><RunProgress runId={runId} onFinished={run.reload} /></div>
+        </Section>
       ) : null}
 
       {run.data.reason ? (
-        <section className="client-accounts-panel" aria-labelledby="outcome-title">
-          <h2 id="outcome-title">Run outcome</h2>
-          <p>{run.data.reason}</p>
-        </section>
+        <Section title="Run outcome" id="outcome">
+          <p>{humanize(run.data.reason)}</p>
+        </Section>
       ) : null}
+
+      {seesSpend && status === "AWAITING_APPROVAL" ? <CapDecision runId={runId} canDecide={me.role === "admin"} onDecided={run.reload} /> : null}
 
       {status === "AWAITING_APPROVAL" && canApprove ? (
-        <section className="client-accounts-panel" aria-labelledby="approval-title">
-          <h2 id="approval-title">Approval required</h2>
-          <p>This run is paused. Review the coverage below before allowing it to continue.</p>
-          <button className="btn primary" type="button" disabled={busy} onClick={() => {
-            if (window.confirm("Approve and resume this research run?")) void transition("approve");
-          }}>
-            {busy ? "Working…" : "Approve and resume"}
-          </button>
-        </section>
+        <Section title="Approval required" id="approval">
+          <div className="card stack">
+            <p>This run is paused. Review the coverage below before allowing it to continue.</p>
+            <div><Confirm trigger="Approve and resume" title="Approve and resume this research run?" body="The run continues from where it paused." action="Approve and resume" busy={busy} onConfirm={() => void transition("approve")} /></div>
+          </div>
+        </Section>
       ) : null}
+
+      {seesSpend && !isTerminal ? <LiveWork runId={runId} /> : null}
 
       {!isTerminal && canCancel ? (
-        <section className="client-accounts-panel" aria-labelledby="cancel-title">
-          <h2 id="cancel-title">Cancel run</h2>
-          <p>Canceling stops further work and keeps any results already recorded.</p>
-          <button className="btn" type="button" disabled={busy} onClick={() => {
-            if (window.confirm("Cancel this research run?")) void transition("cancel");
-          }}>{busy ? "Working…" : "Cancel run"}</button>
-        </section>
+        <Section title="Cancel run" id="cancel">
+          <div className="card stack">
+            <p>Canceling stops further work and keeps any results already recorded.</p>
+            <div><Confirm trigger="Cancel run" tone="danger" title="Cancel this research run?" body="Work stops now. Results already recorded are kept." action="Cancel run" busy={busy} onConfirm={() => void transition("cancel")} /></div>
+          </div>
+        </Section>
       ) : null}
-      {message ? <p role="status">{message}</p> : null}
+      {message ? <p className={message.ok ? "inline-status" : "inline-error"} role="status">{message.text}</p> : null}
 
       {isTerminal ? (
-        <section className="client-accounts-panel" aria-labelledby="results-title">
-          <h2 id="results-title">Results</h2>
-          <p className="secondary">Coverage is shown even when a run stopped early, so incomplete work remains visible.</p>
-          {coverageRows.length === 0 ? <p>No coverage rows were recorded for this run.</p> : (
-            <div className="client-table-wrap">
-              <table className="client-account-table">
+        <Section title="Results" id="results" sub="Coverage is shown even when a run stopped early, so incomplete work stays visible.">
+          {coverageRows.length ? (
+            <div className="grid-3 block-gap">
+              <Tile tone="mint" label="Research areas done" value={done} note={`of ${coverageRows.length}`} />
+              <Tile tone="butter" label="Not done" value={coverageRows.length - done} />
+            </div>
+          ) : null}
+          {coverageRows.length === 0 ? <p className="ink-2">No coverage rows were recorded for this run.</p> : (
+            <div className="table-wrap">
+              <table className="table">
                 <thead><tr><th scope="col">Research area</th><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">Evidence summary</th></tr></thead>
                 <tbody>{coverageRows.map((row) => (
                   <tr key={row.row}>
-                    <th scope="row">{row.row}</th>
-                    <td>{row.status}</td>
-                    <td>{row.priority}</td>
-                    <td>{row.reason ?? (row.results === null ? "No proof recorded" : `${row.results} result${row.results === 1 ? "" : "s"}`)}</td>
+                    <th scope="row">{humanize(row.row)}</th>
+                    <td><Badge tone={row.status.toLowerCase() === "done" ? "mint" : "butter"}>{humanize(row.status)}</Badge></td>
+                    <td>{humanize(String(row.priority))}</td>
+                    <td>{row.reason ? humanize(row.reason) : row.results === null ? "No proof recorded" : `${row.results} result${row.results === 1 ? "" : "s"}`}</td>
                   </tr>
                 ))}</tbody>
               </table>
             </div>
           )}
-        </section>
+        </Section>
       ) : null}
     </div>
   );
@@ -143,6 +259,6 @@ export default function RunPage() {
   return <SignedIn>{() => me.data
     ? <RunDetails runId={runId} me={me.data} />
     : me.error
-      ? <div role="alert"><p>Access details could not be loaded.</p><button type="button" onClick={me.reload}>Try again</button></div>
-      : <p role="status">Loading access details…</p>}</SignedIn>;
+      ? <LoadError reference={null} retryHref={`/runs/${encodeURIComponent(runId)}`} />
+      : <PageSkeleton />}</SignedIn>;
 }
