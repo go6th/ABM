@@ -26,7 +26,7 @@ from exports.content import (
 from exports.errors import UnsafePackage
 from exports.excel.jobs import render_jobs
 from exports.excel.people import render_people
-from exports.policy import sanitise
+from exports.policy import leak_hits, sanitise
 from exports.readers.common import MapContext
 from exports.readers.jobs import map_jobs
 from exports.readers.people import map_people
@@ -40,8 +40,11 @@ CFG = load_export_config()
 GRADING = load_grading_config()
 SETTINGS = settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 # any text, including control characters, surrogate-free emoji, right-to-left scripts and
-# formula prefixes
-TEXT = st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=60)
+# formula prefixes; text the leak scanner refuses on its own (a provider-code shape such as
+# "p_a", a denylisted term) is a correct violation, not a builder defect, so it is not generated
+TEXT = st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=60).filter(
+    lambda t: not leak_hits(t)
+)
 FORMULA = st.sampled_from(["=", "+", "-", "@", "\t", "\r", ""])
 
 

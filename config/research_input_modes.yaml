@@ -1,0 +1,83 @@
+# Two research input modes (2026-10-13): limits, safety, chunking, embedding, extraction, the
+# leak check and how uploaded material maps onto the 33 tracker rows. INTERNAL.
+# Every limit is a proposal until a product owner sets it (see docs/open-items.md).
+version: "2026-10-13.1"
+status: "proposal (limits and thresholds unmeasured)"
+
+upload:
+  max_file_bytes: 104857600          # 100 MiB per file (decision pending)
+  max_files_per_run: 20
+  max_run_bytes: 524288000           # 500 MiB of documents per run (decision pending)
+  upload_ttl_minutes: 60             # a signed upload target is valid this long
+  # accepted document types (detected from content, the name only confirms)
+  document_types: [pdf, docx, xlsx, csv, pptx, txt, md]
+  # audio is accepted only when a transcription vendor is configured (decision pending)
+  audio_types: [mp3, wav, m4a]
+
+parsing:
+  max_pages: 2000                    # pages, slides or sheets per document
+  max_passages: 5000                 # passages per document
+  max_text_bytes: 52428800           # 50 MiB of extracted text per document
+  lease_ttl_s: 300
+  orphan_after_s: 900
+
+sandbox:
+  timeout_s: 300                     # wall clock per document parse
+  cpu_s: 300
+  memory_mb: 1536
+
+chunking:
+  chars_per_token: 4.0               # estimate; no tokenizer is bundled
+  document_min_tokens: 400
+  document_max_tokens: 800
+  overlap_fraction: 0.12
+  transcript_min_s: 60
+  transcript_max_s: 90
+
+embedding:
+  model: local-hash-v1               # deterministic local feature hashing (no vendor configured)
+  dimensions: 1536
+  batch: 64
+
+redaction:
+  default_tier: standard
+
+company:
+  free_mail_domains: [gmail.com, yahoo.com, outlook.com, hotmail.com, icloud.com, aol.com,
+    proton.me, protonmail.com, live.com, msn.com, gmx.com, yandex.com, mail.com]
+  ambiguity_margin: 0.25             # top candidate must beat the second by this share of its score
+  min_score: 2.0                     # e.g. a legal name plus a matching email domain
+
+extraction:
+  task_kind: file_extract_facts      # registered in config/model_routing.yaml
+  max_chars_per_call: 24000
+  max_passages_per_call: 8
+  categories: [platforms, incumbent_partners, programs, budget_cycles, objections, decisions,
+    next_steps, people]
+
+leak:
+  ngram_words: 8                     # shared 8-word runs between a client file and a private passage
+  max_ngram_hits: 0                  # any hit blocks release
+  embedding_threshold: 0.90          # cosine similarity of a client paragraph to a private passage
+  min_paragraph_words: 12            # shorter paragraphs are not compared by embedding
+
+# Which extraction categories can answer each tracker row from uploaded material. A row listed
+# under public_only needs public sources: in file-only mode it is "Not searched (file-only mode)".
+tracker:
+  file_rows:
+    prior_customer_status: [decisions, next_steps, objections]
+    connections_alumni: [people]
+    platform_vendor_account_team: [platforms, incumbent_partners]
+    key_contact_profiles_posts: [people]
+    basic_fit_check: [programs, budget_cycles, platforms]
+    technology_detections: [platforms]
+    people_by_platform: [people]
+    full_profiles_senior_people: [people]
+    financial_baseline_verified: [budget_cycles]
+    customers_partners_matched: [incumbent_partners]
+  public_only: [company_news, earnings_filings, leadership_changes, job_board_by_lane,
+    job_postings_read_classified, job_postings_12_months, posts_priority_people,
+    executive_voice_earnings, vendor_customer_stories, lead_verification, executive_speaking,
+    podcasts, youtube, medium_substack, review_sites, vendor_communities,
+    regulatory_quality_events, financial_position_peers, competitor_moves,
+    major_holders_activists, events_sponsored, employee_content_github, research_papers]

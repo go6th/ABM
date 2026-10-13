@@ -343,3 +343,319 @@ locally (staff IdP is Google with a placeholder client id).
 | B7 usage (who uses, who does not), client caps, expiry, library assignment, library upload, platform defaults, stored isolation check | MISSING | none | none |
 | B7 question text never operator-readable | MISSING (no question store yet) | none | none |
 | B8 mailbox and drive connectors | PARTIAL: Gmail and Drive clients, OAuth, exact scopes, quarantine and access log exist (`connectors_client/`), but grants are tenant-admin folder grants, not per-user scopes limited to the user's accounts | `connectors_client/` | `tests/phase3/test_ws6_connectors.py` |
+
+## 2026-10-13: research cost audit, cache, routing and failure handling
+
+Branch `chore/finalize-clean-deploy`, uncommitted (the owner commits). Audit:
+`docs/audit/2026-10-13-research-cost-audit.md`.
+
+### Measured before the work
+
+* 27 runs on 2026-10-11 and 2026-10-12, 0 COMPLETED, 16 FAILED; 1902 paid provider calls of
+  which 612 distinct (two in three were repeats of a call an earlier run had paid for);
+  221.64 USD charged, 185.25 of it page scrapes; model spend unrecorded (the legacy model path
+  wrote no usage anywhere).
+* Failure causes from the checkpoints: a provider credit-balance 400 and a missing model key
+  ending runs FAILED after 50 USD of pulls; the judge and setup task kinds answering no JSON
+  (max_tokens 1000 and 400 spent on thinking); a 1.13 million token prompt; every narrative
+  sentence dropped by the grade guard (missing_narrative build failures); an unconfirmed statement
+  failing the build closed as FAILED; an in-flight call after a worker restart.
+
+### Built
+
+* Research cache: `config/research_cache.yaml`, `connectors/cache.py`, `Ledger.claim` adoption
+  of a fresh finished call of an earlier run of the same tenant (row at cost 0, `cost_source
+  cache`, same payload reference; attempt 1), `is_replayable` so an adoptable call takes no
+  provider slot, `CallContext.reuse_cached` (`run_input {"fresh": true}` pays anew), Redis index
+  through `REDIS_URL` (compose sets `redis://redis:6379/0`), Postgres rows as the record.
+* Model reply log and reuse: migration 0049 `model_reply_log` (RLS, insert only), `llm/
+  reply_cache.py`, `RunDeps._legacy_model` logs every call (served from, tokens, priced cost)
+  and reuses a byte-identical request's reply with the run id rewritten.
+* Routing: `config/models.yaml` arm `cost_saving` (extraction and classification on Sonnet 5.5,
+  planning and verification on Opus 5.5, synthesis and narrative on Fable 5.1), `task_settings`
+  effort per task and the system prompt as one cached block (`platform/llm.py request_kwargs`).
+  `config/model_routing.yaml` no task kind under 2000 max_tokens (DECISIONS.md row added).
+* Failure handling (`agents/graph.py`): `BuildIncomplete` ends the run partial with the
+  builder's reason; `ProviderCreditsExhausted` (new, mapped from the credit-balance 400),
+  `AuthFailed`, `ModelUnavailable`, `AdapterNotConfigured`, platform `NotConfigured` and
+  `ContentRefused` in a model node end the run partial with a code and keep the pulls; a
+  `ContextTooLong` extraction group is dropped and counted; `restates_grade` matches grade labels
+  only; distill re-asks once when the narrative was dropped whole (`DistillInput.notes`); a
+  `started` attempt of the same worker older than `in_flight_stale_s` (900 s) is re-issued.
+* `scripts/token_savings.py`: savings and model spend per tenant from the ledger and the log.
+* Env registry: `REDIS_URL`, `RESEARCH_CACHE`, and the previously unregistered dev and web
+  variables; `docs/ENVIRONMENT.md` regenerated.
+
+### Tests and gates
+
+* `python .claude/.../lint_migrations.py migrations`: 0049 clean; two findings in 0048 (not this
+  work: SECURITY DEFINER without `-- reviewed:`).
+* `scripts/check_routing_governance.py`: OK. `lint-imports`: 18 kept, 0 broken.
+* `pytest tests/isolation`: passed (hard gate). `tests/connectors tests/spend tests/db
+  tests/tracker tests/system/test_single_write_paths.py tests/grading/test_adapters_ledger_edges.py`:
+  passed except `test_vendor_names_live_only_in_allowed_places`, which flags the committed,
+  untouched `tests/system/test_wiring_contract.py` (pre-existing).
+* `tests/llm tests/workflow tests/agents tests/unit/test_platform_llm_knobs.py
+  tests/unit/test_model_routing.py tests/unit/test_config_files.py tests/unit/test_env_registry.py
+  tests/system/test_port_contracts.py`: 347 passed.
+* mypy on the changed modules: clean. Full suite: see the line appended below.
+* Live stack: migration 0049 applied to `ai`; api and worker recreated with the live overlay;
+  `/readyz` ready; cache config, Redis round trip and routes verified inside the worker. No live
+  run was started (the model provider account has no credits; a run would also cost money).
+* Full suite `pytest -m "not eval"` (TMPDIR=/dev/shm): 3580 passed, 9 failed, 12 skipped,
+  2 deselected (706 s). Of the 9: `test_env_example_lists_exactly_what_the_code_reads` was this
+  work (REDIS_URL and RESEARCH_CACHE missing from `.env.example`; added, passes). The other 8
+  fail identically on a clean HEAD worktree before this work: `test_vendor_names_live_only_in_
+  allowed_places` (the committed `tests/system/test_wiring_contract.py` names a vendor), the
+  three fake-model judge tests (`test_fake_model.py`, `test_fake_model_scenarios.py`), the W6
+  static guard (a wrapped `# LOOP` comment in `runner.py` the generator calls malformed; the
+  comment is repaired here and `docs/architecture/loops.md` regenerated), and four
+  `test_wiring_contract.py` tests importing names (`REQUEST_ID`, `components`) that do not exist
+  in `obs.logging` and `api.routes.health`.
+* Measured on the live ledger after the change: a re-run of the last failed run's account would
+  reuse 300 of its 301 provider calls (54.41 of 54.66 USD) from the cache.
+
+## 2026-10-13 (second pass): durable runs, no paid data lost on any stop
+
+Branch `feat/durable-runs` (from `chore/finalize-clean-deploy`; carries the uncommitted research
+cache work of the first pass too). Uncommitted. Audit before any change: `AUDIT.md` (14 findings).
+
+### Built (backend)
+
+* **Write-ahead, provider calls** (`connectors/service.py`): already a `started` intent with
+  tenant, run, provider, args hash and worker id before the call, and the raw body stored before
+  parsing. Fixed A2 and A3: a defect inside parsing (not a connector error) used to close the
+  attempt `failed` at zero cost although the body was paid and stored, so a resume paid again. The
+  stored body is now finalised `done` with the error class and its cost; the replay is free and
+  raises the same error.
+* **Write-ahead, model calls** (`workflow/deps.py`, `llm/reply_cache.py`, migration 0050): a
+  `started` row in `model_reply_log` before every model request; the raw reply (also an invalid
+  one) is stored and logged with tokens and cost before any parsing. A `started` row is never a
+  reuse hit.
+* **One terminal-state handler** (`workflow/runner.py`, `runs/stop.py`, `runs/lifecycle.py`):
+  an unexpected error ends PARTIAL (reason: the error class; `account_runs.stop_detail`: class and
+  redacted message, keys and tokens removed, at most 600 characters) when the run holds a
+  finished paid call, a fact or a deliverable; FAILED with a full refund only when it holds
+  nothing. `lifecycle.end_from_active` walks the run to VERIFYING so PARTIAL is a legal end.
+  A cancellation, SIGTERM or SIGINT (also when LangGraph wraps it as `NodeCancelledError`) only
+  notes itself on the run; the lease is released and the run resumes from its checkpoint.
+  Failed builds already ended PARTIAL (both graphs, first pass).
+* **Orphan recovery** (`runs/sweeper.py`, migration 0050 `runs_orphaned`, a reviewed narrow
+  definer returning identifiers only): at worker startup and every `SWEEP_INTERVAL_S` (300), a
+  run in RUNNING, DISTILLING or VERIFYING whose lease expired more than `ORPHAN_AFTER_S` (600)
+  ago is ended `worker_lost` (PARTIAL with data, FAILED without), each under its own tenant
+  transaction. Waiting runs are never swept. Switch: `RUN_SWEEPER`.
+* **Resume** (`POST /v1/runs` `resume_from`, validated to be a run of this tenant and account):
+  every finished call and model reply of that run is reused at cost 0 whatever its age, also
+  with the research cache off; `started` rows are never hits; a stale `started` attempt is
+  re-issued only after 15 minutes (`in_flight_stale_s`, first pass).
+* **Partial output** (`GET /v1/runs/{id}` adds `domain`, `stop_detail`, `stored` counts and a
+  `missing` list; new `GET /v1/runs/{id}/collected`: pulls by tool category, never a provider
+  name; public current facts; the client distill drafts; missing rows with reasons;
+  leak-scanned). Route catalog, isolation matrix (route probed for cross-tenant reads, function
+  and job registered), OpenAPI snapshot and generated web client updated.
+* Secrets: `runs.stop.redact` on every stored stop detail; payloads hold provider bodies only.
+
+### Built (frontend)
+
+* `web/components/ws/RunStopReport.tsx` on the run page for every finished run: why it stopped in
+  plain words (`web/lib/run-stop.ts`; the technical detail for admins only), what it holds
+  (pulls, reused pulls, findings, files), the areas still missing with reasons, the collected
+  findings on demand, and **Resume research** (confirm dialog, one idempotent POST with
+  `resume_from`, then the new run's page). Model text renders as plain text.
+
+### Tests and gates
+
+* New: `tests/system/test_durable_runs.py` (15: unexpected error PARTIAL vs FAILED, model
+  credits exhausted, prompt too long, invalid reply, network drop, provider credits exhausted,
+  parse failure after a paid response, SIGINT and SIGTERM-style cancel then resume, OOM-style
+  kill then sweeper, sweeper leaves live and waiting runs, failed build, resume at cost 0 past
+  every TTL, a started row is never finished); `tests/runs/test_stop.py` (redaction, bounds);
+  `tests/system/test_run_collected_api.py` (API shape, no provider names, other tenant 404);
+  reply cache write-ahead tests; `web/tests/unit/run-stop.test.tsx` (7). Every system test
+  asserts the ledger (each paid key once, ledger sum equals spend) and another tenant's view.
+* Isolation suite: 413 passed. Targeted backend batch: 591 passed. Web: `tsc` clean, eslint 0
+  errors, vitest 90 passed. Migration lint: 0049 and 0050 clean (0048 findings pre-existing).
+  Route catalog, import contracts, loop inventory, OpenAPI snapshot: clean.
+* Dev stack: migration 0050 applied to `ai`; api, worker and web rebuilt or restarted; reading
+  run efe58555 (2026-10-12, 54.66 USD) returns 301 kept pulls and 33 missing areas.
+* Full suite `pytest -m "not eval"` (TMPDIR=/dev/shm): 3604 passed, 7 failed, 12 skipped,
+  2 deselected (728 s). All 7 fail identically on a clean HEAD (`aaf7330`): the vendor-name scan
+  (flags the committed `tests/system/test_wiring_contract.py`), two fake-model judge tests, and
+  four `test_wiring_contract.py` tests that import `REQUEST_ID` and `components`, names HEAD's
+  source does not define. Not one failure comes from this work.
+
+## 2026-10-13 (third pass): Research files (upload any file, audit it, analyse it)
+
+Branch `feat/research-files` (from `feat/durable-runs`; carries the earlier uncommitted passes).
+Uncommitted. Plan before any change: `PLAN.md`.
+
+### Built (backend: `src/research_files/`, migration 0051)
+
+* **Storage**: a streaming `BlobStore` port (`blobstore.py`) with a local-volume adapter (the dev
+  `payloads` volume) and a Google Cloud Storage adapter (compose of parts; VERIFY V-FILES-1: not
+  run against a bucket). Parts are written to temporary files and renamed; nothing holds a whole
+  file in memory. Postgres keeps metadata only (`research_files`: tenant, name, size, mime,
+  detected type, SHA-256, status, uploaded_by, timestamps), unique per tenant by SHA-256.
+* **Upload** (`upload.py`): init, PUT part (request body streamed), upload state (received and
+  missing parts), complete (compose while hashing; size checked; same SHA-256 in the tenant
+  returns the existing file: stored and processed once). The raw file is stored before parsing.
+* **Detection and parsers** (`detect.py`, `parsers/`): magic bytes first, then the name. Tabular:
+  CSV and TSV (resumable by byte offset, encoding detection, unterminated-quote detection), XLSX
+  (read-only streaming, every sheet), Parquet (row groups, pyarrow), JSON (top-level arrays
+  streamed item by item; other documents up to 64 MiB), JSON Lines. Documents: PDF (pypdf, per
+  page, scanned pages flagged), DOCX and PPTX (lxml over the zip, streamed), text, Markdown and HTML
+  (sections by heading). Images: Pillow metadata, GPS flagged. Audio and video: container
+  metadata, WAV duration and truncation. Archives: zip, tar, gzip, member by member with
+  path-traversal, link, member-count, depth, ratio and total-size guards (high-water byte
+  counting stops a lying header). Unknown types are stored, PARTIAL `unsupported`.
+* **Audit** (`checks.py`, `profile.py`, `analytics.py`): integrity (hash re-verified before
+  parsing), corrupt and truncated content, encoding, header problems, ragged rows, missing
+  values, duplicates (first 100,000 rows per table), type mismatches, outliers (z above 6 after
+  1,000 values), inconsistent dates and units, personal data and secrets (flagged with kind and
+  location, value never shown, columns masked in analytics), unsourced quantitative claims,
+  contradicting numbers, empty sections. Severity, exact location and a suggested fix on every row;
+  exact counts per check with at most 50 listed. Data is never changed.
+* **Analytics**: per-column profiles (Welford moments, exact top values and distinct counts to a
+  cap, quantiles from a deterministic bottom-k sample whose row numbers are kept, pairwise
+  Pearson), document sections with extractive summaries, topics and entities; charts built from
+  stored state, each naming its table and rows (or the sampled rows) or its pages and sections.
+* **Processing** (`pipeline.py`): one worker per file (lease), each unit stored with its findings
+  and the compressed accumulator checkpoint in one transaction before the next is read; resume from
+  the cursor; an unexpected error ends PARTIAL with a redacted detail; an interrupt leaves the file
+  resumable; a dead worker's file is ended `worker_lost` by the sweeper (`research_files_orphaned`,
+  a reviewed definer returning identifiers only) and resumed on request.
+* **Models and cost** (`modelsvc.py`, `qa.py`): section summaries (tier `synthesis`) and answers
+  (tier `extractor`, the cheapest configured model) through the existing router; estimate before
+  any call, approval above `approval_limit_usd` (0.50); cache by task, model and content hash
+  across the tenant's files ($0 for unchanged chunks); `started` row before each request and the
+  reply with tokens and cost before parsing; prompts capped at 48,000 characters and split;
+  credits, refused keys, refusals and overload stop PARTIAL with the reason. Answers cite only
+  retrieved units (an invented citation is removed); without a model the answer is extractive.
+* **API** (`api/routes/research_files.py`): upload init, part, state and complete; list, status,
+  audit, analytics, ask, approve, resume, delete; worker task `POST /tasks/file-process`;
+  schedulers (Cloud Tasks, local HTTP, in-process) enqueue files. Route catalog, contracts,
+  OpenAPI snapshot, isolation matrix (8 tables, 13 routes, function, job, event), single-writer
+  registry and job catalog updated.
+* Dependencies added: `pypdf` 6.20.1, `pyarrow` 26.0.0 (`uv add`; images rebuilt).
+
+### Built (frontend)
+
+* `web/app/(client)/research-files` (list and upload) and `[file_id]` (status refreshed while
+  working, why it stopped, approve with the estimate, resume, audit report filtered by severity,
+  column profiles and correlations, charts with their sources, sections with summaries, cited
+  questions with the approval path, delete). `components/ws/FileUploader.tsx`: browser slicing,
+  part retries, pause, resume of the same file across reloads (the upload id is kept locally).
+  Sidebar entry "Research files".
+
+### Tests and gates
+
+* `tests/research_files/test_parsers.py` (47): every type parsed, a corrupt copy of each reported,
+  resume from every unit gives the same units, zip bomb, gzip bomb and path traversal blocked,
+  sensitive data and research checks, detection, the blob store.
+* `tests/research_files/test_pipeline_db.py` (30): every type end to end, audit locations and
+  masking, corrupt and unknown files PARTIAL with the upload kept, resumable upload and dedupe,
+  kill mid-parse in a subprocess then sweeper and resume (same chunks, analytics and findings as an
+  uninterrupted parse), second run of the same chunks at $0, approval gate, credits out then resume
+  paying only the rest, any stop PARTIAL with a redacted reason, cited answers, tenant isolation,
+  delete, sweeper leaves live files, atomic unit write.
+* `tests/research_files/test_api.py`: the whole flow over HTTP with a cookie session; tenant B
+  gets 404 on every route.
+* `tests/research_files/test_large_file.py` (`RF_LARGE_FILE=1`, run once, 531 s): peak resident
+  memory 133.3 MB for a 20 MB CSV and 133.3 MB for a 1.10 GB CSV (1,828,386 rows, 551 units);
+  upload 14.2 s, processing 469 s, re-upload 20.5 s deduplicated; model spend $0.
+* Web: `web/tests/unit/research-files.test.tsx` (6); all web checks: tsc clean, eslint 0 errors,
+  vitest 96 passed.
+* Isolation suite with the new matrix entries, migration lint, route catalog, import contracts,
+  loop inventory, docstring coverage, guarantee tags, OpenAPI snapshot: all pass.
+* Browser check on the dev stack: signed in, uploaded a CSV on the Research files page, the worker
+  processed it over HTTP, the report and charts rendered, a question was answered with citations,
+  no email address appeared on the page.
+
+## Two research input modes (2026-10-13)
+
+Request: one New research screen with two inputs. "Company name" runs the existing public
+pipeline unchanged; "Upload file" researches only the tenant's own documents, with optional
+public enrichment. Branch `feat/research-files` (shared working tree; not switched). Nothing
+committed; no live paid run; no outbound message.
+
+### Built (backend)
+
+* **Migration 0052** (`migrations/0052_research_input_modes.sql` and down): `documents`,
+  `document_passages`, `document_redactions`, `document_policies`, `run_documents`,
+  `document_deletions`, `fact_reevaluations`, `run_gate_results`, `leak_checks`,
+  `internal_deliverables` (forced RLS, `tenant_id` on every row, `account_id` on every row once
+  the company is confirmed), `account_runs.input_mode`, `chunks` location columns,
+  `fact_evidence` kind `document` with `document_id` and `document_location`, function
+  `documents_orphaned` (identifiers only, reviewed SECURITY DEFINER).
+* **`src/documents/`**: config (`config/research_input_modes.yaml`), scanner (signature scanner
+  for local profiles, clamd adapter, fail closed), parser sandbox (subprocess, empty environment,
+  isolated mode, resource limits, audit hook refusing network, processes, native loads and
+  writes), redaction tiers (Strict, Standard default, Minimal; map stored, original kept),
+  chunking (400 to 800 tokens with heading path, 60 to 90 second transcript windows, one CRM row
+  per passage), local hashing embedder `local-hash-v1`, company resolution (never guesses),
+  repository (single writer), service (upload, signed or token-checked PUT into quarantine,
+  complete, scan, promote, parse, index, confirm company, delete with re-evaluation marking,
+  sweeper), extraction (rows by code; prose by the model inside the untrusted boundary; verbatim
+  quote check per fact), leak check (shared 8-word runs and embedding similarity), pre-delivery
+  gate for both modes, Internal Only Word file, file-mode run graph, cost estimate.
+* **Runs**: `POST /v1/runs` accepts exactly one input mode (`input_mode_mixed`,
+  `input_mode_empty`, `domain_required` problems); company mode keeps the legacy body and gains
+  an optional spend limit; file mode checks documents, limits and the confirmed company (409
+  `company_confirmation_required` with the detected candidates), links the documents, and with
+  `enrich_public` creates a linked company-mode run budgeted at the credit cap. The run view and
+  list carry `input_mode`, `source_label` and the linked run; the run view carries the latest gate
+  verdict and defects. `/tasks/run-slice` runs the file graph for file-mode runs.
+* **Routes** (catalogued, audited, isolation-probed): `/v1/documents/uploads`, `{id}/content`,
+  `{id}/complete`, `{id}/status`, list, `confirm-company`, `estimate`, delete, `policy` (PUT
+  admin), `{id}/authoritative` (admin), `/v1/runs/{id}/internal` and `/internal/file` (never
+  viewers), worker `/tasks/document-process`.
+* **Grading and tracker**: `record_document_fact` (private, Internal, Confirmed only from an
+  authoritative document) and `mark_document_facts` in the grading write path; zero-cost
+  `record_document_read` ledger record as row proof; reason codes `not_in_uploaded_data` and
+  `not_searched_file_only`; the pinned completion policy accepts those two reasons on High rows.
+* **Gate wired** (audit F1): `Container.gate` is the pre-delivery gate in every profile.
+* **Triage of the seven failing tests**: request id in logs and in the worker hop
+  (`obs.logging.REQUEST_ID`), readiness `components` (status words only), vendor names read from
+  config in tests, the fake judge unit test aligned with its scenario, and the happy path test
+  aligned with the independent judge of the active routing arm. All seven pass.
+
+### Built (frontend)
+
+* `web/app/(client)/research/new`: the two-option switch; Company name (name, optional domain,
+  optional spend limit); Upload file (drag and drop, per-file stage, detected company confirm
+  step, enrichment switch off by default with its limit, estimate before start). Entry points:
+  sidebar "New research", the runs page, "Add research files" on an account.
+* Run page: source label, linked run, Internal Only section (findings with grade, citation and
+  quote; documents; download), quality check problems, Resume hidden for file runs. Runs list:
+  Source column.
+
+### Tests and gates
+
+* New: `tests/documents/` (37 Python tests): units (config coverage, redaction tiers, three chunk
+  shapes, embedder, sandbox refuses network, processes and writes, scanner verdicts, unreachable
+  scanner fails closed, verbatim quote checks, injection boundary, canary leak, completion rule);
+  Postgres (PDF, DOCX and XLSX through scan, parse and index; infected, macro, wrong-type and
+  disguised files rejected before parsing; oversized, wrong-type and audio refused before upload;
+  unavailable scanner; company detection and confirmation; delete removes chunks and marks facts;
+  page limit; sweeper; tenant isolation); gate (clean pass; unset row, dash, broker name and credit
+  count, private canary each fail with stored defects; file mode needs the labelled internal file);
+  end to end over HTTP (file run COMPLETED with Internal facts citing document and place, all 33
+  rows reasoned, gate pass; labelled internal Word file and its export audit; zero paid calls;
+  ambiguous company blocks until confirmed; estimate; enrichment budget equals the cap and stays
+  within it; viewer refused, access audited; prompt-injection file; input mode validation and
+  company mode unchanged). Web: `tests/unit/documents.test.tsx` and run-stop additions.
+* `pytest tests/isolation`: 467 passed (hard gate).
+* Full suite `pytest -m "not eval"` (TMPDIR=/dev/shm): 3778 passed, 1 failed, 13 skipped. The
+  failure was a property test generating "p_a" (a provider-code shape the builder rightly
+  refuses); its generator now excludes leak-pattern text and it passes (rerun alone). An earlier
+  full run aborted once in `tests/research_files/test_pipeline_db.py` (a native abort inside the
+  in-process research-file parser); the test passed three times on rerun. Recorded as OI-IM-13.
+* Web: tsc clean, eslint 0 problems, vitest 101 passed.
+* Static gates: ruff, ruff format, mypy (623 files), import contracts (18 kept), docstrings 100%,
+  comments, guarantee tags, loop inventory, route catalog, OpenAPI snapshot, web client, env docs,
+  routing governance, bandit (0 issues): all pass. Migration 0052 applied to the dev database;
+  catalog RLS check returns no rows.
+* Dev stack: api, worker and web rebuilt and restarted; `/readyz` ready with components. The
+  dev worker has no model key, so a file run there reads spreadsheet rows only and ends PARTIAL
+  `model_not_configured` (prose needs a model).

@@ -3,31 +3,467 @@
 | Package | Imports (first-party packages) |
 |---|---|
 | `account_intelligence.agents` | `account_intelligence.grading` |
-| `account_intelligence.api` | `account_intelligence.app`, `account_intelligence.config`, `account_intelligence.config_files`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.tracker`, `account_intelligence.workflow` |
-| `account_intelligence.app` | `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.workflow` |
+| `account_intelligence.api` | `account_intelligence.app`, `account_intelligence.chat`, `account_intelligence.config`, `account_intelligence.config_files`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.model_routing`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.workflow` |
+| `account_intelligence.app` | `account_intelligence.api`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.dev_limits`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.workflow` |
+| `account_intelligence.chat` | `account_intelligence.config`, `account_intelligence.db` |
 | `account_intelligence.config` | - |
 | `account_intelligence.config_files` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.tracker`, `account_intelligence.workflow`, `jobs` |
 | `account_intelligence.connectors` | `account_intelligence.config`, `account_intelligence.platform` |
 | `account_intelligence.db` | `account_intelligence.config`, `account_intelligence.urls` |
-| `account_intelligence.grading` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.platform`, `account_intelligence.urls` |
+| `account_intelligence.dev_limits` | - |
+| `account_intelligence.grading` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.urls` |
+| `account_intelligence.model_routing` | `account_intelligence.config`, `account_intelligence.safety` |
 | `account_intelligence.platform` | `account_intelligence.config` |
-| `account_intelligence.runs` | `account_intelligence.tracker` |
+| `account_intelligence.rag` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.platform` |
+| `account_intelligence.runs` | `account_intelligence.connectors`, `account_intelligence.tracker` |
 | `account_intelligence.safety` | `account_intelligence.config` |
 | `account_intelligence.tracker` | `account_intelligence.config`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety` |
 | `account_intelligence.urls` | - |
+| `account_intelligence.worker` | `account_intelligence.app`, `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.workflow` |
 | `account_intelligence.workflow` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.safety`, `account_intelligence.tracker`, `jobs` |
-| `jobs` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker` |
+| `admin` | `account_intelligence.config`, `account_intelligence.platform` |
+| `agents` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.dev_limits`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.workflow`, `jobs` |
+| `alerts` | `account_intelligence.config`, `account_intelligence.platform`, `account_intelligence.safety` |
+| `audit` | `account_intelligence.config`, `account_intelligence.grading`, `account_intelligence.safety` |
+| `connectors_client` | `account_intelligence.config`, `account_intelligence.platform` |
+| `contracts` | `account_intelligence.config` |
+| `crm_writeback` | `account_intelligence.config`, `account_intelligence.platform`, `account_intelligence.safety` |
+| `datamodel` | `account_intelligence.config` |
+| `documents` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.tracker`, `account_intelligence.workflow` |
+| `exports` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.urls`, `account_intelligence.workflow`, `jobs` |
+| `governance` | `account_intelligence.config` |
+| `identity` | `account_intelligence.api`, `account_intelligence.config`, `account_intelligence.connectors` |
+| `jobs` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.dev_limits`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker` |
+| `llm` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors` |
+| `metering` | `account_intelligence.api`, `account_intelligence.config`, `account_intelligence.safety` |
+| `parallel` | `account_intelligence.connectors` |
+| `people` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.dev_limits`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.urls`, `jobs` |
+| `pilot` | `account_intelligence.config` |
+| `refresh` | `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.grading` |
+| `research_files` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.platform`, `account_intelligence.runs` |
+| `signals` | `account_intelligence.config`, `account_intelligence.platform` |
+| `spend` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.tracker`, `account_intelligence.workflow` |
+| `tenancy` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.platform` |
+| `verify` | `account_intelligence.grading` |
+| `views` | `account_intelligence.config`, `account_intelligence.grading`, `account_intelligence.runs`, `account_intelligence.safety` |
 
 ## Package-level cycles
 
-None.
+* `account_intelligence.api` <-> `account_intelligence.app`
 
 ## Modules no first-party module imports (entry points, scripts or dead code)
 
 * `account_intelligence.agents.grading`
 * `account_intelligence.connectors.registry_internal`
-* `account_intelligence.db.source_ids`
+* `account_intelligence.rag.graph`
+* `account_intelligence.rag.metrics`
+* `account_intelligence.rag.synthetic`
 * `account_intelligence.tracker.leads`
 * `account_intelligence.workflow.evidence_gate`
-* `account_intelligence.workflow.ports`
-* `jobs.export`
+* `admin`
+* `admin.flags`
+* `admin.keys`
+* `admin.quotas`
+* `admin.support`
+* `admin.tenants`
+* `agents`
+* `agents.adapters`
+* `agents.config`
+* `agents.contracts`
+* `agents.distill`
+* `agents.distill.agent`
+* `agents.errors`
+* `agents.extraction`
+* `agents.graph`
+* `agents.guards`
+* `agents.lessons`
+* `agents.manifest`
+* `agents.modes`
+* `agents.naming`
+* `agents.pass1`
+* `agents.pass2`
+* `agents.people`
+* `agents.ports`
+* `agents.production`
+* `agents.production.credit`
+* `agents.production.delivery`
+* `agents.production.grading`
+* `agents.production.payloads`
+* `agents.production.provider`
+* `agents.production.state`
+* `agents.production.tracker`
+* `agents.production.wiring`
+* `agents.pull`
+* `agents.pull.agent`
+* `agents.runtime`
+* `agents.schemas`
+* `agents.sense_check`
+* `agents.sense_check.agent`
+* `agents.service`
+* `agents.setup`
+* `agents.setup.agent`
+* `alerts`
+* `alerts.caps`
+* `alerts.channels`
+* `alerts.digest`
+* `alerts.engine`
+* `alerts.feedback`
+* `alerts.freshness`
+* `alerts.lint`
+* `alerts.outbox`
+* `alerts.rules`
+* `alerts.sensitive`
+* `alerts.subscriptions`
+* `alerts.templates`
+* `audit`
+* `audit.chain`
+* `audit.events`
+* `audit.export`
+* `audit.routes_catalog`
+* `connectors_client`
+* `connectors_client.access_log`
+* `connectors_client.crm_hubspot`
+* `connectors_client.crm_salesforce`
+* `connectors_client.drive`
+* `connectors_client.framework`
+* `connectors_client.gmail`
+* `connectors_client.notes`
+* `connectors_client.oauth`
+* `connectors_client.ports`
+* `connectors_client.quarantine`
+* `connectors_client.scopes`
+* `contracts`
+* `contracts.drift`
+* `contracts.fingerprint`
+* `contracts.monitor`
+* `crm_writeback`
+* `crm_writeback.client`
+* `crm_writeback.hubspot`
+* `crm_writeback.mapping`
+* `crm_writeback.payloads`
+* `crm_writeback.salesforce`
+* `crm_writeback.service`
+* `crosscut`
+* `crosscut.conformance`
+* `datamodel`
+* `datamodel.careers`
+* `datamodel.counts`
+* `datamodel.export_verify`
+* `datamodel.pins`
+* `documents`
+* `documents.chunking`
+* `documents.company`
+* `documents.config`
+* `documents.embed`
+* `documents.estimate`
+* `documents.extract`
+* `documents.gate`
+* `documents.graph`
+* `documents.internal_doc`
+* `documents.leakcheck`
+* `documents.redact`
+* `documents.repo`
+* `documents.sandbox`
+* `documents.sandbox_child`
+* `documents.scan`
+* `documents.service`
+* `evalgate`
+* `evalgate.adversarial`
+* `evalgate.baseline`
+* `evalgate.bench`
+* `evalgate.calibrate`
+* `evalgate.cli`
+* `evalgate.config`
+* `evalgate.contamination`
+* `evalgate.gates`
+* `evalgate.golden`
+* `evalgate.metrics`
+* `evalgate.report`
+* `evalgate.runner`
+* `evalgate.stats`
+* `evalgate.store`
+* `exports`
+* `exports.builder`
+* `exports.change_note`
+* `exports.citations`
+* `exports.config`
+* `exports.content`
+* `exports.errors`
+* `exports.excel`
+* `exports.excel.common`
+* `exports.excel.jobs`
+* `exports.excel.people`
+* `exports.excel.tech`
+* `exports.fingerprint`
+* `exports.models`
+* `exports.numbers`
+* `exports.obs`
+* `exports.ooxml`
+* `exports.policy`
+* `exports.ports`
+* `exports.readers`
+* `exports.readers.common`
+* `exports.readers.evidence`
+* `exports.readers.exclusions`
+* `exports.readers.jobs`
+* `exports.readers.people`
+* `exports.readers.pg`
+* `exports.readers.summary`
+* `exports.readers.tech`
+* `exports.readers.tracker`
+* `exports.snapshot`
+* `exports.store`
+* `exports.verify`
+* `exports.wiring`
+* `exports.word`
+* `exports.word.compose`
+* `exports.word.contract`
+* `exports.word.render_cli`
+* `exports.word.renderer`
+* `exports.workspace`
+* `gate`
+* `gate.errors`
+* `gate.models`
+* `gate.pipeline`
+* `gate.ports`
+* `gate.verdict`
+* `governance`
+* `governance.account_cost`
+* `governance.monitoring_budget`
+* `governance.throttle`
+* `identity`
+* `identity.broker`
+* `identity.connections`
+* `identity.csrf`
+* `identity.local_password`
+* `identity.membership`
+* `identity.oidc`
+* `identity.ports`
+* `identity.provisioning`
+* `identity.rate_limit`
+* `identity.roles`
+* `identity.saml`
+* `identity.sessions`
+* `llm`
+* `llm.adapters`
+* `llm.adapters.anthropic_api`
+* `llm.adapters.fake`
+* `llm.budget`
+* `llm.cache`
+* `llm.config`
+* `llm.cost`
+* `llm.errors`
+* `llm.health`
+* `llm.models`
+* `llm.port`
+* `llm.prompts`
+* `llm.record`
+* `llm.reply_cache`
+* `llm.routing`
+* `llm.schema`
+* `llm.tasks`
+* `metering`
+* `metering.events`
+* `metering.limits`
+* `metering.reconcile`
+* `metering.usage_summary`
+* `metrics`
+* `metrics.linkcheck`
+* `metrics.report`
+* `obs`
+* `obs.alerts`
+* `obs.canary`
+* `obs.catalog`
+* `obs.context`
+* `obs.costs`
+* `obs.dashboards`
+* `obs.errors`
+* `obs.exporters`
+* `obs.health`
+* `obs.logging`
+* `obs.metrics`
+* `obs.runspans`
+* `obs.scrub`
+* `obs.setup`
+* `obs.slo`
+* `obs.stuck`
+* `obs.timings`
+* `obs.tracing`
+* `obs.verdict`
+* `opendoor`
+* `opendoor.events`
+* `parallel`
+* `parallel.cancel`
+* `parallel.config`
+* `parallel.critical_path`
+* `parallel.dag`
+* `parallel.errors`
+* `parallel.executor`
+* `parallel.governor`
+* `parallel.merge`
+* `parallel.models`
+* `parallel.scheduler`
+* `parallel.simulate`
+* `parallel.singleflight`
+* `parallel.store`
+* `parallel.units`
+* `people`
+* `people.adapters`
+* `people.alumni`
+* `people.certs`
+* `people.claims`
+* `people.config`
+* `people.counts`
+* `people.cues`
+* `people.erasure`
+* `people.errors`
+* `people.exclusion`
+* `people.export`
+* `people.findings`
+* `people.gaps`
+* `people.lane`
+* `people.level`
+* `people.mentions`
+* `people.merge`
+* `people.models`
+* `people.names`
+* `people.pipeline`
+* `people.ports`
+* `people.posts`
+* `people.priority`
+* `people.profiles`
+* `people.repo`
+* `people.scope`
+* `people.search`
+* `people.stage`
+* `people.technology`
+* `people.tenure`
+* `people.urls`
+* `pilot`
+* `pilot.feedback`
+* `pilot.metric`
+* `pilot.usefulness`
+* `privacy`
+* `privacy.dsar`
+* `privacy.minimise`
+* `privacy.retention`
+* `privacy.suppression`
+* `privacy.tombstones`
+* `quality`
+* `quality.analyst_loop`
+* `quality.regression`
+* `quality.release_check`
+* `refresh`
+* `refresh.debounce`
+* `refresh.delta`
+* `refresh.escalate`
+* `refresh.history`
+* `refresh.observations`
+* `refresh.planner`
+* `refresh.policy`
+* `refresh.probe`
+* `refresh.records`
+* `refresh.schedule`
+* `refresh.slots`
+* `refresh.sourcecodes`
+* `refresh.summary_diff`
+* `registers`
+* `registers.claims`
+* `registers.decisions`
+* `registers.messaging`
+* `registers.risks`
+* `research_files`
+* `research_files.analytics`
+* `research_files.blobstore`
+* `research_files.checks`
+* `research_files.config`
+* `research_files.detect`
+* `research_files.modelsvc`
+* `research_files.parsers`
+* `research_files.parsers.archives`
+* `research_files.parsers.base`
+* `research_files.parsers.documents`
+* `research_files.parsers.media`
+* `research_files.parsers.registry`
+* `research_files.parsers.tabular`
+* `research_files.pipeline`
+* `research_files.profile`
+* `research_files.qa`
+* `research_files.repo`
+* `research_files.service`
+* `research_files.upload`
+* `security`
+* `security.pentest_gate`
+* `security.rotation`
+* `security.secrets_scan`
+* `security.soc2`
+* `signals`
+* `signals.cluster`
+* `signals.events`
+* `signals.fingerprint`
+* `signals.intake`
+* `signals.lead`
+* `signals.registry`
+* `signals.score`
+* `signals.webhooks`
+* `spend`
+* `spend.approval`
+* `spend.balances`
+* `spend.config`
+* `spend.costs`
+* `spend.errors`
+* `spend.estimator`
+* `spend.exhaustion`
+* `spend.gate`
+* `spend.jobs`
+* `spend.limits`
+* `spend.live`
+* `spend.models`
+* `spend.money`
+* `spend.notify`
+* `spend.pause`
+* `spend.plan`
+* `spend.ports`
+* `spend.prepulled`
+* `spend.priority`
+* `spend.proposal`
+* `spend.reconcile`
+* `spend.repo`
+* `spend.report`
+* `spend.rollup`
+* `spend.service`
+* `spend.upload`
+* `tenancy`
+* `tenancy.catalog`
+* `tenancy.keys`
+* `tenancy.lifecycle`
+* `tenancy.ports`
+* `tenancy.settings`
+* `tenancy.storage`
+* `unitcost`
+* `unitcost.anomaly`
+* `unitcost.rollup`
+* `verify`
+* `verify.claims`
+* `verify.config`
+* `verify.figures`
+* `verify.narrative`
+* `verify.policy`
+* `verify.stage`
+* `views`
+* `views.branding`
+* `views.materialize`
+* `views.packages`
+* `views.parity`
+* `views.progress`
+* `views.query`
+* `views.render_safe`
+* `views.rowsources`
+* `views.rowsources.common`
+* `views.rowsources.coverage`
+* `views.rowsources.facts`
+* `views.rowsources.jobs`
+* `views.rowsources.people`
+* `views.rowsources.tech`
+* `views.saved`
+* `views.tables`

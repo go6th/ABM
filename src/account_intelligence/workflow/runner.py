@@ -18,7 +18,11 @@ One slice:
 5. a finished graph ends the run through ``lifecycle.finish``: BUDGET_EXCEEDED when the cap was
    hit, PARTIAL with the reason when builders or the gate did not pass, else COMPLETED (which the
    tracker guard still refuses if a row is open);
-6. an unexpected error ends the run FAILED with a full refund and is re-raised for the logs.
+6. an unexpected error ends the run PARTIAL (reason: the error class, plus a redacted detail)
+   when it already holds a finished paid call, a fact or a deliverable, and FAILED with a full
+   refund only when it holds nothing; it is re-raised for the logs. A cancellation or interrupt
+   (SIGTERM, SIGINT) only notes itself on the run, which stays resumable from its checkpoint;
+   ``runs.sweeper`` ends it ``worker_lost`` if no worker resumes it.
 """
 
 from __future__ import annotations
@@ -225,8 +229,7 @@ async def _drive(graph: Any, graph_input: Any, config: Mapping[str, Any], deps: 
 
     task = asyncio.create_task(stream())
     try:
-        # LOOP(cancel watch): one status read per CANCEL_POLL_S; exit=graph done, canceled, or the
-        # slice timeout around it
+        # LOOP(cancel watch): cap=the slice timeout around it; exit=graph done, canceled, timeout
         while True:
             done, _ = await asyncio.wait({task}, timeout=CANCEL_POLL_S)
             if done:
@@ -293,10 +296,78 @@ async def _slice(
                 return SliceOutcome("continue", (await _status(deps)).value)
             snap = await graph.aget_state(config)
     except Exception as error:
-        if (await _status(deps)) not in TERMINAL:
-            await _finish(deps, RunStatus.FAILED, type(error).__name__, True)
+        if _is_interruption(error):
+            # LangGraph wraps a cancelled node (NodeCancelledError): still an interruption, so
+            # the run stays resumable instead of ending on a stop that was not its own
+            await _note_interrupted(deps, error)
+            raise
+        await _stop_unexpected(deps, error)
+        raise
+    except BaseException as interrupted:
+        # a cancelled task, SIGTERM or SIGINT: the run stays resumable from its checkpoint (the
+        # lease is released by execute_slice); only the note says what happened last
+        await _note_interrupted(deps, interrupted)
         raise
     return await _end(deps, scheduler, run_id, snap, settings, graph_factory)
+
+
+def _is_interruption(error: BaseException) -> bool:
+    """Whether the error is, or wraps, a cancellation or interrupt of the process."""
+    seen: set[int] = set()
+    current: BaseException | None = error
+    # LOOP(cause chain): cap=the chain length (each exception visited once); exit=end of chain
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, asyncio.CancelledError | KeyboardInterrupt | SystemExit):
+            return True
+        if type(current).__name__ == "NodeCancelledError":
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+async def _stop_unexpected(deps: RunDeps, error: Exception) -> None:
+    """The one terminal-state handler for an unexpected error: PARTIAL with the error class as
+    the reason and a redacted detail when the run holds anything usable (a finished paid call, a
+    fact, a deliverable); FAILED with a full refund only when it holds nothing."""
+    from account_intelligence.runs.stop import describe, has_usable_output
+
+    if (await _status(deps)) in TERMINAL:
+        return
+    detail = describe(error)
+    reason = type(error).__name__
+    async with deps.txn(deps.tenant_id) as s:
+        usable = await has_usable_output(s, deps.run_id)
+        target = RunStatus.PARTIAL if usable else RunStatus.FAILED
+        status = await lifecycle.end_from_active(
+            s,
+            deps.tracker(s),
+            deps.run_id,
+            target,
+            reason=reason,
+            detail=detail,
+            refund_all=not usable,
+        )
+        created: Any = (
+            await s.execute(
+                text("SELECT created_at FROM account_runs WHERE id = :r"), {"r": deps.run_id}
+            )
+        ).scalar_one()
+    _emit_root(deps, created, status)
+
+
+async def _note_interrupted(deps: RunDeps, interrupted: BaseException) -> None:
+    """Best effort: record the interruption on the run row; never raises (the process may be
+    going away)."""
+    from account_intelligence.runs.stop import describe
+
+    try:
+        async with deps.txn(deps.tenant_id) as s:
+            await lifecycle.note_interruption(
+                s, deps.run_id, "interrupted: " + describe(interrupted, limit=560)
+            )
+    except BaseException:  # noqa: BLE001 - nothing more can be done while stopping
+        return
 
 
 def _workflow_graph(

@@ -3,7 +3,8 @@
 * ``Overloaded`` (429, 529, 5xx, timeouts) is a ``RetryableProviderError``: the node RetryPolicy
   owns the retry; the router may select the next candidate for the next attempt.
 * ``ModelUnavailable`` and ``ContextTooLong`` fall back by selection on the next attempt.
-* ``SchemaInvalid``, ``AuthFailed`` and ``ContentRefused`` never fall back.
+* ``SchemaInvalid``, ``AuthFailed``, ``ContentRefused`` and ``ProviderCreditsExhausted`` never
+  fall back.
 
 GUARANTEE(test_fallback_happens_only_on_the_allowed_classes): R4.
 """
@@ -57,6 +58,11 @@ class ContentRefused(LlmError):
     """The model refused on content grounds: an outcome, never a fallback."""
 
 
+class ProviderCreditsExhausted(LlmError):
+    """The model provider refuses calls until credits are bought: page the operator; never
+    retried, never a fallback. The run keeps what it pulled and ends partial."""
+
+
 class ModelUnavailable(LlmError):
     """The model is unknown or retired at the provider: the next attempt selects another."""
 
@@ -72,4 +78,6 @@ class Overloaded(RetryableProviderError):
 
 
 FALLBACK_CLASSES = frozenset({"Overloaded", "ModelUnavailable", "ContextTooLong"})
-NEVER_FALLBACK = frozenset({"SchemaInvalid", "AuthFailed", "ContentRefused"})
+NEVER_FALLBACK = frozenset(
+    {"SchemaInvalid", "AuthFailed", "ContentRefused", "ProviderCreditsExhausted"}
+)

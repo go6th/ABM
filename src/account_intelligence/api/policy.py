@@ -71,11 +71,41 @@ def operator_route(
 
 
 _SELLERS: set[Role] = {"admin", "analyst", "seller"}
+_UPLOADERS: set[Role] = {"admin", "seller"}
+_INTERNAL: set[Role] = {"admin", "analyst", "seller"}
 _EVERYONE: set[Role] = set(ALL_ROLES)
 
 ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
     ("POST", "/v1/runs"): _tenant(_SELLERS, "run"),
     ("GET", "/v1/runs/{run_id}"): _tenant(_EVERYONE, "read"),
+    ("GET", "/v1/runs/{run_id}/collected"): _tenant(_EVERYONE, "read"),
+    ("POST", "/v1/files/uploads"): _tenant(_SELLERS, "run"),
+    ("GET", "/v1/files/uploads/{upload_id}"): _tenant(_SELLERS, "read"),
+    ("PUT", "/v1/files/uploads/{upload_id}/parts/{part_no}"): _tenant(_SELLERS, "run"),
+    ("POST", "/v1/files/uploads/{upload_id}/complete"): _tenant(_SELLERS, "run"),
+    ("GET", "/v1/files"): _tenant(_EVERYONE, "read"),
+    ("GET", "/v1/files/{file_id}"): _tenant(_EVERYONE, "read"),
+    ("GET", "/v1/files/{file_id}/audit"): _tenant(_EVERYONE, "read"),
+    ("GET", "/v1/files/{file_id}/analytics"): _tenant(_EVERYONE, "read"),
+    ("POST", "/v1/files/{file_id}/ask"): _tenant(_SELLERS, "run"),
+    ("POST", "/v1/files/{file_id}/approve"): _tenant(_SELLERS, "run"),
+    ("POST", "/v1/files/{file_id}/resume"): _tenant(_SELLERS, "run"),
+    ("DELETE", "/v1/files/{file_id}"): _tenant(_SELLERS, "run"),
+    # uploaded documents for input mode "file": admins and sellers upload, viewers never do
+    ("POST", "/v1/documents/uploads"): _tenant(_UPLOADERS, "run"),
+    ("PUT", "/v1/documents/{document_id}/content"): _tenant(_UPLOADERS, "run"),
+    ("POST", "/v1/documents/{document_id}/complete"): _tenant(_UPLOADERS, "run"),
+    ("GET", "/v1/documents/{document_id}/status"): _tenant(_UPLOADERS, "read"),
+    ("GET", "/v1/documents"): _tenant(_UPLOADERS, "read"),
+    ("POST", "/v1/documents/confirm-company"): _tenant(_UPLOADERS, "run"),
+    ("POST", "/v1/documents/estimate"): _tenant(_UPLOADERS, "read"),
+    ("DELETE", "/v1/documents/{document_id}"): _tenant(_UPLOADERS, "run"),
+    ("GET", "/v1/documents/policy"): _tenant(_UPLOADERS, "read"),
+    ("PUT", "/v1/documents/policy"): _tenant({"admin"}, "admin"),
+    ("POST", "/v1/documents/{document_id}/authoritative"): _tenant({"admin"}, "admin"),
+    # the Internal Only view: never for viewers; every access audited
+    ("GET", "/v1/runs/{run_id}/internal"): _tenant(_INTERNAL, "read"),
+    ("GET", "/v1/runs/{run_id}/internal/file"): _tenant(_INTERNAL, "export"),
     ("GET", "/v1/runs/pull-option"): _tenant(_EVERYONE, "read"),
     ("POST", "/v1/runs/{run_id}/approve"): _tenant(_SELLERS, "run"),
     ("POST", "/v1/runs/{run_id}/cancel"): _tenant(_SELLERS, "run"),

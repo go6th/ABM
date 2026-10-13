@@ -72,6 +72,30 @@ OWNERS: dict[str, set[str]] = {
     # only by the llm_health_record function (called from llm/health.py)
     "llm_calls": {"llm/record.py"},
     "llm_call_attempts": {"llm/record.py"},
+    # research cache (migration 0049): the model reply log has one writer
+    "model_reply_log": {"llm/reply_cache.py"},
+    # research files (migration 0051): one writer module for every table
+    "research_files": {"research_files/repo.py", "research_files/pipeline.py"},
+    "research_file_uploads": {"research_files/repo.py"},
+    "research_file_upload_parts": {"research_files/repo.py"},
+    "research_file_chunks": {"research_files/repo.py"},
+    "research_file_findings": {"research_files/repo.py"},
+    "research_file_state": {"research_files/repo.py"},
+    "research_file_model_calls": {"research_files/repo.py"},
+    "research_file_deletions": {"research_files/repo.py"},
+    # two research input modes (migration 0052): the document store and the private index, the
+    # gate's insert-only records, and the facts marked when their document is deleted
+    "documents": {"documents/repo.py"},
+    "document_passages": {"documents/repo.py"},
+    "document_redactions": {"documents/repo.py"},
+    "document_policies": {"documents/repo.py"},
+    "document_deletions": {"documents/repo.py"},
+    "run_documents": {"documents/repo.py"},
+    "chunks": {"documents/repo.py"},
+    "run_gate_results": {"documents/repo.py"},
+    "leak_checks": {"documents/repo.py"},
+    "internal_deliverables": {"documents/repo.py"},
+    "fact_reevaluations": {"grading/repo.py"},
     "verifier_findings": {"verify/stage.py"},
     "eval_runs": {"evalgate/store.py"},
     "eval_case_results": {"evalgate/store.py"},

@@ -42,6 +42,7 @@ async def finish_run(
     expected_status: str,
     target_status: str = "COMPLETED",
     reason: str | None = None,
+    detail: str | None = None,
 ) -> FinishResult:
     """Move the run to a terminal state. ``VersionConflict`` if the run is no longer in
     ``expected_status`` (another worker finished it: the caller treats that as a no-op)."""
@@ -58,9 +59,16 @@ async def finish_run(
     updated = await session.execute(
         text(
             "UPDATE account_runs SET status = :final, finished_at = now(),"
-            " finished_reason = :reason WHERE id = :id AND status = :expected"
+            " finished_reason = :reason, stop_detail = COALESCE(:detail, stop_detail)"
+            " WHERE id = :id AND status = :expected"
         ),
-        {"final": final, "reason": reason, "id": run_id, "expected": expected_status},
+        {
+            "final": final,
+            "reason": reason,
+            "detail": detail,
+            "id": run_id,
+            "expected": expected_status,
+        },
     )
     if updated.rowcount == 0:  # type: ignore[attr-defined]
         raise VersionConflict(f"run is no longer {expected_status}")

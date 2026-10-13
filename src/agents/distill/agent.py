@@ -49,31 +49,50 @@ async def distill(
     drops: Counter[str] = Counter()
     if not visible:
         return DistillResult(DistillOutput(), drops)
-    try:
-        out = await call_agent(contract, model, meter, ctx, inp, client_bound=True)
-    except OutputRejected as rejected:
-        drops[f"output_{rejected.code}"] += 1
-        return DistillResult(DistillOutput(), drops)
-    assert isinstance(out, DistillOutput)
     known = {f.fact_id for f in visible}
 
-    def keep(claims: tuple[Claim, ...]) -> tuple[Claim, ...]:
+    def keep(claims: tuple[Claim, ...], counts: Counter[str]) -> tuple[Claim, ...]:
         """Claims that cite known facts and do not restate a grade."""
         kept = []
         for claim in claims:
             if not set(claim.fact_ids) <= known:
-                drops["unknown_fact"] += 1
+                counts["unknown_fact"] += 1
             elif restates_grade(claim.text):
-                drops["restates_grade"] += 1
+                counts["restates_grade"] += 1
             else:
                 kept.append(claim)
         return tuple(kept)
 
-    return DistillResult(
-        DistillOutput(
-            hypotheses=keep(out.hypotheses),
-            questions=keep(out.questions),
-            narrative=keep(out.narrative),
-        ),
-        drops,
-    )
+    # LOOP(distill re-ask): cap=2 attempts; exit=a narrative survived, or the second attempt
+    # (a narrative the model wrote and the guards dropped whole is asked for once more, with the
+    # reasons; the Summary needs a narrative and used to fail its build without one)
+    result = DistillResult(DistillOutput(), drops)
+    for attempt in range(2):
+        try:
+            out = await call_agent(contract, model, meter, ctx, inp, client_bound=True)
+        except OutputRejected as rejected:
+            drops[f"output_{rejected.code}"] += 1
+            return DistillResult(DistillOutput(), drops)
+        assert isinstance(out, DistillOutput)
+        counts: Counter[str] = Counter()
+        kept = DistillOutput(
+            hypotheses=keep(out.hypotheses, counts),
+            questions=keep(out.questions, counts),
+            narrative=keep(out.narrative, counts),
+        )
+        drops.update(counts)
+        result = DistillResult(kept, drops)
+        if kept.narrative or not out.narrative or attempt:
+            break
+        reasons = ", ".join(sorted(f"{k} ({v})" for k, v in counts.items()))
+        inp = inp.model_copy(
+            update={
+                "notes": (
+                    "Your previous narrative was rejected: " + reasons + ". Write each claim"
+                    " without naming a grade or confidence level and cite only the fact_ids"
+                    " given."
+                )[:600]
+            }
+        )
+        drops["narrative_reasked"] += 1
+    return result

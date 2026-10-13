@@ -35,6 +35,8 @@ dependencies = [
     "signxml>=4.0",
     "sqlalchemy[asyncio]>=2.0",
     "uvicorn[standard]>=0.30",
+    "pypdf>=5.0",
+    "pyarrow>=17.0",
 ]
 
 [build-system]
@@ -89,6 +91,7 @@ asyncio_default_test_loop_scope = "session"
 markers = [
     "eval: agent evaluation tests (golden set); run only in the eval gate",
     "requires_postgres: requires the scratch PostgreSQL test database",
+    "large_file: generates a 1 GB+ file (runs only with RF_LARGE_FILE=1)",
 ]
 
 [tool.coverage.run]

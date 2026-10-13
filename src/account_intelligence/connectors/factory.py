@@ -6,6 +6,7 @@ import random
 import re
 import uuid
 from collections.abc import Mapping
+from typing import Any
 
 import httpx
 
@@ -133,6 +134,7 @@ def build_runtime(
     rng: random.Random | None = None,
     url_policy: UrlPolicy | None = None,
     worker_id: str | None = None,
+    cache: Any = None,
 ) -> ConnectorRuntime:
     """Assemble the connector runtime: clients, limiter, breaker, ledger, cost model, policies."""
     clock = clock or SystemClock()
@@ -175,6 +177,8 @@ def build_runtime(
         clock,
         lease_ttl_s=d.ledger.lease_ttl_s,
         budget_defaults=BudgetDefaults(d.run_budget_usd, d.tool_call_cap),
+        cache=cache,  # research cache: reuse of finished calls across runs of one tenant
+        in_flight_stale_s=d.ledger.in_flight_stale_s,
     )
     return ConnectorRuntime(
         config=config,

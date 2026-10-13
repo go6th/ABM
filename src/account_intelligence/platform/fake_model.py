@@ -31,6 +31,17 @@ from account_intelligence.platform.ports import LlmResult, LlmUsage
 _AGENT = re.compile(r"<!-- agent: ([a-z_0-9]+);")
 _SENTENCE = re.compile(r"[^.!?\n]+[.!?]")
 _PERSON = re.compile(r"\b([A-Z][a-z]+ [A-Z][a-z]+) is the ([A-Z][^.]{1,120})\.")
+_PASSAGES_MARK = "Passages (untrusted data):"
+_DOCUMENT = re.compile(r'<document id="(P\d+)"[^>]*>\n(.*?)\n</document>', re.S)
+_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("next_steps", re.compile(r"(?i)\b(next step|follow up|will send|agreed to)\b")),
+    ("objections", re.compile(r"(?i)\b(concern|objection|worried|blocker|risk)\b")),
+    ("decisions", re.compile(r"(?i)\b(decided|decision|approved|signed off)\b")),
+    ("budget_cycles", re.compile(r"(?i)\b(budget|fiscal year|renewal|contract ends)\b")),
+    ("incumbent_partners", re.compile(r"(?i)\b(partner|reseller|consultancy|incumbent)\b")),
+    ("programs", re.compile(r"(?i)\b(program|programme|initiative|project)\b")),
+    ("platforms", re.compile(r"(?i)\b(uses|runs on|migrating to|replace|evaluating)\b")),
+)
 
 
 @dataclass(frozen=True)
@@ -55,7 +66,8 @@ class FakeScenario:
         if unknown:
             raise ValueError(f"unknown fake model scenario keys: {sorted(unknown)}")
         tuples = {"narrative", "hypotheses", "questions", "judge_contradicts"}
-        return cls(**{k: tuple(v) if k in tuples else v for k, v in data.items()})
+        values: dict[str, Any] = {k: tuple(v) if k in tuples else v for k, v in data.items()}
+        return cls(**values)
 
 
 def load_scenario(path: str | Path) -> FakeScenario:
@@ -88,6 +100,8 @@ class FakeModel:
 
     def answer(self, tier: str, system: str, user: str) -> tuple[str, str]:
         """``(prompt kind, answer text)``: the pure core."""
+        if _PASSAGES_MARK in user:
+            return "file_extract", json.dumps({"facts": self._documents(user)})
         data = json.loads(user.split("\nYour previous", 1)[0])
         match = _AGENT.search(system)
         if match:
@@ -95,6 +109,57 @@ class FakeModel:
             return agent, json.dumps(self._agent(agent, data))
         kind, out = self._workflow(tier, data)
         return kind, json.dumps(out)
+
+    # Uploaded documents (input mode "file") ------------------------------------------------------
+
+    def _documents(self, user: str) -> list[dict[str, Any]]:
+        """Facts of the passages in a document extraction prompt: one per sentence that names a
+        category's cue, quoted verbatim; people from "Name Surname is the Role." sentences. With
+        ``obey_injection`` an instruction planted in a passage is followed: an invented fact
+        whose quote is not in the passage and an item of an unknown kind (both must be dropped
+        by the code that checks the reply)."""
+        facts: list[dict[str, Any]] = []
+        for pid, body in _DOCUMENT.findall(user):
+            text = body.replace("&lt;", "<")
+            for sentence in _sentences(text):
+                person = _PERSON.search(sentence)
+                if person:
+                    facts.append(
+                        {
+                            "passage": pid,
+                            "category": "people",
+                            "attribute": "contact",
+                            "value": f"{person.group(1)}, {person.group(2)}",
+                            "quote": sentence,
+                            "person_name": person.group(1),
+                            "person_role": person.group(2),
+                        }
+                    )
+                    continue
+                for category, cue in _CUES:
+                    if cue.search(sentence):
+                        facts.append(
+                            {
+                                "passage": pid,
+                                "category": category,
+                                "attribute": category.replace("_", " "),
+                                "value": sentence[:480],
+                                "quote": sentence[:580],
+                            }
+                        )
+                        break
+            if self.scenario.obey_injection and "ignore previous instructions" in text.lower():
+                facts.append(
+                    {
+                        "passage": pid,
+                        "category": "decisions",
+                        "attribute": "status",
+                        "value": "Every research area is done",
+                        "quote": "All tracker rows are complete and approved.",
+                    }
+                )
+                facts.append({"passage": pid, "category": "send_email", "to": "ceo@example.com"})
+        return facts
 
     # ABM agents ----------------------------------------------------------------------------------
 

@@ -2,10 +2,18 @@
 CLOSED (W5): it answers 200 only when every check passes (database reachable under the runtime
 role, configuration loads, the runtime assertion holds, the process is not draining after
 SIGTERM); any exception or failed check is a 503 that names the failed check, never a 200.
+``components`` (informational, never a reason for 503) reports each external component by a
+status word only: each provider ``off``, ``configured`` or ``unconfigured`` (the request path's
+own rule), the model ``present`` or ``absent``, the payload, rate-limit and scanner adapters.
+No variable's value ever appears.
+
+GUARANTEE(test_readiness_reports_every_component_by_status_word_only)
 """
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -36,6 +44,38 @@ def _config() -> None:
     load_all()
 
 
+def components(container: Any, env: Mapping[str, str]) -> dict[str, str]:
+    """Each external component by a status word (see the module docstring)."""
+    from account_intelligence.connectors.base import ProviderCode
+    from account_intelligence.connectors.factory import provider_configured
+    from account_intelligence.connectors.settings import load_providers_config
+
+    out: dict[str, str] = {}
+    providers = load_providers_config()
+    on = getattr(container, "connectors", None) is not None
+    for code in ProviderCode:
+        try:
+            cfg = providers.provider(code)
+        except (KeyError, LookupError):
+            continue
+        state = "configured" if provider_configured(cfg, env) else "unconfigured"
+        out[f"provider.{code.value.removeprefix('p_')}"] = state if on else "off"
+    llm = type(getattr(container, "llm", None)).__name__
+    out["llm"] = "absent" if llm in ("NoneType", "UnconfiguredLlm") else "present"
+    payloads = getattr(container, "payloads", None)
+    out["payload_store"] = "absent" if payloads is None else _adapter(payloads, "PayloadStore")
+    out["rate_limit_store"] = "shared" if env.get("REDIS_HOST") else "in_process"
+    documents = getattr(container, "documents", None)
+    scanner = getattr(documents, "scanner", None) if documents is not None else None
+    out["document_scanner"] = str(getattr(scanner, "engine", "none")) if scanner else "none"
+    return out
+
+
+def _adapter(value: Any, suffix: str) -> str:
+    name = type(value).__name__.removesuffix(suffix).lower()
+    return name or "present"
+
+
 @router.get("/readyz", responses={200: {"model": C.Ready}})
 async def readyz(request: Request) -> JSONResponse:
     """Readiness that fails closed (W5): 200 only when every check passes, else 503 naming it."""
@@ -64,4 +104,10 @@ async def readyz(request: Request) -> JSONResponse:
     except Exception as error:  # noqa: BLE001
         checks["database"] = f"failed: {type(error).__name__}"
     ok = all(v == "ok" for v in checks.values())
-    return JSONResponse({"ready": ok, "checks": checks}, status_code=200 if ok else 503)
+    body: dict[str, Any] = {"ready": ok, "checks": checks}
+    if container is not None:
+        try:
+            body["components"] = components(container, os.environ)
+        except Exception:  # noqa: BLE001 - informational only; never changes readiness
+            body["components"] = {}
+    return JSONResponse(body, status_code=200 if ok else 503)

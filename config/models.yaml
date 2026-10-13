@@ -1,11 +1,12 @@
 # Automatic Model Routing and Pricing Configuration
 # Strictly enforced by the backend model router. Callers cannot override model selection.
-version: "2026-10-09.1"
+version: "2026-10-13.1"
 
 # Hard allowlist of approved models
 allowlist:
   - claude-opus-5-5
   - claude-fable-5-1
+  - claude-sonnet-5-5
 
 tasks:
   - pull_planning
@@ -26,6 +27,11 @@ profiles:
     model: claude-fable-5-1
     input_usd_per_mtok: 10.00
     output_usd_per_mtok: 50.00
+  extraction_sonnet:
+    provider: anthropic
+    model: claude-sonnet-5-5
+    input_usd_per_mtok: 2.00
+    output_usd_per_mtok: 10.00
 
 arms:
   automatic:
@@ -37,9 +43,37 @@ arms:
       synthesis: analysis_fable
       narrative: analysis_fable
       verification: analysis_fable
+  cost_saving:
+    description: >-
+      Token-saving routing (2026-10-13): extraction and classification, whose output is validated
+      in code against quoted evidence, run on Sonnet 5.5 at half the Opus price; planning and
+      verification on Opus 5.5 (the judge must differ from the extractor); synthesis and narrative
+      stay on Fable 5.1 (the voice of the deliverable). Switch active_arm back to "automatic" to
+      restore the previous routing.
+    routes:
+      pull_planning: collection_opus
+      extraction: extraction_sonnet
+      classification: extraction_sonnet
+      synthesis: analysis_fable
+      narrative: analysis_fable
+      verification: collection_opus
 
-active_arm: automatic
+active_arm: cost_saving
 decision_status: Decided
+
+# Per-task request knobs for the Messages call (verified against anthropic 1.11.0, 2026-10-13:
+# ``messages.create`` accepts ``output_config`` and a system block with ``cache_control``).
+# effort: thinking depth; these models always think and thinking tokens count against max_tokens,
+# so routine tasks run low and the deliverable writers run high. prompt_cache: the system prompt
+# (the agent prompt plus its JSON schema, identical across calls of a task) is sent as a cached
+# block, so repeated calls within the cache window pay the cached-read price for it.
+task_settings:
+  pull_planning:   {effort: medium, prompt_cache: true}
+  extraction:      {effort: low,    prompt_cache: true}
+  classification:  {effort: low,    prompt_cache: true}
+  synthesis:       {effort: high,   prompt_cache: true}
+  narrative:       {effort: high,   prompt_cache: true}
+  verification:    {effort: low,    prompt_cache: true}
 
 models:
   claude-opus-5-5:
@@ -65,6 +99,18 @@ models:
       cached_read_usd_per_million: 0.25
       cache_write_usd_per_million: 12.50
       output_usd_per_million: 50.00
+
+  claude-sonnet-5-5:
+    provider: anthropic
+    display_name: "Claude Sonnet 5.5"
+    responsibility: "Extraction and classification of stored source text (output validated in code)"
+    context_window: 1000000
+    max_output_tokens: 128000
+    pricing:
+      input_usd_per_million: 2.00
+      cached_read_usd_per_million: 0.20
+      cache_write_usd_per_million: 2.50
+      output_usd_per_million: 10.00
 
 # Pipeline Phase Routing
 routing:

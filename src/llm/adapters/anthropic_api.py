@@ -7,7 +7,8 @@ dropped. Clients are built with ``max_retries=0`` (W6). Errors map to ``llm.erro
 ``RateLimitError``, ``OverloadedError``, ``InternalServerError``, ``ServiceUnavailableError``,
 ``APITimeoutError``, ``APIConnectionError`` -> ``Overloaded``; ``NotFoundError`` ->
 ``ModelUnavailable``; ``RequestTooLargeError`` or a 400 whose message says the prompt is too long
--> ``ContextTooLong``; ``AuthenticationError`` and ``PermissionDeniedError`` -> ``AuthFailed``.
+-> ``ContextTooLong``; ``AuthenticationError`` and ``PermissionDeniedError`` -> ``AuthFailed``; a
+400 whose message says the credit balance is too low -> ``ProviderCreditsExhausted``.
 The exact 400 wording for an over-long prompt is [VERIFY] V-LLM-3.
 
 GUARANTEE(test_anthropic_adapter_maps_sdk_errors_to_typed_classes): mapping table.
@@ -18,7 +19,14 @@ from __future__ import annotations
 from typing import Any
 
 from llm.config import Candidate
-from llm.errors import AuthFailed, ContentRefused, ContextTooLong, ModelUnavailable, Overloaded
+from llm.errors import (
+    AuthFailed,
+    ContentRefused,
+    ContextTooLong,
+    ModelUnavailable,
+    Overloaded,
+    ProviderCreditsExhausted,
+)
 from llm.models import AdapterReply, Usage
 
 
@@ -34,6 +42,10 @@ def map_error(exc: Exception) -> Exception:
         return ContextTooLong("request too large")
     if isinstance(exc, anthropic.BadRequestError) and "too long" in str(exc).lower():
         return ContextTooLong("prompt is too long")
+    if isinstance(exc, anthropic.BadRequestError) and "credit balance" in str(exc).lower():
+        # observed 2026-10-12: a 400 invalid_request_error "Your credit balance is too low";
+        # retrying or falling back cannot help, so the run keeps its pulls and ends partial
+        return ProviderCreditsExhausted("model provider credits exhausted")
     retryable: tuple[type[Exception], ...] = (
         anthropic.RateLimitError,
         anthropic.InternalServerError,

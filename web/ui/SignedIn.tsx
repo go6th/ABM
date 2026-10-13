@@ -1,22 +1,18 @@
 "use client";
-// Loads the session; sends the visitor to sign in when there is none. Children get the session.
+// Renders children once the cookie session is known; sends to sign in otherwise.
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, session, type Session } from "@/lib/api";
-import { Banner, PageSkeleton } from "./primitives";
+import { session, type Session } from "@/lib/api";
+import { Loading } from "./primitives";
 
 export function SignedIn({ children }: { children: (s: Session) => React.ReactNode }) {
   const router = useRouter();
-  const [state, setState] = useState<Session | null | "loading" | "error">("loading");
+  const [s, setS] = useState<Session | null | undefined>(undefined);
   useEffect(() => {
-    session()
-      .then((s) => {
-        if (s === null) router.push(`/login?return_to=${encodeURIComponent(window.location.pathname)}`);
-        setState(s);
-      })
-      .catch((e: unknown) => setState(e instanceof ApiError && e.status === 401 ? null : "error"));
+    let alive = true;
+    session().then((v) => { if (!alive) return; if (!v) router.replace("/login"); else setS(v); }).catch(() => { if (alive) setS(null); });
+    return () => { alive = false; };
   }, [router]);
-  if (state === "loading" || state === null) return <PageSkeleton />;
-  if (state === "error") return <Banner kind="error">The service is unavailable. Try again shortly.</Banner>;
-  return <>{children(state)}</>;
+  if (!s) return <Loading />;
+  return <>{children(s)}</>;
 }

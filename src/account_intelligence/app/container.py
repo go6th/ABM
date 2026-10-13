@@ -126,6 +126,12 @@ class Container:
     upload_parser: Any = field(default_factory=lambda: _unconfigured("upload_parser"))
     # model routing (D-48): a factory deps -> llm.port.Router; None keeps the legacy LlmPort path
     router: Any | None = None
+    # research cache: model reply log and cross-run reuse (``llm.reply_cache``); None logs nothing
+    reply_cache: Any | None = None
+    # research files (``research_files.service.FileServices``): uploads, processing, questions
+    files: Any | None = None
+    # uploaded documents for input mode "file" (``documents.service.DocumentService``)
+    documents: Any | None = None
     # Phase 3 tenant plane (identity broker, secret and object stores, mailer, scanner): the
     # production default fails closed (NotConfigured) until real adapters exist
     tenant_plane: Any | None = None
@@ -168,6 +174,7 @@ class Container:
             extra_allowed_hosts=frozenset(h for h in hosts if h),
             run_input=dict(row.run_input or {}),
             router=self.router,
+            reply_cache=self.reply_cache,
         )
 
 
@@ -191,9 +198,44 @@ def build_connectors(
 
         rate_store = RedisRateStore(redis.Redis(host=redis_host, port=6379, ssl=True))
     runtime = build_runtime(
-        config, txn=tenant_txn, payloads=payloads, rate_store=rate_store, env=env
+        config,
+        txn=tenant_txn,
+        payloads=payloads,
+        rate_store=rate_store,
+        env=env,
+        cache=research_cache(env),
     )
     return with_governance(runtime), retry_policy_for(config)
+
+
+def research_cache(env: Mapping[str, str]) -> Any:
+    """The cross-run research cache (``RESEARCH_CACHE``, default on), indexed in Redis when
+    ``REDIS_URL`` is set; None when switched off."""
+    from account_intelligence.connectors.cache import (
+        ResearchCache,
+        load_research_cache_config,
+        redis_index,
+    )
+
+    if env.get("RESEARCH_CACHE", "on") == "off":
+        return None
+    cfg = load_research_cache_config()
+    if not cfg.enabled:
+        return None
+    url = env.get("REDIS_URL")
+    return ResearchCache(cfg, redis_index(url) if url else None)
+
+
+def reply_cache(env: Mapping[str, str]) -> Any:
+    """The model reply log and cross-run reply reuse (``llm.reply_cache.PgReplyCache``). The log
+    is always written; with the research cache off (``RESEARCH_CACHE=off`` or the file) the TTL
+    is zero, so only a run that resumes another (``resume_from``) reuses replies."""
+    from account_intelligence.connectors.cache import load_research_cache_config
+    from llm.reply_cache import PgReplyCache
+
+    cfg = load_research_cache_config()
+    reuse = env.get("RESEARCH_CACHE", "on") != "off" and cfg.enabled and cfg.model_replies.enabled
+    return PgReplyCache(tenant_txn, cfg.model_replies.ttl_days if reuse else 0.0)
 
 
 def router_factory(client: Any, access: str) -> Any:
@@ -352,7 +394,7 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
 
     tenant_plane = unconfigured_plane(clock, env.get("PUBLIC_BASE_URL"))
     tenant_plane.secrets = DevelopmentSecretStore()
-    return Container(
+    container = Container(
         env=app_env,
         connectors=connectors,
         extras={"retry_policy": retry} if retry is not None else {},
@@ -380,7 +422,61 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
             else None
         ),
         dev_auto_approve=app_env == "dev" and env.get("DEV_AUTO_APPROVE_CAPS") == "1",
+        reply_cache=reply_cache(env) if connectors is not None else None,
     )
+    blobs = local_blob_store(env.get("PAYLOAD_DIR"))
+    container.files = file_services(blobs, llm, container.scheduler)
+    container.documents = document_service(blobs, container.scheduler, clock, env, app_env)
+    # the pre-delivery gate for both input modes (``documents.gate``): without it no run could
+    # ever complete (audit F1)
+    container.gate = delivery_gate(payloads, container.documents)
+    return container
+
+
+def document_service(
+    blobs: Any, scheduler: Any, clock: Any, env: Mapping[str, str], app_env: str
+) -> Any:
+    """Uploaded documents (input mode "file"): quarantine, scan, sandboxed parse, index."""
+    from documents.config import load_config
+    from documents.embed import HashingEmbedder
+    from documents.scan import scanner_for
+    from documents.service import DocumentService
+
+    cfg = load_config()
+    scanner = scanner_for(
+        app_env,
+        env.get("DOCUMENT_SCANNER", "signature"),
+        env.get("CLAMD_HOST"),
+        int(env.get("CLAMD_PORT", "3310")),
+    )
+    embedder = HashingEmbedder(cfg.embedding.dimensions, cfg.embedding.model)
+    return DocumentService(tenant_txn, blobs, scanner, embedder, scheduler, clock, cfg)
+
+
+def delivery_gate(payloads: Any, documents: Any) -> Any:
+    """The pre-delivery gate over the client file store and the private document index."""
+    from documents.gate import PreDeliveryGate
+
+    return PreDeliveryGate(tenant_txn, payloads, documents.embedder, documents.cfg)
+
+
+def local_blob_store(payload_dir: str | None) -> Any:
+    """Research file objects on the payloads volume (a temporary directory without one)."""
+    import tempfile
+    from pathlib import Path
+
+    from research_files.blobstore import LocalBlobStore
+
+    root = Path(payload_dir) / "files" if payload_dir else Path(tempfile.mkdtemp(prefix="rf-"))
+    root.mkdir(parents=True, exist_ok=True)
+    return LocalBlobStore(root)
+
+
+def file_services(blobs: Any, llm: Any, scheduler: Any) -> Any:
+    """The research file services over a blob store, the LLM port and the task scheduler."""
+    from research_files.service import FileServices, usable_llm
+
+    return FileServices(blobs, tenant_txn, usable_llm(llm), scheduler)
 
 
 def hermetic_fake_model(env: Mapping[str, str]) -> FakeModel:
@@ -450,7 +546,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     )
     connectors, retry = build_connectors(env, payloads, _require(env, "REDIS_HOST"))
     clock = SystemClock()
-    return Container(
+    built = Container(
         env=app_env,
         connectors=connectors,
         extras={"retry_policy": retry},
@@ -470,7 +566,15 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         task_service_account=_require(env, "TASKS_SERVICE_ACCOUNT"),
         verify_task_token=verify_task_token,
         tenant_plane=cloud_plane(secrets, clock, env.get("PUBLIC_BASE_URL")),
+        reply_cache=reply_cache(env),
     )
+    from research_files.blobstore import GcsBlobStore
+
+    blobs = GcsBlobStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
+    built.files = file_services(blobs, llm, scheduler)
+    built.documents = document_service(blobs, scheduler, clock, env, app_env)
+    built.gate = delivery_gate(built.payloads, built.documents)
+    return built
 
 
 def assert_gcp_runtime(container: Container) -> None:

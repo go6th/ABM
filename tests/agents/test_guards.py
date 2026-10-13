@@ -279,4 +279,14 @@ def test_g11_split_mode_is_routing() -> None:
 def test_distilled_claims_may_not_restate_grades() -> None:
     assert restates_grade("This is Confirmed by filings")
     assert restates_grade("grade b evidence")
+    assert restates_grade("Probable: the account is migrating to SAP.")
+    assert restates_grade("A probable claim about hiring.")
+    assert restates_grade("The site lists a migration (Probable).")
+    assert restates_grade("This fact is graded as Probable.")
     assert not restates_grade("The account may be prioritising integration.")
+    # everyday verbs and nouns are not grade labels (they emptied whole narratives before
+    # 2026-10-13 and failed the Summary build with missing_narrative)
+    assert not restates_grade("The company confirmed a new CIO in March.")
+    assert not restates_grade("Sales lead generation is a stated priority.")
+    assert not restates_grade("They lead the market in diagnostics.")
+    assert not restates_grade("Confirmed revenue grew 12 percent.")

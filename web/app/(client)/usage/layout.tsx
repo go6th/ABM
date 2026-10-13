@@ -1,5 +1,2 @@
-import { SettingsFrame } from "@/components/ws/SettingsFrame";
-
-export default function Layout({ children }: { children: React.ReactNode }) {
-  return <SettingsFrame>{children}</SettingsFrame>;
-}
+// Removed from the product. Passthrough until the folder is deleted from the repo.
+export default function Removed({ children }: { children: React.ReactNode }) { return <>{children}</>; }

@@ -1,0 +1,98 @@
+"""Passage embeddings: a port and the local deterministic embedder used until a vendor is chosen.
+
+``HashingEmbedder`` (model ``local-hash-v1``) maps lowercase word unigrams and bigrams and
+character trigrams into the index's 1536 dimensions with a stable hash and a sign bit, then
+normalises to unit length. It runs in process, costs nothing, sends nothing anywhere and gives
+the same vector for the same text on every machine. It measures shared wording, not meaning: it
+is enough for the leak check's near-duplicate test and for hybrid retrieval next to full text,
+not a semantic model (the vendor choice is an open decision). Every batch is metered with its
+model and cost through ``FileModels``' call log (cost 0 here).
+
+GUARANTEE(test_hashing_embedder_is_deterministic_and_normalised)
+"""
+
+from __future__ import annotations
+
+import hashlib
+import math
+import re
+from collections.abc import Sequence
+from typing import Protocol
+
+_WORD = re.compile(r"[a-z0-9]+(?:['.-][a-z0-9]+)*")
+
+
+class EmbeddingPort(Protocol):
+    """Vectors for texts, with the model name and the cost of a batch."""
+
+    model: str
+    dimensions: int
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """One unit vector per text, in order."""
+        ...
+
+    def cost_usd(self, texts: Sequence[str]) -> float:
+        """What embedding ``texts`` costs."""
+        ...
+
+
+def _bucket(feature: str, dims: int) -> tuple[int, float]:
+    digest = hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest()
+    value = int.from_bytes(digest, "big")
+    return value % dims, (1.0 if value >> 63 else -1.0)
+
+
+def features(text: str) -> dict[str, float]:
+    """Weighted features of ``text`` (see the module docstring)."""
+    words = _WORD.findall(text.lower())
+    out: dict[str, float] = {}
+    for w in words:
+        out[f"w:{w}"] = out.get(f"w:{w}", 0.0) + 1.0
+        if len(w) > 3:
+            for i in range(len(w) - 2):
+                key = f"c:{w[i : i + 3]}"
+                out[key] = out.get(key, 0.0) + 0.25
+    for a, b in zip(words, words[1:], strict=False):
+        key = f"b:{a} {b}"
+        out[key] = out.get(key, 0.0) + 1.5
+    return out
+
+
+class HashingEmbedder:
+    """See the module docstring."""
+
+    def __init__(self, dimensions: int = 1536, model: str = "local-hash-v1"):
+        self.dimensions = dimensions
+        self.model = model
+
+    def vector(self, text: str) -> list[float]:
+        """The unit vector of one text (all zeros for text without words)."""
+        vec = [0.0] * self.dimensions
+        for feature, weight in features(text).items():
+            index, sign = _bucket(feature, self.dimensions)
+            vec[index] += sign * (1.0 + math.log(weight))
+        norm = math.sqrt(sum(v * v for v in vec))
+        return [v / norm for v in vec] if norm else vec
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """See ``EmbeddingPort``."""
+        return [self.vector(t) for t in texts]
+
+    def cost_usd(self, texts: Sequence[str]) -> float:
+        """Nothing: it runs in process."""
+        del texts
+        return 0.0
+
+
+def literal(vec: Sequence[float]) -> str:
+    """The pgvector text form of a vector (``[0.1,0.2,...]``), 6 decimals."""
+    return "[" + ",".join(f"{v:.6f}" for v in vec) + "]"
+
+
+def cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    """Cosine similarity of two vectors."""
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0

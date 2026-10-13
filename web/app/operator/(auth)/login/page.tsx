@@ -1,7 +1,6 @@
 // Operator sign-in: Google Workspace through /api/operator/login (verified by the backend), with
 // error messages by code. A server component: it reads the error code from the query.
 import Link from "next/link";
-import { ShieldCheck } from "lucide-react";
 import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 
 const ERRORS: Record<string, string> = {
@@ -26,12 +25,12 @@ export default async function OperatorLoginPage({
       <AuthBrand plane="operator" />
       <div>
         <h1 id="auth-title">Staff sign in</h1>
-        <p className="lede">Use your authorized Google Workspace account. A recent multi-factor sign-in is required.</p>
+        <p className="muted">Use your authorized Google Workspace account. A recent multi-factor sign-in is required.</p>
       </div>
-      {message ? <div className="banner error" role="alert"><p className="grow">{message}</p></div> : null}
-      <Link className="btn primary lg block" href="/api/operator/login?return_to=%2Foperator">Continue with Google Workspace</Link>
-      <p className="auth-links"><Link className="link" href="/login">Client sign in</Link></p>
-      <p className="auth-foot"><ShieldCheck size={16} aria-hidden="true" />Staff access only. Every action is audited.</p>
+      {message ? <div className="notice error" role="alert"><p>{message}</p></div> : null}
+      <Link className="btn primary block" href="/api/operator/login?return_to=%2Foperator">Continue with Google Workspace</Link>
+      <p className="auth-links"><Link href="/login">Client sign in</Link></p>
+      <p className="auth-foot">Staff access only. Every action is audited.</p>
     </AuthFrame>
   );
 }

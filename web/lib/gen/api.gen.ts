@@ -297,11 +297,64 @@ export const ChatThreads = z.object({
 }).strict();
 export type ChatThreads = z.infer<typeof ChatThreads>;
 
+export const CollectedClaim = z.object({
+  "fact_ids": z.array(z.string()),
+  "text": z.string(),
+}).strict();
+export type CollectedClaim = z.infer<typeof CollectedClaim>;
+
+export const CollectedDrafts = z.object({
+  "hypotheses": z.array(CollectedClaim).optional(),
+  "narrative": z.array(CollectedClaim).optional(),
+  "questions": z.array(CollectedClaim).optional(),
+}).strict();
+export type CollectedDrafts = z.infer<typeof CollectedDrafts>;
+
+export const CollectedFact = z.object({
+  "attribute": z.string(),
+  "fact_id": z.string(),
+  "grade": z.string().nullable(),
+  "lane": z.string().nullable(),
+  "may_state_to_prospect": z.boolean(),
+  "value": z.string().nullable(),
+}).strict();
+export type CollectedFact = z.infer<typeof CollectedFact>;
+
+export const CollectedPull = z.object({
+  "cached": z.number().int(),
+  "calls": z.number().int(),
+  "retrieved_from": z.string().nullable(),
+  "retrieved_to": z.string().nullable(),
+  "tool_category": z.string(),
+}).strict();
+export type CollectedPull = z.infer<typeof CollectedPull>;
+
+export const CompanyConfirmed = z.object({
+  "account_id": z.string(),
+  "document_ids": z.array(z.string()),
+  "domain": z.string(),
+}).strict();
+export type CompanyConfirmed = z.infer<typeof CompanyConfirmed>;
+
+export const CompanyInput = z.object({
+  "company_name": z.string(),
+  "credit_cap": z.number().nullable().optional(),
+  "domain": z.string().nullable().optional(),
+}).strict();
+export type CompanyInput = z.infer<typeof CompanyInput>;
+
 export const CompleteBody = z.object({
   "account_confirmed": z.boolean(),
   "pull_date": z.string().nullable().optional(),
 }).strict();
 export type CompleteBody = z.infer<typeof CompleteBody>;
+
+export const ConfirmCompany = z.object({
+  "company_name": z.string(),
+  "document_ids": z.array(z.string()),
+  "domain": z.string(),
+}).strict();
+export type ConfirmCompany = z.infer<typeof ConfirmCompany>;
 
 export const Connection = z.object({
   "allowed": z.array(z.string()),
@@ -466,6 +519,89 @@ export const Disconnected = z.object({
 }).strict();
 export type Disconnected = z.infer<typeof Disconnected>;
 
+export const DocumentDeleted = z.object({
+  "chunks_removed": z.number().int(),
+  "document_id": z.string(),
+  "facts_marked": z.number().int(),
+}).strict();
+export type DocumentDeleted = z.infer<typeof DocumentDeleted>;
+
+export const DocumentEstimate = z.object({
+  "documents": z.number().int(),
+  "embedding_usd": z.number(),
+  "enrichment": z.boolean(),
+  "enrichment_cap_usd": z.number().nullable(),
+  "input_tokens": z.number().int(),
+  "model": z.string().nullable(),
+  "model_calls": z.number().int(),
+  "model_usd": z.number(),
+  "note": z.string(),
+  "output_tokens": z.number().int(),
+  "passages": z.number().int(),
+  "total_ceiling_usd": z.number(),
+}).strict();
+export type DocumentEstimate = z.infer<typeof DocumentEstimate>;
+
+export const DocumentFlag = z.object({
+  "authoritative": z.boolean(),
+  "document_id": z.string(),
+}).strict();
+export type DocumentFlag = z.infer<typeof DocumentFlag>;
+
+export const DocumentStatus = z.object({
+  "account_id": z.string().nullable(),
+  "authoritative": z.boolean(),
+  "company": z.record(z.string(), z.unknown()).nullable(),
+  "created_at": z.string(),
+  "declared_type": z.string(),
+  "detected_type": z.string().nullable(),
+  "document_id": z.string(),
+  "message": z.string().nullable(),
+  "name": z.string(),
+  "needs_company": z.boolean(),
+  "passages": z.number().int(),
+  "reason": z.string().nullable(),
+  "redaction_tier": z.string().nullable(),
+  "redactions": z.number().int(),
+  "size_bytes": z.number().int(),
+  "stage": z.string(),
+  "status": z.string(),
+}).strict();
+export type DocumentStatus = z.infer<typeof DocumentStatus>;
+
+export const DocumentList = z.object({
+  "documents": z.array(DocumentStatus),
+}).strict();
+export type DocumentList = z.infer<typeof DocumentList>;
+
+export const DocumentPolicy = z.object({
+  "redaction_tier": z.string(),
+}).strict();
+export type DocumentPolicy = z.infer<typeof DocumentPolicy>;
+
+export const DocumentReceived = z.object({
+  "document_id": z.string(),
+  "received_bytes": z.number().int(),
+}).strict();
+export type DocumentReceived = z.infer<typeof DocumentReceived>;
+
+export const DocumentTask = z.object({
+  "document_id": z.string(),
+  "tenant_id": z.string(),
+}).strict();
+export type DocumentTask = z.infer<typeof DocumentTask>;
+
+export const DocumentUploadStarted = z.object({
+  "direct": z.boolean(),
+  "document_id": z.string(),
+  "expires_at": z.string(),
+  "headers": z.record(z.string(), z.string()),
+  "max_bytes": z.number().int(),
+  "method": z.string(),
+  "upload_url": z.string(),
+}).strict();
+export type DocumentUploadStarted = z.infer<typeof DocumentUploadStarted>;
+
 export const EmailBody = z.object({
   "email": z.string(),
 }).strict();
@@ -485,6 +621,13 @@ export const EnrollPasswordBody = z.object({
   "password": z.string(),
 }).strict();
 export type EnrollPasswordBody = z.infer<typeof EnrollPasswordBody>;
+
+export const EstimateBody = z.object({
+  "credit_cap": z.number().nullable().optional(),
+  "document_ids": z.array(z.string()),
+  "enrich_public": z.boolean().optional(),
+}).strict();
+export type EstimateBody = z.infer<typeof EstimateBody>;
 
 export const ExportBody = z.object({
   "domain": z.string(),
@@ -597,6 +740,137 @@ export const FetchResult = z.object({
 }).strict();
 export type FetchResult = z.infer<typeof FetchResult>;
 
+export const FileAnalytics = z.object({
+  "analytics": z.record(z.string(), z.unknown()).nullable(),
+  "file_id": z.string(),
+  "status": z.string(),
+}).strict();
+export type FileAnalytics = z.infer<typeof FileAnalytics>;
+
+export const FileCitation = z.object({
+  "id": z.string(),
+  "location": z.record(z.string(), z.unknown()),
+  "seq": z.number().int(),
+}).strict();
+export type FileCitation = z.infer<typeof FileCitation>;
+
+export const FileAnswer = z.object({
+  "answer": z.string().nullable(),
+  "citations": z.array(FileCitation),
+  "error": z.string().nullable().optional(),
+  "estimate": z.record(z.string(), z.unknown()).nullable().optional(),
+  "needs_approval": z.boolean(),
+  "passages": z.array(z.record(z.string(), z.unknown())).nullable().optional(),
+  "served_from": z.string().nullable().optional(),
+  "source": z.string(),
+}).strict();
+export type FileAnswer = z.infer<typeof FileAnswer>;
+
+export const FileFinding = z.object({
+  "check": z.string(),
+  "fix": z.string().nullable(),
+  "location": z.record(z.string(), z.unknown()),
+  "message": z.string(),
+  "severity": z.string(),
+}).strict();
+export type FileFinding = z.infer<typeof FileFinding>;
+
+export const FileAudit = z.object({
+  "counts": z.record(z.string(), z.number().int()),
+  "file_id": z.string(),
+  "findings": z.array(FileFinding),
+  "limit": z.number().int(),
+  "offset": z.number().int(),
+}).strict();
+export type FileAudit = z.infer<typeof FileAudit>;
+
+export const FileInput = z.object({
+  "account_id": z.string().nullable().optional(),
+  "credit_cap": z.number().nullable().optional(),
+  "document_ids": z.array(z.string()),
+  "enrich_public": z.boolean().optional(),
+}).strict();
+export type FileInput = z.infer<typeof FileInput>;
+
+export const FileSummary = z.object({
+  "created_at": z.string(),
+  "detected_type": z.string().nullable(),
+  "file_id": z.string(),
+  "name": z.string(),
+  "size_bytes": z.number().int(),
+  "status": z.string(),
+  "stop_reason": z.string().nullable(),
+  "units_done": z.number().int(),
+}).strict();
+export type FileSummary = z.infer<typeof FileSummary>;
+
+export const FileList = z.object({
+  "files": z.array(FileSummary),
+}).strict();
+export type FileList = z.infer<typeof FileList>;
+
+export const FileState = z.object({
+  "file_id": z.string(),
+  "status": z.string(),
+}).strict();
+export type FileState = z.infer<typeof FileState>;
+
+export const FileStatus = z.object({
+  "created_at": z.string(),
+  "detected_type": z.string().nullable(),
+  "estimate": z.record(z.string(), z.unknown()).nullable(),
+  "file_id": z.string(),
+  "findings": z.record(z.string(), z.number().int()),
+  "name": z.string(),
+  "sha256": z.string(),
+  "size_bytes": z.number().int(),
+  "spend": z.record(z.string(), z.unknown()),
+  "status": z.string(),
+  "stop_detail": z.string().nullable(),
+  "stop_reason": z.string().nullable(),
+  "units_done": z.number().int(),
+  "updated_at": z.string(),
+}).strict();
+export type FileStatus = z.infer<typeof FileStatus>;
+
+export const FileTask = z.object({
+  "file_id": z.string(),
+  "tenant_id": z.string(),
+}).strict();
+export type FileTask = z.infer<typeof FileTask>;
+
+export const FileUploadCompleted = z.object({
+  "deduplicated": z.boolean(),
+  "file_id": z.string(),
+  "status": z.string(),
+}).strict();
+export type FileUploadCompleted = z.infer<typeof FileUploadCompleted>;
+
+export const FileUploadPart = z.object({
+  "part": z.number().int(),
+  "sha256": z.string(),
+  "size": z.number().int(),
+}).strict();
+export type FileUploadPart = z.infer<typeof FileUploadPart>;
+
+export const FileUploadStarted = z.object({
+  "part_size": z.number().int(),
+  "parts_total": z.number().int(),
+  "upload_id": z.string(),
+}).strict();
+export type FileUploadStarted = z.infer<typeof FileUploadStarted>;
+
+export const FileUploadState = z.object({
+  "file_id": z.string().nullable(),
+  "missing": z.array(z.number().int()),
+  "part_size": z.number().int(),
+  "parts_total": z.number().int(),
+  "received": z.array(z.number().int()),
+  "status": z.string(),
+  "upload_id": z.string(),
+}).strict();
+export type FileUploadState = z.infer<typeof FileUploadState>;
+
 export const Filter = z.object({
   "column": z.string(),
   "op": z.string(),
@@ -611,13 +885,6 @@ export const Flag = z.object({
 }).strict();
 export type Flag = z.infer<typeof Flag>;
 
-export const FlagBody = z.object({
-  "flag": z.string(),
-  "reason_code": z.string(),
-  "rule": z.record(z.string(), z.unknown()),
-}).strict();
-export type FlagBody = z.infer<typeof FlagBody>;
-
 export const FlagSet = z.object({
   "flag": z.string(),
   "version": z.number().int(),
@@ -628,6 +895,18 @@ export const Flags = z.object({
   "flags": z.array(Flag),
 }).strict();
 export type Flags = z.infer<typeof Flags>;
+
+export const GateDefect = z.object({
+  "check": z.string(),
+  "item": z.string(),
+}).strict();
+export type GateDefect = z.infer<typeof GateDefect>;
+
+export const GateSummary = z.object({
+  "defects": z.array(GateDefect),
+  "verdict": z.string(),
+}).strict();
+export type GateSummary = z.infer<typeof GateSummary>;
 
 export const GrantCreated = z.object({
   "grant_id": z.string(),
@@ -719,6 +998,27 @@ export const IntentEvents = z.object({
 }).strict();
 export type IntentEvents = z.infer<typeof IntentEvents>;
 
+export const InternalFinding = z.object({
+  "category": z.string(),
+  "citation": z.string(),
+  "grade": z.string(),
+  "quote": z.string(),
+  "value": z.string(),
+}).strict();
+export type InternalFinding = z.infer<typeof InternalFinding>;
+
+export const InternalView = z.object({
+  "documents": z.array(z.record(z.string(), z.unknown())),
+  "file_available": z.boolean(),
+  "findings": z.array(InternalFinding),
+  "label": z.string(),
+  "public_findings": z.array(z.record(z.string(), z.unknown())),
+  "public_run_id": z.string().nullable(),
+  "run_id": z.string(),
+  "source_label": z.string(),
+}).strict();
+export type InternalView = z.infer<typeof InternalView>;
+
 export const KeyAdded = z.object({
   "provider_code": z.string(),
   "version": z.number().int(),
@@ -802,6 +1102,13 @@ export const Members = z.object({
   "members": z.array(Member),
 }).strict();
 export type Members = z.infer<typeof Members>;
+
+export const MissingRow = z.object({
+  "reason": z.string().nullable(),
+  "row": z.string(),
+  "status": z.string(),
+}).strict();
+export type MissingRow = z.infer<typeof MissingRow>;
 
 export const MonitoringBudget = z.object({
   "percent": z.number().int(),
@@ -900,6 +1207,11 @@ export const PlanSet = z.object({
 }).strict();
 export type PlanSet = z.infer<typeof PlanSet>;
 
+export const PolicyBody = z.object({
+  "redaction_tier": z.string(),
+}).strict();
+export type PolicyBody = z.infer<typeof PolicyBody>;
+
 export const PullOption = z.object({
   "available": z.boolean(),
   "pull_run_id": z.string().nullable().optional(),
@@ -943,6 +1255,12 @@ export const QuerySpec = z.object({
 }).strict();
 export type QuerySpec = z.infer<typeof QuerySpec>;
 
+export const Question = z.object({
+  "approve": z.boolean().optional(),
+  "question": z.string(),
+}).strict();
+export type Question = z.infer<typeof Question>;
+
 export const QuotaBody = z.object({
   "dimension": z.string(),
   "limit_value": z.number().int(),
@@ -972,6 +1290,7 @@ export type Rating = z.infer<typeof Rating>;
 
 export const Ready = z.object({
   "checks": z.record(z.string(), z.string()),
+  "components": z.record(z.string(), z.string()).optional(),
   "ready": z.boolean(),
 }).strict();
 export type Ready = z.infer<typeof Ready>;
@@ -1010,14 +1329,41 @@ export type RowSource = z.infer<typeof RowSource>;
 
 export const RunBody = z.object({
   "acknowledged_stale_rows": z.array(z.string()).optional(),
+  "company": CompanyInput.nullable().optional(),
   "depth": z.string().optional(),
-  "domain": z.string(),
+  "domain": z.string().nullable().optional(),
+  "file": FileInput.nullable().optional(),
+  "input_mode": z.string().nullable().optional(),
   "lanes_off": z.array(z.string()).optional(),
   "mode": z.string().nullable().optional(),
   "parent_run_id": z.string().nullable().optional(),
   "pursuing_client": z.boolean().optional(),
+  "resume_from": z.string().nullable().optional(),
 }).strict();
 export type RunBody = z.infer<typeof RunBody>;
+
+export const StoredCounts = z.object({
+  "cached_calls": z.number().int(),
+  "deliverables": z.number().int(),
+  "drafts": z.number().int(),
+  "facts": z.number().int(),
+  "model_replies": z.number().int(),
+  "paid_calls": z.number().int(),
+}).strict();
+export type StoredCounts = z.infer<typeof StoredCounts>;
+
+export const RunCollected = z.object({
+  "drafts": CollectedDrafts,
+  "facts": z.array(CollectedFact),
+  "missing": z.array(MissingRow),
+  "pulls": z.array(CollectedPull),
+  "reason": z.string().nullable(),
+  "run_id": z.string(),
+  "status": z.string(),
+  "stop_detail": z.string().nullable(),
+  "stored": StoredCounts,
+}).strict();
+export type RunCollected = z.infer<typeof RunCollected>;
 
 export const RunCost = z.object({
   "lines": z.array(CostLine),
@@ -1036,8 +1382,10 @@ export type RunCreated = z.infer<typeof RunCreated>;
 export const RunListItem = z.object({
   "created_at": z.string(),
   "domain": z.string(),
+  "input_mode": z.string().optional(),
   "label": z.string(),
   "run_id": z.string(),
+  "source_label": z.string().optional(),
   "status": z.string(),
 }).strict();
 export type RunListItem = z.infer<typeof RunListItem>;
@@ -1068,9 +1416,17 @@ export type RunState = z.infer<typeof RunState>;
 
 export const RunStatusView = z.object({
   "coverage": CoverageView,
+  "domain": z.string().nullable().optional(),
+  "gate": GateSummary.nullable().optional(),
+  "input_mode": z.string().optional(),
+  "linked_run_id": z.string().nullable().optional(),
+  "missing": z.array(MissingRow).optional(),
   "reason": z.string().nullable(),
   "run_id": z.string(),
+  "source_label": z.string().optional(),
   "status": z.string(),
+  "stop_detail": z.string().nullable().optional(),
+  "stored": StoredCounts.nullable().optional(),
 }).strict();
 export type RunStatusView = z.infer<typeof RunStatusView>;
 
@@ -1369,6 +1725,13 @@ export const TimeoutTask = z.object({
 }).strict();
 export type TimeoutTask = z.infer<typeof TimeoutTask>;
 
+export const UploadInit = z.object({
+  "mime": z.string().nullable().optional(),
+  "name": z.string(),
+  "size": z.number().int(),
+}).strict();
+export type UploadInit = z.infer<typeof UploadInit>;
+
 export const UploadTarget = z.object({
   "content_type": z.string(),
   "expires_at": z.string(),
@@ -1383,6 +1746,14 @@ export const UploadIntent = z.object({
   "upload": UploadTarget,
 }).strict();
 export type UploadIntent = z.infer<typeof UploadIntent>;
+
+export const UploadStart = z.object({
+  "account_id": z.string().nullable().optional(),
+  "mime": z.string().nullable().optional(),
+  "name": z.string(),
+  "size_bytes": z.number().int(),
+}).strict();
+export type UploadStart = z.infer<typeof UploadStart>;
 
 export const UploadVerdict = z.object({
   "accepted": z.boolean(),
@@ -1492,6 +1863,18 @@ export const account_intelligence__api__routes__connectors__GrantBody = z.object
 }).strict();
 export type account_intelligence__api__routes__connectors__GrantBody = z.infer<typeof account_intelligence__api__routes__connectors__GrantBody>;
 
+export const account_intelligence__api__routes__documents__FlagBody = z.object({
+  "authoritative": z.boolean(),
+}).strict();
+export type account_intelligence__api__routes__documents__FlagBody = z.infer<typeof account_intelligence__api__routes__documents__FlagBody>;
+
+export const account_intelligence__api__routes__operator_admin__FlagBody = z.object({
+  "flag": z.string(),
+  "reason_code": z.string(),
+  "rule": z.record(z.string(), z.unknown()),
+}).strict();
+export type account_intelligence__api__routes__operator_admin__FlagBody = z.infer<typeof account_intelligence__api__routes__operator_admin__FlagBody>;
+
 export const account_intelligence__api__routes__support__GrantBody = z.object({
   "grantee": z.string(),
   "minutes": z.number().int(),
@@ -1582,6 +1965,11 @@ export const KNOWN_VALUES = {
     "operator",
     "support"
   ],
+  "PolicyBody.redaction_tier": [
+    "strict",
+    "standard",
+    "minimal"
+  ],
   "QuotaBody.dimension": [
     "accounts",
     "runs_per_period",
@@ -1597,6 +1985,10 @@ export const KNOWN_VALUES = {
   "RunBody.depth": [
     "standard",
     "deep"
+  ],
+  "RunBody.input_mode": [
+    "company",
+    "file"
   ],
   "RunBody.mode": [
     "full",
@@ -1672,7 +2064,7 @@ export interface Operation {
 export const operations = {
   "GET /healthz": { method: "GET", path: "/healthz", plane: "tenant", status: 200, request: null, requestRequired: false, response: Health },
   "GET /operator/v1/flags": { method: "GET", path: "/operator/v1/flags", plane: "operator", status: 200, request: null, requestRequired: false, response: Flags },
-  "POST /operator/v1/flags": { method: "POST", path: "/operator/v1/flags", plane: "operator", status: 201, request: FlagBody, requestRequired: true, response: FlagSet },
+  "POST /operator/v1/flags": { method: "POST", path: "/operator/v1/flags", plane: "operator", status: 201, request: account_intelligence__api__routes__operator_admin__FlagBody, requestRequired: true, response: FlagSet },
   "GET /operator/v1/keys": { method: "GET", path: "/operator/v1/keys", plane: "operator", status: 200, request: null, requestRequired: false, response: KeyVersions },
   "POST /operator/v1/keys": { method: "POST", path: "/operator/v1/keys", plane: "operator", status: 201, request: KeyBody, requestRequired: true, response: KeyAdded },
   "GET /operator/v1/ops/cost/{run_id}": { method: "GET", path: "/operator/v1/ops/cost/{run_id}", plane: "operator", status: 200, request: null, requestRequired: false, response: RunCost },
@@ -1738,12 +2130,35 @@ export const operations = {
   "GET /v1/crm/{crm}/writes": { method: "GET", path: "/v1/crm/{crm}/writes", plane: "tenant", status: 200, request: null, requestRequired: false, response: CrmWrites },
   "POST /v1/crm/{crm}/writes": { method: "POST", path: "/v1/crm/{crm}/writes", plane: "tenant", status: 201, request: Target, requestRequired: true, response: CrmWriteRequested },
   "POST /v1/crm/{crm}/writes/approve": { method: "POST", path: "/v1/crm/{crm}/writes/approve", plane: "tenant", status: 200, request: Approval, requestRequired: true, response: CrmApproved },
+  "GET /v1/documents": { method: "GET", path: "/v1/documents", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentList },
+  "POST /v1/documents/confirm-company": { method: "POST", path: "/v1/documents/confirm-company", plane: "tenant", status: 200, request: ConfirmCompany, requestRequired: true, response: CompanyConfirmed },
+  "POST /v1/documents/estimate": { method: "POST", path: "/v1/documents/estimate", plane: "tenant", status: 200, request: EstimateBody, requestRequired: true, response: DocumentEstimate },
+  "GET /v1/documents/policy": { method: "GET", path: "/v1/documents/policy", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentPolicy },
+  "PUT /v1/documents/policy": { method: "PUT", path: "/v1/documents/policy", plane: "tenant", status: 200, request: PolicyBody, requestRequired: true, response: DocumentPolicy },
+  "POST /v1/documents/uploads": { method: "POST", path: "/v1/documents/uploads", plane: "tenant", status: 201, request: UploadStart, requestRequired: true, response: DocumentUploadStarted },
+  "DELETE /v1/documents/{document_id}": { method: "DELETE", path: "/v1/documents/{document_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentDeleted },
+  "POST /v1/documents/{document_id}/authoritative": { method: "POST", path: "/v1/documents/{document_id}/authoritative", plane: "tenant", status: 200, request: account_intelligence__api__routes__documents__FlagBody, requestRequired: true, response: DocumentFlag },
+  "POST /v1/documents/{document_id}/complete": { method: "POST", path: "/v1/documents/{document_id}/complete", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
+  "PUT /v1/documents/{document_id}/content": { method: "PUT", path: "/v1/documents/{document_id}/content", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentReceived },
+  "GET /v1/documents/{document_id}/status": { method: "GET", path: "/v1/documents/{document_id}/status", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
   "GET /v1/exports": { method: "GET", path: "/v1/exports", plane: "tenant", status: 200, request: null, requestRequired: false, response: ExportPackages },
   "POST /v1/exports": { method: "POST", path: "/v1/exports", plane: "tenant", status: 201, request: ExportBody, requestRequired: true, response: ExportPackage },
   "GET /v1/exports/{package_id}": { method: "GET", path: "/v1/exports/{package_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ExportPackage },
   "GET /v1/exports/{package_id}/files/{index}": { method: "GET", path: "/v1/exports/{package_id}/files/{index}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/feedback": { method: "GET", path: "/v1/feedback", plane: "tenant", status: 200, request: null, requestRequired: false, response: FeedbackList },
   "POST /v1/feedback": { method: "POST", path: "/v1/feedback", plane: "tenant", status: 201, request: FeedbackBody, requestRequired: true, response: FeedbackCreated },
+  "GET /v1/files": { method: "GET", path: "/v1/files", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileList },
+  "POST /v1/files/uploads": { method: "POST", path: "/v1/files/uploads", plane: "tenant", status: 201, request: UploadInit, requestRequired: true, response: FileUploadStarted },
+  "GET /v1/files/uploads/{upload_id}": { method: "GET", path: "/v1/files/uploads/{upload_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileUploadState },
+  "POST /v1/files/uploads/{upload_id}/complete": { method: "POST", path: "/v1/files/uploads/{upload_id}/complete", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileUploadCompleted },
+  "PUT /v1/files/uploads/{upload_id}/parts/{part_no}": { method: "PUT", path: "/v1/files/uploads/{upload_id}/parts/{part_no}", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileUploadPart },
+  "DELETE /v1/files/{file_id}": { method: "DELETE", path: "/v1/files/{file_id}", plane: "tenant", status: 204, request: null, requestRequired: false, response: null },
+  "GET /v1/files/{file_id}": { method: "GET", path: "/v1/files/{file_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileStatus },
+  "GET /v1/files/{file_id}/analytics": { method: "GET", path: "/v1/files/{file_id}/analytics", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAnalytics },
+  "POST /v1/files/{file_id}/approve": { method: "POST", path: "/v1/files/{file_id}/approve", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileState },
+  "POST /v1/files/{file_id}/ask": { method: "POST", path: "/v1/files/{file_id}/ask", plane: "tenant", status: 200, request: Question, requestRequired: true, response: FileAnswer },
+  "GET /v1/files/{file_id}/audit": { method: "GET", path: "/v1/files/{file_id}/audit", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAudit },
+  "POST /v1/files/{file_id}/resume": { method: "POST", path: "/v1/files/{file_id}/resume", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileState },
   "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
   "GET /v1/models": { method: "GET", path: "/v1/models", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatModels },
   "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, request: null, requestRequired: false, response: MonitoringBudget },
@@ -1759,7 +2174,10 @@ export const operations = {
   "POST /v1/runs/{run_id}/cap/pauses/{request_id}/approve": { method: "POST", path: "/v1/runs/{run_id}/cap/pauses/{request_id}/approve", plane: "tenant", status: 200, request: ApprovePauseBody, requestRequired: true, response: PauseApproved },
   "POST /v1/runs/{run_id}/cap/pauses/{request_id}/decline": { method: "POST", path: "/v1/runs/{run_id}/cap/pauses/{request_id}/decline", plane: "tenant", status: 200, request: null, requestRequired: false, response: PauseDeclined },
   "POST /v1/runs/{run_id}/cap/reject": { method: "POST", path: "/v1/runs/{run_id}/cap/reject", plane: "tenant", status: 200, request: RejectBody, requestRequired: true, response: CapRejected },
+  "GET /v1/runs/{run_id}/collected": { method: "GET", path: "/v1/runs/{run_id}/collected", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunCollected },
   "GET /v1/runs/{run_id}/events": { method: "GET", path: "/v1/runs/{run_id}/events", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "GET /v1/runs/{run_id}/internal": { method: "GET", path: "/v1/runs/{run_id}/internal", plane: "tenant", status: 200, request: null, requestRequired: false, response: InternalView },
+  "GET /v1/runs/{run_id}/internal/file": { method: "GET", path: "/v1/runs/{run_id}/internal/file", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/runs/{run_id}/progress": { method: "GET", path: "/v1/runs/{run_id}/progress", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunProgress },
   "GET /v1/runs/{run_id}/spend": { method: "GET", path: "/v1/runs/{run_id}/spend", plane: "tenant", status: 200, request: null, requestRequired: false, response: z.record(z.string(), z.unknown()) },
   "GET /v1/runs/{run_id}/spend/live": { method: "GET", path: "/v1/runs/{run_id}/spend/live", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantLiveSpend },

@@ -273,9 +273,32 @@ def routing_violations(
 
 # G9 / content checks shared by the runtime -------------------------------------------------------
 
-_GRADE_WORDS = re.compile(r"\b(confirmed|probable|conflicting|grade\s+[a-d])\b", re.I)
+_GRADE_WORDS = "confirmed|probable|hypothesis|lead|conflicting"
+_GRADE_LABEL = re.compile(
+    # "grade B", "grade: B", "graded as Probable", "rated Confirmed"
+    rf"\bgrade[sd]?\s*:?\s*([a-d]\b|(as\s+)?({_GRADE_WORDS})\b)"
+    rf"|\b(rated|classified|marked|labell?ed)\s+(as\s+)?({_GRADE_WORDS})\b"
+    # "a Confirmed fact", "probable claim", "conflicting evidence", "hypothesis status"
+    rf"|\b({_GRADE_WORDS})\s+(fact|facts|grade|grades|claim|claims|evidence|status|finding|"
+    rf"findings|signal|signals)\b"
+    # "(Confirmed)", "[Probable]", "Probable: ...", "Lead - ..."
+    rf"|[\(\[]\s*({_GRADE_WORDS})\s*[\)\]]"
+    rf"|(^|[.!?]\s+)({_GRADE_WORDS})\s*[:\u2013-]",
+    re.I,
+)
+# A capitalised grade word inside a sentence ("This is Confirmed by filings") names the engine's
+# grade; the lower-case verb ("the company confirmed a new office") is ordinary English and stays.
+_GRADE_CAPITALISED = re.compile(
+    r"(?<![.!?]\s)(?<!^)\b(Confirmed|Probable|Hypothesis|Lead|Conflicting)\b"
+)
 
 
 def restates_grade(text: str) -> bool:
-    """A distilled claim may not restate a grade (the renderer shows the engine's grade)."""
-    return bool(_GRADE_WORDS.search(text))
+    """A distilled claim may not restate a grade (the renderer shows the engine's grade). Matches
+    grade labels and grade phrasing, not the everyday verbs "confirmed" or "lead"; before
+    2026-10-13 any sentence containing "confirmed" was dropped, which emptied whole narratives
+    (``missing_narrative`` build failures)."""
+    if _GRADE_LABEL.search(text):
+        return True
+    stripped = text.lstrip()
+    return any(m.start() > 0 for m in _GRADE_CAPITALISED.finditer(stripped))

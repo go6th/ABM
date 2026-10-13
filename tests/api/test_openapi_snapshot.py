@@ -21,6 +21,7 @@ NOT_JSON = {
     ("get", "/v1/audit/export"),
     ("get", "/v1/usage/export"),
     ("get", "/v1/exports/{package_id}/files/{index}"),
+    ("get", "/v1/runs/{run_id}/internal/file"),  # the Internal Only Word file
     ("get", "/v1/runs/{run_id}/events"),
     ("get", "/v1/connectors/oauth/callback"),
     ("get", "/v1/sso/{slug}/start"),

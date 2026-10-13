@@ -3,7 +3,7 @@
 # window, data classes, retention, caching, price) carries a source or is null with a status:
 # unknown is null, surfaced as a warning, never defaulted. Changes to this file need a benchmark
 # report id in docs/routing/DECISIONS.md and a passing eval gate (R12, D-51).
-version: "2026-10-06.1"
+version: "2026-10-13.1"
 status: proposal
 decisions: [D-48, D-51]
 routing_version: "r1"
@@ -13,25 +13,33 @@ benchmark_report: {value: null, source: "TODO: no benchmark has run (needs golde
 # extractor tier; synthesis, hypotheses, narrative, planning and distill to the planner tier;
 # verification to the judge tier (ARCH tier table; roadmap). Knobs are fixed per task kind (R7);
 # max_tokens values are today's call-site values; temperature is null because the installed SDK
-# (anthropic 1.11.0) has no temperature parameter (OI-LLM-1, verified 2026-10-06).
+# (anthropic 1.11.0) has no temperature parameter (OI-LLM-1, verified 2026-10-06). The configured
+# models always think and their thinking tokens count against max_tokens, so no task kind may
+# have a limit under 2000: on 2026-10-12 the judge (1000) and setup (400) answered no JSON at
+# all because the limit was spent before the answer began.
 task_kinds:
   status: proposal
   value:
     plan_gaps:              {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     extract_facts:          {tier: extractor, max_tokens: 4000, temperature: null, cacheable: true}
-    classify_posting:       {tier: extractor, max_tokens: 400,  temperature: null, cacheable: true}
-    second_pass_posting:    {tier: judge,     max_tokens: 1200,  temperature: null, cacheable: true}
-    classify_person:        {tier: extractor, max_tokens: 800,  temperature: null, cacheable: true}
+    classify_posting:       {tier: extractor, max_tokens: 2000, temperature: null, cacheable: true}
+    second_pass_posting:    {tier: judge,     max_tokens: 4000,  temperature: null, cacheable: true}
+    classify_person:        {tier: extractor, max_tokens: 4000, temperature: null, cacheable: true}
     lead_queries:           {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     synthesise_hypotheses:  {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     write_narrative:        {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     distill:                {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
-    support_judge:          {tier: judge,     max_tokens: 1000,  temperature: null, cacheable: true}
-    source_reread:          {tier: judge,     max_tokens: 1500,  temperature: null, cacheable: false}
-    narrative_reread:       {tier: judge,     max_tokens: 1200,  temperature: null, cacheable: false}
+    support_judge:          {tier: judge,     max_tokens: 4000, temperature: null, cacheable: true}
+    source_reread:          {tier: judge,     max_tokens: 4000, temperature: null, cacheable: false}
+    narrative_reread:       {tier: judge,     max_tokens: 4000, temperature: null, cacheable: false}
+    # Research files (2026-10-13): section summaries on the stronger tier, answers on the cheaper
+    file_summarize_section: {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
+    file_answer_question:   {tier: extractor, max_tokens: 2000, temperature: null, cacheable: true}
+    # Two research input modes (2026-10-13): facts from uploaded documents on the cheaper tier
+    file_extract_facts:     {tier: extractor, max_tokens: 8000, temperature: null, cacheable: true}
     # ABM agents (D-95, G11 split mode, guide S4): extraction on the cheaper tier, analysis on the
     # stronger one.
-    abm_setup:              {tier: extractor, max_tokens: 400,  temperature: null, cacheable: true}
+    abm_setup:              {tier: extractor, max_tokens: 4000, temperature: null, cacheable: true}
     abm_pass1_extract:      {tier: extractor, max_tokens: 16000, temperature: null, cacheable: true}
     abm_pass2_extract:      {tier: extractor, max_tokens: 16000, temperature: null, cacheable: true}
     abm_people_extract:     {tier: extractor, max_tokens: 16000, temperature: null, cacheable: true}

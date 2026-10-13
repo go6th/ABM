@@ -1,0 +1,32 @@
+# Research cache (2026-10-13): what a run may reuse from earlier runs of the SAME tenant instead
+# of paying a provider or a model again. INTERNAL. Every value is a proposal (status) until the
+# product owner sets shelf lives; the defaults follow config/shelf_life.yaml cadences loosely.
+#
+# Provider results: a finished call (tool_calls row with a stored payload) is adopted by a later run
+# when its args hash matches and it is younger than the operation's TTL. The adopting run gets its
+# own ledger row (cost 0, cost_source "cache") pointing at the same payload, so pull-once, tracker
+# proof and grading lineage hold unchanged; only the money and the provider call are saved.
+# Model replies: a reply is keyed by task kind, tier, token limit, system prompt and user text with
+# the run id normalised out, and reused while younger than model_replies.ttl_days. A hit returns
+# the stored text (same output) and zero usage. Both parts are tenant scoped by row level security:
+# nothing crosses a tenant. A run started with run_input {"fresh": true} bypasses both.
+version: "2026-10-13.1"
+status: "proposal (TTLs unmeasured; set by the product owner)"
+enabled: true
+default_ttl_days: 7
+ttl_days_by_operation:
+  web_search: 7
+  read_page: 7
+  scrape_job_page: 7
+  news_events: 3
+  job_openings: 3
+  tech_detections: 14
+  org_resolve: 30
+  org_tech_stack: 30
+  people_by_title: 14
+  people_by_technology: 14
+model_replies:
+  enabled: true
+  ttl_days: 7
+# the Redis index (REDIS_URL) only accelerates lookups; Postgres rows are the record
+redis_ttl_s: 604800

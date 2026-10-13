@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import psycopg
@@ -295,20 +295,28 @@ async def start_run(
     run_input: dict[str, Any] | None = None,
     settings: SliceSettings | None = None,
     spec: Any | None = None,
+    tenant_id: UUID | None = None,
 ) -> Run:
     """Create a run through the lifecycle and wire an in-process scheduler to ``execute_slice``.
-    ``spec`` overrides the workflow spec (for example ``execution_mode: parallel``)."""
+    ``spec`` overrides the workflow spec (for example ``execution_mode: parallel``); ``tenant_id``
+    reuses an existing tenant (a second run of the same workspace)."""
     from tests.conftest import APP_DSN
 
     install(harness)
     script = script or Script()
     llm = ScriptedLlm(script)
-    t = tenant(auto_approve=auto_approve)
+    t = tenant_id or tenant(auto_approve=auto_approve)
     async with tenant_txn(t) as s:
         created = await create_run(
             s,
             t,
-            RunRequest(DOMAIN, "standard", f"k-{t}", run_input or {}),
+            # a second run of the same tenant needs its own idempotency key
+            RunRequest(
+                DOMAIN,
+                "standard",
+                f"k-{t}" if tenant_id is None else f"k-{uuid4()}",
+                run_input or {},
+            ),
             # created budget $20: the credit cap proposal for the full workflow plan is about $9.75
             # (credit-priced calls are held at the $0.25 reserve), and a tenant policy may only
             # auto-approve a cap within the created budget (spend, proposal D-28)

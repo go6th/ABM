@@ -1,40 +1,22 @@
-// The operator console frame: the same shell as the client workspace on the lilac plane. Staff
-// identity comes from the backend-verified session (OperatorSessionGate); nothing here names a
-// client.
+// The 6th admin console frame: the same shell as the client workspace with its own navigation.
+// Staff identity comes from the backend-verified session (OperatorSessionGate); nothing here
+// names a client by anything but its id.
 import Link from "next/link";
-import { ThemeToggle } from "@/ui/ThemeToggle";
-import { currentTheme } from "@/ui/theme-server";
-import { OperatorCrumb } from "./OperatorCrumb";
 import { OperatorNav } from "./OperatorNav";
 import { OperatorSessionGate } from "./OperatorSessionGate";
 import { OperatorSignOut } from "./OperatorSignOut";
 
-export default async function OperatorConsoleLayout({ children }: { children: React.ReactNode }) {
-  const theme = await currentTheme();
+export default function OperatorConsoleLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="app" data-plane="operator">
+    <div className="app">
       <a className="skip-link" href="#main">Skip to content</a>
-      <aside className="app-sidebar">
-        <Link className="brand" href="/operator" aria-label="Operator console home">
-          <span className="brand-mark" aria-hidden="true">6</span>
-          <span className="brand-name"><b>Operator console</b><span>6th staff</span></span>
-        </Link>
+      <div className="topbar"><b>6th admin</b><Link className="btn sm" href="/operator">Overview</Link></div>
+      <aside className="sidebar" data-open="true">
+        <Link className="brand" href="/operator">6th admin<span className="small">Account Intelligence</span></Link>
         <OperatorNav />
-        <div className="sidebar-foot">
-          <div className="row"><span className="t-footnote ink-2">Appearance</span><ThemeToggle initial={theme} /></div>
-        </div>
+        <div className="foot"><OperatorSignOut /></div>
       </aside>
-      <div className="app-column">
-        <header className="app-toolbar">
-          <Link href="/operator" className="app-mobile-brand" aria-label="Operator console home">
-            <span className="brand-mark" aria-hidden="true">6</span>
-            <span className="truncate">Operator</span>
-          </Link>
-          <OperatorCrumb />
-          <div className="end"><OperatorSignOut /></div>
-        </header>
-        <main id="main" className="app-main" tabIndex={-1}><div className="wide"><OperatorSessionGate>{children}</OperatorSessionGate></div></main>
-      </div>
+      <main id="main" className="main" tabIndex={-1}><div className="page"><OperatorSessionGate>{children}</OperatorSessionGate></div></main>
     </div>
   );
 }

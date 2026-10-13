@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { MailCheck } from "lucide-react";
 import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 
 export default function ForgotPasswordPage() {
@@ -40,16 +39,15 @@ export default function ForgotPasswordPage() {
       <AuthBrand plane="client" />
       <div>
         <h1 id="auth-title">Reset your password</h1>
-        {!submitted ? <p className="lede">Enter your work email. If it has an account, we send a single-use reset link.</p> : null}
+        {!submitted ? <p className="muted">Enter your work email. If it has an account, we send a single-use reset link.</p> : null}
       </div>
       {submitted ? (
-        <div className="banner success" role="status" aria-live="polite">
-          <MailCheck size={18} aria-hidden="true" />
-          <p className="grow">If that address has an active account, a reset link has been sent.</p>
+        <div className="notice" role="status" aria-live="polite">
+          <p>If that address has an active account, a reset link has been sent.</p>
         </div>
       ) : (
         <>
-          {error ? <div className="banner error" role="alert"><p className="grow">{error}</p></div> : null}
+          {error ? <div className="notice error" role="alert"><p>{error}</p></div> : null}
           <form onSubmit={requestReset}>
             <div className="field">
               <label htmlFor="email">Work email</label>
@@ -67,13 +65,13 @@ export default function ForgotPasswordPage() {
                 onChange={(event) => setEmail(event.target.value)}
               />
             </div>
-            <button className="btn primary lg block" type="submit" disabled={pending}>
+            <button className="btn primary block" type="submit" disabled={pending}>
               {pending ? "Sending" : "Send reset link"}
             </button>
           </form>
         </>
       )}
-      <p className="auth-links"><Link className="link" href="/login">Return to sign in</Link></p>
+      <p className="auth-links"><Link href="/login">Return to sign in</Link></p>
     </AuthFrame>
   );
 }

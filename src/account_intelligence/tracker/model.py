@@ -78,6 +78,9 @@ class ReasonCode(StrEnum):
     # Added by the ABM agent layer (D-96, D-97):
     CONSENT_REQUIRED = "consent_required"
     PULL_NOT_APPROVED = "pull_not_approved"
+    # Added by the two research input modes (input mode "file"):
+    NOT_IN_UPLOADED_DATA = "not_in_uploaded_data"
+    NOT_SEARCHED_FILE_ONLY = "not_searched_file_only"
 
 
 SWEEP_REASONS = frozenset(

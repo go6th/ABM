@@ -30,7 +30,7 @@ Everything below is unverified or undecided. Nothing in this list is claimed to 
 | V-UPL-1 | Signed upload URLs on Cloud Storage with a size condition (V4 signing, `x-goog-content-length-range`) into the quarantine prefix | spend/upload.py UploadStore | implement the adapter and test it against the emulator and staging |
 | V-UPL-2 | A malware scanning option for uploaded files (no scanner is chosen; the placeholder fails closed) | spend/upload.py ScanPort | product owner choice, then an adapter test |
 | V-AUTH-1 | The identity provider's step-up claims (`amr` containing `mfa`, integer `auth_time`) | api/auth.py step_up | read the IdP's token documentation; one staging token |
-| V-LLM-3 | The exact 400 error wording for an over-long prompt (mapped to `ContextTooLong` when the message says "too long") and per-model `cache_control` support (V2) | llm/adapters/anthropic_api.py | one staging call per candidate |
+| V-LLM-3 | Per-model `cache_control` support (V2). The over-long prompt wording is verified: a live run on 2026-10-12 returned 400 `prompt is too long: 1127200 tokens > 1000000 maximum`, mapped to `ContextTooLong`; the credit-balance 400 (`Your credit balance is too low`) maps to `ProviderCreditsExhausted` | llm/adapters/anthropic_api.py | one staging call per candidate with a cached system block; read `usage.cache_read_input_tokens` |
 | V-LLM-4 | Context windows, prices, zero-retention terms and caching support of every candidate (all null today) | config/model_routing.yaml | the provider's dated documentation, recorded as each fact's source |
 | V-CI-1 | Pin `actions/upload-artifact` in eval.yml to a verified commit sha (the tag is used until then) | .github/workflows/eval.yml | look up the release commit on the action's repository |
 | V-CI-2 | Required-check behaviour: making `eval` a required status check in branch protection | docs/evals/ci-and-budget.md | repository settings, once real golden labels exist |
@@ -79,7 +79,7 @@ model).
 
 | ID | Item | Default today |
 |---|---|---|
-| OI-EXP-1 | Distill does not write `report_sections` yet (first follow-up) | the Summary is refused (`missing_narrative`); the run ends PARTIAL `build_failed` |
+| OI-EXP-1 | Resolved 2026-10-13 pending one live run: the Summary's `missing_narrative` came from the grade guard dropping every sentence containing "confirmed", "probable" or "lead"; the guard now matches grade labels only and distill re-asks once when a narrative is dropped whole | a refused build ends the run PARTIAL `build_failed:<reason>`, never FAILED |
 | OI-EXP-2 | The jobs stage does not register posting links in the source registry | posting rows fail B4 (`missing_source_code`); the Postgres test registers them to prove the rest |
 | OI-EXP-3 | The people stage does not register Findings post links | findings fail B4; the Postgres test registers them |
 | OI-EXP-4 | Grading's `record_graded_fact` does not write `facts.lane` | facts render under "Findings not assigned to a lane" |
@@ -157,3 +157,25 @@ model).
 | OI-ABM-5 | LangGraph APIs used: `interrupt`, `Command(resume=...)`, conditional edges, `InMemorySaver` (verified against installed langgraph 1.2.12 by tests). `Send`, subgraphs and per-node model binding are not used (routing is by task kind) | verified |
 | OI-ABM-6 | Mutation testing of the guard modules: see BUILD_LOG (ABM section) | see log |
 | OI-ABM-7 | Budgets in `config/agents.yaml` are unmeasured proposals | needs golden accounts |
+
+## Two research input modes (2026-10-13)
+
+Input mode "company" is the existing pipeline; input mode "file" researches only the tenant's
+uploaded documents (`src/documents/`, migration 0052). Decisions are the owner's; the defaults
+below are what the code does until then.
+
+| Id | Item | State |
+|---|---|---|
+| OI-IM-1 | Audio transcription with speaker labels: no vendor or key is chosen. Audio uploads are refused before upload and before parsing with "Audio transcription is not set up" (`AUDIO_TRANSCRIPTION=off` is the only value). Needs a vendor with diarization, zero retention and a price (V5, V6) | decision needed |
+| OI-IM-2 | Limits are proposals: 100 MiB per file, 20 files and 500 MiB per run, 2000 pages, 5000 passages and 50 MiB of text per document (`config/research_input_modes.yaml`) | decision needed |
+| OI-IM-3 | File-derived facts are never client-facing (`visibility = private`, gate leak check). An admin may mark a document authoritative: its facts are then graded Confirmed, still private. Whether Mode B facts may ever be promoted to client output is open (default no) | decision needed (default no) |
+| OI-IM-4 | Embeddings use the local deterministic hashing embedder `local-hash-v1` (1536 dimensions, cost 0, no data leaves the process). It measures shared wording, not meaning; a semantic embedding vendor is a decision (zero retention first, V5) | decision needed |
+| OI-IM-5 | Malware scan: `DOCUMENT_SCANNER=signature` (EICAR, executables, PDF active content, Office macros, archive executables) on local profiles only; staging and production accept `clamd` only and otherwise reject every upload unscanned. A clamd deployment (or another scanner) is needed before production | blocked on infrastructure |
+| OI-IM-6 | Parser sandbox: a separate process with an empty environment, Python isolated mode, resource limits and an audit hook that refuses network, processes, native loads and writes. Production should add OS isolation (a network-less container or gVisor) | partial |
+| OI-IM-7 | Strict redaction finds names only when labelled (name fields, CRM name columns, honorifics, transcript speakers); no named-entity model is bundled | partial |
+| OI-IM-8 | With the legacy model port, private passages go to the configured model without a zero-retention check (the routed port refuses `private` data until a zero-retention candidate is verified, V5). Confirm zero retention with the model vendor before production use of input mode file | decision needed |
+| OI-IM-9 | Public enrichment is a linked company-mode run (the existing pipeline, its own cap approval, ledger and budget = the credit cap); the file run's own model reading is metered on the file run. The two are shown side by side with separate labels; there is no single merged tracker row set | done (by design) |
+| OI-IM-10 | A document uploaded outside an account has no account until the user confirms the company (`documents.account_id` and its passages are NULL until then; nothing is indexed, embedded or researched before that) | done (by design) |
+| OI-IM-11 | Facts derived from a deleted document are marked `needs_reevaluation` and listed in `fact_reevaluations`; their evidence text stays (facts are append-only, rule 9). Re-evaluation itself (re-grading on the remaining documents) is not automated | partial |
+| OI-IM-12 | Company mode still cannot complete on the hermetic stack: Workflow v1 writes no Summary narrative (`build_failed: missing_narrative`, audit F2), so the newly wired gate never runs for it. File mode completes | open (F2) |
+| OI-IM-13 | One full-suite run aborted natively (exit 134) inside the research-files parser, which runs in process (the document path parses in a sandbox subprocess); three reruns passed. Running research-file parsing in the same sandbox would contain such aborts | open (flaky) |

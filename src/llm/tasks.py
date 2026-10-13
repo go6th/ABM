@@ -10,6 +10,8 @@ GUARANTEE(test_every_model_call_site_names_a_registered_task_kind): R2 static sc
 
 from __future__ import annotations
 
+from typing import Any
+
 from llm.config import TaskKind, load_routing_config
 from llm.errors import UnknownTaskKind
 
@@ -26,6 +28,9 @@ LEGACY_TIER: dict[str, str] = {
     "support_judge": "judge",
     "source_reread": "judge",
     "narrative_reread": "judge",
+    "file_summarize_section": "synthesis",
+    "file_answer_question": "extractor",
+    "file_extract_facts": "extractor",
     "abm_setup": "extractor",
     "abm_pass1_extract": "extractor",
     "abm_pass2_extract": "extractor",
@@ -41,3 +46,11 @@ def require(task_kind: str) -> TaskKind:
     if kind is None or task_kind not in LEGACY_TIER:
         raise UnknownTaskKind(task_kind)
     return kind
+
+
+async def complete_task(port: Any, task_kind: str, system: str, user: str) -> Any:
+    """One call on a legacy ``LlmPort`` for a registered task kind: the tier comes from
+    ``LEGACY_TIER`` and the token limit from ``config/model_routing.yaml`` (R2, R7). The only way
+    code outside ``workflow.deps`` reaches a model port."""
+    kind = require(task_kind)
+    return await port.complete(LEGACY_TIER[task_kind], system, user, max_tokens=kind.max_tokens)

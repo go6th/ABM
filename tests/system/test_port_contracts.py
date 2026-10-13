@@ -181,9 +181,16 @@ async def test_llm_port_contract(adapter: str) -> None:
     )
     result = await llm.complete("extractor", "system text", "user text", max_tokens=64)
     assert result.text == '{"ok": true}' and result.usage.output_tokens >= 0
-    if calls:  # the request carries only verified parameters, model from config
-        assert sorted(calls[0]) == ["max_tokens", "messages", "model", "system"]
-        assert calls[0]["model"] == load_routes()["extractor"].model
+    if calls:  # the request carries only verified parameters, model and knobs from config
+        route = load_routes()["extractor"]
+        expected = ["max_tokens", "messages", "model", "system"]
+        if route.effort is not None:
+            expected.append("output_config")
+            assert calls[0]["output_config"] == {"effort": route.effort}
+        assert sorted(calls[0]) == sorted(expected)
+        assert calls[0]["model"] == route.model
+        if route.prompt_cache:  # the system prompt is the one cached block
+            assert calls[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
         assert result.usage.cache_read_input_tokens == 3
 
 

@@ -201,6 +201,8 @@ class DistillInput(_Strict):
     account_name: str
     audience: Literal["client", "internal"]
     facts: tuple[StoredFact, ...]
+    # code-written feedback for the one bounded re-ask after a narrative was dropped whole
+    notes: str | None = Field(default=None, max_length=600)
 
 
 class Claim(_Strict):

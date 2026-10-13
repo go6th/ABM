@@ -112,6 +112,12 @@ class CallContext:
     extra_allowed_hosts: frozenset[str] = frozenset()
     # Monotonic deadline of the current slice; loops stop before it.
     deadline: float | None = None
+    # Whether finished calls of earlier runs of this tenant may be adopted (research cache);
+    # a run started with run_input {"fresh": true} sets this False and pays for every call.
+    reuse_cached: bool = True
+    # The run this one continues (run_input {"resume_from": "<run id>"}): its finished calls are
+    # reused at cost 0 whatever their age, even when the cache is otherwise off.
+    resume_from: UUID | None = None
 
 
 @dataclass(frozen=True)

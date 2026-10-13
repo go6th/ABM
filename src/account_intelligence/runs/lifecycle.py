@@ -157,9 +157,9 @@ async def create_run(
             text(
                 "INSERT INTO account_runs (id, tenant_id, account_id, graph_version, budget_json,"
                 " reserved_credits, idempotency_key, request_hash, budget_usd, tool_call_cap,"
-                " run_input, checklist_version, model_versions, cap_required) VALUES (:id, :t,"
-                " :a, :gv, CAST(:budget AS jsonb), :credits, :k, :h, :usd, :cap,"
-                " CAST(:input AS jsonb), :cl, CAST(:mv AS jsonb), :capreq)"
+                " run_input, checklist_version, model_versions, cap_required, input_mode)"
+                " VALUES (:id, :t, :a, :gv, CAST(:budget AS jsonb), :credits, :k, :h, :usd, :cap,"
+                " CAST(:input AS jsonb), :cl, CAST(:mv AS jsonb), :capreq, :mode)"
                 " ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING id"
             ),
             {
@@ -177,6 +177,8 @@ async def create_run(
                 "cl": pins.checklist_version(),
                 "mv": json.dumps(pins.model_versions(), sort_keys=True),
                 "capreq": limits.cap_required,
+                # input mode "file" researches uploaded documents; anything else is "company"
+                "mode": "file" if request.run_input.get("input_mode") == "file" else "company",
             },
         )
     ).first()
@@ -215,6 +217,14 @@ async def create_run(
     )
     await tracker.seed(run_id, tenant_id)
     return CreatedRun(run_id, RunStatus.QUEUED.value, False)
+
+
+async def name_account(session: AsyncSession, account_id: UUID, name: str) -> None:
+    """Give an account its company name when it has none (a typed name never overwrites)."""
+    await session.execute(
+        text("UPDATE accounts SET name = :n, updated_at = now() WHERE id = :a AND name IS NULL"),
+        {"a": account_id, "n": name.strip()[:200]},
+    )
 
 
 async def add_account(session: AsyncSession, tenant_id: UUID, domain: str) -> tuple[UUID, bool]:
@@ -315,8 +325,10 @@ async def finish(
     *,
     reason: str | None = None,
     refund_all: bool = False,
+    detail: str | None = None,
 ) -> tuple[str, Settlement]:
-    """End the run: sweep (non-COMPLETED), guarded terminal update, then the one settlement."""
+    """End the run: sweep (non-COMPLETED), guarded terminal update, then the one settlement.
+    ``detail`` is the redacted stop description (``runs.stop.describe``), stored once."""
     expected = await current_status(session, run_id)
     if expected in TERMINAL:
         settlement = await settle_once(session, run_id, refund_all=refund_all)
@@ -328,10 +340,64 @@ async def finish(
         final = RunStatus.PARTIAL
     if final is not RunStatus.COMPLETED:
         await tracker.sweep(run_id, (await _tenant(session, run_id)), SWEEP_REASON[final])
-    result = await finish_run(session, tracker, run_id, expected.value, final.value, reason=reason)
+    result = await finish_run(
+        session, tracker, run_id, expected.value, final.value, reason=reason, detail=detail
+    )
     settlement = await settle_once(session, run_id, refund_all=refund_all)
     await close_spend(session, run_id)
     return result.status, settlement
+
+
+_TO_VERIFYING: dict[RunStatus, RunStatus] = {
+    RunStatus.QUEUED: RunStatus.RUNNING,
+    RunStatus.AWAITING_APPROVAL: RunStatus.RUNNING,
+    RunStatus.RUNNING: RunStatus.DISTILLING,
+    RunStatus.DISTILLING: RunStatus.VERIFYING,
+}
+
+
+async def end_from_active(
+    session: AsyncSession,
+    tracker: TrackerService,
+    run_id: UUID,
+    target: RunStatus,
+    *,
+    reason: str,
+    detail: str | None = None,
+    refund_all: bool = False,
+) -> str:
+    """End an active run PARTIAL or FAILED from whatever state it is in. PARTIAL is reachable
+    only from VERIFYING (every non-failed end passes DISTILLING and VERIFYING), so the run is
+    walked there first; FAILED is legal from every active state. A terminal run is left as it is
+    (its status is returned)."""
+    if target not in (RunStatus.PARTIAL, RunStatus.FAILED):
+        raise LifecycleError("end_from_active ends a run PARTIAL or FAILED only")
+    current = await current_status(session, run_id)
+    if current in TERMINAL:
+        return current.value
+    if target is RunStatus.PARTIAL:
+        # LOOP(walk to verifying): cap=3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING ->
+        # VERIFYING); exit=VERIFYING reached
+        while current is not RunStatus.VERIFYING:
+            following = _TO_VERIFYING[current]
+            await move(session, run_id, current, following)
+            current = following
+    status, _ = await finish(
+        session, tracker, run_id, target, reason=reason, refund_all=refund_all, detail=detail
+    )
+    return status
+
+
+async def note_interruption(session: AsyncSession, run_id: UUID, detail: str) -> None:
+    """Record why an active run stopped without ending it (a cancelled task, SIGTERM, SIGINT):
+    the run stays resumable from its checkpoint and the note says what happened last."""
+    await session.execute(
+        text(
+            "UPDATE account_runs SET stop_detail = :d WHERE id = :r"
+            " AND status NOT IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED', 'FAILED', 'CANCELED')"
+        ),
+        {"d": detail[:600], "r": run_id},
+    )
 
 
 async def close_spend(session: AsyncSession, run_id: UUID) -> None:

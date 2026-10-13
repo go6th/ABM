@@ -200,26 +200,20 @@ async def test_the_injection_scenario_obeys_planted_text_and_the_honest_one_igno
 
 @pytest.mark.asyncio
 async def test_the_disagreeing_judge_denies_the_listed_claims() -> None:
+    # the scenario contradicts claims that name "Salesforce" (config/hermetic/fake_model)
     m = model("judge_disagrees")
-    verdict = json.loads(
-        (
-            await m.complete(
-                "judge",
-                "j",
-                json.dumps({"claim": "Acme Example opened", "sentence": "x."}),
-                max_tokens=5,
-            )
-        ).text
-    )
-    assert verdict["supported"] is False
-    reread = json.loads(
-        (
-            await m.complete(
-                "judge", "r", json.dumps({"question": "q", "source": PAYLOAD["text"]}), max_tokens=5
-            )
-        ).text
-    )
-    assert reread == {"answer": None, "quote": None}
+    source = "Acme Example uses Salesforce for its sales team. More text follows."
+
+    async def ask(system: str, body: dict[str, str]) -> dict[str, object]:
+        reply = await m.complete("judge", system, json.dumps(body), max_tokens=5)
+        return dict(json.loads(reply.text))
+
+    assert (await ask("j", {"claim": "Acme Example uses Salesforce", "sentence": "x."}))[
+        "supported"
+    ] is False
+    assert (await ask("j", {"claim": "Acme Example opened", "sentence": "x."}))["supported"] is True
+    assert await ask("r", {"question": "q", "source": source}) == {"answer": None, "quote": None}
+    assert (await ask("r", {"question": "q", "source": PAYLOAD["text"]}))["answer"]
 
 
 def test_the_fake_is_selected_only_in_hermetic_environments() -> None:

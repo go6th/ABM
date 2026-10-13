@@ -126,6 +126,26 @@ class CloudTasksScheduler:
             self._task(f"run-{run_id}-slice-{slice_no}", "/tasks/run-slice", payload, at)
         )
 
+    async def enqueue_file(self, tenant_id: UUID, file_id: UUID) -> None:
+        """Create a file-processing task (a resume enqueues again: the name carries a nonce)."""
+        from uuid import uuid4
+
+        payload = {"tenant_id": str(tenant_id), "file_id": str(file_id)}
+        await self._create(
+            self._task(f"file-{file_id}-{uuid4().hex[:12]}", "/tasks/file-process", payload, None)
+        )
+
+    async def enqueue_document(self, tenant_id: UUID, document_id: UUID) -> None:
+        """Create a document-processing task (a retry enqueues again: the name carries a nonce)."""
+        from uuid import uuid4
+
+        payload = {"tenant_id": str(tenant_id), "document_id": str(document_id)}
+        await self._create(
+            self._task(
+                f"doc-{document_id}-{uuid4().hex[:12]}", "/tasks/document-process", payload, None
+            )
+        )
+
     async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
         """Create the run's approval-timeout task at the deadline."""
         payload = {"tenant_id": str(tenant_id), "run_id": str(run_id)}

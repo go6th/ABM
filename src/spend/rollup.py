@@ -60,7 +60,8 @@ def aggregate(rows: Sequence[EventRow], key: Callable[[EventRow], str]) -> tuple
     lines = []
     for name in sorted(groups):
         rs = groups[name]
-        done = [r for r in rs if r.event == "done" and r.cost_source != "prepulled"]
+        # a pre-pulled file or a call adopted from an earlier run (research cache) paid nothing
+        done = [r for r in rs if r.event == "done" and r.cost_source not in ("prepulled", "cache")]
         prepulled = sum(1 for r in rs if r.event == "done" and r.cost_source == "prepulled")
         charged = sum(r.charged_micros for r in rs if r.event in TERMINAL)
         reserved = sum(r.reserved_micros for r in rs if id(r) in opened)

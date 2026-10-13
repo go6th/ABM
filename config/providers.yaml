@@ -36,6 +36,7 @@ defaults:
     lease_ttl_s: 300            # longer than one 240 s slice
     in_flight_wait_s: 30.0      # wait for an identical call by this worker
     in_flight_poll_s: 0.25
+    in_flight_stale_s: 900.0    # a 'started' attempt older than this by this worker is stale
   # Charged against the run's dollar cap when a call's dollar cost is unknown, so an
   # unknown cost is never treated as free. A placeholder for budget safety, not a price.
   unknown_cost_reserve_usd: 0.25

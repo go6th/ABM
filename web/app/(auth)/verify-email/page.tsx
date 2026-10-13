@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, TriangleAlert } from "lucide-react";
 import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 
 export default function VerifyEmailPage() {
@@ -40,11 +39,11 @@ export default function VerifyEmailPage() {
     <AuthFrame plane="client">
       <AuthBrand plane="client" />
       <h1 id="auth-title">Email verification</h1>
-      <div className={!finished ? "banner neutral" : ok ? "banner success" : "banner warn"} role="status" aria-live="polite">
-        {!finished ? <span className="spinner" aria-hidden="true" /> : ok ? <CheckCircle2 size={18} aria-hidden="true" /> : <TriangleAlert size={18} aria-hidden="true" />}
-        <p className="grow">{status}</p>
+      <div className={finished && !ok ? "notice error" : "notice"} role="status" aria-live="polite">
+        {!finished ? <span className="spinner" aria-hidden="true" /> : null}
+        <p>{status}</p>
       </div>
-      {finished ? <Link className="btn primary lg block" href="/login">Continue to sign in</Link> : null}
+      {finished ? <Link className="btn primary block" href="/login">Continue to sign in</Link> : null}
     </AuthFrame>
   );
 }

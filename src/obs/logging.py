@@ -1,6 +1,8 @@
 """Structured JSON logs through the catalog allow-list (O3). ``JsonFormatter`` serialises a record
 whose ``extra`` fields pass ``scrub.clean``; the message itself is reduced to its event name;
-exceptions become class, code and message hash. The trace id of the current span is attached.
+exceptions become class, code and message hash. The trace id of the current span is attached, and
+so is the id of the request being handled (``REQUEST_ID``, set by the API middleware; asyncio
+tasks the request starts inherit it, so a log line of that work carries the same id).
 
 GUARANTEE(test_log_lines_carry_only_allowed_fields): canary suite.
 """
@@ -13,11 +15,13 @@ from typing import Any
 
 from opentelemetry import trace
 
+from account_intelligence.platform.request_context import REQUEST_ID
 from obs.catalog import Catalog
 from obs.exporters import DropCounter
 from obs.scrub import clean, scrub_exception
 
 RESERVED = frozenset(vars(std_logging.LogRecord("", 0, "", 0, "", (), None)))
+__all__ = ["REQUEST_ID", "JsonFormatter", "configure_logging", "logger"]
 
 
 class JsonFormatter(std_logging.Formatter):
@@ -43,6 +47,9 @@ class JsonFormatter(std_logging.Formatter):
             }
             if record.exc_info and record.exc_info[1] is not None:
                 extra.update(scrub_exception(record.exc_info[1]))
+            request_id = REQUEST_ID.get()
+            if request_id and "request_id" not in extra:
+                extra["request_id"] = request_id
             span = trace.get_current_span().get_span_context()
             if span.is_valid:
                 extra["trace_id"] = f"{span.trace_id:032x}"

@@ -70,10 +70,18 @@ async def run_slice(
     container = _authorise(request, authorization)
     from account_intelligence.platform.checkpoint import checkpointer_factory
     from agents.production.wiring import AbmGraphFactory, uses_abm
+    from documents.graph import FileGraphFactory, is_file_run
 
     try:
         deps = await container.deps_for(task.tenant_id, task.run_id)
-        factory = AbmGraphFactory() if await uses_abm(deps) else None
+        factory: Any = None
+        if await is_file_run(deps):
+            # input mode "file": the uploaded documents only (documents.graph)
+            if getattr(container, "documents", None) is None:
+                raise HTTPException(503, "document processing is not configured")
+            factory = FileGraphFactory(container.documents)
+        elif await uses_abm(deps):
+            factory = AbmGraphFactory()
         outcome = await execute_slice(
             container.deps_for,
             checkpointer_factory(container.checkpoint_dsn),
@@ -90,6 +98,54 @@ async def run_slice(
     if outcome.outcome == "busy":  # another worker holds the run: Cloud Tasks redelivers later
         raise HTTPException(503, "run is being processed by another worker")
     return {"outcome": outcome.outcome, "status": outcome.status}
+
+
+class FileTask(BaseModel):
+    """The file-processing task body: ids only."""
+
+    model_config = ConfigDict(extra="forbid")
+    tenant_id: UUID
+    file_id: UUID
+
+
+@router.post("/file-process")
+async def file_process(
+    task: FileTask, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, str]:
+    """Process or resume one research file (``research_files.pipeline``). The tenant in the body
+    is checked against the file row under RLS: another tenant's file is not found."""
+    container = _authorise(request, authorization)
+    files = getattr(container, "files", None)
+    if files is None:
+        raise HTTPException(503, "file processing is not configured")
+    outcome = await files.processor().process(task.tenant_id, task.file_id)
+    if outcome == "busy":
+        raise HTTPException(503, "the file is being processed by another worker")
+    return {"outcome": outcome}
+
+
+class DocumentTask(BaseModel):
+    """The document-processing task body: ids only."""
+
+    model_config = ConfigDict(extra="forbid")
+    tenant_id: UUID
+    document_id: UUID
+
+
+@router.post("/document-process")
+async def document_process(
+    task: DocumentTask, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, str]:
+    """Scan, parse and index one uploaded document (``documents.service``). The tenant in the
+    body is checked against the document row under RLS: another tenant's document is not found."""
+    container = _authorise(request, authorization)
+    docs = getattr(container, "documents", None)
+    if docs is None:
+        raise HTTPException(503, "document processing is not configured")
+    outcome = await docs.process(task.tenant_id, task.document_id)
+    if outcome == "busy":
+        raise HTTPException(503, "the document is being processed by another worker")
+    return {"outcome": outcome}
 
 
 @router.post("/approval-timeout")

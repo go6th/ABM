@@ -1387,6 +1387,242 @@
         "title": "ChatTurn",
         "type": "object"
       },
+      "CollectedClaim": {
+        "additionalProperties": false,
+        "description": "Response body: one distilled claim and the fact ids it rests on.",
+        "properties": {
+          "fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fact Ids",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "fact_ids"
+        ],
+        "title": "CollectedClaim",
+        "type": "object"
+      },
+      "CollectedDrafts": {
+        "additionalProperties": false,
+        "description": "Response body: the client-audience distill output a run produced so far.",
+        "properties": {
+          "hypotheses": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CollectedClaim"
+            },
+            "title": "Hypotheses",
+            "type": "array"
+          },
+          "narrative": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CollectedClaim"
+            },
+            "title": "Narrative",
+            "type": "array"
+          },
+          "questions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CollectedClaim"
+            },
+            "title": "Questions",
+            "type": "array"
+          }
+        },
+        "title": "CollectedDrafts",
+        "type": "object"
+      },
+      "CollectedFact": {
+        "additionalProperties": false,
+        "description": "Response body: one graded fact a run collected (client-safe fields only).",
+        "properties": {
+          "attribute": {
+            "title": "Attribute",
+            "type": "string"
+          },
+          "fact_id": {
+            "title": "Fact Id",
+            "type": "string"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "may_state_to_prospect": {
+            "title": "May State To Prospect",
+            "type": "boolean"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "fact_id",
+          "attribute",
+          "value",
+          "grade",
+          "lane",
+          "may_state_to_prospect"
+        ],
+        "title": "CollectedFact",
+        "type": "object"
+      },
+      "CollectedPull": {
+        "additionalProperties": false,
+        "description": "Response body: one finished pull (no provider name; the category and its age).",
+        "properties": {
+          "cached": {
+            "title": "Cached",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "retrieved_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieved From"
+          },
+          "retrieved_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieved To"
+          },
+          "tool_category": {
+            "title": "Tool Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_category",
+          "calls",
+          "cached",
+          "retrieved_from",
+          "retrieved_to"
+        ],
+        "title": "CollectedPull",
+        "type": "object"
+      },
+      "CompanyConfirmed": {
+        "additionalProperties": false,
+        "description": "Response body: the account the documents now belong to.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "document_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "domain",
+          "document_ids"
+        ],
+        "title": "CompanyConfirmed",
+        "type": "object"
+      },
+      "CompanyInput": {
+        "additionalProperties": false,
+        "description": "Input mode \"company\": research a company from public sources (the existing pipeline).",
+        "properties": {
+          "company_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Company Name",
+            "type": "string"
+          },
+          "credit_cap": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Cap"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "maxLength": 253,
+                "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9-]+)+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          }
+        },
+        "required": [
+          "company_name"
+        ],
+        "title": "CompanyInput",
+        "type": "object"
+      },
       "CompleteBody": {
         "additionalProperties": false,
         "description": "The operator's attestation (recorded with the verdict).",
@@ -1412,6 +1648,41 @@
           "account_confirmed"
         ],
         "title": "CompleteBody",
+        "type": "object"
+      },
+      "ConfirmCompany": {
+        "additionalProperties": false,
+        "description": "The company the user confirmed for these documents.",
+        "properties": {
+          "company_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Company Name",
+            "type": "string"
+          },
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "domain": {
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9-]+)+$",
+            "title": "Domain",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_ids",
+          "company_name",
+          "domain"
+        ],
+        "title": "ConfirmCompany",
         "type": "object"
       },
       "Connection": {
@@ -2333,6 +2604,396 @@
         "title": "Disconnected",
         "type": "object"
       },
+      "DocumentDeleted": {
+        "additionalProperties": false,
+        "description": "Response body: what a deletion removed and marked.",
+        "properties": {
+          "chunks_removed": {
+            "title": "Chunks Removed",
+            "type": "integer"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "facts_marked": {
+            "title": "Facts Marked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "chunks_removed",
+          "facts_marked"
+        ],
+        "title": "DocumentDeleted",
+        "type": "object"
+      },
+      "DocumentEstimate": {
+        "additionalProperties": false,
+        "description": "Response body: the cost estimate shown before a file-mode run starts.",
+        "properties": {
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "embedding_usd": {
+            "title": "Embedding Usd",
+            "type": "number"
+          },
+          "enrichment": {
+            "title": "Enrichment",
+            "type": "boolean"
+          },
+          "enrichment_cap_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enrichment Cap Usd"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "model_calls": {
+            "title": "Model Calls",
+            "type": "integer"
+          },
+          "model_usd": {
+            "title": "Model Usd",
+            "type": "number"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "passages": {
+            "title": "Passages",
+            "type": "integer"
+          },
+          "total_ceiling_usd": {
+            "title": "Total Ceiling Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "documents",
+          "passages",
+          "model_calls",
+          "input_tokens",
+          "output_tokens",
+          "model",
+          "model_usd",
+          "embedding_usd",
+          "enrichment",
+          "enrichment_cap_usd",
+          "total_ceiling_usd",
+          "note"
+        ],
+        "title": "DocumentEstimate",
+        "type": "object"
+      },
+      "DocumentFlag": {
+        "additionalProperties": false,
+        "description": "Response body: a document's authoritative flag.",
+        "properties": {
+          "authoritative": {
+            "title": "Authoritative",
+            "type": "boolean"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "authoritative"
+        ],
+        "title": "DocumentFlag",
+        "type": "object"
+      },
+      "DocumentList": {
+        "additionalProperties": false,
+        "description": "Response body: the tenant's documents.",
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentStatus"
+            },
+            "title": "Documents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents"
+        ],
+        "title": "DocumentList",
+        "type": "object"
+      },
+      "DocumentPolicy": {
+        "additionalProperties": false,
+        "description": "Response body: the tenant's redaction tier.",
+        "properties": {
+          "redaction_tier": {
+            "title": "Redaction Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "redaction_tier"
+        ],
+        "title": "DocumentPolicy",
+        "type": "object"
+      },
+      "DocumentReceived": {
+        "additionalProperties": false,
+        "description": "Response body: bytes received into quarantine (not yet scanned).",
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "received_bytes": {
+            "title": "Received Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "received_bytes"
+        ],
+        "title": "DocumentReceived",
+        "type": "object"
+      },
+      "DocumentStatus": {
+        "additionalProperties": false,
+        "description": "Response body: one document's processing status (scanning, parsing, indexed, failed).",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "authoritative": {
+            "title": "Authoritative",
+            "type": "boolean"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "declared_type": {
+            "title": "Declared Type",
+            "type": "string"
+          },
+          "detected_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Type"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_company": {
+            "title": "Needs Company",
+            "type": "boolean"
+          },
+          "passages": {
+            "title": "Passages",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "redaction_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redaction Tier"
+          },
+          "redactions": {
+            "title": "Redactions",
+            "type": "integer"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "account_id",
+          "name",
+          "status",
+          "stage",
+          "declared_type",
+          "detected_type",
+          "size_bytes",
+          "reason",
+          "message",
+          "passages",
+          "redactions",
+          "redaction_tier",
+          "authoritative",
+          "company",
+          "needs_company",
+          "created_at"
+        ],
+        "title": "DocumentStatus",
+        "type": "object"
+      },
+      "DocumentTask": {
+        "additionalProperties": false,
+        "description": "The document-processing task body: ids only.",
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "document_id"
+        ],
+        "title": "DocumentTask",
+        "type": "object"
+      },
+      "DocumentUploadStarted": {
+        "additionalProperties": false,
+        "description": "Response body: where to PUT a document's bytes (a signed URL, or the API content route).",
+        "properties": {
+          "direct": {
+            "title": "Direct",
+            "type": "boolean"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "upload_url": {
+            "title": "Upload Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "upload_url",
+          "method",
+          "headers",
+          "expires_at",
+          "max_bytes",
+          "direct"
+        ],
+        "title": "DocumentUploadStarted",
+        "type": "object"
+      },
       "EmailBody": {
         "additionalProperties": false,
         "description": "Address used for an enumeration-resistant verification resend.",
@@ -2395,6 +3056,45 @@
           "password"
         ],
         "title": "EnrollPasswordBody",
+        "type": "object"
+      },
+      "EstimateBody": {
+        "additionalProperties": false,
+        "description": "What a file-mode run would read and whether it enriches from public sources.",
+        "properties": {
+          "credit_cap": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Cap"
+          },
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "enrich_public": {
+            "default": false,
+            "title": "Enrich Public",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_ids"
+        ],
+        "title": "EstimateBody",
         "type": "object"
       },
       "ExportBody": {
@@ -2942,6 +3642,659 @@
         "title": "FetchResult",
         "type": "object"
       },
+      "FileAnalytics": {
+        "additionalProperties": false,
+        "description": "Response body: profiles, document analytics and charts, each chart with its source.",
+        "properties": {
+          "analytics": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analytics"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "status",
+          "analytics"
+        ],
+        "title": "FileAnalytics",
+        "type": "object"
+      },
+      "FileAnswer": {
+        "additionalProperties": false,
+        "description": "Response body: an answer that cites the file, or the estimate awaiting approval.",
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/FileCitation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate"
+          },
+          "needs_approval": {
+            "title": "Needs Approval",
+            "type": "boolean"
+          },
+          "passages": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passages"
+          },
+          "served_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Served From"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "citations",
+          "source",
+          "needs_approval"
+        ],
+        "title": "FileAnswer",
+        "type": "object"
+      },
+      "FileAudit": {
+        "additionalProperties": false,
+        "description": "Response body: a page of the audit report and the counts by severity.",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FileFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_id",
+          "counts",
+          "findings",
+          "offset",
+          "limit"
+        ],
+        "title": "FileAudit",
+        "type": "object"
+      },
+      "FileCitation": {
+        "additionalProperties": false,
+        "description": "Response body: one cited part of the file (rows, page, slide, section or member).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "location": {
+            "additionalProperties": true,
+            "title": "Location",
+            "type": "object"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "location"
+        ],
+        "title": "FileCitation",
+        "type": "object"
+      },
+      "FileFinding": {
+        "additionalProperties": false,
+        "description": "Response body: one audit result (the value of sensitive data is never included).",
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "fix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix"
+          },
+          "location": {
+            "additionalProperties": true,
+            "title": "Location",
+            "type": "object"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "check",
+          "location",
+          "message",
+          "fix"
+        ],
+        "title": "FileFinding",
+        "type": "object"
+      },
+      "FileInput": {
+        "additionalProperties": false,
+        "description": "Input mode \"file\": research only the uploaded documents (public enrichment is opt-in).",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "credit_cap": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Cap"
+          },
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "enrich_public": {
+            "default": false,
+            "title": "Enrich Public",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_ids"
+        ],
+        "title": "FileInput",
+        "type": "object"
+      },
+      "FileList": {
+        "additionalProperties": false,
+        "description": "Response body: the workspace's research files, newest first.",
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/FileSummary"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "FileList",
+        "type": "object"
+      },
+      "FileState": {
+        "additionalProperties": false,
+        "description": "Response body: a file's status after an action.",
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "status"
+        ],
+        "title": "FileState",
+        "type": "object"
+      },
+      "FileStatus": {
+        "additionalProperties": false,
+        "description": "Response body: a research file's status, progress, findings and model spend.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "detected_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Type"
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "findings": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Findings",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "spend": {
+            "additionalProperties": true,
+            "title": "Spend",
+            "type": "object"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "stop_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Detail"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "units_done": {
+            "title": "Units Done",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "name",
+          "size_bytes",
+          "sha256",
+          "detected_type",
+          "status",
+          "stop_reason",
+          "stop_detail",
+          "units_done",
+          "findings",
+          "estimate",
+          "spend",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FileStatus",
+        "type": "object"
+      },
+      "FileSummary": {
+        "additionalProperties": false,
+        "description": "Response body: one research file in a list.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "detected_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Type"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "units_done": {
+            "title": "Units Done",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_id",
+          "name",
+          "size_bytes",
+          "detected_type",
+          "status",
+          "stop_reason",
+          "units_done",
+          "created_at"
+        ],
+        "title": "FileSummary",
+        "type": "object"
+      },
+      "FileTask": {
+        "additionalProperties": false,
+        "description": "The file-processing task body: ids only.",
+        "properties": {
+          "file_id": {
+            "format": "uuid",
+            "title": "File Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "file_id"
+        ],
+        "title": "FileTask",
+        "type": "object"
+      },
+      "FileUploadCompleted": {
+        "additionalProperties": false,
+        "description": "Response body: the file the upload produced (deduplicated: the same bytes existed).",
+        "properties": {
+          "deduplicated": {
+            "title": "Deduplicated",
+            "type": "boolean"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "status",
+          "deduplicated"
+        ],
+        "title": "FileUploadCompleted",
+        "type": "object"
+      },
+      "FileUploadPart": {
+        "additionalProperties": false,
+        "description": "Response body: one stored part.",
+        "properties": {
+          "part": {
+            "title": "Part",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part",
+          "size",
+          "sha256"
+        ],
+        "title": "FileUploadPart",
+        "type": "object"
+      },
+      "FileUploadStarted": {
+        "additionalProperties": false,
+        "description": "Response body: an open upload and how to send its parts.",
+        "properties": {
+          "part_size": {
+            "title": "Part Size",
+            "type": "integer"
+          },
+          "parts_total": {
+            "title": "Parts Total",
+            "type": "integer"
+          },
+          "upload_id": {
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "part_size",
+          "parts_total"
+        ],
+        "title": "FileUploadStarted",
+        "type": "object"
+      },
+      "FileUploadState": {
+        "additionalProperties": false,
+        "description": "Response body: which parts of an upload have arrived (send only the missing ones).",
+        "properties": {
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Id"
+          },
+          "missing": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "part_size": {
+            "title": "Part Size",
+            "type": "integer"
+          },
+          "parts_total": {
+            "title": "Parts Total",
+            "type": "integer"
+          },
+          "received": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Received",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "upload_id": {
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "status",
+          "parts_total",
+          "part_size",
+          "received",
+          "missing",
+          "file_id"
+        ],
+        "title": "FileUploadState",
+        "type": "object"
+      },
       "Filter": {
         "additionalProperties": false,
         "description": "One filter clause.",
@@ -3019,34 +4372,6 @@
         "title": "Flag",
         "type": "object"
       },
-      "FlagBody": {
-        "additionalProperties": false,
-        "description": "A flag rule version.",
-        "properties": {
-          "flag": {
-            "pattern": "^[a-z_]{1,60}$",
-            "title": "Flag",
-            "type": "string"
-          },
-          "reason_code": {
-            "pattern": "^[a-z_]{1,40}$",
-            "title": "Reason Code",
-            "type": "string"
-          },
-          "rule": {
-            "additionalProperties": true,
-            "title": "Rule",
-            "type": "object"
-          }
-        },
-        "required": [
-          "reason_code",
-          "flag",
-          "rule"
-        ],
-        "title": "FlagBody",
-        "type": "object"
-      },
       "FlagSet": {
         "additionalProperties": false,
         "description": "Response body: flag set.",
@@ -3083,6 +4408,49 @@
           "flags"
         ],
         "title": "Flags",
+        "type": "object"
+      },
+      "GateDefect": {
+        "additionalProperties": false,
+        "description": "Response body: one pre-delivery gate defect (a check name and an identifier, no text).",
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "item": {
+            "title": "Item",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "item"
+        ],
+        "title": "GateDefect",
+        "type": "object"
+      },
+      "GateSummary": {
+        "additionalProperties": false,
+        "description": "Response body: the run's latest pre-delivery gate verdict and its defects.",
+        "properties": {
+          "defects": {
+            "items": {
+              "$ref": "#/components/schemas/GateDefect"
+            },
+            "title": "Defects",
+            "type": "array"
+          },
+          "verdict": {
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "defects"
+        ],
+        "title": "GateSummary",
         "type": "object"
       },
       "GrantCreated": {
@@ -3455,6 +4823,109 @@
           "events"
         ],
         "title": "IntentEvents",
+        "type": "object"
+      },
+      "InternalFinding": {
+        "additionalProperties": false,
+        "description": "Response body: one file-derived fact with its grade and citation (Internal Only).",
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "citation": {
+            "title": "Citation",
+            "type": "string"
+          },
+          "grade": {
+            "title": "Grade",
+            "type": "string"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "value",
+          "grade",
+          "citation",
+          "quote"
+        ],
+        "title": "InternalFinding",
+        "type": "object"
+      },
+      "InternalView": {
+        "additionalProperties": false,
+        "description": "Response body: the Internal Only view of a run (never in a client file).",
+        "properties": {
+          "documents": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "file_available": {
+            "title": "File Available",
+            "type": "boolean"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/InternalFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "public_findings": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Public Findings",
+            "type": "array"
+          },
+          "public_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Run Id"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source_label": {
+            "title": "Source Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "label",
+          "source_label",
+          "documents",
+          "findings",
+          "public_run_id",
+          "public_findings",
+          "file_available"
+        ],
+        "title": "InternalView",
         "type": "object"
       },
       "KeyAdded": {
@@ -3851,6 +5322,38 @@
           "members"
         ],
         "title": "Members",
+        "type": "object"
+      },
+      "MissingRow": {
+        "additionalProperties": false,
+        "description": "Response body: one coverage row that is not done, with the reason.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "row": {
+            "title": "Row",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "row",
+          "status",
+          "reason"
+        ],
+        "title": "MissingRow",
         "type": "object"
       },
       "MonitoringBudget": {
@@ -4288,6 +5791,26 @@
         "title": "PlanSet",
         "type": "object"
       },
+      "PolicyBody": {
+        "additionalProperties": false,
+        "description": "The tenant's redaction tier.",
+        "properties": {
+          "redaction_tier": {
+            "enum": [
+              "strict",
+              "standard",
+              "minimal"
+            ],
+            "title": "Redaction Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "redaction_tier"
+        ],
+        "title": "PolicyBody",
+        "type": "object"
+      },
       "PullOption": {
         "additionalProperties": false,
         "description": "Response body: pull option.",
@@ -4467,6 +5990,28 @@
         "title": "QuerySpec",
         "type": "object"
       },
+      "Question": {
+        "additionalProperties": false,
+        "description": "A question about one file; ``approve`` accepts a cost above the approval limit.",
+        "properties": {
+          "approve": {
+            "default": false,
+            "title": "Approve",
+            "type": "boolean"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 2,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "Question",
+        "type": "object"
+      },
       "QuotaBody": {
         "additionalProperties": false,
         "description": "One quota override version.",
@@ -4594,6 +6139,14 @@
               "type": "string"
             },
             "title": "Checks",
+            "type": "object"
+          },
+          "components": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Components",
             "type": "object"
           },
           "ready": {
@@ -4749,7 +6302,7 @@
       },
       "RunBody": {
         "additionalProperties": false,
-        "description": "What a client may send. No tenant field exists (and extra fields are refused).",
+        "description": "What a client may send. No tenant field exists (and extra fields are refused). Exactly one\ninput mode: ``domain`` alone (company mode, unchanged), ``input_mode: company`` with\n``company``, or ``input_mode: file`` with ``file``; mixed or empty bodies are refused.",
         "properties": {
           "acknowledged_stale_rows": {
             "items": {
@@ -4758,6 +6311,16 @@
             "maxItems": 40,
             "title": "Acknowledged Stale Rows",
             "type": "array"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompanyInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "depth": {
             "default": "standard",
@@ -4769,10 +6332,42 @@
             "type": "string"
           },
           "domain": {
-            "maxLength": 253,
-            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9-]+)+$",
-            "title": "Domain",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 253,
+                "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9-]+)+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "company",
+                  "file"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Mode"
           },
           "lanes_off": {
             "items": {
@@ -4814,12 +6409,97 @@
             "default": false,
             "title": "Pursuing Client",
             "type": "boolean"
+          },
+          "resume_from": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume From"
+          }
+        },
+        "title": "RunBody",
+        "type": "object"
+      },
+      "RunCollected": {
+        "additionalProperties": false,
+        "description": "Response body: everything a run holds so far and what is missing and why.",
+        "properties": {
+          "drafts": {
+            "$ref": "#/components/schemas/CollectedDrafts"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/CollectedFact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/MissingRow"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "pulls": {
+            "items": {
+              "$ref": "#/components/schemas/CollectedPull"
+            },
+            "title": "Pulls",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "stop_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Detail"
+          },
+          "stored": {
+            "$ref": "#/components/schemas/StoredCounts"
           }
         },
         "required": [
-          "domain"
+          "run_id",
+          "status",
+          "reason",
+          "stop_detail",
+          "stored",
+          "pulls",
+          "facts",
+          "drafts",
+          "missing"
         ],
-        "title": "RunBody",
+        "title": "RunCollected",
         "type": "object"
       },
       "RunCost": {
@@ -4886,12 +6566,22 @@
             "title": "Domain",
             "type": "string"
           },
+          "input_mode": {
+            "default": "company",
+            "title": "Input Mode",
+            "type": "string"
+          },
           "label": {
             "title": "Label",
             "type": "string"
           },
           "run_id": {
             "title": "Run Id",
+            "type": "string"
+          },
+          "source_label": {
+            "default": "Public research",
+            "title": "Source Label",
             "type": "string"
           },
           "status": {
@@ -5023,6 +6713,51 @@
           "coverage": {
             "$ref": "#/components/schemas/CoverageView"
           },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "gate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GateSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_mode": {
+            "default": "company",
+            "title": "Input Mode",
+            "type": "string"
+          },
+          "linked_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked Run Id"
+          },
+          "missing": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MissingRow"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
           "reason": {
             "anyOf": [
               {
@@ -5038,9 +6773,35 @@
             "title": "Run Id",
             "type": "string"
           },
+          "source_label": {
+            "default": "Public research",
+            "title": "Source Label",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "stop_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Detail"
+          },
+          "stored": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoredCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5613,6 +7374,46 @@
           "kind"
         ],
         "title": "StartBody",
+        "type": "object"
+      },
+      "StoredCounts": {
+        "additionalProperties": false,
+        "description": "Response body: what a run holds so far (counts name their base).",
+        "properties": {
+          "cached_calls": {
+            "title": "Cached Calls",
+            "type": "integer"
+          },
+          "deliverables": {
+            "title": "Deliverables",
+            "type": "integer"
+          },
+          "drafts": {
+            "title": "Drafts",
+            "type": "integer"
+          },
+          "facts": {
+            "title": "Facts",
+            "type": "integer"
+          },
+          "model_replies": {
+            "title": "Model Replies",
+            "type": "integer"
+          },
+          "paid_calls": {
+            "title": "Paid Calls",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "paid_calls",
+          "cached_calls",
+          "model_replies",
+          "facts",
+          "drafts",
+          "deliverables"
+        ],
+        "title": "StoredCounts",
         "type": "object"
       },
       "Stuck": {
@@ -6391,6 +8192,41 @@
         "title": "TimeoutTask",
         "type": "object"
       },
+      "UploadInit": {
+        "additionalProperties": false,
+        "description": "What a client declares before sending parts. No tenant field.",
+        "properties": {
+          "mime": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime"
+          },
+          "name": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0.0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "size"
+        ],
+        "title": "UploadInit",
+        "type": "object"
+      },
       "UploadIntent": {
         "additionalProperties": false,
         "description": "Response body: upload intent.",
@@ -6414,6 +8250,53 @@
           "upload"
         ],
         "title": "UploadIntent",
+        "type": "object"
+      },
+      "UploadStart": {
+        "additionalProperties": false,
+        "description": "What a client declares before sending bytes. No tenant field.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "mime": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime"
+          },
+          "name": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "size_bytes": {
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "size_bytes"
+        ],
+        "title": "UploadStart",
         "type": "object"
       },
       "UploadTarget": {
@@ -6994,6 +8877,49 @@
         "title": "GrantBody",
         "type": "object"
       },
+      "account_intelligence__api__routes__documents__FlagBody": {
+        "additionalProperties": false,
+        "description": "Whether a document is an authoritative source.",
+        "properties": {
+          "authoritative": {
+            "title": "Authoritative",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authoritative"
+        ],
+        "title": "FlagBody",
+        "type": "object"
+      },
+      "account_intelligence__api__routes__operator_admin__FlagBody": {
+        "additionalProperties": false,
+        "description": "A flag rule version.",
+        "properties": {
+          "flag": {
+            "pattern": "^[a-z_]{1,60}$",
+            "title": "Flag",
+            "type": "string"
+          },
+          "reason_code": {
+            "pattern": "^[a-z_]{1,40}$",
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "rule": {
+            "additionalProperties": true,
+            "title": "Rule",
+            "type": "object"
+          }
+        },
+        "required": [
+          "reason_code",
+          "flag",
+          "rule"
+        ],
+        "title": "FlagBody",
+        "type": "object"
+      },
       "account_intelligence__api__routes__support__GrantBody": {
         "additionalProperties": false,
         "description": "A grant to one named 6th operator. No tenant field.",
@@ -7136,7 +9062,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FlagBody"
+                "$ref": "#/components/schemas/account_intelligence__api__routes__operator_admin__FlagBody"
               }
             }
           },
@@ -11417,6 +13343,682 @@
         ]
       }
     },
+    "/v1/documents": {
+      "get": {
+        "description": "The tenant's documents, newest first (one account's when given).",
+        "operationId": "list_documents_v1_documents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Documents",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/confirm-company": {
+      "post": {
+        "description": "Bind the documents to the confirmed company's account and index them.",
+        "operationId": "confirm_company_v1_documents_confirm_company_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmCompany"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyConfirmed"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Company",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/estimate": {
+      "post": {
+        "description": "What a file-mode run over these documents would cost (shown before it starts).",
+        "operationId": "estimate_v1_documents_estimate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EstimateBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEstimate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Estimate",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/policy": {
+      "get": {
+        "description": "The tenant's redaction tier.",
+        "operationId": "get_policy_v1_documents_policy_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPolicy"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Policy",
+        "tags": [
+          "documents"
+        ]
+      },
+      "put": {
+        "description": "Set the redaction tier for documents parsed from now on (admin).",
+        "operationId": "put_policy_v1_documents_policy_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPolicy"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Policy",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/uploads": {
+      "post": {
+        "description": "Declare a document and get its upload target (checked before any byte arrives).",
+        "operationId": "start_upload_v1_documents_uploads_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentUploadStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Upload",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}": {
+      "delete": {
+        "description": "Remove the document and everything derived from it; mark facts for re-evaluation.",
+        "operationId": "delete_v1_documents__document_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}/authoritative": {
+      "post": {
+        "description": "Mark a document an authoritative source (admin): later runs may grade its facts\nConfirmed; they stay private (Internal Only) all the same.",
+        "operationId": "set_authoritative_v1_documents__document_id__authoritative_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/account_intelligence__api__routes__documents__FlagBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentFlag"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Authoritative",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}/complete": {
+      "post": {
+        "description": "Check what arrived and enqueue the scan.",
+        "operationId": "complete_v1_documents__document_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}/content": {
+      "put": {
+        "description": "The local stand-in for a signed URL: the body streams into quarantine, never parsed.",
+        "operationId": "upload_content_v1_documents__document_id__content_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 20,
+              "title": "Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentReceived"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Content",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}/status": {
+      "get": {
+        "description": "The document's status and detected company.",
+        "operationId": "status_v1_documents__document_id__status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/v1/exports": {
       "get": {
         "description": "An account's packages, newest first (files and parity verdicts; never cell content).",
@@ -11787,6 +14389,770 @@
         "summary": "Give",
         "tags": [
           "feedback"
+        ]
+      }
+    },
+    "/v1/files": {
+      "get": {
+        "description": "The workspace's research files, newest first.",
+        "operationId": "list_files_v1_files_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Files",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/uploads": {
+      "post": {
+        "description": "Open a resumable upload.",
+        "operationId": "start_upload_v1_files_uploads_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadInit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Upload",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/uploads/{upload_id}": {
+      "get": {
+        "description": "The parts received so far (a client resumes by sending only the missing ones).",
+        "operationId": "upload_state_v1_files_uploads__upload_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload State",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/uploads/{upload_id}/complete": {
+      "post": {
+        "description": "Compose, hash and dedupe; a new file is queued for processing.",
+        "operationId": "complete_upload_v1_files_uploads__upload_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadCompleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete Upload",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/uploads/{upload_id}/parts/{part_no}": {
+      "put": {
+        "description": "Stream one part's request body to object storage.",
+        "operationId": "upload_part_v1_files_uploads__upload_id__parts__part_no__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "part_no",
+            "required": true,
+            "schema": {
+              "title": "Part No",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadPart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Part",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/{file_id}": {
+      "delete": {
+        "description": "Remove the raw object and every derived row (one deletion record is kept: hash, size).",
+        "operationId": "delete_file_v1_files__file_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete File",
+        "tags": [
+          "files"
+        ]
+      },
+      "get": {
+        "description": "Status, progress, findings by severity and model spend.",
+        "operationId": "file_status_v1_files__file_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "File Status",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/{file_id}/analytics": {
+      "get": {
+        "description": "Profiles, document analytics and charts (every chart names its rows or pages).",
+        "operationId": "file_analytics_v1_files__file_id__analytics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileAnalytics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "File Analytics",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/{file_id}/approve": {
+      "post": {
+        "description": "Approve the estimated model step and continue.",
+        "operationId": "approve_file_v1_files__file_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve File",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/{file_id}/ask": {
+      "post": {
+        "description": "Answer from the file's stored units, citing them.",
+        "operationId": "ask_file_v1_files__file_id__ask_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Question"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask File",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/{file_id}/audit": {
+      "get": {
+        "description": "A page of the audit report (errors first) and the counts by severity.",
+        "operationId": "file_audit_v1_files__file_id__audit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "info",
+                    "warn",
+                    "error"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileAudit"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "File Audit",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/v1/files/{file_id}/resume": {
+      "post": {
+        "description": "Continue a stopped file from its last stored unit (finished work costs nothing).",
+        "operationId": "resume_file_v1_files__file_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resume File",
+        "tags": [
+          "files"
         ]
       }
     },
@@ -12763,6 +16129,66 @@
         ]
       }
     },
+    "/v1/runs/{run_id}/collected": {
+      "get": {
+        "description": "Everything the run holds so far (a PARTIAL run included): finished pulls by tool category\n(no provider is named), public graded facts, the client distill drafts, and the coverage rows\nstill missing with their reasons. Every string is leak-scanned like the coverage view.",
+        "operationId": "get_collected_v1_runs__run_id__collected_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCollected"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Collected",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/v1/runs/{run_id}/events": {
       "get": {
         "description": "Server-sent progress events: one event per change, a heartbeat, a bounded duration (the\nclient reconnects with Last-Event-ID and is authorised again).",
@@ -12832,6 +16258,124 @@
           }
         },
         "summary": "Run Events",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/internal": {
+      "get": {
+        "description": "See the module docstring.",
+        "operationId": "internal_view_v1_runs__run_id__internal_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Internal View",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/internal/file": {
+      "get": {
+        "description": "The Internal Only Word file (an export audit event).",
+        "operationId": "internal_file_v1_runs__run_id__internal_file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Internal File",
         "tags": [
           "runs"
         ]

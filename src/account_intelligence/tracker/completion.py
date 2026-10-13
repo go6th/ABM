@@ -2,7 +2,11 @@
 
 Hard blocks, never overridden by policy: no seeded tracker, fewer rows than seeded, any unset
 row, any swept row, any status without proof. Gaps: a High row whose status is not in the pinned
-policy's ``high_rows_allowed_for_completed`` (default ``[done, none]``, the PRD quality metric).
+policy's ``high_rows_allowed_for_completed`` (default ``[done, none]``, the PRD quality metric),
+unless its reason is in ``high_reasons_allowed_for_completed`` (input mode "file": the row is a
+stated gap of the uploaded material, never an unexplained one).
+
+GUARANTEE(test_file_mode_gaps_with_reasons_may_complete)
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ def evaluate(
     blockers: list[dict[str, Any]] = []
     tally = {"done": 0, "partial": 0, "not_done": 0, "blocked": 0, "none": 0, "unset": 0}
     allowed = tuple(policy.get("high_rows_allowed_for_completed", DEFAULT_ALLOWED_HIGH))
+    allowed_reasons = frozenset(policy.get("high_reasons_allowed_for_completed") or ())
     high_rows = high_ok = 0
 
     if seeded_count is None:
@@ -74,7 +79,11 @@ def evaluate(
             blockers.append({"key": r.key, "status": r.status.value, "reason": reason})
         elif not r.proof_hash:
             blockers.append({"key": r.key, "status": r.status.value, "reason": "missing_proof"})
-        elif r.priority == "high" and r.status.value not in allowed:
+        elif (
+            r.priority == "high"
+            and r.status.value not in allowed
+            and (reason is None or reason not in allowed_reasons)
+        ):
             blockers.append({"key": r.key, "status": r.status.value, "reason": reason})
 
     can_complete = not blockers

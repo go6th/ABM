@@ -9,6 +9,8 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly type: string,
     public readonly detail: string,
+    // safe structured context some problems carry (e.g. the detected company candidates)
+    public readonly context: Record<string, unknown> | null = null,
   ) {
     super(`${status} ${type}`);
   }
@@ -43,14 +45,16 @@ export async function session(): Promise<Session | null> {
 async function problem(reply: Response): Promise<ApiError> {
   let type = `http_${reply.status}`;
   let detail = reply.statusText;
+  let context: Record<string, unknown> | null = null;
   try {
-    const body = (await reply.json()) as { type?: string; detail?: string };
+    const body = (await reply.json()) as { type?: string; detail?: string; context?: unknown };
     if (typeof body.type === "string") type = body.type.replace("urn:6th:problem:", "");
     if (typeof body.detail === "string") detail = body.detail;
+    if (body.context && typeof body.context === "object") context = body.context as Record<string, unknown>;
   } catch {
     // a non-JSON error body: keep the status
   }
-  return new ApiError(reply.status, type, detail);
+  return new ApiError(reply.status, type, detail, context);
 }
 
 const SAFE = new Set(["GET", "HEAD", "OPTIONS"]);

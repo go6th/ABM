@@ -3,7 +3,6 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 import { clearSession } from "@/lib/api";
 
@@ -36,10 +35,7 @@ export default function TenantLoginPage() {
         body: JSON.stringify({ email, password, ...(tenantId ? { workspace_id: tenantId } : {}) }),
         cache: "no-store",
       });
-      const result = (await response.json()) as {
-        code?: string;
-        tenants?: Array<{ tenant_id: string; role: string }>;
-      };
+      const result = (await response.json()) as { code?: string; tenants?: Array<{ tenant_id: string; role: string }> };
       const firstTenant = result.tenants?.[0];
       if (response.status === 409 && result.code === "tenant_selection_required" && firstTenant) {
         setTenants(result.tenants ?? [firstTenant]);
@@ -47,13 +43,13 @@ export default function TenantLoginPage() {
         return;
       }
       if (!response.ok) {
-        setError("Sign-in could not be completed. Check your details or contact your administrator.");
+        setError("Sign in could not be completed. Check your details or contact your administrator.");
         return;
       }
       clearSession();
       router.replace("/");
     } catch {
-      setError("Sign-in is unavailable right now. Try again in a moment.");
+      setError("Sign in is unavailable right now. Try again in a moment.");
     } finally {
       setPending(false);
     }
@@ -88,7 +84,7 @@ export default function TenantLoginPage() {
     if (!SLUG.test(slug)) {
       event.preventDefault();
       setNotice(false);
-      setError("Enter the organization sign-in ID provided by your administrator.");
+      setError("Enter the organization sign in ID provided by your administrator.");
     }
   }
 
@@ -96,138 +92,63 @@ export default function TenantLoginPage() {
     <AuthFrame plane="client">
       <AuthBrand plane="client" />
       <div>
-        <h1 id="auth-title">Welcome back</h1>
-        <p className="lede">Sign in to continue to your workspace.</p>
+        <h1 id="auth-title">Sign in</h1>
+        <p className="muted">Continue to your workspace.</p>
       </div>
 
-      <div className="seg block" role="tablist" aria-label="Sign-in method">
-        <button
-          type="button"
-          role="tab"
-          id="password-tab"
-          aria-selected={authMode === "password"}
-          aria-controls="login-panel"
-          onClick={() => { setAuthMode("password"); setError(null); }}
-        >
+      <div className="seg" role="tablist" aria-label="Sign in method">
+        <button type="button" role="tab" id="password-tab" aria-selected={authMode === "password"} aria-controls="login-panel" onClick={() => { setAuthMode("password"); setError(null); }}>
           Email and password
         </button>
-        <button
-          type="button"
-          role="tab"
-          id="sso-tab"
-          aria-selected={authMode === "sso"}
-          aria-controls="login-panel"
-          onClick={() => { setAuthMode("sso"); setError(null); }}
-        >
+        <button type="button" role="tab" id="sso-tab" aria-selected={authMode === "sso"} aria-controls="login-panel" onClick={() => { setAuthMode("sso"); setError(null); }}>
           Enterprise SSO
         </button>
       </div>
 
       <div id="login-panel" role="tabpanel" aria-labelledby={authMode === "password" ? "password-tab" : "sso-tab"} className="stack">
-        {error ? <div className={notice ? "banner info" : "banner error"} role="alert"><p className="grow">{error}</p></div> : null}
+        {error ? <div className={notice ? "notice" : "notice error"} role="alert"><p>{error}</p></div> : null}
 
         {authMode === "password" ? (
           <form onSubmit={signIn}>
             <div className="field">
               <label htmlFor="email">Work email</label>
-              <input
-                id="email"
-                className="input"
-                type="email"
-                autoComplete="username"
-                autoCapitalize="none"
-                spellCheck={false}
-                required
-                maxLength={320}
-                placeholder="name@company.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
+              <input id="email" className="input" type="email" autoComplete="username" autoCapitalize="none" spellCheck={false} required maxLength={320} placeholder="name@company.com" value={email} onChange={(event) => setEmail(event.target.value)} />
             </div>
-
             <div className="field">
               <div className="label-row">
                 <label htmlFor="password">Password</label>
-                <Link className="link" href="/forgot">Forgot password?</Link>
+                <Link href="/forgot">Forgot password?</Link>
               </div>
-              <div className="input-wrap">
-                <input
-                  id="password"
-                  className="input"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  required
-                  maxLength={1024}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-                <button
-                  type="button"
-                  className="btn quiet icon sm"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  onClick={() => setShowPassword((previous) => !previous)}
-                >
-                  {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
-                </button>
-              </div>
+              <input id="password" className="input" type={showPassword ? "text" : "password"} autoComplete="current-password" required maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} />
+              <label className="check small"><input type="checkbox" checked={showPassword} onChange={(e) => setShowPassword(e.target.checked)} />Show password</label>
             </div>
-
             {tenants.length > 0 ? (
               <div className="field">
                 <label htmlFor="tenant">Select workspace</label>
                 <select id="tenant" className="select" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
-                  {tenants.map((tenant) => (
-                    <option key={tenant.tenant_id} value={tenant.tenant_id}>
-                      {tenant.tenant_id} ({tenant.role})
-                    </option>
-                  ))}
+                  {tenants.map((tenant) => <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.tenant_id} ({tenant.role})</option>)}
                 </select>
               </div>
             ) : null}
-
-            <button className="btn primary lg block" type="submit" disabled={pending}>
-              {pending ? "Signing in" : "Sign in to workspace"}
-            </button>
-
+            <button className="btn primary block" type="submit" disabled={pending}>{pending ? "Signing in" : "Sign in to workspace"}</button>
             <div className="auth-links">
-              <button type="button" disabled={pending || !email} onClick={() => void resendVerification()}>
-                Resend verification email
-              </button>
-              <Link className="link" href="/verify-email">Verify email</Link>
+              <button type="button" disabled={pending || !email} onClick={() => void resendVerification()}>Resend verification email</button>
+              <Link href="/verify-email">Verify email</Link>
             </div>
           </form>
         ) : (
-          <form
-            action={`/v1/sso/${encodeURIComponent(slug)}/start?return_to=%2F`}
-            method="get"
-            onSubmit={continueToOrganization}
-          >
+          <form action={`/v1/sso/${encodeURIComponent(slug)}/start?return_to=%2F`} method="get" onSubmit={continueToOrganization}>
             <div className="field">
-              <label htmlFor="organization">Organization sign-in ID</label>
-              <input
-                id="organization"
-                className="input mono"
-                autoComplete="organization"
-                autoCapitalize="none"
-                spellCheck={false}
-                required
-                maxLength={63}
-                placeholder="acme-corp"
-                aria-describedby="organization-hint"
-                value={organization}
-                onChange={(event) => {
-                  setOrganization(event.target.value);
-                  setError(null);
-                }}
-              />
-              <p className="hint" id="organization-hint">Use the sign-in ID from your IT administrator.</p>
+              <label htmlFor="organization">Organization sign in ID</label>
+              <input id="organization" className="input mono" autoComplete="organization" autoCapitalize="none" spellCheck={false} required maxLength={63} placeholder="acme-corp" aria-describedby="organization-hint" value={organization} onChange={(event) => { setOrganization(event.target.value); setError(null); }} />
+              <p className="hint" id="organization-hint">Use the sign in ID from your IT administrator.</p>
             </div>
-            <button className="btn primary lg block" type="submit">Continue with SSO</button>
+            <button className="btn primary block" type="submit">Continue with SSO</button>
           </form>
         )}
       </div>
 
-      <p className="auth-foot"><ShieldCheck size={16} aria-hidden="true" />Need access? Ask your workspace administrator.</p>
+      <p className="auth-foot">Need access? Ask your workspace administrator.</p>
     </AuthFrame>
   );
 }

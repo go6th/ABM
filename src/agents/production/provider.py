@@ -120,6 +120,10 @@ class ConnectorProvider:
     lanes: tuple[str, ...] = ()
     extra_allowed_hosts: frozenset[str] = frozenset()
     routes: RoutesConfig = field(default_factory=load_routes)
+    # research cache: finished calls of earlier runs of this tenant may be adopted (False for a
+    # run started with run_input {"fresh": true})
+    reuse_cached: bool = True
+    resume_from: UUID | None = None
 
     def _ctx(self, ctx: RunContext) -> CallContext:
         return CallContext(
@@ -128,6 +132,8 @@ class ConnectorProvider:
             account_id=self.account_id,
             account_domain=ctx.domain,
             extra_allowed_hosts=self.extra_allowed_hosts,
+            reuse_cached=self.reuse_cached,
+            resume_from=self.resume_from,
         )
 
     async def call(self, ctx: RunContext, need: str, query: str, row_key: str) -> ProviderResult:

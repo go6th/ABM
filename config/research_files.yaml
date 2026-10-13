@@ -1,0 +1,49 @@
+# Research files (2026-10-13). Limits, chunking, audit thresholds and model use for a user's own
+# uploaded files. INTERNAL. Every value is a proposal until measured on real files.
+version: "2026-10-13.1"
+status: "proposal (limits unmeasured)"
+
+upload:
+  max_file_bytes: 10737418240        # 10 GiB
+  part_bytes: 8388608                # 8 MiB parts; the last part may be shorter
+  upload_ttl_hours: 48               # an open upload may be resumed for this long
+
+parsing:
+  rows_per_unit: 5000                # tabular rows per stored unit
+  unit_text_bytes: 2097152           # 2 MiB of text per stored unit at most
+  max_indexed_text_bytes: 104857600  # 100 MiB of searchable text per file; beyond it, excerpts only
+  excerpt_rows: 50                   # rows kept as searchable text per unit past the index cap
+  json_max_document_bytes: 67108864  # a JSON file that is not a top-level array is parsed whole up to this
+  lease_ttl_s: 300
+  orphan_after_s: 600
+
+archives:
+  max_depth: 2
+  max_members: 2000
+  max_total_uncompressed_bytes: 21474836480   # 20 GiB
+  max_ratio: 200                     # uncompressed / compressed per member (zip bomb guard)
+
+audit:
+  max_findings_per_check: 50         # example locations kept per check; the count is exact
+  missing_warn_fraction: 0.2
+  outlier_z: 6.0
+  outlier_min_observations: 1000
+  duplicate_rows_checked: 100000
+  pii_scan: true
+
+profile:
+  top_values: 20
+  distinct_cap: 10000
+  sample_size: 2000
+  max_correlated_columns: 12
+  histogram_bins: 20
+
+models:
+  # tier names are config/models.yaml tiers (the active arm picks the model)
+  # each task names a task kind registered in config/model_routing.yaml (tier and token limit)
+  tasks:
+    summarize_section: file_summarize_section
+    answer_question:   file_answer_question
+  max_prompt_chars: 48000            # hard cap; longer sections are split
+  approval_limit_usd: 0.50           # a model step estimated above this needs an explicit approval
+  chars_per_token: 3.5               # conservative estimate for cost previews

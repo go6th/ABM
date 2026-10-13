@@ -73,6 +73,24 @@ class RunDeps:
     dev_auto_approve: bool = False
     # model routing (D-48): with a router every call goes through it; None uses ``llm`` directly
     router: Any | None = None
+    # research cache: the model reply log and cross-run reply reuse (``llm.reply_cache``)
+    reply_cache: Any | None = None
+
+    @property
+    def resume_from(self) -> UUID | None:
+        """The run this one continues (``run_input {"resume_from": ...}``), validated at creation
+        to be a run of this tenant and account; None for a normal run."""
+        value = self.run_input.get("resume_from")
+        try:
+            return UUID(str(value)) if value else None
+        except ValueError:
+            return None
+
+    @property
+    def reuse_cached(self) -> bool:
+        """Whether this run may reuse finished calls and replies of earlier runs of the tenant
+        (research cache); ``run_input {"fresh": true}`` pays for everything anew."""
+        return not bool(self.run_input.get("fresh"))
 
     def call_context(self) -> CallContext:
         """Connector call identity, from the run (never from arguments)."""
@@ -83,6 +101,8 @@ class RunDeps:
             account_domain=self.domain,
             extra_allowed_hosts=self.extra_allowed_hosts,
             deadline=self.deadline,
+            reuse_cached=self.reuse_cached,
+            resume_from=self.resume_from,
         )
 
     def tracker(self, session: AsyncSession) -> TrackerService:
@@ -135,19 +155,30 @@ class RunDeps:
     async def _legacy_model(
         self, task_kind: str, system: str, user: str, max_tokens: int, replayable: bool
     ) -> LlmResult:
-        """The legacy port, replayable within the run like the router (R-replay): an answer is
-        stored under the hash of its request, so a node that a slice timeout cut off and the next
-        slice re-runs gets the same answers back instead of paying for (and waiting on) them
-        again. A stored answer reports zero usage. A task kind the routing config marks not
-        cacheable is always asked afresh."""
+        """The legacy port with two layers of reuse and a log of every call:
+
+        1. within the run (R-replay): an answer is stored under the hash of its request in the
+           run's payloads, so a node that a slice timeout cut off and the next slice re-runs gets
+           the same answers back instead of paying for (and waiting on) them again;
+        2. across runs of the same tenant (research cache, ``llm.reply_cache``): a request that is
+           byte-identical after the run id is normalised out gets the stored reply text back, with
+           this run's id substituted, while the reply is younger than its TTL.
+
+        A reused answer reports zero usage. A task kind the routing config marks not cacheable
+        is always asked afresh. Every call is logged to the reply log with how it was served, its
+        tokens and its priced cost (never the prompt)."""
         import hashlib
         import json
 
+        from llm.reply_cache import denormalise, normalise, reply_key
         from llm.tasks import LEGACY_TIER
 
         tier = LEGACY_TIER[task_kind]
         if not replayable:
-            return await self._complete(tier, system, user, max_tokens)
+            await self._log_started(task_kind, tier, None)
+            result = await self._complete(tier, system, user, max_tokens)
+            await self._log_reply(task_kind, tier, result, "model", None, None)
+            return result
         digest = hashlib.sha256(
             json.dumps([task_kind, tier, max_tokens, system, user]).encode()
         ).hexdigest()
@@ -157,12 +188,98 @@ class RunDeps:
             return LlmResult(stored["text"], stored["model"], LlmUsage(0, 0))
         except PayloadMissing:
             pass
+        shared_key = reply_key(task_kind, tier, max_tokens, system, normalise(user, self.run_id))
+        if self.reply_cache is not None and (self.reuse_cached or self.resume_from):
+            hit = await self.reply_cache.get(
+                self.tenant_id, shared_key, self.clock.now(), source_run=self.resume_from
+            )
+            if hit is not None:
+                text = denormalise(hit.text, self.run_id)
+                await self.payloads.put(
+                    key, json.dumps({"text": text, "model": hit.model}).encode()
+                )
+                result = LlmResult(
+                    text,
+                    hit.model,
+                    LlmUsage(0, 0),
+                    extra={"cached": True, "saved_tokens": hit.input_tokens + hit.output_tokens},
+                )
+                await self._log_reply(task_kind, tier, result, "cache", shared_key, None)
+                return result
+        await self._log_started(task_kind, tier, shared_key)
         result = await self._complete(tier, system, user, max_tokens)
         if result.text.strip():  # an empty answer is not kept: a re-run asks again
             await self.payloads.put(
                 key, json.dumps({"text": result.text, "model": result.model}).encode()
             )
+            await self._log_reply(
+                task_kind, tier, result, "model", shared_key, normalise(result.text, self.run_id)
+            )
+        else:
+            await self._log_reply(task_kind, tier, result, "model", shared_key, None)
         return result
+
+    async def _log_started(self, task_kind: str, tier: str, shared_key: str | None) -> None:
+        """Write-ahead: one ``started`` row before the paid model request (no text, no tokens),
+        so a call the process died in stays visible. Never a reuse hit; never fails the call."""
+        if self.reply_cache is None:
+            return
+        from llm.reply_cache import ReplyUsage
+
+        route = getattr(self.llm, "routes", {}).get(tier)
+        model = str(getattr(route, "model", "") or tier)
+        try:
+            await self.reply_cache.record(
+                self.tenant_id,
+                self.run_id,
+                shared_key or "",
+                task_kind,
+                tier,
+                model,
+                "started",
+                ReplyUsage(),
+                None,
+                None,
+            )
+        except Exception:  # noqa: BLE001 - the log is an aid; the call is what matters
+            return
+
+    async def _log_reply(
+        self,
+        task_kind: str,
+        tier: str,
+        result: LlmResult,
+        served_from: str,
+        shared_key: str | None,
+        reply_text: str | None,
+    ) -> None:
+        """One reply-log row (tokens, priced cost, how served); a logging failure never fails
+        the call."""
+        if self.reply_cache is None:
+            return
+        from llm.reply_cache import ReplyUsage, price
+
+        usage = ReplyUsage(
+            result.usage.input_tokens,
+            result.usage.output_tokens,
+            result.usage.cache_read_input_tokens or 0,
+            result.usage.cache_creation_input_tokens or 0,
+        )
+        try:
+            await self.reply_cache.record(
+                self.tenant_id,
+                self.run_id,
+                shared_key or "",
+                task_kind,
+                tier,
+                result.model,
+                served_from,
+                usage,
+                price(result.model, usage) if served_from == "model" else None,
+                reply_text,
+            )
+        except Exception:  # noqa: BLE001 - the log is an aid; the answer is what matters
+            return
 
     async def _complete(self, tier: str, system: str, user: str, max_tokens: int) -> LlmResult:
         """One legacy call, its SDK errors typed like the router's adapter: a 429, overload, 5xx,

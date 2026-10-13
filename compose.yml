@@ -23,6 +23,9 @@ x-app-env: &app-env
   # hermetic by default: no provider connectors and no model key unless set in .env
   CONNECTORS: "off"
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  # research cache index: finished provider calls are reused across runs of one tenant
+  # (config/research_cache.yaml); the rows live in Postgres, Redis only speeds the lookup
+  REDIS_URL: redis://redis:6379/0
 
 services:
   db:

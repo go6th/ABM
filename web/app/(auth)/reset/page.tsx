@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2 } from "lucide-react";
 import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
 
 export default function ResetPasswordPage() {
@@ -62,21 +61,20 @@ export default function ResetPasswordPage() {
       <AuthBrand plane="client" />
       <div>
         <h1 id="auth-title">Choose a new password</h1>
-        {!complete ? <p className="lede">Use at least 12 characters. Leave out your email and name.</p> : null}
+        {!complete ? <p className="muted">Use at least 12 characters. Leave out your email and name.</p> : null}
       </div>
       {complete ? (
-        <div className="banner success" role="status" aria-live="polite">
-          <CheckCircle2 size={18} aria-hidden="true" />
-          <p className="grow">Password updated. Other active sessions have been signed out.</p>
+        <div className="notice" role="status" aria-live="polite">
+          <p>Password updated. Other active sessions have been signed out.</p>
         </div>
       ) : (
         <>
           {checked && !token ? (
-            <div className="banner warn" role="status">
-              <p className="grow">This reset link is incomplete or expired. <Link className="link" href="/forgot">Request a new one.</Link></p>
+            <div className="notice" role="status">
+              <p>This reset link is incomplete or expired. <Link href="/forgot">Request a new one.</Link></p>
             </div>
           ) : null}
-          {error ? <div className="banner error" role="alert"><p className="grow">{error}</p></div> : null}
+          {error ? <div className="notice error" role="alert"><p>{error}</p></div> : null}
           <form onSubmit={submit}>
             <div className="field">
               <label htmlFor="password">New password</label>
@@ -106,13 +104,13 @@ export default function ResetPasswordPage() {
                 onChange={(event) => setConfirm(event.target.value)}
               />
             </div>
-            <button className="btn primary lg block" type="submit" disabled={pending || !token}>
+            <button className="btn primary block" type="submit" disabled={pending || !token}>
               {pending ? "Updating" : "Update password"}
             </button>
           </form>
         </>
       )}
-      <p className="auth-links"><Link className="link" href="/login">Return to sign in</Link></p>
+      <p className="auth-links"><Link href="/login">Return to sign in</Link></p>
     </AuthFrame>
   );
 }

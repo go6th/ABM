@@ -210,6 +210,8 @@ async def _call_operation(
         cost_source = (
             "prepulled"
             if sources == {"prepulled"}
+            else "cache"
+            if sources == {"cache"}
             else next(
                 (s for s in ("unknown", "credits_only", "provider_reported") if s in sources),
                 "documented",
@@ -341,8 +343,17 @@ async def _fetch_page(
         return await _fetch_page_claimed(
             op, args, ctx, rt, connector, provider, cursor, route, fell_back_from, costs, warnings
         )
-    key_hash = args_hash(provider, op, {"args": args.model_dump(mode="json"), "cursor": cursor})
-    needs_slot = not await rt.ledger.is_done(ctx, key_hash) and (
+    slot_key = CallKey(
+        args_hash=args_hash(provider, op, {"args": args.model_dump(mode="json"), "cursor": cursor}),
+        tool=f"{provider}:{op}",
+        provider_code=provider,
+        operation=op,
+        route=route,
+        fell_back_from=fell_back_from,
+    )
+    # a call done in this run, or adoptable from an earlier run of the tenant (research cache),
+    # replays without a provider slot
+    needs_slot = not await rt.ledger.is_replayable(ctx, rt.worker_id, slot_key) and (
         cursor is not None or await rt.ledger.prepulled_file(ctx, provider, op) is None
     )
     async with contextlib.AsyncExitStack() as stack:
@@ -552,6 +563,26 @@ async def _fetch_page_claimed(
     except Exception as error:
         # A defect in our own code after the claim: close the attempt, never leave money unrecorded.
         setattr(error, "call_ref", key.args_hash)  # noqa: B010 - foreign exception type
+        if paid_body_received and raw is not None and ref is not None and retrieved_at is not None:
+            # the body was paid for and is stored: link it as a done call whose parsing failed,
+            # so a resume replays the stored body (and the same deterministic error) instead of
+            # paying again (write-ahead: a paid result never stays unrecorded)
+            await _finalize_done(
+                rt,
+                ctx,
+                key,
+                claim,
+                provider,
+                op,
+                args,
+                raw,
+                ref,
+                retrieved_at,
+                None,
+                cursor,
+                error_class=type(error).__name__,
+            )
+            raise
         await rt.ledger.finalize_failed(
             ctx,
             rt.worker_id,

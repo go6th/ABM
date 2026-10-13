@@ -41,6 +41,8 @@ from uuid import UUID
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
+from account_intelligence.workflow.ports import BuildIncomplete
 from account_intelligence.workflow.state import merge_maps, sum_counters
 from agents.config import SkillConfig
 from agents.contracts import AgentContract, BudgetMeter
@@ -85,6 +87,14 @@ from agents.ports import (
 from agents.pull.agent import PullAgent, SpendPause
 from agents.schemas import ExtractionInput, PayloadView, SenseCheckInput, StoredFact
 from agents.sense_check.agent import sense_check
+from llm.errors import (
+    AdapterNotConfigured,
+    AuthFailed,
+    ContentRefused,
+    ContextTooLong,
+    ModelUnavailable,
+    ProviderCreditsExhausted,
+)
 
 MAX_SPEND_PAUSES = 3
 STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "people")
@@ -167,6 +177,28 @@ def context(state: AbmState) -> RunContext:
 
 def _fail(code: str, **extra: Any) -> dict[str, Any]:
     return {"outcome": "failed", "error_code": code, **extra}
+
+
+# Model failures the node RetryPolicy must not retry and no fallback can serve. The run keeps
+# everything it pulled and graded and ends partial with the reason (never FAILED with a refund of
+# the pulls' worth of research): observed 2026-10-12 as runs that died after $50 of pulls on a
+# provider credit-balance 400 and on a missing model key.
+MODEL_FAILURES: tuple[tuple[type[BaseException], str], ...] = (
+    (ProviderCreditsExhausted, "model_credits_exhausted"),
+    (AuthFailed, "model_auth_failed"),
+    (ModelUnavailable, "model_unavailable"),
+    (AdapterNotConfigured, "model_not_configured"),
+    (PlatformNotConfigured, "model_not_configured"),
+    (ContentRefused, "model_refused"),
+)
+
+
+def model_failure_code(error: BaseException) -> str | None:
+    """The partial-outcome code for a terminal model failure, or None for any other error."""
+    for cls, code in MODEL_FAILURES:
+        if isinstance(error, cls):
+            return code
+    return None
 
 
 def _plan_order(cfg: SkillConfig) -> list[str]:
@@ -339,6 +371,13 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                         return await extract(agent, deps.model, m, ctx, group, cfg)
                     except BudgetExceeded:
                         return None
+                    except ContextTooLong:
+                        # one group too large for the model's window is dropped and counted;
+                        # the other groups still extract (observed 2026-10-12 as a run that died
+                        # on "prompt is too long")
+                        res = ExtractionResult()
+                        res.drops["context_too_long"] += 1
+                        return res
 
             # batches are independent calls: run them side by side, keep their order
             for res in await asyncio.gather(*(one(g) for g in groups(cfg, views, step))):
@@ -361,6 +400,23 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             except NotConfigured:
                 drops["people_not_recorded"] += len(people)
         return drops
+
+    def model_guarded(fn: Any) -> Any:
+        """A model node whose terminal model failure ends the run partial (see MODEL_FAILURES)."""
+
+        async def guarded(state: AbmState) -> dict[str, Any]:
+            """Run the node; a terminal model failure becomes a partial outcome."""
+            try:
+                out: dict[str, Any] = await fn(state)
+                return out
+            except Exception as error:  # noqa: BLE001 - re-raised unless it is a model failure
+                code = model_failure_code(error)
+                if code is None:
+                    raise
+                return _fail(code)
+
+        guarded.__name__ = fn.__name__
+        return guarded
 
     async def interpret(state: AbmState) -> dict[str, Any]:
         """Steps 2 to 4, interpretation: extract, grade and report every row to the tracker."""
@@ -555,6 +611,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             internal = await deps.builder.build(ctx, "internal")
         except NotConfigured:
             return {"outcome": "partial", "error_code": "builders_not_configured"}
+        except BuildIncomplete as incomplete:
+            # the builder refused the set (missing narrative, an unconfirmed statement in the
+            # Summary): the research stands and the run ends partial with the builder's reason,
+            # never FAILED (observed 2026-10-12 as four runs that lost their pulls this way)
+            reason = str(getattr(incomplete, "reason", "") or "build_failed")
+            return {"outcome": "partial", "error_code": f"build_failed:{reason}"}
         try:
             for file_id in (*client, *internal):
                 assert_client_clean(await deps.builder.texts(ctx, file_id))
@@ -609,11 +671,11 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         ("pull", pull),
         ("spend_gate", spend_gate),
         ("load_manifest", load_manifest),
-        ("interpret", interpret),
-        ("sense_check", sense),
+        ("interpret", model_guarded(interpret)),
+        ("sense_check", model_guarded(sense)),
         ("sense_approval", sense_approval),
-        ("targeted_pulls", targeted_pulls),
-        ("distill", distill_node),
+        ("targeted_pulls", model_guarded(targeted_pulls)),
+        ("distill", model_guarded(distill_node)),
         ("build", build),
         ("gate", gate),
         ("deliver", deliver),
@@ -637,10 +699,10 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
     g.add_conditional_edges("pull", after_pull)
     g.add_edge("spend_gate", "pull")
     g.add_conditional_edges("load_manifest", ok_or_finish("interpret"))
-    g.add_edge("interpret", "sense_check")
+    g.add_conditional_edges("interpret", ok_or_finish("sense_check"))
     g.add_conditional_edges("sense_check", after_sense)
     g.add_edge("sense_approval", "targeted_pulls")
-    g.add_edge("targeted_pulls", "sense_check")
+    g.add_conditional_edges("targeted_pulls", ok_or_finish("sense_check"))
     g.add_conditional_edges("distill", ok_or_finish("build"))
     g.add_conditional_edges("build", after_build)
     g.add_conditional_edges("gate", after_gate)

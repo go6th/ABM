@@ -66,6 +66,10 @@ class LedgerCfg(_M):
     lease_ttl_s: int
     in_flight_wait_s: float
     in_flight_poll_s: float
+    # a 'started' attempt by this very worker and lease epoch older than this cannot still be
+    # running (every provider HTTP exchange has a total timeout far below it): it is stale, as
+    # after a worker restart that kept its lease, and is re-issued once as a possible duplicate
+    in_flight_stale_s: float = Field(default=900.0, gt=0)
 
 
 class Defaults(_M):

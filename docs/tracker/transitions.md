@@ -30,7 +30,9 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 | `lane_not_in_scope` | Lane not in scope for this run |
 | `no_cap` | No approved spending cap |
 | `not_available_yet` | Not available yet |
+| `not_in_uploaded_data` | Not in uploaded data |
 | `not_planned` | No search was planned for this row in this run |
+| `not_searched_file_only` | Not searched (file-only mode) |
 | `out_of_scope` | Out of scope |
 | `page_cap` | Page cap reached |
 | `pull_not_approved` | A recommended search was not approved |

@@ -163,6 +163,69 @@ class Settings(BaseSettings):
     redis_host: str | None = var(
         purpose="Memorystore host for the shared rate limiter.", required_in=CLOUD
     )
+    redis_url: str | None = var(
+        purpose=(
+            "Redis URL (redis:// or rediss://) for the research cache index: a fast key to"
+            " reference lookup over finished provider calls. Optional; without it the cache"
+            " reads Postgres only."
+        )
+    )
+    dev_assume_provider_balance: str | None = var(
+        purpose="Local stack only: treat every provider balance as funded (unattended runs).",
+        forbidden_in=CLOUD,
+        component="worker",
+    )
+    dev_auto_approve_caps: str | None = var(
+        purpose="Local stack only: approve run caps as tenant policy without a person.",
+        forbidden_in=CLOUD,
+        component="worker",
+    )
+    next_dist_dir: str | None = var(
+        purpose="Web build: Next.js output directory override (parity builds).", component="web"
+    )
+    parity_web_origin: str | None = var(
+        purpose="Web tests: origin of the web app the parity suite drives.", component="web"
+    )
+    screens: str | None = var(
+        purpose="Web tests: comma separated screen ids the screenshot suite captures.",
+        component="web",
+    )
+    run_sweeper: Literal["on", "off"] = var(
+        "on",
+        purpose=(
+            "Worker: end runs whose worker died (lease expired for ORPHAN_AFTER_S) PARTIAL"
+            " worker_lost at startup and every SWEEP_INTERVAL_S; off disables the sweeper."
+        ),
+        component="worker",
+    )
+    orphan_after_s: int = var(
+        600, purpose="Seconds a run lease must be expired before the sweeper ends the run."
+    )
+    sweep_interval_s: int = var(300, purpose="Seconds between orphan sweeps in the worker.")
+    research_cache: Literal["on", "off"] = var(
+        "on",
+        purpose=(
+            "Reuse finished provider calls and model replies across runs of one tenant"
+            " (config/research_cache.yaml). off: every run pays for every call."
+        ),
+    )
+    document_scanner: Literal["signature", "clamd"] = var(
+        "signature",
+        purpose=(
+            "Malware scan of uploaded documents before parsing: signature (built-in test and"
+            " structure signatures, local profiles only) or clamd (CLAMD_HOST). In staging and"
+            " production anything but clamd fails closed: every upload is rejected unscanned."
+        ),
+    )
+    clamd_host: str | None = var(purpose="Host of the clamd daemon that scans uploads.")
+    clamd_port: int = var(3310, purpose="TCP port of the clamd daemon.")
+    audio_transcription: Literal["off"] = var(
+        "off",
+        purpose=(
+            "Speech to text with speaker labels for uploaded audio. Only off exists until a"
+            " vendor is chosen: audio uploads are rejected with a clear message."
+        ),
+    )
     public_base_url: str | None = var(
         purpose="Public HTTPS origin of the web app (OIDC redirects, links).", required_in=CLOUD
     )

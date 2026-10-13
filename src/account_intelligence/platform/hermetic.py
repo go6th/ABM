@@ -107,6 +107,8 @@ class InProcessScheduler:
     queued: list[tuple[UUID, UUID, int]] = field(default_factory=list)
     seen: set[tuple[UUID, int]] = field(default_factory=set)
     timeouts: dict[UUID, datetime] = field(default_factory=dict)
+    files: list[tuple[UUID, UUID]] = field(default_factory=list)
+    documents: list[tuple[UUID, UUID]] = field(default_factory=list)
 
     async def enqueue_slice(
         self, tenant_id: UUID, run_id: UUID, slice_no: int, delay_s: float = 0.0
@@ -116,6 +118,14 @@ class InProcessScheduler:
             return
         self.seen.add((run_id, slice_no))
         self.queued.append((tenant_id, run_id, slice_no))
+
+    async def enqueue_file(self, tenant_id: UUID, file_id: UUID) -> None:
+        """Queue a research file for processing (tests drain it with the file processor)."""
+        self.files.append((tenant_id, file_id))
+
+    async def enqueue_document(self, tenant_id: UUID, document_id: UUID) -> None:
+        """Queue an uploaded document for scanning and parsing (tests drain it)."""
+        self.documents.append((tenant_id, document_id))
 
     async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
         """Arm the run's approval timeout once."""
@@ -152,8 +162,14 @@ class HttpTaskScheduler:
         # a slice runs up to 240 s (1200 s on the uncapped local stack): a bounded read well above
         # it, short connect/write/pool
         timeout = httpx.Timeout(connect=5.0, read=1800.0, write=30.0, pool=5.0)
+        # the worker logs the slice under the id of the request that enqueued it (the task was
+        # created inside that request, so it inherits the context variable)
+        from account_intelligence.platform.request_context import REQUEST_ID
+
+        request_id = REQUEST_ID.get()
+        headers = {"X-Request-ID": request_id} if request_id else {}
         async with httpx.AsyncClient(timeout=timeout) as client:
-            await client.post(f"{self.worker_url}{path}", json=body)
+            await client.post(f"{self.worker_url}{path}", json=body, headers=headers)
 
     def _spawn(self, path: str, body: dict[str, object], delay_s: float = 0.0) -> None:
         task = asyncio.get_running_loop().create_task(self._post(path, body, delay_s))
@@ -169,6 +185,17 @@ class HttpTaskScheduler:
         self.seen.add((run_id, slice_no))
         body = {"tenant_id": str(tenant_id), "run_id": str(run_id), "slice": slice_no}
         self._spawn("/tasks/run-slice", body, delay_s)
+
+    async def enqueue_file(self, tenant_id: UUID, file_id: UUID) -> None:
+        """Post the file-processing task to the worker (fire and forget, like a queue)."""
+        self._spawn("/tasks/file-process", {"tenant_id": str(tenant_id), "file_id": str(file_id)})
+
+    async def enqueue_document(self, tenant_id: UUID, document_id: UUID) -> None:
+        """Post the document-processing task to the worker (fire and forget, like a queue)."""
+        self._spawn(
+            "/tasks/document-process",
+            {"tenant_id": str(tenant_id), "document_id": str(document_id)},
+        )
 
     async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
         """Post the approval-timeout task at its deadline."""

@@ -7,6 +7,7 @@ Guarantees: callers receive stable problem identifiers without internal detail
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 
 class APIProblem(Exception):
@@ -19,6 +20,7 @@ class APIProblem(Exception):
         title: str,
         detail: str,
         headers: Mapping[str, str] | None = None,
+        extra: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(detail)
         self.status = status
@@ -26,6 +28,9 @@ class APIProblem(Exception):
         self.title = title
         self.detail = detail
         self.headers = dict(headers or {})
+        # safe, structured context for the client (e.g. detected company candidates); never
+        # document text, secrets or another tenant's data
+        self.extra = dict(extra or {})
 
 
 class NotConfigured(RuntimeError):

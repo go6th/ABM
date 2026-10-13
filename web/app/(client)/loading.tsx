@@ -1,5 +1,5 @@
-import { PageSkeleton } from "@/ui/primitives";
+import { Loading } from "@/ui/primitives";
 
-export default function Loading() {
-  return <PageSkeleton />;
+export default function ClientLoading() {
+  return <div className="page"><Loading /></div>;
 }

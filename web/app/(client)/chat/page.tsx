@@ -1,11 +1,4 @@
-// Conversations: every thread this user has, and the open one.
-import { Suspense } from "react";
-import { Conversations } from "@/components/ws/Conversations";
+// Removed from the product. This route redirects until the file is deleted from the repo.
+import { redirect } from "next/navigation";
 
-export default function ChatPage() {
-  return (
-    <Suspense>
-      <Conversations />
-    </Suspense>
-  );
-}
+export default function Removed() { redirect("/"); }

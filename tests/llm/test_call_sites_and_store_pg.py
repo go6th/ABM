@@ -22,7 +22,7 @@ from tests.llm.conftest import raw_config
 ROOT = Path(__file__).resolve().parents[2]
 REGISTERED = set(LEGACY_TIER)
 # where a task kind is passed: the callable name -> the positional index of the task kind
-SITES = {"model": 0, "ask_json": 1, "LlmPostingClassifier": 1}
+SITES = {"model": 0, "ask_json": 1, "LlmPostingClassifier": 1, "complete_task": 1}
 
 
 def test_every_model_call_site_names_a_registered_task_kind() -> None:

@@ -54,6 +54,20 @@ or a value has the wrong type (errors name the variable, never the value).
 | `TASKS_AUDIENCE` | Audience the worker expects on task tokens. | no | staging, production | - | api, worker |
 | `PAYLOAD_BUCKET` | GCS bucket for raw payloads and exports (per-tenant prefixes). | no | staging, production | - | api, worker |
 | `REDIS_HOST` | Memorystore host for the shared rate limiter. | no | staging, production | - | api, worker |
+| `REDIS_URL` | Redis URL (redis:// or rediss://) for the research cache index: a fast key to reference lookup over finished provider calls. Optional; without it the cache reads Postgres only. | no | - | - | api, worker |
+| `DEV_ASSUME_PROVIDER_BALANCE` | Local stack only: treat every provider balance as funded (unattended runs). | no | - | staging, production | worker |
+| `DEV_AUTO_APPROVE_CAPS` | Local stack only: approve run caps as tenant policy without a person. | no | - | staging, production | worker |
+| `NEXT_DIST_DIR` | Web build: Next.js output directory override (parity builds). | no | - | - | web |
+| `PARITY_WEB_ORIGIN` | Web tests: origin of the web app the parity suite drives. | no | - | - | web |
+| `SCREENS` | Web tests: comma separated screen ids the screenshot suite captures. | no | - | - | web |
+| `RUN_SWEEPER` | Worker: end runs whose worker died (lease expired for ORPHAN_AFTER_S) PARTIAL worker_lost at startup and every SWEEP_INTERVAL_S; off disables the sweeper. | no | - | - | worker |
+| `ORPHAN_AFTER_S` | Seconds a run lease must be expired before the sweeper ends the run. | no | - | - | api, worker |
+| `SWEEP_INTERVAL_S` | Seconds between orphan sweeps in the worker. | no | - | - | api, worker |
+| `RESEARCH_CACHE` | Reuse finished provider calls and model replies across runs of one tenant (config/research_cache.yaml). off: every run pays for every call. | no | - | - | api, worker |
+| `DOCUMENT_SCANNER` | Malware scan of uploaded documents before parsing: signature (built-in test and structure signatures, local profiles only) or clamd (CLAMD_HOST). In staging and production anything but clamd fails closed: every upload is rejected unscanned. | no | - | - | api, worker |
+| `CLAMD_HOST` | Host of the clamd daemon that scans uploads. | no | - | - | api, worker |
+| `CLAMD_PORT` | TCP port of the clamd daemon. | no | - | - | api, worker |
+| `AUDIO_TRANSCRIPTION` | Speech to text with speaker labels for uploaded audio. Only off exists until a vendor is chosen: audio uploads are rejected with a clear message. | no | - | - | api, worker |
 | `PUBLIC_BASE_URL` | Public HTTPS origin of the web app (OIDC redirects, links). | no | staging, production | - | api, worker |
 | `LLM_ACCESS` | How the model provider is reached (decision D-19). | no | - | - | api, worker |
 | `VERTEX_REGION` | Vertex AI region when LLM_ACCESS=vertex_ai. | no | - | - | api, worker |
@@ -64,6 +78,8 @@ or a value has the wrong type (errors name the variable, never the value).
 | `PAYLOAD_DIR` | Local directory for raw payloads (memory store when unset). | no | - | staging, production | api, worker |
 | `CONNECTORS` | Enable live provider connectors in dev (cloud always wires them). | no | - | - | api, worker |
 | `ALLOW_UNAUTHENTICATED_TASKS` | Accept unsigned task calls (local stack only). | no | - | staging, production | api, worker |
+| `LLM_FAKE` | Select the deterministic fake model (hermetic dev and test only). | no | - | staging, production | api, worker |
+| `FAKE_MODEL_SCENARIO` | Fake model scenario file under config/hermetic/fake_model (default happy). | no | - | staging, production | api, worker |
 | `P_SEARCH_API_KEY` | Web search provider key. | **secret** | - | - | api, worker |
 | `P_SCRAPE_API_KEY` | Page scrape provider key. | **secret** | - | - | api, worker |
 | `P_SIGNALS_API_KEY` | Signals provider key. | **secret** | - | - | api, worker |

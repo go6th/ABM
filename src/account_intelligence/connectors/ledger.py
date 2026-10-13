@@ -17,6 +17,14 @@ Guarantees (ADR-0006; proven by tests/connectors/test_ledger_*.py):
 * **Spend equals the ledger.** The budget reservation is written in the same
   transaction as the ``started`` event and trued up in the same transaction as the
   terminal event, so ``account_runs.spent_usd`` equals ``ledger_sum``.
+* **Reuse across runs (research cache, 2026-10-13).** Before a new paid attempt, a finished
+  call of an earlier run of the same tenant with the same ``args_hash`` and a payload younger
+  than the operation's TTL is adopted: this run gets its own ``tool_calls`` row (attempt 1, cost
+  0, ``cost_source = 'cache'``, the same payload reference) and the call replays. A run started
+  with ``reuse_cached = False`` never adopts.
+* **Stale by time.** A ``started`` attempt of this very owner and epoch older than
+  ``in_flight_stale_s`` cannot still be running (a worker restart that kept its lease); it is
+  closed ``abandoned`` and re-issued once, flagged ``possible_duplicate``.
 
 Not guaranteed: exactly-once side effects at the provider. A crash between the
 provider's response and the ``done`` write repeats that one call (flagged).
@@ -29,7 +37,7 @@ import json
 from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -39,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.connectors import budget as budget_mod
 from account_intelligence.connectors.base import CallContext, Clock
+from account_intelligence.connectors.cache import CACHE_COST_SOURCE, CachedCall, ResearchCache
 from account_intelligence.connectors.errors import (
     BudgetExceeded,
     CapRefused,
@@ -132,6 +141,7 @@ class _Attempt:
     epoch: int
     reserved_usd: Decimal
     job_id: str | None
+    started_at: Any = None
 
 
 def summarise_attempts(rows: Sequence[Any]) -> list[_Attempt]:
@@ -140,16 +150,32 @@ def summarise_attempts(rows: Sequence[Any]) -> list[_Attempt]:
     for row in rows:
         entry = by.setdefault(
             row.attempt,
-            {"events": set(), "owner": "", "epoch": 0, "reserved": Decimal(0), "job": None},
+            {
+                "events": set(),
+                "owner": "",
+                "epoch": 0,
+                "reserved": Decimal(0),
+                "job": None,
+                "started_at": None,
+            },
         )
         entry["events"].add(row.event)
         if row.event == "started":
             entry["owner"], entry["epoch"] = row.owner, row.lease_epoch
             entry["reserved"] = row.reserved_usd or Decimal(0)
+            entry["started_at"] = getattr(row, "created_at", None)
         if row.event == "submitted":
             entry["job"] = row.provider_job_id
     return [
-        _Attempt(n, frozenset(e["events"]), e["owner"], e["epoch"], e["reserved"], e["job"])
+        _Attempt(
+            n,
+            frozenset(e["events"]),
+            e["owner"],
+            e["epoch"],
+            e["reserved"],
+            e["job"],
+            e["started_at"],
+        )
         for n, e in sorted(by.items())
     ]
 
@@ -167,11 +193,15 @@ class Ledger:
         *,
         lease_ttl_s: int,
         budget_defaults: budget_mod.BudgetDefaults,
+        cache: ResearchCache | None = None,
+        in_flight_stale_s: float = 900.0,
     ) -> None:
         self._txn = txn
         self._clock = clock
         self.lease_ttl_s = lease_ttl_s
         self._budget_defaults = budget_defaults
+        self.cache = cache
+        self.in_flight_stale_s = in_flight_stale_s
 
     # ------------------------------------------------------------------ lease
 
@@ -263,7 +293,7 @@ class Ledger:
                     await s.execute(
                         text(
                             "SELECT attempt, event, owner, lease_epoch, reserved_usd,"
-                            " provider_job_id "
+                            " provider_job_id, created_at "
                             "FROM tool_call_events WHERE run_id = :r AND args_hash = :h "
                             "ORDER BY attempt, id"
                         ),
@@ -271,6 +301,10 @@ class Ledger:
                     )
                 ).all()
             )
+            if not attempts and (ctx.reuse_cached or ctx.resume_from is not None):
+                adopted = await self._adopt_cached(s, ctx, key)
+                if adopted is not None:
+                    return adopted
             possible_duplicate = False
             resume_job: str | None = None
             next_attempt = 1
@@ -278,7 +312,7 @@ class Ledger:
                 last = attempts[-1]
                 next_attempt = last.attempt + 1
                 if not (last.events & TERMINAL):
-                    if last.owner == owner and last.epoch == epoch:
+                    if last.owner == owner and last.epoch == epoch and not self._stale(last):
                         return InFlight(attempt=last.attempt)
                     # Stale: the worker that started it is gone (lease changed hands).
                     if last.job_id is not None:
@@ -327,6 +361,119 @@ class Ledger:
                 possible_duplicate=possible_duplicate,
                 resume_job_id=resume_job,
             )
+
+    def _stale(self, attempt: _Attempt) -> bool:
+        """A started attempt of this owner and epoch older than ``in_flight_stale_s``."""
+        if attempt.started_at is None:
+            return False
+        started: datetime = attempt.started_at
+        age: float = (self._clock.now() - started).total_seconds()
+        return age > self.in_flight_stale_s
+
+    async def _adopt_cached(self, s: AsyncSession, ctx: CallContext, key: CallKey) -> Replay | None:
+        """Adopt a fresh finished call of an earlier run of this tenant (see the module
+        docstring). Runs inside the claim transaction, under the run lease."""
+        cache = self.cache
+        strict = False
+        if cache is None or not cache.enabled:
+            if ctx.resume_from is None:
+                return None
+            # a resume works with the cache switched off: only the resumed run's calls are reused
+            cache, strict = _resume_only_cache(), True
+        hit = await cache.lookup(
+            s,
+            ctx.tenant_id,
+            key.args_hash,
+            key.operation,
+            self._clock.now(),
+            source_run=ctx.resume_from,
+            strict_source=strict,
+        )
+        if hit is None:
+            return None
+        await self._insert_adopted(s, ctx, key, hit)
+        return Replay(
+            response=hit.response,
+            response_ref=hit.response_ref,
+            attempt=1,
+            cost_usd=Decimal(0),
+            credits=None,
+            provider_cost_usd=None,
+            cost_source=CACHE_COST_SOURCE,
+            possible_duplicate=False,
+        )
+
+    async def _insert_adopted(
+        self, s: AsyncSession, ctx: CallContext, key: CallKey, hit: CachedCall
+    ) -> None:
+        from account_intelligence.connectors import obs
+
+        await s.execute(
+            text(
+                "INSERT INTO tool_calls (tenant_id, run_id, tool, args_hash, response, cost_usd,"
+                " provider_code, operation, route, fell_back_from, credits, provider_cost_usd,"
+                " cost_source, http_status, latency_ms, attempt, bytes, possible_duplicate,"
+                " response_ref) "
+                "VALUES ((SELECT app_tenant()), :r, :tool, :h, CAST(:resp AS jsonb), 0,"
+                " :pc, :op, :route, :fb, NULL, NULL, :csrc, NULL, 0, 1, NULL, false, :ref) "
+                "ON CONFLICT (run_id, args_hash) DO NOTHING"
+            ),
+            {
+                "r": ctx.run_id,
+                "tool": key.tool,
+                "h": key.args_hash,
+                "resp": None if hit.response is None else canonical_json(hit.response),
+                "pc": key.provider_code,
+                "op": key.operation,
+                "route": key.route,
+                "fb": key.fell_back_from,
+                "csrc": CACHE_COST_SOURCE,
+                "ref": hit.response_ref,
+            },
+        )
+        await self._insert_event(
+            s,
+            ctx,
+            key,
+            1,
+            "done",
+            "cache",
+            0,
+            charged_usd=Decimal(0),
+            outcome=Outcome(0.0, cost_source=CACHE_COST_SOURCE, response_ref=hit.response_ref),
+        )
+        obs.log_event(
+            "connector.cache_hit",
+            provider_code=key.provider_code,
+            operation=key.operation,
+            route=key.route,
+            cost_source=CACHE_COST_SOURCE,
+            replayed=True,
+            run_id=ctx.run_id,
+        )
+
+    async def is_replayable(self, ctx: CallContext, owner: str, key: CallKey) -> bool:
+        """Whether the key will replay: already done in this run, or adoptable from an earlier run
+        (adopted here, under the lease, so the caller skips the provider slot)."""
+        if await self.is_done(ctx, key.args_hash):
+            return True
+        if ctx.resume_from is None and (self.cache is None or not ctx.reuse_cached):
+            return False
+        async with self._txn(ctx.tenant_id) as s:
+            await self._upsert_lease(s, ctx.run_id, owner)
+            attempts = (
+                await s.execute(
+                    text(
+                        "SELECT 1 FROM tool_call_events WHERE run_id = :r AND args_hash = :h"
+                        " LIMIT 1"
+                    ),
+                    {"r": ctx.run_id, "h": key.args_hash},
+                )
+            ).first()
+            if attempts is not None:
+                return False
+            adopted = await self._adopt_cached(s, ctx, key)
+            return adopted is not None
 
     async def _cap_gate(
         self, s: AsyncSession, ctx: CallContext, key: CallKey, estimate_usd: float, cost_known: bool
@@ -665,6 +812,54 @@ class Ledger:
         )
 
 
+DOCUMENT_PROVIDER = "p_docs"
+DOCUMENT_OPERATION = "document_read"
+
+
+async def record_document_read(
+    s: AsyncSession,
+    run_id: UUID,
+    row_key: str,
+    document_ids: Sequence[str],
+    record_count: int,
+) -> str:
+    """A zero-cost ledger record that a file-mode run read its uploaded documents for one
+    tracker row and found ``record_count`` facts there: the row's proof is a ledger record like
+    any provider call's (T2), but nothing was bought (``cost_usd`` 0, provider ``p_docs``, never
+    a broker). Idempotent per run, row and document set. Returns the call reference."""
+    args = {"row": row_key, "documents": sorted(document_ids)}
+    ref = args_hash(DOCUMENT_PROVIDER, DOCUMENT_OPERATION, {**args, "run": str(run_id)})
+    await s.execute(
+        text(
+            "INSERT INTO tool_calls (tenant_id, run_id, tool, args_hash, response, cost_usd,"
+            " provider_code, operation, cost_source, attempt) VALUES ((SELECT app_tenant()), :r,"
+            " :tool, :h, CAST(:resp AS jsonb), 0, :pc, :op, 'documented', 1)"
+            " ON CONFLICT (run_id, args_hash) DO NOTHING"
+        ),
+        {
+            "r": run_id,
+            "tool": f"{DOCUMENT_PROVIDER}:{DOCUMENT_OPERATION}",
+            "h": ref,
+            "resp": canonical_json({"record_count": int(record_count), "args": args}),
+            "pc": DOCUMENT_PROVIDER,
+            "op": DOCUMENT_OPERATION,
+        },
+    )
+    return ref
+
+
+_RESUME_ONLY: list[ResearchCache] = []
+
+
+def _resume_only_cache() -> ResearchCache:
+    """A cache used only to adopt the resumed run's calls (``strict_source``), built once."""
+    if not _RESUME_ONLY:
+        from account_intelligence.connectors.cache import load_research_cache_config
+
+        _RESUME_ONLY.append(ResearchCache(load_research_cache_config()))
+    return _RESUME_ONLY[0]
+
+
 def _dec(value: float | None) -> Decimal | None:
     return None if value is None else Decimal(str(round(value, 6)))
 
@@ -680,4 +875,5 @@ __all__ = [
     "Replay",
     "args_hash",
     "canonical_json",
+    "record_document_read",
 ]

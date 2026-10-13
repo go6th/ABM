@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { OperatorSession } from "@/lib/gen/api.gen";
-import { Badge, Banner } from "@/ui/primitives";
+import { Loading, Notice } from "@/ui/primitives";
 
 type GateState = { kind: "loading" } | { kind: "ready"; staffId: string; role: string } | { kind: "error"; message: string };
 
@@ -29,7 +29,7 @@ export function OperatorSessionGate({ children }: { children: React.ReactNode })
           router.replace(`/operator/login?return_to=${encodeURIComponent(pathname)}`);
           return null;
         }
-        if (!response.ok) throw new Error(response.status === 503 ? "Staff sign-in is not configured." : "Access is unavailable.");
+        if (!response.ok) throw new Error(response.status === 503 ? "Staff sign in is not configured." : "Access is unavailable.");
         return OperatorSession.parse(await response.json());
       })
       .then((session) => {
@@ -41,21 +41,12 @@ export function OperatorSessionGate({ children }: { children: React.ReactNode })
     return () => { alive = false; };
   }, [pathname, router]);
 
-  if (state.kind === "loading") {
-    return <p className="row ink-2" aria-live="polite"><span className="spinner" aria-hidden="true" />Checking staff access</p>;
-  }
-  if (state.kind === "error") {
-    return <Banner kind="error" title="Operator access unavailable">{state.message}</Banner>;
-  }
+  if (state.kind === "loading") return <Loading label="Checking staff access" />;
+  if (state.kind === "error") return <Notice kind="error">{state.message}</Notice>;
   return (
-    <>
-      <OperatorViewerContext.Provider value={{ staffId: state.staffId, role: state.role }}>
-        <p className="row t-footnote ink-2 session-line" aria-label="Signed in staff identity">
-          <span>Signed in as <strong className="mono">{state.staffId}</strong></span>
-          <Badge tone="lilac" dot>{state.role === "operator" ? "Operator" : "Support"}</Badge>
-        </p>
-        {children}
-      </OperatorViewerContext.Provider>
-    </>
+    <OperatorViewerContext.Provider value={{ staffId: state.staffId, role: state.role }}>
+      <p className="small muted" aria-label="Signed in staff identity">Signed in as <span className="mono">{state.staffId}</span> ({state.role === "operator" ? "Operator" : "Support"})</p>
+      {children}
+    </OperatorViewerContext.Provider>
   );
 }

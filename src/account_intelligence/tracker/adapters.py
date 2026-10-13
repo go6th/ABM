@@ -21,6 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.tracker.model import CallRecord
 
+# input mode "file": a run's zero-cost read of its own uploaded documents
+# (``connectors.ledger.record_document_read``); not a provider tool category, so it is never
+# counted toward the two tool categories a Lead needs
+DOCUMENT_READ = "document_read"
+DOCUMENT_CATEGORY = "uploaded_documents"
+
 
 def _queries(args: Mapping[str, Any]) -> tuple[str, ...]:
     """The query text a call ran, from its stored arguments (search-style operations)."""
@@ -42,6 +48,8 @@ class LedgerCallAdapter:
         self.category_by_operation = dict(category_by_operation)
 
     def _category(self, operation: str | None) -> str:
+        if operation == DOCUMENT_READ:
+            return DOCUMENT_CATEGORY
         if operation is None or operation not in self.category_by_operation:
             raise KeyError(f"operation {operation!r} has no tool category")
         return self.category_by_operation[operation]

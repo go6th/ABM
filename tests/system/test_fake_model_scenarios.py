@@ -7,9 +7,10 @@ read goes through the API or, for money and ledger invariants, the privileged te
 Under the shipped configuration no run can be COMPLETED: the happy path ends PARTIAL and names
 its blockers (owner decisions recorded in ``BUILD_LOG.md``): Workflow v1 writes no Summary
 narrative (``build_failed``), no quality gate is wired, the client-history rows wait on the
-account owner (Phase B), the people rows wait on the consent text (D-97), most research prefixes
-have no attribute class (C38), and the judge shares the generator's model profile (D-48), so no
-claim is Confirmed. These tests pin that honest outcome and every invariant that must hold anyway.
+account owner (Phase B), the people rows wait on the consent text (D-97) and most research prefixes
+have no attribute class (C38). The judge runs on a different model from the extractor under the
+active routing arm (G12), so a claim read in a primary source may be Confirmed. These tests pin
+that honest outcome and every invariant that must hold anyway.
 """
 
 from __future__ import annotations
@@ -92,7 +93,9 @@ def normalised(run: str) -> dict[str, Any]:
     rows = {k: (v[0], v[1], v[3]) for k, v in coverage(run).items()}
     facts = admin(
         "SELECT attribute_key, value_text, product_grade, flags FROM facts WHERE run_id = %s"
-        " ORDER BY attribute_key, value_text",
+        # a total order: a verifier supersedes a fact with a capped copy of the same key and
+        # value, so key and value alone leave ties whose order the database may change
+        " ORDER BY attribute_key, value_text, product_grade, flags::text",
         run,
     )
     drops = admin(
@@ -139,9 +142,17 @@ async def test_happy_path_ends_partial_with_its_blockers_named_and_every_invaria
         "customers_partners_matched",
     } <= set(open_high)  # Phase B: waiting on the account owner
 
-    facts = admin("SELECT product_grade, flags FROM facts WHERE run_id = %s", run)
-    assert facts and not [f for f in facts if f[0] == "confirmed"]  # D-48: judge not independent
-    assert all("unjudged" in f[1] for f in facts if f[0] == "probable")
+    facts = admin(
+        "SELECT product_grade, flags, read_in_primary_this_run, may_state_to_prospect FROM facts"
+        " WHERE run_id = %s",
+        run,
+    )
+    assert facts
+    # the active routing arm judges with a different model from the extractor (G12 holds), so a
+    # claim read in a primary source this run may be Confirmed; only Confirmed may be stated
+    for grade, _flags, primary, may_state in facts:
+        assert may_state == (grade == "confirmed")
+        assert grade != "confirmed" or primary
 
     entries = assert_money_balances(run, a.tenant, Decimal("100"))
     assert entries["commit"] > 0 and entries["refund"] > 0

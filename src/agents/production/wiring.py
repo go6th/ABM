@@ -104,7 +104,12 @@ def abm_deps(deps: RunDeps, lanes: tuple[str, ...] = (), cfg: SkillConfig | None
     ledger: InheritedLedger | None = None
     if deps.connectors is not None:
         provider = ConnectorProvider(
-            deps.connectors, deps.account_id, lanes, deps.extra_allowed_hosts
+            deps.connectors,
+            deps.account_id,
+            lanes,
+            deps.extra_allowed_hosts,
+            reuse_cached=deps.reuse_cached,
+            resume_from=deps.resume_from,
         )
         ledger = InheritedLedger(
             LedgerAdapter(

@@ -1,71 +1,34 @@
-// Home: one question box across all accounts, then at most five real changes since the user last
-// looked. Data comes from the API through the server-side fetch helper.
-import Link from "next/link";
-import type { AccountPage, SignalPage } from "@/lib/gen/api.gen";
+// Ask (home): the conversation, scoped to all accounts or one account; ?thread opens a recent
+// chat and ?account preselects an account.
+import { Suspense } from "react";
+import type { AccountPage, ChatThread } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
-import { HomeAsk } from "@/components/ws/HomeAsk";
-import { GradeMark, toGrade } from "@/components/ws/GradeMark";
+import { Ask, type Turn } from "@/components/ws/Ask";
 import { LoadError } from "@/ui/primitives";
-import { m } from "@/lib/messages";
-import { ago, humanize } from "@/lib/ws-format";
-import { cellText } from "@/lib/render";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ thread?: string; account?: string }> }) {
+  const { thread, account } = await searchParams;
   let accounts: AccountPage | null = null;
-  let signals: SignalPage | null = null;
+  let opened: ChatThread | null = null;
   let reference: string | null | undefined;
   try {
-    [accounts, signals] = await Promise.all([
-      serverGet<AccountPage>("/v1/accounts?limit=200"),
-      serverGet<SignalPage>("/v1/signals"),
-    ]);
+    accounts = await serverGet<AccountPage>("/v1/accounts?limit=200");
+    if (thread) opened = await serverGet<ChatThread>(`/v1/chat/threads/${encodeURIComponent(thread)}`);
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
     reference = e.reference;
   }
-  const names = new Map((accounts?.accounts ?? []).map((a) => [a.domain, a.name ?? a.domain]));
-  const recent = (signals?.items ?? []).filter((s) => !s.sensitive).slice(0, 5);
-  const hasAccounts = (accounts?.accounts.length ?? 0) > 0;
-
+  if (reference !== undefined) return <div className="page narrow"><LoadError reference={reference} retryHref="/" /></div>;
+  const list = (accounts?.accounts ?? []).map((a) => ({ domain: a.domain, name: a.name ?? a.domain }));
+  const turns: Turn[] = (opened?.turns ?? [])
+    .filter((t) => t.status !== "failed")
+    .map((t) => ({ id: t.id, question: t.user_content, answer: t.assistant_content ?? "", status: "done" as const, scope: null }));
+  const scope = account && list.some((a) => a.domain === account) ? account : null;
   return (
-    <div className="reading">
-      <header className="hero">
-        <h1>{m.home.title}</h1>
-        <p className="sub">{m.home.sub}</p>
-      </header>
-      {reference !== undefined ? <LoadError reference={reference} retryHref="/" /> : null}
-      <HomeAsk hasAccounts={hasAccounts} />
-      {hasAccounts ? (
-        <section className="section" aria-labelledby="since">
-          <div className="section-head">
-            <h2 id="since">{m.home.since}</h2>
-            {recent.length ? <Link className="link t-footnote" href="/alerts">{m.home.seeAll}</Link> : null}
-          </div>
-          {recent.length ? (
-            <ul className="rows">
-              {recent.map((s) => {
-                const grade = toGrade(s.grade);
-                return (
-                  <li key={s.event_id}>
-                    <Link className="list-row" href={`/accounts/${encodeURIComponent(s.account)}`}>
-                      <div>
-                        <p className="name">{cellText(names.get(s.account) ?? s.account)}</p>
-                        <p className="context">{humanize(s.signal_type)}</p>
-                      </div>
-                      <div className="meta">
-                        {grade ? <GradeMark grade={grade} /> : null}
-                        <span>{ago(s.detected_at)}</span>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : <p className="ink-2">{m.home.sinceEmpty}</p>}
-        </section>
-      ) : null}
-    </div>
+    <Suspense>
+      <Ask key={opened?.id ?? "new"} accounts={list} threadId={opened?.id ?? null} initialTurns={turns} initialScope={scope} />
+    </Suspense>
   );
 }

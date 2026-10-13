@@ -88,6 +88,37 @@ tables:
   llm_calls: {}
   login_states:
     plant: {expires_at: "2027-01-01T00:00:00+00:00", return_to: /}
+  model_reply_log: {}
+  research_file_chunks: {}
+  research_file_deletions: {}
+  research_file_findings:
+    plant: {severity: warn}
+  research_file_model_calls:
+    plant: {served_from: model}
+  research_file_state: {}
+  research_file_upload_parts:
+    plant: {part_no: 0}
+  research_file_uploads:
+    plant: {part_size: 8388608, parts_total: 1, status: open}
+  research_files:
+    plant: {sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, status: AUDITED}
+  documents:
+    plant: {status: parsed, object_key: "tenants/{tenant}/documents/{uuid}/raw",
+            sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+            declared_type: pdf, name: "{canary}.pdf"}
+  document_passages:
+    plant: {kind: section}
+  document_redactions: {}
+  document_policies: {}
+  document_deletions: {}
+  run_documents: {}
+  fact_reevaluations: {}
+  run_gate_results:
+    plant: {verdict: pass, defects: "[]"}
+  leak_checks:
+    plant: {verdict: pass}
+  internal_deliverables:
+    plant: {object_key: "tenants/{tenant}/internal/{uuid}/{hex64}.docx"}
   membership_events:
     plant: {event: added}
   memberships: {}
@@ -250,6 +281,9 @@ functions:
   governor_release: {returns: void, caller's own lease, proof: tests/parallel}
   governor_signal: {returns: void, proof: tests/parallel}
   spend_runs_to_check: {returns: (tenant_id, run_id) pairs only, proof: tests/spend}
+  runs_orphaned: {returns: (tenant_id, run_id) pairs only, proof: tests/system/test_durable_runs.py}
+  research_files_orphaned: {returns: (tenant_id, file_id) pairs only, proof: tests/research_files/test_pipeline_db.py}
+  documents_orphaned: {returns: (tenant_id, document_id) pairs only, proof: tests/documents/test_documents_db.py}
   erase_rows:
     returns: a row count; the caller's context tenant only, allow-listed tables, approved requests
     proof: tests/phase3/test_ws1_tenancy.py
@@ -315,6 +349,42 @@ functions:
 # params: path parameter -> "table.column" of A's canary row.
 routes:
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
+  GET /v1/runs/{run_id}/collected: {probe: tenant, params: {run_id: account_runs.id}}
+  GET /v1/files: {probe: tenant}
+  POST /v1/documents/uploads: {probe: tenant, body: {name: synthetic-b.pdf, size_bytes: 10, account_id: accounts.id}}
+  PUT /v1/documents/{document_id}/content:
+    probe: tenant
+    params: {document_id: documents.id}
+    query: {token: matrix-token-aaaaaaaaaaaaaaaa}
+  POST /v1/documents/{document_id}/complete: {probe: tenant, params: {document_id: documents.id}}
+  GET /v1/documents/{document_id}/status: {probe: tenant, params: {document_id: documents.id}}
+  GET /v1/documents: {probe: tenant, query: {account_id: accounts.id}}
+  POST /v1/documents/confirm-company:
+    probe: tenant
+    body: {document_ids: [documents.id], company_name: Matrix B, domain: matrix-b.example}
+  POST /v1/documents/estimate: {probe: tenant, body: {document_ids: [documents.id]}}
+  DELETE /v1/documents/{document_id}: {probe: tenant, params: {document_id: documents.id}}
+  GET /v1/documents/policy: {probe: tenant}
+  PUT /v1/documents/policy: {probe: tenant, body: {redaction_tier: standard}}
+  POST /v1/documents/{document_id}/authoritative:
+    probe: tenant
+    params: {document_id: documents.id}
+    body: {authoritative: true}
+  GET /v1/runs/{run_id}/internal: {probe: tenant, params: {run_id: account_runs.id}}
+  GET /v1/runs/{run_id}/internal/file: {probe: tenant, params: {run_id: internal_deliverables.run_id}}
+  POST /v1/files/uploads: {probe: tenant, body: {name: synthetic-b.csv, size: 10}}
+  GET /v1/files/uploads/{upload_id}: {probe: tenant, params: {upload_id: research_file_uploads.id}}
+  PUT /v1/files/uploads/{upload_id}/parts/{part_no}:
+    probe: tenant
+    params: {upload_id: research_file_uploads.id, part_no: "0"}
+  POST /v1/files/uploads/{upload_id}/complete: {probe: tenant, params: {upload_id: research_file_uploads.id}}
+  POST /v1/files/{file_id}/ask: {probe: tenant, params: {file_id: research_files.id}, body: {question: what is here}}
+  POST /v1/files/{file_id}/approve: {probe: tenant, params: {file_id: research_files.id}}
+  POST /v1/files/{file_id}/resume: {probe: tenant, params: {file_id: research_files.id}}
+  DELETE /v1/files/{file_id}: {probe: tenant, params: {file_id: research_files.id}}
+  GET /v1/files/{file_id}: {probe: tenant, params: {file_id: research_files.id}}
+  GET /v1/files/{file_id}/audit: {probe: tenant, params: {file_id: research_files.id}}
+  GET /v1/files/{file_id}/analytics: {probe: tenant, params: {file_id: research_files.id}}
   GET /v1/runs/{run_id}/cap: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/spend: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/spend/live: {probe: tenant, params: {run_id: account_runs.id}}
@@ -580,6 +650,8 @@ routes:
     body: {account_confirmed: true}
   POST /tasks/run-slice: {probe: machine, body: {tenant_id: owner, run_id: account_runs.id}}
   POST /tasks/approval-timeout: {probe: machine, body: {tenant_id: owner, run_id: account_runs.id}}
+  POST /tasks/file-process: {probe: machine, body: {tenant_id: owner, file_id: research_files.id}}
+  POST /tasks/document-process: {probe: machine, body: {tenant_id: owner, document_id: documents.id}}
 # Storage layouts (tenancy.catalog.STORAGE_LAYOUTS): a sample key of tenant A must resolve to A,
 # never to B, and a download token for it must be refused in B's session.
 storage:
@@ -590,6 +662,9 @@ storage:
   branding_upload_quarantine: {layout: "tenants/<tenant>/uploads/branding/<sha256>"}
   export_file: {layout: "tenants/<tenant>/exports/<run>/<sha256>.<ext>"}
   connector_quarantine: {layout: "tenants/<tenant>/connector-quarantine/<connection>/<sha256>"}
+  document_quarantine: {layout: "tenants/<tenant>/quarantine/<document>/raw"}
+  document: {layout: "tenants/<tenant>/documents/<document>/raw"}
+  internal_file: {layout: "tenants/<tenant>/internal/<run>/<sha256>.docx"}
 # Cache purposes (tenancy.catalog.CACHE_PURPOSES): keys start with t:<tenant>:<purpose>:.
 cache:
   membership: {}
@@ -598,6 +673,8 @@ cache:
 events:
   task.run_slice: {route: POST /tasks/run-slice}
   task.approval_timeout: {route: POST /tasks/approval-timeout}
+  task.file_process: {route: POST /tasks/file-process}
+  task.document_process: {route: POST /tasks/document-process}
   outbox.notification: {table: notification_outbox}
   audit.event: {table: audit_events}
   connector.access: {table: connector_access_log}
@@ -609,6 +686,9 @@ events:
 # function returning identifiers only; `proof` names the test that exercises it.
 jobs:
   spend_invariants: {via: spend_runs_to_check, proof: tests/spend}
+  orphan_sweep: {via: runs_orphaned, proof: tests/system/test_durable_runs.py}
+  file_sweep: {via: research_files_orphaned, proof: tests/research_files/test_pipeline_db.py}
+  document_sweep: {via: documents_orphaned, proof: tests/documents/test_documents_db.py}
   stuck_scan: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
   cost_rollup: {via: tenant_txn, proof: tests/obs/test_obs_db.py}
   isolation_probe: {via: tenant_txn, proof: tests/obs/test_obs_db.py}

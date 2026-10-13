@@ -11,6 +11,11 @@ provider and model. Verified against the installed ``anthropic`` package (1.11.0
 * ``messages.create`` in this version has NO ``temperature`` parameter, so the spec's fixed
   temperature cannot be set here (open item OI-LLM-1). Determinism comes from schema validation
   and the bounded re-ask, never from sampling settings.
+* ``messages.create`` accepts ``output_config`` (``effort``) and a ``system`` list of text blocks
+  with ``cache_control`` (verified 2026-10-13 against the installed SDK signature). The per-task
+  ``task_settings`` of ``config/models.yaml`` decide both: effort bounds how much the model
+  thinks (thinking tokens count against ``max_tokens`` on these models), and a cached system
+  block makes repeated calls of one task pay the cached-read price for the prompt and schema.
 * The SDK client retries twice by default; the container builds clients with
   ``max_retries=0`` so the graph node ``RetryPolicy`` stays the single retry owner (W6).
 """
@@ -38,24 +43,45 @@ TIER_TASK = {
 }
 
 
+EFFORT_LEVELS = frozenset({"low", "medium", "high", "xhigh", "max"})
+
+
 @dataclass(frozen=True)
 class ModelRoute:
-    """Where one tier goes."""
+    """Where one tier goes, and the request knobs of its task (``task_settings``)."""
 
     tier: str
     provider: str
     model: str
+    effort: str | None = None
+    prompt_cache: bool = False
 
 
 @lru_cache(maxsize=2)
 def load_routes(path: Path | None = None) -> dict[str, ModelRoute]:
-    """Resolve every tier through the active arm of ``config/models.yaml``."""
+    """Resolve every tier through the active arm of ``config/models.yaml``; the model of every
+    route must be on the allowlist and an effort must be a known level."""
     data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
     arm = data["arms"][data["active_arm"]]["routes"]
+    allowed = {str(m) for m in data.get("allowlist", [])}
+    settings: dict[str, Any] = data.get("task_settings") or {}
     routes = {}
     for tier, task in TIER_TASK.items():
         profile = data["profiles"][arm[task]]
-        routes[tier] = ModelRoute(tier, str(profile["provider"]), str(profile["model"]))
+        model = str(profile["model"])
+        if model not in allowed:
+            raise ValueError(f"models.yaml: {task} routes to {model!r}, not on the allowlist")
+        knobs = settings.get(task) or {}
+        effort = knobs.get("effort")
+        if effort is not None and str(effort) not in EFFORT_LEVELS:
+            raise ValueError(f"models.yaml: {task} has unknown effort {effort!r}")
+        routes[tier] = ModelRoute(
+            tier,
+            str(profile["provider"]),
+            model,
+            str(effort) if effort is not None else None,
+            bool(knobs.get("prompt_cache", False)),
+        )
     return routes
 
 
@@ -78,10 +104,7 @@ class AnthropicLlm:
         if route is None or route.provider != "anthropic":
             raise NotConfigured(f"tier {tier} has no anthropic route")
         message = await self.client.messages.create(
-            model=route.model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
+            **request_kwargs(route, system, user, max_tokens)
         )
         text = "".join(
             str(getattr(block, "text", "")) for block in message.content if block.type == "text"
@@ -98,6 +121,24 @@ class AnthropicLlm:
             ),
             extra={"provider": self.provider, "stop_reason": message.stop_reason},
         )
+
+
+def request_kwargs(route: ModelRoute, system: str, user: str, max_tokens: int) -> dict[str, Any]:
+    """The ``messages.create`` arguments for one call: the task's effort and, when configured, the
+    system prompt as one cached block (the only static prefix; run data stays in the user turn)."""
+    kwargs: dict[str, Any] = {
+        "model": route.model,
+        "max_tokens": max_tokens,
+        "system": (
+            [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+            if route.prompt_cache
+            else system
+        ),
+        "messages": [{"role": "user", "content": user}],
+    }
+    if route.effort is not None:
+        kwargs["output_config"] = {"effort": route.effort}
+    return kwargs
 
 
 def anthropic_api_client(api_key: str) -> Any:

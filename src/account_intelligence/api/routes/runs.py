@@ -56,14 +56,41 @@ from views import progress
 from views.progress import Progress
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+# the label every run and every result carries, by input mode
+SOURCE_LABELS = {"company": "Public research", "file": "From your files"}
 DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
 
 
-class RunBody(BaseModel):
-    """What a client may send. No tenant field exists (and extra fields are refused)."""
+class CompanyInput(BaseModel):
+    """Input mode "company": research a company from public sources (the existing pipeline)."""
 
     model_config = ConfigDict(extra="forbid")
-    domain: str = Field(pattern=DOMAIN, max_length=253)
+    company_name: str = Field(min_length=1, max_length=200)
+    domain: str | None = Field(default=None, pattern=DOMAIN, max_length=253)
+    # the run's spend limit in USD (the cap approval still applies); absent: the default budget
+    credit_cap: float | None = Field(default=None, gt=0, le=10000)
+
+
+class FileInput(BaseModel):
+    """Input mode "file": research only the uploaded documents (public enrichment is opt-in)."""
+
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[UUID] = Field(min_length=1, max_length=100)
+    account_id: UUID | None = None
+    enrich_public: bool = False
+    credit_cap: float | None = Field(default=None, gt=0, le=10000)
+
+
+class RunBody(BaseModel):
+    """What a client may send. No tenant field exists (and extra fields are refused). Exactly one
+    input mode: ``domain`` alone (company mode, unchanged), ``input_mode: company`` with
+    ``company``, or ``input_mode: file`` with ``file``; mixed or empty bodies are refused."""
+
+    model_config = ConfigDict(extra="forbid")
+    input_mode: Literal["company", "file"] | None = None
+    company: CompanyInput | None = None
+    file: FileInput | None = None
+    domain: str | None = Field(default=None, pattern=DOMAIN, max_length=253)
     depth: Literal["standard", "deep"] = "standard"
     lanes_off: list[str] = Field(default_factory=list, max_length=10)
     pursuing_client: bool = False
@@ -72,6 +99,9 @@ class RunBody(BaseModel):
     parent_run_id: UUID | None = None
     # G16: stale pulled rows the requester accepts for a Phase 2 only run (else refresh first)
     acknowledged_stale_rows: list[str] = Field(default_factory=list, max_length=40)
+    # Durable runs: continue an earlier run of the same account; every finished call and model
+    # reply of that run is reused at cost 0 whatever its age (only missing work is paid for).
+    resume_from: UUID | None = None
 
 
 def _container(request: Request) -> Any:
@@ -87,6 +117,15 @@ async def create_run(
 ) -> dict[str, Any]:
     """Create a run (both rows, reservation, tracker in one transaction) and enqueue slice 0."""
     container = _container(request)
+    mode = _input_mode(body)
+    if mode == "file":
+        from account_intelligence.api.routes.file_runs import create_file_run
+
+        return await create_file_run(body, request, idem, ident, container)
+    if body.domain is None:
+        async with tenant_txn(ident.tenant_id) as s:
+            body = body.model_copy(update={"domain": await _company_domain(s, body)})
+    assert body.domain is not None
     try:
         async with tenant_txn(ident.tenant_id) as s:
             run_input, version = await _run_input(s, body, ident, container)
@@ -96,16 +135,28 @@ async def create_run(
                 run_input["parent_run_id"] = str(plan.parent_run_id)
             if body.acknowledged_stale_rows:
                 run_input["acknowledged_stale_rows"] = sorted(set(body.acknowledged_stale_rows))
+            if body.resume_from is not None:
+                run_input["resume_from"] = str(await _resumable(s, body.resume_from, body.domain))
             req = RunRequest(body.domain, body.depth, idem, run_input)
             now = container.clock.now()
-            _, new_account = await lifecycle.add_account(s, ident.tenant_id, body.domain)
+            account_id, new_account = await lifecycle.add_account(s, ident.tenant_id, body.domain)
+            if body.company is not None:
+                await lifecycle.name_account(s, account_id, body.company.company_name)
             if new_account:
                 await limits.consume(s, "accounts", now)
                 await usage.record(s, "account_added", body.domain, now)
             deps_tracker = await _tracker_for(container, s)
-            created = await lifecycle.create_run(
-                s, ident.tenant_id, req, container.limits, deps_tracker
-            )
+            run_limits = container.limits
+            if body.company is not None and body.company.credit_cap is not None:
+                from dataclasses import replace
+                from decimal import Decimal
+
+                cap = Decimal(str(round(body.company.credit_cap, 2)))
+                run_limits = replace(run_limits, budget_usd=cap)
+                req = RunRequest(
+                    body.domain, body.depth, idem, {**run_input, "credit_cap": float(cap)}
+                )
+            created = await lifecycle.create_run(s, ident.tenant_id, req, run_limits, deps_tracker)
             if not created.replayed:
                 await run_mode_columns(s, created.run_id, plan)
                 await settings.pin_run(s, created.run_id, version)
@@ -130,6 +181,65 @@ async def create_run(
     if not created.replayed:
         await container.scheduler.enqueue_slice(ident.tenant_id, created.run_id, 0)
     return {"run_id": str(created.run_id), "status": created.status, "replayed": created.replayed}
+
+
+def _input_mode(body: RunBody) -> str:
+    """Exactly one input mode (see ``RunBody``); 422 ``input_mode_mixed`` or ``_empty``."""
+    company = body.company is not None
+    has_file = body.file is not None
+    mode = body.input_mode
+    if mode is None:
+        mode = "file" if has_file else "company"
+    mixed = (mode == "file" and (company or body.domain is not None)) or (
+        mode == "company" and has_file
+    )
+    if mixed:
+        raise APIProblem(
+            422,
+            "input_mode_mixed",
+            "One input mode per run",
+            "Send either a company (name and domain) or uploaded documents, not both.",
+        )
+    empty = (mode == "file" and not has_file) or (
+        mode == "company" and not company and body.domain is None
+    )
+    if empty:
+        raise APIProblem(
+            422,
+            "input_mode_empty",
+            "Nothing to research",
+            "Send a company name and domain, or the uploaded documents to research.",
+        )
+    if (
+        body.company is not None
+        and body.domain is not None
+        and body.company.domain
+        and body.company.domain != body.domain
+    ):
+        raise APIProblem(422, "input_mode_mixed", "Two domains", "Send the company's domain once.")
+    return mode
+
+
+async def _company_domain(s: Any, body: RunBody) -> str:
+    """The domain of company mode: the one sent, or the only account with that name."""
+    assert body.company is not None
+    if body.company.domain:
+        return body.company.domain
+    rows = (
+        await s.execute(
+            text("SELECT domain FROM accounts WHERE lower(name) = lower(:n) LIMIT 2"),
+            {"n": body.company.company_name.strip()},
+        )
+    ).all()
+    if len(rows) != 1:
+        raise APIProblem(
+            422,
+            "domain_required",
+            "Company domain needed",
+            "Add the company's web domain (for example acme.com) so the right company is"
+            " researched.",
+        )
+    return str(rows[0].domain)
 
 
 async def _run_input(
@@ -166,6 +276,27 @@ async def _run_input(
     if rule.people or rule.companies:
         run_input.update(rule.run_input())
     return run_input, current.version
+
+
+async def _resumable(s: Any, run_id: UUID, domain: str) -> UUID:
+    """The run to resume: one of this tenant (RLS), for the same account; 422 otherwise."""
+    row = (
+        await s.execute(
+            text(
+                "SELECT a.domain FROM account_runs r JOIN accounts a ON a.id = r.account_id"
+                " WHERE r.id = :r"
+            ),
+            {"r": run_id},
+        )
+    ).first()
+    if row is None or str(row.domain).lower() != domain.lower():
+        raise APIProblem(
+            422,
+            "resume_run_unknown",
+            "Run to resume not found",
+            "resume_from must name a run of this workspace for the same account.",
+        )
+    return run_id
 
 
 async def _mode_plan(s: Any, body: RunBody) -> RunPlan:
@@ -217,8 +348,8 @@ async def list_runs(
         rows = (
             await s.execute(
                 text(
-                    "SELECT r.id, r.status, r.created_at, a.domain FROM account_runs r"
-                    " JOIN accounts a ON a.id = r.account_id"
+                    "SELECT r.id, r.status, r.created_at, r.input_mode, a.domain"
+                    " FROM account_runs r JOIN accounts a ON a.id = r.account_id"
                     " WHERE (CAST(:at AS timestamptz) IS NULL"
                     " OR (r.created_at, r.id) < (CAST(:at AS timestamptz), CAST(:id AS uuid)))"
                     " ORDER BY r.created_at DESC, r.id DESC LIMIT :n"
@@ -235,6 +366,8 @@ async def list_runs(
                 "status": r.status,
                 "label": progress.STATUS_LABELS.get(r.status, r.status),
                 "created_at": r.created_at.isoformat(),
+                "input_mode": r.input_mode,
+                "source_label": SOURCE_LABELS[r.input_mode],
             }
             for r in page
             if not rule.excludes_company(r.domain)
@@ -283,18 +416,46 @@ async def get_run(
     async with tenant_txn(ident.tenant_id) as s:
         row = (
             await s.execute(
-                text("SELECT status, finished_reason FROM account_runs WHERE id = :r"),
+                text(
+                    "SELECT r.status, r.finished_reason, r.stop_detail, r.input_mode, a.domain,"
+                    " coalesce(r.run_input->>'linked_file_run', (SELECT c.id::text FROM"
+                    " account_runs c WHERE c.run_input->>'linked_file_run' = r.id::text"
+                    " LIMIT 1)) AS linked"
+                    " FROM account_runs r JOIN accounts a ON a.id = r.account_id WHERE r.id = :r"
+                ),
                 {"r": run_id},
             )
         ).first()
         if row is None:
             raise HTTPException(404, "run not found")
         view = await (await _tracker_for(container, s)).view(run_id, "client")
+        stored = await _stored_counts(s, run_id)
+        gate = (
+            await s.execute(
+                text(
+                    "SELECT verdict, defects FROM run_gate_results WHERE run_id = :r"
+                    " ORDER BY id DESC LIMIT 1"
+                ),
+                {"r": run_id},
+            )
+        ).first()
     payload = {
+        "domain": row.domain,
         "run_id": str(run_id),
         "status": row.status,
         "reason": row.finished_reason,
         "coverage": view,
+        "stop_detail": row.stop_detail,
+        "stored": stored,
+        "missing": _missing(view),
+        "input_mode": row.input_mode,
+        "source_label": SOURCE_LABELS[row.input_mode],
+        "linked_run_id": row.linked,
+        "gate": (
+            {"verdict": gate.verdict, "defects": list(gate.defects)[:50]}
+            if gate is not None
+            else None
+        ),
     }
     payload = C.RunStatusView.model_validate(payload).model_dump(mode="json")
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
@@ -302,6 +463,155 @@ async def get_run(
     if if_none_match == etag:
         return Response(status_code=304, headers={"ETag": etag})
     return JSONResponse(payload, headers={"ETag": etag})
+
+
+_DONE_TEXT = frozenset({"Done", "None"})
+
+
+def _missing(view: dict[str, Any]) -> list[dict[str, Any]]:
+    """Coverage rows that are not Done or None, with their (already client-safe) reason."""
+    return [
+        {"row": r["row"], "status": r["status"], "reason": r.get("reason")}
+        for r in view.get("rows", [])
+        if r.get("status") not in _DONE_TEXT
+    ]
+
+
+async def _stored_counts(s: Any, run_id: UUID) -> dict[str, int]:
+    """What the run holds so far (every count names its base in the contract)."""
+    row = (
+        await s.execute(
+            text(
+                "SELECT"
+                " (SELECT count(*) FROM tool_calls WHERE run_id = :r AND response_ref IS NOT NULL"
+                "   AND cost_source IS DISTINCT FROM 'cache') AS paid_calls,"
+                " (SELECT count(*) FROM tool_calls WHERE run_id = :r AND cost_source = 'cache')"
+                "   AS cached_calls,"
+                " (SELECT count(*) FROM model_reply_log WHERE run_id = :r"
+                "   AND served_from IN ('model', 'cache')) AS model_replies,"
+                " (SELECT count(*) FROM facts WHERE run_id = :r AND status = 'current'"
+                "   AND visibility = 'public') AS facts,"
+                " (SELECT count(*) FROM abm_distill_outputs WHERE run_id = :r"
+                "   AND audience = 'client') AS drafts,"
+                " (SELECT count(*) FROM deliverables WHERE run_id = :r) AS deliverables"
+            ),
+            {"r": run_id},
+        )
+    ).one()
+    return {
+        "paid_calls": int(row.paid_calls),
+        "cached_calls": int(row.cached_calls),
+        "model_replies": int(row.model_replies),
+        "facts": int(row.facts),
+        "drafts": int(row.drafts),
+        "deliverables": int(row.deliverables),
+    }
+
+
+@router.get("/{run_id}/collected", response_model=C.RunCollected)
+async def get_collected(
+    run_id: UUID,
+    request: Request,
+    ident: Identity = Depends(require_role("admin", "seller", "viewer")),
+) -> dict[str, Any]:
+    """Everything the run holds so far (a PARTIAL run included): finished pulls by tool category
+    (no provider is named), public graded facts, the client distill drafts, and the coverage rows
+    still missing with their reasons. Every string is leak-scanned like the coverage view."""
+    from account_intelligence.grading.config import load_grading_config
+    from account_intelligence.safety.client_output import assert_client_safe
+
+    container = _container(request)
+    categories = load_grading_config().category_by_operation
+    async with tenant_txn(ident.tenant_id) as s:
+        row = (
+            await s.execute(
+                text("SELECT status, finished_reason, stop_detail FROM account_runs WHERE id = :r"),
+                {"r": run_id},
+            )
+        ).first()
+        if row is None:
+            raise HTTPException(404, "run not found")
+        view = await (await _tracker_for(container, s)).view(run_id, "client")
+        stored = await _stored_counts(s, run_id)
+        pulls = (
+            await s.execute(
+                text(
+                    "SELECT operation, count(*) AS calls,"
+                    " count(*) FILTER (WHERE cost_source = 'cache') AS cached,"
+                    " min(response->>'retrieved_at') AS retrieved_from,"
+                    " max(response->>'retrieved_at') AS retrieved_to"
+                    " FROM tool_calls WHERE run_id = :r AND response_ref IS NOT NULL"
+                    " AND response->>'error_class' IS NULL GROUP BY operation ORDER BY operation"
+                ),
+                {"r": run_id},
+            )
+        ).all()
+        facts = (
+            await s.execute(
+                text(
+                    "SELECT id, attribute_key, value_text, product_grade, lane,"
+                    " may_state_to_prospect FROM facts WHERE run_id = :r AND status = 'current'"
+                    " AND visibility = 'public' ORDER BY attribute_key, id"
+                ),
+                {"r": run_id},
+            )
+        ).all()
+        draft = (
+            await s.execute(
+                text(
+                    "SELECT output FROM abm_distill_outputs WHERE run_id = :r"
+                    " AND audience = 'client' ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"r": run_id},
+            )
+        ).scalar_one_or_none()
+    by_category: dict[str, dict[str, Any]] = {}
+    for p in pulls:
+        cat = categories.get(str(p.operation), "other")
+        entry = by_category.setdefault(
+            cat,
+            {
+                "tool_category": cat,
+                "calls": 0,
+                "cached": 0,
+                "retrieved_from": None,
+                "retrieved_to": None,
+            },
+        )
+        entry["calls"] += int(p.calls)
+        entry["cached"] += int(p.cached)
+        entry["retrieved_from"] = min(filter(None, (entry["retrieved_from"], p.retrieved_from)))
+        entry["retrieved_to"] = max(filter(None, (entry["retrieved_to"], p.retrieved_to)))
+    drafts: dict[str, list[dict[str, Any]]] = {"hypotheses": [], "questions": [], "narrative": []}
+    stored_draft: dict[str, Any] = dict(draft) if isinstance(draft, dict) else {}
+    for section in drafts:
+        for claim in stored_draft.get(section) or []:
+            drafts[section].append(
+                {"text": str(claim.get("text", "")), "fact_ids": list(claim.get("fact_ids", []))}
+            )
+    payload = {
+        "run_id": str(run_id),
+        "status": row.status,
+        "reason": row.finished_reason,
+        "stop_detail": row.stop_detail,
+        "stored": stored,
+        "pulls": sorted(by_category.values(), key=lambda e: e["tool_category"]),
+        "facts": [
+            {
+                "fact_id": str(f.id),
+                "attribute": f.attribute_key,
+                "value": f.value_text,
+                "grade": f.product_grade,
+                "lane": f.lane,
+                "may_state_to_prospect": bool(f.may_state_to_prospect),
+            }
+            for f in facts
+        ],
+        "drafts": drafts,
+        "missing": _missing(view),
+    }
+    assert_client_safe([json.dumps(payload, default=str)])
+    return payload
 
 
 @router.post("/{run_id}/approve", response_model=C.RunState)

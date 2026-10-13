@@ -3,6 +3,9 @@ version: "2026-10-02.1"
 status: "proposal"
 d_12_completion_policy:
   high_rows_allowed_for_completed: ["done", "none"]
+  # input mode "file" (2026-10-13): a High row the uploaded material cannot answer, or that
+  # needs public sources the run was not asked to search, is a stated gap, not a blocker
+  high_reasons_allowed_for_completed: ["not_in_uploaded_data", "not_searched_file_only"]
 d_13_tracker_rules:
   attempts_per_row: 3
   lead_proof:
@@ -76,6 +79,10 @@ reason_codes:
   # ABM agent layer (D-96, D-97): people data consent missing; a recommended pull not approved
   consent_required: "People data consent is needed"
   pull_not_approved: "A recommended search was not approved"
+  # two research input modes (2026-10-13): file-mode rows without evidence in the uploads, and
+  # rows that need public sources in a run without public enrichment
+  not_in_uploaded_data: "Not in uploaded data"
+  not_searched_file_only: "Not searched (file-only mode)"
 transitions:
   unset:
     done: ["stage", "verifier"]

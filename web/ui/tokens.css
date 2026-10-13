@@ -1,184 +1,40 @@
-/* Design tokens: pastel on white, designed dark (docs/DESIGN_SYSTEM.md).
-   Defined once here. tests/unit/ui-tokens.test.ts reads this file and checks every text, icon and
-   component pair in both modes. Pastels are for surfaces, washes and marks; text and icons use
-   the matching deep ink. Never pastel text on white. */
-
-@font-face {
-  font-family: "Inter Variable";
-  src: url("./fonts/inter-latin-wght.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-  size-adjust: 100%;
-}
-/* Metric-matched fallback so the swap to Inter does not shift layout. */
-@font-face {
-  font-family: "Inter Fallback";
-  src: local("Arial");
-  size-adjust: 107.4%;
-  ascent-override: 90.4%;
-  descent-override: 22.5%;
-  line-gap-override: 0%;
-}
+/* Design tokens (docs/build design rules, section 8): white background, one dark text colour,
+   one mid grey, one light grey for borders and table rules, one accent for the primary button and
+   links. Status colours only for grades and run state, always next to a text label. System font,
+   two type sizes for text, one heading size, one page-title size. 6px corners, 1px borders, no
+   shadows, no gradients. 8px spacing scale. */
 
 :root {
   color-scheme: light;
 
-  /* Light */
-  --canvas: #FFFFFF;
-  --surface: #FFFFFF;
-  --elevated: #FFFFFF;
-  --grouped: #F5F5F7;
-  --ink: #1D1D1F;
-  --ink-2: #6E6E73;
-  --ink-3: #86868B;
-  --hairline: rgba(0, 0, 0, 0.10);
-  --hairline-strong: rgba(0, 0, 0, 0.16);
-  --primary: #4A57D6;
-  --primary-pressed: #3F4CCB;
-  --on-primary: #FFFFFF;
-  --focus-ring: rgba(74, 87, 214, 0.28);
-  --hover: rgba(0, 0, 0, 0.04);
-  --press: rgba(0, 0, 0, 0.07);
-  --scrim: rgba(17, 17, 27, 0.28);
+  --bg: #ffffff;
+  --ink: #1b1b1f;
+  --ink-2: #6b6b72;
+  --line: #e4e4e8;
+  --accent: #2f54eb;
+  --accent-ink: #ffffff;
+  --accent-press: #2646cc;
+  --hover: #f5f5f7;
+  --focus: #2f54eb;
 
-  --peri-fill: #E4E9FF;  --peri-strong: #A9B8FF;  --peri-ink: #3A46B5;
-  --mint-fill: #DDF5EA;  --mint-strong: #9ADDC2;  --mint-ink: #0E6A52;
-  --peach-fill: #FFE8D9; --peach-strong: #FFBF9A; --peach-ink: #8B4513;
-  --lilac-fill: #EDE3FB; --lilac-strong: #CBB4F4; --lilac-ink: #5B3BA6;
-  --rose-fill: #FFDDE6;  --rose-strong: #F7A8BE;  --rose-ink: #A12C4F;
-  --butter-fill: #FFF3CF; --butter-strong: #F5D26B; --butter-ink: #7A5800;
+  /* Status: text colours with at least 4.5:1 on white. */
+  --ok: #157347;
+  --warn: #9a5b00;
+  --bad: #b42318;
 
-  --chart-1: #4F62E8; --chart-2: #D2691E; --chart-3: #0A9396; --chart-4: #A24FC9;
-
-  --material: rgba(255, 255, 255, 0.72);
-  --material-strong: rgba(255, 255, 255, 0.86);
-  --e1: 0 1px 2px rgba(58, 70, 181, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-  --e2: 0 4px 14px rgba(58, 70, 181, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
-  --e3: 0 14px 36px rgba(58, 70, 181, 0.12), 0 3px 8px rgba(0, 0, 0, 0.06);
-  --e4: 0 28px 72px rgba(58, 70, 181, 0.18), 0 6px 18px rgba(0, 0, 0, 0.08);
-
-  /* Type */
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter Variable", "Inter Fallback", system-ui, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --t-large: 2.125rem; --l-large: 2.5625rem;   /* 34/41 */
-  --t-title1: 1.75rem; --l-title1: 2.125rem;   /* 28/34 */
-  --t-title2: 1.375rem; --l-title2: 1.75rem;   /* 22/28 */
-  --t-title3: 1.25rem; --l-title3: 1.5625rem;  /* 20/25 */
-  --t-headline: 1.0625rem; --l-headline: 1.375rem; /* 17/22 */
-  --t-body: 0.9375rem; --l-body: 1.375rem;     /* 15/22 */
-  --t-reading: 1rem; --l-reading: 1.625rem;    /* 16/26 */
-  --t-callout: 1rem; --l-callout: 1.375rem;    /* 16/22 */
-  --t-subhead: 0.875rem; --l-subhead: 1.25rem; /* 14/20 */
-  --t-footnote: 0.8125rem; --l-footnote: 1.125rem; /* 13/18 */
-  --t-caption: 0.75rem; --l-caption: 1rem;     /* 12/16 */
 
-  /* Space (4px grid) */
-  --s1: 0.25rem; --s2: 0.5rem; --s3: 0.75rem; --s4: 1rem; --s5: 1.25rem; --s6: 1.5rem;
-  --s8: 2rem; --s10: 2.5rem; --s12: 3rem; --s16: 4rem;
+  --t-body: 15px; --l-body: 22px;
+  --t-small: 13px; --l-small: 18px;
+  --t-heading: 22px; --l-heading: 28px;
+  --t-title: 28px; --l-title: 34px;
 
-  /* Shape */
-  --r-mark: 8px; --r-control: 12px; --r-group: 16px; --r-panel: 24px; --r-stage: 28px; --r-full: 999px;
+  --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px; --s5: 40px; --s6: 48px; --s8: 64px;
 
-  /* Motion */
-  --ease-out: cubic-bezier(0.22, 0.8, 0.24, 1);
-  --ease-in: cubic-bezier(0.4, 0, 1, 1);
-  /* A spring (stiffness about 300, damping about 30) sampled for CSS. */
-  --spring: linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.067, 1.077 24.6%, 1.065 27.3%, 1.019 34.5%, 0.997 39.9%, 0.99 45.6%, 1.001 63.5%, 1);
-  --t-press: 120ms;
-  --t-enter: 280ms;
-  --t-exit: 180ms;
-  --t-theme: 250ms;
-
-  --sidebar: 15.5rem;
-  --toolbar: 3.5rem;
-  --reading-width: 42.5rem;
-  --content-width: 61rem;
-  --wide-width: 80rem;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --canvas: #0B0B0F;
-  --surface: #16161B;
-  --elevated: #1F1F26;
-  --grouped: #1C1C22;
-  --ink: #F5F5F7;
-  --ink-2: #A1A1A6;
-  --ink-3: #6E6E73;
-  --hairline: rgba(255, 255, 255, 0.12);
-  --hairline-strong: rgba(255, 255, 255, 0.2);
-  --primary: #8E9BFF;
-  --primary-pressed: #7C8AF7;
-  --on-primary: #0B0B0F;
-  --focus-ring: rgba(142, 155, 255, 0.4);
-  --hover: rgba(255, 255, 255, 0.05);
-  --press: rgba(255, 255, 255, 0.09);
-  --scrim: rgba(0, 0, 0, 0.55);
-
-  --peri-fill: #2E303F;  --peri-strong: #AEBBFF;  --peri-ink: #AEBBFF;
-  --mint-fill: #293635;  --mint-strong: #8FE0BF;  --mint-ink: #8FE0BF;
-  --peach-fill: #3B302E; --peach-strong: #FFB98F; --peach-ink: #FFB98F;
-  --lilac-fill: #33303E; --lilac-strong: #CDB8F7; --lilac-ink: #CDB8F7;
-  --rose-fill: #3B2C34;  --rose-strong: #FF9DB8;  --rose-ink: #FF9DB8;
-  --butter-fill: #39352A; --butter-strong: #F2D577; --butter-ink: #F2D577;
-
-  --chart-1: #6A78F0; --chart-2: #C06F2E; --chart-3: #1AA2A6; --chart-4: #9F62D2;
-
-  --material: rgba(22, 22, 27, 0.72);
-  --material-strong: rgba(31, 31, 38, 0.88);
-  --e1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
-  --e2: 0 6px 16px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
-  --e3: 0 16px 40px rgba(0, 0, 0, 0.55), 0 3px 8px rgba(0, 0, 0, 0.4);
-  --e4: 0 30px 80px rgba(0, 0, 0, 0.65), 0 6px 18px rgba(0, 0, 0, 0.45);
-}
-
-/* System mode before the theme script runs: follow the OS. Must equal the block above
-   (checked by tests/unit/ui-tokens.test.ts). */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    color-scheme: dark;
-    --canvas: #0B0B0F;
-    --surface: #16161B;
-    --elevated: #1F1F26;
-    --grouped: #1C1C22;
-    --ink: #F5F5F7;
-    --ink-2: #A1A1A6;
-    --ink-3: #6E6E73;
-    --hairline: rgba(255, 255, 255, 0.12);
-    --hairline-strong: rgba(255, 255, 255, 0.2);
-    --primary: #8E9BFF;
-    --primary-pressed: #7C8AF7;
-    --on-primary: #0B0B0F;
-    --focus-ring: rgba(142, 155, 255, 0.4);
-    --hover: rgba(255, 255, 255, 0.05);
-    --press: rgba(255, 255, 255, 0.09);
-    --scrim: rgba(0, 0, 0, 0.55);
-
-    --peri-fill: #2E303F;  --peri-strong: #AEBBFF;  --peri-ink: #AEBBFF;
-    --mint-fill: #293635;  --mint-strong: #8FE0BF;  --mint-ink: #8FE0BF;
-    --peach-fill: #3B302E; --peach-strong: #FFB98F; --peach-ink: #FFB98F;
-    --lilac-fill: #33303E; --lilac-strong: #CDB8F7; --lilac-ink: #CDB8F7;
-    --rose-fill: #3B2C34;  --rose-strong: #FF9DB8;  --rose-ink: #FF9DB8;
-    --butter-fill: #39352A; --butter-strong: #F2D577; --butter-ink: #F2D577;
-
-    --chart-1: #6A78F0; --chart-2: #C06F2E; --chart-3: #1AA2A6; --chart-4: #9F62D2;
-
-    --material: rgba(22, 22, 27, 0.72);
-    --material-strong: rgba(31, 31, 38, 0.88);
-    --e1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
-    --e2: 0 6px 16px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
-    --e3: 0 16px 40px rgba(0, 0, 0, 0.55), 0 3px 8px rgba(0, 0, 0, 0.4);
-    --e4: 0 30px 80px rgba(0, 0, 0, 0.65), 0 6px 18px rgba(0, 0, 0, 0.45);
-}
-}
-
-@media (prefers-contrast: more) {
-  :root { --ink-2: #3A3A3C; --hairline: rgba(0, 0, 0, 0.32); --hairline-strong: rgba(0, 0, 0, 0.5); --focus-ring: rgba(74, 87, 214, 0.6); }
-  :root[data-theme="dark"] { --ink-2: #D1D1D6; --hairline: rgba(255, 255, 255, 0.32); --hairline-strong: rgba(255, 255, 255, 0.5); }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  :root { --material: var(--surface); --material-strong: var(--surface); }
-  :root[data-theme="dark"] { --material: var(--surface); --material-strong: var(--elevated); }
+  --radius: 6px;
+  --sidebar: 220px;
+  --chat: 720px;
+  --table: 1100px;
+  --control: 40px;
 }

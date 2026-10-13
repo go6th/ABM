@@ -359,3 +359,123 @@ async def expire(s: AsyncSession, fact_id: UUID, now: datetime) -> UUID | None:
         )
     ).first()
     return None if row is None else UUID(str(row.account_id))
+
+
+async def record_document_fact(
+    s: AsyncSession,
+    *,
+    run: RunInfo,
+    attribute_key: str,
+    value: str,
+    quote: str,
+    document_id: UUID,
+    location: dict[str, Any],
+    authoritative: bool,
+    flags: Sequence[str],
+    config_hash: str,
+) -> tuple[UUID, bool]:
+    """A fact read in an uploaded document, in the caller's transaction (two-output rule).
+
+    Always ``private``. Graded Internal; Confirmed only when an admin marked the document
+    authoritative (rule 4: nothing is Confirmed from a file alone otherwise), and even then it
+    stays private: file-derived facts never reach a client file. The one evidence row cites the
+    document and the passage location (``evidence_kind = 'document'``). Idempotent per run and
+    content (``write_key``)."""
+    grade = "confirmed" if authoritative else "internal"
+    normalised = " ".join(value.lower().split())
+    key = hashlib.sha256(
+        json.dumps(
+            [str(run.run_id), attribute_key, normalised, str(document_id), location],
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    claim_hash = hashlib.sha256(f"{attribute_key}\x1f{normalised}".encode()).hexdigest()
+    row = (
+        await s.execute(
+            text(
+                "INSERT INTO facts (account_id, tenant_id, attribute_key, value_json, fingerprint,"
+                " product_grade, read_in_primary_this_run, visibility, run_id, claim_hash,"
+                " write_key, claim_kind, value_text, flags, precedence_rule, config_hash,"
+                " schema_version, may_state_to_prospect)"
+                " VALUES (:account, (SELECT app_tenant()), :key, CAST(:vj AS jsonb), :fp, :pg,"
+                " :prim, 'private', :run, :ch, :wk, 'sourced', :value, CAST(:flags AS jsonb),"
+                " :rule, :cfg, 1, :may)"
+                " ON CONFLICT (tenant_id, write_key) WHERE write_key IS NOT NULL DO NOTHING"
+                " RETURNING id"
+            ),
+            {
+                "account": run.account_id,
+                "key": attribute_key,
+                "vj": json.dumps({"value": value, "normalised": normalised}),
+                "fp": fingerprint(run.account_id, attribute_key, normalised),
+                "pg": grade,
+                "prim": authoritative,
+                "run": run.run_id,
+                "ch": claim_hash,
+                "wk": key,
+                "value": value,
+                "flags": json.dumps(sorted({"from_uploaded_file", *flags})),
+                "rule": "internal_authoritative" if authoritative else "internal_only",
+                "cfg": config_hash,
+                "may": grade == "confirmed",
+            },
+        )
+    ).first()
+    if row is None:
+        existing: Any = (
+            await s.execute(text("SELECT id FROM facts WHERE write_key = :wk"), {"wk": key})
+        ).scalar_one()
+        return UUID(str(existing)), False
+    fact_id = UUID(str(row.id))
+    await s.execute(
+        text(
+            "INSERT INTO fact_evidence (fact_id, evidence_kind, supporting_sentence, span_sha256,"
+            " document_id, document_location, is_aggregator)"
+            " VALUES (:f, 'document', :s, :h, :d, CAST(:loc AS jsonb), false)"
+        ),
+        {
+            "f": fact_id,
+            "s": quote[:2000],
+            "h": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+            "d": document_id,
+            "loc": json.dumps(location, default=str),
+        },
+    )
+    await s.execute(
+        text(
+            "INSERT INTO grade_events (fact_id, run_id, from_product, to_product, from_engine,"
+            " to_engine, actor, reason_code) VALUES (:f, :r, NULL, :tp, NULL, NULL,"
+            " 'document_extraction', 'initial')"
+        ),
+        {"f": fact_id, "r": run.run_id, "tp": grade},
+    )
+    return fact_id, True
+
+
+async def mark_document_facts(s: AsyncSession, document_id: UUID, account_id: UUID | None) -> int:
+    """Every current fact citing ``document_id`` is marked for re-evaluation (status
+    ``needs_reevaluation``, plus an insert-only ``fact_reevaluations`` row); facts are never
+    deleted (rule 9). Returns the number marked."""
+    rows = (
+        await s.execute(
+            text(
+                "SELECT DISTINCT f.id, f.account_id FROM facts f JOIN fact_evidence e"
+                " ON e.fact_id = f.id WHERE e.document_id = :d AND f.status = 'current'"
+            ),
+            {"d": document_id},
+        )
+    ).all()
+    for r in rows:
+        await s.execute(
+            text("UPDATE facts SET status = 'needs_reevaluation' WHERE id = :f"), {"f": r.id}
+        )
+        await s.execute(
+            text(
+                "INSERT INTO fact_reevaluations (account_id, fact_id, document_id, reason)"
+                " VALUES (:a, :f, :d, 'source_document_deleted')"
+            ),
+            {"a": r.account_id or account_id, "f": r.id, "d": document_id},
+        )
+    return len(rows)

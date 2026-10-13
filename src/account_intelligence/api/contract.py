@@ -40,6 +40,8 @@ class Ready(Out):
 
     ready: bool
     checks: dict[str, str]
+    # informational status words per external component (never values)
+    components: dict[str, str] = {}
 
 
 # ---- session and identity -------------------------------------------------------------------
@@ -261,6 +263,8 @@ class RunListItem(Out):
     status: str
     label: str
     created_at: str
+    input_mode: str = "company"
+    source_label: str = "Public research"
 
 
 class RunPage(Out):
@@ -303,6 +307,39 @@ class CoverageView(Out):
     tally: list[str]
 
 
+class StoredCounts(Out):
+    """Response body: what a run holds so far (counts name their base)."""
+
+    paid_calls: int
+    cached_calls: int
+    model_replies: int
+    facts: int
+    drafts: int
+    deliverables: int
+
+
+class MissingRow(Out):
+    """Response body: one coverage row that is not done, with the reason."""
+
+    row: str
+    status: str
+    reason: str | None
+
+
+class GateDefect(Out):
+    """Response body: one pre-delivery gate defect (a check name and an identifier, no text)."""
+
+    check: str
+    item: str
+
+
+class GateSummary(Out):
+    """Response body: the run's latest pre-delivery gate verdict and its defects."""
+
+    verdict: str
+    defects: list[GateDefect]
+
+
 class RunStatusView(Out):
     """Response body: run status view."""
 
@@ -310,6 +347,68 @@ class RunStatusView(Out):
     status: str
     reason: str | None
     coverage: CoverageView
+    stop_detail: str | None = None
+    stored: StoredCounts | None = None
+    missing: list[MissingRow] = []
+    domain: str | None = None
+    input_mode: str = "company"
+    # "Public research" (input mode company) or "From your files" (input mode file)
+    source_label: str = "Public research"
+    # the other run of an enriched file-mode research: the public run of a file run, or the
+    # file run a public enrichment run belongs to
+    linked_run_id: str | None = None
+    # the latest pre-delivery gate verdict (None: the gate has not run for this run)
+    gate: GateSummary | None = None
+
+
+class CollectedFact(Out):
+    """Response body: one graded fact a run collected (client-safe fields only)."""
+
+    fact_id: str
+    attribute: str
+    value: str | None
+    grade: str | None
+    lane: str | None
+    may_state_to_prospect: bool
+
+
+class CollectedClaim(Out):
+    """Response body: one distilled claim and the fact ids it rests on."""
+
+    text: str
+    fact_ids: list[str]
+
+
+class CollectedDrafts(Out):
+    """Response body: the client-audience distill output a run produced so far."""
+
+    hypotheses: list[CollectedClaim] = []
+    questions: list[CollectedClaim] = []
+    narrative: list[CollectedClaim] = []
+
+
+class CollectedPull(Out):
+    """Response body: one finished pull (no provider name; the category and its age)."""
+
+    tool_category: str
+    calls: int
+    cached: int
+    retrieved_from: str | None
+    retrieved_to: str | None
+
+
+class RunCollected(Out):
+    """Response body: everything a run holds so far and what is missing and why."""
+
+    run_id: str
+    status: str
+    reason: str | None
+    stop_detail: str | None
+    stored: StoredCounts
+    pulls: list[CollectedPull]
+    facts: list[CollectedFact]
+    drafts: CollectedDrafts
+    missing: list[MissingRow]
 
 
 class RunProgress(Out):
@@ -1345,3 +1444,255 @@ class TenantModelKeyDeleted(Out):
     """Confirmation that a tenant's optional model key was removed."""
 
     deleted: bool
+
+
+# ------------------------------------------------------------------ research files
+
+
+class FileUploadStarted(Out):
+    """Response body: an open upload and how to send its parts."""
+
+    upload_id: str
+    part_size: int
+    parts_total: int
+
+
+class FileUploadState(Out):
+    """Response body: which parts of an upload have arrived (send only the missing ones)."""
+
+    upload_id: str
+    status: str
+    parts_total: int
+    part_size: int
+    received: list[int]
+    missing: list[int]
+    file_id: str | None
+
+
+class FileUploadPart(Out):
+    """Response body: one stored part."""
+
+    part: int
+    size: int
+    sha256: str
+
+
+class FileUploadCompleted(Out):
+    """Response body: the file the upload produced (deduplicated: the same bytes existed)."""
+
+    file_id: str
+    status: str
+    deduplicated: bool
+
+
+class FileSummary(Out):
+    """Response body: one research file in a list."""
+
+    file_id: str
+    name: str
+    size_bytes: int
+    detected_type: str | None
+    status: str
+    stop_reason: str | None
+    units_done: int
+    created_at: str
+
+
+class FileList(Out):
+    """Response body: the workspace's research files, newest first."""
+
+    files: list[FileSummary]
+
+
+class FileStatus(Out):
+    """Response body: a research file's status, progress, findings and model spend."""
+
+    file_id: str
+    name: str
+    size_bytes: int
+    sha256: str
+    detected_type: str | None
+    status: str
+    stop_reason: str | None
+    stop_detail: str | None
+    units_done: int
+    findings: dict[str, int]
+    estimate: dict[str, Any] | None
+    spend: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+class FileFinding(Out):
+    """Response body: one audit result (the value of sensitive data is never included)."""
+
+    severity: str
+    check: str
+    location: dict[str, Any]
+    message: str
+    fix: str | None
+
+
+class FileAudit(Out):
+    """Response body: a page of the audit report and the counts by severity."""
+
+    file_id: str
+    counts: dict[str, int]
+    findings: list[FileFinding]
+    offset: int
+    limit: int
+
+
+class FileAnalytics(Out):
+    """Response body: profiles, document analytics and charts, each chart with its source."""
+
+    file_id: str
+    status: str
+    analytics: dict[str, Any] | None
+
+
+class FileCitation(Out):
+    """Response body: one cited part of the file (rows, page, slide, section or member)."""
+
+    id: str
+    seq: int
+    location: dict[str, Any]
+
+
+class FileAnswer(Out):
+    """Response body: an answer that cites the file, or the estimate awaiting approval."""
+
+    answer: str | None
+    citations: list[FileCitation]
+    source: str
+    needs_approval: bool
+    estimate: dict[str, Any] | None = None
+    passages: list[dict[str, Any]] | None = None
+    served_from: str | None = None
+    error: str | None = None
+
+
+class FileState(Out):
+    """Response body: a file's status after an action."""
+
+    file_id: str
+    status: str
+
+
+# ---- uploaded documents (input mode "file") ----------------------------------------------------
+
+
+class DocumentUploadStarted(Out):
+    """Response body: where to PUT a document's bytes (a signed URL, or the API content route)."""
+
+    document_id: str
+    upload_url: str
+    method: str
+    headers: dict[str, str]
+    expires_at: str
+    max_bytes: int
+    direct: bool
+
+
+class DocumentReceived(Out):
+    """Response body: bytes received into quarantine (not yet scanned)."""
+
+    document_id: str
+    received_bytes: int
+
+
+class DocumentStatus(Out):
+    """Response body: one document's processing status (scanning, parsing, indexed, failed)."""
+
+    document_id: str
+    account_id: str | None
+    name: str
+    status: str
+    stage: str
+    declared_type: str
+    detected_type: str | None
+    size_bytes: int
+    reason: str | None
+    message: str | None
+    passages: int
+    redactions: int
+    redaction_tier: str | None
+    authoritative: bool
+    company: dict[str, Any] | None
+    needs_company: bool
+    created_at: str
+
+
+class DocumentList(Out):
+    """Response body: the tenant's documents."""
+
+    documents: list[DocumentStatus]
+
+
+class DocumentDeleted(Out):
+    """Response body: what a deletion removed and marked."""
+
+    document_id: str
+    chunks_removed: int
+    facts_marked: int
+
+
+class CompanyConfirmed(Out):
+    """Response body: the account the documents now belong to."""
+
+    account_id: str
+    domain: str
+    document_ids: list[str]
+
+
+class DocumentEstimate(Out):
+    """Response body: the cost estimate shown before a file-mode run starts."""
+
+    documents: int
+    passages: int
+    model_calls: int
+    input_tokens: int
+    output_tokens: int
+    model: str | None
+    model_usd: float
+    embedding_usd: float
+    enrichment: bool
+    enrichment_cap_usd: float | None
+    total_ceiling_usd: float
+    note: str
+
+
+class DocumentPolicy(Out):
+    """Response body: the tenant's redaction tier."""
+
+    redaction_tier: str
+
+
+class DocumentFlag(Out):
+    """Response body: a document's authoritative flag."""
+
+    document_id: str
+    authoritative: bool
+
+
+class InternalFinding(Out):
+    """Response body: one file-derived fact with its grade and citation (Internal Only)."""
+
+    category: str
+    value: str
+    grade: str
+    citation: str
+    quote: str
+
+
+class InternalView(Out):
+    """Response body: the Internal Only view of a run (never in a client file)."""
+
+    run_id: str
+    label: str
+    source_label: str
+    documents: list[dict[str, Any]]
+    findings: list[InternalFinding]
+    public_run_id: str | None
+    public_findings: list[dict[str, Any]]
+    file_available: bool

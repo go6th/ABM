@@ -25,13 +25,23 @@ EXAMPLE = ROOT / ".env.example"
 KEY_LINE = re.compile(r"^#?\s*([A-Z][A-Z0-9_]+)=")
 # Read by the toolchain or the runtime itself, never by our code: not part of the contract.
 PLATFORM_VARS = {"NODE_ENV", "PYTHONPATH"}
-PROVIDER_HOSTS = (
-    "api.parallel.ai",
-    "api.firecrawl.dev",
-    "predictleads.com",
-    "api.bitscale.ai",
-    "api.sumble.com",
-)
+
+
+def _provider_hosts() -> tuple[str, ...]:
+    """Every provider host, read from the provider config (no vendor is named in code)."""
+    from urllib.parse import urlsplit
+
+    from account_intelligence.connectors.settings import load_providers_config
+
+    return tuple(
+        sorted(
+            {
+                urlsplit(p.base_url).hostname or ""
+                for p in load_providers_config().providers.values()
+            }
+            - {""}
+        )
+    )
 
 
 def _example_lines() -> list[str]:
@@ -54,7 +64,9 @@ def _web_server_env_reads() -> set[str]:
         for path in (ROOT / "web" / folder).rglob("*.ts*"):
             reads |= set(re.findall(r"process\.env\.([A-Z][A-Z0-9_]+)", path.read_text("utf-8")))
     for name in ("proxy.ts", "next.config.ts"):
-        reads |= set(re.findall(r"process\.env\.([A-Z][A-Z0-9_]+)", (ROOT / "web" / name).read_text()))
+        reads |= set(
+            re.findall(r"process\.env\.([A-Z][A-Z0-9_]+)", (ROOT / "web" / name).read_text())
+        )
     return reads - PLATFORM_VARS
 
 
@@ -72,7 +84,9 @@ def test_env_example_lists_exactly_what_the_code_reads() -> None:
     code = _registry_names() | _web_server_env_reads()
     example = set(_example_keys())
     assert not sorted(example - code), f"template keys no code reads: {sorted(example - code)}"
-    assert not sorted(code - example), f"read by code, missing from template: {sorted(code - example)}"
+    assert not sorted(code - example), (
+        f"read by code, missing from template: {sorted(code - example)}"
+    )
 
 
 def test_env_example_comments_sit_above_their_key() -> None:
@@ -82,16 +96,17 @@ def test_env_example_comments_sit_above_their_key() -> None:
     for number, line in enumerate(lines):
         if KEY_LINE.match(line) and not line.startswith("#"):
             assert " #" not in line.split("=", 1)[1], f"line {number + 1}: trailing comment"
+    from account_intelligence.connectors.registry_internal import vendor_names
+    from account_intelligence.connectors.settings import load_providers_config
+
+    # each provider key's label is the vendor's display name from config (never named in code)
     labels = {
-        "P_SEARCH_API_KEY": "Parallel",
-        "P_SCRAPE_API_KEY": "Firecrawl",
-        "P_SIGNALS_API_KEY": "PredictLeads",
-        "P_PEOPLE_API_KEY": "Bitscale",
-        "P_ORG_API_KEY": "Sumble",
+        f"{code.value.upper()}_API_KEY": name
+        for code, name in vendor_names(load_providers_config()).items()
     }
     for key, label in labels.items():
         index = next(i for i, line in enumerate(lines) if KEY_LINE.match(line) and key in line)
-        assert label in lines[index - 1], f"{key}: the line above must name {label}"
+        assert label.lower() in lines[index - 1].lower(), f"{key}: the line above must name it"
 
 
 def test_env_example_is_hermetic_and_valid_by_default() -> None:
@@ -99,8 +114,15 @@ def test_env_example_is_hermetic_and_valid_by_default() -> None:
     keys = _example_keys()
     assert keys["APP_ENV"] == "dev"
     assert keys["CONNECTORS"] == "off", "live providers must be an explicit opt-in"
-    for name in ("ANTHROPIC_API_KEY", "P_SEARCH_API_KEY", "P_SCRAPE_API_KEY", "P_SIGNALS_API_KEY",
-                 "P_SIGNALS_API_TOKEN", "P_PEOPLE_API_KEY", "P_ORG_API_KEY"):
+    for name in (
+        "ANTHROPIC_API_KEY",
+        "P_SEARCH_API_KEY",
+        "P_SCRAPE_API_KEY",
+        "P_SIGNALS_API_KEY",
+        "P_SIGNALS_API_TOKEN",
+        "P_PEOPLE_API_KEY",
+        "P_ORG_API_KEY",
+    ):
         assert keys[name] == "", f"{name} must ship empty, never a placeholder that looks set"
     assert keys["CHECKPOINT_DATABASE_URL"].startswith("postgresql://"), "checkpointer is psycopg"
     from account_intelligence.config import load_settings
@@ -108,8 +130,10 @@ def test_env_example_is_hermetic_and_valid_by_default() -> None:
     active = {
         k: v
         for k, v in keys.items()
-        if v and not any(line.startswith(f"#{k}=") or line.startswith(f"# {k}=")
-                         for line in _example_lines())
+        if v
+        and not any(
+            line.startswith(f"#{k}=") or line.startswith(f"# {k}=") for line in _example_lines()
+        )
     }
     load_settings(active)  # raises EnvironmentInvalid naming the variable
 
@@ -150,7 +174,10 @@ def _cfg(code: str) -> Any:
         ({"P_SIGNALS_API_KEY": "k" * 24}, False),  # signals needs the token too
         ({"P_SIGNALS_API_TOKEN": "t" * 24}, False),
         ({"P_SIGNALS_API_KEY": "k" * 24, "P_SIGNALS_API_TOKEN": "t" * 24}, True),
-        ({"P_SIGNALS_API_KEY": "your-predictleads-api-key", "P_SIGNALS_API_TOKEN": "t" * 24}, False),
+        (
+            {"P_SIGNALS_API_KEY": "your-signals-api-key", "P_SIGNALS_API_TOKEN": "t" * 24},
+            False,
+        ),
         ({"P_SIGNALS_API_KEY": "replace-with-key", "P_SIGNALS_API_TOKEN": "t" * 24}, False),
     ],
 )
@@ -170,7 +197,9 @@ def test_unconfigured_provider_sends_no_credential_at_all() -> None:
 
     half = auth_headers(_cfg("P_SIGNALS"), {"P_SIGNALS_API_KEY": "k" * 24})
     assert "x-api-key" not in half and "x-api-token" not in half
-    placeholder = auth_headers(_cfg("P_SEARCH"), {"P_SEARCH_API_KEY": "your-parallel-search-api-key"})
+    placeholder = auth_headers(
+        _cfg("P_SEARCH"), {"P_SEARCH_API_KEY": "your-parallel-search-api-key"}
+    )
     assert "x-api-key" not in placeholder
     full = auth_headers(
         _cfg("P_SIGNALS"), {"P_SIGNALS_API_KEY": "k" * 24, "P_SIGNALS_API_TOKEN": "t" * 24}
@@ -186,12 +215,14 @@ def test_provider_hosts_are_reached_only_by_the_broker_and_adapters() -> None:
         if "connectors" in path.relative_to(ROOT / "src").parts:
             continue
         text = path.read_text(encoding="utf-8")
-        offenders += [f"{path.relative_to(ROOT)}: {h}" for h in PROVIDER_HOSTS if h in text]
+        offenders += [f"{path.relative_to(ROOT)}: {h}" for h in _provider_hosts() if h in text]
     for folder in ("app", "lib", "components", "design"):
         for path in (ROOT / "web" / folder).rglob("*"):
             if path.suffix in {".ts", ".tsx", ".css", ".mjs"}:
                 text = path.read_text(encoding="utf-8")
-                offenders += [f"{path.relative_to(ROOT)}: {h}" for h in PROVIDER_HOSTS if h in text]
+                offenders += [
+                    f"{path.relative_to(ROOT)}: {h}" for h in _provider_hosts() if h in text
+                ]
     assert offenders == []
 
 
