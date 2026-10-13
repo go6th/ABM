@@ -488,7 +488,7 @@ cache work of the first pass too). Uncommitted. Audit before any change: `AUDIT.
 ## 2026-10-13 (third pass): Research files (upload any file, audit it, analyse it)
 
 Branch `feat/research-files` (from `feat/durable-runs`; carries the earlier uncommitted passes).
-Uncommitted. Plan before any change: `PLAN.md`.
+Uncommitted. Plan before any change: `PLAN.md` (superseded by `docs/build/PLAN.md`).
 
 ### Built (backend: `src/research_files/`, migration 0051)
 
