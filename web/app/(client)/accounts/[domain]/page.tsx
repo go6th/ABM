@@ -1,87 +1,144 @@
-// Overview: one paragraph summary, Key findings (graded) after a first scan, and What changed
-// since <date> only after a later refresh. An account built from files shows the file analysis.
-import type { AccountDetail, History, TablePage } from "@/lib/gen/api.gen";
+// The Account workspace as designed: breadcrumb, title and status line, Schedule and Refresh
+// from web, THE ONE MINUTE VERSION (each sentence links to its source), Key findings on a first
+// scan or What changed after a refresh, the account's composer, and on the right DEEP DIVE with
+// live counts and FILES. Another client's account and a missing one look the same: not found.
+import type { Metadata } from "next";
+import Link from "next/link";
+import type { AccountWorkspace } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
-import { GradeMark, toGrade } from "@/components/ws/GradeMark";
-import { FileAnalysis } from "@/components/ws/FileAnalysis";
-import { LoadError } from "@/ui/primitives";
-import { m } from "@/lib/messages";
-import { day, humanize, runState } from "@/lib/ws-format";
-import { cellText } from "@/lib/render";
+import { LINK_REL, safeLink } from "@/lib/render";
+import { Grade, Pill, StateCard } from "@/ui/design";
+import { FilesCard } from "@/components/accounts/FilesCard";
+import { AccountAsk } from "@/components/accounts/AccountAsk";
 
 export const dynamic = "force-dynamic";
 
-const ORDER = ["confirmed", "probable", "hypothesis", "lead"];
+type Params = { params: Promise<{ domain: string }> };
 
-export default async function AccountOverview({ params }: { params: Promise<{ domain: string }> }) {
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const domain = decodeURIComponent((await params).domain);
-  const base = `/v1/accounts/${encodeURIComponent(domain)}`;
+  return { title: `${domain} · Account Intelligence` };
+}
+
+function joinAnd(items: string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+export default async function AccountWorkspacePage({ params }: Params) {
+  const domain = decodeURIComponent((await params).domain);
   const here = `/accounts/${encodeURIComponent(domain)}`;
-  let account: AccountDetail | null = null;
-  let facts: TablePage | null = null;
-  let history: History | null = null;
-  let reference: string | null | undefined;
+  let ws: AccountWorkspace | null = null;
+  let failed = false;
   try {
-    account = await serverGet<AccountDetail>(base, here);
-    if (account) [facts, history] = await Promise.all([serverGet<TablePage>(`${base}/tables/facts`, here, [409]), serverGet<History>(`${base}/history`, here)]);
+    ws = await serverGet<AccountWorkspace>(`/v1/accounts/${encodeURIComponent(domain)}/workspace`, here);
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
-    reference = e.reference;
+    failed = true;
   }
-  if (reference !== undefined) return <LoadError reference={reference} retryHref={here} />;
-  if (!account) return null;
-  const done = [...account.runs].filter((r) => runState(r.status) === "done").sort((a, b) => b.created_at.localeCompare(a.created_at));
-  const latest = done[0] ?? null;
-  const previous = done[1] ?? null;
-  const fileRun = latest?.mode === "file" ? latest : null;
-  const known = (facts?.rows ?? [])
-    .map((r) => ({ id: r.row_id ?? String(r.position), ref: r.ref, grade: toGrade(r.cells.grade), finding: cellText(r.cells.finding ?? r.cells.value, 400), question: cellText(r.cells.question, 300), url: r.source.url }))
-    .filter((f) => f.finding && f.grade)
-    .sort((a, b) => ORDER.indexOf(a.grade!) - ORDER.indexOf(b.grade!));
-  const summary = known.filter((f) => f.grade === "confirmed").slice(0, 3).map((f) => f.finding.replace(/\.?$/, "."));
-  const changed = (history?.history ?? []).slice(0, 8);
+  if (failed || !ws) {
+    return (
+      <div className="pg">
+        <Link className="back" href="/accounts">‹ Accounts</Link>
+        {failed
+          ? <StateCard title="This account could not be loaded" body="Your workspace could not be reached. Reload the page in a moment." action={<a className="btn" href={here}>Reload</a>} />
+          : <StateCard title="Account not found" body="It is not in your workspace." action={<Link className="btn" href="/accounts">Back to accounts</Link>} />}
+      </div>
+    );
+  }
+  const name = ws.name ?? ws.domain;
+  const d = encodeURIComponent(ws.domain);
+  const rail: Array<[string, string, number]> = [
+    ["Signals", `${here}/signals`, ws.counts.signals],
+    ["People", `${here}/people`, ws.counts.people],
+    ["Job postings", `${here}/jobs`, ws.counts.jobs],
+    ["Tech stack and teams", `${here}/technology`, ws.counts.tech],
+    ["News", `${here}/news`, ws.counts.news],
+    ["From your mail and drive", `${here}/mail-and-drive`, ws.counts.mail_drive],
+    ["Sources", `${here}/sources`, ws.counts.sources],
+  ];
   return (
-    <div className="stack-lg">
-      <p className="summary">{summary.length ? summary.join(" ") : m.account.summaryEmpty}</p>
-      {fileRun ? <FileAnalysis runId={fileRun.run_id} domain={domain} /> : null}
-      <section className="section" aria-labelledby="findings">
-        <h2 id="findings">{m.account.findings}</h2>
-        {known.length ? (
-          <ul className="facts">
-            {known.slice(0, 12).map((f) => (
-              <li key={f.id}>
-                <GradeMark grade={f.grade!} />
-                <div>
-                  <p>{f.finding}</p>
-                  {f.grade === "hypothesis" && f.question ? <p className="cite">{f.question}</p> : null}
-                  {f.ref ? <p className="cite"><a href={`${here}/sources?ref=${encodeURIComponent(f.ref)}`}>Source {cellText(f.ref)}</a></p> : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="muted">{m.account.findingsEmpty}</p>}
-      </section>
-      {previous ? (
-        <section className="section" aria-labelledby="changed">
-          <h2 id="changed">{m.account.changed(day(previous.finished_at ?? previous.created_at))}</h2>
-          {changed.length ? (
-            <ul className="rows">
-              {changed.map((c) => {
-                const grade = toGrade(c.grade);
-                return (
-                  <li key={c.fact_id}>
-                    <div>
-                      <p>{humanize(c.signal_type)}{c.attribute ? `: ${cellText(c.attribute, 120)}` : ""}</p>
-                      <span className="sub">{cellText(c.reason, 200)}</span>
-                    </div>
-                    <div className="end">{grade ? <GradeMark grade={grade} /> : null} {day(c.expired_at)}</div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : <p className="muted">{m.account.changedEmpty}</p>}
+    <div className="split">
+      <div className="primary-col">
+        <div className="head">
+          <div className="ttl">
+            <Link className="back" href="/accounts" prefetch={false}>‹ Accounts</Link>
+            <h1 className="big">{name}</h1>
+            <div className="sub">{ws.subline}</div>
+          </div>
+          <Link className="btn" href={`/schedules#${d}`} prefetch={false}>Schedule</Link>
+          <Link className="btn" href={`${here}/refresh`} prefetch={false}>Refresh from web</Link>
+        </div>
+
+        <section className="card pad-lg stack-10" aria-labelledby="omv">
+          <div className="lbl" id="omv">The one minute version</div>
+          {ws.narrative ? (
+            <>
+              <p className="narr">
+                {ws.narrative.sentences.map((s, i) => {
+                  const href = safeLink(s.source_url ?? "");
+                  return (
+                    <span key={i}>
+                      {s.text}
+                      {href ? (
+                        <a className="cite" href={href} target="_blank" rel={LINK_REL} aria-label={`Source ${i + 1}: ${s.source_title ?? "source"}`}>{i + 1}</a>
+                      ) : null}
+                      {i < ws.narrative!.sentences.length - 1 ? " " : ""}
+                    </span>
+                  );
+                })}
+              </p>
+              <div className="fine">Every statement links to its source in <Link href={`${here}/sources`}>Sources</Link>.</div>
+            </>
+          ) : (
+            <p className="mut">A summary appears here when the first research finishes.</p>
+          )}
         </section>
-      ) : null}
+
+        {ws.changes ? (
+          <section className="stack-10" aria-labelledby="changed">
+            <h2 id="changed">What changed since {ws.changes.since}</h2>
+            <div className="card list">
+              {ws.changes.rows.map((r, i) => (
+                <div key={i} className="lrow"><Grade grade={r.grade} /><span className="grow">{r.text}</span><span className="when">{r.when}</span></div>
+              ))}
+              {ws.changes.quiet_lanes.length ? (
+                <div className="lrow"><Pill tone="neutral" small>No change</Pill><span className="grow">{joinAnd(ws.changes.quiet_lanes)} lanes</span><span className="when">This week</span></div>
+              ) : null}
+              {!ws.changes.rows.length && !ws.changes.quiet_lanes.length ? (
+                <div className="lrow"><Pill tone="neutral" small>No change</Pill><span className="grow">Nothing material changed in the latest refresh</span></div>
+              ) : null}
+            </div>
+          </section>
+        ) : (
+          <section className="stack-10" aria-labelledby="findings">
+            <h2 id="findings">Key findings</h2>
+            {ws.findings.length ? (
+              <div className="card list">
+                {ws.findings.map((r, i) => (
+                  <div key={i} className="lrow"><Grade grade={r.grade} /><span className="grow">{r.text}</span><span className="when">{r.when}</span></div>
+                ))}
+              </div>
+            ) : (
+              <div className="card list"><div className="lrow mut">No findings yet.</div></div>
+            )}
+            {ws.first_scan ? (
+              <div className="fine">This is the first scan, so there is nothing to compare yet. After the next refresh, a What changed section appears here.</div>
+            ) : null}
+          </section>
+        )}
+
+        <AccountAsk account={{ id: ws.id ?? "", domain: ws.domain, name }} />
+      </div>
+
+      <div className="side-col">
+        <nav className="card rail" aria-label="Deep dive">
+          <div className="lbl">Deep dive</div>
+          {rail.map(([label, href, n]) => (
+            <Link key={label} href={href} prefetch={false}>{label}<span className="n">{n}</span></Link>
+          ))}
+        </nav>
+        <FilesCard domain={ws.domain} files={ws.files} />
+      </div>
     </div>
   );
 }

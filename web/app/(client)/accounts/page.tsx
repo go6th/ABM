@@ -1,58 +1,88 @@
-// Accounts: a table of account, last researched, schedule and new signals. Click a row to open
-// it. One button: New research.
+// Accounts as designed: every account with its latest news in a sub-line (new signals, first
+// scan complete, no change, researching, waiting for credits), its lanes, when it was last
+// researched and its refresh schedule. The whole row opens the account.
+import type { Metadata } from "next";
 import Link from "next/link";
-import type { AccountItem, AccountPage, SignalPage } from "@/lib/gen/api.gen";
+import type { AccountPage } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
-import { EmptyState, LoadError, PageHead } from "@/ui/primitives";
-import { m } from "@/lib/messages";
-import { ago, runState } from "@/lib/ws-format";
-import { cellText } from "@/lib/render";
-import { AccountRows } from "@/components/ws/AccountRows";
+import { StateCard } from "@/ui/design";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Accounts · Account Intelligence" };
 
-function researched(a: AccountItem): { text: string; tone: "ok" | "warn" | "bad" | "neutral" } {
-  const state = runState(a.latest_run?.status);
-  if (state === "running") return { text: a.latest_run?.status.toUpperCase() === "AWAITING_APPROVAL" ? m.accounts.paused : m.accounts.running, tone: "warn" };
-  if (state === "failed") return { text: m.accounts.failed, tone: "bad" };
-  if (state === "done") return { text: ago(a.latest_run?.created_at), tone: "ok" };
-  return { text: m.accounts.never, tone: "neutral" };
-}
+type Item = AccountPage["accounts"][number];
 
-/** New signals per account in the last seven days (counts only). */
-function freshSignals(items: SignalPage["items"], now = Date.now()): Map<string, number> {
-  const weekAgo = now - 7 * 86_400_000;
-  const fresh = new Map<string, number>();
-  for (const s of items) {
-    if (s.sensitive || new Date(s.detected_at).getTime() < weekAgo) continue;
-    fresh.set(s.account, (fresh.get(s.account) ?? 0) + 1);
+function subline(a: Item): { text: string; tone: string } {
+  switch (a.state) {
+    case "new_signals": return { text: `${a.new_signals} new signal${a.new_signals === 1 ? "" : "s"}`, tone: "ok" };
+    case "first_scan": return { text: "First scan complete", tone: "" };
+    case "no_change": return { text: "No change", tone: "" };
+    case "researching": return { text: "Researching", tone: "run" };
+    case "waiting_credit_limit": return { text: "Waiting: credit limit", tone: "warn" };
+    case "failed": return { text: "Last refresh did not finish", tone: "warn" };
+    default: return { text: "Not researched yet", tone: "" };
   }
-  return fresh;
 }
 
-export default async function Accounts() {
+export default async function AccountsPage() {
   let page: AccountPage | null = null;
-  let signals: SignalPage | null = null;
-  let reference: string | null | undefined;
+  let failed = false;
   try {
-    [page, signals] = await Promise.all([serverGet<AccountPage>("/v1/accounts?limit=200", "/accounts"), serverGet<SignalPage>("/v1/signals", "/accounts")]);
+    page = await serverGet<AccountPage>("/v1/accounts?limit=200", "/accounts");
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
-    reference = e.reference;
+    failed = true;
   }
-  const accounts = (page?.accounts ?? []).slice().sort((a, b) => (b.latest_run?.created_at ?? "").localeCompare(a.latest_run?.created_at ?? "") || a.domain.localeCompare(b.domain));
-  const fresh = freshSignals(signals?.items ?? []);
-  const rows = accounts.map((a) => {
-    const r = researched(a);
-    return { domain: a.domain, name: cellText(a.name ?? a.domain), researched: r.text, tone: r.tone, signals: fresh.get(a.domain) ?? 0 };
-  });
+  // Most news first, then most recently researched; on the same day an account that has been
+  // refreshed before one with only a first scan, then by name.
+  const watched = (a: Item) => (a.state === "new_signals" || a.state === "no_change" ? 0 : 1);
+  const accounts = [...(page?.accounts ?? [])].sort((x, y) =>
+    (y.new_signals ?? 0) - (x.new_signals ?? 0)
+    || (y.last_researched_at ?? "").slice(0, 10).localeCompare((x.last_researched_at ?? "").slice(0, 10))
+    || watched(x) - watched(y)
+    || (x.name ?? x.domain).localeCompare(y.name ?? y.domain));
   return (
-    <div className="page">
-      <PageHead title={m.accounts.title} sub={m.accounts.sub(accounts.length)} actions={<Link className="btn primary" href="/research/new">{m.accounts.newResearch}</Link>} />
-      {reference !== undefined ? <LoadError reference={reference} retryHref="/accounts" /> : accounts.length === 0 ? (
-        <EmptyState title={m.accounts.emptyTitle} body={m.accounts.emptyBody} />
+    <div className="pg">
+      <div className="head">
+        <div className="ttl">
+          <h1>Accounts</h1>
+          <div className="sub">{accounts.length} account{accounts.length === 1 ? "" : "s"} in your workspace</div>
+        </div>
+        <Link className="btn primary" href="/accounts/add" prefetch={false}>Add account</Link>
+      </div>
+      {failed ? (
+        <StateCard title="Accounts could not be loaded" body="Your workspace could not be reached. Reload the page in a moment." action={<a className="btn" href="/accounts">Reload</a>} />
+      ) : accounts.length === 0 ? (
+        <StateCard
+          title="No accounts yet"
+          body="Research a company, add ready-made research shared with your team, or analyze your own file."
+          action={<Link className="btn primary" href="/accounts/add">Add account</Link>}
+        />
       ) : (
-        <AccountRows rows={rows} />
+        <div className="card tscroll">
+          <div className="trow th cols-accounts" aria-hidden="true">
+            <span>Account</span><span>Lanes</span><span>Last researched</span><span>Refresh</span><span />
+          </div>
+          <ul aria-label="Accounts">
+            {accounts.map((a) => {
+              const sub = subline(a);
+              return (
+                <li key={a.domain}>
+                  <Link className="trow cols-accounts" href={`/accounts/${encodeURIComponent(a.domain)}`} prefetch={false}>
+                    <span className="strong">
+                      {a.name ?? a.domain}
+                      <span className={`sub ${sub.tone}`}>{sub.text}</span>
+                    </span>
+                    <span className="mut">{a.lanes?.length ? a.lanes.join(", ") : "No lanes yet"}</span>
+                    <span>{a.last_researched_label}</span>
+                    <span className="mut">{a.cadence_label}</span>
+                    <span className="chev" aria-hidden="true">›</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </div>
   );
