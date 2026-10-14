@@ -136,7 +136,7 @@ def load_chat_registry(path: Path | None = None) -> ChatRegistry:
     if data.get("version") != 1:
         raise ChatConfigInvalid("registry version must be 1")
     provider_data = _mapping(data.get("providers"), "providers")
-    unsupported = set(provider_data) - {"anthropic"}
+    unsupported = set(provider_data) - {"anthropic", "moonshot"}
     if unsupported:
         raise ChatConfigInvalid("provider has no configured server adapter")
     enabled: set[str] = set()

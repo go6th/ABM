@@ -11,6 +11,9 @@ providers:
   anthropic:
     enabled: true
     credential_source: env_or_secret_manager
+  moonshot:
+    enabled: true
+    credential_source: env_or_secret_manager
 models:
   - id: claude-sonnet-5-5
     provider: anthropic
@@ -41,4 +44,15 @@ models:
     cache_read_usd_per_million: "0.20"
     context_window: 1000000
     max_output_tokens: 128000
+    capabilities: {streaming: true, vision: false, tool_use: false}
+  - id: kimi-k3
+    provider: moonshot
+    display_name: Kimi K3
+    # platform.kimi.ai/docs/pricing/chat, read 2026-10-14 (cache write at the default 5 min TTL)
+    input_usd_per_million: "3.00"
+    output_usd_per_million: "15.00"
+    cache_write_usd_per_million: "3.00"
+    cache_read_usd_per_million: "0.30"
+    context_window: 1048576
+    max_output_tokens: 131072
     capabilities: {streaming: true, vision: false, tool_use: false}

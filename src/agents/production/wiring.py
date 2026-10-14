@@ -78,16 +78,43 @@ class RunDepsModel:
         )
         user = json.dumps(dict(payload))
         tokens = 0
-        # LOOP(agent schema re-ask): cap=2 attempts; exit=valid reply, SchemaInvalid
-        for attempt in range(2):
+        override: str | None = None
+        # LOOP(agent schema re-ask): cap=2 attempts, then 2 on the Claude default when the
+        # chosen model is Kimi K3; exit=valid reply, SchemaInvalid
+        for attempt in range(4):
+            if attempt == 2:
+                override = await self._fallback(task_kind)
+                if override is None:
+                    break
             result = await self.deps.model(
-                task_kind, system, user + (REASK_NOTE if attempt else "")
+                task_kind, system, user + (REASK_NOTE if attempt % 2 else ""), model=override
             )
             tokens += int(result.usage.input_tokens + result.usage.output_tokens)
             validated = validate(result.text, output)
             if validated is not None:
                 return validated, tokens
         raise SchemaInvalid(f"{task_kind}: output failed its schema")
+
+    async def _fallback(self, task_kind: str) -> str | None:
+        """A step whose chosen model is not Claude and could not meet the strict schema falls
+        back to the Claude default of its role; the run records the step and why (owner
+        decision 2026-10-14). None when there is nothing to fall back to."""
+        from llm.choice import catalogue, claude_default
+        from llm.tasks import LEGACY_TIER
+
+        tier = LEGACY_TIER[task_kind]
+        chosen = self.deps.chosen_model(tier)
+        model = catalogue().get(chosen) if chosen else None
+        if model is None or model.provider == "anthropic":
+            return None
+        role = "research" if tier in catalogue().research_tiers else "analysis"
+        target = claude_default(role)
+        self.deps.models.fell_back(task_kind, chosen, target, "schema_invalid")
+        from account_intelligence.runs import lifecycle
+
+        async with self.deps.txn(self.deps.tenant_id) as s:
+            await lifecycle.record_models(s, self.deps.run_id, self.deps.models.as_json())
+        return target
 
 
 class _NoConnectors:

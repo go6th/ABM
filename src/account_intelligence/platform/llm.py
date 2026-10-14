@@ -155,3 +155,49 @@ def vertex_client(project_id: str, region: str) -> Any:
     import anthropic
 
     return anthropic.AsyncAnthropicVertex(project_id=project_id, region=region, max_retries=0)
+
+
+class ChoiceLlm:
+    """The live model port with the user's model choice (owner decision 2026-10-14): ``complete``
+    serves a tier with its configured route, as before; ``complete_as`` serves a tier with a
+    chosen model, on the Anthropic port for Claude models and on the Moonshot client for Kimi K3
+    (``llm.adapters.moonshot_api``), keeping the tier's effort and token limit. A provider that is
+    not set up raises ``NotConfigured``; the API refuses such a choice before any work starts."""
+
+    def __init__(self, anthropic: AnthropicLlm | None, moonshot: Any | None = None) -> None:
+        self.anthropic = anthropic
+        self.moonshot = moonshot
+        self.routes = dict(anthropic.routes) if anthropic is not None else {}
+        self.client = getattr(anthropic, "client", None)
+
+    async def complete(self, tier: str, system: str, user: str, *, max_tokens: int) -> LlmResult:
+        """The tier's configured route (the default models)."""
+        if self.anthropic is None:
+            raise NotConfigured("no Anthropic model access is configured")
+        return await self.anthropic.complete(tier, system, user, max_tokens=max_tokens)
+
+    async def complete_as(
+        self, model: str, tier: str, system: str, user: str, *, max_tokens: int
+    ) -> LlmResult:
+        """One call of ``tier`` on ``model``."""
+        from dataclasses import replace
+
+        from llm.choice import catalogue
+
+        choice = catalogue().get(model)
+        route = self.routes.get(tier)
+        if choice is None or route is None:
+            raise NotConfigured(f"tier {tier} or model choice is not configured")
+        if choice.provider == "moonshot":
+            if self.moonshot is None:
+                raise NotConfigured("Kimi K3 is not set up (MOONSHOT_API_KEY)")
+            result: LlmResult = await self.moonshot.complete(
+                model, system, user, max_tokens=max_tokens, effort=route.effort
+            )
+            return result
+        if self.anthropic is None:
+            raise NotConfigured("no Anthropic model access is configured")
+        chosen = AnthropicLlm(
+            self.anthropic.client, {tier: replace(route, model=model)}, self.anthropic.provider
+        )
+        return await chosen.complete(tier, system, user, max_tokens=max_tokens)

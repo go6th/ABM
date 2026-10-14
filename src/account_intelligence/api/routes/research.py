@@ -28,9 +28,11 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica import jobs
+from account_intelligence.replica import models as M
 from account_intelligence.replica.settings import accounts_used, client_settings
 from account_intelligence.runs import lifecycle
 
@@ -71,6 +73,9 @@ class ResearchBody(BaseModel):
     company_name: str = Field(min_length=1, max_length=200)
     domain: str = Field(pattern=DOMAIN, max_length=253)
     credits: int = Field(ge=1, le=100_000)
+    # the models chosen on the screen (owner decision 2026-10-14); None: the user's current ones
+    research_model: str | None = Field(default=None, min_length=1, max_length=64)
+    analysis_model: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 @router.post("", response_model=C.ResearchStarted, status_code=201)
@@ -99,6 +104,12 @@ async def start_research(
                 "This company is on your exclusion list.",
             )
         est = await CR.estimate(s, None, "new_research")
+        try:
+            models = await M.resolve(
+                s, ident.user_id, research=body.research_model, analysis=body.analysis_model
+            )
+        except M.ModelRefused as error:
+            raise refused(error) from None
         if est.credits != body.credits:
             raise APIProblem(
                 409,
@@ -121,6 +132,7 @@ async def start_research(
                 actor=ident.user_id,
                 now=now,
                 request_id=body.request_id,
+                models=models.as_json(),
             )
         except CR.JobOpen:
             raise APIProblem(

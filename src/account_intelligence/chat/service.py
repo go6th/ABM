@@ -298,6 +298,60 @@ class AnthropicChatProvider:
         )
 
 
+class MoonshotChatProvider:
+    """Kimi K3 for Ask (owner decision 2026-10-14): the same events as the Anthropic provider,
+    from Moonshot's streamed Chat Completions (``llm.adapters.moonshot_api``)."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    async def stream(
+        self,
+        model: ChatModel,
+        messages: Sequence[ChatMessage],
+        max_output_tokens: int,
+        *,
+        user_id: str | None = None,
+        request_id: str | None = None,
+        fresh_output: bool = True,
+        context: str = "",
+        system: str | None = None,
+    ) -> AsyncIterator[ChatEvent]:
+        """Stream text and final token counts; provider exceptions retain no user text."""
+        del user_id, request_id, fresh_output
+        async for kind, value in self._client.stream(
+            model.id,
+            system or grounded_system_prompt(context, max_output_tokens),
+            [{"role": m.role, "content": m.content} for m in messages],
+            max_tokens=max_output_tokens,
+            effort="low",
+        ):
+            if kind == "text":
+                yield ChatEvent("text", text=str(value))
+            else:
+                yield ChatEvent(
+                    "usage",
+                    usage=ChatUsage(
+                        input_tokens=value.input_tokens,
+                        output_tokens=value.output_tokens,
+                        cache_read_tokens=value.cache_read_input_tokens or 0,
+                        cache_write_tokens=value.cache_creation_input_tokens or 0,
+                    ),
+                )
+
+
+class ProviderByModel:
+    """Each Ask model's provider: Anthropic for Claude, Moonshot for Kimi K3. A provider that is
+    not set up is absent, and its models are greyed out before anyone presses Send."""
+
+    def __init__(self, providers: Mapping[str, ChatProvider]) -> None:
+        self.providers = dict(providers)
+
+    def for_model(self, provider: str) -> ChatProvider | None:
+        """The provider adapter by provider name."""
+        return self.providers.get(provider)
+
+
 class ChatService:
     """Validated model selection and spend estimation shared by routes and tests."""
 

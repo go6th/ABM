@@ -79,6 +79,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client = getattr(container.llm, "client", None)
     provider = AnthropicChatProvider(client) if client is not None else None
     app.state.chat_service = ChatService(get_chat_registry(), provider)
+    # each Ask model's provider (owner decision 2026-10-14): Kimi K3 streams from Moonshot
+    from account_intelligence.chat.service import MoonshotChatProvider, ProviderByModel
+
+    moonshot = getattr(container.llm, "moonshot", None)
+    app.state.chat_providers = ProviderByModel(
+        {
+            **({"anthropic": provider} if provider is not None else {}),
+            **({"moonshot": MoonshotChatProvider(moonshot)} if moonshot is not None else {}),
+        }
+    )
     from account_intelligence.chat.credentials import TenantModelKeyStore
 
     app.state.tenant_model_keys = TenantModelKeyStore(settings.byok_kms_key)

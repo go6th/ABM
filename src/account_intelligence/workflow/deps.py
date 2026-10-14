@@ -73,9 +73,9 @@ class RunDeps:
     dev_auto_approve: bool = False
     # model routing (D-48): with a router every call goes through it; None uses ``llm`` directly
     router: Any | None = None
-    # the admin console's Model split (platform defaults): "split" or "single"; the router applies
-    # it (``llm.config.with_model_split``); the legacy path has fixed per-step models
-    model_split: str = "split"
+    # the models this run uses (``llm.choice.RunModels``: the user's research and analysis
+    # models, owner decision 2026-10-14); None serves every tier with its configured route
+    models: Any | None = None
     # research cache: the model reply log and cross-run reply reuse (``llm.reply_cache``)
     reply_cache: Any | None = None
 
@@ -118,7 +118,13 @@ class RunDeps:
         )
 
     async def model(
-        self, task_kind: str, system: str, user: str, *, data_class: str = "public_web"
+        self,
+        task_kind: str,
+        system: str,
+        user: str,
+        *,
+        data_class: str = "public_web",
+        model: str | None = None,
     ) -> LlmResult:
         """One model call named by its task kind (R2): the knobs come from config (R7); with a
         router the call is routed, recorded and replayable; otherwise the legacy port serves it."""
@@ -127,7 +133,7 @@ class RunDeps:
         kind = require(task_kind)
         if self.router is None:
             return await self._legacy_model(
-                task_kind, system, user, kind.max_tokens, bool(kind.cacheable)
+                task_kind, system, user, kind.max_tokens, bool(kind.cacheable), model
             )
         from llm.models import Scope
         from llm.prompts import prompt_hash
@@ -155,8 +161,32 @@ class RunDeps:
             extra={"degraded": routed.record.degraded, "replayed": routed.replayed},
         )
 
+    def chosen_model(self, tier: str, override: str | None = None) -> str | None:
+        """The model a tier runs on: ``override`` (a fallback), else the run's choice for the
+        tier; None when the run has no choice or the port cannot take one (the tier's route)."""
+        if override is not None:
+            return override
+        if self.models is None or not hasattr(self.llm, "complete_as"):
+            return None
+        return str(self.models.for_tier(tier))
+
+    def _cache_tier(self, tier: str, model: str | None) -> str:
+        """The tier as the reply keys name it: the bare tier for the tier's configured model (so
+        replies stored before the model choice existed are still reused, never paid again), the
+        tier and model for any other model (a choice gets that model's answers)."""
+        route = getattr(self.llm, "routes", {}).get(tier)
+        if model is None or model == getattr(route, "model", None):
+            return tier
+        return f"{tier}@{model}"
+
     async def _legacy_model(
-        self, task_kind: str, system: str, user: str, max_tokens: int, replayable: bool
+        self,
+        task_kind: str,
+        system: str,
+        user: str,
+        max_tokens: int,
+        replayable: bool,
+        override: str | None = None,
     ) -> LlmResult:
         """The legacy port with two layers of reuse and a log of every call:
 
@@ -177,13 +207,15 @@ class RunDeps:
         from llm.tasks import LEGACY_TIER
 
         tier = LEGACY_TIER[task_kind]
+        model = self.chosen_model(tier, override)
+        key_tier = self._cache_tier(tier, model)
         if not replayable:
-            await self._log_started(task_kind, tier, None)
-            result = await self._complete(tier, system, user, max_tokens)
+            await self._log_started(task_kind, tier, None, model)
+            result = await self._complete(tier, system, user, max_tokens, model)
             await self._log_reply(task_kind, tier, result, "model", None, None)
             return result
         digest = hashlib.sha256(
-            json.dumps([task_kind, tier, max_tokens, system, user]).encode()
+            json.dumps([task_kind, key_tier, max_tokens, system, user]).encode()
         ).hexdigest()
         key = self.payload_key("model_replies", f"{digest}.json")
         try:
@@ -191,7 +223,9 @@ class RunDeps:
             return LlmResult(stored["text"], stored["model"], LlmUsage(0, 0))
         except PayloadMissing:
             pass
-        shared_key = reply_key(task_kind, tier, max_tokens, system, normalise(user, self.run_id))
+        shared_key = reply_key(
+            task_kind, key_tier, max_tokens, system, normalise(user, self.run_id)
+        )
         if self.reply_cache is not None and (self.reuse_cached or self.resume_from):
             hit = await self.reply_cache.get(
                 self.tenant_id, shared_key, self.clock.now(), source_run=self.resume_from
@@ -209,8 +243,8 @@ class RunDeps:
                 )
                 await self._log_reply(task_kind, tier, result, "cache", shared_key, None)
                 return result
-        await self._log_started(task_kind, tier, shared_key)
-        result = await self._complete(tier, system, user, max_tokens)
+        await self._log_started(task_kind, tier, shared_key, model)
+        result = await self._complete(tier, system, user, max_tokens, model)
         if result.text.strip():  # an empty answer is not kept: a re-run asks again
             await self.payloads.put(
                 key, json.dumps({"text": result.text, "model": result.model}).encode()
@@ -222,7 +256,9 @@ class RunDeps:
             await self._log_reply(task_kind, tier, result, "model", shared_key, None)
         return result
 
-    async def _log_started(self, task_kind: str, tier: str, shared_key: str | None) -> None:
+    async def _log_started(
+        self, task_kind: str, tier: str, shared_key: str | None, chosen: str | None = None
+    ) -> None:
         """Write-ahead: one ``started`` row before the paid model request (no text, no tokens),
         so a call the process died in stays visible. Never a reuse hit; never fails the call."""
         if self.reply_cache is None:
@@ -230,7 +266,7 @@ class RunDeps:
         from llm.reply_cache import ReplyUsage
 
         route = getattr(self.llm, "routes", {}).get(tier)
-        model = str(getattr(route, "model", "") or tier)
+        model = chosen or str(getattr(route, "model", "") or tier)
         try:
             await self.reply_cache.record(
                 self.tenant_id,
@@ -284,13 +320,20 @@ class RunDeps:
         except Exception:  # noqa: BLE001 - the log is an aid; the answer is what matters
             return
 
-    async def _complete(self, tier: str, system: str, user: str, max_tokens: int) -> LlmResult:
+    async def _complete(
+        self, tier: str, system: str, user: str, max_tokens: int, model: str | None = None
+    ) -> LlmResult:
         """One legacy call, its SDK errors typed like the router's adapter: a 429, overload, 5xx,
         timeout or dropped connection is ``Overloaded`` (retryable), so the node RetryPolicy
         retries it (W6; the SDK client's own retries are off)."""
         from llm.adapters.anthropic_api import map_error
 
         try:
+            if model is not None:
+                result: LlmResult = await self.llm.complete_as(
+                    model, tier, system, user, max_tokens=max_tokens
+                )
+                return result
             return await self.llm.complete(tier, system, user, max_tokens=max_tokens)
         except Exception as error:
             mapped = map_error(error)

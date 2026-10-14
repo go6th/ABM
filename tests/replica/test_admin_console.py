@@ -213,7 +213,10 @@ async def test_terminated_access_is_refused_everywhere_and_re_enabled(
 
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
-async def test_platform_defaults_and_model_split(staff_env: None) -> None:
+async def test_platform_defaults_and_the_model_choice(staff_env: None) -> None:
+    from llm.choice import catalogue
+
+    opus, fable, kimi = catalogue().ids
     plane = make_app()
     before = (await _staff(plane, "GET", "/operator/v1/console/defaults")).json()
     assert before["admins"] == [
@@ -221,22 +224,28 @@ async def test_platform_defaults_and_model_split(staff_env: None) -> None:
         {"email": "dev@6th.example", "role": "Support"},
     ]
     assert before["skill_version"] and before["model_router_on"] is False
+    assert (before["default_research_model"], before["default_analysis_model"]) == (opus, fable)
+    assert [m["id"] for m in before["models"]] == [opus, fable, kimi]
+    assert [m["needs_client_permission"] for m in before["models"]] == [False, False, True]
     try:
         r = await _staff(
             plane,
             "PUT",
             "/operator/v1/console/defaults",
-            json={"model_split": "single", "credit_cap_per_pull": 350},
+            json={"default_analysis_model": opus, "credit_cap_per_pull": 350},
         )
         assert r.status_code == 200, r.text
-        assert (r.json()["model_split"], r.json()["credit_cap_per_pull"]) == ("single", 350)
-        assert (
-            await _staff(plane, "PUT", "/operator/v1/console/defaults", json={"model_split": "x"})
-        ).status_code == 422
+        assert (r.json()["default_analysis_model"], r.json()["credit_cap_per_pull"]) == (opus, 350)
+        for bad in (
+            {"default_research_model": "unknown"},
+            {"enabled_models": [opus], "default_analysis_model": fable},  # default not enabled
+        ):
+            got = await _staff(plane, "PUT", "/operator/v1/console/defaults", json=bad)
+            assert got.status_code == 422, (bad, got.text)
     finally:
         _db(
-            "UPDATE platform_defaults SET model_split = %s, credit_cap_per_pull = %s WHERE id = 1",
-            before["model_split"],
+            "UPDATE platform_defaults SET enabled_models = NULL, default_research_model = NULL,"
+            " default_analysis_model = NULL, credit_cap_per_pull = %s WHERE id = 1",
             before["credit_cap_per_pull"],
         )
 

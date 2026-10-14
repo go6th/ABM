@@ -9,9 +9,9 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **194**.
-- Frontend literal call sites found: **84**.
-- Frontend call sites mapped to backend operations: **79**.
+- Backend operations in OpenAPI: **196**.
+- Frontend literal call sites found: **86**.
+- Frontend call sites mapped to backend operations: **81**.
 - Backend operations without a direct frontend call site: **130**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
@@ -84,6 +84,8 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/FileUploader.tsx` | tenant client | `PUT /v1/files/uploads/{upload_id}/parts/{part_no}` | — | FileUploadPart | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{kind}/connect` | — | MailDriveConnect | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{family}/disconnect` | — | MailDriveDisconnected | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
+| `web/components/ModelPreferences.tsx` | tenant client | `PUT /v1/me/model-preferences` | Preferences (required) | ModelChoices | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
+| `web/components/ModelMenu.tsx` | tenant client | `GET /v1/models/choices` | — | ModelChoices | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/WorkspaceShell.tsx` | tenant client | `POST /v1/notifications/{notification_id}/read` | — | NotificationRead | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/components/accounts/ResearchCompany.tsx` | tenant client | `POST /v1/research` | ResearchBody (required) | ResearchStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -186,6 +188,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/mail-and-drive/callback` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `GET /v1/me` | — | Me (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/models` | — | ChatModels (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/models/choices` | — | ModelChoices (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/monitoring/budget` | — | MonitoringBudget (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/notifications` | — | Notifications (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/research/estimate` | — | ResearchEstimate (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -305,6 +308,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `PUT /v1/documents/policy` | PolicyBody (required) | DocumentPolicy (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/documents/{document_id}/content` | — | DocumentReceived (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
 | `PUT /v1/files/uploads/{upload_id}/parts/{part_no}` | — | FileUploadPart (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `PUT /v1/me/model-preferences` | Preferences (required) | ModelChoices (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `PUT /v1/settings` | SettingsBody (required) | TenantSettings (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/settings/branding` | BrandingBody (required) | BrandingSaved (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |

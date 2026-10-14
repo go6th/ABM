@@ -852,6 +852,17 @@
             "title": "Mail Drive",
             "type": "string"
           },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
           "web": {
             "enum": [
               "used",
@@ -971,6 +982,19 @@
               }
             ],
             "title": "Account Id"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
           },
           "question": {
             "maxLength": 4000,
@@ -2097,6 +2121,21 @@
             ],
             "title": "Account Cap Per User"
           },
+          "allowed_models": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Models"
+          },
           "fastest_schedule": {
             "anyOf": [
               {
@@ -3136,6 +3175,13 @@
         "additionalProperties": false,
         "description": "Client detail (A3).",
         "properties": {
+          "allowed_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Models",
+            "type": "array"
+          },
           "client": {
             "$ref": "#/components/schemas/ConsoleClient"
           },
@@ -3147,6 +3193,13 @@
               "$ref": "#/components/schemas/ConsoleLibraryChoice"
             },
             "title": "Library",
+            "type": "array"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleModel"
+            },
+            "title": "Models",
             "type": "array"
           },
           "pending_invites": {
@@ -3170,6 +3223,8 @@
         "required": [
           "client",
           "settings",
+          "models",
+          "allowed_models",
           "library",
           "user_idle_days",
           "pending_invites",
@@ -3275,6 +3330,14 @@
             "title": "Credit Cap Per Pull",
             "type": "integer"
           },
+          "default_analysis_model": {
+            "title": "Default Analysis Model",
+            "type": "string"
+          },
+          "default_research_model": {
+            "title": "Default Research Model",
+            "type": "string"
+          },
           "fastest_schedule": {
             "title": "Fastest Schedule",
             "type": "string"
@@ -3287,13 +3350,12 @@
             "title": "Model Router On",
             "type": "boolean"
           },
-          "model_split": {
-            "enum": [
-              "split",
-              "single"
-            ],
-            "title": "Model Split",
-            "type": "string"
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleModel"
+            },
+            "title": "Models",
+            "type": "array"
           },
           "monthly_credit_pool": {
             "title": "Monthly Credit Pool",
@@ -3322,7 +3384,9 @@
           "monthly_credit_pool",
           "fastest_schedule",
           "credit_cap_per_pull",
-          "model_split",
+          "models",
+          "default_research_model",
+          "default_analysis_model",
           "model_router_on",
           "skill_version",
           "skill_installed",
@@ -3403,6 +3467,46 @@
           "published"
         ],
         "title": "ConsoleLibraryChoice",
+        "type": "object"
+      },
+      "ConsoleModel": {
+        "additionalProperties": false,
+        "description": "One choosable model in the console: enabled for the platform, set up (its provider key\nis present), and whether a client must be allowed it (Kimi K3).",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_client_permission": {
+            "title": "Needs Client Permission",
+            "type": "boolean"
+          },
+          "set_up": {
+            "title": "Set Up",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "line",
+          "enabled",
+          "set_up",
+          "needs_client_permission"
+        ],
+        "title": "ConsoleModel",
         "type": "object"
       },
       "ConsoleOverview": {
@@ -4184,6 +4288,46 @@
             ],
             "title": "Credit Cap Per Pull"
           },
+          "default_analysis_model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Analysis Model"
+          },
+          "default_research_model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Research Model"
+          },
+          "enabled_models": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled Models"
+          },
           "fastest_schedule": {
             "anyOf": [
               {
@@ -4216,21 +4360,6 @@
               }
             ],
             "title": "Idle Expiry Days"
-          },
-          "model_split": {
-            "anyOf": [
-              {
-                "enum": [
-                  "split",
-                  "single"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Split"
           },
           "monthly_credit_pool": {
             "anyOf": [
@@ -7779,6 +7908,91 @@
         "title": "MissingRow",
         "type": "object"
       },
+      "ModelChoice": {
+        "additionalProperties": false,
+        "description": "One model in the user's menus: its plain line and, when it cannot be chosen, why.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "name",
+          "line",
+          "available",
+          "reason"
+        ],
+        "title": "ModelChoice",
+        "type": "object"
+      },
+      "ModelChoices": {
+        "additionalProperties": false,
+        "description": "The model menus and the user's current research and analysis models.",
+        "properties": {
+          "analysis": {
+            "title": "Analysis",
+            "type": "string"
+          },
+          "default_analysis": {
+            "title": "Default Analysis",
+            "type": "string"
+          },
+          "default_research": {
+            "title": "Default Research",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelChoice"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "research": {
+            "title": "Research",
+            "type": "string"
+          }
+        },
+        "required": [
+          "models",
+          "research",
+          "analysis",
+          "default_research",
+          "default_analysis"
+        ],
+        "title": "ModelChoices",
+        "type": "object"
+      },
       "MonitoringBudget": {
         "additionalProperties": false,
         "description": "Response body: monitoring budget.",
@@ -8508,6 +8722,40 @@
         "title": "PolicyBody",
         "type": "object"
       },
+      "Preferences": {
+        "additionalProperties": false,
+        "description": "The models to remember (only the fields sent change).",
+        "properties": {
+          "analysis_model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Model"
+          },
+          "research_model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Model"
+          }
+        },
+        "title": "Preferences",
+        "type": "object"
+      },
       "PublishBody": {
         "additionalProperties": false,
         "description": "The clients to publish to (or stop publishing to).",
@@ -8929,6 +9177,19 @@
         "additionalProperties": false,
         "description": "Confirm a refresh. ``credits`` is the estimate the user saw and agreed to.",
         "properties": {
+          "analysis_model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Model"
+          },
           "credits": {
             "maximum": 100000.0,
             "minimum": 1.0,
@@ -8951,6 +9212,19 @@
             "format": "uuid",
             "title": "Request Id",
             "type": "string"
+          },
+          "research_model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Model"
           },
           "scope": {
             "enum": [
@@ -9149,6 +9423,19 @@
         "additionalProperties": false,
         "description": "Confirm new research. ``credits`` is the estimate the user saw and agreed to.",
         "properties": {
+          "analysis_model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Model"
+          },
           "company_name": {
             "maxLength": 200,
             "minLength": 1,
@@ -9171,6 +9458,19 @@
             "format": "uuid",
             "title": "Request Id",
             "type": "string"
+          },
+          "research_model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Model"
           }
         },
         "required": [
@@ -12866,7 +13166,7 @@
         ]
       },
       "put": {
-        "description": "A7 Save defaults.",
+        "description": "A7 Save defaults. The default research and analysis models must be enabled models.",
         "operationId": "change_defaults_operator_v1_console_defaults_put",
         "parameters": [
           {
@@ -20953,6 +21253,66 @@
         ]
       }
     },
+    "/v1/me/model-preferences": {
+      "put": {
+        "description": "Remember the user's models.",
+        "operationId": "save_v1_me_model_preferences_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Preferences"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelChoices"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save",
+        "tags": [
+          "models"
+        ]
+      }
+    },
     "/v1/models": {
       "get": {
         "description": "The current allowlist and public costs; no provider credential is returned.",
@@ -21000,6 +21360,56 @@
         "summary": "Models",
         "tags": [
           "chat"
+        ]
+      }
+    },
+    "/v1/models/choices": {
+      "get": {
+        "description": "The model menus.",
+        "operationId": "choices_v1_models_choices_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelChoices"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Choices",
+        "tags": [
+          "models"
         ]
       }
     },

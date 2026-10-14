@@ -23,6 +23,7 @@ from account_intelligence.api.routes import (
     library,
     maildrive,
     me,
+    model_choice,
     operator_admin,
     operator_view,
     ops,
@@ -54,6 +55,7 @@ v1_router.include_router(library.router)
 v1_router.include_router(maildrive.router)
 v1_router.include_router(schedules.router)
 v1_router.include_router(me.router)
+v1_router.include_router(model_choice.router)
 v1_router.include_router(spend.router)
 v1_router.include_router(spend_v2.router)
 v1_router.include_router(sso.router)

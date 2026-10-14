@@ -1809,6 +1809,8 @@ class AnswerUsed(Out):
     workspace: Literal["used", "not_used"]
     web: Literal["used", "not_used"]
     mail_drive: Literal["used", "not_used", "not_connected"]
+    # the model that wrote the answer (owner decision 2026-10-14); None for the workspace's own
+    model_name: str | None = None
 
 
 class AnswerOffer(Out):
@@ -2312,6 +2314,8 @@ class ConsoleClientDetail(Out):
 
     client: ConsoleClient
     settings: ConsoleClientSettings
+    models: list[ConsoleModel]
+    allowed_models: list[str]
     library: list[ConsoleLibraryChoice]
     user_idle_days: list[int]
     pending_invites: list[str]
@@ -2385,6 +2389,39 @@ class ConsoleAdmin(Out):
     role: Literal["Operator", "Support"]
 
 
+class ModelChoice(Out):
+    """One model in the user's menus: its plain line and, when it cannot be chosen, why."""
+
+    id: str
+    label: str
+    name: str
+    line: str
+    available: bool
+    reason: str | None
+
+
+class ModelChoices(Out):
+    """The model menus and the user's current research and analysis models."""
+
+    models: list[ModelChoice]
+    research: str
+    analysis: str
+    default_research: str
+    default_analysis: str
+
+
+class ConsoleModel(Out):
+    """One choosable model in the console: enabled for the platform, set up (its provider key
+    is present), and whether a client must be allowed it (Kimi K3)."""
+
+    id: str
+    name: str
+    line: str
+    enabled: bool
+    set_up: bool
+    needs_client_permission: bool
+
+
 class ConsoleDefaults(Out):
     """Platform defaults (A7)."""
 
@@ -2393,7 +2430,9 @@ class ConsoleDefaults(Out):
     monthly_credit_pool: int
     fastest_schedule: str
     credit_cap_per_pull: int
-    model_split: Literal["split", "single"]
+    models: list[ConsoleModel]
+    default_research_model: str
+    default_analysis_model: str
     model_router_on: bool
     skill_version: str
     skill_installed: bool

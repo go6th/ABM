@@ -229,6 +229,7 @@ export type AnswerSource = z.infer<typeof AnswerSource>;
 
 export const AnswerUsed = z.object({
   "mail_drive": z.string(),
+  "model_name": z.string().nullable().optional(),
   "web": z.string(),
   "workspace": z.string(),
 }).strict();
@@ -257,6 +258,7 @@ export type Archive = z.infer<typeof Archive>;
 
 export const AskBody = z.object({
   "account_id": z.string().nullable().optional(),
+  "model": z.string().nullable().optional(),
   "question": z.string(),
   "request_id": z.string(),
   "thread_id": z.string().nullable().optional(),
@@ -467,6 +469,7 @@ export type ChatThreads = z.infer<typeof ChatThreads>;
 
 export const ClientChange = z.object({
   "account_cap_per_user": z.number().int().nullable().optional(),
+  "allowed_models": z.array(z.string()).nullable().optional(),
   "fastest_schedule": z.string().nullable().optional(),
   "idle_expiry_days": z.string().nullable().optional(),
   "library_account_ids": z.array(z.string()).nullable().optional(),
@@ -669,10 +672,22 @@ export const ConsoleLibraryChoice = z.object({
 }).strict();
 export type ConsoleLibraryChoice = z.infer<typeof ConsoleLibraryChoice>;
 
+export const ConsoleModel = z.object({
+  "enabled": z.boolean(),
+  "id": z.string(),
+  "line": z.string(),
+  "name": z.string(),
+  "needs_client_permission": z.boolean(),
+  "set_up": z.boolean(),
+}).strict();
+export type ConsoleModel = z.infer<typeof ConsoleModel>;
+
 export const ConsoleClientDetail = z.object({
+  "allowed_models": z.array(z.string()),
   "client": ConsoleClient,
   "isolation": ConsoleIsolation,
   "library": z.array(ConsoleLibraryChoice),
+  "models": z.array(ConsoleModel),
   "pending_invites": z.array(z.string()),
   "settings": ConsoleClientSettings,
   "user_idle_days": z.array(z.number().int()),
@@ -694,10 +709,12 @@ export const ConsoleDefaults = z.object({
   "account_cap_per_user": z.number().int(),
   "admins": z.array(ConsoleAdmin),
   "credit_cap_per_pull": z.number().int(),
+  "default_analysis_model": z.string(),
+  "default_research_model": z.string(),
   "fastest_schedule": z.string(),
   "idle_expiry_days": z.number().int(),
   "model_router_on": z.boolean(),
-  "model_split": z.string(),
+  "models": z.array(ConsoleModel),
   "monthly_credit_pool": z.number().int(),
   "skill_installed": z.boolean(),
   "skill_version": z.string(),
@@ -862,9 +879,11 @@ export type CrmWrites = z.infer<typeof CrmWrites>;
 export const DefaultsChange = z.object({
   "account_cap_per_user": z.number().int().nullable().optional(),
   "credit_cap_per_pull": z.number().int().nullable().optional(),
+  "default_analysis_model": z.string().nullable().optional(),
+  "default_research_model": z.string().nullable().optional(),
+  "enabled_models": z.array(z.string()).nullable().optional(),
   "fastest_schedule": z.string().nullable().optional(),
   "idle_expiry_days": z.string().nullable().optional(),
-  "model_split": z.string().nullable().optional(),
   "monthly_credit_pool": z.number().int().nullable().optional(),
 }).strict();
 export type DefaultsChange = z.infer<typeof DefaultsChange>;
@@ -1607,6 +1626,25 @@ export const MissingRow = z.object({
 }).strict();
 export type MissingRow = z.infer<typeof MissingRow>;
 
+export const ModelChoice = z.object({
+  "available": z.boolean(),
+  "id": z.string(),
+  "label": z.string(),
+  "line": z.string(),
+  "name": z.string(),
+  "reason": z.string().nullable(),
+}).strict();
+export type ModelChoice = z.infer<typeof ModelChoice>;
+
+export const ModelChoices = z.object({
+  "analysis": z.string(),
+  "default_analysis": z.string(),
+  "default_research": z.string(),
+  "models": z.array(ModelChoice),
+  "research": z.string(),
+}).strict();
+export type ModelChoices = z.infer<typeof ModelChoices>;
+
 export const MonitoringBudget = z.object({
   "percent": z.number().int(),
   "period": z.string(),
@@ -1740,6 +1778,12 @@ export const PolicyBody = z.object({
 }).strict();
 export type PolicyBody = z.infer<typeof PolicyBody>;
 
+export const Preferences = z.object({
+  "analysis_model": z.string().nullable().optional(),
+  "research_model": z.string().nullable().optional(),
+}).strict();
+export type Preferences = z.infer<typeof Preferences>;
+
 export const PublishBody = z.object({
   "tenant_ids": z.array(z.string()),
 }).strict();
@@ -1842,9 +1886,11 @@ export const Reconcile = z.object({
 export type Reconcile = z.infer<typeof Reconcile>;
 
 export const RefreshBody = z.object({
+  "analysis_model": z.string().nullable().optional(),
   "credits": z.number().int(),
   "from_turn_id": z.string().nullable().optional(),
   "request_id": z.string(),
+  "research_model": z.string().nullable().optional(),
   "scope": z.string(),
   "topic": z.string().nullable().optional(),
 }).strict();
@@ -1894,10 +1940,12 @@ export const RejectBody = z.object({
 export type RejectBody = z.infer<typeof RejectBody>;
 
 export const ResearchBody = z.object({
+  "analysis_model": z.string().nullable().optional(),
   "company_name": z.string(),
   "credits": z.number().int(),
   "domain": z.string(),
   "request_id": z.string(),
+  "research_model": z.string().nullable().optional(),
 }).strict();
 export type ResearchBody = z.infer<typeof ResearchBody>;
 
@@ -2712,10 +2760,6 @@ export const KNOWN_VALUES = {
     "Idle",
     "Active"
   ],
-  "ConsoleDefaults.model_split": [
-    "split",
-    "single"
-  ],
   "ConsoleIsolation.status": [
     "passed",
     "failed",
@@ -2736,10 +2780,6 @@ export const KNOWN_VALUES = {
     "10",
     "14",
     "30"
-  ],
-  "DefaultsChange.model_split": [
-    "split",
-    "single"
   ],
   "ExportBody.kind": [
     "files",
@@ -3053,7 +3093,9 @@ export const operations = {
   "POST /v1/mail-and-drive/{family}/disconnect": { method: "POST", path: "/v1/mail-and-drive/{family}/disconnect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveDisconnected },
   "POST /v1/mail-and-drive/{kind}/connect": { method: "POST", path: "/v1/mail-and-drive/{kind}/connect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveConnect },
   "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
+  "PUT /v1/me/model-preferences": { method: "PUT", path: "/v1/me/model-preferences", plane: "tenant", status: 200, request: Preferences, requestRequired: true, response: ModelChoices },
   "GET /v1/models": { method: "GET", path: "/v1/models", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatModels },
+  "GET /v1/models/choices": { method: "GET", path: "/v1/models/choices", plane: "tenant", status: 200, request: null, requestRequired: false, response: ModelChoices },
   "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, request: null, requestRequired: false, response: MonitoringBudget },
   "GET /v1/notifications": { method: "GET", path: "/v1/notifications", plane: "tenant", status: 200, request: null, requestRequired: false, response: Notifications },
   "POST /v1/notifications/{notification_id}/read": { method: "POST", path: "/v1/notifications/{notification_id}/read", plane: "tenant", status: 200, request: null, requestRequired: false, response: NotificationRead },

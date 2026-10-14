@@ -139,7 +139,9 @@ DEFAULT_FIELDS = (
     "monthly_credit_pool",
     "fastest_schedule",
     "credit_cap_per_pull",
-    "model_split",
+    "enabled_models",
+    "default_research_model",
+    "default_analysis_model",
     "skill_version",
 )
 CLIENT_FIELDS = (
@@ -186,14 +188,26 @@ async def update_client(session: Any, values: dict[str, Any], actor: str, now: A
     )
 
 
+async def set_allowed_models(session: Any, models: list[str], actor: str, now: Any) -> None:
+    """The models the caller tenant's users may choose (owner decision 2026-10-14)."""
+    await client_settings(session)
+    await session.execute(
+        text(
+            "UPDATE client_settings SET allowed_models = :m, updated_by = :by, updated_at = :now"
+        ),
+        {"m": models, "by": actor, "now": now},
+    )
+
+
 async def defaults(session: Any) -> dict[str, Any]:
     """The platform defaults (one row)."""
     row = (
         await session.execute(
             text(
                 "SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
-                " fastest_schedule, credit_cap_per_pull, model_split, skill_version, updated_by,"
-                " updated_at FROM platform_defaults WHERE id = 1"
+                " fastest_schedule, credit_cap_per_pull, enabled_models, default_research_model,"
+                " default_analysis_model, skill_version, updated_by, updated_at"
+                " FROM platform_defaults WHERE id = 1"
             )
         )
     ).one()

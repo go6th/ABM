@@ -211,14 +211,16 @@ async def create_run(
     )
     reserved = Decimal(credits)
     run_id = uuid4()
+    models = await _run_models(session, account, request.run_input.get("models"))
     inserted = (
         await session.execute(
             text(
                 "INSERT INTO account_runs (id, tenant_id, account_id, graph_version, budget_json,"
                 " reserved_credits, idempotency_key, request_hash, budget_usd, tool_call_cap,"
-                " run_input, checklist_version, model_versions, cap_required, input_mode)"
+                " run_input, checklist_version, model_versions, cap_required, input_mode, models)"
                 " VALUES (:id, :t, :a, :gv, CAST(:budget AS jsonb), :credits, :k, :h, :usd, :cap,"
-                " CAST(:input AS jsonb), :cl, CAST(:mv AS jsonb), :capreq, :mode)"
+                " CAST(:input AS jsonb), :cl, CAST(:mv AS jsonb), :capreq, :mode,"
+                " CAST(:models AS jsonb))"
                 " ON CONFLICT (tenant_id, owner_user_id, idempotency_key) DO NOTHING RETURNING id"
             ),
             {
@@ -240,6 +242,7 @@ async def create_run(
                 "capreq": False,
                 # input mode "file" researches uploaded documents; anything else is "company"
                 "mode": "file" if request.run_input.get("input_mode") == "file" else "company",
+                "models": json.dumps(models),
             },
         )
     ).first()
@@ -390,6 +393,30 @@ async def add_account(
         await session.execute(text(f"SELECT id FROM accounts WHERE {mine}"), owner)  # noqa: S608
     ).scalar_one()
     return UUID(str(raced)), False
+
+
+async def _run_models(session: AsyncSession, account: UUID, chosen: Any) -> dict[str, Any]:
+    """The research and analysis models a new run records (owner decision 2026-10-14): the
+    models the request chose (already checked by the route that took them), else the account
+    owner's current models."""
+    from account_intelligence.replica import models as M
+    from llm.choice import RunModels
+
+    if isinstance(chosen, dict) and chosen:
+        return RunModels.from_json(chosen).as_json()
+    owner = await session.scalar(
+        text("SELECT owner_user_id FROM accounts WHERE id = :a"), {"a": account}
+    )
+    current, _ = await M.current(session, str(owner))
+    return current.as_json()
+
+
+async def record_models(session: AsyncSession, run_id: UUID, models: dict[str, Any]) -> None:
+    """Record what a run's models are now (a step fell back to another model, with why)."""
+    await session.execute(
+        text("UPDATE account_runs SET models = CAST(:m AS jsonb) WHERE id = :r"),
+        {"m": json.dumps(models), "r": run_id},
+    )
 
 
 async def current_status(session: AsyncSession, run_id: UUID) -> RunStatus:

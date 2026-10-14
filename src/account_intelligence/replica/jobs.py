@@ -81,6 +81,8 @@ class Job:
     credits_reserved: int
     requested_by: str
     topic: str | None = None
+    # the research and analysis models the user confirmed (None: the owner's current models)
+    models: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -179,6 +181,8 @@ class GraphEngine:
                 run_input["scope_rows"] = list(rows)
             if job.topic:
                 run_input["topic"] = job.topic
+            if job.models:
+                run_input["models"] = dict(job.models)
             if current.settings.people_scope.regions:
                 run_input["people_regions"] = list(current.settings.people_scope.regions)
             if rule.people or rule.companies:
@@ -299,6 +303,7 @@ async def claim(tenant_id: UUID, job_id: UUID, now: datetime) -> Job | None:
         int(row.credits_estimated),
         str(row.requested_by),
         row.topic,
+        dict(row.models) if row.models else None,
     )
 
 

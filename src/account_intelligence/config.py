@@ -237,6 +237,9 @@ class Settings(BaseSettings):
     anthropic_secret: str = var(
         "anthropic-api-key", purpose="Secret Manager secret id holding the model API key."
     )
+    moonshot_secret: str | None = var(
+        purpose="Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up."
+    )
     byok_kms_key: str | None = var(
         purpose="Cloud KMS crypto-key resource for optional encrypted tenant model keys."
     )
@@ -246,6 +249,14 @@ class Settings(BaseSettings):
         purpose="Model API key for local runs (cloud reads it from Secret Manager).",
         secret=True,
         forbidden_in=CLOUD,
+    )
+    moonshot_api_key: SecretStr | None = var(
+        purpose="Kimi K3 (Moonshot AI) key for local runs (cloud reads it from Secret Manager).",
+        secret=True,
+        forbidden_in=CLOUD,
+    )
+    moonshot_api_key_file: str | None = var(
+        purpose="File holding the Kimi K3 key for local runs.", forbidden_in=CLOUD
     )
     payload_dir: str | None = var(
         purpose="Local directory for raw payloads (memory store when unset).", forbidden_in=CLOUD

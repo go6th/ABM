@@ -22,6 +22,7 @@ GUARANTEE(test_settle_never_charges_more_than_was_reserved)
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -208,6 +209,7 @@ async def reserve(
     wait_if_short: bool = False,
     topic: str | None = None,
     one_open_per_account: bool = True,
+    models: dict[str, Any] | None = None,
 ) -> tuple[UUID, str]:
     """Create the job and reserve its credits in the caller's transaction.
 
@@ -238,10 +240,9 @@ async def reserve(
             text(
                 "INSERT INTO research_jobs (account_id, kind, scope, status, period,"
                 " credits_estimated,"
-                " requested_by, request_id, from_turn_id, created_at, topic) VALUES (:a, :k, :s,"
-                " :st, :p,"
-                " :c, :by,"
-                " :r, :t, :now, :topic) RETURNING id"
+                " requested_by, request_id, from_turn_id, created_at, topic, models)"
+                " VALUES (:a, :k, :s, :st, :p, :c, :by, :r, :t, :now, :topic,"
+                " CAST(:models AS jsonb)) RETURNING id"
             ),
             {
                 "a": account_id,
@@ -255,6 +256,7 @@ async def reserve(
                 "t": from_turn_id,
                 "topic": topic,
                 "now": now,
+                "models": json.dumps(models) if models else None,
             },
         )
     ).scalar_one()
@@ -376,7 +378,8 @@ async def claim(session: Any, job_id: UUID, now: datetime) -> Any:
             text(
                 "UPDATE research_jobs SET status = 'running', started_at = :now"
                 " WHERE id = :j AND status = 'queued'"
-                " RETURNING id, account_id, kind, scope, credits_estimated, requested_by, topic"
+                " RETURNING id, account_id, kind, scope, credits_estimated, requested_by, topic,"
+                " models"
             ),
             {"j": job_id, "now": now},
         )

@@ -45,10 +45,12 @@ from account_intelligence.db.session import tenant_txn, untenanted_session
 from account_intelligence.replica import admin as A
 from account_intelligence.replica import isolation
 from account_intelligence.replica import library as L
+from account_intelligence.replica import models as M
 from account_intelligence.replica import settings as S
 from admin import tenants
 from audit.events import AuditEvent, record
 from identity import local_password, membership, sessions
+from llm.choice import catalogue
 from tenancy import lifecycle
 
 router = APIRouter(prefix="/operator/v1/console", tags=["admin-console"])
@@ -324,9 +326,16 @@ async def _detail(tenant_id: UUID, now: Any) -> dict[str, Any]:
             )
         ]
         pending = await _pending(s)
+        allowed = await s.scalar(text("SELECT allowed_models FROM client_settings"))
+    async with untenanted_session() as plain:
+        enabled, _, _ = await M.platform_policy(plain)
+    if allowed is None:
+        allowed = [m for m in enabled if m not in catalogue().needs_client_permission]
     return {
         "client": row,
         "settings": {f: getattr(cs, f) for f in S.CLIENT_FIELDS},
+        "models": M.admin_view(enabled),
+        "allowed_models": list(allowed),
         "library": [
             {
                 "library_account_id": a["id"],
@@ -361,6 +370,9 @@ class ClientChange(BaseModel):
     fastest_schedule: Schedule | None = None
     mail_drive_allowed: bool | None = None
     web_refresh_allowed: bool | None = None
+    # Allowed models: sending a client's data to Moonshot AI is a privacy decision, so Kimi K3
+    # is used by a client only once it is listed here
+    allowed_models: list[str] | None = Field(default=None, max_length=20)
     library_account_ids: list[UUID] | None = Field(default=None, max_length=500)
 
 
@@ -386,9 +398,17 @@ async def change_client(
                 "Not ready for clients",
                 "Only an account whose client-ready check passed can be published.",
             )
-    values = body.model_dump(exclude_none=True, exclude={"library_account_ids"})
+    values = body.model_dump(exclude_none=True, exclude={"library_account_ids", "allowed_models"})
+    try:
+        allowed = M.check_ids(body.allowed_models)
+    except ValueError:
+        raise APIProblem(
+            422, "unknown_model", "Unknown model", "Choose from the listed models."
+        ) from None
     async with tenant_txn(tenant_id) as s:
         await S.update_client(s, values, who.staff_id, now)
+        if allowed is not None:
+            await S.set_allowed_models(s, allowed, who.staff_id, now)
         if wanted is not None:
             here = await L.published_here(s)
             for lib in sorted(wanted - here):
@@ -510,13 +530,16 @@ def _skill_version() -> str:
 async def _defaults(request: Request) -> dict[str, Any]:
     async with untenanted_session() as plain:
         d = await S.defaults(plain)
+        enabled, research, analysis = await M.platform_policy(plain)
     return {
         "account_cap_per_user": int(d["account_cap_per_user"]),
         "idle_expiry_days": int(d["idle_expiry_days"]),
         "monthly_credit_pool": int(d["monthly_credit_pool"]),
         "fastest_schedule": str(d["fastest_schedule"]),
         "credit_cap_per_pull": int(d["credit_cap_per_pull"]),
-        "model_split": str(d["model_split"]),
+        "models": M.admin_view(enabled),
+        "default_research_model": research,
+        "default_analysis_model": analysis,
         "model_router_on": getattr(request.app.state.container, "router", None) is not None,
         "skill_version": _skill_version(),
         "skill_installed": SKILL_DIR.is_dir(),
@@ -541,17 +564,38 @@ class DefaultsChange(BaseModel):
     monthly_credit_pool: int | None = Field(default=None, ge=0, le=1_000_000)
     fastest_schedule: Literal["3d", "weekly", "2w"] | None = None
     credit_cap_per_pull: int | None = Field(default=None, ge=1, le=100_000)
-    model_split: Literal["split", "single"] | None = None
+    enabled_models: list[str] | None = Field(default=None, min_length=1, max_length=20)
+    default_research_model: str | None = Field(default=None, max_length=64)
+    default_analysis_model: str | None = Field(default=None, max_length=64)
 
 
 @router.put("/defaults", response_model=C.ConsoleDefaults)
 async def change_defaults(
     body: DefaultsChange, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
-    """A7 Save defaults."""
+    """A7 Save defaults. The default research and analysis models must be enabled models."""
+    values = body.model_dump(exclude_none=True)
+    try:
+        M.check_ids(values.get("enabled_models"))
+        M.check_ids([v for k, v in values.items() if k.startswith("default_")])
+    except ValueError:
+        raise APIProblem(
+            422, "unknown_model", "Unknown model", "Choose from the listed models."
+        ) from None
     async with untenanted_session() as plain:
-        await S.update_defaults(
-            plain, body.model_dump(exclude_none=True), who.staff_id, plane_of(request).clock.now()
-        )
+        enabled, research, analysis = await M.platform_policy(plain)
+        enabled = tuple(values.get("enabled_models", enabled))
+        for default in (
+            values.get("default_research_model", research),
+            values.get("default_analysis_model", analysis),
+        ):
+            if default not in enabled:
+                raise APIProblem(
+                    422,
+                    "default_not_enabled",
+                    "Default model not enabled",
+                    "A default model must be one of the enabled models.",
+                )
+        await S.update_defaults(plain, values, who.staff_id, plane_of(request).clock.now())
     await _op_audit(request, who, "platform.defaults", "platform")
     return await _defaults(request)

@@ -30,12 +30,15 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.chat.service import ChatService, sse
 from account_intelligence.chat.store import record_ask_turn
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import answers as A
+from account_intelligence.replica import models as M
 from account_intelligence.replica.model_answer import stream_with_model
 from account_intelligence.replica.settings import touch_activity
+from llm.choice import catalogue
 from obs.logging import logger
 
 log = logger(__name__)
@@ -54,6 +57,9 @@ class AskBody(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     thread_id: UUID | None = None
     account_id: UUID | None = None
+    # the analysis model for this conversation (the composer's model chip); None keeps the
+    # conversation's model, else the user's current analysis model
+    model: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 def week_of(now: datetime) -> date:
@@ -95,6 +101,12 @@ async def ask(
             )
             if not held:
                 raise APIProblem(404, "not_found", "Not found", "not found")
+        try:
+            analysis_model = await M.conversation_model(
+                session, ident.user_id, body.model, body.thread_id
+            )
+        except M.ModelRefused as error:
+            raise refused(error) from None
     replay = (
         await _replay(ident.tenant_id, body.thread_id, body.request_id) if body.thread_id else None
     )
@@ -118,15 +130,12 @@ async def ask(
             streamed = False
             from_model = False
             service = getattr(request.app.state, "chat_service", None)
-            if isinstance(service, ChatService) and service.provider is not None and ws.accounts:
+            provider = _provider_for(request, service, analysis_model)
+            if isinstance(service, ChatService) and provider is not None and ws.accounts:
                 try:
-                    from account_intelligence.model_routing import PipelinePhase, get_model_router
-
-                    model = service.registry.resolve(
-                        get_model_router().select_model(PipelinePhase.CHAT).id
-                    )
+                    model = service.registry.resolve(analysis_model)
                     async for kind, value in stream_with_model(
-                        service.provider,
+                        provider,
                         model,
                         q,
                         ws,
@@ -154,6 +163,11 @@ async def ask(
                     for piece in A.pieces(para):
                         yield sse("text", {"p": index, "parts": A.number_marks(piece, numbering)})
             answer = A.finish(draft, q, ws, now, scope)
+            # "What this answer used" names the model that wrote it (none: the workspace's own)
+            choice = catalogue().get(model_id) if from_model else None
+            answer["used"]["model_name"] = (
+                (choice.name if choice else model_id) if from_model else None
+            )
             plain = A.plain_text(answer["paragraphs"])[:100_000] or " "
             async with audited_txn(
                 request,
@@ -178,6 +192,11 @@ async def ask(
                     category=A.classify(body.question),
                 )
                 await touch_activity(session, ident.user_id, now)
+                if body.model is not None:  # the conversation keeps the model it was given
+                    await session.execute(
+                        text("UPDATE chat_threads SET analysis_model = :m WHERE id = :t"),
+                        {"m": analysis_model, "t": thread_id},
+                    )
             yield sse("thread", {"thread_id": str(thread_id), "created": created})
             yield sse("answer", answer)
             yield sse("done", {"turn_id": str(turn_id), "replayed": False})
@@ -196,6 +215,20 @@ async def ask(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
+
+
+def _provider_for(request: Request, service: Any, model_id: str) -> Any:
+    """The streaming provider of the conversation's model: Moonshot for Kimi K3, else the
+    Anthropic provider (None when that provider is not set up: the local answer stands)."""
+    choice = catalogue().get(model_id)
+    providers = getattr(request.app.state, "chat_providers", None)
+    if choice is not None and providers is not None:
+        found = providers.for_model(choice.provider)
+        if found is not None:
+            return found
+    if choice is not None and choice.provider != "anthropic":
+        return None
+    return getattr(service, "provider", None)
 
 
 def _json(value: Any) -> str:

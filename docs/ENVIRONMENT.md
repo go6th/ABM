@@ -72,8 +72,11 @@ or a value has the wrong type (errors name the variable, never the value).
 | `VERTEX_REGION` | Vertex AI region when LLM_ACCESS=vertex_ai. | no | - | - | api, worker |
 | `MODEL_ROUTER` | Route model calls through the recorded router (legacy switch). | no | - | - | api, worker |
 | `ANTHROPIC_SECRET` | Secret Manager secret id holding the model API key. | no | - | - | api, worker |
+| `MOONSHOT_SECRET` | Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up. | no | - | - | api, worker |
 | `BYOK_KMS_KEY` | Cloud KMS crypto-key resource for optional encrypted tenant model keys. | no | - | - | api, worker |
 | `ANTHROPIC_API_KEY` | Model API key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |
+| `MOONSHOT_API_KEY` | Kimi K3 (Moonshot AI) key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |
+| `MOONSHOT_API_KEY_FILE` | File holding the Kimi K3 key for local runs. | no | - | staging, production | api, worker |
 | `PAYLOAD_DIR` | Local directory for raw payloads (memory store when unset). | no | - | staging, production | api, worker |
 | `CONNECTORS` | Provider connectors in dev: off, on (live providers, needs keys) or hermetic (synthetic replies, no outside call; dev and test only). Cloud always wires the live ones. | no | - | - | api, worker |
 | `ALLOW_UNAUTHENTICATED_TASKS` | Accept unsigned task calls (local stack only). | no | - | staging, production | api, worker |

@@ -122,6 +122,11 @@ owned:
   work_units: run
   work_unit_events: run
 
+# Owned tables created after migration 0063 with the owner column and the tenant-and-owner policy
+# built in (the generator leaves them alone; the tests check them like the others).
+created_owned:
+  user_preferences: a user's research and analysis model choices (migration 0064)
+
 tenant:
   # identity, access and the client's own settings
   users: client directory; each user's own row is read by sign-in and the admin

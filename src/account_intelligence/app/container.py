@@ -19,6 +19,7 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -50,6 +51,7 @@ from account_intelligence.workflow.deps import RunDeps
 from account_intelligence.workflow.runner import SliceSettings
 from account_intelligence.workflow.spec import WorkflowSpec, load_spec
 from exports.wiring import build_export_builder
+from llm.choice import RunModels
 
 CLOUD_ENVS = frozenset({"staging", "production"})
 HERMETIC_TYPES = (
@@ -143,8 +145,7 @@ class Container:
                 await s.execute(
                     text(
                         "SELECT r.account_id, a.domain, r.run_input, a.careers_url,"
-                        " a.careers_url_verified_at,"
-                        " (SELECT model_split FROM platform_defaults WHERE id = 1) AS model_split"
+                        " a.careers_url_verified_at, r.models"
                         " FROM account_runs r JOIN accounts a"
                         " ON a.id = r.account_id AND a.tenant_id = r.tenant_id WHERE r.id = :r"
                     ),
@@ -177,7 +178,9 @@ class Container:
             run_input=dict(row.run_input or {}),
             router=self.router,
             reply_cache=self.reply_cache,
-            model_split=str(row.model_split or "split"),
+            # the user's research and analysis models, recorded when the run was created; a run
+            # from before the model choice has none and keeps the configured routes
+            models=RunModels.from_json(row.models) if row.models else None,
         )
 
 
@@ -270,6 +273,30 @@ def reply_cache(env: Mapping[str, str]) -> Any:
     cfg = load_research_cache_config()
     reuse = env.get("RESEARCH_CACHE", "on") != "off" and cfg.enabled and cfg.model_replies.enabled
     return PgReplyCache(tenant_txn, cfg.model_replies.ttl_days if reuse else 0.0)
+
+
+def with_model_choice(llm: Any, env: Mapping[str, str], key: str | None = None) -> Any:
+    """The live port with the user's model choice (``platform.llm.ChoiceLlm``): Claude on the
+    Anthropic port, Kimi K3 on the Moonshot client when ``MOONSHOT_API_KEY`` (or ``key``, from the
+    secret store) is set. The fake model and an unconfigured port are returned as they are."""
+    from account_intelligence.platform.llm import AnthropicLlm, ChoiceLlm
+
+    moonshot_key = key or env.get("MOONSHOT_API_KEY")
+    if not moonshot_key and env.get("MOONSHOT_API_KEY_FILE"):
+        try:
+            moonshot_key = Path(env["MOONSHOT_API_KEY_FILE"]).read_text().strip()
+        except OSError:
+            moonshot_key = None
+    moonshot = None
+    if moonshot_key:
+        from llm.adapters.moonshot_api import MoonshotClient
+
+        moonshot = MoonshotClient(moonshot_key)
+    if isinstance(llm, AnthropicLlm):
+        return ChoiceLlm(llm, moonshot)
+    if moonshot is not None and isinstance(llm, UnconfiguredLlm):
+        return ChoiceLlm(None, moonshot)
+    return llm
 
 
 def router_factory(client: Any, access: str) -> Any:
@@ -409,6 +436,7 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         llm = AnthropicLlm(
             anthropic_api_client(env["ANTHROPIC_API_KEY"]), load_routes(), "anthropic_api"
         )
+    llm = with_model_choice(llm, env)
     connectors, retry = (None, None)
     if env.get("CONNECTORS") == "hermetic":
         connectors, retry = hermetic_connectors(env, payloads)
@@ -577,6 +605,10 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         )
     else:
         raise RuntimeMisconfigured("LLM_ACCESS must be vertex_ai or anthropic_api (D-19)")
+    # Kimi K3 (owner decision 2026-10-14): the key from the secret store when MOONSHOT_SECRET
+    # names one; without it Kimi K3 is shown "Not set up" and cannot be chosen
+    moonshot_secret = env.get("MOONSHOT_SECRET")
+    llm = with_model_choice(llm, env, secrets.get(moonshot_secret) if moonshot_secret else None)
     # D-48: the router is switched on with MODEL_ROUTER=on once config/model_routing.yaml names
     # candidates for this access path (V-LLM-2: the Vertex model id format is unverified)
     client = getattr(llm, "client", None)

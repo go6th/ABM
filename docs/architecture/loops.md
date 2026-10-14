@@ -7,7 +7,7 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | CRM reconcile | `src/crm_writeback/service.py:299` | 100 writes per pass | end |
-| agent schema re-ask | `src/agents/production/wiring.py:82` | 2 attempts | valid reply, SchemaInvalid |
+| agent schema re-ask | `src/agents/production/wiring.py:84` | 2 attempts, then 2 on the Claude default when the chosen model is Kimi K3 | valid reply, SchemaInvalid |
 | alert fan-out | `src/alerts/engine.py:205` | len(recipients) | end |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
 | blob compose copy | `src/research_files/blobstore.py:133` | the part's size in COPY_BUFFER reads | end of part |
@@ -66,11 +66,12 @@ unannotated (the generator's check fails otherwise).
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
 | month normalisation | `src/jobs/window.py:15` | one iteration (month - 12 >= -11) | month in 1..12 |
+| moonshot stream | `src/llm/adapters/moonshot_api.py:200` | the server's chunks until [DONE] | [DONE], end |
 | narrative reread | `src/verify/narrative.py:74` | one verdict per sentence | all sentences decided |
 | notification relay | `src/spend/notify.py:217` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:70` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:84` | max_pages * batch_size runs per pass | rows exhausted |
-| orphan sweep loop | `src/account_intelligence/api/main.py:194` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
+| orphan sweep loop | `src/account_intelligence/api/main.py:204` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
@@ -111,7 +112,7 @@ unannotated (the generator's check fails otherwise).
 | union-find path walk | `src/jobs/dedupe.py:60` | number of identities (path halving) | root found |
 | union-find root walk | `src/people/merge.py:78` | number of records (each step moves to a parent; unions always point the larger root at the smaller, so there is no cycle) | root reached |
 | verification batch | `src/verify/claims.py:110` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
-| walk to verifying | `src/account_intelligence/runs/lifecycle.py:525` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
+| walk to verifying | `src/account_intelligence/runs/lifecycle.py:552` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |
 | xlsx header row | `src/research_files/parsers/tabular.py:387` | one row | header read |
 | xlsx sheets | `src/research_files/parsers/tabular.py:342` | the workbook's sheets | last sheet |

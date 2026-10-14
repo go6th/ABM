@@ -3,7 +3,7 @@
 # window, data classes, retention, caching, price) carries a source or is null with a status:
 # unknown is null, surfaced as a warning, never defaulted. Changes to this file need a benchmark
 # report id in docs/routing/DECISIONS.md and a passing eval gate (R12, D-51).
-version: "2026-10-13.1"
+version: "2026-10-14.1"
 status: proposal
 decisions: [D-48, D-51]
 routing_version: "r1"
@@ -46,7 +46,9 @@ task_kinds:
     abm_sense_check:        {tier: planner,   max_tokens: 8000, temperature: null, cacheable: true}
     abm_distill:            {tier: planner,   max_tokens: 8000, temperature: null, cacheable: true}
 
-# Tiers: a fallback chain within a tier before degrading quality (ARCH). A call served by any
+# Tiers: a fallback chain within a tier before degrading quality (ARCH). The stale Haiku "fast"
+# candidate was removed (owner decision 2026-10-14); on the live (legacy) path each run uses the
+# user's research and analysis models (config/models.yaml `choices`). A call served by any
 # candidate other than the first is recorded `degraded`. After `fallback_after_retryable`
 # retryable failures on one candidate the next attempt goes to the next candidate (selection,
 # never a retry loop: the node RetryPolicy owns attempts).
@@ -54,7 +56,7 @@ tiers:
   status: proposal
   value:
     planner:   {ladder: [strong], fallback_after_retryable: 2}
-    extractor: {ladder: [fast, strong], fallback_after_retryable: 2}
+    extractor: {ladder: [strong], fallback_after_retryable: 2}
     judge:     {ladder: [strong], fallback_after_retryable: 2}
   judge_tier: judge
 
@@ -63,16 +65,6 @@ tiers:
 # "not independent" and Confirmed claims are capped (G12) until a second family is added: an open
 # question for the product owner (see docs/routing/DECISIONS.md).
 candidates:
-  fast:
-    adapter: anthropic_api
-    provider_code: m_a
-    family: {value: claude, source: "config/models.yaml profile fast"}
-    model: {value: claude-haiku-4-5-20251001, source: "config/models.yaml profile fast; V1 [VERIFY]"}
-    context_window: {value: null, status: "TODO [VERIFY] V1: not read from the provider's docs"}
-    data_classes: {value: [public_web], status: "proposal (V5: public web only until zero retention is verified)"}
-    zero_retention: {value: null, status: "TODO [VERIFY] V5"}
-    caching: {value: null, status: "TODO [VERIFY] V2: the SDK has a cache_control parameter; support per model not verified"}
-    price: {input_usd_per_mtok: null, output_usd_per_mtok: null, source: "TODO: provider price list"}
   strong:
     adapter: anthropic_api
     provider_code: m_a

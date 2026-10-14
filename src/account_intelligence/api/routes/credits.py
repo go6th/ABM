@@ -28,9 +28,11 @@ from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.account_workspace import account_id_of
+from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica import jobs
+from account_intelligence.replica import models as M
 from account_intelligence.replica.notifications import mark_read
 from account_intelligence.replica.settings import client_settings
 
@@ -134,6 +136,9 @@ class RefreshBody(BaseModel):
     credits: int = Field(ge=1, le=100_000)
     topic: str | None = Field(default=None, max_length=300)
     from_turn_id: UUID | None = None
+    # the models chosen on the screen (owner decision 2026-10-14); None: the user's current ones
+    research_model: str | None = Field(default=None, min_length=1, max_length=64)
+    analysis_model: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def _topic_matches_scope(self) -> RefreshBody:
@@ -155,6 +160,12 @@ async def confirm_refresh(
     now = datetime.now(UTC)
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
+        try:
+            models = await M.resolve(
+                s, ident.user_id, research=body.research_model, analysis=body.analysis_model
+            )
+        except M.ModelRefused as error:
+            raise refused(error) from None
         if not (await client_settings(s)).web_refresh_allowed:
             raise APIProblem(
                 403,
@@ -183,6 +194,7 @@ async def confirm_refresh(
                 request_id=body.request_id,
                 from_turn_id=body.from_turn_id,
                 topic=body.topic,
+                models=models.as_json(),
             )
         except CR.JobOpen:
             raise APIProblem(

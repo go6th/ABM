@@ -7,6 +7,7 @@ allowlist:
   - claude-opus-5-5
   - claude-fable-5-1
   - claude-sonnet-5-5
+  - kimi-k3
 
 tasks:
   - pull_planning
@@ -58,7 +59,7 @@ arms:
       narrative: analysis_fable
       verification: collection_opus
 
-active_arm: cost_saving
+active_arm: automatic  # the owner's split (2026-10-14): Opus 5.5 pulls and extracts, Fable 5.1 analyses
 decision_status: Decided
 
 # Per-task request knobs for the Messages call (verified against anthropic 1.11.0, 2026-10-13:
@@ -99,6 +100,19 @@ models:
       cached_read_usd_per_million: 0.25
       cache_write_usd_per_million: 12.50
       output_usd_per_million: 50.00
+
+  kimi-k3:
+    provider: moonshot
+    display_name: "Kimi K3"
+    responsibility: "A user's choice for research or analysis (owner decision 2026-10-14)"
+    # platform.kimi.ai/docs/pricing/chat, read 2026-10-14 (cache write at the default 5 min TTL)
+    context_window: 1048576
+    max_output_tokens: 1048576
+    pricing:
+      input_usd_per_million: 3.00
+      cached_read_usd_per_million: 0.30
+      cache_write_usd_per_million: 3.00
+      output_usd_per_million: 15.00
 
   claude-sonnet-5-5:
     provider: anthropic
@@ -157,3 +171,35 @@ routing:
     read_only_saved_artifacts: true
     turn_limit: 20
     spend_limit_usd: 2.00
+
+# The models a user may choose (owner decision 2026-10-14, Phase 4B section 1): a research model
+# (planning, pulling, extraction and classification: tiers planner, extractor, classifier) and an
+# analysis model (Ask, file analysis, the sense check, distilling, synthesis, narrative and the
+# judge: tiers synthesis, narrative, judge). The defaults are the owner's split. The admin enables
+# models for the platform and allows them per client (Kimi K3 is off for a client until allowed:
+# its data would go to Moonshot AI). `features` says what the model has here; nothing assumes a
+# feature a model does not list.
+choices:
+  research_tiers: [planner, extractor, classifier]
+  analysis_tiers: [synthesis, narrative, judge]
+  defaults: {research: claude-opus-5-5, analysis: claude-fable-5-1}
+  needs_client_permission: [kimi-k3]
+  models:
+    - id: claude-opus-5-5
+      label: "Opus 5.5"
+      name: "Claude Opus 5.5"
+      line: "Most capable, slower"
+      key_env: ANTHROPIC_API_KEY
+      features: [strict_json, web_search, citations, adaptive_thinking, prompt_caching]
+    - id: claude-fable-5-1
+      label: "Fable 5.1"
+      name: "Claude Fable 5.1"
+      line: "Fast and strong"
+      key_env: ANTHROPIC_API_KEY
+      features: [strict_json, web_search, citations, adaptive_thinking, prompt_caching]
+    - id: kimi-k3
+      label: "Kimi K3"
+      name: "Kimi K3"
+      line: "Kimi K3 by Moonshot AI"
+      key_env: MOONSHOT_API_KEY
+      features: [strict_json]
