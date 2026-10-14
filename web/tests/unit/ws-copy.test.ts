@@ -5,8 +5,20 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { allStrings } from "@/lib/messages";
+import { m } from "@/lib/messages";
 import { DENYLIST_PATTERNS } from "@/lib/gen/labels.gen";
+
+/** Every literal string in the messages module (functions are sampled once). */
+function allStrings(value: unknown = m): string[] {
+  if (typeof value === "string") return [value];
+  if (typeof value === "function") {
+    const sample = (value as (...a: unknown[]) => unknown)(2, 9, "sample");
+    return typeof sample === "string" ? [sample] : [];
+  }
+  if (Array.isArray(value)) return value.flatMap((v) => allStrings(v));
+  if (value && typeof value === "object") return Object.values(value).flatMap((v) => allStrings(v));
+  return [];
+}
 
 const RULES: [string, RegExp][] = [
   ["em or en dash", /[–—]/],
@@ -45,7 +57,9 @@ test("JSX text in the workspace components passes the copy rules", () => {
     const source = readFileSync(path.join(dir, file), "utf8");
     for (const [, text] of source.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) {
       const t = text!.trim();
-      if (t && copyProblems(t).length) bad.push(`${file}: ${t}`);
+      // a ternary between two elements is code, not copy
+      if (!t || /[?=]/.test(t)) continue;
+      if (copyProblems(t).length) bad.push(`${file}: ${t}`);
     }
   }
   expect(bad).toEqual([]);

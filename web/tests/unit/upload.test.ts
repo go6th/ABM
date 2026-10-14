@@ -3,7 +3,8 @@
 // is asked about and continued from the committed offset, nothing is sent twice, the page can
 // reload and the same file resumes from the session kept in this browser.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { committedFrom, pausedUploads, uploadDocument } from "@/lib/upload";
+import { committedFrom, uploadDocument } from "@/lib/upload";
+import { clearUploadSessions, pausedUploads, setUploadOwner } from "@/lib/upload-store";
 
 const apiMock = vi.fn();
 vi.mock("@/lib/api", async (original) => ({ ...(await original<typeof import("@/lib/api")>()), api: (...args: unknown[]) => apiMock(...args) }));
@@ -58,6 +59,7 @@ beforeEach(() => {
   vi.stubGlobal("XMLHttpRequest", FakeXhr);
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   localStorage.clear();
+  setUploadOwner("user-a");
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); apiMock.mockReset(); });
 
@@ -106,4 +108,28 @@ test("after a reload the same file resumes from the session kept in this browser
   expect(apiMock).not.toHaveBeenCalledWith("POST", "/v1/documents/uploads", expect.anything());
   expect(storage.puts.find((p) => p.startsWith(`bytes ${before}-`))).toBeTruthy();
   expect(storage.bytes).toBe(file.size);
+});
+
+test("kept sessions belong to one user and are removed at sign-out", async () => {
+  const file = new File([new Uint8Array(9_000)], "notes.txt", { lastModified: 7 });
+  storage = new Storage(file.size);
+  apiMock.mockImplementation(async (method: string, path: string) => (path === "/v1/documents/uploads" ? started(3000) : { document_id: "doc-1" }));
+  const controller = new AbortController();
+  storage.afterCommit = () => controller.abort();
+  await expect(uploadDocument(file, null, () => undefined, controller.signal)).rejects.toThrow();
+  expect(pausedUploads().map((p) => p.documentId)).toEqual(["doc-1"]);
+  // another person on the same browser sees nothing, and cannot resume it
+  setUploadOwner("user-b");
+  expect(pausedUploads()).toEqual([]);
+  // with no signed-in user known nothing is read either
+  setUploadOwner(null);
+  expect(pausedUploads()).toEqual([]);
+  // an entry written by the older, unscoped format is removed at sign-out too
+  localStorage.setItem("upload:v1:old.txt:1:1", JSON.stringify({ documentId: "old", name: "old.txt", size: 1, url: "http://x", protocol: "single", chunk: 1, expires: "2999-01-01T00:00:00Z", sent: 0 }));
+  clearUploadSessions();
+  const left: string[] = [];
+  for (let i = 0; i < localStorage.length; i += 1) left.push(localStorage.key(i)!);
+  expect(left.filter((k) => k.startsWith("upload:"))).toEqual([]);
+  setUploadOwner("user-a");
+  expect(pausedUploads()).toEqual([]);
 });

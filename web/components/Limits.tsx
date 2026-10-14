@@ -3,10 +3,11 @@
 // month" where it matters, and, when a limit is used up, the refusal in plain words with
 // "Request more from admin" (an in-app request; the user sees "Request sent").
 import { useCallback, useEffect, useId, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { limitLine, type LimitKind } from "@/lib/limits";
 import type { LimitRequestSent, MyLimits } from "@/lib/gen/api.gen";
 
-export type LimitKind = "researches" | "chats";
+export { limitLine, limitReached, type LimitKind } from "@/lib/limits";
 
 /** The caller's limits; ``reload`` after an action that used one. */
 export function useMyLimits(): { limits: MyLimits | null; reload: () => void } {
@@ -18,25 +19,9 @@ export function useMyLimits(): { limits: MyLimits | null; reload: () => void } {
   return { limits, reload };
 }
 
-const NOUN: Record<LimitKind, [string, string]> = { researches: ["research", "researches"], chats: ["chat", "chats"] };
-
-/** "1 of 2 researches left this month" (or "left", when limits never reset). */
-export function limitLine(limits: MyLimits, kind: LimitKind): string {
-  const use = limits[kind];
-  const noun = NOUN[kind][use.limit === 1 ? 0 : 1];
-  return `${use.left} of ${use.limit} ${noun} left${limits.reset === "monthly" ? " this month" : ""}`;
-}
-
 export function LimitNote({ limits, kind }: { limits: MyLimits | null; kind: LimitKind }) {
   if (!limits) return null;
   return <p className="mut xs-text limit-note">{limitLine(limits, kind)}</p>;
-}
-
-/** The refusal of a used-up limit, from the API's ``limit_reached`` problem. */
-export function limitReached(cause: unknown): { kind: LimitKind; message: string } | null {
-  if (!(cause instanceof ApiError) || cause.type !== "limit_reached") return null;
-  const kind = cause.context?.limit === "chats" ? "chats" : "researches";
-  return { kind, message: cause.detail };
 }
 
 /** The used-up limit's message and "Request more from admin" with an optional note. */

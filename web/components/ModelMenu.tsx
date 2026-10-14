@@ -7,15 +7,23 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { ModelChoices } from "@/lib/gen/api.gen";
 
-/** The model menus' data, loaded once per screen; null until it arrives or when it fails. */
-export function useModelChoices(): ModelChoices | null {
-  const [choices, setChoices] = useState<ModelChoices | null>(null);
+/** The model menus' data, loaded once per screen: null until it arrives, "failed" when it cannot. */
+export function useModelChoicesState(): ModelChoices | null | "failed" {
+  const [choices, setChoices] = useState<ModelChoices | null | "failed">(null);
   useEffect(() => {
     let live = true;
-    api<ModelChoices>("GET", "/v1/models/choices").then((c) => { if (live) setChoices(c); }).catch(() => undefined);
+    api<ModelChoices>("GET", "/v1/models/choices")
+      .then((c) => { if (live) setChoices(c); })
+      .catch(() => { if (live) setChoices("failed"); });
     return () => { live = false; };
   }, []);
   return choices;
+}
+
+/** The same data for menus that simply stay hidden until it arrives (null when loading or failed). */
+export function useModelChoices(): ModelChoices | null {
+  const state = useModelChoicesState();
+  return state === "failed" ? null : state;
 }
 
 export function ModelMenu({ choices, value, onChange, role, menuDown = false, className = "chipa" }: {

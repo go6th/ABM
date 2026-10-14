@@ -5,66 +5,11 @@
 // The session URL is kept in this browser so the same file, chosen again, resumes.
 import { api, ApiError } from "@/lib/api";
 import type { DocumentStatus, DocumentUploadStarted } from "@/lib/gen/api.gen";
+import { readSaved, uploadKey, writeSaved, type Saved } from "@/lib/upload-store";
 
-export interface Saved { documentId: string; name: string; size: number; url: string; protocol: "resumable" | "single"; chunk: number; expires: string; sent: number }
 type Progress = (sent: number, total: number) => void;
 
-const PREFIX = "upload:v1:";
 const TRIES = 5;
-
-function keyOf(file: Pick<File, "name" | "size" | "lastModified">): string {
-  return `${PREFIX}${file.name}:${file.size}:${file.lastModified}`;
-}
-
-function read(key: string): Saved | null {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as Saved) : null;
-  } catch {
-    return null;
-  }
-}
-
-function write(key: string, value: Saved | null): void {
-  try {
-    if (value) localStorage.setItem(key, JSON.stringify(value));
-    else localStorage.removeItem(key);
-  } catch {
-    // storage unavailable (a private window): the upload works, it just cannot resume
-  }
-}
-
-/** Uploads this browser left unfinished (choose the same file again to continue). */
-export function pausedUploads(): Saved[] {
-  const out: Saved[] = [];
-  try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
-      if (!key?.startsWith(PREFIX)) continue;
-      const saved = read(key);
-      if (saved && new Date(saved.expires).getTime() > Date.now()) out.push(saved);
-      else localStorage.removeItem(key);
-    }
-  } catch {
-    return [];
-  }
-  return out;
-}
-
-/** Forget an unfinished upload (the user removed it). */
-export function forgetPaused(saved: Saved): void {
-  try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
-      if (key?.startsWith(PREFIX) && read(key)?.documentId === saved.documentId) {
-        localStorage.removeItem(key);
-        return;
-      }
-    }
-  } catch {
-    // nothing kept
-  }
-}
 
 class Expired extends Error {}
 
@@ -140,8 +85,8 @@ async function sendChunks(saved: Saved, file: File, onProgress: Progress, signal
 
 /** Send one file and complete it; resumes an upload this browser started for the same file. */
 export async function uploadDocument(file: File, accountId: string | null, onProgress: Progress, signal: AbortSignal): Promise<string> {
-  const key = keyOf(file);
-  let saved = read(key);
+  const key = uploadKey(file);
+  let saved = readSaved(key);
   if (saved && new Date(saved.expires).getTime() <= Date.now()) saved = null;
   for (let round = 0; round < 2; round += 1) {
     let current: Saved;
@@ -156,21 +101,21 @@ export async function uploadDocument(file: File, accountId: string | null, onPro
         protocol: started.protocol === "resumable" ? "resumable" : "single", chunk: started.chunk_bytes,
         expires: started.expires_at, sent: 0,
       };
-      write(key, current);
+      writeSaved(key, current);
     }
     try {
       if (current.protocol === "resumable") {
-        await sendChunks(current, file, onProgress, signal, (sent) => write(key, { ...current, sent }));
+        await sendChunks(current, file, onProgress, signal, (sent) => writeSaved(key, { ...current, sent }));
       } else {
         await api("PUT", current.url, file, { "Content-Type": "application/octet-stream" }, signal);
         onProgress(file.size, file.size);
       }
       await api<DocumentStatus>("POST", `/v1/documents/${current.documentId}/complete`);
-      write(key, null);
+      writeSaved(key, null);
       return current.documentId;
     } catch (error) {
       if (!(error instanceof Expired)) throw error;
-      write(key, null); // the session ran out: start again from the first byte
+      writeSaved(key, null); // the session ran out: start again from the first byte
       saved = null;
     }
   }

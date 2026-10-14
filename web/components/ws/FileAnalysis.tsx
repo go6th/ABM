@@ -64,7 +64,7 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
           Analysis of {run.files} file{run.files === 1 ? "" : "s"} · {when(run.finished_at ?? run.created_at)} · {run.public_run_id ? "public sources checked" : "no web used"}
         </div>
       </div>
-      <span className="pill internal big">From your files · private to your workspace</span>
+      <span className="pill internal big">From your files, private to your workspace</span>
     </div>
   );
 

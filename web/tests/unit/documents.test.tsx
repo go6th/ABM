@@ -4,7 +4,7 @@
 // the API, follows each file to Indexed and shows a refused file's reason without uploading it.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { allIndexed, cleanDomain, detectedCompany, refuseReason, sourceLabel } from "@/lib/documents";
+import { allIndexed, cleanDomain, detectedCompany, refuseReason } from "@/lib/documents";
 import { DocumentDrop } from "@/components/ws/DocumentDrop";
 import type { DocumentStatus } from "@/lib/gen/api.gen";
 
@@ -47,11 +47,9 @@ test("readiness, domains and labels", () => {
   expect(allIndexed([doc({ stage: "indexed" }), doc({ stage: "parsed" })])).toBe(false);
   expect(allIndexed([doc({ stage: "indexed" })])).toBe(true);
   expect(cleanDomain(" https://www.Acme.com/about ")).toBe("acme.com");
-  expect(sourceLabel("file")).toBe("From your files");
-  expect(sourceLabel("company")).toBe("Public research");
 });
 
-test("a dropped file is uploaded, completed and followed to Indexed; a refused one never uploads", async () => {
+test("a dropped file is uploaded, completed and followed to Ready; a refused one never uploads", async () => {
   let polls = 0;
   apiMock.mockImplementation(async (method: string, path: string) => {
     if (method === "POST" && path === "/v1/documents/uploads") {
@@ -67,9 +65,9 @@ test("a dropped file is uploaded, completed and followed to Indexed; a refused o
   });
   const seen: DocumentStatus[][] = [];
   render(<DocumentDrop accountId="acc-1" onChange={(d) => seen.push(d)} />);
-  const input = screen.getByLabelText(/Choose files to research/i);
+  const input = screen.getByLabelText("Add files");
   fireEvent.change(input, { target: { files: [new File(["hello"], "notes.pdf"), new File(["x"], "tool.exe")] } });
-  await waitFor(() => expect(screen.getByText("Indexed")).toBeTruthy(), { timeout: 5000 });
+  await waitFor(() => expect(screen.getByText("Ready")).toBeTruthy(), { timeout: 5000 });
   expect(screen.getByText(/not supported/)).toBeTruthy();
   const started = apiMock.mock.calls.filter((c) => c[1] === "/v1/documents/uploads");
   expect(started).toHaveLength(1);

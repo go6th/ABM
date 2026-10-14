@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
+import { apiOrigin } from "@/lib/api-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<NextResponse> {
-  const origin = process.env.API_ORIGIN ?? "http://127.0.0.1:8080";
+  const origin = apiOrigin();
+  if (!origin) {
+    return NextResponse.json({ ready: false, api_status: "unconfigured" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   try {
     const response = await fetch(new URL("/readyz", origin), {
       cache: "no-store",
