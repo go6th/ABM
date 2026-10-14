@@ -158,6 +158,49 @@ def test_the_parser_sandbox_has_no_network(tmp_path) -> None:  # type: ignore[no
         asyncio.run(too_much())
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="seccomp exists on Linux only")
+def test_the_kernel_filter_refuses_a_native_socket_and_a_process_but_not_a_thread() -> None:
+    """M2: with the filter on and NO audit hook, native code (the C library called through
+    ctypes, as libxml2 or Pillow would) cannot open a socket or start a process; Python threads
+    still start, and the child runs as the same non-root user."""
+    code = (
+        "import ctypes, os, socket, threading, documents.sandbox_child as c\n"
+        "libc = ctypes.CDLL(None, use_errno=True)\n"
+        "assert c.deny_network_and_processes()\n"
+        "fd = libc.socket(2, 1, 0)\n"
+        "print('socket', fd, ctypes.get_errno())\n"
+        "fd = libc.socket(2, 2, 0)\n"
+        "print('udp', fd, ctypes.get_errno())\n"
+        "try:\n"
+        "    socket.create_connection(('169.254.169.254', 80), timeout=1); print('meta ALLOWED')\n"
+        "except OSError as e:\n"
+        "    print('meta', e.errno)\n"
+        "try:\n"
+        "    os.fork(); print('fork ALLOWED')\n"
+        "except OSError as e:\n"
+        "    print('fork', e.errno)\n"
+        "try:\n"
+        "    os.execv('/bin/true', ['true']); print('exec ALLOWED')\n"
+        "except OSError as e:\n"
+        "    print('exec', e.errno)\n"
+        "box = []\n"
+        "t = threading.Thread(target=lambda: box.append(1)); t.start(); t.join()\n"
+        "print('thread', len(box))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60, env={}
+    )
+    lines = dict(line.split(" ", 1) for line in out.stdout.splitlines())
+    assert lines == {
+        "socket": "-1 1",
+        "udp": "-1 1",
+        "meta": "1",
+        "fork": "1",
+        "exec": "1",
+        "thread": "1",
+    }, (out.stdout, out.stderr)
+
+
 def test_scanner_verdicts() -> None:
     assert scan_bytes(fixtures.eicar_txt()).result == "infected"
     assert scan_bytes(fixtures.exe_as_pdf()).signature == "executable"
