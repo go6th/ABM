@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useOperatorApi } from "./useOperatorApi";
+import { RequestsList } from "./RequestsList";
 import { ConsoleLoad } from "./ConsoleLoad";
 import { Bar, Pill } from "@/ui/design";
 import { expiresIn, isolationPill, num } from "@/lib/console";
@@ -81,6 +82,7 @@ export default function Overview() {
           ) : <p className="mut sm-text">No questions in the last 30 days.</p>}
         </section>
       </div>
+      <RequestsList pendingOnly />
       <section className="card list" aria-labelledby="idle-title">
         <div className="row-space lrow"><h2 id="idle-title" className="card-title">Not using it</h2><Link className="link-strong sm-text" href="/operator/users">All users</Link></div>
         {o.not_using.length ? o.not_using.map((c) => (

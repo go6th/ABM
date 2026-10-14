@@ -11,9 +11,8 @@ import type { ConsoleDefaults } from "@/lib/gen/api.gen";
 import { useOperatorApi } from "../useOperatorApi";
 import { ConsoleLoad } from "../ConsoleLoad";
 import { Pill } from "@/ui/design";
-import { num } from "@/lib/console";
 
-type Editable = Pick<ConsoleDefaults, "account_cap_per_user" | "idle_expiry_days" | "monthly_credit_pool" | "fastest_schedule" | "credit_cap_per_pull" | "default_research_model" | "default_analysis_model"> & { enabled_models: string[] };
+type Editable = Pick<ConsoleDefaults, "research_limit_default" | "chat_limit_default" | "limit_reset" | "idle_expiry_days" | "fastest_schedule" | "credit_cap_per_pull" | "default_research_model" | "default_analysis_model"> & { enabled_models: string[] };
 
 function Row({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -26,9 +25,10 @@ function Row({ id, label, hint, children }: { id: string; label: string; hint?: 
 
 function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
   const [v, setV] = useState<Editable>({
-    account_cap_per_user: d.account_cap_per_user,
+    research_limit_default: d.research_limit_default,
+    chat_limit_default: d.chat_limit_default,
+    limit_reset: d.limit_reset,
     idle_expiry_days: d.idle_expiry_days,
-    monthly_credit_pool: d.monthly_credit_pool,
     fastest_schedule: d.fastest_schedule,
     credit_cap_per_pull: d.credit_cap_per_pull,
     enabled_models: d.models.filter((m) => m.enabled).map((m) => m.id),
@@ -58,13 +58,18 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
       <div className="head"><div className="ttl"><h1>Platform defaults</h1><div className="sub">Applied to new clients. Each client can be changed on its own page.</div></div></div>
       <section className="card pad stack-14" aria-labelledby="new-title">
         <h2 id="new-title" className="card-title">New client defaults</h2>
-        <Row id="cap" label="Account cap per user"><input id="cap" className="input sm" type="number" min={1} max={10000} value={v.account_cap_per_user} onChange={(e) => set("account_cap_per_user", int(e.target.value))} /></Row>
+        <Row id="researches" label="Researches per user" hint="A full public research of one account: new research, Refresh from web or a scheduled refresh."><input id="researches" className="input sm" type="number" min={0} max={100000} value={v.research_limit_default} onChange={(e) => set("research_limit_default", int(e.target.value))} /></Row>
+        <Row id="chats" label="Chats per user" hint="A question in Ask or a file analysis."><input id="chats" className="input sm" type="number" min={0} max={1000000} value={v.chat_limit_default} onChange={(e) => set("chat_limit_default", int(e.target.value))} /></Row>
+        <Row id="reset" label="Limits reset" hint="Monthly on the 1st, or never (raise limits by hand).">
+          <select id="reset" className="input sm" value={v.limit_reset} onChange={(e) => set("limit_reset", e.target.value === "never" ? "never" : "monthly")}>
+            <option value="monthly">Monthly</option><option value="never">Never</option>
+          </select>
+        </Row>
         <Row id="idle" label="Idle expiry" hint="Warning is sent 3 days before access ends.">
           <select id="idle" className="input sm" value={v.idle_expiry_days} onChange={(e) => set("idle_expiry_days", Number(e.target.value))}>
             {[7, 10, 14, 30].map((n) => <option key={n} value={n}>{n} days</option>)}
           </select>
         </Row>
-        <Row id="pool" label="Monthly credit pool"><input id="pool" className="input sm" type="number" min={0} max={1000000} step={100} value={v.monthly_credit_pool} onChange={(e) => set("monthly_credit_pool", int(e.target.value))} /></Row>
         <Row id="fastest" label="Fastest scheduled refresh">
           <select id="fastest" className="input sm" value={v.fastest_schedule} onChange={(e) => set("fastest_schedule", e.target.value)}>
             <option value="3d">Every 3 days</option><option value="weekly">Weekly</option><option value="2w">Every 2 weeks</option>
@@ -117,7 +122,7 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
       {message ? <p className={`sm-text ${message.ok ? "mut" : "bad-text"}`} role={message.ok ? "status" : "alert"}>{message.text}</p> : null}
       <div className="row-12 wrap">
         <button type="button" className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving" : "Save defaults"}</button>
-        <span className="mut xs-text">Last changed by {d.updated_by}. Pool shown as {num(v.monthly_credit_pool)} credits a month.</span>
+        <span className="mut xs-text">Last changed by {d.updated_by}.</span>
       </div>
     </div>
   );

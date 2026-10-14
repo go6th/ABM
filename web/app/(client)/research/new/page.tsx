@@ -1,6 +1,6 @@
 // New research (screen 9): two tabs. Company name researches a company from public sources on
-// the credit pool (the estimate is shown and confirmed first). Upload a file analyzes only the
-// files; public sources only when switched on, which is the only part that uses credits.
+// one of the user's researches (confirmed first). Upload a file analyzes only the
+// files (one chat); public sources only when switched on (one research as well).
 import type { Metadata } from "next";
 import type { ResearchEstimate } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";

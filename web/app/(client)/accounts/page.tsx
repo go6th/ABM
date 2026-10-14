@@ -1,5 +1,5 @@
 // Accounts as designed: every account with its latest news in a sub-line (new signals, first
-// scan complete, no change, researching, waiting for credits), its lanes, when it was last
+// scan complete, no change, researching, waiting to start), its lanes, when it was last
 // researched and its refresh schedule. The whole row opens the account.
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -18,7 +18,7 @@ function subline(a: Item): { text: string; tone: string } {
     case "first_scan": return { text: "First scan complete", tone: "" };
     case "no_change": return { text: "No change", tone: "" };
     case "researching": return { text: "Researching", tone: "run" };
-    case "waiting_credit_limit": return { text: "Waiting: credit limit", tone: "warn" };
+    case "waiting_credit_limit": return { text: "Waiting to start", tone: "neutral" };
     case "failed": return { text: "Last refresh did not finish", tone: "warn" };
     default: return { text: "Not researched yet", tone: "" };
   }

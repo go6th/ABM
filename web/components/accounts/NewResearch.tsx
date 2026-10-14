@@ -1,27 +1,23 @@
 "use client";
 // New research as designed: Company name | Upload a file tabs. The company tab is the shared
-// ResearchCompany form (credits shown and confirmed first). The file tab: the drop area and the
-// file list (Scanning, Ready, Failed), "We found more than one company. Which is this about?" when
-// the files name several, the Also check public sources switch (off by default), the Estimated
-// cost (0 research credits, or about N credits confirmed before it runs) and Analyze file. Results
-// open on the account's file analysis screen.
+// ResearchCompany form. The file tab: the drop area and the file list (Scanning, Ready, Failed),
+// "We found more than one company. Which is this about?" when the files name several, the Also
+// check public sources switch (off by default), what it uses (a file analysis is one chat; with
+// public sources also one research; owner decision 2026-10-14) and Analyze file. Results open on
+// the account's file analysis screen.
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
 import { DOMAIN_RE, allIndexed, cleanDomain, detectedCompany, needingCompany, type CompanyCandidate } from "@/lib/documents";
-import type { CompanyConfirmed, DocumentEstimate, DocumentStatus, ResearchEstimate, RunCreated, RunStatusView } from "@/lib/gen/api.gen";
+import type { CompanyConfirmed, DocumentStatus, ResearchEstimate, RunCreated, RunStatusView } from "@/lib/gen/api.gen";
+import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
 import { DocumentDrop } from "@/components/ws/DocumentDrop";
 import { ResearchCompany } from "./ResearchCompany";
-
-function fmt(n: number): string {
-  return n.toLocaleString("en-US");
-}
 
 function startError(error: unknown): string {
   if (!(error instanceof ApiError)) return "The analysis could not be started. Try again.";
   if (error.type === "documents_not_ready") return "Some files are still being read. Wait until every file shows Ready.";
   if (error.type === "company_confirmation_required") return "Choose which company these files are about first.";
-  if (error.type === "insufficient_credits" || error.status === 402) return "Not enough research credits left this month to check public sources.";
   if (error.status === 409) return error.detail || "An analysis of these files is already starting.";
   return error.detail || "The analysis could not be started. Try again.";
 }
@@ -92,8 +88,9 @@ function FileTab() {
   const [docs, setDocs] = useState<DocumentStatus[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [enrich, setEnrich] = useState(false);
-  const [estimate, setEstimate] = useState<DocumentEstimate | null>(null);
   const [asking, setAsking] = useState(false);
+  const [hit, setHit] = useState<{ kind: "researches" | "chats"; message: string } | null>(null);
+  const { limits } = useMyLimits();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const key = useRef<string | null>(null);
@@ -103,18 +100,7 @@ function FileTab() {
   const bound = accountId ?? docs.find((d) => d.account_id)?.account_id ?? null;
   const needsChoice = waiting.length > 0 && docs.every((d) => d.stage === "parsed" || d.stage === "indexed" || d.stage === "failed");
 
-  useEffect(() => {
-    if (!ready) return;
-    let live = true;
-    api<DocumentEstimate>("POST", "/v1/documents/estimate", { document_ids: docs.map((d) => d.document_id), enrich_public: enrich, credit_cap: null })
-      .then((e) => { if (live) setEstimate(e); })
-      .catch(() => { if (live) setEstimate(null); });
-    return () => { live = false; };
-  }, [ready, docs, enrich]);
-
-  const credits = enrich ? estimate?.credits ?? null : 0;
-  const short = enrich && estimate !== null && estimate.credits > estimate.credits_left;
-  const cost = !enrich ? "0 research credits" : credits === null ? "About … credits, confirmed before it runs" : `About ${fmt(credits)} credits, confirmed before it runs`;
+  const uses = enrich ? "One chat and one research" : "One chat";
 
   const start = async () => {
     setBusy(true);
@@ -129,7 +115,9 @@ function FileTab() {
         ? `/accounts/${encodeURIComponent(run.domain)}/files?run=${encodeURIComponent(created.run_id)}`
         : "/accounts");
     } catch (e) {
-      setError(startError(e));
+      const reached = limitReached(e);
+      if (reached) setHit(reached);
+      else setError(startError(e));
       key.current = null;
       setBusy(false);
     }
@@ -153,27 +141,26 @@ function FileTab() {
           <section className="card pad row-16 wrap">
             <div className="grow-280">
               <div className="strong">Also check public sources</div>
-              <p className="mut sm-text mt-2">Off by default. File-only analysis uses no research credits and stays inside your workspace.</p>
+              <p className="mut sm-text mt-2">Off by default. Your files stay inside your workspace either way; checking public sources also uses one research.</p>
             </div>
             <button type="button" className="sw" role="switch" aria-checked={enrich} aria-label="Also check public sources"
               onClick={() => { setEnrich((v) => !v); setAsking(false); }} />
           </section>
           <div className="card pad-sm row-space wrap">
-            <span className="mut">Estimated cost</span>
-            <b>{cost}</b>
+            <span className="mut">This analysis uses</span>
+            <b>{uses}</b>
           </div>
           {asking ? (
             <div className="card wash pad-sm stack-10" role="group" aria-label="Confirm public sources">
-              <p className="sm-text">
-                Checking public sources uses about <strong>{fmt(credits ?? 0)} credits</strong>.
-                {estimate ? ` Research credits left this month: ${fmt(estimate.credits_left)}.` : ""}
-              </p>
-              {short ? <p className="sm-text bad-text" role="status">Not enough credits left this month. Switch public sources off to analyze the files alone.</p> : null}
+              <p className="sm-text">Checking public sources researches the company on the web as well, and uses one of your researches.</p>
+              <LimitNote limits={limits} kind="researches" />
             </div>
           ) : null}
+          {hit ? <LimitReached kind={hit.kind} message={hit.message} pending={limits?.pending_requests.includes(hit.kind)} /> : null}
           {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
+          <LimitNote limits={limits} kind="chats" />
           <div className="row-12 wrap">
-            <button type="button" className="btn" disabled={!ready || busy || short || !bound} onClick={analyze}>
+            <button type="button" className="btn primary" disabled={!ready || busy || !bound || hit !== null} onClick={analyze}>
               {busy ? "Starting…" : asking ? "Confirm and analyze" : "Analyze file"}
             </button>
             <span className="mut sm-text">Results are marked <b>From your files</b> and kept private to your workspace.</span>

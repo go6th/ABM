@@ -60,8 +60,8 @@ export default async function RefreshPage({ params, searchParams }: { params: Pr
           />
         ) : view.open_job ? (
           <StateCard
-            title={view.open_job.status === "waiting_credit_limit" ? "A refresh is waiting for credits" : "A refresh is already running"}
-            body={`${SCOPE[view.open_job.scope] ?? "A refresh"} for ${view.name} ${view.open_job.status === "waiting_credit_limit" ? "starts when your credit pool can cover it" : "is in progress"}. You will be notified when it finishes.`}
+            title={view.open_job.status === "waiting_credit_limit" ? "A refresh is waiting to start" : "A refresh is already running"}
+            body={`${SCOPE[view.open_job.scope] ?? "A refresh"} for ${view.name} ${view.open_job.status === "waiting_credit_limit" ? "starts soon" : "is in progress"}. You will be notified when it finishes.`}
             action={<Link className="btn" href={back}>Back to {view.name}</Link>}
           />
         ) : (

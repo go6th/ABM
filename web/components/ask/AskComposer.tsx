@@ -3,7 +3,7 @@
 // (all accounts or one), the Search toggle, the model chip (the conversation's analysis model)
 // and Ask. Answers come from the workspace. With Search
 // on, the question becomes a web research topic for the chosen account and opens its Refresh
-// screen, where the credits are shown and confirmed; nothing is searched from here.
+// screen, where it is confirmed (it uses one research); nothing is searched from here.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -71,7 +71,7 @@ export function AskComposer({
   };
 
   // Search on: the question becomes a web research topic for one account, confirmed with its
-  // credits on the Refresh screen. Nothing is searched from here.
+  // the Refresh screen. Nothing is searched from here.
   const [searchOn, setSearchOn] = useState(false);
   const toggleSearch = () => {
     const next = !searchOn;
@@ -161,8 +161,8 @@ export function AskComposer({
       {searchOn || webHintOpen ? (
         <p className="hint" id={`${inputId}-web`} role="status">
           {searchOn && scope
-            ? `Search is on: your question is researched on the web for ${scope.name}. You see the credits and confirm first.`
-            : "Search the web for one account: pick it under Accounts. You see the credits and confirm first."}
+            ? `Search is on: your question is researched on the web for ${scope.name}. You confirm it first, and it uses one of your researches.`
+            : "Search the web for one account: pick it under Accounts. You confirm it first, and it uses one of your researches."}
         </p>
       ) : null}
     </div>

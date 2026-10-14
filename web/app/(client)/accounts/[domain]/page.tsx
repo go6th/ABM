@@ -75,7 +75,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
 
         {ws.open_job ? (
           ws.open_job.status === "waiting_credit_limit" ? (
-            <div className="banner warn" role="status">Waiting: credit limit. The refresh starts when your credit pool can cover it.</div>
+            <div className="banner" role="status">A refresh is waiting to start. You will be notified when it finishes.</div>
           ) : (
             <div className="banner" role="status"><span className="pdot" aria-hidden="true" />Refreshing from the web: {SCOPE_NAME[ws.open_job.scope] ?? "research"}. You will be notified when it finishes.</div>
           )

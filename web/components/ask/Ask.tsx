@@ -17,6 +17,7 @@ import { NEW_CHAT_EVENT } from "@/components/ws/WorkspaceShell";
 import { AnswerView, StreamingAnswer, UsedPanel } from "./AnswerView";
 import { AskComposer, type ScopeAccount } from "./AskComposer";
 import { useModelChoices } from "@/components/ModelMenu";
+import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
 
 export interface AskTurn {
   key: string;
@@ -60,6 +61,12 @@ export function Ask({
   // the analysis model for this conversation (the model chip); null: the user's current one
   const choices = useModelChoices();
   const [model, setModel] = useState<string | null>(null);
+  // chats left this month, and the refusal when none is (owner decision 2026-10-14)
+  const { limits, reload } = useMyLimits();
+  const [hit, setHit] = useState<{ kind: "researches" | "chats"; message: string } | null>(null);
+  const limitLine = hit
+    ? <LimitReached kind={hit.kind} message={hit.message} pending={limits?.pending_requests.includes(hit.kind)} />
+    : <LimitNote limits={limits} kind="chats" />;
   const abort = useRef<AbortController | null>(null);
   const asked = useRef(false);
   const busy = turns.some((t) => t.status === "searching");
@@ -149,11 +156,19 @@ export function Ask({
         window.history.replaceState(null, "", `/?thread=${encodeURIComponent(created)}`);
         router.refresh();
       }
+      reload();
     } catch (cause) {
       if (controller.signal.aborted) return;
+      const reached = limitReached(cause);
+      if (reached) { // nothing was asked: the question goes back into the composer
+        setTurns((all) => all.filter((t) => t.key !== key));
+        setDraft(text);
+        setHit(reached);
+        return;
+      }
       patch(key, { status: "failed", error: failureText(cause), partial: undefined });
     }
-  }, [busy, threadId, scope, router, model]);
+  }, [busy, threadId, scope, router, model, reload]);
 
   // ?q= from an account page: ask once on arrival.
   useEffect(() => {
@@ -183,6 +198,7 @@ export function Ask({
             </p>
           </div>
           <AskComposer variant="hero" placeholder={PLACEHOLDER} menuDown {...composerProps} />
+          {limitLine}
         </div>
       </div>
     );
@@ -235,7 +251,10 @@ export function Ask({
       </div>
       <div className="ask-dock">
         <div className="ask-cols">
-          <AskComposer variant="follow" placeholder="Ask a follow up" {...composerProps} />
+          <div className="stack-8">
+            <AskComposer variant="follow" placeholder="Ask a follow up" {...composerProps} />
+            {limitLine}
+          </div>
           <div className="ask-side" aria-hidden="true" />
         </div>
       </div>

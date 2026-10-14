@@ -6,6 +6,9 @@
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { Schedules } from "@/lib/gen/api.gen";
+import { LimitNote, useMyLimits } from "@/components/Limits";
+
+const PER_MONTH: Record<string, number> = { "3d": 10, weekly: 4, "2w": 2, monthly: 1, off: 0 };
 
 type Cadence = Schedules["rows"][number]["cadence"];
 
@@ -34,7 +37,9 @@ export function SchedulesView({ initial, focus }: { initial: Schedules; focus: s
     }
   };
 
-  const resets = new Date(`${data.resets_on}T00:00:00Z`).getUTCDate() === 1 ? "resets on the 1st" : `resets on ${data.resets_on}`;
+  const { limits } = useMyLimits();
+  // scheduled refreshes a month at these settings (each one is one of the user's researches)
+  const perMonth = data.rows.reduce((n, r) => n + (PER_MONTH[r.cadence] ?? 0), 0);
   return (
     <>
       {message ? <div className="notice error" role="alert"><p>{message}</p></div> : null}
@@ -68,8 +73,8 @@ export function SchedulesView({ initial, focus }: { initial: Schedules; focus: s
       )}
       {anyDisabled ? <p className="fine" id="sched-limit">Your administrator allows scheduled refreshes {data.fastest_label} at most.</p> : null}
       <div className="card sched-foot" aria-live="polite">
-        <div><b>Estimated use:</b> about {fmt(data.estimate_month)} credits a month at these settings</div>
-        <div className="mut small">Pool: {fmt(data.pool)} credits a month · {resets}</div>
+        <div><b>Estimated use:</b> about {fmt(perMonth)} scheduled refresh{perMonth === 1 ? "" : "es"} a month at these settings. Each one uses one of your researches.</div>
+        <LimitNote limits={limits} kind="researches" />
       </div>
     </>
   );

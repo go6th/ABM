@@ -469,3 +469,10 @@ table.xl th span.th { color: var(--text-3); }
 .kv-grid dt { color: var(--muted); }
 .kv-grid dd { margin: 0; font-weight: 600; text-align: right; }
 .line-below { display: block; }
+
+/* Limits per user in the console (owner decision 2026-10-14) */
+.stack-4 { display: flex; flex-direction: column; gap: 4px; }
+.req-row { align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.num-input { width: 96px; }
+.cols-users-limits { grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); min-height: 64px; padding: 0 22px; }
+.limits-edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 12px 22px 16px; border-top: 1px solid var(--line-soft); background: var(--row-hover); }

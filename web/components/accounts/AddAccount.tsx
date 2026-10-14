@@ -1,8 +1,9 @@
 "use client";
-// Add an account as designed: three numbered ways. 1 Research a new company (credits, confirmed
-// first); 2 Ready-made research shared with your team (6th Library accounts published to this
-// client, as checkbox cards; Add N to workspace uses no credits and counts toward the cap); 3
-// Analyze your own file (New research, file tab).
+// Add an account as designed: three numbered ways. 1 Research a new company (one of the user's
+// researches, confirmed first); 2 Ready-made research shared with your team (6th Library
+// accounts published to this client, as checkbox cards; adding them uses no research); 3
+// Analyze your own file (New research, file tab). Accounts are not capped (owner decision
+// 2026-10-14: researches and chats are).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -17,14 +18,11 @@ export function AddAccount({ estimate, library }: { estimate: ResearchEstimate |
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const left = library?.left ?? 0;
-  const over = selected.length > left;
-  const atCap = library !== null && left === 0;
 
   const toggle = (id: string) => setSelected((all) => (all.includes(id) ? all.filter((x) => x !== id) : [...all, id]));
 
   const add = async () => {
-    if (busy || !selected.length || over) return;
+    if (busy || !selected.length) return;
     setBusy(true);
     setMessage(null);
     try {
@@ -46,7 +44,7 @@ export function AddAccount({ estimate, library }: { estimate: ResearchEstimate |
 
       <section className="card pad stack-14" aria-labelledby="way-2">
         <div className="lbl" id="way-2">2 · Ready-made research shared with your team</div>
-        <p className="mut sm-text lead-tight">Research already completed. Add it and you can ask questions right away, with no wait and no credits.</p>
+        <p className="mut sm-text lead-tight">Research already completed. Add it and you can ask questions right away, with no wait.</p>
         {library === null ? (
           <p className="mut sm-text">Ready-made research is unavailable right now. Reload the page in a moment.</p>
         ) : offered.length === 0 && already.length === 0 ? (
@@ -58,7 +56,7 @@ export function AddAccount({ estimate, library }: { estimate: ResearchEstimate |
                 {offered.map((a) => {
                   const on = selected.includes(a.id);
                   return (
-                    <button key={a.id} type="button" className="opt" aria-pressed={on} onClick={() => toggle(a.id)} disabled={atCap && !on}>
+                    <button key={a.id} type="button" className="opt" aria-pressed={on} onClick={() => toggle(a.id)}>
                       <span className="in lib">
                         <span className="box lg" aria-hidden="true">✓</span>
                         <span className="strong">{a.name}</span>
@@ -71,18 +69,13 @@ export function AddAccount({ estimate, library }: { estimate: ResearchEstimate |
             {already.length ? (
               <p className="mut sm-text">Already in your workspace: {already.map((a) => a.name).join(", ")}.</p>
             ) : null}
-            {atCap ? (
-              <p className="mut sm-text" role="status">You have used all {library.account_cap} accounts. Ask your administrator to raise the cap.</p>
-            ) : over ? (
-              <p className="sm-text bad-text" role="status">You can add {left} more account{left === 1 ? "" : "s"}. Choose fewer.</p>
-            ) : null}
             {message ? <p className="sm-text" role="alert">{message}</p> : null}
             {offered.length ? (
               <div className="row-14 wrap">
-                <button type="button" className="btn" disabled={!selected.length || over || busy} onClick={() => void add()}>
+                <button type="button" className="btn" disabled={!selected.length || busy} onClick={() => void add()}>
                   {busy ? "Adding…" : `Add ${selected.length} to workspace`}
                 </button>
-                <span className="mut sm-text">Uses {selected.length} of your {left} remaining accounts</span>
+                <span className="mut sm-text">Ready to ask about right away. Uses no research.</span>
               </div>
             ) : null}
           </>

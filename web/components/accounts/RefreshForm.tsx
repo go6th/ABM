@@ -1,12 +1,14 @@
 "use client";
 // Refresh from web as designed, plus research on one topic the user types. Three scopes and the
 // topic are radio cards (arrow keys move between them); typing in the topic box selects it. Then
-// the credits left this month, Confirm refresh and Stay local. Nothing leaves the workspace until
-// Confirm; Confirm sends the credits the user saw, so a moved estimate is shown again instead of
-// being charged.
+// the two model chips, Confirm refresh and Stay local, and the researches left this month (a
+// refresh is one research; owner decision 2026-10-14: researches, not credits, are shown). With
+// none left, the refusal and "Request more from admin" show instead. Nothing leaves the
+// workspace until Confirm.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
 import { ResearchModelChips, useResearchModels } from "@/components/ModelMenu";
 import { api, ApiError } from "@/lib/api";
 import type { RefreshOptions, RefreshStarted } from "@/lib/gen/api.gen";
@@ -22,29 +24,25 @@ function minutes(m: number): string {
   return `About ${m} min`;
 }
 
-function fmt(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
 export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; initialTopic: string }) {
   const router = useRouter();
-  const [options, setOptions] = useState<Option[]>(view.options);
-  const [topicCost, setTopicCost] = useState(view.topic);
+  const options: Option[] = view.options;
+  const topicCost = view.topic;
   const [topic, setTopic] = useState(initialTopic.slice(0, TOPIC_MAX));
   const start: Scope = initialTopic
     ? "topic"
-    : (options.find((o) => o.scope === "people" && o.affordable) ?? options.find((o) => o.affordable) ?? options[0]!).scope;
+    : (options.find((o) => o.scope === "people") ?? options[0]!).scope;
   const [scope, setScope] = useState<Scope>(start);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [hit, setHit] = useState<string | null>(null);
+  const { limits } = useMyLimits();
   const requestId = useRef(crypto.randomUUID());
   const models = useResearchModels();
   const group = useRef<HTMLDivElement>(null);
   const topicInput = useRef<HTMLTextAreaElement>(null);
   const order: Scope[] = [...options.map((o) => o.scope), "topic"];
-  const credits = scope === "topic" ? topicCost.credits : options.find((o) => o.scope === scope)!.credits;
-  const left = view.credits.left;
-  const short = credits > left;
+  const none = limits !== null && limits.researches.left === 0;
   const topicText = topic.trim().replace(/\s+/g, " ");
   const needsTopic = scope === "topic" && topicText.length < 3;
   const back = `/accounts/${encodeURIComponent(view.domain)}`;
@@ -56,14 +54,13 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
   const move = (delta: number) => focusScope(order[(order.indexOf(scope) + delta + order.length) % order.length]!);
 
   const confirm = async () => {
-    if (busy || short || needsTopic) return;
+    if (busy || needsTopic) return;
     setBusy(true);
     setMessage(null);
     try {
       await api<RefreshStarted>("POST", `/v1/accounts/${encodeURIComponent(view.domain)}/refresh`, {
         request_id: requestId.current,
         scope,
-        credits,
         ...(scope === "topic" ? { topic: topicText } : {}),
         ...models.body,
       });
@@ -71,11 +68,9 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
       router.refresh();
     } catch (cause) {
       requestId.current = crypto.randomUUID();
-      if (cause instanceof ApiError && cause.type === "estimate_changed" && typeof cause.context?.credits === "number") {
-        const moved = cause.context.credits as number;
-        if (scope === "topic") setTopicCost((t) => ({ ...t, credits: moved, affordable: moved <= left }));
-        else setOptions((all) => all.map((o) => (o.scope === scope ? { ...o, credits: moved, affordable: moved <= left } : o)));
-        setMessage(cause.detail);
+      const reached = limitReached(cause);
+      if (reached) {
+        setHit(reached.message);
       } else if (cause instanceof ApiError && (cause.status === 409 || cause.status === 422)) {
         setMessage(cause.status === 422 ? "Describe the topic in 3 to 300 characters." : cause.detail);
       } else if (cause instanceof ApiError && cause.status === 403) {
@@ -122,7 +117,6 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
                 </span>
                 <span className="opt-cost">
                   <span className="strong">{minutes(o.minutes)}</span>
-                  <span className="mut">~{fmt(o.credits)} credits</span>
                 </span>
               </span>
             </button>
@@ -147,7 +141,6 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
               </span>
               <span className="opt-cost">
                 <span className="strong">{minutes(topicCost.minutes)}</span>
-                <span className="mut">~{fmt(topicCost.credits)} credits</span>
               </span>
             </span>
           </button>
@@ -173,26 +166,24 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
         </div>
       </div>
 
-      <div className="card pad-sm kv">
-        <span className="mut">Research credits left this month</span>
-        <span>{fmt(left)} of {fmt(view.credits.pool)}</span>
-      </div>
-
-      {short ? (
-        <div className="notice warn" role="status">
-          <p>This needs about {fmt(credits)} credits and {fmt(left)} are left this month. Choose a smaller refresh, or wait until the pool resets on the 1st.</p>
-        </div>
-      ) : null}
       {message ? <div className="notice error" role="alert"><p>{message}</p></div> : null}
 
       <ResearchModelChips state={models} />
+      {hit || (none && limits) ? (
+        <LimitReached
+          kind="researches"
+          message={hit ?? `You have used your ${limits!.researches.limit} ${limits!.researches.limit === 1 ? "research" : "researches"}. Ask your admin to increase your limit.`}
+          pending={limits?.pending_requests.includes("researches")}
+        />
+      ) : null}
       <div className="actions">
-        <button type="button" className="btn primary wide" onClick={() => void confirm()} disabled={busy || short || needsTopic} aria-describedby="refresh-note">
+        <button type="button" className="btn primary wide" onClick={() => void confirm()} disabled={busy || needsTopic || none || hit !== null} aria-describedby="refresh-note">
           {busy ? "Starting refresh" : topicOn ? "Confirm research" : "Confirm refresh"}
         </button>
         <Link className="btn" href={back} prefetch={false}>Stay local</Link>
         <span className="mut small" id="refresh-note">You will be notified when it finishes.</span>
       </div>
+      <LimitNote limits={limits} kind="researches" />
     </>
   );
 }

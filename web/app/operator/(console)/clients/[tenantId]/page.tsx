@@ -15,7 +15,6 @@ import { Pill } from "@/ui/design";
 import { isolationPill, lastActive, num } from "@/lib/console";
 
 const IDLE = [7, 10, 14, 30] as const;
-const POOLS = [1000, 2000, 3000, 5000];
 const SCHEDULES = [["3d", "Every 3 days"], ["weekly", "Weekly"], ["2w", "Every 2 weeks"], ["monthly", "Monthly"]] as const;
 
 function Seg<T extends string | number | boolean>({ label, value, options, onChange }: { label: string; value: T; options: readonly (readonly [T, string])[]; onChange: (v: T) => void }) {
@@ -38,7 +37,6 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
   const c = detail.client;
   const set = <K extends keyof ConsoleClientSettings>(k: K, v: ConsoleClientSettings[K]) => setS((prev) => ({ ...prev, [k]: v }));
   const near = detail.user_idle_days.filter((d) => d >= s.idle_expiry_days - 3).length;
-  const pools = POOLS.includes(s.monthly_credit_pool) ? POOLS : [...POOLS, s.monthly_credit_pool].sort((a, b) => a - b);
   const pill = isolationPill(detail.isolation);
 
   const save = async () => {
@@ -86,20 +84,24 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
         <section className="card pad stack-20" aria-labelledby="limits-title">
           <h2 id="limits-title" className="card-title">Limits per user</h2>
           <div className="row-16 wrap">
-            <div className="grow-240"><b>Account cap</b><div className="mut sm-text">Most accounts one user can add. Enforced at Add account.</div></div>
+            <div className="grow-240"><b>Researches per user</b><div className="mut sm-text">A full public research of one account: new research, Refresh from web or a scheduled refresh.</div></div>
             <div className="stepper">
-              <button type="button" className="st" aria-label="Lower the account cap" disabled={s.account_cap_per_user <= 1} onClick={() => set("account_cap_per_user", s.account_cap_per_user - 1)}>−</button>
-              <output aria-live="polite">{s.account_cap_per_user}</output>
-              <button type="button" className="st" aria-label="Raise the account cap" onClick={() => set("account_cap_per_user", s.account_cap_per_user + 1)}>+</button>
+              <button type="button" className="st" aria-label="Fewer researches" disabled={s.research_limit_default <= 0} onClick={() => set("research_limit_default", s.research_limit_default - 1)}>−</button>
+              <output aria-live="polite">{s.research_limit_default}</output>
+              <button type="button" className="st" aria-label="More researches" onClick={() => set("research_limit_default", s.research_limit_default + 1)}>+</button>
             </div>
+          </div>
+          <div className="row-16 wrap line-top">
+            <div className="grow-240"><label htmlFor="chat-limit"><b>Chats per user</b></label><div className="mut sm-text">A question in Ask or a file analysis.</div></div>
+            <input id="chat-limit" className="input sm num-input" type="number" min={0} max={1000000} value={s.chat_limit_default} onChange={(e) => set("chat_limit_default", Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
+          </div>
+          <div className="row-16 wrap line-top">
+            <div className="grow-240"><b>Limits reset</b><div className="mut sm-text">Monthly on the 1st, or never (raise limits by hand).</div></div>
+            <Seg label="Limits reset" value={s.limit_reset} options={[["monthly", "Monthly"], ["never", "Never"]] as const} onChange={(v) => set("limit_reset", v)} />
           </div>
           <div className="row-16 wrap line-top">
             <div className="grow-240"><b>Expire access after idle days</b><div className="mut sm-text">Warned 3 days before. Terminated users keep their history. One click to re-enable.</div></div>
             <Seg label="Idle days" value={s.idle_expiry_days} options={IDLE.map((d) => [d, `${d} days`] as const)} onChange={(v) => set("idle_expiry_days", v)} />
-          </div>
-          <div className="row-16 wrap line-top">
-            <div className="grow-240"><b>Monthly credit pool</b><div className="mut sm-text">Shared by all users in this client. Web refreshes draw from it.</div></div>
-            <Seg label="Monthly credit pool" value={s.monthly_credit_pool} options={pools.map((p) => [p, num(p)] as const)} onChange={(v) => set("monthly_credit_pool", v)} />
           </div>
         </section>
         <section className="card pad stack-14" aria-labelledby="lib-title">
@@ -152,9 +154,9 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
         <section className="card pad stack-14" aria-labelledby="now-title">
           <h2 id="now-title" className="lbl">THIS CLIENT NOW</h2>
           <dl className="kv-grid">
-            <dt>Cap</dt><dd>{s.account_cap_per_user} accounts per user</dd>
+            <dt>Researches</dt><dd>{s.research_limit_default} per user{s.limit_reset === "monthly" ? " a month" : ""}</dd>
+            <dt>Chats</dt><dd>{num(s.chat_limit_default)} per user{s.limit_reset === "monthly" ? " a month" : ""}</dd>
             <dt>Idle expiry</dt><dd>{s.idle_expiry_days} days</dd>
-            <dt>Credit pool</dt><dd>{num(s.monthly_credit_pool)} a month</dd>
             <dt>Library accounts</dt><dd>{lib.size} published</dd>
           </dl>
           {near ? <p className="notice warn sm-text">{near} user{near === 1 ? " is" : "s are"} within 3 days of expiring at this setting.</p> : null}

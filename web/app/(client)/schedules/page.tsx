@@ -1,4 +1,5 @@
-// Schedules: how often each account is refreshed from the web, within the client's credit pool.
+// Schedules: how often each account is refreshed from the web; each scheduled refresh is one of
+// the user's researches (owner decision 2026-10-14).
 import type { Metadata } from "next";
 import type { Schedules } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
@@ -22,7 +23,7 @@ export default async function SchedulesPage({ searchParams }: { searchParams: Pr
     <div className="pg">
       <div>
         <h1>Schedules</h1>
-        <p className="intro">Scheduled refreshes go to the web on your behalf, within your credit pool. Between refreshes, everything stays local.</p>
+        <p className="intro">Scheduled refreshes go to the web on your behalf. Each one uses one of your researches. Between refreshes, everything stays local.</p>
       </div>
       {failed || !data ? (
         <StateCard title="Schedules could not be loaded" body="Reload the page in a moment." action={<a className="btn" href="/schedules">Reload</a>} />
