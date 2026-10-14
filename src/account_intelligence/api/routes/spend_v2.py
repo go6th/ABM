@@ -32,7 +32,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import text
 
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action, audit_refusal
@@ -42,7 +41,7 @@ from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs import lifecycle
 from account_intelligence.runs.lifecycle import RunNotFound, RunStateConflict
 from account_intelligence.workflow.transitions import RunStatus
-from spend import live, pause, upload
+from spend import live, pause, prepulled, upload
 from spend.config import load_spend_config, load_v2_config
 from spend.errors import ApprovalInvalid, NotConfigured
 from spend.money import MoneyError, usd_to_micros
@@ -86,12 +85,7 @@ async def _resume(request: Request, tenant_id: UUID, run_id: UUID) -> bool:
     """AWAITING_APPROVAL (cap) to RUNNING, then enqueue the next slice."""
     try:
         async with tenant_txn(tenant_id) as s:
-            kind = (
-                await s.execute(
-                    text("SELECT awaiting_kind, slices_used FROM account_runs WHERE id = :r"),
-                    {"r": run_id},
-                )
-            ).first()
+            kind = await lifecycle.waiting(s, run_id)
             if kind is None or kind.awaiting_kind != "cap":
                 return False
             await lifecycle.move(s, run_id, RunStatus.AWAITING_APPROVAL, RunStatus.RUNNING)
@@ -311,16 +305,7 @@ async def intent_status(
 ) -> dict[str, Any]:
     """The intent's recorded events (codes and hashes only)."""
     async with tenant_txn(op.tenant_id) as s:
-        rows = (
-            await s.execute(
-                text(
-                    "SELECT e.event, e.reason_code, e.at FROM prepulled_intent_events e"
-                    " JOIN prepulled_intents i ON i.id = e.intent_id"
-                    " WHERE e.intent_id = :i AND i.run_id = :r ORDER BY e.id"
-                ),
-                {"i": intent_id, "r": run_id},
-            )
-        ).all()
+        rows = await prepulled.intent_events(s, run_id, intent_id)
     if not rows:
         raise HTTPException(404, "intent not found")
     return {

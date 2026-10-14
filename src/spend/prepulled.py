@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -85,3 +86,20 @@ async def lookup(
         )
     ).first()
     return None if row is None else PrepulledFile(row.sha256, row.object_ref, row.record_count)
+
+
+async def intent_events(s: AsyncSession, run_id: UUID, intent_id: UUID) -> list[Any]:
+    """One intent's recorded events, oldest first (codes and times only; empty when the intent
+    is not the run's)."""
+    return list(
+        (
+            await s.execute(
+                text(
+                    "SELECT e.event, e.reason_code, e.at FROM prepulled_intent_events e"
+                    " JOIN prepulled_intents i ON i.id = e.intent_id"
+                    " WHERE e.intent_id = :i AND i.run_id = :r ORDER BY e.id"
+                ),
+                {"i": intent_id, "r": run_id},
+            )
+        ).all()
+    )
