@@ -353,6 +353,7 @@ class SyncResult:
     listed: int = 0
     matched: int = 0
     broken: str | None = None
+    skipped: bool = False
     accounts: set[UUID] = field(default_factory=set)
 
 
@@ -370,8 +371,11 @@ async def sync_connection(
     reader: Any,
     store: Any,
     now: datetime,
+    apps: Mapping[str, Any] | None = None,
 ) -> SyncResult:
-    """One sync of one active per-user connection (see the module docstring)."""
+    """One sync of one active per-user connection (see the module docstring). With ``apps``, a
+    connection whose provider has no registered OAuth app is skipped: it cannot be refreshed, and
+    that is "not available", not a broken grant."""
     from sqlalchemy import text
 
     from connectors_client import framework
@@ -390,6 +394,9 @@ async def sync_connection(
             )
         ).first()
         if conn is None or conn.owner_user_id is None or conn.kind not in KINDS:
+            return result
+        if apps is not None and spec(conn.kind).provider not in apps:
+            result.skipped = True  # no OAuth app registered: not available, not broken
             return result
         if not conn.token_ref:  # an active grant with no stored token cannot sync: fail closed
             await consent.mark_broken(s, connection_id, "token_missing")

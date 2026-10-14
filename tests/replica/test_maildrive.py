@@ -191,9 +191,13 @@ async def test_one_broken_connection_never_stops_the_sync_of_the_others(
         SCOPE,
     )
     plane = _plane(world["b"], "tokenless-test", world["payloads"])
-    _wire(plane, FakeGoogle(), {"google": ("i", "s")})
+    _wire(plane, FakeGoogle(), {})  # no OAuth app: not available, never marked broken
     tick = await _call(plane, "POST", "/tasks/maildrive-sync", json={})
     assert tick.status_code == 200, tick.text
+    assert _db("SELECT status FROM connector_connections WHERE id = %s", bad) == [("active",)]
+    _wire(plane, FakeGoogle(), {"google": ("i", "s")})
+    tick = await _call(plane, "POST", "/tasks/maildrive-sync", json={})
+    assert tick.status_code == 200, tick.text  # the tick finishes for everyone else
     assert _db("SELECT status, broken_reason FROM connector_connections WHERE id = %s", bad) == [
         ("broken", "token_missing")
     ]

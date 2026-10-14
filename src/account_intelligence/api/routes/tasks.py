@@ -231,9 +231,8 @@ async def maildrive_sync(
 
     container = request.app.state.container
     now = datetime.now(UTC)
-    oauth = container.extras.get("maildrive_oauth") or maildrive.HttpOAuthClient(
-        container.extras.get("maildrive_apps") or {}
-    )
+    apps = dict(container.extras.get("maildrive_apps") or {})
+    oauth = container.extras.get("maildrive_oauth") or maildrive.HttpOAuthClient(apps)
     reader = container.extras.get("maildrive_reader") or maildrive.HttpMailDriveReader()
     async with untenanted_session() as plain:
         due = (
@@ -244,7 +243,7 @@ async def maildrive_sync(
         ).all()
     synced = matched = broken = 0
     # LOOP(mail and drive sync): cap=500 connections per tick (the lookup's limit); exit=end
-    failed = 0
+    failed = skipped = 0
     for tenant_id, connection_id in due:
         try:
             result = await maildrive.sync_connection(
@@ -255,6 +254,7 @@ async def maildrive_sync(
                 reader=reader,
                 store=plane_of(request).secrets,
                 now=now,
+                apps=apps,
             )
         except Exception as error:  # one connection's failure never stops the others
             failed += 1
@@ -263,10 +263,19 @@ async def maildrive_sync(
                 extra={"connection_id": str(connection_id), "error": type(error).__name__},
             )
             continue
+        if result.skipped:
+            skipped += 1
+            continue
         synced += 1
         matched += result.matched
         broken += result.broken is not None
-    return {"connections": synced, "matched": matched, "broken": broken, "failed": failed}
+    return {
+        "connections": synced,
+        "matched": matched,
+        "broken": broken,
+        "failed": failed,
+        "skipped": skipped,
+    }
 
 
 @router.post("/access-expiry")
