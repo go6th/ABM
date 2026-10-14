@@ -152,7 +152,7 @@ def test_migrator_url_is_read_only_by_migration_and_ops_code() -> None:
 
 def test_production_template_uses_a_non_superuser_owner() -> None:
     """CONFIG prod-migrator-role: deploy templates never migrate as ``postgres``."""
-    for path in [*(ROOT / "infra").rglob("*.tf"), ROOT / "scripts" / "deploy_to_cloud_run.sh"]:
+    for path in [*(ROOT / "infra").rglob("*.tf"), *(ROOT / "scripts").glob("deploy*.sh")]:
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"postgres(ql)?://postgres[:@]", text), str(path.relative_to(ROOT))
 
@@ -311,6 +311,21 @@ def test_readiness_reports_every_component_by_status_word_only() -> None:
     assert secret not in json.dumps(report)
 
 
+def test_the_cloud_api_says_provider_keys_are_checked_on_the_worker() -> None:
+    """The provider keys are mounted on the worker only; the api must not call them missing."""
+    from account_intelligence.api.routes.health import components
+
+    class _Container:
+        connectors = object()
+        payloads = None
+        llm = type("AnthropicLlm", (), {})()
+
+    env = {"CONNECTORS": "on", "SERVICE_ROLE": "api", "APP_ENV": "production"}
+    report = components(_Container(), env)
+    assert report["provider.search"] == "checked on the worker"
+    assert report["provider.people"].startswith("disabled")
+
+
 def test_readiness_marks_providers_off_when_connectors_are_off() -> None:
     """API readyz-components: hermetic default shows every provider off, never configured."""
     from account_intelligence.api.routes.health import components
@@ -375,3 +390,18 @@ def test_rate_limits_and_readiness_read_the_one_redis_setting() -> None:
     terraform = (ROOT / "infra" / "stack" / "main.tf").read_text()
     assert "REDIS_URL" in compose and "REDIS_URL" in terraform
     assert "REDIS_HOST" not in compose + terraform
+
+
+def test_readiness_needs_the_schema_revision_of_the_code() -> None:
+    """Readiness compares the database revision with the newest migration the code was written
+    with; the constant moves with every new migration."""
+    from account_intelligence.api.routes.health import EXPECTED_REVISION, revision_check
+
+    newest = max(
+        p.name.split("_", 1)[0] for p in (ROOT / "migrations" / "versions").glob("0*.py")
+    )
+    assert EXPECTED_REVISION == newest
+    assert revision_check(EXPECTED_REVISION) == "ok"
+    assert revision_check(str(int(EXPECTED_REVISION) + 1).zfill(4)) == "ok"
+    assert revision_check(str(int(EXPECTED_REVISION) - 1).zfill(4)).startswith("failed")
+    assert revision_check(None).startswith("failed")
