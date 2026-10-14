@@ -1,6 +1,6 @@
 # Environment and infrastructure plan
 
-Environment-specific non-secret defaults are in `config/dev.yaml`, `config/staging.yaml` and `config/production.yaml`. Credentials are injected via environment variables; never commit `.env`, cloud credentials, provider tokens, tenant data or benchmark outputs.
+Environment settings are environment variables, listed with their profiles in `docs/ENVIRONMENT.md` (generated from `src/account_intelligence/config.py`); the cloud wiring is in `infra/` and `docs/deploy/ARCHITECTURE.md`. Credentials are injected via environment variables; never commit `.env`, cloud credentials, provider tokens, tenant data or benchmark outputs.
 
 `make deploy-staging` is a one-command **local staging** path: it starts the Compose database and Redis, migrates, builds/starts the API and Inngest, and probes `/healthz`. It requires Docker Compose, an untracked `.env` with the variables in docs/ENVIRONMENT.md, and an exported `APP_RW_PASSWORD`. It does not create cloud infrastructure, publish an image or deploy to a cloud account. The script is not considered a successful staging release until all those local gates pass.
 

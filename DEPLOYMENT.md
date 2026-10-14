@@ -42,95 +42,20 @@ docker compose down
 
 ## 2. Cloud Deployment (Google Cloud Platform)
 
-### Target Architecture
-- **Web App**: Cloud Run v2 (Serverless container, auto-scaling, custom domain, Cloud Armor).
-- **API**: Cloud Run v2 (Private VPC ingress from web, IAM service-to-service auth).
-- **Worker**: Cloud Run Jobs (One-job-per-run execution driven by Cloud Tasks).
-- **Database**: Cloud SQL for PostgreSQL 16 (Private IP, automated backups, CMEK).
-- **Storage**: Google Cloud Storage (Private buckets for research artifacts & PDF exports).
-- **Secrets**: Google Cloud Secret Manager (Managed secret injection).
+There is one deploy path: Terraform for the infrastructure and the GitHub Actions workflows for
+releases. CI builds the images once, checks and runs them hermetically, and the deploy workflow
+pushes those exact images, runs the migration job, deploys by digest, smoke tests and rolls back
+on failure. Production needs the owner's approval in the `production` environment. Nothing is
+deployed until the owner says so.
 
-### Prerequisites
-1. GCP Project ID (with Billing enabled).
-2. Enabled APIs: `run.googleapis.com`, `artifactregistry.googleapis.com`, `secretmanager.googleapis.com`, `sqladmin.googleapis.com`.
-3. Service accounts created with least-privilege roles (`roles/cloudsql.client`, `roles/secretmanager.secretAccessor`).
+- Architecture, sizes and estimated cost: `docs/deploy/ARCHITECTURE.md`
+- One-time setup, deploy, rollback, secret rotation, restore and post-deploy checks:
+  `docs/deploy/RUNBOOK.md`
+- Workflows: `.github/workflows/ci.yml`, `_deploy.yml`, `deploy-staging.yml`, `deploy-prod.yml`
+  (variables and environments: `docs/deploy/agents/ci-and-images.md` and `docs/deploy/REPORT.md`)
 
-### Deployment Steps
-
-#### Option A: Quick Automated Deployment Script
-```bash
-# 1. Authenticate with Google Cloud
-gcloud auth login
-gcloud config set project abmgenerator
-
-# 2. Build, push images to Artifact Registry, and deploy to Cloud Run
-bash scripts/deploy_to_cloud_run.sh --all
-```
-
-#### Option B: Step-by-Step Manual Deployment
-```bash
-# 1. Authenticate with Google Cloud
-gcloud auth login
-gcloud config set project abmgenerator
-
-# 2. Configure Docker authentication
-gcloud auth configure-docker asia-south1-docker.pkg.dev
-
-# 3. Build container images locally
-docker build -f docker/api.Dockerfile -t asia-south1-docker.pkg.dev/abmgenerator/abm-repo/api:latest .
-docker build -f docker/worker.Dockerfile -t asia-south1-docker.pkg.dev/abmgenerator/abm-repo/worker:latest .
-docker build -f web/Dockerfile -t asia-south1-docker.pkg.dev/abmgenerator/abm-repo/web:latest web
-
-# (Alternatively, build in the cloud with Cloud Build)
-gcloud builds submit --config=docker/cloudbuild.yaml .
-
-# 4. Push images to Artifact Registry
-docker push asia-south1-docker.pkg.dev/abmgenerator/abm-repo/api:latest
-docker push asia-south1-docker.pkg.dev/abmgenerator/abm-repo/worker:latest
-docker push asia-south1-docker.pkg.dev/abmgenerator/abm-repo/web:latest
-
-# 5. Run Database Migrations (using Cloud Run Jobs)
-gcloud run jobs create abm-migrate \
-  --project=abmgenerator \
-  --region=asia-south1 \
-  --image=asia-south1-docker.pkg.dev/abmgenerator/abm-repo/api:latest \
-  --command="alembic" \
-  --args="upgrade,head" \
-  --set-env-vars="SERVICE_ROLE=migrate,MIGRATOR_DATABASE_URL=$DATABASE_URL"
-
-gcloud run jobs execute abm-migrate --project=abmgenerator --region=asia-south1 --wait
-
-# 6. Deploy Backend API to Cloud Run
-gcloud run deploy abm-api \
-  --project=abmgenerator \
-  --region=asia-south1 \
-  --image=asia-south1-docker.pkg.dev/abmgenerator/abm-repo/api:latest \
-  --port=8080 \
-  --allow-unauthenticated \
-  --set-env-vars="SERVICE_ROLE=api,DATABASE_URL=$DATABASE_URL,CHECKPOINT_DATABASE_URL=$CHECKPOINT_DATABASE_URL,ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
-
-# 7. Deploy Worker to Cloud Run
-gcloud run deploy abm-worker \
-  --project=abmgenerator \
-  --region=asia-south1 \
-  --image=asia-south1-docker.pkg.dev/abmgenerator/abm-repo/worker:latest \
-  --port=8081 \
-  --command="uvicorn" \
-  --args="account_intelligence.api.main:app,--host,0.0.0.0,--port,8081" \
-  --allow-unauthenticated \
-  --set-env-vars="SERVICE_ROLE=worker,DATABASE_URL=$DATABASE_URL,CHECKPOINT_DATABASE_URL=$CHECKPOINT_DATABASE_URL,ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
-
-# 8. Deploy Frontend Web to Cloud Run
-API_URL=$(gcloud run services describe abm-api --project=abmgenerator --region=asia-south1 --format='value(status.url)')
-
-gcloud run deploy abm-web \
-  --project=abmgenerator \
-  --region=asia-south1 \
-  --image=asia-south1-docker.pkg.dev/abmgenerator/abm-repo/web:latest \
-  --port=3000 \
-  --allow-unauthenticated \
-  --set-env-vars="API_ORIGIN=$API_URL"
-```
+The manual scripts this section used to describe (`scripts/deploy_to_cloud_run.sh`,
+`scripts/deploy_gcp.sh`, `docker/cloudbuild.yaml`) were removed in Phase 4C.
 
 ---
 

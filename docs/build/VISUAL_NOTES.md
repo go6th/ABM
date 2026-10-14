@@ -21,7 +21,7 @@ The owner decided on 2026-10-13 to replace the visual rules of `BUILD_PROMPT.md`
 
 ## Findings from the "before" pass
 
-- **Screenshots:** `web/test-results/visual-before/`, 23 screens at 1280px and 375px. The account is `pilot-a-1.example` and the run is `efe58555`. Taken with `web/scripts/visual-shots.mjs`.
+- **Screenshots:** `web/test-results/visual-before/`, 23 screens at 1280px and 375px. The account is `pilot-a-1.example` and the run is `efe58555`. Taken with `web/scripts/visual-shots.mjs`. (That script was removed in Phase 4C; the current click-through is `web/scripts/phase4b-shots.mjs`.)
 - **CSP in the dev server:** every page logs CSP violations, even sign-in. All of them on sign-in come from Next's dev tools, which inject an un-nonced `<style>` and `style` attributes. The zero-violation check therefore runs against a production build (`next build && next start`), not `next dev`.
 - **Operator console:** opened locally through the dev staff verifier, with cookie `6th_operator_session=operator:dev-operator`, `APP_ENV=dev` only.
 - **Titles:** every page has the same `<title>`. Fixing that is in the main build (A6), not here.

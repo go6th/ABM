@@ -13,10 +13,10 @@ The operator console uses a separate staff session. Browser requests go to same-
 | /operator/spend | /operator/v1/runs/{run_id}/spend/live | Connected by run ID and support grant |
 | /operator/cost | /operator/v1/ops/cost/{run_id} | Connected by run ID and support grant |
 | /operator/failures | /operator/v1/ops/failures, /operator/v1/ops/stuck | Connected by support grant; tenant-scoped aggregates |
-| /operator/review | No operator review-queue route | Development-only explanation; hidden in production |
-| /operator/monitors | No operator health/SLO route | Development-only explanation; hidden in production |
-| /operator/audit | Operator audit write exists, no read endpoint | Development-only explanation; hidden in production |
-| /operator/announcements | No operator status or announcement route | Development-only explanation; hidden in production |
+| /operator/review | No operator review-queue route | No page (removed in Phase 4C); the address answers 404 |
+| /operator/monitors | No operator health/SLO route | No page (removed in Phase 4C); the address answers 404 |
+| /operator/audit | Operator audit write exists, no read endpoint | No page (removed in Phase 4C); the address answers 404 |
+| /operator/announcements | No operator status or announcement route | No page (removed in Phase 4C); the address answers 404 |
 
 Tenant data reads require a UUID support grant. The UI does not persist it. The backend resolves owner, scope, expiry, revocation and fresh MFA on every request. Platform administration uses the staff role directly and does not expose tenant content.
 

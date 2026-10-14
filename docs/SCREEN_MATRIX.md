@@ -1,5 +1,9 @@
 # Screen matrix (UI redesign, 2026-10-11)
 
+> Phase 4C (2026-10-15): the parity suite (`web/e2e/parity/`, `playwright.parity.config.ts`) was removed
+> as dead code. The current screen check is `web/e2e/replica/screens.spec.ts` (axe, CSP, overflow at
+> 1360 and 375). This page is kept as the record of the 2026-10-11 redesign.
+
 Every KEEP and BUILD screen from `docs/UI_BACKEND_AUDIT.md`, with the parity tests that pin it
 (`web/e2e/parity/*.spec.ts`). The suite queries roles, labels and visible text only, so it runs
 unchanged on the old and the rebuilt UI.
@@ -47,7 +51,7 @@ Run with: `tests/e2e/serve.py` on 8088 (`E2E_WEB_ORIGIN=http://localhost:3001`) 
 
 Old UI total: 49 of 50 pass. The one failure is the conversation-list FIX above.
 
-New UI total: 50 of 50 pass on a fresh seed (run of 2026-10-11, 3.5 minutes), with the conversation list fixed. Screenshots of every screen in light and dark at 1440, 1024 and 390 are in `docs/design-review/`.
+New UI total: 50 of 50 pass on a fresh seed (run of 2026-10-11, 3.5 minutes), with the conversation list fixed. Screenshots of every screen in light and dark at 1440, 1024 and 390 were in `docs/design-review/` (removed in Phase 4C; still in git history before that commit).
 
 ## Fixes made to the suite and the harness while taking the baseline
 

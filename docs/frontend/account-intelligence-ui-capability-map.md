@@ -33,7 +33,7 @@ because the current backend contract does not provide their required workflow:
 | General account-file import | No tenant account import and column-mapping operation is present. Accounts are added using the supported single-account API. |
 | Notification read/unread state and alert detail | The alert contract supports listing and feedback, but not read-state mutation or a dedicated alert-detail operation. |
 | Global operator run queue and approval queue | The operator API supports run inspection using a tenant-approved support grant; it intentionally does not expose a global run directory. There is no operator review-queue endpoint. |
-| Operator-wide quality, health/SLO, and audit browsing | No corresponding operator read operations are available. Development placeholders are hidden in production. |
+| Operator-wide quality, health/SLO, and audit browsing | No corresponding operator read operations are available. The development placeholders were removed in Phase 4C; the addresses answer 404. |
 | Provider-backed connector ingestion | The connector consent/quarantine workflow exists, but real provider clients and registered OAuth applications are not configured. OAuth or fetch failures must remain visible; a connected UI state is not proof of successful ingestion. |
 
 These limits are also reflected in [the operator route map](./operator-route-map.md), the generated

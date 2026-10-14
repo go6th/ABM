@@ -1,5 +1,9 @@
 # UI and backend audit (UI redesign, 2026-10-11)
 
+> Phase 4C (2026-10-15): the parity suite (`web/e2e/parity/`, `playwright.parity.config.ts`) was removed
+> as dead code. The current screen check is `web/e2e/replica/screens.spec.ts` (axe, CSP, overflow at
+> 1360 and 375). This page is kept as the record of the 2026-10-11 redesign.
+
 This audit is the input to the light and dark rebuild of every screen. It starts from the
 `pre-ui-redesign` tag (e01c565) plus the in-progress web work adopted on `feat/ui-redesign`
 (bbcb181, b865997).
