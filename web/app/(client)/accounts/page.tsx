@@ -4,25 +4,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { AccountPage } from "@/lib/gen/api.gen";
+import { orderAccounts, subline } from "@/lib/accounts-list";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { StateCard } from "@/ui/design";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Accounts · Account Intelligence" };
-
-type Item = AccountPage["accounts"][number];
-
-function subline(a: Item): { text: string; tone: string } {
-  switch (a.state) {
-    case "new_signals": return { text: `${a.new_signals} new signal${a.new_signals === 1 ? "" : "s"}`, tone: "ok" };
-    case "first_scan": return { text: "First scan complete", tone: "" };
-    case "no_change": return { text: "No change", tone: "" };
-    case "researching": return { text: "Researching", tone: "run" };
-    case "waiting_credit_limit": return { text: "Waiting to start", tone: "neutral" };
-    case "failed": return { text: "Last refresh did not finish", tone: "warn" };
-    default: return { text: "Not researched yet", tone: "" };
-  }
-}
 
 export default async function AccountsPage() {
   let page: AccountPage | null = null;
@@ -33,14 +20,7 @@ export default async function AccountsPage() {
     if (!(e instanceof ServerApiError)) throw e;
     failed = true;
   }
-  // Most news first, then most recently researched; on the same day an account that has been
-  // refreshed before one with only a first scan, then by name.
-  const watched = (a: Item) => (a.state === "new_signals" || a.state === "no_change" ? 0 : 1);
-  const accounts = [...(page?.accounts ?? [])].sort((x, y) =>
-    (y.new_signals ?? 0) - (x.new_signals ?? 0)
-    || (y.last_researched_at ?? "").slice(0, 10).localeCompare((x.last_researched_at ?? "").slice(0, 10))
-    || watched(x) - watched(y)
-    || (x.name ?? x.domain).localeCompare(y.name ?? y.domain));
+  const accounts = orderAccounts(page?.accounts ?? []);
   return (
     <div className="pg">
       <div className="head">

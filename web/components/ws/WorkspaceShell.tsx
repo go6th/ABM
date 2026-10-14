@@ -9,12 +9,13 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, clearSession } from "@/lib/api";
+import type { ShellNote } from "@/lib/notifications";
 import { setUploadOwner } from "@/lib/upload-store";
 import { Logo, NavIcon } from "@/ui/design";
 
 export interface RecentChat { id: string; title: string }
 
-export interface ShellNote { id: string; text: string; meta: string; href: string; warn: boolean }
+export type { ShellNote };
 
 export interface ShellUser {
   /** The signed-in user's id: keeps this browser's paused uploads per person. */
