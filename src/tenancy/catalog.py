@@ -94,6 +94,7 @@ EVENT_TYPES: dict[str, str] = {
     "task.run_slice": "Cloud Tasks payload {tenant_id, run_id, slice}",
     "task.file_process": "Cloud Tasks payload {tenant_id, file_id}",
     "task.document_process": "Cloud Tasks payload {tenant_id, document_id}",
+    "task.research_job": "Cloud Tasks payload {tenant_id, job_id}",
     "task.approval_timeout": "Cloud Tasks payload {tenant_id, run_id}",
     "outbox.notification": "notification_outbox row (tenant-scoped, RLS)",
     "audit.event": "audit_events row (tenant-scoped, RLS, insert-only, hash-chained)",

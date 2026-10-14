@@ -382,6 +382,16 @@
             "title": "New Signals",
             "type": "integer"
           },
+          "open_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpenJob"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "state": {
             "default": "not_researched",
             "enum": [
@@ -2928,6 +2938,46 @@
           "tally"
         ],
         "title": "CoverageView",
+        "type": "object"
+      },
+      "Credits": {
+        "additionalProperties": false,
+        "description": "The client's monthly research credit pool.",
+        "properties": {
+          "held": {
+            "title": "Held",
+            "type": "integer"
+          },
+          "left": {
+            "title": "Left",
+            "type": "integer"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "pool": {
+            "title": "Pool",
+            "type": "integer"
+          },
+          "resets_on": {
+            "title": "Resets On",
+            "type": "string"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period",
+          "pool",
+          "used",
+          "held",
+          "left",
+          "resets_on"
+        ],
+        "title": "Credits",
         "type": "object"
       },
       "CrmApproved": {
@@ -6340,6 +6390,164 @@
         "title": "NewTurn",
         "type": "object"
       },
+      "Notification": {
+        "additionalProperties": false,
+        "description": "One in-app notification for the signed-in user.",
+        "properties": {
+          "account_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Domain"
+          },
+          "account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Name"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "credits_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Used"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "read": {
+            "title": "Read",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "created_at",
+          "read",
+          "account_domain",
+          "account_name",
+          "scope",
+          "credits_used",
+          "reason"
+        ],
+        "title": "Notification",
+        "type": "object"
+      },
+      "NotificationRead": {
+        "additionalProperties": false,
+        "description": "A notification marked read.",
+        "properties": {
+          "read": {
+            "title": "Read",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "read"
+        ],
+        "title": "NotificationRead",
+        "type": "object"
+      },
+      "Notifications": {
+        "additionalProperties": false,
+        "description": "The user's latest notifications and how many are unread.",
+        "properties": {
+          "notifications": {
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            },
+            "title": "Notifications",
+            "type": "array"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "notifications",
+          "unread"
+        ],
+        "title": "Notifications",
+        "type": "object"
+      },
+      "OpenJob": {
+        "additionalProperties": false,
+        "description": "A research job of the account that is waiting, queued or running.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "scope",
+          "status"
+        ],
+        "title": "OpenJob",
+        "type": "object"
+      },
       "OperatorLiveSpend": {
         "additionalProperties": false,
         "description": "Response body: operator live spend.",
@@ -7100,6 +7308,186 @@
         "title": "Reconcile",
         "type": "object"
       },
+      "RefreshBody": {
+        "additionalProperties": false,
+        "description": "Confirm a refresh. ``credits`` is the estimate the user saw and agreed to.",
+        "properties": {
+          "credits": {
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Credits",
+            "type": "integer"
+          },
+          "from_turn_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Turn Id"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "jobs",
+              "people",
+              "full"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "scope",
+          "credits"
+        ],
+        "title": "RefreshBody",
+        "type": "object"
+      },
+      "RefreshOption": {
+        "additionalProperties": false,
+        "description": "One refresh scope with its time and credit estimate.",
+        "properties": {
+          "affordable": {
+            "title": "Affordable",
+            "type": "boolean"
+          },
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "jobs",
+              "people",
+              "full"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "name",
+          "description",
+          "minutes",
+          "credits",
+          "affordable"
+        ],
+        "title": "RefreshOption",
+        "type": "object"
+      },
+      "RefreshOptions": {
+        "additionalProperties": false,
+        "description": "Everything the Refresh from web screen shows before anything is confirmed.",
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "cap_per_pull": {
+            "title": "Cap Per Pull",
+            "type": "integer"
+          },
+          "credits": {
+            "$ref": "#/components/schemas/Credits"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "open_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpenJob"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/RefreshOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "refreshed_days_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refreshed Days Ago"
+          }
+        },
+        "required": [
+          "domain",
+          "name",
+          "refreshed_days_ago",
+          "allowed",
+          "credits",
+          "cap_per_pull",
+          "options",
+          "open_job"
+        ],
+        "title": "RefreshOptions",
+        "type": "object"
+      },
+      "RefreshStarted": {
+        "additionalProperties": false,
+        "description": "A confirmed refresh: its job, status and the credits reserved.",
+        "properties": {
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "credits"
+        ],
+        "title": "RefreshStarted",
+        "type": "object"
+      },
       "RejectBody": {
         "additionalProperties": false,
         "description": "A rejection with its reason.",
@@ -7121,6 +7509,28 @@
           "reason"
         ],
         "title": "RejectBody",
+        "type": "object"
+      },
+      "ResearchJobTask": {
+        "additionalProperties": false,
+        "description": "A confirmed research job to run: ids only.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "job_id"
+        ],
+        "title": "ResearchJobTask",
         "type": "object"
       },
       "ResetPasswordBody": {
@@ -12245,6 +12655,132 @@
         ]
       }
     },
+    "/v1/accounts/{domain}/refresh": {
+      "get": {
+        "description": "What a web refresh of this account would cost, before anything is confirmed.",
+        "operationId": "refresh_options_v1_accounts__domain__refresh_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh Options",
+        "tags": [
+          "credits"
+        ]
+      },
+      "post": {
+        "description": "Reserve the credits the user saw and start the refresh.",
+        "operationId": "confirm_refresh_v1_accounts__domain__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Refresh",
+        "tags": [
+          "credits"
+        ]
+      }
+    },
     "/v1/accounts/{domain}/sheets/{sheet}": {
       "get": {
         "description": "One page of a deep-dive table, filtered and sorted on the server.",
@@ -14497,6 +15033,56 @@
         "summary": "Decide",
         "tags": [
           "connectors"
+        ]
+      }
+    },
+    "/v1/credits": {
+      "get": {
+        "description": "The caller's client pool for this month.",
+        "operationId": "credits_now_v1_credits_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Credits"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Credits Now",
+        "tags": [
+          "credits"
         ]
       }
     },
@@ -16939,6 +17525,116 @@
         "summary": "Budget",
         "tags": [
           "signals"
+        ]
+      }
+    },
+    "/v1/notifications": {
+      "get": {
+        "description": "The caller's latest notifications, unread first.",
+        "operationId": "notifications_v1_notifications_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notifications"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Notifications",
+        "tags": [
+          "credits"
+        ]
+      }
+    },
+    "/v1/notifications/{notification_id}/read": {
+      "post": {
+        "description": "Mark one of the caller's notifications read.",
+        "operationId": "notification_read_v1_notifications__notification_id__read_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Notification Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Notification Read",
+        "tags": [
+          "credits"
         ]
       }
     },

@@ -12,6 +12,7 @@ from account_intelligence.api.routes import (
     auth,
     chat,
     connectors,
+    credits,
     crm,
     documents,
     exports,
@@ -42,6 +43,7 @@ v1_router = APIRouter(prefix="/v1", dependencies=[Depends(route_guard), Depends(
 v1_router.include_router(runs.router)
 v1_router.include_router(chat.router)
 v1_router.include_router(ask.router)
+v1_router.include_router(credits.router)
 v1_router.include_router(me.router)
 v1_router.include_router(spend.router)
 v1_router.include_router(spend_v2.router)

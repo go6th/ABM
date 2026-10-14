@@ -110,6 +110,14 @@ export const Narrative = z.object({
 }).strict();
 export type Narrative = z.infer<typeof Narrative>;
 
+export const OpenJob = z.object({
+  "id": z.string(),
+  "kind": z.string(),
+  "scope": z.string(),
+  "status": z.string(),
+}).strict();
+export type OpenJob = z.infer<typeof OpenJob>;
+
 export const AccountWorkspace = z.object({
   "cadence": z.string().optional(),
   "cadence_label": z.string().optional(),
@@ -127,6 +135,7 @@ export const AccountWorkspace = z.object({
   "name": z.string().nullable(),
   "narrative": Narrative.nullable(),
   "new_signals": z.number().int().optional(),
+  "open_job": OpenJob.nullable().optional(),
   "state": z.string().optional(),
   "subline": z.string(),
 }).strict();
@@ -596,6 +605,16 @@ export const CoverageView = z.object({
   "tally": z.array(z.string()),
 }).strict();
 export type CoverageView = z.infer<typeof CoverageView>;
+
+export const Credits = z.object({
+  "held": z.number().int(),
+  "left": z.number().int(),
+  "period": z.string(),
+  "pool": z.number().int(),
+  "resets_on": z.string(),
+  "used": z.number().int(),
+}).strict();
+export type Credits = z.infer<typeof Credits>;
 
 export const CrmApproved = z.object({
   "approved": z.number().int(),
@@ -1289,6 +1308,30 @@ export const NewTurn = z.object({
 }).strict();
 export type NewTurn = z.infer<typeof NewTurn>;
 
+export const Notification = z.object({
+  "account_domain": z.string().nullable(),
+  "account_name": z.string().nullable(),
+  "created_at": z.string(),
+  "credits_used": z.number().int().nullable(),
+  "id": z.string(),
+  "kind": z.string(),
+  "read": z.boolean(),
+  "reason": z.string().nullable(),
+  "scope": z.string().nullable(),
+}).strict();
+export type Notification = z.infer<typeof Notification>;
+
+export const NotificationRead = z.object({
+  "read": z.boolean(),
+}).strict();
+export type NotificationRead = z.infer<typeof NotificationRead>;
+
+export const Notifications = z.object({
+  "notifications": z.array(Notification),
+  "unread": z.number().int(),
+}).strict();
+export type Notifications = z.infer<typeof Notifications>;
+
 export const OperatorLiveSpend = z.object({
   "as_of": z.string(),
   "by_provider": z.array(z.record(z.string(), z.unknown())),
@@ -1464,11 +1507,54 @@ export const Reconcile = z.object({
 }).strict();
 export type Reconcile = z.infer<typeof Reconcile>;
 
+export const RefreshBody = z.object({
+  "credits": z.number().int(),
+  "from_turn_id": z.string().nullable().optional(),
+  "request_id": z.string(),
+  "scope": z.string(),
+}).strict();
+export type RefreshBody = z.infer<typeof RefreshBody>;
+
+export const RefreshOption = z.object({
+  "affordable": z.boolean(),
+  "credits": z.number().int(),
+  "description": z.string(),
+  "minutes": z.number().int(),
+  "name": z.string(),
+  "scope": z.string(),
+}).strict();
+export type RefreshOption = z.infer<typeof RefreshOption>;
+
+export const RefreshOptions = z.object({
+  "allowed": z.boolean(),
+  "cap_per_pull": z.number().int(),
+  "credits": Credits,
+  "domain": z.string(),
+  "name": z.string(),
+  "open_job": OpenJob.nullable(),
+  "options": z.array(RefreshOption),
+  "refreshed_days_ago": z.number().int().nullable(),
+}).strict();
+export type RefreshOptions = z.infer<typeof RefreshOptions>;
+
+export const RefreshStarted = z.object({
+  "credits": z.number().int(),
+  "job_id": z.string(),
+  "status": z.string(),
+}).strict();
+export type RefreshStarted = z.infer<typeof RefreshStarted>;
+
 export const RejectBody = z.object({
   "reason": z.string(),
   "version": z.number().int(),
 }).strict();
 export type RejectBody = z.infer<typeof RejectBody>;
+
+export const ResearchJobTask = z.object({
+  "job_id": z.string(),
+  "tenant_id": z.string(),
+}).strict();
+export type ResearchJobTask = z.infer<typeof ResearchJobTask>;
 
 export const ResetPasswordBody = z.object({
   "password": z.string(),
@@ -2224,6 +2310,16 @@ export const KNOWN_VALUES = {
     "useful",
     "not_useful"
   ],
+  "RefreshBody.scope": [
+    "jobs",
+    "people",
+    "full"
+  ],
+  "RefreshOption.scope": [
+    "jobs",
+    "people",
+    "full"
+  ],
   "RunBody.depth": [
     "standard",
     "deep"
@@ -2342,6 +2438,8 @@ export const operations = {
   "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
   "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, request: null, requestRequired: false, response: History },
+  "GET /v1/accounts/{domain}/refresh": { method: "GET", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 200, request: null, requestRequired: false, response: RefreshOptions },
+  "POST /v1/accounts/{domain}/refresh": { method: "POST", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 201, request: RefreshBody, requestRequired: true, response: RefreshStarted },
   "GET /v1/accounts/{domain}/sheets/{sheet}": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}", plane: "tenant", status: 200, request: null, requestRequired: false, response: Sheet },
   "GET /v1/accounts/{domain}/sheets/{sheet}/xlsx": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/xlsx", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/tables/{table}": { method: "GET", path: "/v1/accounts/{domain}/tables/{table}", plane: "tenant", status: 200, request: null, requestRequired: false, response: TablePage },
@@ -2376,6 +2474,7 @@ export const operations = {
   "POST /v1/connectors/{connection_id}/grants": { method: "POST", path: "/v1/connectors/{connection_id}/grants", plane: "tenant", status: 201, request: account_intelligence__api__routes__connectors__GrantBody, requestRequired: true, response: ConnectorGranted },
   "GET /v1/connectors/{connection_id}/quarantine": { method: "GET", path: "/v1/connectors/{connection_id}/quarantine", plane: "tenant", status: 200, request: null, requestRequired: false, response: Quarantine },
   "POST /v1/connectors/{connection_id}/quarantine/{item_id}/{decision}": { method: "POST", path: "/v1/connectors/{connection_id}/quarantine/{item_id}/{decision}", plane: "tenant", status: 200, request: null, requestRequired: false, response: QuarantineDecided },
+  "GET /v1/credits": { method: "GET", path: "/v1/credits", plane: "tenant", status: 200, request: null, requestRequired: false, response: Credits },
   "POST /v1/crm/{crm}/enable": { method: "POST", path: "/v1/crm/{crm}/enable", plane: "tenant", status: 200, request: null, requestRequired: false, response: CrmToggle },
   "POST /v1/crm/{crm}/mappings": { method: "POST", path: "/v1/crm/{crm}/mappings", plane: "tenant", status: 201, request: MappingBody, requestRequired: true, response: CrmMapping },
   "POST /v1/crm/{crm}/preview": { method: "POST", path: "/v1/crm/{crm}/preview", plane: "tenant", status: 200, request: Target, requestRequired: true, response: CrmPreview },
@@ -2415,6 +2514,8 @@ export const operations = {
   "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
   "GET /v1/models": { method: "GET", path: "/v1/models", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatModels },
   "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, request: null, requestRequired: false, response: MonitoringBudget },
+  "GET /v1/notifications": { method: "GET", path: "/v1/notifications", plane: "tenant", status: 200, request: null, requestRequired: false, response: Notifications },
+  "POST /v1/notifications/{notification_id}/read": { method: "POST", path: "/v1/notifications/{notification_id}/read", plane: "tenant", status: 200, request: null, requestRequired: false, response: NotificationRead },
   "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunPage },
   "POST /v1/runs": { method: "POST", path: "/v1/runs", plane: "tenant", status: 202, request: RunBody, requestRequired: true, response: RunCreated },
   "GET /v1/runs/pull-option": { method: "GET", path: "/v1/runs/pull-option", plane: "tenant", status: 200, request: null, requestRequired: false, response: PullOption },

@@ -1,0 +1,22 @@
+# Research credits (REPLICA_PROMPT.md; owner decision 2026-10-14).
+#
+# PLACEHOLDERS. The owner sets the real numbers after real runs. Until then every estimate and
+# every settled amount below is illustrative.
+#
+# credit_value_usd is the ONE setting that turns real spend (paid tool calls and model tokens from
+# the ledger) into credits: credits used = ceil(spend / credit_value_usd), never more than the
+# credits reserved for the job (the credit cap per pull also bounds the reservation).
+version: 1
+credit_value_usd: 0.05
+
+# Credits and minutes per kind of job, before an account's own history adjusts the credits.
+estimates:
+  jobs:          {credits: 20,  minutes: 3}     # Refresh: job postings only
+  people:        {credits: 60,  minutes: 10}    # Refresh: people and teams
+  full:          {credits: 220, minutes: 45}    # Refresh: news, jobs, technology, people, speaking
+  new_research:  {credits: 220, minutes: 480}   # A new company (about a working day)
+  file_public:   {credits: 220, minutes: 45}    # File analysis that also checks public sources
+
+# An estimate is the average credits used by this many of the account's finished jobs of the
+# same scope; with no such history the table above applies.
+history_jobs: 3

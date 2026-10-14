@@ -67,6 +67,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.draining = False
     container = build_container()
     app.state.container = container
+    from account_intelligence.replica import jobs as research_jobs
+
+    research_jobs.configure(container.scheduler, research_jobs.engine_from_env(container.env))
     from account_intelligence.chat.registry import get_chat_registry
     from account_intelligence.chat.service import AnthropicChatProvider, ChatService
 

@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **160**.
-- Frontend literal call sites found: **77**.
-- Frontend call sites mapped to backend operations: **71**.
-- Backend operations without a direct frontend call site: **110**.
+- Backend operations in OpenAPI: **165**.
+- Frontend literal call sites found: **79**.
+- Frontend call sites mapped to backend operations: **73**.
+- Backend operations without a direct frontend call site: **113**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **1**.
 
@@ -52,6 +52,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/readyz/route.ts` | server API fetch | `GET /readyz` | — | Ready | public health probe |
 | `web/components/ws/AccountList.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/Ask.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/RefreshForm.tsx` | tenant client | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/app/(auth)/login/page.tsx` | same-origin or external fetch | `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `web/app/(auth)/verify-email/page.tsx` | same-origin or external fetch | `POST /v1/auth/email/verify` | VerifyEmailBody (required) | EmailVerified | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `web/app/(auth)/login/page.tsx` | same-origin or external fetch | `POST /v1/auth/login` | LoginBody (required) | SignedIn | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
@@ -82,6 +83,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/FileUploader.tsx` | tenant client | `GET /v1/files/uploads/{upload_id}` | — | FileUploadState | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/FileUploader.tsx` | tenant client | `POST /v1/files/uploads/{upload_id}/complete` | — | FileUploadCompleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/FileUploader.tsx` | tenant client | `PUT /v1/files/uploads/{upload_id}/parts/{part_no}` | — | FileUploadPart | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/ws/WorkspaceShell.tsx` | tenant client | `POST /v1/notifications/{notification_id}/read` | — | NotificationRead | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/app/(client)/research/new/page.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/AccountHeader.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/Ask.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -135,6 +137,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/accounts/{domain}/deliverables` | — | DeliverableFiles (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/deliverables/download` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/accounts/{domain}/history` | — | History (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/refresh` | — | RefreshOptions (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/sheets/{sheet}` | — | Sheet (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/sheets/{sheet}/xlsx` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/accounts/{domain}/tables/{table}` | — | TablePage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -151,6 +154,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/connectors` | — | Connections (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/connectors/oauth/callback` | — | — | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `GET /v1/connectors/{connection_id}/quarantine` | — | Quarantine (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/credits` | — | Credits (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/crm/{crm}/writes` | — | CrmWrites (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/documents` | — | DocumentList (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/documents/policy` | — | DocumentPolicy (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
@@ -167,6 +171,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/me` | — | Me (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/models` | — | ChatModels (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/monitoring/budget` | — | MonitoringBudget (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/notifications` | — | Notifications (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs` | — | RunPage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs/pull-option` | — | PullOption (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs/{run_id}` | — | RunStatusView (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -208,6 +213,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /operator/v1/tenants/{tenant_id}/reactivate` | Reason (required) | TenantLifecycle (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `POST /operator/v1/tenants/{tenant_id}/suspend` | Reason (required) | TenantLifecycle (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `POST /v1/accounts` | AccountBody (required) | AccountAdded (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/alerts/{alert_id}/feedback` | Rating (required) | AlertRated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent (202) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `POST /v1/auth/email/verify` | VerifyEmailBody (required) | EmailVerified (200) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
@@ -241,6 +247,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/files/{file_id}/approve` | — | FileState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/files/{file_id}/ask` | Question (required) | FileAnswer (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/files/{file_id}/resume` | — | FileState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/notifications/{notification_id}/read` | — | NotificationRead (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/runs` | RunBody (required) | RunCreated (202) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/runs/{run_id}/approve` | — | RunState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/runs/{run_id}/cancel` | — | RunState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |

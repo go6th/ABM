@@ -86,6 +86,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `P_SIGNALS_API_TOKEN` | Signals provider token. | **secret** | - | - | api, worker |
 | `P_PEOPLE_API_KEY` | People provider key. | **secret** | - | - | api, worker |
 | `P_ORG_API_KEY` | Organisation provider key. | **secret** | - | - | api, worker |
+| `RESEARCH_ENGINE` | Research job engine: hermetic (dev and test default) or skill (cloud default). | no | - | - | api, worker |
 | `EXPORT_RENDERER` | Word renderer override (see exports.wiring). | no | - | - | api, worker |
 | `EXPORT_RENDER_CHECKS` | Run LibreOffice render checks on every export. | no | - | - | api, worker |
 

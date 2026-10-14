@@ -339,6 +339,7 @@ class AccountWorkspace(AccountItem):
     changes: Changes | None
     counts: DeepDiveCounts
     files: list[DeliverableFile]
+    open_job: OpenJob | None = None
 
 
 class SheetColumn(Out):
@@ -384,6 +385,85 @@ class Sheet(Out):
     total: int
     offset: int
     rows: list[SheetRow]
+
+
+class Credits(Out):
+    """The client's monthly research credit pool."""
+
+    period: str
+    pool: int
+    used: int
+    held: int
+    left: int
+    resets_on: str
+
+
+class RefreshOption(Out):
+    """One refresh scope with its time and credit estimate."""
+
+    scope: Literal["jobs", "people", "full"]
+    name: str
+    description: str
+    minutes: int
+    credits: int
+    affordable: bool
+
+
+class OpenJob(Out):
+    """A research job of the account that is waiting, queued or running."""
+
+    id: str
+    kind: str
+    scope: str
+    status: str
+
+
+class RefreshOptions(Out):
+    """Everything the Refresh from web screen shows before anything is confirmed."""
+
+    domain: str
+    name: str
+    refreshed_days_ago: int | None
+    allowed: bool
+    credits: Credits
+    cap_per_pull: int
+    options: list[RefreshOption]
+    open_job: OpenJob | None
+
+
+class RefreshStarted(Out):
+    """A confirmed refresh: its job, status and the credits reserved."""
+
+    job_id: str
+    status: str
+    credits: int
+
+
+class Notification(Out):
+    """One in-app notification for the signed-in user."""
+
+    id: str
+    kind: str
+    created_at: str
+    read: bool
+    account_domain: str | None
+    account_name: str | None
+    scope: str | None
+    credits_used: int | None
+    reason: str | None
+
+
+class Notifications(Out):
+    """The user's latest notifications and how many are unread."""
+
+    notifications: list[Notification]
+    unread: int
+
+
+class NotificationRead(Out):
+    """A notification marked read."""
+
+    read: bool
 
 
 class AccountDetail(Out):
@@ -1902,3 +1982,6 @@ class InternalView(Out):
     public_run_id: str | None
     public_findings: list[dict[str, Any]]
     file_available: bool
+
+
+AccountWorkspace.model_rebuild()

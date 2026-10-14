@@ -274,6 +274,9 @@ class Settings(BaseSettings):
     p_org_api_key: SecretStr | None = var(purpose="Organisation provider key.", secret=True)
 
     # exports
+    research_engine: Literal["hermetic", "skill"] | None = var(
+        purpose="Research job engine: hermetic (dev and test default) or skill (cloud default).",
+    )
     export_renderer: str | None = var(purpose="Word renderer override (see exports.wiring).")
     export_render_checks: Literal["on", "off"] = var(
         "off", purpose="Run LibreOffice render checks on every export."

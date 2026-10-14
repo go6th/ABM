@@ -109,6 +109,7 @@ class InProcessScheduler:
     timeouts: dict[UUID, datetime] = field(default_factory=dict)
     files: list[tuple[UUID, UUID]] = field(default_factory=list)
     documents: list[tuple[UUID, UUID]] = field(default_factory=list)
+    research_jobs: list[tuple[UUID, UUID]] = field(default_factory=list)
 
     async def enqueue_slice(
         self, tenant_id: UUID, run_id: UUID, slice_no: int, delay_s: float = 0.0
@@ -126,6 +127,10 @@ class InProcessScheduler:
     async def enqueue_document(self, tenant_id: UUID, document_id: UUID) -> None:
         """Queue an uploaded document for scanning and parsing (tests drain it)."""
         self.documents.append((tenant_id, document_id))
+
+    async def enqueue_research_job(self, tenant_id: UUID, job_id: UUID) -> None:
+        """Queue a confirmed research job (tests run it with ``replica.jobs.run_job``)."""
+        self.research_jobs.append((tenant_id, job_id))
 
     async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
         """Arm the run's approval timeout once."""
@@ -196,6 +201,10 @@ class HttpTaskScheduler:
             "/tasks/document-process",
             {"tenant_id": str(tenant_id), "document_id": str(document_id)},
         )
+
+    async def enqueue_research_job(self, tenant_id: UUID, job_id: UUID) -> None:
+        """Post a confirmed research job to the worker (it claims the job once)."""
+        self._spawn("/tasks/research-job", {"tenant_id": str(tenant_id), "job_id": str(job_id)})
 
     async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
         """Post the approval-timeout task at its deadline."""

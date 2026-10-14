@@ -4,6 +4,7 @@
   run (Phase 1 only, Phase 2 only, or a tenant with the ``abm_agents`` flag) runs the agent
   layer's graph under the same slice lifecycle (``agents.production.wiring``).
 * ``POST /tasks/approval-timeout``: expires an approval past its deadline (cancel and refund).
+* ``POST /tasks/research-job``: runs one confirmed research job within its reserved credits.
 
 The body carries ids only. The token must be for the worker audience and from the scheduler's
 service account (W3: no caller identity is trusted from the body). The tenant in the body is then
@@ -169,3 +170,24 @@ async def approval_timeout(
     if resumed:
         await container.scheduler.enqueue_slice(task.tenant_id, task.run_id, int(used))
     return {"expired": expired or resumed}
+
+
+class ResearchJobTask(BaseModel):
+    """A confirmed research job to run: ids only."""
+
+    model_config = ConfigDict(extra="forbid")
+    tenant_id: UUID
+    job_id: UUID
+
+
+@router.post("/research-job")
+async def research_job(
+    task: ResearchJobTask, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, str]:
+    """Run one confirmed research job (``replica.jobs.run_job``). The tenant in the body is
+    checked against the job row under RLS: another tenant's job is simply not claimed."""
+    _authorise(request, authorization)
+    from account_intelligence.replica import jobs
+
+    engine = jobs.engine_from_env(request.app.state.container.env)
+    return {"outcome": await jobs.run_job(task.tenant_id, task.job_id, engine)}

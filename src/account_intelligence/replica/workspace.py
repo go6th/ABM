@@ -312,6 +312,16 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
     ).one()
 
     files = await deliverables(session, account_id)
+    job = (
+        await session.execute(
+            text(
+                "SELECT id, kind, scope, status FROM research_jobs WHERE account_id = :a"
+                " AND status IN ('waiting_credit_limit', 'queued', 'running')"
+                " ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"a": account_id},
+        )
+    ).first()
     last = (
         datetime.fromisoformat(acct["last_researched_at"]) if acct["last_researched_at"] else None
     )
@@ -333,6 +343,9 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         "changes": changes,
         "counts": dict(counts._mapping),
         "files": files,
+        "open_job": None
+        if job is None
+        else {"id": str(job.id), "kind": job.kind, "scope": job.scope, "status": job.status},
     }
 
 
