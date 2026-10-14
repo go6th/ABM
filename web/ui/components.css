@@ -359,3 +359,12 @@ button.fl .in { display: flex; align-items: center; gap: 12px; padding: 0 8px; m
 .fine { font-size: 12px; color: var(--muted); }
 .fine a { color: var(--accent); font-weight: 600; }
 .stack-10 { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---------- Deep-dive tables ---------- */
+.sheet-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn.primary.sm[aria-disabled="true"] { opacity: 0.45; }
+table.xl th a.th { color: var(--text-3); }
+table.xl th a.th:hover { background: var(--line); }
+table.xl th span.th { color: var(--text-3); }
+.xl-frame:focus-visible { outline-offset: -2px; }
+.more-rows { align-self: flex-start; }

@@ -43,6 +43,23 @@ async function openRecent(title) {
   await page.getByText("Answered from your workspace").first().waitFor({ timeout: 30000 });
 }
 for (const w of [1360, 375]) {
+  if (want("sheets")) {
+    await shot("people", "/accounts/highmark.example/people", w);
+    await shot("people-filtered", null, w, {
+      act: async () => {
+        await page.getByRole("link", { name: /^Priority A · / }).click();
+        await page.waitForURL(/filter=priority_a/);
+        await page.getByRole("link", { name: /^Role/ }).click();
+        await page.waitForURL(/sort=title/);
+        if (w > 500) await page.getByRole("button", { name: "Expand" }).click();
+      },
+    });
+    if (w > 500) {
+      for (const t of ["signals", "jobs", "technology", "news", "mail-and-drive", "sources"]) {
+        await shot(`sheet-${t}`, `/accounts/highmark.example/${t}`, w);
+      }
+    }
+  }
   if (want("accounts")) {
     await shot("accounts", "/accounts", w);
     await shot("workspace-refreshed", "/accounts/highmark.example", w, { full: true });
