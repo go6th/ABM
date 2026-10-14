@@ -64,3 +64,18 @@ def test_interrogate_docstring_coverage_is_complete() -> None:
     exe = Path(sys.executable).with_name("interrogate")
     result = subprocess.run([str(exe), "src"], cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout[-1500:]
+
+
+def test_every_source_package_ships_in_the_wheel() -> None:
+    """The images install the wheel; a package left out of it imports only where ``src`` is on
+    the path, so the document sandbox child (``python -I``, which ignores the path) and every
+    production container would fail to import it."""
+    import tomllib
+
+    listed = set(
+        tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["hatch"]["build"]["targets"][
+            "wheel"
+        ]["packages"]
+    )
+    packages = {f"src/{p.name}" for p in SRC.iterdir() if (p / "__init__.py").exists()}
+    assert packages - listed == set(), sorted(packages - listed)

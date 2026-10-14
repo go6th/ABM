@@ -44,7 +44,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/parallel", "src/llm", "src/verify", "src/evalgate", "src/obs", "src/tenancy", "src/identity", "src/audit", "src/views", "src/connectors_client", "src/metering", "src/admin", "src/pilot", "src/refresh", "src/signals", "src/alerts", "src/governance", "src/crm_writeback", "src/opendoor", "src/crosscut", "src/datamodel", "src/contracts", "src/quality", "src/privacy", "src/security", "src/unitcost", "src/metrics", "src/registers", "src/agents"]
+packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/parallel", "src/llm", "src/verify", "src/evalgate", "src/obs", "src/tenancy", "src/identity", "src/audit", "src/views", "src/connectors_client", "src/metering", "src/admin", "src/pilot", "src/refresh", "src/signals", "src/alerts", "src/governance", "src/crm_writeback", "src/opendoor", "src/crosscut", "src/datamodel", "src/contracts", "src/quality", "src/privacy", "src/security", "src/unitcost", "src/metrics", "src/registers", "src/agents", "src/documents", "src/research_files", "src/devstore"]
 
 [dependency-groups]
 dev = [
