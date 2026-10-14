@@ -146,6 +146,9 @@ export function UsedPanel({ answer, onOpenSource }: { answer: ChatAnswer; onOpen
         const v = usedLabel(value);
         return <div key={label} className="used-row"><span>{label}</span><span className={v.ok ? "ok" : "no"}>{v.text}</span></div>;
       })}
+      {answer.used.model_name ? (
+        <div className="used-row"><span>Model</span><span className="no">{answer.used.model_name}</span></div>
+      ) : null}
       {answer.sources.length ? (
         <>
           <div className="divider" />

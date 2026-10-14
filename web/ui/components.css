@@ -468,3 +468,4 @@ table.xl th span.th { color: var(--text-3); }
 .kv-grid { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px; }
 .kv-grid dt { color: var(--muted); }
 .kv-grid dd { margin: 0; font-weight: 600; text-align: right; }
+.line-below { display: block; }

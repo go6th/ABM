@@ -31,6 +31,7 @@ function Seg<T extends string | number | boolean>({ label, value, options, onCha
 function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () => void }) {
   const [s, setS] = useState<ConsoleClientSettings>(detail.settings);
   const [lib, setLib] = useState<Set<string>>(new Set(detail.library.filter((a) => a.published).map((a) => a.library_account_id)));
+  const [allowed, setAllowed] = useState<string[]>(detail.allowed_models);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [invite, setInvite] = useState<ClientInvite | null>(null);
@@ -44,7 +45,7 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
     setBusy(true);
     setMessage(null);
     try {
-      await operatorRequest("PUT /operator/v1/console/clients/{tenant_id}", { params: { tenant_id: c.tenant_id }, body: { ...s, library_account_ids: [...lib] } });
+      await operatorRequest("PUT /operator/v1/console/clients/{tenant_id}", { params: { tenant_id: c.tenant_id }, body: { ...s, library_account_ids: [...lib], allowed_models: allowed } });
       setMessage({ ok: true, text: "Changes saved." });
       reload();
     } catch (cause) {
@@ -130,6 +131,21 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
             <b className="grow-240">Fastest allowed schedule</b>
             <Seg label="Fastest allowed schedule" value={s.fastest_schedule} options={SCHEDULES} onChange={(v) => set("fastest_schedule", v)} />
           </div>
+        </section>
+        <section className="card pad stack-14" aria-labelledby="models-title">
+          <h2 id="models-title" className="card-title">Allowed models</h2>
+          <p className="mut sm-text">The models this client&apos;s users may choose. Kimi K3 sends the client&apos;s data to Moonshot AI, so it is off until you allow it here.</p>
+          {detail.models.map((m) => (
+            <label key={m.id} className="check line-top">
+              <input
+                type="checkbox"
+                checked={allowed.includes(m.id)}
+                disabled={!m.enabled}
+                onChange={(e) => setAllowed(e.target.checked ? [...allowed, m.id] : allowed.filter((x) => x !== m.id))}
+              />
+              <span><b>{m.name}</b><span className="mut sm-text line-below">{!m.enabled ? "Not enabled on the platform" : m.set_up ? m.line : `${m.line}. Not set up yet`}</span></span>
+            </label>
+          ))}
         </section>
       </div>
       <div className="side-col w320">

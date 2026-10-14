@@ -1,17 +1,21 @@
 "use client";
 // The composer: the question field (Enter sends), then "+" (upload a file), the Accounts chip
-// (all accounts or one), the Search toggle and Ask. Answers come from the workspace. With Search
+// (all accounts or one), the Search toggle, the model chip (the conversation's analysis model)
+// and Ask. Answers come from the workspace. With Search
 // on, the question becomes a web research topic for the chosen account and opens its Refresh
 // screen, where the credits are shown and confirmed; nothing is searched from here.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { refreshHref } from "./AnswerView";
+import { ModelMenu } from "@/components/ModelMenu";
+import type { ModelChoices } from "@/lib/gen/api.gen";
 
 export interface ScopeAccount { id: string; domain: string; name: string }
 
 export function AskComposer({
   variant, draft, onDraft, onSend, busy, accounts, scope, onScope, placeholder, menuDown = false, webHintOpen, onWebHint,
+  models = null, model = null, onModel,
 }: {
   variant: "hero" | "follow" | "account";
   draft: string;
@@ -25,6 +29,9 @@ export function AskComposer({
   menuDown?: boolean;
   webHintOpen: boolean;
   onWebHint: (open: boolean) => void;
+  models?: ModelChoices | null;
+  model?: string | null;
+  onModel?: (id: string) => void;
 }) {
   const router = useRouter();
   const inputId = useId();
@@ -138,6 +145,9 @@ export function AskComposer({
         >
           Search: {searchOn ? "on" : "off"}
         </button>
+        {models && model && onModel ? (
+          <ModelMenu choices={models} value={model} onChange={onModel} menuDown={menuDown} className={chip} />
+        ) : null}
         <span className="spacer" />
         <button
           type="button"

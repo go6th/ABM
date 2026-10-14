@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { ResearchModelChips, useResearchModels } from "@/components/ModelMenu";
 import { api, ApiError } from "@/lib/api";
 import type { RefreshOptions, RefreshStarted } from "@/lib/gen/api.gen";
 
@@ -37,6 +38,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const requestId = useRef(crypto.randomUUID());
+  const models = useResearchModels();
   const group = useRef<HTMLDivElement>(null);
   const topicInput = useRef<HTMLTextAreaElement>(null);
   const order: Scope[] = [...options.map((o) => o.scope), "topic"];
@@ -63,6 +65,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
         scope,
         credits,
         ...(scope === "topic" ? { topic: topicText } : {}),
+        ...models.body,
       });
       router.push(back);
       router.refresh();
@@ -182,6 +185,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
       ) : null}
       {message ? <div className="notice error" role="alert"><p>{message}</p></div> : null}
 
+      <ResearchModelChips state={models} />
       <div className="actions">
         <button type="button" className="btn primary wide" onClick={() => void confirm()} disabled={busy || short || needsTopic} aria-describedby="refresh-note">
           {busy ? "Starting refresh" : topicOn ? "Confirm research" : "Confirm refresh"}

@@ -16,6 +16,7 @@ import { addPieces, readFrames, type StreamPart } from "@/lib/sse";
 import { NEW_CHAT_EVENT } from "@/components/ws/WorkspaceShell";
 import { AnswerView, StreamingAnswer, UsedPanel } from "./AnswerView";
 import { AskComposer, type ScopeAccount } from "./AskComposer";
+import { useModelChoices } from "@/components/ModelMenu";
 
 export interface AskTurn {
   key: string;
@@ -56,6 +57,9 @@ export function Ask({
   const [active, setActive] = useState<string | null>(null);
   const [webHint, setWebHint] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  // the analysis model for this conversation (the model chip); null: the user's current one
+  const choices = useModelChoices();
+  const [model, setModel] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
   const asked = useRef(false);
   const busy = turns.some((t) => t.status === "searching");
@@ -119,6 +123,7 @@ export function Ask({
         question: text,
         thread_id: threadId,
         account_id: scope?.id ?? null,
+        ...(model ? { model } : {}),
       }, controller.signal);
       await readFrames(reply, (frame) => {
         if (frame.event === "thread") {
@@ -148,7 +153,7 @@ export function Ask({
       if (controller.signal.aborted) return;
       patch(key, { status: "failed", error: failureText(cause), partial: undefined });
     }
-  }, [busy, threadId, scope, router]);
+  }, [busy, threadId, scope, router, model]);
 
   // ?q= from an account page: ask once on arrival.
   useEffect(() => {
@@ -163,6 +168,7 @@ export function Ask({
   const pickAccount = () => setWebHint(true);
   const composerProps = {
     draft, onDraft: setDraft, busy, accounts, scope, onScope: setScope,
+    models: choices, model: model ?? choices?.analysis ?? null, onModel: setModel,
     webHintOpen: webHint, onWebHint: setWebHint, onSend: () => void send(draft),
   };
 

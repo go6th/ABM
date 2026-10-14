@@ -6,6 +6,7 @@
 // disable Confirm with the reason.
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { ResearchModelChips, useResearchModels } from "@/components/ModelMenu";
 import { api, ApiError } from "@/lib/api";
 import { DOMAIN_RE, cleanDomain } from "@/lib/documents";
 import type { ResearchEstimate, ResearchStarted } from "@/lib/gen/api.gen";
@@ -29,6 +30,7 @@ export function ResearchCompany({ estimate, idPrefix = "rc" }: { estimate: Resea
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const requestId = useRef(crypto.randomUUID());
+  const models = useResearchModels();
   const domain = cleanDomain(site);
   const valid = name.trim().length > 0 && DOMAIN_RE.test(domain);
   const atCap = estimate !== null && estimate.accounts_used >= estimate.account_cap;
@@ -49,6 +51,7 @@ export function ResearchCompany({ estimate, idPrefix = "rc" }: { estimate: Resea
         company_name: name.trim(),
         domain,
         credits,
+        ...models.body,
       });
       router.push("/accounts");
       router.refresh();
@@ -83,6 +86,7 @@ export function ResearchCompany({ estimate, idPrefix = "rc" }: { estimate: Resea
             onChange={(e) => { setSite(e.target.value); setAsking(false); }} />
         </div>
       </div>
+      <ResearchModelChips state={models} />
       <p className="mut sm-text">Researched from public sources, using credits from your pool. Takes about a working day. You are told when it is ready.</p>
       {atCap ? (
         <p className="mut sm-text" role="status">You have used all {estimate.account_cap} accounts. Ask your administrator to raise the cap.</p>

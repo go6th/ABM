@@ -76,3 +76,15 @@
 @media (max-width: 759px) { .main:has(> .ask) { height: calc(100vh - 61px); } }
 .chipa.plus { justify-content: center; min-width: 32px; padding: 0; font-size: 18px; font-weight: 600; line-height: 1; }
 @media (pointer: coarse) { .chipa.plus { min-width: 40px; } }
+
+/* The model chip and menu (owner decision 2026-10-14): name and one plain line per model; a
+   model that cannot be chosen is greyed out with its reason. */
+.model-chip { gap: 6px; }
+.model-chip .chev { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.model-menu { min-width: 260px; }
+.model-menu button { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 52px; padding: 6px 12px; }
+.model-menu .model-name { font-size: 14px; color: var(--ink); }
+.model-menu .model-line { font-size: 12px; color: var(--muted); font-weight: 400; }
+.model-menu button[aria-disabled="true"] { cursor: not-allowed; }
+.model-menu button[aria-disabled="true"] .model-name { color: var(--muted); }
+.model-menu button[aria-disabled="true"]:hover { background: none; }

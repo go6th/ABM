@@ -156,6 +156,7 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
             <div className="who">
               {user.userName ? <div className="nm">{user.userName}</div> : null}
               {user.email ? <div className="em" title={user.email}>{user.email}</div> : null}
+              <Link className="out" href="/model-preferences" prefetch={false} onClick={() => setOpen(false)}>Model preferences</Link>
               <button type="button" className="out" onClick={() => void signOut()} disabled={busy}>Sign out</button>
             </div>
           </div>

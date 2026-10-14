@@ -47,7 +47,7 @@
 .me .who { min-width: 0; }
 .me .nm { font-weight: 600; }
 .me .em { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.me .out { font-size: 12px; font-weight: 600; color: var(--muted); background: none; border: 0; padding: 0; min-height: 24px; }
+.me .out { display: flex; align-items: center; font-size: 12px; font-weight: 600; color: var(--muted); background: none; border: 0; padding: 0; min-height: 40px; }
 .me .out:hover { color: var(--accent); text-decoration: underline; }
 
 .model-missing { margin: 0; padding: 8px 24px; font-size: 13px; line-height: 1.4; color: var(--warn-ink); background: var(--warn-card); border-bottom: 1px solid var(--warn-card-line); }

@@ -1,7 +1,8 @@
 "use client";
 // Platform defaults (A7): what new clients start from (account cap, idle expiry, monthly pool,
-// fastest scheduled refresh); the research engine (skill version, credit cap per pull, model
-// split); the safeguards that cannot be turned off; and the admins. Save defaults applies to new
+// fastest scheduled refresh); the research engine (skill version, credit cap per pull); the
+// models users may choose and the default research and analysis models (owner decision
+// 2026-10-14); the safeguards that cannot be turned off; and the admins. Save defaults applies to new
 // clients; each client can be changed on its own page.
 import { useState } from "react";
 import { ApiError } from "@/lib/api";
@@ -12,7 +13,7 @@ import { ConsoleLoad } from "../ConsoleLoad";
 import { Pill } from "@/ui/design";
 import { num } from "@/lib/console";
 
-type Editable = Pick<ConsoleDefaults, "account_cap_per_user" | "idle_expiry_days" | "monthly_credit_pool" | "fastest_schedule" | "credit_cap_per_pull" | "model_split">;
+type Editable = Pick<ConsoleDefaults, "account_cap_per_user" | "idle_expiry_days" | "monthly_credit_pool" | "fastest_schedule" | "credit_cap_per_pull" | "default_research_model" | "default_analysis_model"> & { enabled_models: string[] };
 
 function Row({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -30,7 +31,9 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
     monthly_credit_pool: d.monthly_credit_pool,
     fastest_schedule: d.fastest_schedule,
     credit_cap_per_pull: d.credit_cap_per_pull,
-    model_split: d.model_split,
+    enabled_models: d.models.filter((m) => m.enabled).map((m) => m.id),
+    default_research_model: d.default_research_model,
+    default_analysis_model: d.default_analysis_model,
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -43,7 +46,7 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
       setMessage({ ok: true, text: "Defaults saved. New clients start from them." });
       reload();
     } catch (cause) {
-      setMessage({ ok: false, text: cause instanceof ApiError && cause.status === 422 ? "Check the numbers: each must be a whole number above zero." : "The defaults were not saved. Try again." });
+      setMessage({ ok: false, text: cause instanceof ApiError && cause.status === 422 ? (cause.detail || "Check the values and save again.") : "The defaults were not saved. Try again." });
     } finally {
       setBusy(false);
     }
@@ -75,11 +78,30 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
           <span>v{d.skill_version} (current){d.skill_installed ? "" : " · skill package not installed yet"}</span>
         </div>
         <Row id="pull" label="Credit cap per pull" hint="A run stops before spending past this. Reported at the end."><input id="pull" className="input sm" type="number" min={1} max={100000} value={v.credit_cap_per_pull} onChange={(e) => set("credit_cap_per_pull", int(e.target.value))} /></Row>
-        <Row id="split" label="Model split" hint={d.model_router_on ? "Lower cost model for pulls, stronger model for analysis." : "Lower cost model for pulls, stronger model for analysis. Takes effect once the model router is switched on; until then each step uses its configured model."}>
-          <select id="split" className="input sm" value={v.model_split} onChange={(e) => set("model_split", e.target.value === "single" ? "single" : "split")}>
-            <option value="split">Split mode</option><option value="single">Single model</option>
-          </select>
-        </Row>
+      </section>
+      <section className="card pad stack-14" aria-labelledby="models-title">
+        <h2 id="models-title" className="card-title">Models</h2>
+        <p className="mut sm-text">Users choose a research model (pulling and extraction) and an analysis model (answers, file analysis and the deliverables). A model a client may not use is greyed out for its users.</p>
+        {d.models.map((m) => (
+          <div key={m.id} className="row-16 wrap line-top">
+            <label className="check grow-240">
+              <input
+                type="checkbox"
+                checked={v.enabled_models.includes(m.id)}
+                onChange={(e) => set("enabled_models", e.target.checked ? [...v.enabled_models, m.id] : v.enabled_models.filter((x) => x !== m.id))}
+              />
+              <span><b>{m.name}</b><span className="mut sm-text line-below">{m.line}{m.needs_client_permission ? ". Each client must be allowed it on its own page." : ""}</span></span>
+            </label>
+            {m.set_up ? <Pill tone="ok" small>Set up</Pill> : <Pill tone="neutral" small>Not set up</Pill>}
+          </div>
+        ))}
+        {(["default_research_model", "default_analysis_model"] as const).map((key) => (
+          <Row key={key} id={key} label={key === "default_research_model" ? "Default research model" : "Default analysis model"}>
+            <select id={key} className="input sm" value={v[key]} onChange={(e) => set(key, e.target.value)}>
+              {d.models.filter((m) => v.enabled_models.includes(m.id)).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </Row>
+        ))}
       </section>
       <section className="card pad stack-14" aria-labelledby="safe-title">
         <h2 id="safe-title" className="card-title">Safeguards</h2>
