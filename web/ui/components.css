@@ -155,8 +155,12 @@ a.trow:hover { background: var(--row-hover); }
 .fact-head:not(:first-child) { border-top: 1px solid var(--line-soft); }
 
 /* ---------- Spreadsheet table (People, Jobs, Technology, News, Sources) ---------- */
-.xl-frame { overflow: auto; max-height: 340px; }
-.xl-frame.big { max-height: 720px; }
+/* The frame fills the screen below the page head (and never less than 340px); Expand removes
+   the limit so the page scrolls instead. */
+.xl-frame { overflow: auto; max-height: max(340px, calc(100vh - 300px)); }
+.xl-frame.big { max-height: none; }
+.xl-hint { display: none; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-wash); }
+.xl-hint[data-show="true"] { display: flex; }
 .xl-caption { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 12px; color: var(--muted); }
 .xl-caption .sheet { width: 10px; height: 10px; border-radius: 3px; background: var(--ok-ink); display: inline-block; }
 table.xl { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 760px; }

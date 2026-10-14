@@ -3,7 +3,7 @@
 // Excel, then the spreadsheet (caption, sticky header, row numbers, sortable headings with
 // arrows). Chips and headings are links, so filtering and sorting always run on the server.
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Sheet } from "@/lib/gen/api.gen";
 import { LINK_REL, safeLink } from "@/lib/render";
 import { Grade, Pill } from "@/ui/design";
@@ -29,6 +29,18 @@ function Cell({ col, row }: { col: Column; row: Row }) {
 
 export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: string; moreHref: string | null }) {
   const [big, setBig] = useState(false);
+  const frame = useRef<HTMLDivElement>(null);
+  const [moreRight, setMoreRight] = useState(false);
+  // Show "scroll for more columns" while columns sit off to the right (phone width mostly).
+  const measure = useCallback(() => {
+    const el = frame.current;
+    setMoreRight(!!el && el.scrollWidth - el.clientWidth - el.scrollLeft > 8);
+  }, []);
+  useEffect(() => {
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [measure, sheet]);
   const query = (change: Record<string, string>) => {
     const q = new URLSearchParams({ filter: sheet.filter, sort: sheet.sort, dir: sheet.dir, ...change });
     return `${base}?${q.toString()}`;
@@ -52,7 +64,12 @@ export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: strin
       <div className="card clip">
         <div className="xl-caption"><span className="sheet" aria-hidden="true" />{sheet.file} · Sheet 1 · {sheet.total} rows</div>
         {sheet.rows.length ? (
-          <div className={big ? "xl-frame big" : "xl-frame"} tabIndex={0} role="region" aria-label={`${sheet.title} table`}>
+          <div className="xl-hint" data-show={moreRight} aria-hidden={!moreRight}>
+            More columns to the right. Scroll the table sideways <span aria-hidden="true">→</span>
+          </div>
+        ) : null}
+        {sheet.rows.length ? (
+          <div ref={frame} onScroll={measure} className={big ? "xl-frame big" : "xl-frame"} tabIndex={0} role="region" aria-label={`${sheet.title} table`}>
             <table className="xl">
               <caption className="sr-only">{sheet.title}, {sheet.total} rows. Sorted by {sheet.columns.find((c) => c.key === sheet.sort)?.label} {sheet.dir === "asc" ? "ascending" : "descending"}.</caption>
               <thead>
@@ -85,7 +102,8 @@ export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: strin
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : null}
+        {sheet.rows.length ? null : (
           <div className="state">
             <h2>{all ? "No rows match this filter" : "Nothing here yet"}</h2>
             <p>{all ? "Choose another filter above." : "Rows appear here when research finds them."}</p>
