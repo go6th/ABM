@@ -234,3 +234,35 @@ async def test_a_client_never_runs_more_parts_at_once_than_its_limit(
         assert await repo.finish_part(s, doc, 0, "worker-0", 0, {})
     async with tenant_txn(tenant_a) as s:
         assert (await repo.claim_part(s, doc, "worker-2", 300, limit=2)).part_no == 2
+
+
+@pytest.mark.asyncio
+async def test_the_sandbox_child_gets_only_the_config_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An installed image has no ``config/`` beside the package, so the child must be told where
+    the config is (found by the Phase 4B click-through: every upload failed in the containers with
+    ``FileNotFoundError``); nothing else from the parent's environment reaches it."""
+    import asyncio
+
+    from account_intelligence.config import CONFIG_DIR
+    from documents import sandbox
+
+    seen: dict[str, Any] = {}
+
+    async def spawn(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        raise OSError("stop before the child runs")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-reach-the-child")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    with pytest.raises(OSError):
+        await sandbox.plan_in_sandbox(
+            "/nonexistent",
+            "md",
+            "a.md",
+            timeout_s=1,
+            memory_mb=64,
+            cpu_s=1,
+            part_bytes=1024,
+            pages_per_part=1,
+        )
+    assert seen["env"] == {"PYTHONHASHSEED": "0", "LANG": "C.UTF-8", "CONFIG_DIR": str(CONFIG_DIR)}

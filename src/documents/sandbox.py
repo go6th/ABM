@@ -1,11 +1,12 @@
 """Run a document parser in the sandbox subprocess (``documents.sandbox_child``) and read its units.
 
-The child gets an empty environment, Python's isolated mode, resource limits and an audit hook
-that refuses network, processes and writes; the parent enforces a wall-clock timeout and caps the
-text it accepts. A large document is planned into parts (``plan_in_sandbox``) and each part is
-parsed by its own child with the same limits (``parse_in_sandbox(part=...)``). A child that
-dies, times out or prints something that is not a unit fails the parse with ``SandboxFailed``
-(the error class only; document text never reaches a log).
+The child gets an empty environment (only ``CONFIG_DIR``, so an installed image finds its config),
+Python's isolated mode, resource limits and an audit hook that refuses network, processes and
+writes; the parent enforces a wall-clock timeout and caps the text it accepts. A large document is
+planned into parts (``plan_in_sandbox``) and each part is parsed by its own child with the same
+limits (``parse_in_sandbox(part=...)``). A child that dies, times out or prints something that is
+not a unit fails the parse with ``SandboxFailed`` (the error class only; document text never reaches
+a log).
 
 GUARANTEE(test_the_parser_sandbox_has_no_network)
 """
@@ -18,6 +19,8 @@ import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
+
+from account_intelligence.config import CONFIG_DIR
 
 _LINE_LIMIT = 64 * 1024 * 1024
 
@@ -82,7 +85,7 @@ async def _child(
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env={"PYTHONHASHSEED": "0", "LANG": "C.UTF-8"},
+        env={"PYTHONHASHSEED": "0", "LANG": "C.UTF-8", "CONFIG_DIR": str(CONFIG_DIR)},
         limit=_LINE_LIMIT,
     )
 
