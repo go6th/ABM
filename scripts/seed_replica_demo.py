@@ -1419,7 +1419,8 @@ def main() -> int:
     parser.add_argument("--reset", action="store_true", help="remove the demo clients first")
     args = parser.parse_args()
     if os.environ.get("APP_ENV") not in ALLOWED_ENVS or any(
-        os.environ.get(name) for name in ("K_SERVICE", "CLOUD_RUN_JOB")  # never on Cloud Run
+        os.environ.get(name)
+        for name in ("K_SERVICE", "CLOUD_RUN_JOB")  # never on Cloud Run
     ):
         print("Refusing: APP_ENV must be dev, local or test.", file=sys.stderr)
         return 2

@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 
 Resolver = Callable[[str], Awaitable[list[str]]]
@@ -67,7 +68,7 @@ async def public_addresses(host: str, resolve: Resolver) -> list[str]:
     return addresses
 
 
-class PinnedBackend:
+class PinnedBackend(httpcore.AsyncNetworkBackend):
     """An ``httpcore`` network backend that resolves, checks and connects in one step: the TCP
     connection goes to an address that ``public_addresses`` has just approved, never to a second
     resolution (see the module docstring). Port 443 only."""

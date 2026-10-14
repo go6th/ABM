@@ -99,10 +99,13 @@ REPO_DIRS = ("config", "docs", "skills", "scripts", "tests", "evals", "migration
 
 def _leaves_package(node: ast.AST) -> bool:
     """``Path(__file__)...parents[n >= 1]`` or ``...parent.parent``: a path outside the package."""
-    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
-        if node.value.attr == "parents":
-            index = node.slice
-            return not (isinstance(index, ast.Constant) and index.value == 0)
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "parents"
+    ):
+        index = node.slice
+        return not (isinstance(index, ast.Constant) and index.value == 0)
     if isinstance(node, ast.Attribute) and node.attr == "parent":
         inner = node.value
         return isinstance(inner, ast.Attribute) and inner.attr == "parent"

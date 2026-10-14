@@ -397,10 +397,8 @@ def test_readiness_needs_the_schema_revision_of_the_code() -> None:
     with; the constant moves with every new migration."""
     from account_intelligence.api.routes.health import EXPECTED_REVISION, revision_check
 
-    newest = max(
-        p.name.split("_", 1)[0] for p in (ROOT / "migrations" / "versions").glob("0*.py")
-    )
-    assert EXPECTED_REVISION == newest
+    newest = max(p.name.split("_", 1)[0] for p in (ROOT / "migrations" / "versions").glob("0*.py"))
+    assert newest == EXPECTED_REVISION
     assert revision_check(EXPECTED_REVISION) == "ok"
     assert revision_check(str(int(EXPECTED_REVISION) + 1).zfill(4)) == "ok"
     assert revision_check(str(int(EXPECTED_REVISION) - 1).zfill(4)).startswith("failed")
