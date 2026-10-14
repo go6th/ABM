@@ -3,6 +3,8 @@
 * ``--tenant-id T --run-id R``: run one research run (Cloud Run Jobs pass the ids as overridden
   arguments of one execution).
 * ``spend-invariants``: check every ledger rule of every tenant (``worker.nightly``).
+* ``access-expiry``: warn idle users three days before and end the access of those idle for
+  their client's idle days (``replica.access``).
 
 Exit codes: 0 when the run stopped cleanly (terminal or waiting for a person) or the check found
 nothing broken; 1 when a check found a broken rule, or for any other run failure (the platform's
@@ -17,16 +19,28 @@ import asyncio
 import sys
 from uuid import UUID
 
-COMMANDS = ("spend-invariants",)
+COMMANDS = ("spend-invariants", "access-expiry")
 
 
 def _check(command: str) -> int:
     """Run one nightly check with the application's engine."""
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.session import SessionLocal, tenant_txn, untenanted_session
     from account_intelligence.worker import nightly
 
+    if command == "access-expiry":
+        from account_intelligence.replica import access
+
+        try:
+            done = asyncio.run(
+                access.expire_everywhere(untenanted_session, tenant_txn, datetime.now(UTC))
+            )
+        except Exception as exc:  # the pass itself could not run: say so, never pass silently
+            print(f"{command}: could not run ({type(exc).__name__})", file=sys.stderr)
+            return 3
+        print(f"{command} {done.line()}")
+        return 0 if not done.failed else 1
     try:
         report = asyncio.run(nightly.spend_invariants(SessionLocal, tenant_txn, datetime.now(UTC)))
     except Exception as exc:  # the check itself could not run: say so, never pass silently

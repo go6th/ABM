@@ -3,7 +3,8 @@ active support grant. ``/workspace`` is the admin console's View as a client: th
 when the grant ends, its users and credits, and its accounts with names, lanes, schedule and
 counts; never question text, answers or file contents. The tenant comes from the grant; every
 call is a support event and a tenant audit row (``api.operator.require_operator``). Responses
-carry ``X-Support-View: read-only`` so the console shows its banner. There is no write, export, spend, cap, key or user route here.
+carry ``X-Support-View: read-only`` so the console shows its banner. There is no write, export,
+spend, cap, key or user route here.
 """
 
 from __future__ import annotations

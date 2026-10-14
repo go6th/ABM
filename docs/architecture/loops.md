@@ -49,6 +49,7 @@ unannotated (the generator's check fails otherwise).
 | graph-neighbors | `src/account_intelligence/rag/graphrag.py:96` | entity_count | queue empty or max_hops. |
 | hash uploaded document | `src/documents/service.py:251` | size / 1 MiB reads | end of object |
 | hash verify read | `src/research_files/pipeline.py:148` | the object's size in COPY_BUFFER reads | end |
+| idle expiry | `src/account_intelligence/replica/access.py:86` | one pass over the clients | every client checked or failed |
 | in-flight wait | `src/account_intelligence/connectors/service.py:296` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:145` | limit (1000) | queue empty, limit |
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
@@ -58,7 +59,7 @@ unannotated (the generator's check fails otherwise).
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:133` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
-| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:244` | 500 connections per tick (the lookup's limit) | end |
+| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:246` | 500 connections per tick (the lookup's limit) | end |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |

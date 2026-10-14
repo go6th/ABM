@@ -7,6 +7,8 @@
 * ``POST /tasks/research-job``: runs one confirmed research job within its reserved credits.
 * ``POST /tasks/schedules-tick``: starts due scheduled refreshes from each client's credit pool.
 * ``POST /tasks/maildrive-sync``: syncs the per-user Mail and drive connections that are due.
+* ``POST /tasks/access-expiry``: warns idle users and ends the access of those past their client's
+  idle days (``replica.access``).
 
 The body carries ids only. The token must be for the worker audience and from the scheduler's
 service account (W3: no caller identity is trusted from the body). The tenant in the body is then
@@ -264,3 +266,25 @@ async def maildrive_sync(
         matched += result.matched
         broken += result.broken is not None
     return {"connections": synced, "matched": matched, "broken": broken, "failed": failed}
+
+
+@router.post("/access-expiry")
+async def access_expiry(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, int]:
+    """Warn idle users three days before and end the access of those idle for their client's
+    idle days (Cloud Scheduler, daily). Tenant ids only across clients; each client in its own
+    transaction."""
+    _authorise(request, authorization)
+    from datetime import UTC, datetime
+
+    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.replica import access
+
+    done = await access.expire_everywhere(untenanted_session, tenant_txn, datetime.now(UTC))
+    return {
+        "clients": done.clients,
+        "warned": done.warned,
+        "expired": done.expired,
+        "failed": len(done.failed),
+    }

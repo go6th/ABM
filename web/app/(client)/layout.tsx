@@ -27,18 +27,21 @@ export default async function ClientLayout({ children }: { children: React.React
     .map((n) => {
       const name = n.account_name ?? "An account";
       const what = n.scope && scope[n.scope] ? ` (${scope[n.scope]})` : "";
-      const text = n.kind === "research_failed" ? `${name}: research did not finish`
+      const text = n.kind === "access_expiring" ? "Your access ends in 3 days"
+        : n.kind === "research_failed" ? `${name}: research did not finish`
         : n.kind === "waiting_credit_limit" ? `${name}: waiting for credits`
         : n.kind === "research_finished" ? `${name}: research finished`
+        : n.kind === "library_added" ? `${name}: added from the 6th Library`
         : `${name}: refresh finished${what}`;
-      const meta = n.kind === "research_failed" ? (n.reason ?? "No extra credits were used.")
+      const meta = n.kind === "access_expiring" ? "Using the workspace keeps it open."
+        : n.kind === "research_failed" ? (n.reason ?? "No extra credits were used.")
         : n.credits_used ? `${n.credits_used} credits used` : "Open the account";
       return {
         id: n.id,
         text,
         meta,
-        href: n.account_domain ? `/accounts/${encodeURIComponent(n.account_domain)}` : "/accounts",
-        warn: n.kind === "research_failed" || n.kind === "waiting_credit_limit",
+        href: n.kind === "access_expiring" ? "/" : n.account_domain ? `/accounts/${encodeURIComponent(n.account_domain)}` : "/accounts",
+        warn: n.kind === "research_failed" || n.kind === "waiting_credit_limit" || n.kind === "access_expiring",
       };
     });
   const recent = (threads?.threads ?? [])

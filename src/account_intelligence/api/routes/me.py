@@ -14,7 +14,7 @@ from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.health import LLM_MISSING, llm_state
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
-from account_intelligence.replica.settings import accounts_used, client_settings
+from account_intelligence.replica.settings import accounts_used, client_settings, touch_activity
 from admin import flags
 from identity import roles, sessions
 from metering import limits
@@ -50,8 +50,10 @@ CAPABILITIES: dict[str, str] = {
 
 @router.get("/me", response_model=C.Me)
 async def current_user(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
-    """Return only the active session's tenant and capability metadata."""
+    """Return only the active session's tenant and capability metadata. Every page of the
+    workspace loads this, so it also records the user's activity (idle expiry counts from it)."""
     async with tenant_txn(ident.tenant_id) as s:
+        await touch_activity(s, ident.user_id, plane_of(request).clock.now())
         row = (
             await s.execute(
                 text(

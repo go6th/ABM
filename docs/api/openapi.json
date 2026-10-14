@@ -20942,7 +20942,7 @@
     },
     "/v1/me": {
       "get": {
-        "description": "Return only the active session's tenant and capability metadata.",
+        "description": "Return only the active session's tenant and capability metadata. Every page of the\nworkspace loads this, so it also records the user's activity (idle expiry counts from it).",
         "operationId": "current_user_v1_me_get",
         "parameters": [
           {
