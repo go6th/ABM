@@ -43,6 +43,24 @@ async function openRecent(title) {
   await page.getByText("Answered from your workspace").first().waitFor({ timeout: 30000 });
 }
 for (const w of [1360, 375]) {
+  if (want("schedules")) {
+    await shot("schedules", "/schedules", w);
+    if (w > 500) {
+      await shot("schedules-from-account", "/accounts/highmark.example", w, {
+        act: async () => {
+          await page.getByRole("link", { name: "Schedule", exact: true }).click();
+          await page.waitForURL(/\/schedules/);
+        },
+      });
+      await shot("schedules-changed", "/schedules", w, {
+        act: async () => {
+          const group = page.getByRole("group", { name: "Refresh schedule for Availity" });
+          await group.getByRole("button", { name: "Monthly" }).click();
+          await page.waitForResponse((r) => r.url().includes("/v1/schedules/") && r.request().method() === "PUT");
+        },
+      });
+    }
+  }
   if (want("refresh")) {
     await shot("refresh", "/accounts/highmark.example/refresh", w);
     if (w > 500) {

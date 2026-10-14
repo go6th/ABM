@@ -67,7 +67,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
             <h1 className="big">{name}</h1>
             <div className="sub">{ws.subline}</div>
           </div>
-          <Link className="btn" href={`/schedules#${d}`} prefetch={false}>Schedule</Link>
+          <Link className="btn" href={`/schedules?account=${d}#${d}`} prefetch={false}>Schedule</Link>
           <Link className="btn" href={`${here}/refresh`} prefetch={false}>Refresh from web</Link>
         </div>
 

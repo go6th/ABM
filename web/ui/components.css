@@ -382,3 +382,14 @@ table.xl th span.th { color: var(--text-3); }
 .banner { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: var(--r-btn); border: 1px solid var(--accent-line); background: var(--accent-wash); font-size: 14px; }
 .banner.warn { border-color: var(--warn-card-line); background: var(--warn-card); }
 .banner .pdot { width: 8px; height: 8px; border-radius: 9px; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; flex: none; }
+
+/* ---------- Schedules ---------- */
+.sched-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 20px; border-top: 1px solid var(--line-soft); min-height: 44px; scroll-margin-top: 24px; }
+.sched-row:first-child { border-top: 0; }
+.sched-row.focus { background: var(--accent-wash); }
+.sched-name { flex: 1 1 180px; min-width: 0; }
+.sched-foot { padding: 16px 20px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; font-size: 14px; }
+@media (max-width: 759px) {
+  .sched-row .seg { width: 100%; flex-wrap: nowrap; }
+  .sched-row .seg button { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 12px; }
+}
