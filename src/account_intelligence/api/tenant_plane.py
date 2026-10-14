@@ -196,12 +196,10 @@ class ReadOnlySecretStore:
 def cloud_plane(secret_source: Any, clock: Clock, base_url: str | None) -> TenantPlane:
     """The staging and production tenant plane: the HTTPS identity provider adapter (SSRF
     guarded), signing keys read from Secret Manager, everything else fail closed."""
-    import httpx
-
-    from identity.ports import HttpIdentityProvider
+    from identity.ports import HttpIdentityProvider, pinned_client
 
     plane = unconfigured_plane(clock, base_url)
-    plane.idp = HttpIdentityProvider(httpx.AsyncClient(follow_redirects=False))
+    plane.idp = HttpIdentityProvider(pinned_client())
     plane.secrets = ReadOnlySecretStore(secret_source)
     return plane
 
