@@ -1,11 +1,16 @@
 """Generate the observability Terraform JSON (alerts and dashboards) from config/telemetry
-(D-56, O14). Deterministic; ``--check`` exits 1 when a generated file is stale."""
+(D-56, O14). Deterministic; ``--check`` exits 1 when a generated file is stale.
+
+The alerts watch ``workload.googleapis.com`` metrics, which exist only once the OTLP exporter ships
+them (VERIFY V-OBS-1); Monitoring refuses an alert policy on a metric it has never seen, so each
+generated alert is created only when the module's ``workload_alerts_enabled`` is true."""
 
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -18,12 +23,24 @@ TELEMETRY = ROOT / "config/telemetry"
 RUNBOOKS = ROOT / "docs/runbooks"
 
 
+GATE = "${var.workload_alerts_enabled ? 1 : 0}"
+
+
+def gated(policies: dict[str, Any]) -> dict[str, Any]:
+    """Every alert policy behind the module's workload_alerts_enabled switch."""
+    for body in policies["resource"]["google_monitoring_alert_policy"].values():
+        body["count"] = GATE
+    return policies
+
+
 def render() -> dict[str, str]:
     """File name to content."""
     catalog = load_catalog()
     loaded = alerts.load(catalog, TELEMETRY, RUNBOOKS)
     return {
-        "generated_alerts.tf.json": json.dumps(alerts.terraform(loaded), sort_keys=True, indent=1)
+        "generated_alerts.tf.json": json.dumps(
+            gated(alerts.terraform(loaded)), sort_keys=True, indent=1
+        )
         + "\n",
         "generated_dashboards.tf.json": json.dumps(
             dashboards.render(catalog, TELEMETRY), sort_keys=True, indent=1

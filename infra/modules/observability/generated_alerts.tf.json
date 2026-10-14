@@ -14,6 +14,7 @@
       "display_name": "alert_delivery_failed"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "alert_delivery_failed",
     "documentation": {
      "content": "Runbook: docs/runbooks/slack-outage.md. Owner: alerts.",
@@ -39,6 +40,7 @@
       "display_name": "alert_flood"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "alert_flood",
     "documentation": {
      "content": "Runbook: docs/runbooks/alert-flood.md. Owner: alerts.",
@@ -64,6 +66,7 @@
       "display_name": "api_availability_fast_burn"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "api_availability_fast_burn",
     "documentation": {
      "content": "Runbook: docs/runbooks/api-availability-burn.md. Owner: oncall.",
@@ -89,6 +92,7 @@
       "display_name": "api_availability_slow_burn"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "api_availability_slow_burn",
     "documentation": {
      "content": "Runbook: docs/runbooks/api-availability-burn.md. Owner: oncall.",
@@ -114,6 +118,7 @@
       "display_name": "api_latency_p99"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "api_latency_p99",
     "documentation": {
      "content": "Runbook: docs/runbooks/api-latency.md. Owner: api.",
@@ -139,6 +144,7 @@
       "display_name": "cache_ratio_low"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "cache_ratio_low",
     "documentation": {
      "content": "Runbook: docs/runbooks/cache-ratio.md. Owner: llm.",
@@ -164,6 +170,7 @@
       "display_name": "checkpoint_resume_failures"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "checkpoint_resume_failures",
     "documentation": {
      "content": "Runbook: docs/runbooks/checkpoint-resume.md. Owner: workflow.",
@@ -189,6 +196,7 @@
       "display_name": "connector_access_refused"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "connector_access_refused",
     "documentation": {
      "content": "Runbook: docs/runbooks/connector-grant-broken.md. Owner: connectors.",
@@ -214,6 +222,7 @@
       "display_name": "cost_drift"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "cost_drift",
     "documentation": {
      "content": "Runbook: docs/runbooks/cost-drift.md. Owner: finance-ops.",
@@ -239,6 +248,7 @@
       "display_name": "crm_write_failed"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "crm_write_failed",
     "documentation": {
      "content": "Runbook: docs/runbooks/crm-write-failed.md. Owner: crm.",
@@ -264,6 +274,7 @@
       "display_name": "isolation_canary_leak"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "isolation_canary_leak",
     "documentation": {
      "content": "Runbook: docs/runbooks/isolation-violation.md. Owner: security.",
@@ -289,6 +300,7 @@
       "display_name": "isolation_probe_leak"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "isolation_probe_leak",
     "documentation": {
      "content": "Runbook: docs/runbooks/isolation-violation.md. Owner: security.",
@@ -314,6 +326,7 @@
       "display_name": "model_degraded"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "model_degraded",
     "documentation": {
      "content": "Runbook: docs/runbooks/model-outage.md. Owner: llm.",
@@ -339,6 +352,7 @@
       "display_name": "monitor_outage"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "monitor_outage",
     "documentation": {
      "content": "Runbook: docs/runbooks/monitor-outage.md. Owner: signals.",
@@ -364,6 +378,7 @@
       "display_name": "monitoring_budget_breach"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "monitoring_budget_breach",
     "documentation": {
      "content": "Runbook: docs/runbooks/budget-breach.md. Owner: governance.",
@@ -389,6 +404,7 @@
       "display_name": "provider_failures"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "provider_failures",
     "documentation": {
      "content": "Runbook: docs/runbooks/provider-outage.md. Owner: connectors.",
@@ -412,6 +428,7 @@
       "display_name": "refresh_scheduler_stalled"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "refresh_scheduler_stalled",
     "documentation": {
      "content": "Runbook: docs/runbooks/stuck-scheduler.md. Owner: refresh.",
@@ -437,6 +454,7 @@
       "display_name": "rls_denied_spike"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "rls_denied_spike",
     "documentation": {
      "content": "Runbook: docs/runbooks/isolation-violation.md. Owner: security.",
@@ -462,6 +480,7 @@
       "display_name": "sso_signin_refusals"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "sso_signin_refusals",
     "documentation": {
      "content": "Runbook: docs/runbooks/sso-outage.md. Owner: identity.",
@@ -487,6 +506,7 @@
       "display_name": "stuck_queued"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "stuck_queued",
     "documentation": {
      "content": "Runbook: docs/runbooks/stuck-runs.md. Owner: oncall.",
@@ -512,6 +532,7 @@
       "display_name": "stuck_running"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "stuck_running",
     "documentation": {
      "content": "Runbook: docs/runbooks/stuck-runs.md. Owner: oncall.",
@@ -535,6 +556,7 @@
       "display_name": "telemetry_down"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "telemetry_down",
     "documentation": {
      "content": "Runbook: docs/runbooks/telemetry-down.md. Owner: oncall.",
@@ -560,6 +582,7 @@
       "display_name": "telemetry_dropping"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "telemetry_dropping",
     "documentation": {
      "content": "Runbook: docs/runbooks/telemetry-down.md. Owner: oncall.",
@@ -585,6 +608,7 @@
       "display_name": "tenant_deletion_requested"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "tenant_deletion_requested",
     "documentation": {
      "content": "Runbook: docs/runbooks/deletion-request.md. Owner: support.",
@@ -610,6 +634,7 @@
       "display_name": "tenant_suspended"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "tenant_suspended",
     "documentation": {
      "content": "Runbook: docs/runbooks/tenant-suspended.md. Owner: support.",
@@ -635,6 +660,7 @@
       "display_name": "unknown_cost"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "unknown_cost",
     "documentation": {
      "content": "Runbook: docs/runbooks/cost-drift.md. Owner: finance-ops.",
@@ -660,6 +686,7 @@
       "display_name": "webhook_storm"
      }
     ],
+    "count": "${var.workload_alerts_enabled ? 1 : 0}",
     "display_name": "webhook_storm",
     "documentation": {
      "content": "Runbook: docs/runbooks/webhook-storm.md. Owner: signals.",

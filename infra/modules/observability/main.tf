@@ -1,10 +1,18 @@
 # Observability module (D-56): log sinks, log-based metrics, dashboards, alert policies and uptime
-# checks for one environment. Generated resources live in generated_*.tf.json (from
-# config/telemetry by scripts/gen_observability.py); channels, project and people are variables
-# (placeholders: no real id, email or phone number). Nothing here is applied by the build.
+# checks for one environment. Two sources:
+#   platform.tf                 hand-written: uptime checks, alerts on Google-provided metrics
+#                               (Cloud Run, Cloud Tasks, Cloud SQL, Cloud Run Jobs, Scheduler) and
+#                               log-based metrics, and the platform dashboard. These work from the
+#                               first deploy.
+#   generated_*.tf.json         from config/telemetry by scripts/gen_observability.py: alerts and
+#                               dashboards on the application's workload.googleapis.com metrics.
+#                               The alerts are created only with workload_alerts_enabled = true,
+#                               once the OTLP exporter ships those metrics (VERIFY V-OBS-1):
+#                               Monitoring refuses an alert on a metric that does not exist yet.
+# Channels, project and people are variables (no real id, email or phone number here).
 
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.9"
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -28,6 +36,12 @@ variable "ticket_channels" {
   type        = list(string)
   description = "Notification channel ids for tickets."
   default     = []
+}
+
+variable "workload_alerts_enabled" {
+  type        = bool
+  description = "Create the generated alerts on workload metrics (needs the OTLP exporter, V-OBS-1)."
+  default     = false
 }
 
 variable "log_retention_days" {
