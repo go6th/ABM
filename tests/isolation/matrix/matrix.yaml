@@ -827,7 +827,7 @@ storage:
   branding_upload_quarantine: {layout: "tenants/<tenant>/uploads/branding/<sha256>"}
   export_file: {layout: "tenants/<tenant>/exports/<run>/<sha256>.<ext>"}
   connector_quarantine: {layout: "tenants/<tenant>/connector-quarantine/<connection>/<sha256>"}
-  document_quarantine: {layout: "tenants/<tenant>/quarantine/<document>/raw"}
+  document_quarantine: {layout: "quarantine/tenants/<tenant>/<document>/raw"}
   document: {layout: "tenants/<tenant>/documents/<document>/raw"}
   internal_file: {layout: "tenants/<tenant>/internal/<run>/<sha256>.docx"}
 # Cache purposes (tenancy.catalog.CACHE_PURPOSES): keys start with t:<tenant>:<purpose>:.

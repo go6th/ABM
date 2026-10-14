@@ -70,7 +70,7 @@ STORAGE_LAYOUTS: dict[str, StorageLayout] = {
     ),
     "document_quarantine": StorageLayout(
         "documents.service.quarantine_key",
-        lambda t: f"tenants/{t}/quarantine/{_id(t, 'document')}/raw",
+        lambda t: f"quarantine/tenants/{t}/{_id(t, 'document')}/raw",
     ),
     "document": StorageLayout(
         "documents.service.document_key",
