@@ -1,3 +1,5 @@
+> Superseded where it conflicts by REPLICA_PROMPT.md (owner decision, 2026-10-14)
+
 # Build prompt: Account Intelligence, final product (frontend + backend), minimal UI
 
 You are working in the existing Account Intelligence repository at `/home/sakib/ABM Generator` (Next.js 16 web app in `web/`, FastAPI API and worker in `src/`, PostgreSQL with forced row level security, Redis, object storage, local stack in `compose.yml`). Build the product described below. Do not start a parallel codebase. Reuse the existing run pipeline, paid-call ledger, grading code, route catalog, audit classes and RLS conventions.

@@ -11,6 +11,24 @@ This plan replaces the root `PLAN.md` (the research-files plan, now superseded: 
 | `BUILD_PROMPT.md` wins over `docs/build/CHANGE_CLAUDE_ONLY_SEARCH.md` | Keep the five data tools (Parallel, Firecrawl, PredictLeads, BitScale, Sumble), Normal and Deep modes shown as the "Research: off/on" chip, and the model picker with Kimi K3. The change file is not built. |
 | The visual pass (pastel, 3D, motion) was rejected and reverted | Section 8 of the build prompt (minimal) stands. `docs/build/VISUAL_PROMPT.md` and `VISUAL_NOTES.md` are records only. |
 
+## Owner decision 2026-10-14: build the design as designed (`REPLICA_PROMPT.md`)
+
+The product is the Claude Design prototype. These earlier decisions are reversed; the work plan is
+`docs/build/REPLICA_PLAN.md` on branch `feat/replica`.
+
+| Earlier decision | Now |
+| --- | --- |
+| No credits, caps or pools (D2) | Built as designed: monthly credit pool per client, account cap per user, credit cap per pull, credit costs shown before research, "Near credit limit" and "Waiting: credit limit" |
+| No 6th Library (D1) | Built: admin uploads finished account workspaces, checks them and publishes them to chosen clients; clients add them as ready-made research |
+| No Mail and drive | Built: read-only Gmail/Outlook and Google Drive/OneDrive/SharePoint per user |
+| Normal / Deep, then the "Research: off/on" chip | The design's `Web: off` chip. Answers come from the workspace; the web is used only through "Refresh from web", which the user confirms |
+| Checkpoint "Continue?" approvals | Credits are shown and confirmed before a refresh starts; a run stops at the credit cap per pull |
+| No Schedules page | The Schedules page as designed |
+| Ask heading and suggestions removed | Kept as designed |
+| Model picker (Opus 5.5, Fable 5.1, Kimi K3) | Not built. The model split is the admin "Model split" setting |
+| "What this answer used" panel removed | Built as on PDF page 4 |
+| A5 deletion list (wallets, metering, quotas, spend, connectors_client, connectors routes, 0024, billing.yaml, plans.yaml) | Cancelled for those modules; each is kept and checked |
+
 ## My decisions (each one is reversible)
 
 | Topic | Decision | Reason |
