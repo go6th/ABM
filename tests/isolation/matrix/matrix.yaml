@@ -383,7 +383,6 @@ routes:
     probe: tenant
     params: {domain: accounts.domain}
     query: {ids: deliverables.id}
-  GET /v1/chat/suggestions: {probe: tenant}
   GET /v1/credits: {probe: tenant}
   GET /v1/research/estimate: {probe: tenant}
   GET /v1/library/available: {probe: tenant}

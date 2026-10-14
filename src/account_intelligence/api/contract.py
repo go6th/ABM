@@ -1870,13 +1870,6 @@ class ChatThread(Out):
     turns: list[ChatTurn]
 
 
-class ChatSuggestions(Out):
-    """Questions the workspace can answer well now, and how many accounts it holds."""
-
-    suggestions: list[str]
-    accounts: int
-
-
 class ChatThreadDeleted(Out):
     """Confirmation of a caller-owned thread deletion."""
 

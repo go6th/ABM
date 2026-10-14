@@ -162,7 +162,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/audit/export` | — | — | tenant; roles=admin; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/branding` | — | Branding (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/chat/provider-key` | — | TenantModelKeyStatus (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/chat/suggestions` | — | ChatSuggestions (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/chat/threads` | — | ChatThreads (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/chat/threads/{thread_id}` | — | ChatThread (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/connectors` | — | Connections (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |

@@ -1,6 +1,6 @@
 "use client";
-// Ask (home) as designed. Empty: "What do you want to know?", the composer and up to five
-// suggestions drawn from the workspace. Thread: the navy question bubble, "Searching your
+// Ask (home) as designed. Empty: "What do you want to know?" and the composer (no sample
+// questions: owner decision 2026-10-14). Thread: the navy question bubble, "Searching your
 // workspace" until the first checked sentence arrives, then the answer as it streams (citation
 // numbers shown but not yet clickable), then the finished answer with citations; the follow-up
 // composer sits at the bottom and "What this answer used" to the right on wide screens and under
@@ -26,7 +26,7 @@ export interface AskTurn {
   error?: string;
 }
 
-const PLACEHOLDER = "Which of my accounts posted Salesforce build roles this month?";
+const PLACEHOLDER = "Ask about your accounts";
 
 function failureText(cause: unknown): string {
   if (cause instanceof ApiError) {
@@ -38,10 +38,9 @@ function failureText(cause: unknown): string {
 }
 
 export function Ask({
-  accounts, suggestions, threadId: initialThread, initialTurns, initialScope, initialQuestion,
+  accounts, threadId: initialThread, initialTurns, initialScope, initialQuestion,
 }: {
   accounts: ScopeAccount[];
-  suggestions: string[];
   threadId: string | null;
   initialTurns: AskTurn[];
   initialScope: ScopeAccount | null;
@@ -178,11 +177,6 @@ export function Ask({
             </p>
           </div>
           <AskComposer variant="hero" placeholder={PLACEHOLDER} menuDown {...composerProps} />
-          {suggestions.length ? (
-            <div className="starters" aria-label="Suggested questions">
-              {suggestions.map((s) => <button key={s} type="button" className="chipb" onClick={() => void send(s)}>{s}</button>)}
-            </div>
-          ) : null}
         </div>
       </div>
     );

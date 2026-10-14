@@ -1806,29 +1806,6 @@
         "title": "ChatModels",
         "type": "object"
       },
-      "ChatSuggestions": {
-        "additionalProperties": false,
-        "description": "Questions the workspace can answer well now, and how many accounts it holds.",
-        "properties": {
-          "accounts": {
-            "title": "Accounts",
-            "type": "integer"
-          },
-          "suggestions": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Suggestions",
-            "type": "array"
-          }
-        },
-        "required": [
-          "suggestions",
-          "accounts"
-        ],
-        "title": "ChatSuggestions",
-        "type": "object"
-      },
       "ChatThread": {
         "additionalProperties": false,
         "description": "Private thread details and chronological turns.",
@@ -17477,56 +17454,6 @@
         "summary": "Set Provider Key",
         "tags": [
           "chat"
-        ]
-      }
-    },
-    "/v1/chat/suggestions": {
-      "get": {
-        "description": "Up to five questions the workspace can answer well now, and the account count.",
-        "operationId": "chat_suggestions_v1_chat_suggestions_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatSuggestions"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Chat Suggestions",
-        "tags": [
-          "ask"
         ]
       }
     },

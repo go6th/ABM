@@ -55,8 +55,6 @@ export default async function ClientLayout({ children }: { children: React.React
         clientName: me.tenant_name,
         userName: me.display_name,
         email: me.email,
-        accountsUsed: me.accounts_used ?? 0,
-        accountCap: me.account_cap ?? 0,
         mailDriveAllowed: me.mail_drive_allowed ?? true,
         modelReady: me.model_ready ?? true,
         isAdmin: me.role === "admin",

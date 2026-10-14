@@ -204,13 +204,6 @@ async def test_ask_refuses_another_clients_account_and_thread(world: dict[str, A
     assert r.status_code == 404
 
 
-async def test_suggestions_come_from_the_workspace(world: dict[str, Any]) -> None:
-    plane = _plane(world["a"], "priya-test", world["payloads"])
-    got = (await _call(plane, "GET", "/v1/chat/suggestions")).json()
-    assert got["accounts"] == 4
-    assert "Who owns ServiceNow at Cigna?" in got["suggestions"]
-
-
 async def test_people_sheet_counts_filters_and_sorts_on_the_server(world: dict[str, Any]) -> None:
     plane = _plane(world["a"], "priya-test", world["payloads"])
     base = "/v1/accounts/highmark.example/sheets/people"

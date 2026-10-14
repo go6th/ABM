@@ -5,7 +5,6 @@
 .ask-empty .hero { text-align: center; }
 .ask-empty h1 { font-size: 36px; }
 .ask-empty .lead { margin-top: 10px; font-size: 16px; color: var(--muted); }
-.starters { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: var(--chat); }
 
 .composer {
   position: relative; width: 100%; max-width: var(--chat); background: var(--surface); border: 1px solid var(--line);

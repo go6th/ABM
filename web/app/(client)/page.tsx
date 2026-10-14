@@ -2,7 +2,7 @@
 // that question on arrival (the account page's composer sends people here).
 import Link from "next/link";
 import type { Metadata } from "next";
-import type { AccountPage, ChatSuggestions, ChatThread } from "@/lib/gen/api.gen";
+import type { AccountPage, ChatThread } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { Ask, type AskTurn } from "@/components/ask/Ask";
 import { StateCard } from "@/ui/design";
@@ -13,13 +13,11 @@ export const metadata: Metadata = { title: "Ask · Account Intelligence" };
 export default async function Home({ searchParams }: { searchParams: Promise<{ thread?: string; account?: string; q?: string }> }) {
   const { thread, account, q } = await searchParams;
   let accounts: AccountPage | null = null;
-  let suggestions: ChatSuggestions | null = null;
   let opened: ChatThread | null = null;
   let failed = false;
   try {
-    [accounts, suggestions, opened] = await Promise.all([
+    [accounts, opened] = await Promise.all([
       serverGet<AccountPage>("/v1/accounts?limit=200"),
-      serverGet<ChatSuggestions>("/v1/chat/suggestions"),
       thread ? serverGet<ChatThread>(`/v1/chat/threads/${encodeURIComponent(thread)}`, "/") : Promise.resolve(null),
     ]);
   } catch (e) {
@@ -48,7 +46,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
   return (
     <Ask
       accounts={list}
-      suggestions={suggestions?.suggestions ?? []}
       threadId={opened?.id ?? null}
       initialTurns={turns}
       initialScope={scope}

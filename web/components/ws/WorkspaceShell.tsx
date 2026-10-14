@@ -1,14 +1,15 @@
 "use client";
 // The client workspace frame as designed: logo, workspace card, New chat, the nav (Ask,
-// Accounts, New research, Schedules, Mail and drive), recent chats, then "Accounts used N of M",
-// the signed-in person and Sign out. Below 760px the sidebar is an overlay menu: Escape or the
+// Accounts, New research, Schedules, Mail and drive), recent chats, then the signed-in person and
+// Sign out (no "Accounts used" meter: owner decision 2026-10-14; Add account still enforces the
+// cap). Below 760px the sidebar is an overlay menu: Escape or the
 // scrim closes it, focus stays inside while open and returns to the Menu button, and the page
 // behind is inert.
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, clearSession } from "@/lib/api";
-import { Bar, Logo, NavIcon } from "@/ui/design";
+import { Logo, NavIcon } from "@/ui/design";
 
 export interface RecentChat { id: string; title: string }
 
@@ -18,8 +19,6 @@ export interface ShellUser {
   clientName: string;
   userName: string | null;
   email: string | null;
-  accountsUsed: number;
-  accountCap: number;
   mailDriveAllowed: boolean;
   /** False when the AI model is not set up (``/v1/me`` ``model_ready``). */
   modelReady?: boolean;
@@ -152,10 +151,6 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
           </nav>
         ) : null}
         <div className="side-foot">
-          <div className="used">
-            <div className="meter-row"><span>Accounts used</span><b>{user.accountsUsed} of {user.accountCap}</b></div>
-            <Bar value={user.accountsUsed} max={user.accountCap} label={`${user.accountsUsed} of ${user.accountCap} accounts used`} />
-          </div>
           <div className="me">
             <div className="avatar" aria-hidden="true">{initial(user.userName, user.email)}</div>
             <div className="who">

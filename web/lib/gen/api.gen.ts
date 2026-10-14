@@ -406,12 +406,6 @@ export const ChatModels = z.object({
 }).strict();
 export type ChatModels = z.infer<typeof ChatModels>;
 
-export const ChatSuggestions = z.object({
-  "accounts": z.number().int(),
-  "suggestions": z.array(z.string()),
-}).strict();
-export type ChatSuggestions = z.infer<typeof ChatSuggestions>;
-
 export const ChatTurn = z.object({
   "account_id": z.string().nullable(),
   "answer": ChatAnswer.nullable().optional(),
@@ -3003,7 +2997,6 @@ export const operations = {
   "DELETE /v1/chat/provider-key": { method: "DELETE", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyDeleted },
   "GET /v1/chat/provider-key": { method: "GET", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyStatus },
   "PUT /v1/chat/provider-key": { method: "PUT", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: TenantModelKeyBody, requestRequired: true, response: TenantModelKeyStatus },
-  "GET /v1/chat/suggestions": { method: "GET", path: "/v1/chat/suggestions", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatSuggestions },
   "GET /v1/chat/threads": { method: "GET", path: "/v1/chat/threads", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThreads },
   "POST /v1/chat/threads": { method: "POST", path: "/v1/chat/threads", plane: "tenant", status: 201, request: NewThread, requestRequired: true, response: ChatThreadCreated },
   "DELETE /v1/chat/threads/{thread_id}": { method: "DELETE", path: "/v1/chat/threads/{thread_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThreadDeleted },

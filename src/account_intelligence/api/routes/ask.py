@@ -25,7 +25,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
-from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audited_txn
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
@@ -42,7 +41,6 @@ from obs.logging import logger
 log = logger(__name__)
 
 router = APIRouter(tags=["ask"])
-register("GET", "/v1/chat/suggestions", tenant_route("read_public", "read", step_up=False))
 register("POST", "/v1/chat/ask", tenant_route("read_public", "run", step_up=False))
 
 LOCAL_MODEL = "workspace-local"
@@ -61,14 +59,6 @@ class AskBody(BaseModel):
 def week_of(now: datetime) -> date:
     """The Monday of the week (the question counts' bucket)."""
     return (now - timedelta(days=now.weekday())).date()
-
-
-@router.get("/chat/suggestions", response_model=C.ChatSuggestions)
-async def chat_suggestions(ident: Identity = Depends(authorize)) -> dict[str, Any]:
-    """Up to five questions the workspace can answer well now, and the account count."""
-    async with tenant_txn(ident.tenant_id) as session:
-        ws = await A.load_workspace(session, ident.user_id)
-    return {"suggestions": A.suggestions(ws, datetime.now(UTC)), "accounts": len(ws.accounts)}
 
 
 async def _replay(tenant_id: UUID, thread_id: UUID, request_id: UUID) -> dict[str, Any] | None:
