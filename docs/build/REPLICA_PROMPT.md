@@ -20,6 +20,17 @@ Reversals (these features come **back** because the design has them):
 | Model picker (Opus 5.5, Fable 5.1, Kimi K3) | Not in the design: do **not** build it. The model split is the admin "Model split" setting |
 | "What this answer used" panel removed | Build it as on PDF page 4 |
 
+Later reversals (owner decision, 2026-10-14, Phase 4B; `docs/build/PHASE_4B_PLAN.md` wins where it disagrees with this file):
+
+| Earlier decision | Now (owner decision, 2026-10-14, Phase 4B) |
+| --- | --- |
+| Model picker not built; one admin "Model split" | Each user picks a research model and an analysis model (Claude Opus 5.5, Claude Fable 5.1, Kimi K3), remembered on the profile; the Ask composer has a model chip; New research and Refresh have two chips. Defaults Opus 5.5 (research) and Fable 5.1 (analysis). The admin sets enabled models and defaults (A7) and allowed models per client (A3); Kimi K3 is off for a client until the admin allows it. "Model split" is retired. |
+| Active arm `cost_saving` (Sonnet 5.5 extracts) | Research steps use the research model (default Opus 5.5); analysis steps the analysis model (default Fable 5.1). |
+| Account cap per user and "Accounts used N of 34"; credits shown to users | Two limits per user: researches (default 2) and chats (default 40; a file analysis counts as a chat), reset monthly on the 1st or never. "Request more from admin" goes to a Requests list in the console. Credits stay internal for Runs and spend. |
+| File analysis: "Choose from storage"; 100 MiB per file, 20 files and 500 MiB per run | Two sources only: Add files and Connect Google Drive. Resumable uploads straight to object storage, default 20 GiB per file (admin setting), processed in parts in parallel. |
+| Users of one client share the client's workspace | Each user has a private workspace: accounts, research, chats, files, Drive and Gmail items, downloads and usage are the user's own, enforced by row level security on tenant and owner. |
+| Downloads: deliverables and the visible table | "Download everything" per account (every deliverable and every table in full as CSV and XLSX); every table exports its whole filter as CSV or Excel. Raw provider responses stay out of user downloads. |
+
 Everything in `BUILD_PROMPT.md` that is engineering rather than product still applies: tenant isolation with forced RLS, the paid-call ledger, idempotent tool calls, grading computed in code, the pre-delivery gate, running the ABM skill as the research engine, the two-output rule for file-derived facts, prompt-injection protection, the security requirements, and the test discipline.
 
 ## 1. Sources of truth
