@@ -1,3 +1,6 @@
+# Staging: runs after ci succeeds on a push to main (and by hand for a commit that has a green ci
+# run). The images are the ones ci built and tested; _deploy.yml pushes them, migrates, deploys by
+# digest, smoke tests and rolls back on failure.
 name: deploy-staging
 
 on:
@@ -6,47 +9,62 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit on main to deploy (must have a successful ci run)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
 jobs:
-  deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+  resolve:
+    # Only a push to main: a pull request from a fork whose branch is named "main" also reports
+    # head_branch main, but its ci event is pull_request.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
-    environment: staging
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+      ci_run_id: ${{ steps.pick.outputs.ci_run_id }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          WF_SHA: ${{ github.event.workflow_run.head_sha }}
+          WF_ID: ${{ github.event.workflow_run.id }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          if [[ "$EVENT" == "workflow_run" ]]; then
+            sha="$WF_SHA"; run_id="$WF_ID"
+          else
+            sha="$INPUT_SHA"
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full commit SHA" >&2; exit 2; }
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --event push \
+              --branch main --commit "$sha" --status success --json databaseId --jq '.[0].databaseId')"
+            [[ -n "$run_id" && "$run_id" != "null" ]] || { echo "no successful ci run on main for $sha" >&2; exit 1; }
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "ci_run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: [resolve]
     permissions:
       contents: read
       id-token: write
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-        with:
-          project_id: ${{ vars.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
-          service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
-      - name: Configure Artifact Registry
-        env:
-          GCP_REGION: ${{ vars.GCP_REGION }}
-        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
-      - name: Build, scan, generate SBOM, sign, migrate, and deploy staging
-        env:
-          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-          GCP_REGION: ${{ vars.GCP_REGION }}
-          ARTIFACT_REGISTRY: ${{ vars.ARTIFACT_REGISTRY }}
-          CLOUD_RUN_API_SERVICE: ${{ vars.CLOUD_RUN_API_SERVICE }}
-          CLOUD_RUN_WEB_SERVICE: ${{ vars.CLOUD_RUN_WEB_SERVICE }}
-          CLOUD_RUN_RUN_JOB: ${{ vars.CLOUD_RUN_RUN_JOB }}
-          CLOUD_RUN_MIGRATE_JOB: ${{ vars.CLOUD_RUN_MIGRATE_JOB }}
-          SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-        run: bash scripts/deploy_gcp.sh
-      - name: Upload CycloneDX SBOMs
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: staging-sbom-${{ github.run_id }}
-          path: ${{ runner.temp }}/deploy-sbom/*.cdx.json
-          if-no-files-found: error
-          retention-days: 30
+      actions: read
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: staging
+      sha: ${{ needs.resolve.outputs.sha }}
+      ci_run_id: ${{ needs.resolve.outputs.ci_run_id }}

@@ -5,6 +5,16 @@
 .env.*
 gha-creds-*.json
 docs/
+.github/
+ops/
+scripts/
+evals/
+docker/
+compose*.yml
+*.tfstate
+*.tfstate.*
+.terraform/
+*.map
 .claude/
 tests/
 web/

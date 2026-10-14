@@ -1,7 +1,11 @@
 # CI: every gate on each pull request and on main. No cloud credentials are used here; deployments
 # live in deploy-staging.yml and deploy-prod.yml (Workload Identity Federation, protected
-# environments). Images are built, scanned (Trivy, fail on fixable HIGH/CRITICAL), described by a
-# CycloneDX SBOM, and on main signed keylessly with cosign (GitHub OIDC; no key material).
+# environments). Images are built ONCE here, scanned (Trivy, fail on fixable HIGH/CRITICAL),
+# inspected (non-root, no env file, tests, source maps or dev tools, packaging import check),
+# described by a CycloneDX SBOM, exercised end to end as a hermetic stack (fake model, hermetic
+# providers: one research run, a cross-tenant probe, the replica screens with axe), and saved as an
+# artifact. The deploy workflows ship exactly those bytes: they push the saved images, sign them
+# and deploy by digest; nothing is rebuilt after the tests passed.
 name: ci
 
 on:
@@ -11,7 +15,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # never cancel a main build half way: the deploy workflow starts from its artifacts
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -19,8 +24,10 @@ permissions:
 jobs:
   helm-web:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Lint the optional web Helm chart
         run: |
           docker run --rm -v "$PWD:/work" -w /work alpine/helm:3.18.6 \
@@ -38,13 +45,24 @@ jobs:
 
   lint-ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: actionlint (workflow syntax, expressions, shell)
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+      - name: hadolint (Dockerfiles)
+        run: |
+          for file in docker/api.Dockerfile docker/worker.Dockerfile web/Dockerfile; do
+            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$file"
+          done
+      - name: shellcheck (CI scripts)
+        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 docker/ci/*.sh
 
   quality:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -67,11 +85,11 @@ jobs:
       TEST_DB: ai_test
       PGPASSWORD: dev
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - run: uv sync --frozen
       - name: Cloud Storage and Cloud Tasks emulators (port contract tests)
         run: |
@@ -92,6 +110,25 @@ jobs:
           uv run --frozen python scripts/check_telemetry.py
           uv run --frozen python scripts/gen_observability.py --check
           uv run --frozen python scripts/check_runbooks.py
+      - name: Migrations (lint, upgrade on a scratch database, models agree), RLS catalog, isolation matrix
+        env:
+          MIGRATOR_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai_catalog
+          CHECKPOINT_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai_catalog
+          ADMIN_DSN: postgresql://postgres:dev@localhost:5432/ai_catalog
+        run: |
+          skill=.claude/skills/account-intelligence-platform
+          uv run --frozen python "$skill/scripts/validate_assets.py"
+          uv run --frozen python "$skill/scripts/lint_migrations.py" migrations
+          psql postgresql://postgres:dev@localhost:5432/postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ai_catalog"
+          uv run --frozen alembic upgrade head
+          uv run --frozen alembic check
+          violations="$(psql "$ADMIN_DSN" -v ON_ERROR_STOP=1 -tA -f "$skill/scripts/check_rls_catalog.sql")"
+          if [[ -n "$violations" ]]; then printf '%s\n' "$violations" >&2; exit 1; fi
+          uv run --frozen python scripts/gen_isolation_matrix.py --check --dsn "$ADMIN_DSN"
+      - name: Generated documents are current (environment registry, routing governance)
+        run: |
+          uv run --frozen python scripts/gen_env_docs.py --check
+          uv run --frozen python scripts/check_routing_governance.py
       - name: Isolation first (hard gate), then all but evals (fuzz, backup/restore); coverage 94%
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}
@@ -101,8 +138,10 @@ jobs:
 
   infra:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: terraform fmt and validate (no backend, no credentials, nothing applied)
         run: make infra-fmt infra-validate
       - name: terraform offline plan tests (mock providers; no credentials, no API calls)
@@ -110,8 +149,10 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -135,6 +176,8 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [web]
     services:
       postgres:
@@ -154,8 +197,8 @@ jobs:
       CHECKPOINT_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai_e2e
       DATABASE_URL: postgresql+asyncpg://app_rw:local-dev-only@localhost:5432/ai_e2e
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -176,47 +219,128 @@ jobs:
         working-directory: web
         run: npx playwright test
 
+  dependency-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: Python runtime dependencies against the advisory database (pip-audit)
+        run: |
+          uv export --frozen --no-dev --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit@2.9.0 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip --strict
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Web runtime dependencies (fail on high or critical)
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: web
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0   # scan the history as well as the tree
+      - name: gitleaks (redacted output; a finding fails the check)
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.28.0 \
+            git /repo --redact --no-banner --verbose --exit-code 1
+
   images:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # keyless cosign signing on main (GitHub OIDC)
-      packages: write   # push to GHCR on main only
     strategy:
+      fail-fast: false
       matrix:
         include:
           - { name: api, context: ., file: docker/api.Dockerfile }
           - { name: worker, context: ., file: docker/worker.Dockerfile }
           - { name: web, context: web, file: web/Dockerfile }
+    env:
+      IMAGE: abm-ci-${{ matrix.name }}:${{ github.sha }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Build
-        run: docker build -f "${{ matrix.file }}" -t "ai-${{ matrix.name }}:ci" "${{ matrix.context }}"
+        run: >-
+          docker build --pull -f "${{ matrix.file }}"
+          --label "org.opencontainers.image.revision=${{ github.sha }}"
+          -t "$IMAGE" "${{ matrix.context }}"
+      - name: Inspect (non-root; no env file, tests, source maps or dev tools; packaging import check)
+        run: bash docker/ci/image_checks.sh "${{ matrix.name }}" "$IMAGE"
       - name: Trivy (fail on fixable HIGH and CRITICAL)
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.75.0 \
-            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-            "ai-${{ matrix.name }}:ci"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro aquasec/trivy:0.75.0 \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE"
       - name: SBOM (CycloneDX)
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" \
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v "$PWD:/out" \
             aquasec/trivy:0.75.0 image --format cyclonedx \
-            --output "/out/sbom-${{ matrix.name }}.cdx.json" "ai-${{ matrix.name }}:ci"
+            --output "/out/sbom-${{ matrix.name }}.cdx.json" "$IMAGE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sbom-${{ matrix.name }}
           path: sbom-${{ matrix.name }}.cdx.json
-      - name: Push and sign keylessly (main only)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          REF: ghcr.io/${{ github.repository }}/${{ matrix.name }}:${{ github.sha }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Save the image that was tested (the deploy pushes these exact bytes)
+        run: docker save "$IMAGE" | gzip -1 > "image-${{ matrix.name }}.tar.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-${{ matrix.name }}-${{ github.sha }}
+          path: image-${{ matrix.name }}.tar.gz
+          retention-days: 90   # production promotes a commit from here; see deploy-prod.yml
+          compression-level: 0
+
+  hermetic:
+    # The just-built images as a stack on the fake model and hermetic providers: no outside call,
+    # no key, no cost. Staging refuses both switches by design, so this is where the end-to-end
+    # research run happens, before anything is deployed.
+    needs: [images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: image-*-${{ github.sha }}
+          merge-multiple: true
+      - name: Load the images
         run: |
-          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker tag "ai-${{ matrix.name }}:ci" "$REF"
-          docker push "$REF"
-          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$REF")"
-          oidc="$(curl -sSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" | jq -r .value)"
-          docker run --rm -e SIGSTORE_ID_TOKEN="$oidc" -v "$HOME/.docker:/root/.docker:ro" \
-            ghcr.io/sigstore/cosign/cosign:v3.1.3 sign --yes "$digest"
+          for name in api worker web; do gunzip -c "image-$name.tar.gz" | docker load; done
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: uv sync --frozen
+      - name: Start the stack and seed the synthetic demo workspace
+        env:
+          API_IMAGE: abm-ci-api:${{ github.sha }}
+          WORKER_IMAGE: abm-ci-worker:${{ github.sha }}
+          WEB_IMAGE: abm-ci-web:${{ github.sha }}
+        run: bash docker/ci/hermetic_stack.sh up
+      - name: One hermetic research run, then the cross-tenant isolation probe
+        run: bash docker/ci/hermetic_stack.sh check
+      - name: Replica screens with axe (WCAG 2.1 AA, 1360 and 375 wide)
+        working-directory: web
+        env:
+          REPLICA_WEB_ORIGIN: http://localhost:13010
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          DEMO_PASSWORD="$(cat "$RUNNER_TEMP/abm-ci-hs-state/demo_password")" \
+            npx playwright test -c playwright.replica.config.ts
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          for c in api worker web objectstore fake-idp; do
+            echo "::group::$c"; docker logs --tail 80 "abm-ci-hs-$c" 2>&1 || true; echo "::endgroup::"
+          done
+      - name: Remove the stack
+        if: always()
+        run: bash docker/ci/hermetic_stack.sh down

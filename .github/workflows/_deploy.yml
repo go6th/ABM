@@ -1,0 +1,176 @@
+# Reusable deploy: push the images CI already built and tested, sign them, run the migration job,
+# deploy by digest, smoke test, and route traffic back to the previous revision if a smoke test
+# fails. Called by deploy-staging.yml and deploy-prod.yml; the caller's environment decides which
+# project, which variables and (production) which required reviewers apply.
+#
+# Authentication is Workload Identity Federation only: no key file, no long-lived secret. The
+# provider and the deployer service account are environment variables (see docs/deploy/agents/
+# ci-and-images.md for every name).
+#
+# Rollback scope: traffic and the worker job return to the previous revision. Migrations are
+# forward-only (expand, then contract in a later release), so the previous code must work on the
+# new schema; docs/runbooks/database.md covers restoring data.
+name: _deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment (staging or production)
+        required: true
+        type: string
+      sha:
+        description: Full commit SHA whose CI images are shipped
+        required: true
+        type: string
+      ci_run_id:
+        description: Run id of the successful ci workflow for that commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write   # Workload Identity Federation and keyless cosign
+      actions: read     # download the images from the ci run
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      ARTIFACT_REGISTRY: ${{ vars.ARTIFACT_REGISTRY }}
+      CLOUD_RUN_API_SERVICE: ${{ vars.CLOUD_RUN_API_SERVICE }}
+      CLOUD_RUN_WEB_SERVICE: ${{ vars.CLOUD_RUN_WEB_SERVICE }}
+      CLOUD_RUN_RUN_JOB: ${{ vars.CLOUD_RUN_RUN_JOB }}
+      CLOUD_RUN_MIGRATE_JOB: ${{ vars.CLOUD_RUN_MIGRATE_JOB }}
+      APP_URL: ${{ vars.APP_URL }}
+      SHA: ${{ inputs.sha }}
+    steps:
+      - name: Validate the inputs
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full lowercase commit SHA" >&2; exit 2; }
+          [[ "${{ inputs.ci_run_id }}" =~ ^[0-9]+$ ]] || { echo "ci_run_id must be numeric" >&2; exit 2; }
+          [[ "$ARTIFACT_REGISTRY" =~ ^[a-z0-9-]+-docker\.pkg\.dev/[a-z][a-z0-9-]+/[a-z][a-z0-9-]+$ ]] ||
+            { echo "ARTIFACT_REGISTRY must be a regional Artifact Registry repository path" >&2; exit 2; }
+          [[ "$APP_URL" =~ ^https:// ]] || { echo "APP_URL must be an https URL" >&2; exit 2; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: image-*-${{ inputs.sha }}
+          merge-multiple: true
+          run-id: ${{ inputs.ci_run_id }}
+          github-token: ${{ github.token }}
+      - name: Load the tested images and confirm they are this commit
+        run: |
+          for name in api worker web; do
+            gunzip -c "image-$name.tar.gz" | docker load
+            rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "abm-ci-$name:$SHA")"
+            [[ "$rev" == "$SHA" ]] || { echo "image $name was not built from $SHA" >&2; exit 1; }
+          done
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+      - name: Configure Artifact Registry
+        run: gcloud auth configure-docker "${ARTIFACT_REGISTRY%%/*}" --quiet
+
+      - name: Record the last good state (the rollback target)
+        id: previous
+        run: |
+          describe() {
+            gcloud run services describe "$1" --project "$GCP_PROJECT_ID" --region "$GCP_REGION" \
+              --format="value($2)"
+          }
+          {
+            echo "api_revision=$(describe "$CLOUD_RUN_API_SERVICE" status.latestReadyRevisionName)"
+            echo "web_revision=$(describe "$CLOUD_RUN_WEB_SERVICE" status.latestReadyRevisionName)"
+            echo "worker_image=$(gcloud run jobs describe "$CLOUD_RUN_RUN_JOB" --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" --format='value(template.template.containers[0].image)')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Push the images and read their digests
+        id: push
+        run: |
+          for name in api worker web; do
+            ref="${ARTIFACT_REGISTRY}/${name}:${SHA}"
+            docker tag "abm-ci-$name:$SHA" "$ref"
+            docker push "$ref"
+            digest="$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$ref" |
+              grep -F "${ARTIFACT_REGISTRY}/${name}@sha256:" | head -1)"
+            [[ "$digest" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "no digest for $name" >&2; exit 1; }
+            echo "${name}_ref=$digest" >> "$GITHUB_OUTPUT"
+          done
+      - name: Sign the images (keyless)
+        env:
+          API_REF: ${{ steps.push.outputs.api_ref }}
+          WORKER_REF: ${{ steps.push.outputs.worker_ref }}
+          WEB_REF: ${{ steps.push.outputs.web_ref }}
+        run: bash docker/ci/sign_images.sh "$API_REF" "$WORKER_REF" "$WEB_REF"
+
+      - name: Migrate, then deploy by digest
+        id: rollout
+        env:
+          API_REF: ${{ steps.push.outputs.api_ref }}
+          WORKER_REF: ${{ steps.push.outputs.worker_ref }}
+          WEB_REF: ${{ steps.push.outputs.web_ref }}
+        run: |
+          common=(--project "$GCP_PROJECT_ID" --region "$GCP_REGION")
+          # Secrets and runtime settings are wired to Secret Manager by Terraform; none is passed here.
+          gcloud run jobs update "$CLOUD_RUN_MIGRATE_JOB" "${common[@]}" --image "$API_REF" --quiet
+          gcloud run jobs execute "$CLOUD_RUN_MIGRATE_JOB" "${common[@]}" --wait
+          gcloud run jobs update "$CLOUD_RUN_RUN_JOB" "${common[@]}" --image "$WORKER_REF" --quiet
+          gcloud run services update "$CLOUD_RUN_API_SERVICE" "${common[@]}" --image "$API_REF" --quiet
+          gcloud run services update "$CLOUD_RUN_WEB_SERVICE" "${common[@]}" --image "$WEB_REF" --quiet
+          # After an earlier rollback traffic is pinned to a named revision; send it to the new one.
+          gcloud run services update-traffic "$CLOUD_RUN_API_SERVICE" "${common[@]}" --to-latest --quiet
+          gcloud run services update-traffic "$CLOUD_RUN_WEB_SERVICE" "${common[@]}" --to-latest --quiet
+
+      - name: Smoke tests (health, sign-in page, isolation probe, deployed digest, packaging import check)
+        id: smoke
+        env:
+          API_DIGEST_REF: ${{ steps.push.outputs.api_ref }}
+          WORKER_DIGEST_REF: ${{ steps.push.outputs.worker_ref }}
+          WEB_DIGEST_REF: ${{ steps.push.outputs.web_ref }}
+        run: bash docker/ci/smoke_deployed.sh
+
+      - name: Roll back to the last good revision
+        if: ${{ failure() && steps.rollout.outcome != 'skipped' }}
+        env:
+          PREVIOUS_API: ${{ steps.previous.outputs.api_revision }}
+          PREVIOUS_WEB: ${{ steps.previous.outputs.web_revision }}
+          PREVIOUS_WORKER_IMAGE: ${{ steps.previous.outputs.worker_image }}
+        run: |
+          common=(--project "$GCP_PROJECT_ID" --region "$GCP_REGION")
+          gcloud run services update-traffic "$CLOUD_RUN_API_SERVICE" "${common[@]}" --to-revisions="${PREVIOUS_API}=100" --quiet
+          gcloud run services update-traffic "$CLOUD_RUN_WEB_SERVICE" "${common[@]}" --to-revisions="${PREVIOUS_WEB}=100" --quiet
+          gcloud run jobs update "$CLOUD_RUN_RUN_JOB" "${common[@]}" --image "$PREVIOUS_WORKER_IMAGE" --quiet
+          echo "::error::deploy failed; traffic returned to ${PREVIOUS_API} and ${PREVIOUS_WEB}"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: ${{ always() }}
+        continue-on-error: true
+        with:
+          pattern: sbom-*
+          path: sbom
+          run-id: ${{ inputs.ci_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ always() }}
+        continue-on-error: true
+        with:
+          name: ${{ inputs.environment }}-sbom-${{ github.run_id }}
+          path: sbom
+          if-no-files-found: warn
+          retention-days: 90
