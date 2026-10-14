@@ -3,26 +3,27 @@
 | Package | Imports (first-party packages) |
 |---|---|
 | `account_intelligence.agents` | `account_intelligence.grading` |
-| `account_intelligence.api` | `account_intelligence.app`, `account_intelligence.chat`, `account_intelligence.config`, `account_intelligence.config_files`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.model_routing`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.workflow` |
+| `account_intelligence.api` | `account_intelligence.app`, `account_intelligence.chat`, `account_intelligence.config`, `account_intelligence.config_files`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.model_routing`, `account_intelligence.platform`, `account_intelligence.replica`, `account_intelligence.runs`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.workflow` |
 | `account_intelligence.app` | `account_intelligence.api`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.dev_limits`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.workflow` |
 | `account_intelligence.chat` | `account_intelligence.config`, `account_intelligence.db` |
 | `account_intelligence.config` | - |
 | `account_intelligence.config_files` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.tracker`, `account_intelligence.workflow`, `jobs` |
 | `account_intelligence.connectors` | `account_intelligence.config`, `account_intelligence.platform` |
-| `account_intelligence.db` | `account_intelligence.config`, `account_intelligence.urls` |
+| `account_intelligence.db` | `account_intelligence.config`, `account_intelligence.platform`, `account_intelligence.urls` |
 | `account_intelligence.dev_limits` | - |
 | `account_intelligence.grading` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.urls` |
-| `account_intelligence.model_routing` | `account_intelligence.config`, `account_intelligence.safety` |
+| `account_intelligence.model_routing` | `account_intelligence.config` |
 | `account_intelligence.platform` | `account_intelligence.config` |
 | `account_intelligence.rag` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.platform` |
-| `account_intelligence.runs` | `account_intelligence.connectors`, `account_intelligence.tracker` |
+| `account_intelligence.replica` | `account_intelligence.api`, `account_intelligence.chat`, `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.runs`, `account_intelligence.tracker` |
+| `account_intelligence.runs` | `account_intelligence.connectors`, `account_intelligence.replica`, `account_intelligence.tracker` |
 | `account_intelligence.safety` | `account_intelligence.config` |
 | `account_intelligence.tracker` | `account_intelligence.config`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety` |
 | `account_intelligence.urls` | - |
-| `account_intelligence.worker` | `account_intelligence.app`, `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.workflow` |
+| `account_intelligence.worker` | `account_intelligence.app`, `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.replica`, `account_intelligence.workflow` |
 | `account_intelligence.workflow` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.safety`, `account_intelligence.tracker`, `jobs` |
 | `admin` | `account_intelligence.config`, `account_intelligence.platform` |
-| `agents` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.dev_limits`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.workflow`, `jobs` |
+| `agents` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.dev_limits`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.runs`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.workflow`, `jobs` |
 | `alerts` | `account_intelligence.config`, `account_intelligence.platform`, `account_intelligence.safety` |
 | `audit` | `account_intelligence.config`, `account_intelligence.grading`, `account_intelligence.safety` |
 | `connectors_client` | `account_intelligence.config`, `account_intelligence.platform` |
@@ -30,26 +31,32 @@
 | `crm_writeback` | `account_intelligence.config`, `account_intelligence.platform`, `account_intelligence.safety` |
 | `datamodel` | `account_intelligence.config` |
 | `documents` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.tracker`, `account_intelligence.workflow` |
+| `evalgate` | `account_intelligence.config` |
 | `exports` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.urls`, `account_intelligence.workflow`, `jobs` |
 | `governance` | `account_intelligence.config` |
 | `identity` | `account_intelligence.api`, `account_intelligence.config`, `account_intelligence.connectors` |
 | `jobs` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.dev_limits`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker` |
-| `llm` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors` |
+| `llm` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.platform` |
 | `metering` | `account_intelligence.api`, `account_intelligence.config`, `account_intelligence.safety` |
-| `parallel` | `account_intelligence.connectors` |
+| `obs` | `account_intelligence.config`, `account_intelligence.platform` |
+| `parallel` | `account_intelligence.config`, `account_intelligence.connectors` |
 | `people` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.dev_limits`, `account_intelligence.grading`, `account_intelligence.platform`, `account_intelligence.safety`, `account_intelligence.tracker`, `account_intelligence.urls`, `jobs` |
 | `pilot` | `account_intelligence.config` |
+| `privacy` | `account_intelligence.config` |
+| `quality` | `account_intelligence.config` |
 | `refresh` | `account_intelligence.config`, `account_intelligence.db`, `account_intelligence.grading` |
-| `research_files` | `account_intelligence.agents`, `account_intelligence.config`, `account_intelligence.platform`, `account_intelligence.runs` |
+| `research_files` | `account_intelligence.config` |
 | `signals` | `account_intelligence.config`, `account_intelligence.platform` |
-| `spend` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.db`, `account_intelligence.platform`, `account_intelligence.tracker`, `account_intelligence.workflow` |
+| `spend` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.platform`, `account_intelligence.tracker`, `account_intelligence.workflow` |
 | `tenancy` | `account_intelligence.config`, `account_intelligence.connectors`, `account_intelligence.platform` |
-| `verify` | `account_intelligence.grading` |
+| `verify` | `account_intelligence.config`, `account_intelligence.grading` |
 | `views` | `account_intelligence.config`, `account_intelligence.grading`, `account_intelligence.runs`, `account_intelligence.safety` |
 
 ## Package-level cycles
 
 * `account_intelligence.api` <-> `account_intelligence.app`
+* `account_intelligence.api` <-> `account_intelligence.replica`
+* `account_intelligence.replica` <-> `account_intelligence.runs`
 
 ## Modules no first-party module imports (entry points, scripts or dead code)
 
@@ -127,6 +134,7 @@
 * `connectors_client.drive`
 * `connectors_client.framework`
 * `connectors_client.gmail`
+* `connectors_client.maildrive`
 * `connectors_client.notes`
 * `connectors_client.oauth`
 * `connectors_client.ports`
@@ -150,6 +158,8 @@
 * `datamodel.counts`
 * `datamodel.export_verify`
 * `datamodel.pins`
+* `devstore`
+* `devstore.server`
 * `documents`
 * `documents.chunking`
 * `documents.company`
@@ -161,6 +171,7 @@
 * `documents.graph`
 * `documents.internal_doc`
 * `documents.leakcheck`
+* `documents.parts`
 * `documents.redact`
 * `documents.repo`
 * `documents.sandbox`
@@ -221,12 +232,6 @@
 * `exports.word.render_cli`
 * `exports.word.renderer`
 * `exports.workspace`
-* `gate`
-* `gate.errors`
-* `gate.models`
-* `gate.pipeline`
-* `gate.ports`
-* `gate.verdict`
 * `governance`
 * `governance.account_cost`
 * `governance.monitoring_budget`
@@ -248,8 +253,10 @@
 * `llm.adapters`
 * `llm.adapters.anthropic_api`
 * `llm.adapters.fake`
+* `llm.adapters.moonshot_api`
 * `llm.budget`
 * `llm.cache`
+* `llm.choice`
 * `llm.config`
 * `llm.cost`
 * `llm.errors`
@@ -373,12 +380,10 @@
 * `registers.messaging`
 * `registers.risks`
 * `research_files`
-* `research_files.analytics`
 * `research_files.blobstore`
 * `research_files.checks`
 * `research_files.config`
 * `research_files.detect`
-* `research_files.modelsvc`
 * `research_files.parsers`
 * `research_files.parsers.archives`
 * `research_files.parsers.base`
@@ -386,12 +391,6 @@
 * `research_files.parsers.media`
 * `research_files.parsers.registry`
 * `research_files.parsers.tabular`
-* `research_files.pipeline`
-* `research_files.profile`
-* `research_files.qa`
-* `research_files.repo`
-* `research_files.service`
-* `research_files.upload`
 * `security`
 * `security.pentest_gate`
 * `security.rotation`
