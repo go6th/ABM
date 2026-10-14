@@ -23,6 +23,13 @@ platform.kimi.ai):
   403 are ``AuthFailed``; 404 is ``ModelUnavailable``; 400 ``content_filter`` is
   ``ContentRefused``; a 400 naming the context window is ``ContextTooLong``.
 
+The same OpenAI-compatible API is also served by Ollama Cloud (owner decision 2026-10-15: the
+owner's Kimi K3 key is an Ollama Cloud key until Kimi moves to Google Cloud). Ollama differs in
+three documented ways (docs.ollama.com/api/openai-compatibility, read 2026-10-15), selected by
+``dialect="ollama"``: the base URL ``https://ollama.com/v1``, its own model tag (``kimi-k3:cloud``,
+``MOONSHOT_MODEL``), and ``max_tokens`` (``max_completion_tokens`` is not documented there). The
+result always names the catalogue's model id (``kimi-k3``), so prices and records stay one model.
+
 What Kimi K3 does not have here, so nothing assumes it: server-side web search, citation blocks,
 adaptive thinking and Anthropic prompt caching. As the research model it reaches the web only
 through the platform's data tools and the ledger.
@@ -49,6 +56,7 @@ from llm.errors import (
 )
 
 BASE_URL = "https://api.moonshot.ai/v1"  # the registry default (MOONSHOT_BASE_URL)
+DIALECTS = ("moonshot", "ollama")  # MOONSHOT_API_DIALECT
 # Our effort levels onto Kimi K3's three (low, high, max; the documented default is max).
 EFFORT = {"low": "low", "medium": "high", "high": "high", "xhigh": "max", "max": "max"}
 RETRYABLE_429 = frozenset({"rate_limit_reached_error", "engine_overloaded_error"})
@@ -90,15 +98,16 @@ def request_body(
     json_schema: Mapping[str, Any] | None = None,
     schema_name: str = "output",
     stream: bool = False,
+    dialect: str = "moonshot",
 ) -> dict[str, Any]:
-    """The documented Chat Completions body for one call."""
+    """The documented Chat Completions body for one call (``dialect`` picks the token field)."""
     body: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": system or " "},
             {"role": "user", "content": user or " "},
         ],
-        "max_completion_tokens": max_tokens,
+        ("max_tokens" if dialect == "ollama" else "max_completion_tokens"): max_tokens,
     }
     if effort is not None:
         body["reasoning_effort"] = EFFORT.get(effort, "high")
@@ -138,9 +147,16 @@ class MoonshotClient:
         base_url: str = BASE_URL,
         http: httpx.AsyncClient | None = None,
         timeout_s: float = 600.0,
+        dialect: str = "moonshot",
+        remote_model: str | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("MOONSHOT_API_KEY is not set")
+        if dialect not in DIALECTS:
+            raise ValueError(f"MOONSHOT_API_DIALECT must be one of {', '.join(DIALECTS)}")
+        self.dialect = dialect
+        # the provider's own name for the model (Ollama: kimi-k3:cloud); None sends our id
+        self.remote_model = remote_model or None
         self._headers = {"Authorization": f"Bearer {api_key}"}
         self._url = base_url.rstrip("/") + "/chat/completions"
         # no transport retries: the node RetryPolicy owns retries (W6)
@@ -157,7 +173,15 @@ class MoonshotClient:
         json_schema: Mapping[str, Any] | None = None,
     ) -> LlmResult:
         """One completion; the text, the model that answered and its usage."""
-        body = request_body(model, system, user, max_tokens, effort=effort, json_schema=json_schema)
+        body = request_body(
+            self.remote_model or model,
+            system,
+            user,
+            max_tokens,
+            effort=effort,
+            json_schema=json_schema,
+            dialect=self.dialect,
+        )
         try:
             reply = await self._http.post(self._url, json=body, headers=self._headers)
         except (httpx.TimeoutException, httpx.TransportError) as error:
@@ -169,9 +193,14 @@ class MoonshotClient:
         message = choice.get("message") or {}
         return LlmResult(
             text=str(message.get("content") or ""),
-            model=str(data.get("model") or model),
+            # the catalogue id when the provider has its own tag (prices and records), else theirs
+            model=model if self.remote_model else str(data.get("model") or model),
             usage=usage_of(data.get("usage")),
-            extra={"provider": "moonshot", "stop_reason": choice.get("finish_reason")},
+            extra={
+                "provider": self.dialect,
+                "stop_reason": choice.get("finish_reason"),
+                "remote_model": str(data.get("model") or self.remote_model or model),
+            },
         )
 
     async def stream(
@@ -184,7 +213,15 @@ class MoonshotClient:
         effort: str | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
         """("text", delta) for each piece, then exactly one ("usage", LlmUsage)."""
-        body = request_body(model, system, "", max_tokens, effort=effort, stream=True)
+        body = request_body(
+            self.remote_model or model,
+            system,
+            "",
+            max_tokens,
+            effort=effort,
+            stream=True,
+            dialect=self.dialect,
+        )
         body["messages"] = [{"role": "system", "content": system or " "}] + [
             {"role": m["role"], "content": m["content"] or " "} for m in messages
         ]

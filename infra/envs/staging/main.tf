@@ -60,6 +60,14 @@ variable "moonshot_enabled" {
   type    = bool
   default = false
 }
+variable "moonshot_api" {
+  type = object({
+    base_url = string
+    dialect  = string
+    model    = string
+  })
+  default = { base_url = "https://api.moonshot.ai/v1", dialect = "moonshot", model = "" }
+}
 variable "maildrive" {
   type = object({
     google_client_id    = string
@@ -111,6 +119,7 @@ module "stack" {
   scaling                 = var.scaling
   llm_access              = var.llm_access
   moonshot_enabled        = var.moonshot_enabled
+  moonshot_api            = var.moonshot_api
   maildrive               = var.maildrive
   archive_lock            = var.archive_lock
   workload_alerts_enabled = var.workload_alerts_enabled

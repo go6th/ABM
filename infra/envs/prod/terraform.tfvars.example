@@ -29,6 +29,7 @@ staff = {
 # redis_tier         = "STANDARD_HA"
 # scaling = { api = { min = 1, max = 10 }, web = { min = 1, max = 10 }, worker = { min = 1, max = 8 } }
 # moonshot_enabled   = false # true only after moonshot-api-key has a version
+# moonshot_api = { base_url = "https://ollama.com/v1", dialect = "ollama", model = "kimi-k3:cloud" } # Kimi K3 through Ollama Cloud
 # maildrive = { google_client_id = "", microsoft_client_id = "" } # an id here needs its secret
 # archive_lock       = false # true locks the audit archive for 7 years (irreversible)
 # workload_alerts_enabled = false # true once the OTLP exporter ships metrics (V-OBS-1)

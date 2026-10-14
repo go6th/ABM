@@ -130,3 +130,50 @@ async def test_the_body_never_sends_empty_content() -> None:
     body = request_body("kimi-k3", "", "", 10)
     assert all(m["content"] for m in body["messages"])
     assert usage_of(None).input_tokens == 0
+
+
+async def test_ollama_cloud_gets_its_model_tag_and_token_field() -> None:
+    """Ollama Cloud (owner decision 2026-10-15): the same API at ollama.com/v1, its own model tag,
+    and ``max_tokens``; the result still names the catalogue id, so prices and records stay one
+    model. A stream sends the same tag and field."""
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://ollama.com/v1/chat/completions"
+        assert request.headers["authorization"] == "Bearer test-key"
+        body = json.loads(request.content)
+        seen.append(body)
+        if body.get("stream"):
+            sse = (
+                'data: {"choices": [{"delta": {"content": "ok"}}]}\n\n'
+                'data: {"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 1}}\n\n'
+                "data: [DONE]\n\n"
+            )
+            return httpx.Response(200, content=sse.encode())
+        return httpx.Response(
+            200,
+            json={
+                "model": "kimi-k3:cloud",
+                "choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+            },
+        )
+
+    client = MoonshotClient(
+        "test-key",
+        base_url="https://ollama.com/v1",
+        dialect="ollama",
+        remote_model="kimi-k3:cloud",
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = await client.complete("kimi-k3", "rules", "q", max_tokens=100, effort="high")
+    assert seen[0]["model"] == "kimi-k3:cloud" and seen[0]["max_tokens"] == 100
+    assert "max_completion_tokens" not in seen[0]
+    assert result.model == "kimi-k3" and result.extra["remote_model"] == "kimi-k3:cloud"
+    assert result.extra["provider"] == "ollama"
+    events = [e async for e in client.stream(
+        "kimi-k3", "rules", [{"role": "user", "content": "q"}], max_tokens=40)]  # fmt: skip
+    assert seen[1]["model"] == "kimi-k3:cloud" and seen[1]["max_tokens"] == 40
+    assert events[0] == ("text", "ok") and events[-1][1].output_tokens == 1
+    with pytest.raises(ValueError):
+        MoonshotClient("test-key", dialect="openrouter")

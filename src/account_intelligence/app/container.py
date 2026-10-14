@@ -289,7 +289,13 @@ def with_model_choice(llm: Any, env: Mapping[str, str], key: str | None = None) 
     if moonshot_key:
         from llm.adapters.moonshot_api import BASE_URL, MoonshotClient
 
-        moonshot = MoonshotClient(moonshot_key, base_url=env.get("MOONSHOT_BASE_URL") or BASE_URL)
+        moonshot = MoonshotClient(
+            moonshot_key,
+            base_url=env.get("MOONSHOT_BASE_URL") or BASE_URL,
+            # Ollama Cloud serves Kimi K3 too (owner decision 2026-10-15); see the adapter
+            dialect=env.get("MOONSHOT_API_DIALECT") or "moonshot",
+            remote_model=env.get("MOONSHOT_MODEL") or None,
+        )
     if isinstance(llm, AnthropicLlm):
         return ChoiceLlm(llm, moonshot)
     if moonshot is not None and isinstance(llm, UnconfiguredLlm):

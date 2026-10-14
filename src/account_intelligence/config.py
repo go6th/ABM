@@ -290,7 +290,15 @@ class Settings(BaseSettings):
         "anthropic-api-key", purpose="Secret Manager secret id holding the model API key."
     )
     moonshot_base_url: str = var(
-        "https://api.moonshot.ai/v1", purpose="Kimi K3 (Moonshot AI) API base URL (https)."
+        "https://api.moonshot.ai/v1",
+        purpose="Kimi K3 API base URL (https): Moonshot AI, or https://ollama.com/v1 (Ollama).",
+    )
+    moonshot_api_dialect: Literal["moonshot", "ollama"] = var(
+        "moonshot",
+        purpose="Which Kimi K3 API MOONSHOT_BASE_URL serves: moonshot, or ollama (Ollama Cloud).",
+    )
+    moonshot_model: str | None = var(
+        purpose="The provider's own Kimi K3 model name when it differs (Ollama: kimi-k3:cloud).",
     )
     gmail_api_base: str = var(
         "https://gmail.googleapis.com/gmail/v1",

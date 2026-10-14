@@ -90,6 +90,19 @@ variable "moonshot_enabled" {
   description = "Offer Kimi K3: set only after the moonshot-api-key secret has a version (the services read it at start)."
   default     = false
 }
+variable "moonshot_api" {
+  type = object({
+    base_url = string
+    dialect  = string
+    model    = string
+  })
+  description = "Where Kimi K3 is served: Moonshot AI (default), or Ollama Cloud (base_url https://ollama.com/v1, dialect ollama, model kimi-k3:cloud). model empty sends kimi-k3."
+  default     = { base_url = "https://api.moonshot.ai/v1", dialect = "moonshot", model = "" }
+  validation {
+    condition     = contains(["moonshot", "ollama"], var.moonshot_api.dialect) && startswith(var.moonshot_api.base_url, "https://")
+    error_message = "moonshot_api.dialect must be moonshot or ollama, and base_url must be https."
+  }
+}
 variable "maildrive" {
   type = object({
     google_client_id    = string
@@ -256,7 +269,12 @@ locals {
       TASKS_AUDIENCE        = local.tasks_audience
       BYOK_KMS_KEY          = google_kms_crypto_key.byok.id
     },
-    var.moonshot_enabled ? { MOONSHOT_SECRET = "moonshot-api-key" } : {},
+    var.moonshot_enabled ? {
+      MOONSHOT_SECRET      = "moonshot-api-key"
+      MOONSHOT_BASE_URL    = var.moonshot_api.base_url
+      MOONSHOT_API_DIALECT = var.moonshot_api.dialect
+    } : {},
+    var.moonshot_enabled && var.moonshot_api.model != "" ? { MOONSHOT_MODEL = var.moonshot_api.model } : {},
     var.maildrive.google_client_id != "" ? { MAILDRIVE_GOOGLE_CLIENT_ID = var.maildrive.google_client_id } : {},
     var.maildrive.microsoft_client_id != "" ? { MAILDRIVE_MICROSOFT_CLIENT_ID = var.maildrive.microsoft_client_id } : {},
   )
