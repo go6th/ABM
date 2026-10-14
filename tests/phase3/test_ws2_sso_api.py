@@ -35,7 +35,7 @@ def _sessions(tenant: UUID) -> list[tuple[Any, ...]]:
     with psycopg.connect(ADMIN_DSN) as c:
         return c.execute(
             "SELECT user_id, revoked_at, revoke_reason FROM auth_sessions WHERE tenant_id = %s"
-            " ORDER BY created_at",
+            " ORDER BY created_at, revoked_at NULLS LAST",
             (tenant,),
         ).fetchall()
 

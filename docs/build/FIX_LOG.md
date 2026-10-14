@@ -147,3 +147,49 @@ Default taken from the prompt: the replica's monthly pool and `credit_entries` a
 | D12 | A job's call cap = rows in scope x phrasings x 2, at least the configured cap. | The workflow's 60-call cap stopped a full agent-graph run long before its credits. |
 | D13 | Aggregator-only findings are Leads. | Grading and the builder disagreed; the skill and the builder say Lead. This touches D-01 (grade mapping, open): the owner should confirm. |
 | D14 | `CONNECTORS=hermetic` for the offline proof instead of literally "connectors off". | With no connector runtime the agent graph cannot run at all; synthetic providers exercise the real ledger, grading, builder and gate with no outside call. |
+
+## Phase 4: finish the missing replica features
+
+| # | Item | Status | Where |
+| --- | --- | --- | --- |
+| 4.1 | Add account (`/accounts/add`, static route reserved before `[domain]`; three ways; ready-made list; cap message) | Fixed | 42dfb99 |
+| 4.2 | Mail and drive, per user and read only (Gmail, Outlook, Google Drive, OneDrive, SharePoint); sync matches items to the user's accounts; Disconnect revokes and deletes; "Not available yet" without OAuth apps; dev demo shows Connected | Fixed (live OAuth blocked on the owner's apps) | 3a6a0c7, 17fb7c4, 58bc5b4 |
+| 4.3 | 6th Library: available list, add from library (no credits, counts toward the cap), admin A5 upload, check and publish | Fixed | 5201d99, 0bdfe49 |
+| 4.4 | New research by company on credits (estimate, confirm, reserve, start) | Fixed | 42dfb99 |
+| 4.5 | File research costs in credits (0 without public sources; "About N credits, confirmed before it runs") | Fixed | 42dfb99 |
+| 4.6 | File analysis screen (`/accounts/{d}/files`, `GET /v1/accounts/{domain}/file-analysis`) | Fixed | 42dfb99 |
+| 4.7 | Ask streams checked sentences; grounding reads the tracker, uploaded files (Internal) and previous deliverables | Fixed | 4bd2632 |
+| 4.8 | Coverage tracker (33 rows) in the Deep dive rail | Fixed | 2932789 |
+| 4.9 | Admin console A1 to A7; Add client with a copyable invite link | Fixed | 0bdfe49, 359636a |
+| 4.10 | View as a client (grant, banner, read only, audited, no content) | Fixed | 5b16ff9 |
+| 4.11 | Access state: idle warning and expiry, Terminate and Re-enable on every sign-in method and API call | Fixed | 0bdfe49, c70cf3a |
+| 4.12 | Nightly isolation check (structure, tables, routes; records and the console pill) | Fixed | 86e1b00 |
+
+Also in this phase (owner requests of 2026-10-14): the sign-in page as PDF page 1, the admin
+sign-in, Keep me signed in (password and SSO), SSO discovery by email domain
+(`POST /v1/sso/discover`, migration 0062), and Ask without sample text (748a9b7, 36a569d,
+07f0ff4, d8233ca).
+
+### Checks after Phase 4 (2026-10-14, replica test database on port 5433)
+
+- Python, full suite with PostgreSQL and isolation (`pytest -m "not eval"`): **3,953 passed, 13
+  skipped, 2 failed**. Both failures were fixed in the commit that records this phase:
+  - `test_sessions_expire_rotate_and_revoke`: two sessions created at the same fake-clock
+    instant were ordered by `created_at` alone, so their order was arbitrary. The query now
+    breaks the tie (`revoked_at NULLS LAST`).
+  - `test_one_retry_owner_per_failure_class_w6`: `docs/architecture/loops.md` named line 247 for
+    the mail and drive sync loop after 58bc5b4 moved it to 246; regenerated.
+- `check_route_catalog.py`, `check_guarantees.py` (419 tags, 0 dangling), `check_routing_governance.py`,
+  `check_comments.py`, the skill's migration lint (122 files) and the RLS catalog check: pass.
+- Web: typecheck, lint (0 errors), 48 unit tests and the production image build pass.
+- Playwright with axe on the replica stack: the public screens (sign-in, admin sign-in, forgot,
+  reset, verify email, invite) and Ask at 1360 and 375 pass with no violations, no console or
+  CSP errors and no sideways scroll. The signed-in screen spec needs `DEMO_PASSWORD`, which was
+  not set in this shell, so the rest of the workspace screens were not re-run in this phase.
+
+### Still open after Phase 4
+
+- Live OAuth for Mail and drive, the staff Google sign-in and real research runs need the
+  owner's inputs (Phase 8).
+- Phase 4B (`docs/build/PHASE_4B_PLAN.md`) replaces the account cap and user-facing credits
+  with per-user research and chat limits, and makes every user's workspace private.
