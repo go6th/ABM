@@ -39,6 +39,11 @@ register(
     "GET", "/v1/accounts/{domain}/workspace", tenant_route("read_public", "read", step_up=False)
 )
 register(
+    "GET",
+    "/v1/accounts/{domain}/file-analysis",
+    tenant_route("read_public", "read", step_up=False),
+)
+register(
     "GET", "/v1/accounts/{domain}/deliverables", tenant_route("read_public", "read", step_up=False)
 )
 register(
@@ -82,6 +87,46 @@ async def account_workspace(domain: str, ident: Identity = Depends(authorize)) -
         account_id = await account_id_of(s, domain)
         out = await W.workspace(s, account_id, ident.user_id, datetime.now(UTC))
     return {**out, "latest_run": None}
+
+
+@router.get("/{domain}/file-analysis", response_model=C.FileAnalysisRun)
+async def file_analysis(
+    domain: str,
+    run: UUID | None = Query(default=None),
+    ident: Identity = Depends(authorize),
+) -> dict[str, Any]:
+    """The account's file analysis (the given run, else the latest file-mode run): its state,
+    when it ran, how many files it read and whether public sources were added. 404 when the
+    account has none."""
+    async with tenant_txn(ident.tenant_id) as s:
+        account_id = await account_id_of(s, domain)
+        row = (
+            await s.execute(
+                text(
+                    "SELECT r.id, r.status, r.created_at, r.finished_at,"
+                    " (SELECT count(*) FROM run_documents d WHERE d.run_id = r.id) AS files,"
+                    " (SELECT c.id FROM account_runs c"
+                    "   WHERE c.run_input->>'linked_file_run' = r.id::text LIMIT 1) AS public_run"
+                    " FROM account_runs r WHERE r.account_id = :a AND r.input_mode = 'file'"
+                    " AND (CAST(:run AS uuid) IS NULL OR r.id = CAST(:run AS uuid))"
+                    " ORDER BY r.created_at DESC LIMIT 1"
+                ),
+                {"a": account_id, "run": run},
+            )
+        ).first()
+        name = await _account_name(s, account_id)
+    if row is None:
+        raise HTTPException(404, "not found")
+    return {
+        "run_id": str(row.id),
+        "account_name": name,
+        "status": row.status,
+        "done": row.status in ("COMPLETED", "PARTIAL", "FAILED", "CANCELED", "BUDGET_EXCEEDED"),
+        "created_at": row.created_at.isoformat(),
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "files": int(row.files or 0),
+        "public_run_id": str(row.public_run) if row.public_run else None,
+    }
 
 
 @router.get("/{domain}/deliverables", response_model=C.DeliverableFiles)

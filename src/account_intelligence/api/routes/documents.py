@@ -247,8 +247,19 @@ async def estimate(
 
     container = request.app.state.container
     cap = body.credit_cap if body.credit_cap is not None else float(container.limits.budget_usd)
+    from datetime import UTC, datetime
+
+    from account_intelligence.replica import credits as CR
+
     async with tenant_txn(ident.tenant_id) as s:
-        return await run_estimate(s, body.document_ids, body.enrich_public, cap)
+        out = await run_estimate(s, body.document_ids, body.enrich_public, cap)
+        # reading the client's own files costs no credits; public sources cost the rate table's
+        # estimate, reserved only when the user confirms (FIX_LOG Phase 4.5)
+        out["credits"] = (
+            (await CR.estimate(s, None, "file_public")).credits if body.enrich_public else 0
+        )
+        out["credits_left"] = (await CR.pool(s, datetime.now(UTC)))["left"]
+        return out
 
 
 @router.delete("/{document_id}", response_model=C.DocumentDeleted)

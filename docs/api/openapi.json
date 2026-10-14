@@ -3448,6 +3448,14 @@
         "additionalProperties": false,
         "description": "Response body: the cost estimate shown before a file-mode run starts.",
         "properties": {
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "credits_left": {
+            "title": "Credits Left",
+            "type": "integer"
+          },
           "documents": {
             "title": "Documents",
             "type": "integer"
@@ -3523,7 +3531,9 @@
           "enrichment",
           "enrichment_cap_usd",
           "total_ceiling_usd",
-          "note"
+          "note",
+          "credits",
+          "credits_left"
         ],
         "title": "DocumentEstimate",
         "type": "object"
@@ -4455,6 +4465,70 @@
           "exit_reason"
         ],
         "title": "FetchResult",
+        "type": "object"
+      },
+      "FileAnalysisRun": {
+        "additionalProperties": false,
+        "description": "An account's file analysis run, as the File analysis screen needs it.",
+        "properties": {
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "public_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Run Id"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "account_name",
+          "status",
+          "done",
+          "created_at",
+          "finished_at",
+          "files",
+          "public_run_id"
+        ],
+        "title": "FileAnalysisRun",
         "type": "object"
       },
       "FileAnalytics": {
@@ -13537,6 +13611,82 @@
           }
         },
         "summary": "Download Deliverables",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/file-analysis": {
+      "get": {
+        "description": "The account's file analysis (the given run, else the latest file-mode run): its state,\nwhen it ran, how many files it read and whether public sources were added. 404 when the\naccount has none.",
+        "operationId": "file_analysis_v1_accounts__domain__file_analysis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "run",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileAnalysisRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "File Analysis",
         "tags": [
           "accounts"
         ]

@@ -56,9 +56,7 @@ async def test_new_research_shows_the_estimate_and_starts_only_on_confirm(
     assert job == [("new_research", "full", "queued", "priya-test", "Newco")]
     again = await _call(plane, "POST", "/v1/research", json=body)  # a double click
     assert again.json()["job_id"] == started["job_id"]
-    assert _db("SELECT count(*) FROM credit_entries WHERE job_id = %s", started["job_id"]) == [
-        (1,)
-    ]
+    assert _db("SELECT count(*) FROM credit_entries WHERE job_id = %s", started["job_id"]) == [(1,)]
 
 
 async def test_short_credits_and_a_full_cap_reserve_nothing(world: dict[str, Any]) -> None:

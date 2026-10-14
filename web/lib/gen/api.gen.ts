@@ -703,6 +703,8 @@ export const DocumentDeleted = z.object({
 export type DocumentDeleted = z.infer<typeof DocumentDeleted>;
 
 export const DocumentEstimate = z.object({
+  "credits": z.number().int(),
+  "credits_left": z.number().int(),
   "documents": z.number().int(),
   "embedding_usd": z.number(),
   "enrichment": z.boolean(),
@@ -915,6 +917,18 @@ export const FetchResult = z.object({
   "skipped": z.number().int(),
 }).strict();
 export type FetchResult = z.infer<typeof FetchResult>;
+
+export const FileAnalysisRun = z.object({
+  "account_name": z.string(),
+  "created_at": z.string(),
+  "done": z.boolean(),
+  "files": z.number().int(),
+  "finished_at": z.string().nullable(),
+  "public_run_id": z.string().nullable(),
+  "run_id": z.string(),
+  "status": z.string(),
+}).strict();
+export type FileAnalysisRun = z.infer<typeof FileAnalysisRun>;
 
 export const FileAnalytics = z.object({
   "analytics": z.record(z.string(), z.unknown()).nullable(),
@@ -2602,6 +2616,7 @@ export const operations = {
   "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountDetail },
   "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
   "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "GET /v1/accounts/{domain}/file-analysis": { method: "GET", path: "/v1/accounts/{domain}/file-analysis", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAnalysisRun },
   "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, request: null, requestRequired: false, response: History },
   "GET /v1/accounts/{domain}/refresh": { method: "GET", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 200, request: null, requestRequired: false, response: RefreshOptions },
   "POST /v1/accounts/{domain}/refresh": { method: "POST", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 201, request: RefreshBody, requestRequired: true, response: RefreshStarted },

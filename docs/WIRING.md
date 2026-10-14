@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **167**.
+- Backend operations in OpenAPI: **176**.
 - Frontend literal call sites found: **80**.
 - Frontend call sites mapped to backend operations: **75**.
-- Backend operations without a direct frontend call site: **113**.
+- Backend operations without a direct frontend call site: **120**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -52,6 +52,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/readyz/route.ts` | server API fetch | `GET /readyz` | — | Ready | public health probe |
 | `web/components/ws/AccountList.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/Ask.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/AddAccount.tsx` | tenant client | `POST /v1/accounts/from-library` | FromLibrary (required) | LibraryAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/RefreshForm.tsx` | tenant client | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/app/(auth)/login/page.tsx` | same-origin or external fetch | `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `web/app/(auth)/verify-email/page.tsx` | same-origin or external fetch | `POST /v1/auth/email/verify` | VerifyEmailBody (required) | EmailVerified | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
@@ -66,29 +67,29 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/Conversations.tsx` | tenant client | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `web/components/ws/Conversations.tsx` | tenant client | `GET /v1/chat/threads/{thread_id}` | — | ChatThread | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/DocumentDrop.tsx` | tenant client | `GET /v1/documents` | — | DocumentList | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
-| `web/app/(client)/research/new/page.tsx` | tenant client | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/app/(client)/research/new/page.tsx` | tenant client | `POST /v1/documents/estimate` | EstimateBody (required) | DocumentEstimate | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
+| `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/documents/estimate` | EstimateBody (required) | DocumentEstimate | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/DocumentDrop.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/FileAnalysis.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/DocumentDrop.tsx` | tenant client | `POST /v1/documents/{document_id}/complete` | — | DocumentStatus | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/DocumentDrop.tsx` | tenant client | `GET /v1/documents/{document_id}/status` | — | DocumentStatus | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/DocumentDrop.tsx` | tenant client | `POST /v1/documents/uploads` | UploadStart (required) | DocumentUploadStarted | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/Downloads.tsx` | tenant client | `GET /v1/exports` | — | ExportPackages | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `web/components/ws/FilesTab.tsx` | tenant client | `GET /v1/exports` | — | ExportPackages | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/exports` | — | ExportPackages | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/Downloads.tsx` | tenant client | `POST /v1/exports` | ExportBody (required) | ExportPackage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
-| `web/components/ws/FilesTab.tsx` | tenant client | `POST /v1/exports` | ExportBody (required) | ExportPackage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `web/components/ws/TableScreen.tsx` | tenant client | `POST /v1/exports` | ExportBody (required) | ExportPackage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `web/components/ws/FileUploader.tsx` | tenant client | `POST /v1/files/uploads` | UploadInit (required) | FileUploadStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/FileUploader.tsx` | tenant client | `GET /v1/files/uploads/{upload_id}` | — | FileUploadState | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/FileUploader.tsx` | tenant client | `POST /v1/files/uploads/{upload_id}/complete` | — | FileUploadCompleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/FileUploader.tsx` | tenant client | `PUT /v1/files/uploads/{upload_id}/parts/{part_no}` | — | FileUploadPart | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/WorkspaceShell.tsx` | tenant client | `POST /v1/notifications/{notification_id}/read` | — | NotificationRead | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
-| `web/app/(client)/research/new/page.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/ResearchCompany.tsx` | tenant client | `POST /v1/research` | ResearchBody (required) | ResearchStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/AccountHeader.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/Ask.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/RefreshDialog.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/RunStopReport.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/NewResearch.tsx` | tenant client | `GET /v1/runs/{run_id}` | — | RunStatusView | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}` | — | RunStatusView | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `POST /v1/runs/{run_id}/approve` | — | RunState | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/RunStatus.tsx` | tenant client | `POST /v1/runs/{run_id}/cancel` | — | RunState | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -96,7 +97,6 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/cap` | — | CapProposalView | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `POST /v1/runs/{run_id}/cap/approve` | ApproveBody (required) | CapApproved | tenant; roles=admin; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/RunSteps.tsx` | progress event stream | `GET /v1/runs/{run_id}/events` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `web/components/ws/FileAnalysis.tsx` | tenant page query | `GET /v1/runs/{run_id}/internal` | — | InternalView | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/InternalView.tsx` | tenant page query | `GET /v1/runs/{run_id}/internal` | — | InternalView | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunStatus.tsx` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -121,6 +121,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /healthz` | — | Health (200) | public health probe |
 | `GET /operator/v1/flags` | — | Flags (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
 | `GET /operator/v1/keys` | — | KeyVersions (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `GET /operator/v1/library` | — | LibraryList (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
 | `GET /operator/v1/ops/cost/{run_id}` | — | RunCost (200) | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
 | `GET /operator/v1/ops/failures` | — | Failures (200) | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
 | `GET /operator/v1/ops/stuck` | — | Stuck (200) | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
@@ -137,6 +138,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/accounts/{domain}` | — | AccountDetail (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/deliverables` | — | DeliverableFiles (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/deliverables/download` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
+| `GET /v1/accounts/{domain}/file-analysis` | — | FileAnalysisRun (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/history` | — | History (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/refresh` | — | RefreshOptions (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/sheets/{sheet}` | — | Sheet (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -169,10 +171,12 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/files/{file_id}` | — | FileStatus (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/files/{file_id}/analytics` | — | FileAnalytics (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/files/{file_id}/audit` | — | FileAudit (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/library/available` | — | LibraryAvailable (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/me` | — | Me (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/models` | — | ChatModels (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/monitoring/budget` | — | MonitoringBudget (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/notifications` | — | Notifications (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/research/estimate` | — | ResearchEstimate (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs` | — | RunPage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs/pull-option` | — | PullOption (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs/{run_id}` | — | RunStatusView (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -203,6 +207,9 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `PATCH /v1/users` | ChangeBody (required) | Member (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /operator/v1/flags` | account_intelligence__api__routes__operator_admin__FlagBody (required) | FlagSet (201) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
 | `POST /operator/v1/keys` | KeyBody (required) | KeyAdded (201) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
+| `POST /operator/v1/library/uploads` | — | LibraryUploaded (201) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
+| `POST /operator/v1/library/{library_account_id}/publish` | PublishBody (required) | LibraryPublished (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
+| `POST /operator/v1/library/{library_account_id}/unpublish` | PublishBody (required) | LibraryPublished (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
 | `POST /operator/v1/runs/{run_id}/prepulled/intents` | IntentBody (required) | UploadIntent (200) | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=admin |
 | `POST /operator/v1/runs/{run_id}/prepulled/{intent_id}/complete` | CompleteBody (required) | UploadVerdict (200) | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=admin |
 | `POST /operator/v1/tenants` | NewTenant (required) | TenantCreated (201) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
@@ -215,6 +222,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /operator/v1/tenants/{tenant_id}/reactivate` | Reason (required) | TenantLifecycle (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `POST /operator/v1/tenants/{tenant_id}/suspend` | Reason (required) | TenantLifecycle (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `POST /v1/accounts` | AccountBody (required) | AccountAdded (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/accounts/from-library` | FromLibrary (required) | LibraryAdded (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/alerts/{alert_id}/feedback` | Rating (required) | AlertRated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent (202) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
@@ -250,6 +258,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/files/{file_id}/ask` | Question (required) | FileAnswer (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/files/{file_id}/resume` | — | FileState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/notifications/{notification_id}/read` | — | NotificationRead (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `POST /v1/research` | ResearchBody (required) | ResearchStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/runs` | RunBody (required) | RunCreated (202) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/runs/{run_id}/approve` | — | RunState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/runs/{run_id}/cancel` | — | RunState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |

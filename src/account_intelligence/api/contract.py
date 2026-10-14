@@ -2073,6 +2073,10 @@ class DocumentEstimate(Out):
     enrichment_cap_usd: float | None
     total_ceiling_usd: float
     note: str
+    # what the client sees: research credits (0 for the files alone; the public-sources
+    # estimate, confirmed before it runs, when they are on) and the credits left this month
+    credits: int
+    credits_left: int
 
 
 class DocumentPolicy(Out):
@@ -2096,6 +2100,19 @@ class InternalFinding(Out):
     grade: str
     citation: str
     quote: str
+
+
+class FileAnalysisRun(Out):
+    """An account's file analysis run, as the File analysis screen needs it."""
+
+    run_id: str
+    account_name: str
+    status: str
+    done: bool
+    created_at: str
+    finished_at: str | None
+    files: int
+    public_run_id: str | None
 
 
 class InternalView(Out):

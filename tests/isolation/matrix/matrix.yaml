@@ -367,6 +367,7 @@ functions:
 # params: path parameter -> "table.column" of A's canary row.
 routes:
   GET /v1/accounts/{domain}/workspace: {probe: tenant, params: {domain: accounts.domain}}
+  GET /v1/accounts/{domain}/file-analysis: {probe: tenant, params: {domain: accounts.domain}}
   GET /v1/accounts/{domain}/deliverables: {probe: tenant, params: {domain: accounts.domain}}
   GET /v1/accounts/{domain}/deliverables/download:
     probe: tenant
