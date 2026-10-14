@@ -1,8 +1,12 @@
-"""Shared rate limits for first-party authentication.
+"""Shared rate limits for first-party authentication and per-user money and compute actions.
 
 Cloud deployments use the same TLS Redis service as the connector governor, so the IP and
 account buckets apply across API instances. Dev and test use a bounded in-process bucket.
-Keys contain hashes rather than submitted email addresses or source IPs.
+Keys contain hashes rather than submitted email addresses or source IPs. The per-user buckets
+(``consume_user``, values in ``config/rate_limits.yaml``, security audit M4) key on the verified
+client and user only.
+
+GUARANTEE(test_per_user_buckets_refuse_past_capacity_per_user_and_action)
 """
 
 from __future__ import annotations
@@ -114,6 +118,55 @@ async def consume(request: Request, *, account: str, action: str) -> None:
             waits.append(0 if allowed else float(retry_after))
     blocked = [wait for wait in waits if wait > 0]
     enforce_rate_limit(not blocked, math.ceil(max(blocked, default=0)))
+
+
+@lru_cache(maxsize=1)
+def user_limits() -> dict[str, tuple[float, float]]:
+    """Each per-user action's (capacity, refill per second) from ``config/rate_limits.yaml``."""
+    raw: Any = yaml.safe_load((Path(CONFIG_DIR) / "rate_limits.yaml").read_text())
+    values = raw.get("user_buckets") if isinstance(raw, dict) else None
+    if not isinstance(values, dict) or not values:
+        raise ValueError("config/rate_limits.yaml must define user_buckets")
+    result: dict[str, tuple[float, float]] = {}
+    for action, spec in values.items():
+        capacity = spec.get("capacity") if isinstance(spec, dict) else None
+        refill = spec.get("refill_per_second") if isinstance(spec, dict) else None
+        if (
+            not isinstance(capacity, (int, float))
+            or isinstance(capacity, bool)
+            or capacity < 1
+            or not isinstance(refill, (int, float))
+            or isinstance(refill, bool)
+            or refill <= 0
+        ):
+            raise ValueError(f"user bucket {action!r} must have a positive capacity and refill")
+        result[str(action)] = (float(capacity), float(refill))
+    return result
+
+
+_user_memory: dict[str, TokenBucketLimiter] = {}
+
+
+async def consume_user(tenant_id: object, user_id: str, action: str) -> None:
+    """Take one token from the user's bucket for ``action``: 429 with Retry-After when empty,
+    503 when the shared Redis is configured but unhealthy (fail closed, as sign-in does)."""
+    capacity, refill = user_limits()[action]
+    subject = hashlib.sha256(f"{tenant_id}:{user_id}".encode()).hexdigest()
+    key = f"user:{action}:{subject}"
+    if get_settings().redis_url:
+        try:
+            wait = await _redis_store().take(
+                key, BucketLimit(rate_per_s=refill, burst=capacity), time.time()
+            )
+        except Exception as error:
+            raise DependencyUnavailable() from error
+        enforce_rate_limit(wait <= 0, math.ceil(wait))
+        return
+    if action not in _user_memory:
+        _user_memory[action] = TokenBucketLimiter(
+            capacity=capacity, refill_per_second=refill, max_buckets=100_000, clock=time.monotonic
+        )
+    enforce_rate_limit(*_user_memory[action].consume(key))
 
 
 async def close() -> None:

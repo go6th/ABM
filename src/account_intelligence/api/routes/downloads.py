@@ -27,6 +27,7 @@ from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.ratelimit import limit_user
 from account_intelligence.api.routes.account_workspace import account_id_of
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import downloads as D
@@ -61,6 +62,7 @@ async def start_everything(
     domain: str, body: EverythingBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
     """Queue the archive build (see the module docstring)."""
+    await limit_user(ident, "download_everything")
     container = request.app.state.container
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)

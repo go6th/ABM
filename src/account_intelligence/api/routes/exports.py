@@ -27,6 +27,7 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.ratelimit import limit_user
 from account_intelligence.api.routes.accounts import (
     DOMAIN,
     exclusion_rule,
@@ -88,6 +89,7 @@ async def create_export(
     body: ExportBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
     """Build, check and record one package."""
+    await limit_user(ident, "export")
     if body.kind == "csv" and body.table is None:
         raise APIProblem(422, "table_required", "Table required", "A CSV export needs a table.")
     async with tenant_txn(ident.tenant_id) as s:
