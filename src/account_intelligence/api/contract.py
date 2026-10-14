@@ -2298,6 +2298,9 @@ class ConsoleClientSettings(Out):
     fastest_schedule: str
     mail_drive_allowed: bool
     web_refresh_allowed: bool
+    research_limit_default: int
+    chat_limit_default: int
+    limit_reset: Literal["monthly", "never"]
 
 
 class ConsoleLibraryChoice(Out):
@@ -2333,6 +2336,10 @@ class ConsoleUser(Out):
     accounts: int
     account_cap: int
     questions: int
+    researches_used: int
+    research_limit: int
+    chats_used: int
+    chat_limit: int
     last_active_at: str | None
     access: Literal["active", "expired", "terminated"]
     ended_at: str | None
@@ -2343,6 +2350,39 @@ class ConsoleUsers(Out):
     """Users (A4)."""
 
     users: list[ConsoleUser]
+
+
+class ConsoleLimitRequest(Out):
+    """One user's request for more researches or chats (Overview and Users: Requests)."""
+
+    request_id: str
+    tenant_id: str
+    client: str
+    user_id: str
+    email: str
+    kind: Literal["researches", "chats"]
+    note: str | None
+    status: Literal["pending", "approved", "declined"]
+    created_at: str
+    decided_at: str | None
+    researches_used: int
+    research_limit: int
+    chats_used: int
+    chat_limit: int
+
+
+class ConsoleLimitRequests(Out):
+    """Pending requests first, then the latest decided ones."""
+
+    requests: list[ConsoleLimitRequest]
+
+
+class LimitsChanged(Out):
+    """A user's limits after a change."""
+
+    user_id: str
+    research_limit: int
+    chat_limit: int
 
 
 class AccessChanged(Out):
@@ -2389,6 +2429,33 @@ class ConsoleAdmin(Out):
     role: Literal["Operator", "Support"]
 
 
+class LimitUse(Out):
+    """One limit this period: used, the limit, what is left."""
+
+    used: int
+    limit: int
+    left: int
+
+
+class MyLimits(Out):
+    """The caller's research and chat limits (owner decision 2026-10-14)."""
+
+    researches: LimitUse
+    chats: LimitUse
+    reset: Literal["monthly", "never"]
+    resets_on: str | None
+    pending_requests: list[Literal["researches", "chats"]]
+
+
+class LimitRequestSent(Out):
+    """A request for more, filed for the 6th admin."""
+
+    request_id: str
+    kind: Literal["researches", "chats"]
+    status: Literal["pending"]
+    created: bool
+
+
 class ModelChoice(Out):
     """One model in the user's menus: its plain line and, when it cannot be chosen, why."""
 
@@ -2433,6 +2500,9 @@ class ConsoleDefaults(Out):
     models: list[ConsoleModel]
     default_research_model: str
     default_analysis_model: str
+    research_limit_default: int
+    chat_limit_default: int
+    limit_reset: Literal["monthly", "never"]
     model_router_on: bool
     skill_version: str
     skill_installed: bool

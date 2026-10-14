@@ -118,17 +118,25 @@ async def test_a_moved_estimate_is_shown_again_not_charged(world: dict[str, Any]
     assert (await _pool(world["a"]))["held"] == 0
 
 
-async def test_confirm_is_refused_when_credits_are_short(world: dict[str, Any]) -> None:
+async def test_credits_are_recorded_but_no_longer_gate_a_refresh(world: dict[str, Any]) -> None:
+    """Owner decision 2026-10-14: users no longer see or spend credits; a refresh is limited by
+    the user's research limit. The credit ledger still records the reservation."""
     plane = _plane(world["b"], "other-test", world["payloads"])
     _set(world["b"], "UPDATE client_settings SET monthly_credit_pool = %s WHERE tenant_id = %s", 10)
     try:
-        view = (await _call(plane, "GET", "/v1/accounts/cigna.example/refresh")).json()
-        assert not any(o["affordable"] for o in view["options"])
         r = await _confirm(plane, "cigna.example", "jobs")
-        assert r.status_code == 409 and r.json()["type"].endswith("credits_short")
-        ctx = r.json()["context"]
-        assert ctx["left"] == view["credits"]["left"] and ctx["needed"] > ctx["left"]
+        assert r.status_code == 201, r.text
+        with psycopg.connect(_admin()) as c:
+            kinds = c.execute(
+                "SELECT kind FROM credit_entries WHERE job_id = %s", (r.json()["job_id"],)
+            ).fetchall()
+        assert ("reserve",) in kinds
     finally:
+        # the reservation is this test's alone: take it back so the pool tests start clean
+        with psycopg.connect(_admin(), autocommit=True) as c, c.transaction():
+            c.execute("SET LOCAL session_replication_role = replica")
+            c.execute("DELETE FROM credit_entries WHERE job_id = %s", (r.json()["job_id"],))
+            c.execute("DELETE FROM research_jobs WHERE id = %s", (r.json()["job_id"],))
         _set(
             world["b"],
             "UPDATE client_settings SET monthly_credit_pool = %s WHERE tenant_id = %s",

@@ -2136,6 +2136,19 @@
             ],
             "title": "Allowed Models"
           },
+          "chat_limit_default": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Limit Default"
+          },
           "fastest_schedule": {
             "anyOf": [
               {
@@ -2186,6 +2199,21 @@
             ],
             "title": "Library Account Ids"
           },
+          "limit_reset": {
+            "anyOf": [
+              {
+                "enum": [
+                  "monthly",
+                  "never"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Reset"
+          },
           "mail_drive_allowed": {
             "anyOf": [
               {
@@ -2209,6 +2237,19 @@
               }
             ],
             "title": "Monthly Credit Pool"
+          },
+          "research_limit_default": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Limit Default"
           },
           "web_refresh_allowed": {
             "anyOf": [
@@ -3261,6 +3302,10 @@
             "title": "Account Cap Per User",
             "type": "integer"
           },
+          "chat_limit_default": {
+            "title": "Chat Limit Default",
+            "type": "integer"
+          },
           "fastest_schedule": {
             "title": "Fastest Schedule",
             "type": "string"
@@ -3269,12 +3314,24 @@
             "title": "Idle Expiry Days",
             "type": "integer"
           },
+          "limit_reset": {
+            "enum": [
+              "monthly",
+              "never"
+            ],
+            "title": "Limit Reset",
+            "type": "string"
+          },
           "mail_drive_allowed": {
             "title": "Mail Drive Allowed",
             "type": "boolean"
           },
           "monthly_credit_pool": {
             "title": "Monthly Credit Pool",
+            "type": "integer"
+          },
+          "research_limit_default": {
+            "title": "Research Limit Default",
             "type": "integer"
           },
           "web_refresh_allowed": {
@@ -3288,7 +3345,10 @@
           "monthly_credit_pool",
           "fastest_schedule",
           "mail_drive_allowed",
-          "web_refresh_allowed"
+          "web_refresh_allowed",
+          "research_limit_default",
+          "chat_limit_default",
+          "limit_reset"
         ],
         "title": "ConsoleClientSettings",
         "type": "object"
@@ -3326,6 +3386,10 @@
             "title": "Admins",
             "type": "array"
           },
+          "chat_limit_default": {
+            "title": "Chat Limit Default",
+            "type": "integer"
+          },
           "credit_cap_per_pull": {
             "title": "Credit Cap Per Pull",
             "type": "integer"
@@ -3346,6 +3410,14 @@
             "title": "Idle Expiry Days",
             "type": "integer"
           },
+          "limit_reset": {
+            "enum": [
+              "monthly",
+              "never"
+            ],
+            "title": "Limit Reset",
+            "type": "string"
+          },
           "model_router_on": {
             "title": "Model Router On",
             "type": "boolean"
@@ -3359,6 +3431,10 @@
           },
           "monthly_credit_pool": {
             "title": "Monthly Credit Pool",
+            "type": "integer"
+          },
+          "research_limit_default": {
+            "title": "Research Limit Default",
             "type": "integer"
           },
           "skill_installed": {
@@ -3387,6 +3463,9 @@
           "models",
           "default_research_model",
           "default_analysis_model",
+          "research_limit_default",
+          "chat_limit_default",
+          "limit_reset",
           "model_router_on",
           "skill_version",
           "skill_installed",
@@ -3467,6 +3546,127 @@
           "published"
         ],
         "title": "ConsoleLibraryChoice",
+        "type": "object"
+      },
+      "ConsoleLimitRequest": {
+        "additionalProperties": false,
+        "description": "One user's request for more researches or chats (Overview and Users: Requests).",
+        "properties": {
+          "chat_limit": {
+            "title": "Chat Limit",
+            "type": "integer"
+          },
+          "chats_used": {
+            "title": "Chats Used",
+            "type": "integer"
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "researches",
+              "chats"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "research_limit": {
+            "title": "Research Limit",
+            "type": "integer"
+          },
+          "researches_used": {
+            "title": "Researches Used",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "approved",
+              "declined"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "tenant_id",
+          "client",
+          "user_id",
+          "email",
+          "kind",
+          "note",
+          "status",
+          "created_at",
+          "decided_at",
+          "researches_used",
+          "research_limit",
+          "chats_used",
+          "chat_limit"
+        ],
+        "title": "ConsoleLimitRequest",
+        "type": "object"
+      },
+      "ConsoleLimitRequests": {
+        "additionalProperties": false,
+        "description": "Pending requests first, then the latest decided ones.",
+        "properties": {
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleLimitRequest"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "title": "ConsoleLimitRequests",
         "type": "object"
       },
       "ConsoleModel": {
@@ -3738,6 +3938,14 @@
             "title": "Accounts",
             "type": "integer"
           },
+          "chat_limit": {
+            "title": "Chat Limit",
+            "type": "integer"
+          },
+          "chats_used": {
+            "title": "Chats Used",
+            "type": "integer"
+          },
           "client": {
             "title": "Client",
             "type": "string"
@@ -3783,6 +3991,14 @@
             "title": "Questions",
             "type": "integer"
           },
+          "research_limit": {
+            "title": "Research Limit",
+            "type": "integer"
+          },
+          "researches_used": {
+            "title": "Researches Used",
+            "type": "integer"
+          },
           "role": {
             "title": "Role",
             "type": "string"
@@ -3805,6 +4021,10 @@
           "accounts",
           "account_cap",
           "questions",
+          "researches_used",
+          "research_limit",
+          "chats_used",
+          "chat_limit",
           "last_active_at",
           "access",
           "ended_at",
@@ -4203,6 +4423,40 @@
         "title": "CrmWrites",
         "type": "object"
       },
+      "Decision": {
+        "additionalProperties": false,
+        "description": "Approve with the new limits (at least one), or decline.",
+        "properties": {
+          "chat_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Limit"
+          },
+          "research_limit": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Limit"
+          }
+        },
+        "title": "Decision",
+        "type": "object"
+      },
       "DeepDiveCounts": {
         "additionalProperties": false,
         "description": "Row counts of the deep-dive tables (mail and drive: the caller's own items only; coverage:\nthe tracker items Done out of all items of the latest finished run).",
@@ -4274,6 +4528,19 @@
               }
             ],
             "title": "Account Cap Per User"
+          },
+          "chat_limit_default": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Limit Default"
           },
           "credit_cap_per_pull": {
             "anyOf": [
@@ -4361,6 +4628,21 @@
             ],
             "title": "Idle Expiry Days"
           },
+          "limit_reset": {
+            "anyOf": [
+              {
+                "enum": [
+                  "monthly",
+                  "never"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Reset"
+          },
           "monthly_credit_pool": {
             "anyOf": [
               {
@@ -4373,6 +4655,19 @@
               }
             ],
             "title": "Monthly Credit Pool"
+          },
+          "research_limit_default": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Limit Default"
           }
         },
         "title": "DefaultsChange",
@@ -7408,6 +7703,134 @@
         "title": "LibraryUploaded",
         "type": "object"
       },
+      "LimitRequestSent": {
+        "additionalProperties": false,
+        "description": "A request for more, filed for the 6th admin.",
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "researches",
+              "chats"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "pending",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "kind",
+          "status",
+          "created"
+        ],
+        "title": "LimitRequestSent",
+        "type": "object"
+      },
+      "LimitUse": {
+        "additionalProperties": false,
+        "description": "One limit this period: used, the limit, what is left.",
+        "properties": {
+          "left": {
+            "title": "Left",
+            "type": "integer"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used",
+          "limit",
+          "left"
+        ],
+        "title": "LimitUse",
+        "type": "object"
+      },
+      "LimitsChange": {
+        "additionalProperties": false,
+        "description": "A user's own limits (only the values sent change).",
+        "properties": {
+          "chat_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Limit"
+          },
+          "research_limit": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Limit"
+          },
+          "user_id": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "LimitsChange",
+        "type": "object"
+      },
+      "LimitsChanged": {
+        "additionalProperties": false,
+        "description": "A user's limits after a change.",
+        "properties": {
+          "chat_limit": {
+            "title": "Chat Limit",
+            "type": "integer"
+          },
+          "research_limit": {
+            "title": "Research Limit",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "research_limit",
+          "chat_limit"
+        ],
+        "title": "LimitsChanged",
+        "type": "object"
+      },
       "LoginBody": {
         "additionalProperties": false,
         "description": "Local login request. Tenant IDs are checked against verified membership.",
@@ -8011,6 +8434,88 @@
           "percent"
         ],
         "title": "MonitoringBudget",
+        "type": "object"
+      },
+      "MoreBody": {
+        "additionalProperties": false,
+        "description": "Which limit to raise, and an optional note for the admin.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "researches",
+              "chats"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "MoreBody",
+        "type": "object"
+      },
+      "MyLimits": {
+        "additionalProperties": false,
+        "description": "The caller's research and chat limits (owner decision 2026-10-14).",
+        "properties": {
+          "chats": {
+            "$ref": "#/components/schemas/LimitUse"
+          },
+          "pending_requests": {
+            "items": {
+              "enum": [
+                "researches",
+                "chats"
+              ],
+              "type": "string"
+            },
+            "title": "Pending Requests",
+            "type": "array"
+          },
+          "researches": {
+            "$ref": "#/components/schemas/LimitUse"
+          },
+          "reset": {
+            "enum": [
+              "monthly",
+              "never"
+            ],
+            "title": "Reset",
+            "type": "string"
+          },
+          "resets_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resets On"
+          }
+        },
+        "required": [
+          "researches",
+          "chats",
+          "reset",
+          "resets_on",
+          "pending_requests"
+        ],
+        "title": "MyLimits",
         "type": "object"
       },
       "Narrative": {
@@ -9191,10 +9696,17 @@
             "title": "Analysis Model"
           },
           "credits": {
-            "maximum": 100000.0,
-            "minimum": 1.0,
-            "title": "Credits",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits"
           },
           "from_turn_id": {
             "anyOf": [
@@ -9251,8 +9763,7 @@
         },
         "required": [
           "request_id",
-          "scope",
-          "credits"
+          "scope"
         ],
         "title": "RefreshBody",
         "type": "object"
@@ -9443,10 +9954,17 @@
             "type": "string"
           },
           "credits": {
-            "maximum": 100000.0,
-            "minimum": 1.0,
-            "title": "Credits",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits"
           },
           "domain": {
             "maxLength": 253,
@@ -9476,8 +9994,7 @@
         "required": [
           "request_id",
           "company_name",
-          "domain",
-          "credits"
+          "domain"
         ],
         "title": "ResearchBody",
         "type": "object"
@@ -13291,6 +13808,206 @@
         ]
       }
     },
+    "/operator/v1/console/requests": {
+      "get": {
+        "description": "Overview and Users: every client's pending requests for more, then the latest decided.",
+        "operationId": "limit_requests_operator_v1_console_requests_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleLimitRequests"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Limit Requests",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/requests/{tenant_id}/{request_id}/approve": {
+      "post": {
+        "description": "Approve a request with the new limits; the user is told in the app.",
+        "operationId": "approve_request_operator_v1_console_requests__tenant_id___request_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Decision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleLimitRequests"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve Request",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/requests/{tenant_id}/{request_id}/decline": {
+      "post": {
+        "description": "Decline a request; the user is told in the app.",
+        "operationId": "decline_request_operator_v1_console_requests__tenant_id___request_id__decline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleLimitRequests"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decline Request",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
     "/operator/v1/console/runs": {
       "get": {
         "description": "A6: credits by purpose this month, the isolation check and the newest jobs.",
@@ -13386,6 +14103,76 @@
           }
         },
         "summary": "Users",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/users/{tenant_id}/limits": {
+      "put": {
+        "description": "A4 Change limits: one user's researches and chats.",
+        "operationId": "change_limits_operator_v1_console_users__tenant_id__limits_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LimitsChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LimitsChanged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Limits",
         "tags": [
           "admin-console"
         ]
@@ -20954,6 +21741,66 @@
         ]
       }
     },
+    "/v1/limits/requests": {
+      "post": {
+        "description": "File a request for more researches or chats.",
+        "operationId": "request_more_v1_limits_requests_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoreBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LimitRequestSent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request More",
+        "tags": [
+          "limits"
+        ]
+      }
+    },
     "/v1/mail-and-drive": {
       "get": {
         "description": "The caller's Mail and Drive cards.",
@@ -21250,6 +22097,56 @@
         "summary": "Current User",
         "tags": [
           "identity"
+        ]
+      }
+    },
+    "/v1/me/limits": {
+      "get": {
+        "description": "The caller's limits and use this period.",
+        "operationId": "my_limits_v1_me_limits_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyLimits"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Limits",
+        "tags": [
+          "limits"
         ]
       }
     },

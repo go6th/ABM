@@ -126,6 +126,9 @@ owned:
 # built in (the generator leaves them alone; the tests check them like the others).
 created_owned:
   user_preferences: a user's research and analysis model choices (migration 0064)
+  user_limits: a user's own research and chat limits when the admin changed them (0065)
+  usage_periods: the researches and chats a user has used per period (0065)
+  limit_requests: a user's requests for more researches or chats (0065)
 
 tenant:
   # identity, access and the client's own settings

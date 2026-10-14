@@ -28,6 +28,11 @@ tables:
     plant: {published_by: "{canary}"}
   account_runs: {}
   user_preferences: {}
+  user_limits: {}
+  usage_periods:
+    plant: {period: "2026-10"}
+  limit_requests:
+    plant: {kind: researches, status: pending}
   ownership_backfill:
     plant: {rule: account, derived_rows: 1, fallback_rows: 0}
   account_source_counters: {}
@@ -441,6 +446,8 @@ routes:
   GET /v1/documents/policy: {probe: tenant}
   PUT /v1/documents/policy: {probe: tenant, body: {redaction_tier: standard}}
   GET /v1/models/choices: {probe: tenant}
+  GET /v1/me/limits: {probe: tenant}
+  POST /v1/limits/requests: {probe: tenant, body: {kind: chats}}
   PUT /v1/me/model-preferences: {probe: tenant, body: {}}
   POST /v1/documents/{document_id}/authoritative:
     probe: tenant
@@ -639,6 +646,20 @@ routes:
     probe: staff
     params: {tenant_id: owner}
     body: {user_id: memberships.user_id}
+  PUT /operator/v1/console/users/{tenant_id}/limits:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {user_id: memberships.user_id, chat_limit: 40}
+  GET /operator/v1/console/requests:
+    probe: staff
+    public: [owner, memberships.user_id, limit_requests.id, limit_requests.owner_user_id]
+  POST /operator/v1/console/requests/{tenant_id}/{request_id}/approve:
+    probe: staff
+    params: {tenant_id: owner, request_id: limit_requests.id}
+    body: {chat_limit: 41}
+  POST /operator/v1/console/requests/{tenant_id}/{request_id}/decline:
+    probe: staff
+    params: {tenant_id: owner, request_id: limit_requests.id}
   GET /operator/v1/console/runs:
     probe: staff
     public: [owner, research_jobs.id]

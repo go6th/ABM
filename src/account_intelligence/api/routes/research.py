@@ -28,10 +28,12 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica import jobs
+from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica.settings import accounts_used, client_settings
 from account_intelligence.runs import lifecycle
@@ -72,7 +74,9 @@ class ResearchBody(BaseModel):
     request_id: UUID
     company_name: str = Field(min_length=1, max_length=200)
     domain: str = Field(pattern=DOMAIN, max_length=253)
-    credits: int = Field(ge=1, le=100_000)
+    # the credit estimate the screen was given; users no longer see credits (owner decision
+    # 2026-10-14), so it is optional and only checked when sent
+    credits: int | None = Field(default=None, ge=1, le=100_000)
     # the models chosen on the screen (owner decision 2026-10-14); None: the user's current ones
     research_model: str | None = Field(default=None, min_length=1, max_length=64)
     analysis_model: str | None = Field(default=None, min_length=1, max_length=64)
@@ -110,7 +114,7 @@ async def start_research(
             )
         except M.ModelRefused as error:
             raise refused(error) from None
-        if est.credits != body.credits:
+        if body.credits is not None and est.credits != body.credits:
             raise APIProblem(
                 409,
                 "estimate_changed",
@@ -123,6 +127,11 @@ async def start_research(
         )
         await lifecycle.name_account(s, account_id, body.company_name)
         try:
+            if not await CR.has_request(s, body.request_id):  # a retry counts nothing
+                await LIM.take(s, ident.user_id, "researches", now)
+        except LIM.LimitReached as reached:
+            raise limit_reached(reached) from None
+        try:
             job_id, status = await CR.reserve(
                 s,
                 account_id=account_id,
@@ -133,6 +142,7 @@ async def start_research(
                 now=now,
                 request_id=body.request_id,
                 models=models.as_json(),
+                enforce_pool=False,
             )
         except CR.JobOpen:
             raise APIProblem(

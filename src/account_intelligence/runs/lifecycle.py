@@ -360,9 +360,8 @@ async def add_account(
     session: AsyncSession, tenant_id: UUID, domain: str, *, added_by: str | None = None
 ) -> tuple[UUID, bool]:
     """Add an account to the tenant's list without starting a run (the client app's "add an
-    account"); returns (account id, created). A new account added by a person counts against
-    that person's account cap (``replica.settings.ensure_account_room``, ``AccountCapReached``)
-    whichever way it is added: research, a file, the library. The one writer of ``accounts``
+    account"); returns (account id, created). Accounts are not capped: a user's researches and
+    chats are (``replica.limits``, owner decision 2026-10-14). The one writer of ``accounts``
     besides ``create_run`` (W1)."""
     # private workspaces (0063): an account is one user's; the owner is the person adding it,
     # else the acting user, so a system job adding for someone names them
@@ -373,10 +372,6 @@ async def add_account(
     ).scalar_one_or_none()
     if existing is not None:
         return UUID(str(existing)), False
-    if added_by is not None:
-        from account_intelligence.replica.settings import ensure_account_room
-
-        await ensure_account_room(session, added_by)
     created = (
         await session.execute(
             text(

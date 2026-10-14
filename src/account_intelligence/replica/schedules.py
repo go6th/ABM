@@ -8,12 +8,13 @@ month, and the scheduler tick that starts due refreshes from the client's credit
   its own estimate for its refresh scope (``credits.estimate``), rounded to the nearest ten.
 * The tick (``POST /tasks/schedules-tick``, Cloud Scheduler in production) finds due accounts
   through the identifier-only lookup ``due_scheduled_refreshes``, then in each client's own
-  transaction reserves the refresh's credits. When the pool cannot cover it the job waits as
-  ``waiting_credit_limit`` and the account's owner is told; waiting jobs start when the pool has
-  room again (``tenants_with_waiting_jobs``, for example on the 1st). Either way the account's
-  next refresh moves on by its cadence, so a short pool never piles up jobs.
+  transaction counts one of the account owner's researches and records the refresh's credits on
+  the ledger (owner decision 2026-10-14: researches, not the credit pool, limit a user). With no
+  research left the refresh is skipped this cycle and the owner is told
+  (``research_limit_reached``). Either way the account's next refresh moves on by its cadence,
+  so a used-up limit never piles up jobs.
 
-GUARANTEE(test_a_due_refresh_the_pool_cannot_cover_waits_and_starts_later)
+GUARANTEE(test_a_due_refresh_with_no_research_left_is_skipped_and_the_owner_told)
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from sqlalchemy import text
 
 from account_intelligence.db.session import tenant_txn, untenanted_session
 from account_intelligence.replica import credits as CR
+from account_intelligence.replica import limits as LIM
 from account_intelligence.replica.notifications import notify
 from account_intelligence.replica.settings import CADENCE_DAYS, CADENCE_ORDER, client_settings
 
@@ -155,8 +157,8 @@ async def tick(now: datetime, start: Start) -> dict[str, int]:
             acct = (
                 await s.execute(
                     text(
-                        "SELECT refresh_cadence, refresh_scope, added_by, next_refresh_at FROM"
-                        " accounts"
+                        "SELECT refresh_cadence, refresh_scope, added_by, owner_user_id,"
+                        " next_refresh_at FROM accounts"
                         " WHERE id = :a FOR UPDATE"
                     ),
                     {"a": account_id},
@@ -169,18 +171,40 @@ async def tick(now: datetime, start: Start) -> dict[str, int]:
             ):
                 continue
             est = await CR.estimate(s, account_id, acct.refresh_scope)
+            # a scheduled refresh is one of the owner's researches (owner decision 2026-10-14):
+            # counted with its job in one savepoint (an open job undoes the count), and with none
+            # left it is skipped this cycle and the owner is told
             try:
-                job = await CR.reserve(
-                    s,
-                    account_id=account_id,
-                    kind="scheduled_refresh",
-                    scope=acct.refresh_scope,
-                    credits=est.credits,
-                    actor="scheduler",
-                    now=now,
-                    wait_if_short=True,
-                )
+                async with s.begin_nested():
+                    await LIM.take(s, str(acct.owner_user_id), "researches", now)
+                    job = await CR.reserve(
+                        s,
+                        account_id=account_id,
+                        kind="scheduled_refresh",
+                        scope=acct.refresh_scope,
+                        credits=est.credits,
+                        actor="scheduler",
+                        now=now,
+                        wait_if_short=True,
+                        enforce_pool=False,
+                    )
             except CR.JobOpen:
+                continue
+            except LIM.LimitReached:
+                await s.execute(
+                    text("UPDATE accounts SET next_refresh_at = :n WHERE id = :a"),
+                    {
+                        "n": now + timedelta(days=CADENCE_DAYS[acct.refresh_cadence]),
+                        "a": account_id,
+                    },
+                )
+                await notify(
+                    s,
+                    user_id=str(acct.owner_user_id),
+                    kind="research_limit_reached",
+                    account_id=account_id,
+                    job_id=None,
+                )
                 continue
             await s.execute(
                 text("UPDATE accounts SET next_refresh_at = :n WHERE id = :a"),

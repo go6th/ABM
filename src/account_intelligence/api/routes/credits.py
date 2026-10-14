@@ -28,10 +28,12 @@ from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.account_workspace import account_id_of
+from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica import jobs
+from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica.notifications import mark_read
 from account_intelligence.replica.settings import client_settings
@@ -133,7 +135,9 @@ class RefreshBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
     scope: Literal["jobs", "people", "full", "topic"]
-    credits: int = Field(ge=1, le=100_000)
+    # the credit estimate the screen was given; users no longer see credits (owner decision
+    # 2026-10-14), so it is optional and only checked when sent
+    credits: int | None = Field(default=None, ge=1, le=100_000)
     topic: str | None = Field(default=None, max_length=300)
     from_turn_id: UUID | None = None
     # the models chosen on the screen (owner decision 2026-10-14); None: the user's current ones
@@ -174,7 +178,7 @@ async def confirm_refresh(
                 "Your administrator has turned off web refreshes for your workspace.",
             )
         est = await CR.estimate(s, account_id, body.scope)
-        if est.credits != body.credits:
+        if body.credits is not None and est.credits != body.credits:
             raise APIProblem(
                 409,
                 "estimate_changed",
@@ -182,6 +186,11 @@ async def confirm_refresh(
                 f"This refresh now needs about {est.credits} credits. Check it and confirm again.",
                 extra={"credits": est.credits},
             )
+        try:
+            if not await CR.has_request(s, body.request_id):  # a retry counts nothing
+                await LIM.take(s, ident.user_id, "researches", now)
+        except LIM.LimitReached as reached:
+            raise limit_reached(reached) from None
         try:
             job_id, status = await CR.reserve(
                 s,
@@ -195,6 +204,7 @@ async def confirm_refresh(
                 from_turn_id=body.from_turn_id,
                 topic=body.topic,
                 models=models.as_json(),
+                enforce_pool=False,
             )
         except CR.JobOpen:
             raise APIProblem(

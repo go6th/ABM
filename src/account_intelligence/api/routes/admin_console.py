@@ -45,6 +45,7 @@ from account_intelligence.db.session import tenant_txn, untenanted_session
 from account_intelligence.replica import admin as A
 from account_intelligence.replica import isolation
 from account_intelligence.replica import library as L
+from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica import settings as S
 from admin import tenants
@@ -66,6 +67,10 @@ for _m, _p, _audit, _tenant in (
     ("GET", "/users", "read", "none"),
     ("POST", "/users/{tenant_id}/terminate", "admin", "operator_target"),
     ("POST", "/users/{tenant_id}/re-enable", "admin", "operator_target"),
+    ("PUT", "/users/{tenant_id}/limits", "admin", "operator_target"),
+    ("GET", "/requests", "read", "none"),
+    ("POST", "/requests/{tenant_id}/{request_id}/approve", "admin", "operator_target"),
+    ("POST", "/requests/{tenant_id}/{request_id}/decline", "admin", "operator_target"),
     ("GET", "/runs", "read", "none"),
     ("GET", "/defaults", "read", "none"),
     ("PUT", "/defaults", "admin", "none"),
@@ -370,6 +375,10 @@ class ClientChange(BaseModel):
     fastest_schedule: Schedule | None = None
     mail_drive_allowed: bool | None = None
     web_refresh_allowed: bool | None = None
+    # limits per user (owner decision 2026-10-14): the defaults for this client's users
+    research_limit_default: int | None = Field(default=None, ge=0, le=100_000)
+    chat_limit_default: int | None = Field(default=None, ge=0, le=1_000_000)
+    limit_reset: Literal["monthly", "never"] | None = None
     # Allowed models: sending a client's data to Moonshot AI is a privacy decision, so Kimi K3
     # is used by a client only once it is listed here
     allowed_models: list[str] | None = Field(default=None, max_length=20)
@@ -464,6 +473,147 @@ async def _access(
     return {"changed": changed, "access": str(state)}
 
 
+class LimitsChange(BaseModel):
+    """A user's own limits (only the values sent change)."""
+
+    model_config = ConfigDict(extra="forbid")
+    user_id: str = Field(min_length=1, max_length=300)
+    research_limit: int | None = Field(default=None, ge=0, le=100_000)
+    chat_limit: int | None = Field(default=None, ge=0, le=1_000_000)
+
+
+@router.put("/users/{tenant_id}/limits", response_model=C.LimitsChanged)
+async def change_limits(
+    tenant_id: UUID,
+    body: LimitsChange,
+    request: Request,
+    who: StaffIdentity = Depends(require_staff),
+) -> dict[str, Any]:
+    """A4 Change limits: one user's researches and chats."""
+    await _known(tenant_id)
+    now = plane_of(request).clock.now()
+    async with tenant_txn(tenant_id) as s:
+        if await membership.get(s, body.user_id) is None:
+            raise APIProblem(404, "not_found", "Not found", "No such user in this client.")
+        await LIM.set_limits(
+            s,
+            body.user_id,
+            research_limit=body.research_limit,
+            chat_limit=body.chat_limit,
+            actor=who.staff_id,
+            now=now,
+        )
+        lim = await LIM.limits_for(s, body.user_id)
+        await _client_audit(s, request, who, "user.limits")
+    await _op_audit(request, who, "user.limits", str(tenant_id))
+    return {"user_id": body.user_id, "research_limit": lim.researches, "chat_limit": lim.chats}
+
+
+@router.get("/requests", response_model=C.ConsoleLimitRequests)
+async def limit_requests(
+    request: Request, who: StaffIdentity = Depends(require_staff)
+) -> dict[str, Any]:
+    """Overview and Users: every client's pending requests for more, then the latest decided."""
+    now = plane_of(request).clock.now()
+    out: list[dict[str, Any]] = []
+    for tid in await _client_ids():
+        async with tenant_txn(tid) as s:
+            name = str(await s.scalar(text("SELECT name FROM tenants WHERE id = :t"), {"t": tid}))
+            rows = await s.execute(
+                text(
+                    "SELECT r.id, r.owner_user_id, r.kind, r.note, r.status, r.created_at,"
+                    " r.decided_at, coalesce(u.email, u.display_name, r.owner_user_id) AS email"
+                    " FROM limit_requests r LEFT JOIN users u ON u.subject = r.owner_user_id"
+                    " WHERE r.status = 'pending' OR r.decided_at >= :since"
+                    " ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 200"
+                ),
+                {"since": now - timedelta(days=30)},
+            )
+            for r in rows:
+                lim = await LIM.limits_for(s, str(r.owner_user_id))
+                researches, chats = await LIM.used(s, str(r.owner_user_id), now, lim.reset)
+                out.append(
+                    {
+                        "request_id": str(r.id),
+                        "tenant_id": str(tid),
+                        "client": name,
+                        "user_id": str(r.owner_user_id),
+                        "email": str(r.email),
+                        "kind": str(r.kind),
+                        "note": r.note,
+                        "status": str(r.status),
+                        "created_at": r.created_at.isoformat(),
+                        "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+                        "researches_used": researches,
+                        "research_limit": lim.researches,
+                        "chats_used": chats,
+                        "chat_limit": lim.chats,
+                    }
+                )
+    out.sort(key=lambda x: (x["status"] != "pending", x["created_at"]), reverse=False)
+    return {"requests": out}
+
+
+class Decision(BaseModel):
+    """Approve with the new limits (at least one), or decline."""
+
+    model_config = ConfigDict(extra="forbid")
+    research_limit: int | None = Field(default=None, ge=0, le=100_000)
+    chat_limit: int | None = Field(default=None, ge=0, le=1_000_000)
+
+
+async def _decide(
+    tenant_id: UUID,
+    request_id: UUID,
+    body: Decision | None,
+    request: Request,
+    who: StaffIdentity,
+) -> dict[str, Any]:
+    await _known(tenant_id)
+    now = plane_of(request).clock.now()
+    approve = body is not None
+    if approve and body is not None and body.research_limit is None and body.chat_limit is None:
+        raise APIProblem(
+            422, "no_limits", "Choose the new limits", "Set researches, chats or both."
+        )
+    async with tenant_txn(tenant_id) as s:
+        done = await LIM.decide(
+            s,
+            request_id,
+            approve=approve,
+            research_limit=body.research_limit if body else None,
+            chat_limit=body.chat_limit if body else None,
+            actor=who.staff_id,
+            now=now,
+        )
+        if done is None:
+            raise APIProblem(409, "already_decided", "Already decided", "This request is closed.")
+        action = "limit_request.approve" if approve else "limit_request.decline"
+        await _client_audit(s, request, who, action)
+    await _op_audit(request, who, action, str(tenant_id))
+    return await limit_requests(request, who)
+
+
+@router.post("/requests/{tenant_id}/{request_id}/approve", response_model=C.ConsoleLimitRequests)
+async def approve_request(
+    tenant_id: UUID,
+    request_id: UUID,
+    body: Decision,
+    request: Request,
+    who: StaffIdentity = Depends(require_staff),
+) -> dict[str, Any]:
+    """Approve a request with the new limits; the user is told in the app."""
+    return await _decide(tenant_id, request_id, body, request, who)
+
+
+@router.post("/requests/{tenant_id}/{request_id}/decline", response_model=C.ConsoleLimitRequests)
+async def decline_request(
+    tenant_id: UUID, request_id: UUID, request: Request, who: StaffIdentity = Depends(require_staff)
+) -> dict[str, Any]:
+    """Decline a request; the user is told in the app."""
+    return await _decide(tenant_id, request_id, None, request, who)
+
+
 @router.post("/users/{tenant_id}/terminate", response_model=C.AccessChanged)
 async def terminate(
     tenant_id: UUID,
@@ -540,6 +690,9 @@ async def _defaults(request: Request) -> dict[str, Any]:
         "models": M.admin_view(enabled),
         "default_research_model": research,
         "default_analysis_model": analysis,
+        "research_limit_default": int(d["research_limit_default"]),
+        "chat_limit_default": int(d["chat_limit_default"]),
+        "limit_reset": str(d["limit_reset"]),
         "model_router_on": getattr(request.app.state.container, "router", None) is not None,
         "skill_version": _skill_version(),
         "skill_installed": SKILL_DIR.is_dir(),
@@ -567,6 +720,9 @@ class DefaultsChange(BaseModel):
     enabled_models: list[str] | None = Field(default=None, min_length=1, max_length=20)
     default_research_model: str | None = Field(default=None, max_length=64)
     default_analysis_model: str | None = Field(default=None, max_length=64)
+    research_limit_default: int | None = Field(default=None, ge=0, le=100_000)
+    chat_limit_default: int | None = Field(default=None, ge=0, le=1_000_000)
+    limit_reset: Literal["monthly", "never"] | None = None
 
 
 @router.put("/defaults", response_model=C.ConsoleDefaults)

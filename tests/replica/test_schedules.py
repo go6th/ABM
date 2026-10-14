@@ -135,13 +135,19 @@ async def test_a_due_refresh_starts_once_and_moves_the_next_date(world: dict[str
     )
 
 
-async def test_a_due_refresh_the_pool_cannot_cover_waits_and_starts_later(
+async def test_a_due_refresh_with_no_research_left_is_skipped_and_the_owner_told(
     world: dict[str, Any],
 ) -> None:
+    """A scheduled refresh is one of the owner's researches (owner decision 2026-10-14)."""
     tenant = world["b"]
     cigna = _account(tenant, "cigna.example")
     now = datetime.now(UTC)
-    _sql("UPDATE client_settings SET monthly_credit_pool = 0 WHERE tenant_id = %s", tenant)
+    _sql(
+        "INSERT INTO user_limits (tenant_id, owner_user_id, research_limit, updated_by)"
+        " VALUES (%s, 'other-test', 0, 'test') ON CONFLICT (tenant_id, owner_user_id)"
+        " DO UPDATE SET research_limit = 0",
+        tenant,
+    )
     _sql(
         "UPDATE accounts SET refresh_cadence = 'weekly', next_refresh_at = %s WHERE id = %s",
         now - timedelta(minutes=1),
@@ -151,33 +157,26 @@ async def test_a_due_refresh_the_pool_cannot_cover_waits_and_starts_later(
         first = Recorder()
         await SC.tick(now, first)
         assert not [j for t, j in first.started if t == tenant]
-        job = _sql(
-            "SELECT id, status FROM research_jobs WHERE account_id = %s AND kind ="
-            " 'scheduled_refresh'"
-            " ORDER BY created_at DESC LIMIT 1",
+        assert not _sql(
+            "SELECT 1 FROM research_jobs WHERE account_id = %s AND kind = 'scheduled_refresh'"
+            " AND created_at >= %s",
             cigna,
-        )[0]
-        assert job[1] == "waiting_credit_limit"
-        assert not _sql("SELECT 1 FROM credit_entries WHERE job_id = %s", job[0])
-        note = _sql("SELECT kind, user_id FROM notifications WHERE job_id = %s", job[0])
-        assert note == [("waiting_credit_limit", "other-test")]
-        plane = _plane(tenant, "other-test", world["payloads"])
-        rows = {
-            a["domain"]: a
-            for a in (await _call(plane, "GET", "/v1/accounts?limit=200")).json()["accounts"]
-        }
-        assert rows["cigna.example"]["state"] == "waiting_credit_limit"
-        _sql("UPDATE client_settings SET monthly_credit_pool = 100000 WHERE tenant_id = %s", tenant)
-        later = Recorder()
-        await SC.tick(now + timedelta(minutes=15), later)
-        assert (tenant, UUID(str(job[0]))) in later.started
-        assert _sql("SELECT status FROM research_jobs WHERE id = %s", job[0])[0][0] == "queued"
-        reserve = _sql(
-            "SELECT credits FROM credit_entries WHERE job_id = %s AND kind = 'reserve'", job[0]
+            now - timedelta(minutes=1),
         )
-        assert reserve and reserve[0][0] > 0
+        note = _sql(
+            "SELECT kind, user_id FROM notifications WHERE account_id = %s"
+            " AND kind = 'research_limit_reached'",
+            cigna,
+        )
+        assert note == [("research_limit_reached", "other-test")]
+        # the next refresh moved a cycle on, so the tick does not try again at once
+        assert _sql("SELECT next_refresh_at > %s FROM accounts WHERE id = %s", now, cigna) == [
+            (True,)
+        ]
     finally:
-        _sql("UPDATE client_settings SET monthly_credit_pool = 3000 WHERE tenant_id = %s", tenant)
+        _sql(
+            "DELETE FROM user_limits WHERE tenant_id = %s AND owner_user_id = 'other-test'", tenant
+        )
         _sql(
             "UPDATE accounts SET refresh_cadence = 'off', next_refresh_at = NULL WHERE id = %s",
             cigna,

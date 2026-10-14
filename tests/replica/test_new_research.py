@@ -59,27 +59,33 @@ async def test_new_research_shows_the_estimate_and_starts_only_on_confirm(
     assert _db("SELECT count(*) FROM credit_entries WHERE job_id = %s", started["job_id"]) == [(1,)]
 
 
-async def test_short_credits_and_a_full_cap_reserve_nothing(world: dict[str, Any]) -> None:
-    plane = _plane(world["b"], "other-test", world["payloads"])
-    est = (await _call(plane, "GET", "/v1/research/estimate")).json()
+async def test_no_research_left_reserves_nothing(world: dict[str, Any]) -> None:
+    """Owner decision 2026-10-14: a user's research limit, not credits or an account cap, decides
+    whether new research starts; with none left nothing is created or reserved."""
+    user = f"limited-{uuid4().hex[:6]}"
+    plane = _plane(world["b"], user, world["payloads"])
     _db(
-        "UPDATE client_settings SET monthly_credit_pool = %s WHERE tenant_id = %s",
-        est["credits"] - 1,
+        "INSERT INTO user_limits (tenant_id, owner_user_id, research_limit, updated_by)"
+        " VALUES (%s, %s, 0, 'test')",
         world["b"],
+        user,
     )
-    body = {
-        "request_id": str(uuid4()),
-        "company_name": "Shortco",
-        "domain": "shortco.example",
-        "credits": est["credits"],
-    }
-    short = await _call(plane, "POST", "/v1/research", json=body)
-    assert short.status_code == 409 and short.json()["type"].endswith("credits_short")
+    body = {"request_id": str(uuid4()), "company_name": "Shortco", "domain": "shortco.example"}
+    refused = await _call(plane, "POST", "/v1/research", json=body)
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["type"].endswith("limit_reached")
+    assert refused.json()["detail"] == (
+        "You have used your 0 researches. Ask your admin to increase your limit."
+    )
     assert _db("SELECT count(*) FROM accounts WHERE domain = 'shortco.example'") == [(0,)]
-    _db(
-        "UPDATE client_settings SET monthly_credit_pool = 100000, account_cap_per_user = 1"
-        " WHERE tenant_id = %s",
-        world["b"],
-    )
-    full = await _call(plane, "POST", "/v1/research", json={**body, "request_id": str(uuid4())})
-    assert full.status_code == 409 and full.json()["type"].endswith("account_cap_reached")
+    # a tiny credit pool no longer stops research: credits are recorded, not gating
+    _db("UPDATE user_limits SET research_limit = 1 WHERE owner_user_id = %s", user)
+    _db("UPDATE client_settings SET monthly_credit_pool = 1 WHERE tenant_id = %s", world["b"])
+    try:
+        ok = await _call(plane, "POST", "/v1/research", json={**body, "request_id": str(uuid4())})
+        assert ok.status_code == 201, ok.text
+    finally:
+        _db(
+            "UPDATE client_settings SET monthly_credit_pool = 3000 WHERE tenant_id = %s",
+            world["b"],
+        )

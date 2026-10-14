@@ -30,11 +30,13 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.chat.service import ChatService, sse
 from account_intelligence.chat.store import record_ask_turn
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import answers as A
+from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica.model_answer import stream_with_model
 from account_intelligence.replica.settings import touch_activity
@@ -110,6 +112,12 @@ async def ask(
     replay = (
         await _replay(ident.tenant_id, body.thread_id, body.request_id) if body.thread_id else None
     )
+    if replay is None:  # a question is one of the user's chats: refused before it starts
+        async with tenant_txn(ident.tenant_id) as session:
+            try:
+                await LIM.check(session, ident.user_id, "chats", now)
+            except LIM.LimitReached as reached:
+                raise limit_reached(reached) from None
 
     async def events() -> AsyncIterator[bytes]:
         """Stream the answer: replay a repeated request, or search, compose, store and send."""
@@ -192,6 +200,8 @@ async def ask(
                     category=A.classify(body.question),
                 )
                 await touch_activity(session, ident.user_id, now)
+                # counted with the answer it bought (a failed answer costs no chat)
+                await LIM.take(session, ident.user_id, "chats", now, force=True)
                 if body.model is not None:  # the conversation keeps the model it was given
                     await session.execute(
                         text("UPDATE chat_threads SET analysis_model = :m WHERE id = :t"),

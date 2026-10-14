@@ -42,7 +42,6 @@ from account_intelligence.replica import library as L
 from account_intelligence.replica.settings import (
     accounts_used,
     client_settings,
-    ensure_account_room,
 )
 
 router = APIRouter(tags=["library"])
@@ -98,8 +97,6 @@ async def from_library(
         if any(str(i) not in offered for i in wanted):
             raise HTTPException(404, "not found")
         new = [i for i in wanted if not offered[str(i)]["in_workspace"]]
-        if new:
-            await ensure_account_room(s, ident.user_id, adding=len(new))
         added = []
         for library_id in new:
             done = await L.add_to_workspace(

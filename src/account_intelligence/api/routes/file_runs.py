@@ -27,7 +27,9 @@ from sqlalchemy import text
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.replica import limits as LIM
 from account_intelligence.runs import lifecycle
 from account_intelligence.runs.lifecycle import (
     IdempotencyConflict,
@@ -153,6 +155,15 @@ async def create_file_run(
             if body.file.credit_cap is not None:
                 run_input["credit_cap"] = round(float(body.file.credit_cap), 2)
             now = container.clock.now()
+            # a file analysis is one of the user's chats (owner decision 2026-10-14); a retried
+            # request (same key) counts nothing
+            if not await s.scalar(
+                text("SELECT 1 FROM account_runs WHERE idempotency_key = :k"), {"k": idem}
+            ):
+                try:
+                    await LIM.take(s, ident.user_id, "chats", now)
+                except LIM.LimitReached as reached:
+                    raise limit_reached(reached) from None
             tracker = await _tracker_for(container, s)
             created = await lifecycle.create_run(
                 s,
@@ -247,10 +258,20 @@ async def _enrichment(
     if credit_cap is not None:
         run_limits = replace(run_limits, budget_usd=Decimal(str(round(credit_cap, 2))))
     child_input = {**company_input, "linked_file_run": str(file_run)}
+    # checking public sources is a public research of the account: one of the user's researches
+    # (owner decision 2026-10-14); a retried request counts nothing
+    key = f"{idem[:48]}:enrich"
+    if not await s.scalar(
+        text("SELECT 1 FROM account_runs WHERE idempotency_key = :k"), {"k": key}
+    ):
+        try:
+            await LIM.take(s, ident.user_id, "researches", container.clock.now())
+        except LIM.LimitReached as reached:
+            raise limit_reached(reached) from None
     child = await lifecycle.create_run(
         s,
         ident.tenant_id,
-        RunRequest(domain, "standard", f"{idem[:48]}:enrich", child_input),
+        RunRequest(domain, "standard", key, child_input),
         run_limits,
         tracker,
         lifecycle.CreditJob(kind="file_analysis", scope="full", actor=ident.user_id),

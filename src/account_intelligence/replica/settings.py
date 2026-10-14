@@ -38,6 +38,10 @@ class ClientSettings:
     fastest_schedule: str
     mail_drive_allowed: bool
     web_refresh_allowed: bool
+    # limits per user (owner decision 2026-10-14): the defaults for the client's users
+    research_limit_default: int = 2
+    chat_limit_default: int = 40
+    limit_reset: str = "monthly"
 
     def allows_cadence(self, cadence: str) -> bool:
         """``off`` is always allowed; anything faster than the fastest allowed schedule is not."""
@@ -54,8 +58,8 @@ async def client_settings(session: Any) -> ClientSettings:
         await session.execute(
             text(
                 "SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
-                " fastest_schedule,"
-                " mail_drive_allowed, web_refresh_allowed FROM client_settings"
+                " fastest_schedule, mail_drive_allowed, web_refresh_allowed,"
+                " research_limit_default, chat_limit_default, limit_reset FROM client_settings"
             )
         )
     ).first()
@@ -63,10 +67,10 @@ async def client_settings(session: Any) -> ClientSettings:
         await session.execute(
             text(
                 "INSERT INTO client_settings (account_cap_per_user, idle_expiry_days,"
-                " monthly_credit_pool,"
-                " fastest_schedule, updated_by)"
+                " monthly_credit_pool, fastest_schedule, research_limit_default,"
+                " chat_limit_default, limit_reset, updated_by)"
                 " SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
-                " fastest_schedule,"
+                " fastest_schedule, research_limit_default, chat_limit_default, limit_reset,"
                 " 'platform_defaults' FROM platform_defaults WHERE id = 1"
                 " ON CONFLICT (tenant_id) DO NOTHING"
             )
@@ -79,6 +83,9 @@ async def client_settings(session: Any) -> ClientSettings:
         fastest_schedule=str(row.fastest_schedule),
         mail_drive_allowed=bool(row.mail_drive_allowed),
         web_refresh_allowed=bool(row.web_refresh_allowed),
+        research_limit_default=int(row.research_limit_default),
+        chat_limit_default=int(row.chat_limit_default),
+        limit_reset=str(row.limit_reset),
     )
 
 
@@ -142,6 +149,9 @@ DEFAULT_FIELDS = (
     "enabled_models",
     "default_research_model",
     "default_analysis_model",
+    "research_limit_default",
+    "chat_limit_default",
+    "limit_reset",
     "skill_version",
 )
 CLIENT_FIELDS = (
@@ -151,6 +161,9 @@ CLIENT_FIELDS = (
     "fastest_schedule",
     "mail_drive_allowed",
     "web_refresh_allowed",
+    "research_limit_default",
+    "chat_limit_default",
+    "limit_reset",
 )
 
 
@@ -160,9 +173,11 @@ async def start_invited(session: Any, actor: str) -> None:
     await session.execute(
         text(
             "INSERT INTO client_settings (account_cap_per_user, idle_expiry_days,"
-            " monthly_credit_pool, fastest_schedule, status, updated_by)"
+            " monthly_credit_pool, fastest_schedule, research_limit_default,"
+            " chat_limit_default, limit_reset, status, updated_by)"
             " SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
-            " fastest_schedule, 'invited', :by FROM platform_defaults WHERE id = 1"
+            " fastest_schedule, research_limit_default, chat_limit_default, limit_reset,"
+            " 'invited', :by FROM platform_defaults WHERE id = 1"
             " ON CONFLICT (tenant_id) DO NOTHING"
         ),
         {"by": actor},
@@ -192,9 +207,7 @@ async def set_allowed_models(session: Any, models: list[str], actor: str, now: A
     """The models the caller tenant's users may choose (owner decision 2026-10-14)."""
     await client_settings(session)
     await session.execute(
-        text(
-            "UPDATE client_settings SET allowed_models = :m, updated_by = :by, updated_at = :now"
-        ),
+        text("UPDATE client_settings SET allowed_models = :m, updated_by = :by, updated_at = :now"),
         {"m": models, "by": actor, "now": now},
     )
 
@@ -206,7 +219,8 @@ async def defaults(session: Any) -> dict[str, Any]:
             text(
                 "SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
                 " fastest_schedule, credit_cap_per_pull, enabled_models, default_research_model,"
-                " default_analysis_model, skill_version, updated_by, updated_at"
+                " default_analysis_model, research_limit_default, chat_limit_default,"
+                " limit_reset, skill_version, updated_by, updated_at"
                 " FROM platform_defaults WHERE id = 1"
             )
         )

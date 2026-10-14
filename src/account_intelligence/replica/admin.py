@@ -194,9 +194,13 @@ async def users(s: Any, now: datetime) -> list[dict[str, Any]]:
         ),
         {"since": now - timedelta(days=30)},
     )
+    from account_intelligence.replica import limits as LIM
+
     out = []
     for r in rows:
         idle = days_between(r.last_active_at, now) if r.last_active_at else None
+        lim = await LIM.limits_for(s, str(r.user_id))
+        researches, chats = await LIM.used(s, str(r.user_id), now, lim.reset)
         out.append(
             {
                 "user_id": str(r.user_id),
@@ -205,6 +209,10 @@ async def users(s: Any, now: datetime) -> list[dict[str, Any]]:
                 "accounts": int(r.accounts),
                 "account_cap": settings.account_cap_per_user,
                 "questions": int(r.questions),
+                "researches_used": researches,
+                "research_limit": lim.researches,
+                "chats_used": chats,
+                "chat_limit": lim.chats,
                 "last_active_at": r.last_active_at.isoformat() if r.last_active_at else None,
                 "access": str(r.access_state),
                 "ended_at": r.ended_at.isoformat() if r.ended_at else None,

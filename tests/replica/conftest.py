@@ -47,6 +47,12 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         b = s.tenant(f"Replica B {uuid4().hex[:6]}")
         s.client_settings(b, pool=3000, cap=10)
         s.account(b, "other-test", seed.cigna())
+        # tests that are not about the per-user limits get room for many researches and chats
+        conn.execute(
+            "UPDATE client_settings SET research_limit_default = 1000,"
+            " chat_limit_default = 100000 WHERE tenant_id IN (%s, %s)",
+            (a, b),
+        )
         conn.commit()
     return {"a": a, "b": b, "payloads": payload_dir}
 

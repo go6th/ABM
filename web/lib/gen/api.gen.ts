@@ -470,11 +470,14 @@ export type ChatThreads = z.infer<typeof ChatThreads>;
 export const ClientChange = z.object({
   "account_cap_per_user": z.number().int().nullable().optional(),
   "allowed_models": z.array(z.string()).nullable().optional(),
+  "chat_limit_default": z.number().int().nullable().optional(),
   "fastest_schedule": z.string().nullable().optional(),
   "idle_expiry_days": z.string().nullable().optional(),
   "library_account_ids": z.array(z.string()).nullable().optional(),
+  "limit_reset": z.string().nullable().optional(),
   "mail_drive_allowed": z.boolean().nullable().optional(),
   "monthly_credit_pool": z.number().int().nullable().optional(),
+  "research_limit_default": z.number().int().nullable().optional(),
   "web_refresh_allowed": z.boolean().nullable().optional(),
 }).strict();
 export type ClientChange = z.infer<typeof ClientChange>;
@@ -648,10 +651,13 @@ export type ConsoleClient = z.infer<typeof ConsoleClient>;
 
 export const ConsoleClientSettings = z.object({
   "account_cap_per_user": z.number().int(),
+  "chat_limit_default": z.number().int(),
   "fastest_schedule": z.string(),
   "idle_expiry_days": z.number().int(),
+  "limit_reset": z.string(),
   "mail_drive_allowed": z.boolean(),
   "monthly_credit_pool": z.number().int(),
+  "research_limit_default": z.number().int(),
   "web_refresh_allowed": z.boolean(),
 }).strict();
 export type ConsoleClientSettings = z.infer<typeof ConsoleClientSettings>;
@@ -708,20 +714,46 @@ export type ConsoleClients = z.infer<typeof ConsoleClients>;
 export const ConsoleDefaults = z.object({
   "account_cap_per_user": z.number().int(),
   "admins": z.array(ConsoleAdmin),
+  "chat_limit_default": z.number().int(),
   "credit_cap_per_pull": z.number().int(),
   "default_analysis_model": z.string(),
   "default_research_model": z.string(),
   "fastest_schedule": z.string(),
   "idle_expiry_days": z.number().int(),
+  "limit_reset": z.string(),
   "model_router_on": z.boolean(),
   "models": z.array(ConsoleModel),
   "monthly_credit_pool": z.number().int(),
+  "research_limit_default": z.number().int(),
   "skill_installed": z.boolean(),
   "skill_version": z.string(),
   "updated_at": z.string(),
   "updated_by": z.string(),
 }).strict();
 export type ConsoleDefaults = z.infer<typeof ConsoleDefaults>;
+
+export const ConsoleLimitRequest = z.object({
+  "chat_limit": z.number().int(),
+  "chats_used": z.number().int(),
+  "client": z.string(),
+  "created_at": z.string(),
+  "decided_at": z.string().nullable(),
+  "email": z.string(),
+  "kind": z.string(),
+  "note": z.string().nullable(),
+  "request_id": z.string(),
+  "research_limit": z.number().int(),
+  "researches_used": z.number().int(),
+  "status": z.string(),
+  "tenant_id": z.string(),
+  "user_id": z.string(),
+}).strict();
+export type ConsoleLimitRequest = z.infer<typeof ConsoleLimitRequest>;
+
+export const ConsoleLimitRequests = z.object({
+  "requests": z.array(ConsoleLimitRequest),
+}).strict();
+export type ConsoleLimitRequests = z.infer<typeof ConsoleLimitRequests>;
 
 export const ConsoleWeek = z.object({
   "questions": z.number().int(),
@@ -778,12 +810,16 @@ export const ConsoleUser = z.object({
   "access": z.string(),
   "account_cap": z.number().int(),
   "accounts": z.number().int(),
+  "chat_limit": z.number().int(),
+  "chats_used": z.number().int(),
   "client": z.string(),
   "email": z.string(),
   "ended_at": z.string().nullable(),
   "expires_in_days": z.number().int().nullable(),
   "last_active_at": z.string().nullable(),
   "questions": z.number().int(),
+  "research_limit": z.number().int(),
+  "researches_used": z.number().int(),
   "role": z.string(),
   "tenant_id": z.string(),
   "user_id": z.string(),
@@ -876,15 +912,24 @@ export const CrmWrites = z.object({
 }).strict();
 export type CrmWrites = z.infer<typeof CrmWrites>;
 
+export const Decision = z.object({
+  "chat_limit": z.number().int().nullable().optional(),
+  "research_limit": z.number().int().nullable().optional(),
+}).strict();
+export type Decision = z.infer<typeof Decision>;
+
 export const DefaultsChange = z.object({
   "account_cap_per_user": z.number().int().nullable().optional(),
+  "chat_limit_default": z.number().int().nullable().optional(),
   "credit_cap_per_pull": z.number().int().nullable().optional(),
   "default_analysis_model": z.string().nullable().optional(),
   "default_research_model": z.string().nullable().optional(),
   "enabled_models": z.array(z.string()).nullable().optional(),
   "fastest_schedule": z.string().nullable().optional(),
   "idle_expiry_days": z.string().nullable().optional(),
+  "limit_reset": z.string().nullable().optional(),
   "monthly_credit_pool": z.number().int().nullable().optional(),
+  "research_limit_default": z.number().int().nullable().optional(),
 }).strict();
 export type DefaultsChange = z.infer<typeof DefaultsChange>;
 
@@ -1518,6 +1563,35 @@ export const LibraryUploaded = z.object({
 }).strict();
 export type LibraryUploaded = z.infer<typeof LibraryUploaded>;
 
+export const LimitRequestSent = z.object({
+  "created": z.boolean(),
+  "kind": z.string(),
+  "request_id": z.string(),
+  "status": z.literal("pending"),
+}).strict();
+export type LimitRequestSent = z.infer<typeof LimitRequestSent>;
+
+export const LimitUse = z.object({
+  "left": z.number().int(),
+  "limit": z.number().int(),
+  "used": z.number().int(),
+}).strict();
+export type LimitUse = z.infer<typeof LimitUse>;
+
+export const LimitsChange = z.object({
+  "chat_limit": z.number().int().nullable().optional(),
+  "research_limit": z.number().int().nullable().optional(),
+  "user_id": z.string(),
+}).strict();
+export type LimitsChange = z.infer<typeof LimitsChange>;
+
+export const LimitsChanged = z.object({
+  "chat_limit": z.number().int(),
+  "research_limit": z.number().int(),
+  "user_id": z.string(),
+}).strict();
+export type LimitsChanged = z.infer<typeof LimitsChanged>;
+
 export const LoginBody = z.object({
   "email": z.string(),
   "password": z.string(),
@@ -1650,6 +1724,21 @@ export const MonitoringBudget = z.object({
   "period": z.string(),
 }).strict();
 export type MonitoringBudget = z.infer<typeof MonitoringBudget>;
+
+export const MoreBody = z.object({
+  "kind": z.string(),
+  "note": z.string().nullable().optional(),
+}).strict();
+export type MoreBody = z.infer<typeof MoreBody>;
+
+export const MyLimits = z.object({
+  "chats": LimitUse,
+  "pending_requests": z.array(z.string()),
+  "researches": LimitUse,
+  "reset": z.string(),
+  "resets_on": z.string().nullable(),
+}).strict();
+export type MyLimits = z.infer<typeof MyLimits>;
 
 export const NewClient = z.object({
   "admin_email": z.string(),
@@ -1887,7 +1976,7 @@ export type Reconcile = z.infer<typeof Reconcile>;
 
 export const RefreshBody = z.object({
   "analysis_model": z.string().nullable().optional(),
-  "credits": z.number().int(),
+  "credits": z.number().int().nullable().optional(),
   "from_turn_id": z.string().nullable().optional(),
   "request_id": z.string(),
   "research_model": z.string().nullable().optional(),
@@ -1942,7 +2031,7 @@ export type RejectBody = z.infer<typeof RejectBody>;
 export const ResearchBody = z.object({
   "analysis_model": z.string().nullable().optional(),
   "company_name": z.string(),
-  "credits": z.number().int(),
+  "credits": z.number().int().nullable().optional(),
   "domain": z.string(),
   "request_id": z.string(),
   "research_model": z.string().nullable().optional(),
@@ -2737,6 +2826,10 @@ export const KNOWN_VALUES = {
     "14",
     "30"
   ],
+  "ClientChange.limit_reset": [
+    "monthly",
+    "never"
+  ],
   "ConnectionBody.protocol": [
     "oidc",
     "saml"
@@ -2760,10 +2853,27 @@ export const KNOWN_VALUES = {
     "Idle",
     "Active"
   ],
+  "ConsoleClientSettings.limit_reset": [
+    "monthly",
+    "never"
+  ],
+  "ConsoleDefaults.limit_reset": [
+    "monthly",
+    "never"
+  ],
   "ConsoleIsolation.status": [
     "passed",
     "failed",
     "not_run"
+  ],
+  "ConsoleLimitRequest.kind": [
+    "researches",
+    "chats"
+  ],
+  "ConsoleLimitRequest.status": [
+    "pending",
+    "approved",
+    "declined"
   ],
   "ConsoleUser.access": [
     "active",
@@ -2780,6 +2890,10 @@ export const KNOWN_VALUES = {
     "10",
     "14",
     "30"
+  ],
+  "DefaultsChange.limit_reset": [
+    "monthly",
+    "never"
   ],
   "ExportBody.kind": [
     "files",
@@ -2815,6 +2929,10 @@ export const KNOWN_VALUES = {
     "is_empty",
     "not_empty"
   ],
+  "LimitRequestSent.kind": [
+    "researches",
+    "chats"
+  ],
   "MailDriveFamily.status": [
     "connected",
     "not_connected",
@@ -2826,6 +2944,14 @@ export const KNOWN_VALUES = {
     "analyst",
     "seller",
     "viewer"
+  ],
+  "MoreBody.kind": [
+    "researches",
+    "chats"
+  ],
+  "MyLimits.reset": [
+    "monthly",
+    "never"
   ],
   "OperatorSession.role": [
     "operator",
@@ -2970,8 +3096,12 @@ export const operations = {
   "GET /operator/v1/console/defaults": { method: "GET", path: "/operator/v1/console/defaults", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleDefaults },
   "PUT /operator/v1/console/defaults": { method: "PUT", path: "/operator/v1/console/defaults", plane: "operator", status: 200, request: DefaultsChange, requestRequired: true, response: ConsoleDefaults },
   "GET /operator/v1/console/overview": { method: "GET", path: "/operator/v1/console/overview", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleOverview },
+  "GET /operator/v1/console/requests": { method: "GET", path: "/operator/v1/console/requests", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleLimitRequests },
+  "POST /operator/v1/console/requests/{tenant_id}/{request_id}/approve": { method: "POST", path: "/operator/v1/console/requests/{tenant_id}/{request_id}/approve", plane: "operator", status: 200, request: Decision, requestRequired: true, response: ConsoleLimitRequests },
+  "POST /operator/v1/console/requests/{tenant_id}/{request_id}/decline": { method: "POST", path: "/operator/v1/console/requests/{tenant_id}/{request_id}/decline", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleLimitRequests },
   "GET /operator/v1/console/runs": { method: "GET", path: "/operator/v1/console/runs", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleRuns },
   "GET /operator/v1/console/users": { method: "GET", path: "/operator/v1/console/users", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleUsers },
+  "PUT /operator/v1/console/users/{tenant_id}/limits": { method: "PUT", path: "/operator/v1/console/users/{tenant_id}/limits", plane: "operator", status: 200, request: LimitsChange, requestRequired: true, response: LimitsChanged },
   "POST /operator/v1/console/users/{tenant_id}/re-enable": { method: "POST", path: "/operator/v1/console/users/{tenant_id}/re-enable", plane: "operator", status: 200, request: AccessTarget, requestRequired: true, response: AccessChanged },
   "POST /operator/v1/console/users/{tenant_id}/terminate": { method: "POST", path: "/operator/v1/console/users/{tenant_id}/terminate", plane: "operator", status: 200, request: AccessTarget, requestRequired: true, response: AccessChanged },
   "GET /operator/v1/flags": { method: "GET", path: "/operator/v1/flags", plane: "operator", status: 200, request: null, requestRequired: false, response: Flags },
@@ -3088,11 +3218,13 @@ export const operations = {
   "GET /v1/files/{file_id}/audit": { method: "GET", path: "/v1/files/{file_id}/audit", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAudit },
   "POST /v1/files/{file_id}/resume": { method: "POST", path: "/v1/files/{file_id}/resume", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileState },
   "GET /v1/library/available": { method: "GET", path: "/v1/library/available", plane: "tenant", status: 200, request: null, requestRequired: false, response: LibraryAvailable },
+  "POST /v1/limits/requests": { method: "POST", path: "/v1/limits/requests", plane: "tenant", status: 201, request: MoreBody, requestRequired: true, response: LimitRequestSent },
   "GET /v1/mail-and-drive": { method: "GET", path: "/v1/mail-and-drive", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailAndDrive },
   "GET /v1/mail-and-drive/callback": { method: "GET", path: "/v1/mail-and-drive/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/mail-and-drive/{family}/disconnect": { method: "POST", path: "/v1/mail-and-drive/{family}/disconnect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveDisconnected },
   "POST /v1/mail-and-drive/{kind}/connect": { method: "POST", path: "/v1/mail-and-drive/{kind}/connect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveConnect },
   "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
+  "GET /v1/me/limits": { method: "GET", path: "/v1/me/limits", plane: "tenant", status: 200, request: null, requestRequired: false, response: MyLimits },
   "PUT /v1/me/model-preferences": { method: "PUT", path: "/v1/me/model-preferences", plane: "tenant", status: 200, request: Preferences, requestRequired: true, response: ModelChoices },
   "GET /v1/models": { method: "GET", path: "/v1/models", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatModels },
   "GET /v1/models/choices": { method: "GET", path: "/v1/models/choices", plane: "tenant", status: 200, request: null, requestRequired: false, response: ModelChoices },

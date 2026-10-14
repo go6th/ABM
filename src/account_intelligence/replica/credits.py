@@ -195,6 +195,15 @@ async def open_job(session: Any, account_id: UUID) -> Any:
     ).first()
 
 
+async def has_request(session: Any, request_id: UUID) -> bool:
+    """Whether a job was already made for this request (a retried confirm counts nothing)."""
+    return bool(
+        await session.scalar(
+            text("SELECT 1 FROM research_jobs WHERE request_id = :r"), {"r": request_id}
+        )
+    )
+
+
 async def reserve(
     session: Any,
     *,
@@ -210,6 +219,7 @@ async def reserve(
     topic: str | None = None,
     one_open_per_account: bool = True,
     models: dict[str, Any] | None = None,
+    enforce_pool: bool = True,
 ) -> tuple[UUID, str]:
     """Create the job and reserve its credits in the caller's transaction.
 
@@ -231,7 +241,9 @@ async def reserve(
     if one_open_per_account and await open_job(session, account_id) is not None:
         raise JobOpen
     left = (await pool(session, now))["left"]
-    status = "queued" if credits <= left else "waiting_credit_limit"
+    # A user's research is limited by their research limit, not by credits (owner decision
+    # 2026-10-14): ``enforce_pool=False`` records the credits on the ledger without gating on them.
+    status = "queued" if credits <= left or not enforce_pool else "waiting_credit_limit"
     if status == "waiting_credit_limit" and not wait_if_short:
         raise CreditsShort(credits, left)
     period = period_of(now)
