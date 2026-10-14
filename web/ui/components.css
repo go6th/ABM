@@ -57,7 +57,7 @@ a.chipa:hover, button.chipa:hover { color: var(--accent); }
   transition: border-color var(--ease), color var(--ease);
 }
 .fc:hover { border-color: var(--accent); color: var(--accent); }
-.fc[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.fc[aria-pressed="true"], .fc[aria-current="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
 
 /* ---------- Cards ---------- */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); }
@@ -184,7 +184,7 @@ table.xl a:hover { text-decoration: underline; }
   background: transparent; color: var(--muted); transition: background var(--ease), color var(--ease);
 }
 .seg.wide button { padding: 0 14px; }
-.seg.tabs button { font-size: 14px; min-height: 44px; padding: 0 20px; border-radius: var(--r-field); }
+.seg.tabs button { font-size: 14px; min-height: 44px; padding: 0 20px; border-radius: var(--r-field); color: var(--text-nav); }
 .seg button:hover:not(:disabled) { color: var(--ink); }
 .seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--sh-seg); }
 .seg button:disabled { opacity: 0.4; }

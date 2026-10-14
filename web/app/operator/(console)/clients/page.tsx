@@ -91,7 +91,7 @@ export default function Clients() {
         <AddClient onAdded={data.reload} />
       </div>
       <div className="card tscroll">
-        <div className="trow th cols-clients" role="row">
+        <div className="trow th cols-clients">
           <span>Client</span><span>Users</span><span>Accounts</span><span>Credits this month</span><span>Last active</span><span>Status</span><span />
         </div>
         {rows.map((c) => {

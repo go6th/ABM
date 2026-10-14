@@ -122,7 +122,7 @@ export default function Library() {
     <div className="pg admin">
       <div className="head"><div className="ttl"><h1>6th Library</h1><div className="sub">Seed content from research you have already done. Publish it to the clients you choose.</div></div></div>
       <Upload onDone={data.reload} />
-      <div className="card tscroll">
+      <div className="card tscroll" tabIndex={0} role="region" aria-label="Library accounts">
         <div className="trow th cols-library"><span>Account</span><span>Deliverables found</span><span>Internal-only file</span><span>Client-ready check</span><span>Publish to</span></div>
         {rows.map((a) => (
           <div key={a.id} className={a.check_passed ? "trow cols-library" : "trow cols-library flag"}>

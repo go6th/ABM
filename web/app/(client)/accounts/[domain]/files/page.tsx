@@ -30,6 +30,7 @@ export default async function FileAnalysisPage({ params, searchParams }: { param
       ) : (
         <div className="col w680 stack-22">
           <Link className="back" href={`/accounts/${encodeURIComponent(domain)}`} prefetch={false}>‹ Back to the account</Link>
+          <h1 className="sr-only">File analysis</h1>
           {failed ? (
             <StateCard title="The analysis is unavailable right now" body="Reload the page in a moment." />
           ) : (

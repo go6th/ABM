@@ -61,7 +61,7 @@ export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: strin
     <>
       <div className="sheet-bar">
         {sheet.filters.map((f) => (
-          <Link key={f.key} className="fc" href={query({ filter: f.key })} aria-pressed={sheet.filter === f.key} prefetch={false} scroll={false}>
+          <Link key={f.key} className="fc" href={query({ filter: f.key })} aria-current={sheet.filter === f.key ? "true" : undefined} prefetch={false} scroll={false}>
             {f.key === "all" ? `All ${f.count}` : `${f.label} · ${f.count}`}
           </Link>
         ))}

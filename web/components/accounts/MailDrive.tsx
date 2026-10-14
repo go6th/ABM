@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { MailAndDrive, MailDriveConnect, MailDriveDisconnected } from "@/lib/gen/api.gen";
+import { useIsClient } from "@/lib/use-is-client";
 
 type Family = MailAndDrive["mail"];
 
@@ -33,6 +34,7 @@ function plural(n: number, [one, many]: readonly [string, string]): string {
 
 function Card({ family, data }: { family: "mail" | "drive"; data: Family }) {
   const router = useRouter();
+  const client = useIsClient(); // the last sync is shown in the browser's time zone
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -111,7 +113,7 @@ function Card({ family, data }: { family: "mail" | "drive"; data: Family }) {
       {connected ? (
         <dl className="kv-list line-top">
           <div><dt className="mut">Matched to your accounts</dt><dd>{plural(data.accounts, ["account", "accounts"])} · {plural(data.items, copy.noun)}</dd></div>
-          <div><dt className="mut">Last synced</dt><dd>{synced(data.last_synced_at)}</dd></div>
+          <div><dt className="mut">Last synced</dt><dd>{client ? synced(data.last_synced_at) : ""}</dd></div>
           <div><dt className="mut">Shown only to</dt><dd>You</dd></div>
         </dl>
       ) : null}

@@ -29,7 +29,7 @@ export default function Runs() {
           <p className="mut sm-text">Nightly test that no client can read, search or cite another client&apos;s accounts, files or answers. {d.isolation.status === "not_run" ? "It has not run yet." : `${d.isolation.workspaces_checked} of ${d.workspaces} workspaces checked.`}</p>
         </section>
       </div>
-      <div className="card tscroll">
+      <div className="card tscroll" tabIndex={0} role="region" aria-label="Runs">
         <div className="trow th cols-runs"><span>Client</span><span>Account</span><span>Type</span><span>Credits</span><span>Started</span><span>Status</span></div>
         {d.runs.map((r) => (
           <div key={r.job_id} className="trow cols-runs">
