@@ -1,12 +1,14 @@
 "use client";
 // New research as designed: Company name | Upload a file tabs. The company tab is the shared
-// ResearchCompany form. The file tab: the drop area and the file list (Scanning, Ready, Failed),
-// "We found more than one company. Which is this about?" when the files name several, the Also
+// ResearchCompany form. The file tab: "Add files" or "Connect Google Drive", the file list
+// (Uploading, Scanning, Reading, Ready, Failed). When the files name one company they are attached
+// to it (its account is created when needed; owner decision 2026-10-14), with "Change"; "We found
+// more than one company. Which is this about?" when the files name several. The Also
 // check public sources switch (off by default), what it uses (a file analysis is one chat; with
 // public sources also one research; owner decision 2026-10-14) and Analyze file. Results open on
 // the account's file analysis screen.
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
 import { DOMAIN_RE, allIndexed, cleanDomain, detectedCompany, needingCompany, type CompanyCandidate } from "@/lib/documents";
 import type { CompanyConfirmed, DocumentStatus, ResearchEstimate, RunCreated, RunStatusView } from "@/lib/gen/api.gen";
@@ -83,10 +85,30 @@ function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfir
   );
 }
 
-function FileTab() {
+/** Attach the files to the one company they name (creating its account when needed). */
+function useAutoAttach(waiting: DocumentStatus[], settled: boolean, onAttached: (accountId: string, name: string) => void) {
+  const tried = useRef(new Set<string>());
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!settled || !waiting.length) return;
+    const found = detectedCompany(waiting);
+    const key = waiting.map((d) => d.document_id).sort().join(",");
+    if (found.status !== "resolved" || !found.company?.domain || tried.current.has(key)) return;
+    tried.current.add(key);
+    const name = found.company.name ?? found.company.domain;
+    api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: waiting.map((d) => d.document_id), company_name: name, domain: found.company.domain })
+      .then((done) => onAttached(done.account_id, name))
+      .catch(() => setFailed(true));
+  }, [waiting, settled, onAttached]);
+  return failed;
+}
+
+function FileTab({ initialDrive }: { initialDrive: boolean }) {
   const router = useRouter();
   const [docs, setDocs] = useState<DocumentStatus[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
+  const [attached, setAttached] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
   const [enrich, setEnrich] = useState(false);
   const [asking, setAsking] = useState(false);
   const [hit, setHit] = useState<{ kind: "researches" | "chats"; message: string } | null>(null);
@@ -98,7 +120,11 @@ function FileTab() {
   const waiting = needingCompany(docs);
   const ready = allIndexed(docs);
   const bound = accountId ?? docs.find((d) => d.account_id)?.account_id ?? null;
-  const needsChoice = waiting.length > 0 && docs.every((d) => d.stage === "parsed" || d.stage === "indexed" || d.stage === "failed");
+  const settled = waiting.length > 0 && docs.every((d) => d.stage === "parsed" || d.stage === "indexed" || d.stage === "failed");
+  const onAttached = useCallback((id: string, name: string) => { setAccountId(id); setAttached(name); }, []);
+  const autoFailed = useAutoAttach(waiting, settled, onAttached);
+  const resolved = detectedCompany(waiting).status === "resolved";
+  const needsChoice = (settled && (!resolved || autoFailed)) || changing;
 
   const uses = enrich ? "One chat and one research" : "One chat";
 
@@ -134,8 +160,19 @@ function FileTab() {
 
   return (
     <div className="stack-20">
-      <DocumentDrop onChange={onChange} disabled={busy} />
-      {needsChoice ? <CompanyChoice docs={waiting} onConfirmed={setAccountId} /> : null}
+      <DocumentDrop onChange={onChange} disabled={busy} initialDrive={initialDrive} />
+      {attached && !changing ? (
+        <div className="card pad-sm row-space wrap" role="status">
+          <span>These files are about <b>{attached}</b>.</span>
+          <button type="button" className="link-btn small" onClick={() => setChanging(true)}>Change</button>
+        </div>
+      ) : null}
+      {needsChoice ? (
+        <CompanyChoice
+          docs={changing ? docs.filter((d) => d.stage === "parsed" || d.stage === "indexed") : waiting}
+          onConfirmed={(id) => { setAccountId(id); setAttached(null); setChanging(false); }}
+        />
+      ) : null}
       {docs.length ? (
         <>
           <section className="card pad row-16 wrap">
@@ -171,7 +208,7 @@ function FileTab() {
   );
 }
 
-export function NewResearch({ estimate, initialTab }: { estimate: ResearchEstimate | null; initialTab: "company" | "file" }) {
+export function NewResearch({ estimate, initialTab, initialDrive = false }: { estimate: ResearchEstimate | null; initialTab: "company" | "file"; initialDrive?: boolean }) {
   const [tab, setTab] = useState<"company" | "file">(initialTab);
   return (
     <>
@@ -184,7 +221,7 @@ export function NewResearch({ estimate, initialTab }: { estimate: ResearchEstima
           <ResearchCompany estimate={estimate} idPrefix="nr" />
         </section>
       ) : (
-        <FileTab />
+        <FileTab initialDrive={initialDrive} />
       )}
     </>
   );

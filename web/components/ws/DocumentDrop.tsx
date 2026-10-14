@@ -1,48 +1,44 @@
 "use client";
-// Drop or pick the files a "From a file" research reads, or choose from the workspace storage
-// list. Each file is checked here first (type, size), declared to the API, sent to storage,
-// completed, then followed through scanning, reading and indexing. A failed file shows the
-// server's reason and can be removed.
+// Add the files a "From a file" research reads (owner decision 2026-10-14): drop them or "Add
+// files", or "Connect Google Drive". Each file goes straight to storage in resumable chunks (the
+// bar shows the bytes sent; a reload keeps the place: choose the same file again to continue),
+// is completed, then followed through scanning and reading. A large file is read in parts
+// ("Reading part 3 of 12"); a part that could not be read shows its reason and "Try again".
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { m } from "@/lib/messages";
-import { ACCEPT, MAX_FILES, MAX_FILE_BYTES, STAGE_TEXT, fileSize, isWorking, refuseReason, stageTone, type Stage } from "@/lib/documents";
+import { ACCEPT, STAGE_TEXT, fileSize, isWorking, partsLine, refuseReason, stageTone, type Stage } from "@/lib/documents";
+import { forgetPaused, pausedUploads, uploadDocument, type Saved } from "@/lib/upload";
 import { Status } from "@/ui/primitives";
 import { cellText } from "@/lib/render";
-import type { DocumentList, DocumentStatus, DocumentUploadStarted } from "@/lib/gen/api.gen";
+import type { DocumentStatus } from "@/lib/gen/api.gen";
 
-export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null }
+export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number }
 
-const POLL_MS = 1500;
+const POLL_MS = 2000;
 
-async function send(file: File, accountId: string | null): Promise<string> {
-  const started = await api<DocumentUploadStarted>("POST", "/v1/documents/uploads", {
-    name: file.name, size_bytes: file.size, mime: file.type || null, account_id: accountId,
-  });
-  if (started.direct) {
-    const put = await fetch(started.upload_url, { method: "PUT", body: file, headers: started.headers });
-    if (!put.ok) throw new ApiError(put.status, "upload_failed", "The file could not be stored.");
-  } else {
-    await api("PUT", started.upload_url, file, { "Content-Type": "application/octet-stream" });
-  }
-  await api<DocumentStatus>("POST", `/v1/documents/${started.document_id}/complete`);
-  return started.document_id;
-}
-
-export function DocumentDrop({ accountId = null, onChange, disabled = false }: {
+export function DocumentDrop({ accountId = null, onChange, disabled = false, initialDrive = false }: {
   accountId?: string | null;
   onChange: (docs: DocumentStatus[]) => void;
   disabled?: boolean;
+  initialDrive?: boolean;
 }) {
   const [items, setItems] = useState<DropItem[]>([]);
+  const [paused, setPaused] = useState<Saved[]>([]);
   const [over, setOver] = useState(false);
-  const [storage, setStorage] = useState<DocumentStatus[] | null>(null);
-  const [showStorage, setShowStorage] = useState(false);
+  const [drive, setDrive] = useState(initialDrive);
   const input = useRef<HTMLInputElement | null>(null);
   const counter = useRef(0);
+  const aborts = useRef(new Map<string, AbortController>());
 
   const update = useCallback((key: string, patch: Partial<DropItem>) => {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
+  }, []);
+
+  useEffect(() => {
+    // read after mount (the server render has no browser storage)
+    const timer = setTimeout(() => setPaused(pausedUploads()), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -64,44 +60,54 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false }: {
   }, [items, update]);
 
   const add = useCallback(async (files: FileList | File[]) => {
-    const list = Array.from(files).slice(0, Math.max(0, MAX_FILES - items.length));
-    for (const file of list) {
+    for (const file of Array.from(files)) {
       counter.current += 1;
       const key = `${counter.current}-${file.name}`;
-      const refused = refuseReason(file.name, file.size, MAX_FILE_BYTES);
-      setItems((prev) => [...prev, { key, name: file.name, size: file.size, stage: refused ? "failed" : "uploading", message: refused, doc: null }]);
+      const refused = refuseReason(file.name, file.size);
+      setItems((prev) => [...prev, { key, name: file.name, size: file.size, stage: refused ? "failed" : "uploading", message: refused, doc: null, sent: 0 }]);
+      setPaused((prev) => prev.filter((p) => !(p.name === file.name && p.size === file.size)));
       if (refused) continue;
+      const controller = new AbortController();
+      aborts.current.set(key, controller);
       try {
-        const id = await send(file, accountId);
+        const id = await uploadDocument(file, accountId, (sent) => update(key, { sent }), controller.signal);
         const doc = await api<DocumentStatus>("GET", `/v1/documents/${id}/status`);
         update(key, { doc, stage: doc.stage as Stage, message: doc.message ?? null });
       } catch (error) {
-        update(key, { stage: "failed", message: error instanceof ApiError ? error.detail : "The upload did not finish. Try again." });
+        const message = controller.signal.aborted
+          ? "Upload paused. Choose the same file again to continue where it stopped."
+          : error instanceof ApiError && error.type !== "upload_failed"
+            ? error.detail
+            : "The upload stopped. Choose the same file again to continue where it stopped.";
+        update(key, { stage: "failed", message });
+      } finally {
+        aborts.current.delete(key);
       }
     }
-  }, [accountId, items.length, update]);
-
-  const openStorage = async () => {
-    setShowStorage((v) => !v);
-    if (storage) return;
-    try {
-      const list = await api<DocumentList>("GET", "/v1/documents");
-      setStorage(list.documents);
-    } catch {
-      setStorage([]);
-    }
-  };
-
-  const pick = (doc: DocumentStatus) => {
-    if (items.some((i) => i.doc?.document_id === doc.document_id)) return;
-    setItems((prev) => [...prev, { key: `s-${doc.document_id}`, name: doc.name, size: doc.size_bytes, stage: doc.stage as Stage, message: doc.message ?? null, doc }]);
-  };
+  }, [accountId, update]);
 
   const remove = async (it: DropItem) => {
-    if (it.doc && !it.key.startsWith("s-")) {
+    aborts.current.get(it.key)?.abort();
+    if (it.doc) {
       try { await api("DELETE", `/v1/documents/${it.doc.document_id}`); } catch { /* already gone */ }
     }
     setItems((prev) => prev.filter((p) => p.key !== it.key));
+  };
+
+  const retry = async (it: DropItem, part: number) => {
+    if (!it.doc) return;
+    try {
+      const doc = await api<DocumentStatus>("POST", `/v1/documents/${it.doc.document_id}/parts/${part}/retry`);
+      update(it.key, { doc, stage: doc.stage as Stage, message: doc.message ?? null });
+    } catch (error) {
+      update(it.key, { message: error instanceof ApiError ? error.detail : "The part could not be queued. Try again." });
+    }
+  };
+
+  const drop = (saved: Saved) => {
+    forgetPaused(saved);
+    setPaused((prev) => prev.filter((p) => p.documentId !== saved.documentId));
+    void api("DELETE", `/v1/documents/${saved.documentId}`).catch(() => undefined);
   };
 
   return (
@@ -117,38 +123,63 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false }: {
         <p className="small">{m.research.fileTypes}</p>
         <div className="actions">
           <button type="button" className="btn" disabled={disabled} onClick={() => input.current?.click()}>{m.research.chooseFiles}</button>
-          <button type="button" className="btn" disabled={disabled} aria-expanded={showStorage} onClick={() => void openStorage()}>{m.research.fromStorage}</button>
+          <button type="button" className="btn" disabled={disabled} aria-expanded={drive} onClick={() => setDrive((v) => !v)}>{m.research.connectDrive}</button>
         </div>
         <input ref={input} type="file" multiple accept={ACCEPT.join(",")} aria-label={m.research.chooseFiles} onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = ""; }} />
       </div>
-      {showStorage ? (
-        storage === null ? <p className="loading small"><span className="spinner" aria-hidden="true" />{m.state.loading}</p>
-          : storage.length === 0 ? <p className="small muted">No files in storage yet.</p>
-            : (
-              <ul className="rows" aria-label={m.research.fromStorage}>
-                {storage.map((d) => (
-                  <li key={d.document_id}>
-                    <div><p>{cellText(d.name)}</p><span className="sub">{fileSize(d.size_bytes)}</span></div>
-                    <button type="button" className="link-btn small" disabled={disabled || items.some((i) => i.doc?.document_id === d.document_id)} onClick={() => pick(d)}>Add</button>
-                  </li>
-                ))}
-              </ul>
-            )
-      ) : null}
-      {items.length ? (
-        <ul className="rows" aria-label={m.research.filesLabel}>
-          {items.map((it) => (
-            <li key={it.key}>
+      {drive ? <p className="small muted" role="status">{m.research.driveUnavailable}</p> : null}
+      {paused.length ? (
+        <ul className="rows uploads" aria-label="Paused uploads">
+          {paused.map((p) => (
+            <li key={p.documentId}>
               <div>
-                <p>{cellText(it.name)}</p>
-                <span className="sub">{fileSize(it.size)}{it.doc?.passages ? `. ${it.doc.passages} passages` : ""}{it.message ? `. ${it.message}` : ""}</span>
+                <p>{cellText(p.name)}</p>
+                <span className="sub">Paused at {fileSize(p.sent)} of {fileSize(p.size)}. Choose the same file again to continue.</span>
               </div>
-              <div className="row nowrap">
-                <span aria-live="polite"><Status tone={stageTone(it.stage)}>{STAGE_TEXT[it.stage]}</Status></span>
-                <button type="button" className="link-btn small" onClick={() => void remove(it)} disabled={disabled}>{m.research.remove}</button>
-              </div>
+              <button type="button" className="link-btn small" onClick={() => drop(p)} disabled={disabled}>{m.research.remove}</button>
             </li>
           ))}
+        </ul>
+      ) : null}
+      {items.length ? (
+        <ul className="rows uploads" aria-label={m.research.filesLabel}>
+          {items.map((it) => {
+            const reading = it.doc ? partsLine(it.doc) : null;
+            return (
+              <li key={it.key} className="file-row">
+                <div className="file-head">
+                  <div>
+                    <p>{cellText(it.name)}</p>
+                    <span className="sub">
+                      {it.stage === "uploading" ? `${fileSize(it.sent)} of ${fileSize(it.size)} sent` : fileSize(it.size)}
+                      {reading ? `. ${reading}` : ""}
+                      {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} passages` : ""}
+                      {it.message ? `. ${it.message}` : ""}
+                    </span>
+                  </div>
+                  <div className="row nowrap">
+                    <span aria-live="polite"><Status tone={stageTone(it.stage)}>{STAGE_TEXT[it.stage]}</Status></span>
+                    <button type="button" className="link-btn small" onClick={() => void remove(it)} disabled={disabled}>{m.research.remove}</button>
+                  </div>
+                </div>
+                {it.stage === "uploading" ? (
+                  <progress className="upload-bar" max={Math.max(it.size, 1)} value={it.sent} aria-label={`Upload of ${it.name}`} />
+                ) : it.doc && it.doc.parts_total > 1 && it.stage === "parsing" ? (
+                  <progress className="upload-bar" max={it.doc.parts_total} value={it.doc.parts_done} aria-label={`Reading ${it.name}`} />
+                ) : null}
+                {it.doc?.parts_failed.length ? (
+                  <ul className="part-fails" aria-label={`Parts of ${it.name} that could not be read`}>
+                    {it.doc.parts_failed.map((f) => (
+                      <li key={f.part}>
+                        <span className="small">Part {f.part}: {f.reason}</span>
+                        <button type="button" className="link-btn small" disabled={disabled} onClick={() => void retry(it, f.part)}>Try again</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>

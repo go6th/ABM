@@ -9,7 +9,7 @@ import { NewResearch } from "@/components/accounts/NewResearch";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "New research · Account Intelligence" };
 
-export default async function NewResearchPage({ searchParams }: { searchParams: Promise<{ tab?: string; mode?: string }> }) {
+export default async function NewResearchPage({ searchParams }: { searchParams: Promise<{ tab?: string; mode?: string; source?: string }> }) {
   const query = await searchParams;
   let estimate: ResearchEstimate | null = null;
   try {
@@ -25,7 +25,7 @@ export default async function NewResearchPage({ searchParams }: { searchParams: 
           <h1 className="big">New research</h1>
           <p className="intro">Start from a company name, or upload your own file and we will analyze what is in it.</p>
         </div>
-        <NewResearch estimate={estimate} initialTab={tab} />
+        <NewResearch estimate={estimate} initialTab={tab} initialDrive={tab === "file" && query.source === "drive"} />
       </div>
     </div>
   );

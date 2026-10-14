@@ -10,8 +10,10 @@ const FORWARDED_HEADERS = [
   "content-type",
   "idempotency-key",
   "if-none-match",
+  "if-range",
   "last-event-id",
   "origin",
+  "range",
   "traceparent",
   "x-csrf-token",
 ] as const;

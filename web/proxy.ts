@@ -4,6 +4,15 @@
 // its own scripts. No inline style attributes are used anywhere (style-src has no unsafe-inline).
 import { NextRequest, NextResponse } from "next/server";
 
+// Files go from the browser straight to object storage (owner decision 2026-10-14): the storage
+// origin (UPLOAD_ORIGIN, e.g. https://storage.googleapis.com, or the dev object store) is the one
+// other place the page may connect to. Anything that is not a bare origin is ignored.
+const ORIGIN_RE = /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/i;
+function uploadOrigin(): string {
+  const value = (process.env.UPLOAD_ORIGIN ?? "").trim();
+  return ORIGIN_RE.test(value) ? ` ${value}` : "";
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const isDev = process.env.NODE_ENV === "development";
@@ -13,7 +22,7 @@ export function proxy(request: NextRequest): NextResponse {
     `style-src 'self' 'nonce-${nonce}'`,
     "img-src 'self' blob:",
     "font-src 'self'",
-    "connect-src 'self'",
+    `connect-src 'self'${uploadOrigin()}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

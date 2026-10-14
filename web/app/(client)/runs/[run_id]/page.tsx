@@ -23,6 +23,7 @@ export default function RunPage() {
         actions={run?.domain && terminal ? <Link className="btn" href={`/accounts/${encodeURIComponent(run.domain)}`}>{m.run.openAccount}</Link> : null}
       />
       <RunPanel runId={runId} />
+      {run?.models_line ? <p className="mut sm-text">{run.models_line}</p> : null}
       <section className="section">
         <h2>{m.run.files}</h2>
         <RunFiles domain={run?.domain ?? null} runId={runId} />

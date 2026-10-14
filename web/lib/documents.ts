@@ -7,8 +7,8 @@ import type { StatusTone } from "@/ui/primitives";
 // accepted extensions (the server checks the content again; this only avoids a wasted upload)
 export const ACCEPT = [".pdf", ".docx", ".xlsx", ".csv", ".pptx", ".txt", ".md"];
 export const AUDIO = [".mp3", ".wav", ".m4a"];
-export const MAX_FILES = 20;
-export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+// no size or count limit here: the server checks each file against the admin's per-file limit
+// (owner decision 2026-10-14: files of any size, 20 GB by default)
 
 export type Stage = "waiting" | "uploading" | "scanning" | "parsing" | "parsed" | "indexing" | "indexed" | "failed";
 
@@ -36,19 +36,25 @@ function extension(name: string): string {
 }
 
 export function fileSize(bytes: number): string {
+  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
   if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} B`;
 }
 
 /** Why a picked file cannot be uploaded (null: it may be sent). */
-export function refuseReason(name: string, size: number, maxBytes: number): string | null {
+export function refuseReason(name: string, size: number): string | null {
   const ext = extension(name);
   if (AUDIO.includes(ext)) return "Audio transcription is not set up yet. Upload a transcript instead.";
   if (!ACCEPT.includes(ext)) return "This file type is not supported. Use PDF, Word, Excel, CSV, PowerPoint, text or Markdown.";
   if (size <= 0) return "The file is empty.";
-  if (size > maxBytes) return "The file is larger than the per file limit.";
   return null;
+}
+
+/** "Reading part 3 of 12" while a large file is read in parts (null for a one-part file). */
+export function partsLine(doc: Pick<DocumentStatus, "stage" | "parts_total" | "parts_done">): string | null {
+  if (doc.parts_total <= 1 || doc.stage !== "parsing") return null;
+  return `Reading part ${Math.min(doc.parts_total, doc.parts_done + 1)} of ${doc.parts_total}`;
 }
 
 /** A stage still moving on the server (keep polling). */

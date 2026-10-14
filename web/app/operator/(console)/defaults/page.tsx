@@ -12,7 +12,8 @@ import { useOperatorApi } from "../useOperatorApi";
 import { ConsoleLoad } from "../ConsoleLoad";
 import { Pill } from "@/ui/design";
 
-type Editable = Pick<ConsoleDefaults, "research_limit_default" | "chat_limit_default" | "limit_reset" | "idle_expiry_days" | "fastest_schedule" | "credit_cap_per_pull" | "default_research_model" | "default_analysis_model"> & { enabled_models: string[] };
+type Editable = Pick<ConsoleDefaults, "research_limit_default" | "chat_limit_default" | "limit_reset" | "idle_expiry_days" | "fastest_schedule" | "credit_cap_per_pull" | "default_research_model" | "default_analysis_model" | "max_file_bytes" | "run_dollar_cap_usd" | "repeat_call_limit" | "stall_after_s"> & { enabled_models: string[] };
+const GB = 1024 ** 3;
 
 function Row({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -34,6 +35,10 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
     enabled_models: d.models.filter((m) => m.enabled).map((m) => m.id),
     default_research_model: d.default_research_model,
     default_analysis_model: d.default_analysis_model,
+    max_file_bytes: d.max_file_bytes,
+    run_dollar_cap_usd: d.run_dollar_cap_usd,
+    repeat_call_limit: d.repeat_call_limit,
+    stall_after_s: d.stall_after_s,
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -83,6 +88,28 @@ function Editor({ d, reload }: { d: ConsoleDefaults; reload: () => void }) {
           <span>v{d.skill_version} (current){d.skill_installed ? "" : " · skill package not installed yet"}</span>
         </div>
         <Row id="pull" label="Credit cap per pull" hint="A run stops before spending past this. Reported at the end."><input id="pull" className="input sm" type="number" min={1} max={100000} value={v.credit_cap_per_pull} onChange={(e) => set("credit_cap_per_pull", int(e.target.value))} /></Row>
+        <Row id="dollar-cap" label="Dollar cap per run" hint="Provider and model spend together. A run that reaches it stops and keeps everything; its owner can resume it.">
+          <span className="row-12">
+            <span className="mut sm-text">$</span>
+            <input id="dollar-cap" className="input sm" type="number" min={0.1} max={10000} step={0.5} value={v.run_dollar_cap_usd} onChange={(e) => set("run_dollar_cap_usd", Math.min(10000, Math.max(0.1, Number(e.target.value) || 0.1)))} />
+          </span>
+        </Row>
+        <Row id="repeats" label="Same search paid at most" hint="Times one run may pay for the same search. One more stops the run."><input id="repeats" className="input sm" type="number" min={1} max={50} value={v.repeat_call_limit} onChange={(e) => set("repeat_call_limit", Math.min(50, Math.max(1, int(e.target.value))))} /></Row>
+        <Row id="stall" label="Stalled after" hint="A run with no progress this long is marked stalled; its owner is told and can resume it.">
+          <span className="row-12">
+            <input id="stall" className="input sm" type="number" min={1} max={1440} value={Math.round(v.stall_after_s / 60)} onChange={(e) => set("stall_after_s", Math.min(1440, Math.max(1, int(e.target.value))) * 60)} />
+            <span className="mut sm-text">minutes</span>
+          </span>
+        </Row>
+      </section>
+      <section className="card pad stack-14" aria-labelledby="files-title">
+        <h2 id="files-title" className="card-title">Files</h2>
+        <Row id="max-file" label="Largest file a user may add" hint="Any type. Files go straight to storage and are read in parts. No storage quota.">
+          <span className="row-12">
+            <input id="max-file" className="input sm" type="number" min={1} max={5120} step={1} value={Math.round(v.max_file_bytes / GB)} onChange={(e) => set("max_file_bytes", Math.min(5120, Math.max(1, int(e.target.value))) * GB)} />
+            <span className="mut sm-text">GB</span>
+          </span>
+        </Row>
       </section>
       <section className="card pad stack-14" aria-labelledby="models-title">
         <h2 id="models-title" className="card-title">Models</h2>

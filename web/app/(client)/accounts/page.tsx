@@ -55,8 +55,8 @@ export default async function AccountsPage() {
       ) : accounts.length === 0 ? (
         <StateCard
           title="No accounts yet"
-          body="Research a company, add ready-made research shared with your team, or analyze your own file."
-          action={<Link className="btn primary" href="/accounts/add">Add account</Link>}
+          body="Your workspace is your own. Research a company, add ready-made research, or analyze your own files."
+          action={<span className="row-12 wrap"><Link className="btn primary" href="/accounts/add">Add your first account</Link><Link className="btn" href="/research/new?tab=file">Add files</Link></span>}
         />
       ) : (
         <div className="card tscroll">

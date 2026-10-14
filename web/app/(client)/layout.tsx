@@ -32,6 +32,7 @@ export default async function ClientLayout({ children }: { children: React.React
         : n.kind === "limit_request_declined" ? "Your admin declined your request for more"
         : n.kind === "research_limit_reached" ? `${name}: scheduled refresh skipped, no researches left`
         : n.kind === "research_failed" ? `${name}: research did not finish`
+        : n.kind === "research_stalled" ? `${name}: research stalled`
         : n.kind === "waiting_credit_limit" ? `${name}: waiting to start`
         : n.kind === "research_finished" ? `${name}: research finished`
         : n.kind === "library_added" ? `${name}: added from the 6th Library`
@@ -40,13 +41,14 @@ export default async function ClientLayout({ children }: { children: React.React
         : n.kind === "limit_request_approved" || n.kind === "limit_request_declined" ? "See what is left on New research or in Ask."
         : n.kind === "research_limit_reached" ? "Request more from your admin on New research."
         : n.kind === "research_failed" ? (n.reason ?? "Everything found so far is kept.")
+        : n.kind === "research_stalled" ? "Everything found so far is kept. Open the account to resume it."
         : "Open the account";
       return {
         id: n.id,
         text,
         meta,
         href: n.kind === "access_expiring" ? "/" : n.kind.startsWith("limit_request") || n.kind === "research_limit_reached" ? "/research/new" : n.account_domain ? `/accounts/${encodeURIComponent(n.account_domain)}` : "/accounts",
-        warn: n.kind === "research_failed" || n.kind === "access_expiring" || n.kind === "research_limit_reached" || n.kind === "limit_request_declined",
+        warn: n.kind === "research_failed" || n.kind === "research_stalled" || n.kind === "access_expiring" || n.kind === "research_limit_reached" || n.kind === "limit_request_declined",
       };
     });
   const recent = (threads?.threads ?? [])

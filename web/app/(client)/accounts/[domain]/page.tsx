@@ -10,6 +10,7 @@ import { LINK_REL, safeLink } from "@/lib/render";
 import { Grade, Pill, StateCard } from "@/ui/design";
 import { FilesCard } from "@/components/accounts/FilesCard";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
+import { LiveRefresh, ResumeResearch } from "@/components/accounts/ResumeResearch";
 
 export const dynamic = "force-dynamic";
 
@@ -77,9 +78,13 @@ export default async function AccountWorkspacePage({ params }: Params) {
           ws.open_job.status === "waiting_credit_limit" ? (
             <div className="banner" role="status">A refresh is waiting to start. You will be notified when it finishes.</div>
           ) : (
-            <div className="banner" role="status"><span className="pdot" aria-hidden="true" />Refreshing from the web: {SCOPE_NAME[ws.open_job.scope] ?? "research"}. You will be notified when it finishes.</div>
+            <div className="banner" role="status">
+              <span className="pdot" aria-hidden="true" />Refreshing from the web: {SCOPE_NAME[ws.open_job.scope] ?? "research"}.
+              {ws.open_job.steps_total ? ` ${ws.open_job.steps_done} of ${ws.open_job.steps_total} steps done.` : ""} You will be notified when it finishes.
+              <LiveRefresh />
+            </div>
           )
-        ) : null}
+        ) : ws.stopped_run ? <ResumeResearch stopped={ws.stopped_run} /> : null}
 
         <section className="card pad-lg stack-10" aria-labelledby="omv">
           <div className="lbl" id="omv">The one minute version</div>

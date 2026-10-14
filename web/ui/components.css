@@ -476,3 +476,19 @@ table.xl th span.th { color: var(--text-3); }
 .num-input { width: 96px; }
 .cols-users-limits { grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); min-height: 64px; padding: 0 22px; }
 .limits-edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 12px 22px 16px; border-top: 1px solid var(--line-soft); background: var(--row-hover); }
+
+/* ---------- Files being added (DocumentDrop): bytes sent, parts read, failed parts ---------- */
+.uploads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.uploads > li { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.uploads > li:last-child { border-bottom: 0; }
+.uploads .sub { display: block; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.uploads > li.file-row { flex-direction: column; align-items: stretch; }
+.file-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.file-head > div:first-child { min-width: 0; flex: 1 1 200px; }
+.upload-bar { display: block; width: 100%; height: 6px; border: 0; border-radius: 3px; background: var(--line-soft); overflow: hidden; appearance: none; }
+.upload-bar::-webkit-progress-bar { background: var(--line-soft); border-radius: 3px; }
+.upload-bar::-webkit-progress-value { background: var(--accent); border-radius: 3px; }
+.upload-bar::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
+.part-fails { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.part-fails > li { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.part-fails .link-btn { min-height: 40px; }

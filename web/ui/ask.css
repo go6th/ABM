@@ -29,7 +29,8 @@
 }
 .menu.down { top: calc(100% + 6px); bottom: auto; }
 .menu button { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 12px; border-radius: var(--r-seg); border: 0; background: none; font-size: 14px; color: var(--text-3); text-align: left; }
-.menu button:hover, .menu button:focus-visible { background: var(--hover-soft); }
+.menu a { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 12px; border-radius: var(--r-seg); font-size: 14px; color: var(--text-3); text-decoration: none; white-space: nowrap; }
+.menu button:hover, .menu button:focus-visible, .menu a:hover, .menu a:focus-visible { background: var(--hover-soft); }
 .menu button[aria-checked="true"] { color: var(--ink); font-weight: 600; }
 
 .ask-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 36px 48px 12px; scroll-behavior: smooth; }
@@ -88,3 +89,7 @@
 .model-menu button[aria-disabled="true"] { cursor: not-allowed; }
 .model-menu button[aria-disabled="true"] .model-name { color: var(--muted); }
 .model-menu button[aria-disabled="true"]:hover { background: none; }
+
+/* An empty workspace: the two first steps under the composer (owner decision 2026-10-14) */
+.first-steps { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 18px; }
+.first-steps .btn { min-height: 40px; }

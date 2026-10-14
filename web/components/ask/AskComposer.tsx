@@ -1,5 +1,6 @@
 "use client";
-// The composer: the question field (Enter sends), then "+" (upload a file), the Accounts chip
+// The composer: the question field (Enter sends), then "+" (a menu with the two ways to add files,
+// owner decision 2026-10-14: "Add files" and "Connect Google Drive"), the Accounts chip
 // (all accounts or one), the Search toggle, the model chip (the conversation's analysis model)
 // and Ask. Answers come from the workspace. With Search
 // on, the question becomes a web research topic for the chosen account and opens its Refresh
@@ -12,6 +13,42 @@ import { ModelMenu } from "@/components/ModelMenu";
 import type { ModelChoices } from "@/lib/gen/api.gen";
 
 export interface ScopeAccount { id: string; domain: string; name: string }
+
+/** "+": the same two choices as New research's file tab. */
+function AddFilesMenu() {
+  const menuId = useId();
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    wrap.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const onDown = (event: MouseEvent) => { if (wrap.current && !wrap.current.contains(event.target as Node)) setOpen(false); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setOpen(false); button.current?.focus(); }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        const items = Array.from(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+        const i = items.indexOf(document.activeElement as HTMLElement);
+        items[(i + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+        event.preventDefault();
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  return (
+    <div className="menu-wrap" ref={wrap}>
+      <button ref={button} type="button" className="chipa plus" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} aria-label="Add files" title="Add files" onClick={() => setOpen((v) => !v)}>+</button>
+      {open ? (
+        <div className="menu" role="menu" id={menuId} aria-label="Add files">
+          <Link role="menuitem" href="/research/new?tab=file" prefetch={false}>Add files</Link>
+          <Link role="menuitem" href="/research/new?tab=file&source=drive" prefetch={false}>Connect Google Drive</Link>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function AskComposer({
   variant, draft, onDraft, onSend, busy, accounts, scope, onScope, placeholder, menuDown = false, webHintOpen, onWebHint,
@@ -107,9 +144,7 @@ export function AskComposer({
         onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
       />
       <div className="bar">
-        {variant !== "account" ? (
-          <Link className="chipa plus" href="/research/new?tab=file" prefetch={false} aria-label="Upload a file" title="Upload a file">+</Link>
-        ) : null}
+        {variant !== "account" ? <AddFilesMenu /> : null}
         {onScope ? (
           <div className="menu-wrap" ref={wrap}>
             <button

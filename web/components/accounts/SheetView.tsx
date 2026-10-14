@@ -1,6 +1,6 @@
 "use client";
-// A deep-dive table as the design draws it: filter chips with counts, Expand or Shrink, Open in
-// Excel, then the spreadsheet (caption, sticky header, row numbers, sortable headings with
+// A deep-dive table as the design draws it: filter chips with counts, Expand or Shrink, Download
+// CSV and Open in Excel (every row under the chosen filter and sort, never cut), then the spreadsheet (caption, sticky header, row numbers, sortable headings with
 // arrows). Chips and headings are links, so filtering and sorting always run on the server.
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -69,6 +69,7 @@ export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: strin
         <button type="button" className="btn sm" aria-pressed={big} onClick={() => setBig((v) => !v)} disabled={!sheet.rows.length}>
           {big ? "Shrink" : "Expand"}
         </button>
+        {all ? <a className="btn sm" href={excel.replace("/xlsx?", "/csv?")} download>Download CSV</a> : <span className="btn sm" aria-disabled="true">Download CSV</span>}
         {all ? <a className="btn primary sm" href={excel} download>Open in Excel</a> : <span className="btn primary sm" aria-disabled="true">Open in Excel</span>}
       </div>
       <div className="card clip">

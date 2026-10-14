@@ -8,6 +8,7 @@
 // and the workspace's own answer streams instead. A failed question stays on screen with its
 // error and a Retry. The thread id goes into the address with history.replaceState, so the
 // component is never remounted mid-chat.
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiStream, ApiError } from "@/lib/api";
@@ -194,11 +195,19 @@ export function Ask({
           <div className="hero">
             <h1>What do you want to know?</h1>
             <p className="lead">
-              Ask across your {accounts.length} account{accounts.length === 1 ? "" : "s"}. Answers come from your workspace unless you choose the web.
+              {accounts.length
+                ? `Ask across your ${accounts.length} account${accounts.length === 1 ? "" : "s"}. Answers come from your workspace unless you choose the web.`
+                : "Your workspace is empty. Start with an account or your own files; answers then come from them."}
             </p>
           </div>
           <AskComposer variant="hero" placeholder={PLACEHOLDER} menuDown {...composerProps} />
           {limitLine}
+          {accounts.length ? null : (
+            <nav className="first-steps" aria-label="First steps">
+              <Link className="btn primary" href="/accounts/add" prefetch={false}>Add your first account</Link>
+              <Link className="btn" href="/research/new?tab=file" prefetch={false}>Add files</Link>
+            </nav>
+          )}
         </div>
       </div>
     );

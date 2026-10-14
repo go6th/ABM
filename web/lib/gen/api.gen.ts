@@ -128,9 +128,20 @@ export const OpenJob = z.object({
   "kind": z.string(),
   "scope": z.string(),
   "status": z.string(),
+  "steps_done": z.number().int().optional(),
+  "steps_total": z.number().int().optional(),
   "topic": z.string().nullable().optional(),
 }).strict();
 export type OpenJob = z.infer<typeof OpenJob>;
+
+export const StoppedRun = z.object({
+  "reason": z.string(),
+  "run_id": z.string(),
+  "stalled": z.boolean(),
+  "steps_done": z.number().int(),
+  "steps_total": z.number().int(),
+}).strict();
+export type StoppedRun = z.infer<typeof StoppedRun>;
 
 export const AccountWorkspace = z.object({
   "cadence": z.string().optional(),
@@ -151,6 +162,7 @@ export const AccountWorkspace = z.object({
   "new_signals": z.number().int().optional(),
   "open_job": OpenJob.nullable().optional(),
   "state": z.string().optional(),
+  "stopped_run": StoppedRun.nullable().optional(),
   "subline": z.string(),
 }).strict();
 export type AccountWorkspace = z.infer<typeof AccountWorkspace>;
@@ -721,12 +733,16 @@ export const ConsoleDefaults = z.object({
   "fastest_schedule": z.string(),
   "idle_expiry_days": z.number().int(),
   "limit_reset": z.string(),
+  "max_file_bytes": z.number().int(),
   "model_router_on": z.boolean(),
   "models": z.array(ConsoleModel),
   "monthly_credit_pool": z.number().int(),
+  "repeat_call_limit": z.number().int(),
   "research_limit_default": z.number().int(),
+  "run_dollar_cap_usd": z.number(),
   "skill_installed": z.boolean(),
   "skill_version": z.string(),
+  "stall_after_s": z.number().int(),
   "updated_at": z.string(),
   "updated_by": z.string(),
 }).strict();
@@ -928,8 +944,12 @@ export const DefaultsChange = z.object({
   "fastest_schedule": z.string().nullable().optional(),
   "idle_expiry_days": z.string().nullable().optional(),
   "limit_reset": z.string().nullable().optional(),
+  "max_file_bytes": z.number().int().nullable().optional(),
   "monthly_credit_pool": z.number().int().nullable().optional(),
+  "repeat_call_limit": z.number().int().nullable().optional(),
   "research_limit_default": z.number().int().nullable().optional(),
+  "run_dollar_cap_usd": z.number().nullable().optional(),
+  "stall_after_s": z.number().int().nullable().optional(),
 }).strict();
 export type DefaultsChange = z.infer<typeof DefaultsChange>;
 
@@ -992,6 +1012,12 @@ export const DocumentFlag = z.object({
 }).strict();
 export type DocumentFlag = z.infer<typeof DocumentFlag>;
 
+export const DocumentPartFailure = z.object({
+  "part": z.number().int(),
+  "reason": z.string(),
+}).strict();
+export type DocumentPartFailure = z.infer<typeof DocumentPartFailure>;
+
 export const DocumentStatus = z.object({
   "account_id": z.string().nullable(),
   "authoritative": z.boolean(),
@@ -1003,6 +1029,9 @@ export const DocumentStatus = z.object({
   "message": z.string().nullable(),
   "name": z.string(),
   "needs_company": z.boolean(),
+  "parts_done": z.number().int(),
+  "parts_failed": z.array(DocumentPartFailure),
+  "parts_total": z.number().int(),
   "passages": z.number().int(),
   "reason": z.string().nullable(),
   "redaction_tier": z.string().nullable(),
@@ -1036,15 +1065,37 @@ export const DocumentTask = z.object({
 export type DocumentTask = z.infer<typeof DocumentTask>;
 
 export const DocumentUploadStarted = z.object({
+  "chunk_bytes": z.number().int(),
   "direct": z.boolean(),
   "document_id": z.string(),
   "expires_at": z.string(),
   "headers": z.record(z.string(), z.string()),
   "max_bytes": z.number().int(),
   "method": z.string(),
+  "protocol": z.string(),
   "upload_url": z.string(),
 }).strict();
 export type DocumentUploadStarted = z.infer<typeof DocumentUploadStarted>;
+
+export const DownloadPart = z.object({
+  "bytes": z.number().int(),
+  "n": z.number().int(),
+  "name": z.string(),
+  "url": z.string(),
+}).strict();
+export type DownloadPart = z.infer<typeof DownloadPart>;
+
+export const DownloadJob = z.object({
+  "domain": z.string(),
+  "failure": z.string().nullable(),
+  "files": z.number().int(),
+  "job_id": z.string(),
+  "links_expire_at": z.string().nullable(),
+  "parts": z.array(DownloadPart),
+  "status": z.string(),
+  "total_bytes": z.number().int(),
+}).strict();
+export type DownloadJob = z.infer<typeof DownloadJob>;
 
 export const EmailBody = z.object({
   "email": z.string(),
@@ -1072,6 +1123,11 @@ export const EstimateBody = z.object({
   "enrich_public": z.boolean().optional(),
 }).strict();
 export type EstimateBody = z.infer<typeof EstimateBody>;
+
+export const EverythingBody = z.object({
+  "request_id": z.string(),
+}).strict();
+export type EverythingBody = z.infer<typeof EverythingBody>;
 
 export const ExportBody = z.object({
   "domain": z.string(),
@@ -2054,6 +2110,16 @@ export const ResearchJobTask = z.object({
 }).strict();
 export type ResearchJobTask = z.infer<typeof ResearchJobTask>;
 
+export const ResearchResumed = z.object({
+  "domain": z.string(),
+  "job_id": z.string(),
+  "resumes_run_id": z.string(),
+  "status": z.string(),
+  "steps_done": z.number().int(),
+  "steps_total": z.number().int(),
+}).strict();
+export type ResearchResumed = z.infer<typeof ResearchResumed>;
+
 export const ResearchStarted = z.object({
   "credits": z.number().int(),
   "domain": z.string(),
@@ -2067,6 +2133,12 @@ export const ResetPasswordBody = z.object({
   "token": z.string(),
 }).strict();
 export type ResetPasswordBody = z.infer<typeof ResetPasswordBody>;
+
+export const ResumeBody = z.object({
+  "request_id": z.string(),
+  "run_id": z.string(),
+}).strict();
+export type ResumeBody = z.infer<typeof ResumeBody>;
 
 export const RowSource = z.object({
   "code": z.string().nullable(),
@@ -2169,6 +2241,7 @@ export const RunStatusView = z.object({
   "input_mode": z.string().optional(),
   "linked_run_id": z.string().nullable().optional(),
   "missing": z.array(MissingRow).optional(),
+  "models_line": z.string().nullable().optional(),
   "reason": z.string().nullable(),
   "run_id": z.string(),
   "source_label": z.string().optional(),
@@ -2895,6 +2968,17 @@ export const KNOWN_VALUES = {
     "monthly",
     "never"
   ],
+  "DocumentUploadStarted.protocol": [
+    "resumable",
+    "single"
+  ],
+  "DownloadJob.status": [
+    "queued",
+    "running",
+    "ready",
+    "failed",
+    "expired"
+  ],
   "ExportBody.kind": [
     "files",
     "csv",
@@ -3142,11 +3226,13 @@ export const operations = {
   "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountDetail },
   "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
   "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "POST /v1/accounts/{domain}/download-everything": { method: "POST", path: "/v1/accounts/{domain}/download-everything", plane: "tenant", status: 202, request: EverythingBody, requestRequired: true, response: DownloadJob },
   "GET /v1/accounts/{domain}/file-analysis": { method: "GET", path: "/v1/accounts/{domain}/file-analysis", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAnalysisRun },
   "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, request: null, requestRequired: false, response: History },
   "GET /v1/accounts/{domain}/refresh": { method: "GET", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 200, request: null, requestRequired: false, response: RefreshOptions },
   "POST /v1/accounts/{domain}/refresh": { method: "POST", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 201, request: RefreshBody, requestRequired: true, response: RefreshStarted },
   "GET /v1/accounts/{domain}/sheets/{sheet}": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}", plane: "tenant", status: 200, request: null, requestRequired: false, response: Sheet },
+  "GET /v1/accounts/{domain}/sheets/{sheet}/csv": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/csv", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/sheets/{sheet}/xlsx": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/xlsx", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/tables/{table}": { method: "GET", path: "/v1/accounts/{domain}/tables/{table}", plane: "tenant", status: 200, request: null, requestRequired: false, response: TablePage },
   "GET /v1/accounts/{domain}/workspace": { method: "GET", path: "/v1/accounts/{domain}/workspace", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountWorkspace },
@@ -3198,7 +3284,10 @@ export const operations = {
   "POST /v1/documents/{document_id}/authoritative": { method: "POST", path: "/v1/documents/{document_id}/authoritative", plane: "tenant", status: 200, request: account_intelligence__api__routes__documents__FlagBody, requestRequired: true, response: DocumentFlag },
   "POST /v1/documents/{document_id}/complete": { method: "POST", path: "/v1/documents/{document_id}/complete", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
   "PUT /v1/documents/{document_id}/content": { method: "PUT", path: "/v1/documents/{document_id}/content", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentReceived },
+  "POST /v1/documents/{document_id}/parts/{part}/retry": { method: "POST", path: "/v1/documents/{document_id}/parts/{part}/retry", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
   "GET /v1/documents/{document_id}/status": { method: "GET", path: "/v1/documents/{document_id}/status", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
+  "GET /v1/downloads/{job_id}": { method: "GET", path: "/v1/downloads/{job_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: DownloadJob },
+  "GET /v1/downloads/{job_id}/parts/{n}": { method: "GET", path: "/v1/downloads/{job_id}/parts/{n}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/exports": { method: "GET", path: "/v1/exports", plane: "tenant", status: 200, request: null, requestRequired: false, response: ExportPackages },
   "POST /v1/exports": { method: "POST", path: "/v1/exports", plane: "tenant", status: 201, request: ExportBody, requestRequired: true, response: ExportPackage },
   "GET /v1/exports/{package_id}": { method: "GET", path: "/v1/exports/{package_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ExportPackage },
@@ -3233,6 +3322,7 @@ export const operations = {
   "POST /v1/notifications/{notification_id}/read": { method: "POST", path: "/v1/notifications/{notification_id}/read", plane: "tenant", status: 200, request: null, requestRequired: false, response: NotificationRead },
   "POST /v1/research": { method: "POST", path: "/v1/research", plane: "tenant", status: 201, request: ResearchBody, requestRequired: true, response: ResearchStarted },
   "GET /v1/research/estimate": { method: "GET", path: "/v1/research/estimate", plane: "tenant", status: 200, request: null, requestRequired: false, response: ResearchEstimate },
+  "POST /v1/research/resume": { method: "POST", path: "/v1/research/resume", plane: "tenant", status: 201, request: ResumeBody, requestRequired: true, response: ResearchResumed },
   "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunPage },
   "POST /v1/runs": { method: "POST", path: "/v1/runs", plane: "tenant", status: 202, request: RunBody, requestRequired: true, response: RunCreated },
   "GET /v1/runs/pull-option": { method: "GET", path: "/v1/runs/pull-option", plane: "tenant", status: 200, request: null, requestRequired: false, response: PullOption },
