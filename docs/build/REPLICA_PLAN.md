@@ -223,6 +223,7 @@ the wallet. (Reversible: the pool can be moved onto the wallet later.)
 | 2. Accounts and Account workspace | Done; checked against PDF pages 2 and 3 and the HTML at 1360px and 375px. |
 | 3. Deep-dive tables | Done; People checked against the HTML (07) and PDF page 8 chip counts; the six other tables use the same view. Frame fills the screen; phone hint for columns off to the right. |
 | 4. Credits, pool and Refresh from web | Done; Refresh checked against PDF page 5 and the HTML (04). Runs use the hermetic engine until the research skill exists. |
+| 5. Schedules and the scheduler | Done; checked against PDF page 6 and the HTML (05). |
 
 Step 1 in detail:
 - Tokens, Hanken Grotesk (self-hosted latin woff2 with its OFL licence), components, user and admin shells, sign-in pages restyled.
@@ -289,3 +290,19 @@ Step 4 in detail:
   estimate, credits short, feature off, one open refresh, redelivered job charged once, settle
   capped at the reserve, failed engine releases everything, two confirms racing for the last
   credits); isolation probes for the five new routes and the research-job task.
+
+Step 5 in detail:
+- `GET /v1/schedules` and `PUT /v1/schedules/{account_id}`: one row per account with its next
+  refresh, the options the client allows (faster than "fastest allowed schedule" is refused with
+  the reason), the estimated credits a month at these settings (each account's refreshes a month
+  times its own estimate, to the nearest ten) and the pool. A change saves at once.
+- `POST /tasks/schedules-tick` (Cloud Scheduler, every 15 minutes, in production): due accounts come
+  from the identifier-only lookup `due_scheduled_refreshes` (migration 0055); each is reserved from
+  its client's pool in that client's transaction, scope from `accounts.refresh_scope` (full by
+  default). A pool that cannot cover it leaves the job `waiting_credit_limit` (the account shows
+  "Waiting: credit limit" and its owner is told); `tenants_with_waiting_jobs` lets the next tick
+  start it once the pool has room, for example on the 1st. The next refresh moves on by the cadence
+  either way.
+- Finding for the owner: at the placeholder credit costs the demo's schedules would use about
+  3,240 credits a month against a 2,000 pool (the design shows "about 340"). Real credit values will
+  change this.

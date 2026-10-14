@@ -56,7 +56,7 @@ async def _pool(tenant: UUID) -> dict[str, Any]:
         return await CR.pool(s, datetime.now(UTC))
 
 
-def test_rates_and_conversion_come_from_one_config() -> None:
+async def test_rates_and_conversion_come_from_one_config() -> None:
     rates = CR.rates()
     assert rates.credit_value_usd > 0
     assert {"jobs", "people", "full", "new_research", "file_public"} <= set(rates.estimates)

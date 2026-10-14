@@ -298,6 +298,8 @@ functions:
   runs_orphaned: {returns: (tenant_id, run_id) pairs only, proof: tests/system/test_durable_runs.py}
   research_files_orphaned: {returns: (tenant_id, file_id) pairs only, proof: tests/research_files/test_pipeline_db.py}
   documents_orphaned: {returns: (tenant_id, document_id) pairs only, proof: tests/documents/test_documents_db.py}
+  due_scheduled_refreshes: {returns: (tenant_id, account_id) pairs only, proof: tests/replica/test_schedules.py}
+  tenants_with_waiting_jobs: {returns: tenant_id identifiers only, proof: tests/replica/test_schedules.py}
   erase_rows:
     returns: a row count; the caller's context tenant only, allow-listed tables, approved requests
     proof: tests/phase3/test_ws1_tenancy.py
@@ -376,6 +378,8 @@ routes:
     params: {domain: accounts.domain}
     body: {request_id: "00000000-0000-4000-8000-000000000003", scope: jobs, credits: 20}
   GET /v1/notifications: {probe: tenant}
+  GET /v1/schedules: {probe: tenant}
+  PUT /v1/schedules/{account_id}: {probe: tenant, params: {account_id: accounts.id}, body: {cadence: weekly}}
   POST /v1/notifications/{notification_id}/read: {probe: tenant, params: {notification_id: notifications.id}}
   GET /v1/accounts/{domain}/sheets/{sheet}:
     probe: tenant
@@ -694,6 +698,7 @@ routes:
   POST /tasks/file-process: {probe: machine, body: {tenant_id: owner, file_id: research_files.id}}
   POST /tasks/document-process: {probe: machine, body: {tenant_id: owner, document_id: documents.id}}
   POST /tasks/research-job: {probe: machine, body: {tenant_id: owner, job_id: research_jobs.id}}
+  POST /tasks/schedules-tick: {probe: machine, body: {}}
 # Storage layouts (tenancy.catalog.STORAGE_LAYOUTS): a sample key of tenant A must resolve to A,
 # never to B, and a download token for it must be refused in B's session.
 storage:
