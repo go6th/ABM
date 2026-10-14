@@ -7,7 +7,7 @@
 # provider and the deployer service account are environment variables (see docs/deploy/agents/
 # ci-and-images.md for every name).
 #
-# Rollback scope: traffic and the worker job return to the previous revision. Migrations are
+# Rollback scope: api, web and worker traffic, and the spend-invariants job image, return to the previous revision. Migrations are
 # forward-only (expand, then contract in a later release), so the previous code must work on the
 # new schema; docs/runbooks/database.md covers restoring data.
 name: _deploy
@@ -49,7 +49,8 @@ jobs:
       ARTIFACT_REGISTRY: ${{ vars.ARTIFACT_REGISTRY }}
       CLOUD_RUN_API_SERVICE: ${{ vars.CLOUD_RUN_API_SERVICE }}
       CLOUD_RUN_WEB_SERVICE: ${{ vars.CLOUD_RUN_WEB_SERVICE }}
-      CLOUD_RUN_RUN_JOB: ${{ vars.CLOUD_RUN_RUN_JOB }}
+      CLOUD_RUN_WORKER_SERVICE: ${{ vars.CLOUD_RUN_WORKER_SERVICE }}
+      CLOUD_RUN_SPEND_JOB: ${{ vars.CLOUD_RUN_SPEND_JOB }}
       CLOUD_RUN_MIGRATE_JOB: ${{ vars.CLOUD_RUN_MIGRATE_JOB }}
       APP_URL: ${{ vars.APP_URL }}
       SHA: ${{ inputs.sha }}
@@ -96,7 +97,8 @@ jobs:
           {
             echo "api_revision=$(describe "$CLOUD_RUN_API_SERVICE" status.latestReadyRevisionName)"
             echo "web_revision=$(describe "$CLOUD_RUN_WEB_SERVICE" status.latestReadyRevisionName)"
-            echo "worker_image=$(gcloud run jobs describe "$CLOUD_RUN_RUN_JOB" --project "$GCP_PROJECT_ID" \
+            echo "worker_revision=$(describe "$CLOUD_RUN_WORKER_SERVICE" status.latestReadyRevisionName)"
+            echo "spend_job_image=$(gcloud run jobs describe "$CLOUD_RUN_SPEND_JOB" --project "$GCP_PROJECT_ID" \
               --region "$GCP_REGION" --format='value(template.template.containers[0].image)')"
           } >> "$GITHUB_OUTPUT"
 
@@ -130,12 +132,14 @@ jobs:
           # Secrets and runtime settings are wired to Secret Manager by Terraform; none is passed here.
           gcloud run jobs update "$CLOUD_RUN_MIGRATE_JOB" "${common[@]}" --image "$API_REF" --quiet
           gcloud run jobs execute "$CLOUD_RUN_MIGRATE_JOB" "${common[@]}" --wait
-          gcloud run jobs update "$CLOUD_RUN_RUN_JOB" "${common[@]}" --image "$WORKER_REF" --quiet
+          gcloud run jobs update "$CLOUD_RUN_SPEND_JOB" "${common[@]}" --image "$WORKER_REF" --quiet
+          gcloud run services update "$CLOUD_RUN_WORKER_SERVICE" "${common[@]}" --image "$WORKER_REF" --quiet
           gcloud run services update "$CLOUD_RUN_API_SERVICE" "${common[@]}" --image "$API_REF" --quiet
           gcloud run services update "$CLOUD_RUN_WEB_SERVICE" "${common[@]}" --image "$WEB_REF" --quiet
           # After an earlier rollback traffic is pinned to a named revision; send it to the new one.
           gcloud run services update-traffic "$CLOUD_RUN_API_SERVICE" "${common[@]}" --to-latest --quiet
           gcloud run services update-traffic "$CLOUD_RUN_WEB_SERVICE" "${common[@]}" --to-latest --quiet
+          gcloud run services update-traffic "$CLOUD_RUN_WORKER_SERVICE" "${common[@]}" --to-latest --quiet
 
       - name: Smoke tests (health, sign-in page, isolation probe, deployed digest, packaging import check)
         id: smoke
@@ -150,13 +154,15 @@ jobs:
         env:
           PREVIOUS_API: ${{ steps.previous.outputs.api_revision }}
           PREVIOUS_WEB: ${{ steps.previous.outputs.web_revision }}
-          PREVIOUS_WORKER_IMAGE: ${{ steps.previous.outputs.worker_image }}
+          PREVIOUS_WORKER: ${{ steps.previous.outputs.worker_revision }}
+          PREVIOUS_SPEND_JOB_IMAGE: ${{ steps.previous.outputs.spend_job_image }}
         run: |
           common=(--project "$GCP_PROJECT_ID" --region "$GCP_REGION")
           gcloud run services update-traffic "$CLOUD_RUN_API_SERVICE" "${common[@]}" --to-revisions="${PREVIOUS_API}=100" --quiet
           gcloud run services update-traffic "$CLOUD_RUN_WEB_SERVICE" "${common[@]}" --to-revisions="${PREVIOUS_WEB}=100" --quiet
-          gcloud run jobs update "$CLOUD_RUN_RUN_JOB" "${common[@]}" --image "$PREVIOUS_WORKER_IMAGE" --quiet
-          echo "::error::deploy failed; traffic returned to ${PREVIOUS_API} and ${PREVIOUS_WEB}"
+          gcloud run services update-traffic "$CLOUD_RUN_WORKER_SERVICE" "${common[@]}" --to-revisions="${PREVIOUS_WORKER}=100" --quiet
+          gcloud run jobs update "$CLOUD_RUN_SPEND_JOB" "${common[@]}" --image "$PREVIOUS_SPEND_JOB_IMAGE" --quiet
+          echo "::error::deploy failed; traffic returned to ${PREVIOUS_API}, ${PREVIOUS_WEB} and ${PREVIOUS_WORKER}"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         if: ${{ always() }}
