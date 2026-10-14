@@ -149,6 +149,10 @@ DEFAULT_FIELDS = (
     "enabled_models",
     "default_research_model",
     "default_analysis_model",
+    "max_file_bytes",
+    "run_dollar_cap_usd",
+    "repeat_call_limit",
+    "stall_after_s",
     "research_limit_default",
     "chat_limit_default",
     "limit_reset",
@@ -220,7 +224,8 @@ async def defaults(session: Any) -> dict[str, Any]:
                 "SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
                 " fastest_schedule, credit_cap_per_pull, enabled_models, default_research_model,"
                 " default_analysis_model, research_limit_default, chat_limit_default,"
-                " limit_reset, skill_version, updated_by, updated_at"
+                " limit_reset, max_file_bytes, run_dollar_cap_usd, repeat_call_limit,"
+                " stall_after_s, skill_version, updated_by, updated_at"
                 " FROM platform_defaults WHERE id = 1"
             )
         )

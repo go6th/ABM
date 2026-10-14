@@ -16,6 +16,7 @@ from account_intelligence.api.routes import (
     credits,
     crm,
     documents,
+    downloads,
     exports,
     feedback,
     health,
@@ -58,6 +59,7 @@ v1_router.include_router(schedules.router)
 v1_router.include_router(me.router)
 v1_router.include_router(model_choice.router)
 v1_router.include_router(limits.router)
+v1_router.include_router(downloads.router)
 v1_router.include_router(spend.router)
 v1_router.include_router(spend_v2.router)
 v1_router.include_router(sso.router)

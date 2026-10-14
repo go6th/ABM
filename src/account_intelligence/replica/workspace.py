@@ -326,13 +326,18 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
     job = (
         await session.execute(
             text(
-                "SELECT id, kind, scope, status, topic FROM research_jobs WHERE account_id = :a"
-                " AND status IN ('waiting_credit_limit', 'queued', 'running')"
-                " ORDER BY created_at DESC LIMIT 1"
+                "SELECT j.id, j.kind, j.scope, j.status, j.topic,"
+                " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id) AS total,"
+                " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id"
+                "   AND c.status IS NOT NULL) AS done"
+                " FROM research_jobs j WHERE j.account_id = :a"
+                " AND j.status IN ('waiting_credit_limit', 'queued', 'running')"
+                " ORDER BY j.created_at DESC LIMIT 1"
             ),
             {"a": account_id},
         )
     ).first()
+    stopped = None if job is not None else await stopped_run(session, account_id)
     last = (
         datetime.fromisoformat(acct["last_researched_at"]) if acct["last_researched_at"] else None
     )
@@ -362,7 +367,57 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
             "scope": job.scope,
             "status": job.status,
             "topic": job.topic,
+            "steps_done": int(job.done or 0),
+            "steps_total": int(job.total or 0),
         },
+        "stopped_run": stopped,
+    }
+
+
+STOP_TEXT = {
+    "DollarCapReached": "It reached the spending cap for one research.",
+    "RepeatedCallStopped": "It kept paying for the same search, so it was stopped.",
+    "worker_lost": "It was interrupted.",
+    "stalled": "It stopped making progress.",
+    "credit_cap_reached": "It reached its spending limit.",
+}
+
+
+async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
+    """The account's latest research when it stopped before finishing (PARTIAL or FAILED with a
+    reason other than a cancel) or stalled, with what it holds: the screen offers Resume research
+    (owner decision 2026-10-14). None when the latest research finished or is moving."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT r.id, r.status, r.finished_reason, r.stalled_at,"
+                " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = r.id) AS total,"
+                " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = r.id"
+                "   AND c.status IN ('done', 'none')) AS done"
+                " FROM account_runs r WHERE r.account_id = :a AND coalesce(r.input_mode,"
+                " 'company') = 'company' ORDER BY r.created_at DESC LIMIT 1"
+            ),
+            {"a": account_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    stalled = row.stalled_at is not None and row.status not in (
+        "COMPLETED", "PARTIAL", "FAILED", "CANCELED", "BUDGET_EXCEEDED"
+    )  # fmt: skip
+    ended_early = row.status in ("PARTIAL", "FAILED", "BUDGET_EXCEEDED")
+    stopped = ended_early and row.finished_reason not in (
+        None, "completed", "canceled", "user_canceled"
+    )  # fmt: skip
+    if not (stalled or stopped):
+        return None
+    reason = "stalled" if stalled else str(row.finished_reason)
+    return {
+        "run_id": str(row.id),
+        "stalled": stalled,
+        "reason": STOP_TEXT.get(reason, "It stopped before finishing."),
+        "steps_done": int(row.done),
+        "steps_total": int(row.total),
     }
 
 

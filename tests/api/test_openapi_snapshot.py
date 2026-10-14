@@ -32,6 +32,8 @@ NOT_JSON = {
     ("post", "/v1/chat/ask"),  # the Ask answer stream
     ("get", "/v1/accounts/{domain}/deliverables/download"),  # a file or a zip
     ("get", "/v1/accounts/{domain}/sheets/{sheet}/xlsx"),  # an Excel workbook
+    ("get", "/v1/accounts/{domain}/sheets/{sheet}/csv"),  # the whole table as CSV
+    ("get", "/v1/downloads/{job_id}/parts/{n}"),  # one zip part of Download everything
 }
 
 

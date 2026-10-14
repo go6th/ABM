@@ -397,13 +397,17 @@ async def _fetch_page_claimed(
     warnings: list[str],
 ) -> FetchedPage:
     """Claim, call or replay, finalise (one page)."""
+    from account_intelligence.connectors.spend_guard import query_key
+
+    dumped = args.model_dump(mode="json")
     key = CallKey(
-        args_hash=args_hash(provider, op, {"args": args.model_dump(mode="json"), "cursor": cursor}),
+        args_hash=args_hash(provider, op, {"args": dumped, "cursor": cursor}),
         tool=f"{provider}:{op}",
         provider_code=provider,
         operation=op,
         route=route,
         fell_back_from=fell_back_from,
+        query_key=query_key(provider, op, dumped) if cursor is None else None,
     )
     # D-31: a pre-pulled file registered for this operation is consumed instead of the paid call
     # (first page only; it is one complete page). No cap gate, no reservation, zero cost.

@@ -427,6 +427,7 @@ async def get_run(
             await s.execute(
                 text(
                     "SELECT r.status, r.finished_reason, r.stop_detail, r.input_mode, a.domain,"
+                    " r.models,"
                     " coalesce(r.run_input->>'linked_file_run', (SELECT c.id::text FROM"
                     " account_runs c WHERE c.run_input->>'linked_file_run' = r.id::text"
                     " LIMIT 1)) AS linked"
@@ -460,6 +461,7 @@ async def get_run(
         "input_mode": row.input_mode,
         "source_label": SOURCE_LABELS[row.input_mode],
         "linked_run_id": row.linked,
+        "models_line": models_line(row.models),
         "gate": (
             {"verdict": gate.verdict, "defects": list(gate.defects)[:50]}
             if gate is not None
@@ -785,3 +787,23 @@ def progress_config() -> dict[str, float]:
 
     raw = yaml.safe_load((CONFIG_DIR / "views.yaml").read_text())["progress"]
     return {k: float(v) for k, v in raw.items()}
+
+
+def models_line(raw: Any) -> str | None:
+    """The run's models in words, with any step served by a fallback (None: none recorded)."""
+    if not raw:
+        return None
+    from llm.choice import RunModels, catalogue
+
+    models = RunModels.from_json(raw)
+    cat = catalogue()
+
+    def name(model_id: str) -> str:
+        found = cat.get(model_id)
+        return found.label if found is not None else model_id
+
+    line = f"Research: {name(models.research)} · Analysis: {name(models.analysis)}"
+    if models.fallbacks:
+        steps = len(models.fallbacks)
+        line += f" · {steps} step{'s' if steps != 1 else ''} used {name(models.fallbacks[0]['to'])}"
+    return line

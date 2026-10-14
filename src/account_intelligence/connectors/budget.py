@@ -94,3 +94,11 @@ async def true_up(session: AsyncSession, run_id: UUID, delta_usd: float) -> None
         ),
         {"d": _money(delta_usd), "run": run_id},
     )
+
+
+async def touch(session: AsyncSession, run_id: UUID) -> None:
+    """The run made progress: its heartbeat (``account_runs.progress_at``, read by the stall
+    sweeper; owner decision 2026-10-14)."""
+    await session.execute(
+        text("UPDATE account_runs SET progress_at = now() WHERE id = :r"), {"r": run_id}
+    )

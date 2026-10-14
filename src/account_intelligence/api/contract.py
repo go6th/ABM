@@ -341,6 +341,16 @@ class DeliverableFiles(Out):
     files: list[DeliverableFile]
 
 
+class StoppedRun(Out):
+    """The account's latest research stopped before finishing, or stalled: Resume continues it."""
+
+    run_id: str
+    stalled: bool
+    reason: str
+    steps_done: int
+    steps_total: int
+
+
 class AccountWorkspace(AccountItem):
     """The Account workspace screen."""
 
@@ -352,6 +362,7 @@ class AccountWorkspace(AccountItem):
     counts: DeepDiveCounts
     files: list[DeliverableFile]
     open_job: OpenJob | None = None
+    stopped_run: StoppedRun | None = None
 
 
 class SheetColumn(Out):
@@ -429,6 +440,9 @@ class OpenJob(Out):
     scope: str
     status: str
     topic: str | None = None
+    # live progress: research steps reported so far, of the run's steps (0 before it starts)
+    steps_done: int = 0
+    steps_total: int = 0
 
 
 class TopicOption(Out):
@@ -479,6 +493,39 @@ class ResearchStarted(Out):
     status: str
     credits: int
     domain: str
+
+
+class DownloadPart(Out):
+    """One zip part of a Download everything archive, with its short-lived link."""
+
+    n: int
+    name: str
+    bytes: int
+    url: str
+
+
+class DownloadJob(Out):
+    """A Download everything archive: queued, running, ready (its parts), failed or expired."""
+
+    job_id: str
+    status: Literal["queued", "running", "ready", "failed", "expired"]
+    domain: str
+    files: int
+    total_bytes: int
+    failure: str | None
+    parts: list[DownloadPart]
+    links_expire_at: str | None
+
+
+class ResearchResumed(Out):
+    """Resume research: the new job, the stopped run it continues, and its steps already done."""
+
+    job_id: str
+    status: str
+    resumes_run_id: str
+    domain: str
+    steps_done: int
+    steps_total: int
 
 
 class LibraryOffer(Out):
@@ -717,6 +764,9 @@ class RunStatusView(Out):
     linked_run_id: str | None = None
     # the latest pre-delivery gate verdict (None: the gate has not run for this run)
     gate: GateSummary | None = None
+    # the models the run used, in words ("Research: Opus 5.5 · Analysis: Fable 5.1"), and any
+    # step a fallback served (owner decision 2026-10-14); None for a run from before the choice
+    models_line: str | None = None
 
 
 class CollectedFact(Out):
@@ -2029,7 +2079,8 @@ class FileState(Out):
 
 
 class DocumentUploadStarted(Out):
-    """Response body: where to PUT a document's bytes (a signed URL, or the API content route)."""
+    """Response body: where to send a document's bytes: a resumable storage session (chunks of
+    ``chunk_bytes`` with ``Content-Range``), or the API content route where the store has none."""
 
     document_id: str
     upload_url: str
@@ -2038,6 +2089,8 @@ class DocumentUploadStarted(Out):
     expires_at: str
     max_bytes: int
     direct: bool
+    protocol: Literal["resumable", "single"]
+    chunk_bytes: int
 
 
 class DocumentReceived(Out):
@@ -2045,6 +2098,13 @@ class DocumentReceived(Out):
 
     document_id: str
     received_bytes: int
+
+
+class DocumentPartFailure(Out):
+    """A part of a document that could not be read, and why (counted from 1)."""
+
+    part: int
+    reason: str
 
 
 class DocumentStatus(Out):
@@ -2067,6 +2127,9 @@ class DocumentStatus(Out):
     company: dict[str, Any] | None
     needs_company: bool
     created_at: str
+    parts_total: int
+    parts_done: int
+    parts_failed: list[DocumentPartFailure]
 
 
 class DocumentList(Out):
@@ -2503,6 +2566,10 @@ class ConsoleDefaults(Out):
     research_limit_default: int
     chat_limit_default: int
     limit_reset: Literal["monthly", "never"]
+    max_file_bytes: int
+    run_dollar_cap_usd: float
+    repeat_call_limit: int
+    stall_after_s: int
     model_router_on: bool
     skill_version: str
     skill_installed: bool

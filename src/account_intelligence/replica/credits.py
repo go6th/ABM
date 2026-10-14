@@ -220,6 +220,7 @@ async def reserve(
     one_open_per_account: bool = True,
     models: dict[str, Any] | None = None,
     enforce_pool: bool = True,
+    resume_from: UUID | None = None,
 ) -> tuple[UUID, str]:
     """Create the job and reserve its credits in the caller's transaction.
 
@@ -252,9 +253,9 @@ async def reserve(
             text(
                 "INSERT INTO research_jobs (account_id, kind, scope, status, period,"
                 " credits_estimated,"
-                " requested_by, request_id, from_turn_id, created_at, topic, models)"
+                " requested_by, request_id, from_turn_id, created_at, topic, models, resume_from)"
                 " VALUES (:a, :k, :s, :st, :p, :c, :by, :r, :t, :now, :topic,"
-                " CAST(:models AS jsonb)) RETURNING id"
+                " CAST(:models AS jsonb), :resume) RETURNING id"
             ),
             {
                 "a": account_id,
@@ -269,6 +270,7 @@ async def reserve(
                 "topic": topic,
                 "now": now,
                 "models": json.dumps(models) if models else None,
+                "resume": resume_from,
             },
         )
     ).scalar_one()
@@ -391,7 +393,7 @@ async def claim(session: Any, job_id: UUID, now: datetime) -> Any:
                 "UPDATE research_jobs SET status = 'running', started_at = :now"
                 " WHERE id = :j AND status = 'queued'"
                 " RETURNING id, account_id, kind, scope, credits_estimated, requested_by, topic,"
-                " models"
+                " models, resume_from"
             ),
             {"j": job_id, "now": now},
         )

@@ -129,6 +129,8 @@ created_owned:
   user_limits: a user's own research and chat limits when the admin changed them (0065)
   usage_periods: the researches and chats a user has used per period (0065)
   limit_requests: a user's requests for more researches or chats (0065)
+  document_parts: the parts of a document being read, owned by its owner (0066)
+  download_jobs: a user's "Download everything" archive builds (0068)
 
 tenant:
   # identity, access and the client's own settings

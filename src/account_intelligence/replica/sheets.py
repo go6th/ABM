@@ -548,7 +548,6 @@ def workbook(sheet: dict[str, Any], account_name: str) -> bytes:
     from openpyxl.utils import get_column_letter
 
     from exports.excel.common import text_cell
-    from exports.verify import scan_package
 
     shareable = not sheet["private"]
     withheld = 0
@@ -606,11 +605,18 @@ def workbook(sheet: dict[str, Any], account_name: str) -> bytes:
     book.save(out)
     data = out.getvalue()
     if shareable:
-        from documents.gate import client_text
-
-        failed = tuple(f"client_terms:{h.split(': ')[-1]}" for h in scan_package(data, ()))
-        if _GATE_DASHES.search(client_text(data)):
-            failed += ("client_dashes",)
-        if failed:
-            raise ExportBlocked(failed)
+        check_finished(data)
     return data
+
+
+def check_finished(data: bytes) -> None:
+    """The last check of a shareable workbook as a whole: no client term, no dash used as
+    punctuation (``ExportBlocked``)."""
+    from documents.gate import client_text
+    from exports.verify import scan_package
+
+    failed = tuple(f"client_terms:{h.split(': ')[-1]}" for h in scan_package(data, ()))
+    if _GATE_DASHES.search(client_text(data)):
+        failed += ("client_dashes",)
+    if failed:
+        raise ExportBlocked(failed)

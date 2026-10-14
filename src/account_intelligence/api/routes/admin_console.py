@@ -693,6 +693,10 @@ async def _defaults(request: Request) -> dict[str, Any]:
         "research_limit_default": int(d["research_limit_default"]),
         "chat_limit_default": int(d["chat_limit_default"]),
         "limit_reset": str(d["limit_reset"]),
+        "max_file_bytes": int(d["max_file_bytes"]),
+        "run_dollar_cap_usd": float(d["run_dollar_cap_usd"]),
+        "repeat_call_limit": int(d["repeat_call_limit"]),
+        "stall_after_s": int(d["stall_after_s"]),
         "model_router_on": getattr(request.app.state.container, "router", None) is not None,
         "skill_version": _skill_version(),
         "skill_installed": SKILL_DIR.is_dir(),
@@ -723,6 +727,12 @@ class DefaultsChange(BaseModel):
     research_limit_default: int | None = Field(default=None, ge=0, le=100_000)
     chat_limit_default: int | None = Field(default=None, ge=0, le=1_000_000)
     limit_reset: Literal["monthly", "never"] | None = None
+    # the largest file a user may add (1 MiB to 5 TiB; default 20 GiB)
+    max_file_bytes: int | None = Field(default=None, ge=1 << 20, le=5 << 40)
+    # the hard limits of one run (connectors.spend_guard): dollars, repeats of one query, stall
+    run_dollar_cap_usd: float | None = Field(default=None, ge=0.1, le=10_000)
+    repeat_call_limit: int | None = Field(default=None, ge=1, le=50)
+    stall_after_s: int | None = Field(default=None, ge=60, le=86_400)
 
 
 @router.put("/defaults", response_model=C.ConsoleDefaults)

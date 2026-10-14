@@ -151,6 +151,13 @@ class CloudTasksScheduler:
         payload = {"tenant_id": str(tenant_id), "job_id": str(job_id)}
         await self._create(self._task(f"job-{job_id}", "/tasks/research-job", payload, None))
 
+    async def enqueue_download(self, tenant_id: UUID, job_id: UUID) -> None:
+        """Create the archive job's named task (Download everything; one task per job)."""
+        payload = {"tenant_id": str(tenant_id), "job_id": str(job_id)}
+        await self._create(
+            self._task(f"download-{job_id}", "/tasks/download-everything", payload, None)
+        )
+
     async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
         """Create the run's approval-timeout task at the deadline."""
         payload = {"tenant_id": str(tenant_id), "run_id": str(run_id)}

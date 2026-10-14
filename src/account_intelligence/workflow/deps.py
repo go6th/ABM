@@ -138,6 +138,7 @@ class RunDeps:
         from llm.models import Scope
         from llm.prompts import prompt_hash
 
+        await self._spend_check()
         routed = await self.router(self).call(
             task_kind,
             system,
@@ -210,6 +211,7 @@ class RunDeps:
         model = self.chosen_model(tier, override)
         key_tier = self._cache_tier(tier, model)
         if not replayable:
+            await self._spend_check()
             await self._log_started(task_kind, tier, None, model)
             result = await self._complete(tier, system, user, max_tokens, model)
             await self._log_reply(task_kind, tier, result, "model", None, None)
@@ -243,6 +245,7 @@ class RunDeps:
                 )
                 await self._log_reply(task_kind, tier, result, "cache", shared_key, None)
                 return result
+        await self._spend_check()
         await self._log_started(task_kind, tier, shared_key, model)
         result = await self._complete(tier, system, user, max_tokens, model)
         if result.text.strip():  # an empty answer is not kept: a re-run asks again
@@ -255,6 +258,17 @@ class RunDeps:
         else:
             await self._log_reply(task_kind, tier, result, "model", shared_key, None)
         return result
+
+    async def _spend_check(self) -> None:
+        """The run's hard dollar cap before a paid model call: provider and model spend
+        together (``connectors.spend_guard``; ``DollarCapReached`` ends the run PARTIAL). Moves
+        the heartbeat."""
+        from account_intelligence.connectors import spend_guard
+
+        if self.txn is None:  # a unit test's deps: no database, no ledger to measure
+            return
+        async with self.txn(self.tenant_id) as s:
+            await spend_guard.check_cap(s, self.run_id)
 
     async def _log_started(
         self, task_kind: str, tier: str, shared_key: str | None, chosen: str | None = None
@@ -330,7 +344,9 @@ class RunDeps:
 
         try:
             if model is not None:
-                result: LlmResult = await self.llm.complete_as(
+                # the choice port (``platform.llm.ChoiceLlm``); ``chosen_model`` checked it exists
+                complete_as = getattr(self.llm, "complete_as")  # noqa: B009 - not on LlmPort
+                result: LlmResult = await complete_as(
                     model, tier, system, user, max_tokens=max_tokens
                 )
                 return result

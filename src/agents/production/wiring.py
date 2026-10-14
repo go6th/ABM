@@ -109,11 +109,14 @@ class RunDepsModel:
             return None
         role = "research" if tier in catalogue().research_tiers else "analysis"
         target = claude_default(role)
-        self.deps.models.fell_back(task_kind, chosen, target, "schema_invalid")
+        recorder = self.deps.models
+        if recorder is None:  # no run to record on
+            return target
+        recorder.fell_back(task_kind, chosen, target, "schema_invalid")
         from account_intelligence.runs import lifecycle
 
         async with self.deps.txn(self.deps.tenant_id) as s:
-            await lifecycle.record_models(s, self.deps.run_id, self.deps.models.as_json())
+            await lifecycle.record_models(s, self.deps.run_id, recorder.as_json())
         return target
 
 

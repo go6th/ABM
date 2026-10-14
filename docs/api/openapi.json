@@ -448,6 +448,16 @@
             "title": "State",
             "type": "string"
           },
+          "stopped_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoppedRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "subline": {
             "title": "Subline",
             "type": "string"
@@ -3418,6 +3428,10 @@
             "title": "Limit Reset",
             "type": "string"
           },
+          "max_file_bytes": {
+            "title": "Max File Bytes",
+            "type": "integer"
+          },
           "model_router_on": {
             "title": "Model Router On",
             "type": "boolean"
@@ -3433,9 +3447,17 @@
             "title": "Monthly Credit Pool",
             "type": "integer"
           },
+          "repeat_call_limit": {
+            "title": "Repeat Call Limit",
+            "type": "integer"
+          },
           "research_limit_default": {
             "title": "Research Limit Default",
             "type": "integer"
+          },
+          "run_dollar_cap_usd": {
+            "title": "Run Dollar Cap Usd",
+            "type": "number"
           },
           "skill_installed": {
             "title": "Skill Installed",
@@ -3444,6 +3466,10 @@
           "skill_version": {
             "title": "Skill Version",
             "type": "string"
+          },
+          "stall_after_s": {
+            "title": "Stall After S",
+            "type": "integer"
           },
           "updated_at": {
             "title": "Updated At",
@@ -3466,6 +3492,10 @@
           "research_limit_default",
           "chat_limit_default",
           "limit_reset",
+          "max_file_bytes",
+          "run_dollar_cap_usd",
+          "repeat_call_limit",
+          "stall_after_s",
           "model_router_on",
           "skill_version",
           "skill_installed",
@@ -4643,6 +4673,19 @@
             ],
             "title": "Limit Reset"
           },
+          "max_file_bytes": {
+            "anyOf": [
+              {
+                "maximum": 5497558138880.0,
+                "minimum": 1048576.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max File Bytes"
+          },
           "monthly_credit_pool": {
             "anyOf": [
               {
@@ -4656,6 +4699,19 @@
             ],
             "title": "Monthly Credit Pool"
           },
+          "repeat_call_limit": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repeat Call Limit"
+          },
           "research_limit_default": {
             "anyOf": [
               {
@@ -4668,6 +4724,32 @@
               }
             ],
             "title": "Research Limit Default"
+          },
+          "run_dollar_cap_usd": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.1,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Dollar Cap Usd"
+          },
+          "stall_after_s": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stall After S"
           }
         },
         "title": "DefaultsChange",
@@ -5034,6 +5116,26 @@
         "title": "DocumentList",
         "type": "object"
       },
+      "DocumentPartFailure": {
+        "additionalProperties": false,
+        "description": "A part of a document that could not be read, and why (counted from 1).",
+        "properties": {
+          "part": {
+            "title": "Part",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part",
+          "reason"
+        ],
+        "title": "DocumentPartFailure",
+        "type": "object"
+      },
       "DocumentPolicy": {
         "additionalProperties": false,
         "description": "Response body: the tenant's redaction tier.",
@@ -5142,6 +5244,21 @@
             "title": "Needs Company",
             "type": "boolean"
           },
+          "parts_done": {
+            "title": "Parts Done",
+            "type": "integer"
+          },
+          "parts_failed": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentPartFailure"
+            },
+            "title": "Parts Failed",
+            "type": "array"
+          },
+          "parts_total": {
+            "title": "Parts Total",
+            "type": "integer"
+          },
           "passages": {
             "title": "Passages",
             "type": "integer"
@@ -5202,7 +5319,10 @@
           "authoritative",
           "company",
           "needs_company",
-          "created_at"
+          "created_at",
+          "parts_total",
+          "parts_done",
+          "parts_failed"
         ],
         "title": "DocumentStatus",
         "type": "object"
@@ -5231,8 +5351,12 @@
       },
       "DocumentUploadStarted": {
         "additionalProperties": false,
-        "description": "Response body: where to PUT a document's bytes (a signed URL, or the API content route).",
+        "description": "Response body: where to send a document's bytes: a resumable storage session (chunks of\n``chunk_bytes`` with ``Content-Range``), or the API content route where the store has none.",
         "properties": {
+          "chunk_bytes": {
+            "title": "Chunk Bytes",
+            "type": "integer"
+          },
           "direct": {
             "title": "Direct",
             "type": "boolean"
@@ -5260,6 +5384,14 @@
             "title": "Method",
             "type": "string"
           },
+          "protocol": {
+            "enum": [
+              "resumable",
+              "single"
+            ],
+            "title": "Protocol",
+            "type": "string"
+          },
           "upload_url": {
             "title": "Upload Url",
             "type": "string"
@@ -5272,9 +5404,115 @@
           "headers",
           "expires_at",
           "max_bytes",
-          "direct"
+          "direct",
+          "protocol",
+          "chunk_bytes"
         ],
         "title": "DocumentUploadStarted",
+        "type": "object"
+      },
+      "DownloadJob": {
+        "additionalProperties": false,
+        "description": "A Download everything archive: queued, running, ready (its parts), failed or expired.",
+        "properties": {
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "links_expire_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Links Expire At"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/DownloadPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "ready",
+              "failed",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_bytes": {
+            "title": "Total Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "domain",
+          "files",
+          "total_bytes",
+          "failure",
+          "parts",
+          "links_expire_at"
+        ],
+        "title": "DownloadJob",
+        "type": "object"
+      },
+      "DownloadPart": {
+        "additionalProperties": false,
+        "description": "One zip part of a Download everything archive, with its short-lived link.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "n",
+          "name",
+          "bytes",
+          "url"
+        ],
+        "title": "DownloadPart",
         "type": "object"
       },
       "EmailBody": {
@@ -5378,6 +5616,22 @@
           "document_ids"
         ],
         "title": "EstimateBody",
+        "type": "object"
+      },
+      "EverythingBody": {
+        "additionalProperties": false,
+        "description": "Start Download everything. No tenant field.",
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "title": "EverythingBody",
         "type": "object"
       },
       "ExportBody": {
@@ -8842,6 +9096,16 @@
             "title": "Status",
             "type": "string"
           },
+          "steps_done": {
+            "default": 0,
+            "title": "Steps Done",
+            "type": "integer"
+          },
+          "steps_total": {
+            "default": 0,
+            "title": "Steps Total",
+            "type": "integer"
+          },
           "topic": {
             "anyOf": [
               {
@@ -10060,6 +10324,46 @@
         "title": "ResearchJobTask",
         "type": "object"
       },
+      "ResearchResumed": {
+        "additionalProperties": false,
+        "description": "Resume research: the new job, the stopped run it continues, and its steps already done.",
+        "properties": {
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "resumes_run_id": {
+            "title": "Resumes Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "steps_done": {
+            "title": "Steps Done",
+            "type": "integer"
+          },
+          "steps_total": {
+            "title": "Steps Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "resumes_run_id",
+          "domain",
+          "steps_done",
+          "steps_total"
+        ],
+        "title": "ResearchResumed",
+        "type": "object"
+      },
       "ResearchStarted": {
         "additionalProperties": false,
         "description": "Confirmed new research: its job, status, the credits reserved and the account.",
@@ -10112,6 +10416,28 @@
           "password"
         ],
         "title": "ResetPasswordBody",
+        "type": "object"
+      },
+      "ResumeBody": {
+        "additionalProperties": false,
+        "description": "Resume research: the stopped (or stalled) run to continue. No tenant field.",
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "request_id"
+        ],
+        "title": "ResumeBody",
         "type": "object"
       },
       "RowSource": {
@@ -10617,6 +10943,17 @@
             },
             "title": "Missing",
             "type": "array"
+          },
+          "models_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Models Line"
           },
           "reason": {
             "anyOf": [
@@ -11590,6 +11927,41 @@
           "kind"
         ],
         "title": "StartBody",
+        "type": "object"
+      },
+      "StoppedRun": {
+        "additionalProperties": false,
+        "description": "The account's latest research stopped before finishing, or stalled: Resume continues it.",
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "stalled": {
+            "title": "Stalled",
+            "type": "boolean"
+          },
+          "steps_done": {
+            "title": "Steps Done",
+            "type": "integer"
+          },
+          "steps_total": {
+            "title": "Steps Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "stalled",
+          "reason",
+          "steps_done",
+          "steps_total"
+        ],
+        "title": "StoppedRun",
         "type": "object"
       },
       "StoredCounts": {
@@ -16841,6 +17213,75 @@
         ]
       }
     },
+    "/v1/accounts/{domain}/download-everything": {
+      "post": {
+        "description": "Queue the archive build (see the module docstring).",
+        "operationId": "start_everything_v1_accounts__domain__download_everything_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EverythingBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Everything",
+        "tags": [
+          "downloads"
+        ]
+      }
+    },
     "/v1/accounts/{domain}/file-analysis": {
       "get": {
         "description": "The account's file analysis (the given run, else the latest file-mode run): its state,\nwhen it ran, how many files it read and whether public sources were added. 404 when the\naccount has none.",
@@ -17245,9 +17686,126 @@
         ]
       }
     },
+    "/v1/accounts/{domain}/sheets/{sheet}/csv": {
+      "get": {
+        "description": "Every row of the filtered, sorted table as CSV, streamed (an audited export).",
+        "operationId": "account_sheet_csv_v1_accounts__domain__sheets__sheet__csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sheet",
+            "required": true,
+            "schema": {
+              "title": "Sheet",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filter"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dir",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dir"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Sheet Csv",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
     "/v1/accounts/{domain}/sheets/{sheet}/xlsx": {
       "get": {
-        "description": "The filtered, sorted table as an Excel workbook (an audited export).",
+        "description": "Every row of the filtered, sorted table as an Excel workbook (an audited export; a table\nlonger than one Excel sheet continues on the next; ``replica.table_export``).",
         "operationId": "account_sheet_xlsx_v1_accounts__domain__sheets__sheet__xlsx_get",
         "parameters": [
           {
@@ -20494,6 +21052,75 @@
         ]
       }
     },
+    "/v1/documents/{document_id}/parts/{part}/retry": {
+      "post": {
+        "description": "Try a failed part again (``part`` counts from 1, as the screen shows it).",
+        "operationId": "retry_part_v1_documents__document_id__parts__part__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "part",
+            "required": true,
+            "schema": {
+              "title": "Part",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Part",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/v1/documents/{document_id}/status": {
       "get": {
         "description": "The document's status and detected company.",
@@ -20551,6 +21178,160 @@
         "summary": "Status",
         "tags": [
           "documents"
+        ]
+      }
+    },
+    "/v1/downloads/{job_id}": {
+      "get": {
+        "description": "The archive's status and, when ready, its parts with fresh short-lived links.",
+        "operationId": "download_status_v1_downloads__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Status",
+        "tags": [
+          "downloads"
+        ]
+      }
+    },
+    "/v1/downloads/{job_id}/parts/{n}": {
+      "get": {
+        "description": "One zip part, whole or a byte range (see the module docstring).",
+        "operationId": "download_part_v1_downloads__job_id__parts__n__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "n",
+            "required": true,
+            "schema": {
+              "title": "N",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 20,
+              "title": "Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Range"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Part",
+        "tags": [
+          "downloads"
         ]
       }
     },
@@ -22575,6 +23356,66 @@
           }
         },
         "summary": "Research Estimate",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/resume": {
+      "post": {
+        "description": "Continue a stopped research (owner decision 2026-10-14, Phase 4B section 4): a new run on\nthe same account, scope, topic and models that reuses every finished pull and model reply of\nthe stopped run at no cost (``run_input.resume_from``), so only the missing steps are paid\nfor. A stalled run is ended PARTIAL first, with everything it holds. It continues the research\nalready counted: it uses none of the user's researches. 409 when the run is still moving or\nfinished whole.",
+        "operationId": "resume_research_v1_research_resume_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchResumed"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resume Research",
         "tags": [
           "research"
         ]

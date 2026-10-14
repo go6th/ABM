@@ -22,6 +22,10 @@ Guarantees (ADR-0006; proven by tests/connectors/test_ledger_*.py):
   than the operation's TTL is adopted: this run gets its own ``tool_calls`` row (attempt 1, cost
   0, ``cost_source = 'cache'``, the same payload reference) and the call replays. A run started
   with ``reuse_cached = False`` never adopts.
+* **Hard limits (owner decision 2026-10-14).** A new paid attempt first passes the run's dollar
+  cap (provider and model spend together) and the repeated-query check
+  (``connectors.spend_guard``); either stop ends the run PARTIAL with everything kept. Every event
+  moves the run's heartbeat.
 * **Stale by time.** A ``started`` attempt of this very owner and epoch older than
   ``in_flight_stale_s`` cannot still be running (a worker restart that kept its lease); it is
   closed ``abandoned`` and re-issued once, flagged ``possible_duplicate``.
@@ -80,6 +84,8 @@ class CallKey:
     operation: str | None = None
     route: str | None = None
     fell_back_from: str | None = None
+    # the normalised query of a first-page call (``connectors.spend_guard.query_key``)
+    query_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -338,6 +344,18 @@ class Ledger:
                     if charge_budget:
                         await budget_mod.true_up(s, ctx.run_id, float(charged - last.reserved_usd))
             if charge_budget:
+                from account_intelligence.connectors import spend_guard
+
+                await spend_guard.check_cap(s, ctx.run_id, estimate_usd)
+                if key.query_key is not None and not attempts:
+                    await spend_guard.check_repeat(
+                        s,
+                        ctx.run_id,
+                        key.query_key,
+                        key.args_hash,
+                        str(key.provider_code),
+                        str(key.operation),
+                    )
                 await self._cap_gate(s, ctx, key, estimate_usd, cost_known)
                 await budget_mod.reserve(s, ctx.run_id, estimate_usd, self._budget_defaults)
             await self._insert_event(
@@ -780,9 +798,9 @@ class Ledger:
                 "INSERT INTO tool_call_events (run_id, args_hash, attempt, event, owner,"
                 " lease_epoch, provider_code, operation, route, fell_back_from, reserved_usd,"
                 " charged_usd, credits, provider_cost_usd, cost_source, http_status, latency_ms,"
-                " bytes, possible_duplicate, error_class, provider_job_id) "
+                " bytes, possible_duplicate, error_class, provider_job_id, query_key) "
                 "VALUES (:r, :h, :a, :ev, :o, :ep, :pc, :op, :route, :fb, :res, :chg, :cr,"
-                " :pcost, :csrc, :st, :lat, :b, :dup, :err, :job)"
+                " :pcost, :csrc, :st, :lat, :b, :dup, :err, :job, :qk)"
             ),
             {
                 "r": ctx.run_id,
@@ -808,8 +826,10 @@ class Ledger:
                 if error_class is not None
                 else (outcome.error_class if outcome else None),
                 "job": provider_job_id,
+                "qk": key.query_key if event == "started" else None,
             },
         )
+        await budget_mod.touch(s, ctx.run_id)
 
 
 DOCUMENT_PROVIDER = "p_docs"

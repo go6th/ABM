@@ -18,6 +18,7 @@ OWNED_ITEMS = {
     "file": "research_files",
     "document": "documents",
     "job": "research_jobs",
+    "download": "download_jobs",
 }
 
 

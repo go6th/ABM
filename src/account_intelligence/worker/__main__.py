@@ -86,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     from account_intelligence.worker.job import run_job
 
     async def as_owner() -> Any:
+        """Run the job as the run's owner (its rows are the owner's)."""
         await act_as_owner_of("run", args.tenant_id, args.run_id)
         return await run_job(args.tenant_id, args.run_id)
 

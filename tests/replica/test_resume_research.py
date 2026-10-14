@@ -1,0 +1,148 @@
+"""Research that never loses data (Phase 4B section 4): a run with no progress is marked stalled
+once and its owner told; Resume research continues a stopped or stalled run on the same account
+(reusing what it holds), says how many steps are already done, uses none of the user's
+researches, and refuses a run that is still moving or finished whole."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID, uuid4
+
+import psycopg
+import pytest
+
+from tests.conftest import ADMIN_DSN
+from tests.replica.test_workspace_api import _call, _plane
+
+pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
+
+
+def _db(sql: str, *params: object) -> list[Any]:
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        cur = c.execute(sql, params)
+        return cur.fetchall() if cur.description else []
+
+
+def _run(tenant: UUID, user: str, status: str, *, idle_minutes: int = 0) -> tuple[UUID, str]:
+    """An account of the user's and one run of it, with two of three steps done."""
+    domain = f"resume-{uuid4().hex[:8]}.example"
+    (account,) = _db(
+        "INSERT INTO accounts (tenant_id, owner_user_id, added_by, domain, name)"
+        " VALUES (%s, %s, %s, %s, 'Resume Co') RETURNING id",
+        tenant,
+        user,
+        user,
+        domain,
+    )[0]
+    finished = "now()" if status in ("COMPLETED", "PARTIAL", "FAILED") else "NULL"
+    (run,) = _db(
+        "INSERT INTO account_runs (tenant_id, account_id, owner_user_id, status, graph_version,"
+        " budget_json, reserved_credits, idempotency_key, budget_usd, finished_at,"
+        f" finished_reason, progress_at) VALUES (%s, %s, %s, %s, 'test', '{{}}', 0, %s, 5,"
+        f" {finished}, %s, now() - make_interval(mins => %s)) RETURNING id",
+        tenant,
+        account,
+        user,
+        status,
+        uuid4().hex,
+        "worker_lost" if finished != "NULL" else None,
+        idle_minutes,
+    )[0]
+    tracked = {"RUNNING": "running", "FAILED": "failed"}.get(status, "completed")
+    _db(
+        "INSERT INTO runs (id, tenant_id, account_id, run_type, status, config_version,"
+        " credit_cap, started_at, finished_at) VALUES (%s, %s, %s, 'full', %s, 'test', 1,"
+        f" now() - interval '2 hours', {'NULL' if tracked == 'running' else 'now()'})",
+        run,
+        tenant,
+        account,
+        tracked,
+    )
+    for key, state in (("company_news", "done"), ("job_postings", "done"), ("people", None)):
+        _db(
+            "INSERT INTO coverage_rows (tenant_id, run_id, row_key, priority, status, proof,"
+            " reason_code) VALUES (%s, %s, %s, 'high', %s, %s, NULL)",
+            tenant,
+            run,
+            key,
+            state,
+            '{"calls": []}' if state else None,
+        )
+    return run, domain
+
+
+async def test_a_stalled_run_is_marked_once_and_its_owner_told(world: dict[str, Any]) -> None:
+    from account_intelligence.db.session import SessionLocal, set_system, tenant_txn
+    from account_intelligence.runs.sweeper import mark_stalled
+
+    user = f"stall-{uuid4().hex[:6]}"
+    stuck, _ = _run(world["a"], user, "RUNNING", idle_minutes=45)
+    moving, _ = _run(world["a"], user, "RUNNING", idle_minutes=1)
+    set_system()
+    now = datetime.now(UTC)
+    first = await mark_stalled(SessionLocal, tenant_txn, now)
+    assert stuck in first and moving not in first
+    assert await mark_stalled(SessionLocal, tenant_txn, now) == []  # once
+    assert _db(
+        "SELECT kind FROM notifications WHERE tenant_id = %s AND user_id = %s",
+        world["a"],
+        user,
+    ) == [("research_stalled",)]
+
+
+async def test_resume_continues_a_stopped_run_and_says_what_is_done(world: dict[str, Any]) -> None:
+    user = f"resume-{uuid4().hex[:6]}"
+    plane = _plane(world["a"], user, world["payloads"])
+    run, domain = _run(world["a"], user, "PARTIAL")
+    before = (await _call(plane, "GET", "/v1/me/limits")).json()["researches"]["used"]
+    key = str(uuid4())
+    out = await _call(
+        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": key}
+    )
+    assert out.status_code == 201, out.text
+    body = out.json()
+    assert (body["resumes_run_id"], body["domain"]) == (str(run), domain)
+    assert (body["steps_done"], body["steps_total"]) == (2, 3)
+    assert _db("SELECT resume_from FROM research_jobs WHERE id = %s", body["job_id"]) == [(run,)]
+    # a retried click is the same resume; neither uses one of the user's researches
+    again = await _call(
+        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": key}
+    )
+    assert again.json()["job_id"] == body["job_id"]
+    assert (await _call(plane, "GET", "/v1/me/limits")).json()["researches"]["used"] == before
+
+
+async def test_a_stalled_run_is_ended_partial_and_resumed(world: dict[str, Any]) -> None:
+    user = f"stalled-{uuid4().hex[:6]}"
+    plane = _plane(world["a"], user, world["payloads"])
+    run, _ = _run(world["a"], user, "RUNNING", idle_minutes=60)
+    busy = await _call(
+        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": str(uuid4())}
+    )
+    assert busy.status_code == 409 and busy.json()["type"].endswith("still_running")
+    _db("UPDATE account_runs SET stalled_at = now() WHERE id = %s", run)
+    out = await _call(
+        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": str(uuid4())}
+    )
+    assert out.status_code == 201, out.text
+    (status,) = _db("SELECT status, finished_reason FROM account_runs WHERE id = %s", run)
+    assert status[1] == "stalled" and status[0] in ("PARTIAL", "FAILED")
+
+
+async def test_a_finished_run_or_another_users_run_cannot_be_resumed(world: dict[str, Any]) -> None:
+    user = f"done-{uuid4().hex[:6]}"
+    plane = _plane(world["a"], user, world["payloads"])
+    done, _ = _run(world["a"], user, "COMPLETED")
+    whole = await _call(
+        plane, "POST", "/v1/research/resume", json={"run_id": str(done), "request_id": str(uuid4())}
+    )
+    assert whole.status_code == 409
+    theirs, _ = _run(world["a"], f"other-{uuid4().hex[:6]}", "PARTIAL")
+    hidden = await _call(
+        plane,
+        "POST",
+        "/v1/research/resume",
+        json={"run_id": str(theirs), "request_id": str(uuid4())},
+    )
+    assert hidden.status_code == 404  # private workspaces: another user's run is not there

@@ -58,6 +58,11 @@ register(
 )
 register(
     "GET",
+    "/v1/accounts/{domain}/sheets/{sheet}/csv",
+    tenant_route("export_files", "export", step_up=False),
+)
+register(
+    "GET",
     "/v1/accounts/{domain}/deliverables/download",
     tenant_route("export_files", "export", step_up=False),
 )
@@ -250,33 +255,100 @@ async def account_sheet_xlsx(
     dir: str | None = Query(default=None, max_length=4),
     ident: Identity = Depends(authorize),
 ) -> Response:
-    """The filtered, sorted table as an Excel workbook (an audited export)."""
+    """Every row of the filtered, sorted table as an Excel workbook (an audited export; a table
+    longer than one Excel sheet continues on the next; ``replica.table_export``)."""
+    import os
+    import tempfile
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    from account_intelligence.replica import table_export as TX
+
+    q = _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE)
+    fd, tmp = tempfile.mkstemp(prefix="sheet-", suffix=".xlsx")
+    os.close(fd)
+    try:
+        async with tenant_txn(ident.tenant_id) as s:
+            account_id = await account_id_of(s, domain)
+            name = await _account_name(s, account_id)
+            try:
+                await TX.write_xlsx(
+                    Path(tmp), q, name, TX.rows(s, q, account_id, ident.user_id, datetime.now(UTC))
+                )
+            except SH.ExportBlocked as err:
+                log.warning("sheet_export_blocked", extra={"checks": ",".join(err.checks)})
+                raise APIProblem(
+                    422,
+                    "export_blocked",
+                    "Export held back",
+                    "This table could not be exported because it failed a safety check."
+                    " Try again later.",
+                ) from err
+            await audit_action(
+                s,
+                request,
+                audit_class="export",
+                action="export_sheet",
+                resource_type="account",
+                resource_id=account_id,
+            )
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return FileResponse(
+        tmp,
+        media_type=MEDIA["xlsx"],
+        filename=f"{_stem(name, q)}.xlsx",
+        background=BackgroundTask(lambda: Path(tmp).unlink(missing_ok=True)),
+    )
+
+
+@router.get("/{domain}/sheets/{sheet}/csv")
+async def account_sheet_csv(
+    domain: str,
+    sheet: str,
+    request: Request,
+    filter: str | None = Query(default=None, max_length=40),
+    sort: str | None = Query(default=None, max_length=40),
+    dir: str | None = Query(default=None, max_length=4),
+    ident: Identity = Depends(authorize),
+) -> Response:
+    """Every row of the filtered, sorted table as CSV, streamed (an audited export)."""
+    from fastapi.responses import StreamingResponse
+
+    from account_intelligence.replica import table_export as TX
+
     q = _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE)
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
         name = await _account_name(s, account_id)
-        out = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC), export=True)
         await audit_action(
             s,
             request,
             audit_class="export",
-            action="export_sheet",
+            action="export_sheet_csv",
             resource_type="account",
             resource_id=account_id,
         )
-    try:
-        body = SH.workbook(out, name)
-    except SH.ExportBlocked as err:
-        log.warning("sheet_export_blocked", extra={"checks": ",".join(err.checks)})
-        raise APIProblem(
-            422,
-            "export_blocked",
-            "Export held back",
-            "This table could not be exported because it failed a safety check. Try again later.",
-        ) from err
-    stem = re.sub(r"[^A-Za-z0-9]+", "-", f"{name} {out['file'].rsplit('.', 1)[0]}").strip("-")
-    return Response(
-        body,
-        media_type=MEDIA["xlsx"],
-        headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'},
+
+    async def body() -> Any:
+        """The rows, read page by page in their own transaction while they stream."""
+        async with tenant_txn(ident.tenant_id) as s:
+            rows = TX.rows(s, q, account_id, ident.user_id, datetime.now(UTC))
+            async for chunk in TX.csv_chunks(q, rows):
+                yield chunk
+
+    return StreamingResponse(
+        body(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{_stem(name, q)}.csv"'},
+    )
+
+
+def _stem(account_name: str, q: SH.Query) -> str:
+    """A file name: the account and the table (letters, digits and hyphens only)."""
+    return re.sub(r"[^A-Za-z0-9]+", "-", f"{account_name} {q.sheet.file.rsplit('.', 1)[0]}").strip(
+        "-"
     )

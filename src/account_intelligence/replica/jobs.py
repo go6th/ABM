@@ -83,6 +83,8 @@ class Job:
     topic: str | None = None
     # the research and analysis models the user confirmed (None: the owner's current models)
     models: dict[str, Any] | None = None
+    # the stopped run this job continues (its finished pulls and replies are reused at no cost)
+    resume_from: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -183,6 +185,8 @@ class GraphEngine:
                 run_input["topic"] = job.topic
             if job.models:
                 run_input["models"] = dict(job.models)
+            if job.resume_from is not None:
+                run_input["resume_from"] = str(job.resume_from)
             if current.settings.people_scope.regions:
                 run_input["people_regions"] = list(current.settings.people_scope.regions)
             if rule.people or rule.companies:
@@ -304,6 +308,7 @@ async def claim(tenant_id: UUID, job_id: UUID, now: datetime) -> Job | None:
         str(row.requested_by),
         row.topic,
         dict(row.models) if row.models else None,
+        UUID(str(row.resume_from)) if row.resume_from else None,
     )
 
 

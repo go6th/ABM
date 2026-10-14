@@ -5,6 +5,7 @@
   layer's graph under the same slice lifecycle (``agents.production.wiring``).
 * ``POST /tasks/approval-timeout``: expires an approval past its deadline (cancel and refund).
 * ``POST /tasks/research-job``: runs one confirmed research job within its reserved credits.
+* ``POST /tasks/download-everything``: builds one Download everything archive as its owner.
 * ``POST /tasks/schedules-tick``: starts due scheduled refreshes from each client's credit pool.
 * ``POST /tasks/maildrive-sync``: syncs the per-user Mail and drive connections that are due.
 * ``POST /tasks/access-expiry``: warns idle users and ends the access of those past their client's
@@ -220,6 +221,29 @@ async def research_job(
 
     engine = jobs.engine_for(request.app.state.container)
     return {"outcome": await jobs.run_job(task.tenant_id, task.job_id, engine)}
+
+
+@router.post("/download-everything")
+async def download_everything(
+    task: ResearchJobTask, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, str]:
+    """Build one Download everything archive (``replica.downloads.build``) as its owner."""
+    container = _authorise(request, authorization)
+    await _act_as_owner_of("download", task.tenant_id, task.job_id)
+    from account_intelligence.replica import downloads
+
+    return {"outcome": await downloads.build(task.tenant_id, task.job_id, sources(container))}
+
+
+def sources(container: Any) -> Any:
+    """What an archive reads and where its parts go: the payload store and the file store."""
+    from account_intelligence.replica import downloads
+
+    docs = getattr(container, "documents", None)
+    blobs = docs.blobs if docs is not None else None
+    if blobs is None:
+        raise HTTPException(503, "file storage is not configured")
+    return downloads.Sources(tenant_txn, container.payloads, blobs)
 
 
 @router.post("/schedules-tick")

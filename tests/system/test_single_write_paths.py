@@ -94,6 +94,8 @@ OWNERS: dict[str, set[str]] = {
     # gate's insert-only records, and the facts marked when their document is deleted
     "documents": {"documents/repo.py"},
     "document_passages": {"documents/repo.py"},
+    "document_parts": {"documents/repo.py"},
+    "download_jobs": {"replica/downloads.py"},
     "document_redactions": {"documents/repo.py"},
     "document_policies": {"documents/repo.py"},
     "document_deletions": {"documents/repo.py"},

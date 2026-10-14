@@ -554,6 +554,21 @@ async def end_from_active(
     return status
 
 
+async def mark_stalled(session: AsyncSession, run_id: UUID) -> Any:
+    """Mark a running run stalled once (no progress for the platform's ``stall_after_s``); the
+    run's owner and account, or None when it was already marked or has ended."""
+    return (
+        await session.execute(
+            text(
+                "UPDATE account_runs SET stalled_at = now() WHERE id = :r AND stalled_at IS NULL"
+                " AND status IN ('RUNNING', 'DISTILLING', 'VERIFYING')"
+                " RETURNING owner_user_id, account_id"
+            ),
+            {"r": run_id},
+        )
+    ).first()
+
+
 async def note_interruption(session: AsyncSession, run_id: UUID, detail: str) -> None:
     """Record why an active run stopped without ending it (a cancelled task, SIGTERM, SIGINT):
     the run stays resumable from its checkpoint and the note says what happened last."""

@@ -223,7 +223,21 @@ async def _sweep_loop(app: FastAPI, settings: Any) -> None:
                 )
         except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
             _logger.warning("runs.sweep_failed", extra={"error_class": type(error).__name__})
+        try:
+            await _mark_stalled()
+        except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
+            _logger.warning("runs.stall_failed", extra={"error_class": type(error).__name__})
         await asyncio.sleep(max(1, int(settings.sweep_interval_s)))
+
+
+async def _mark_stalled() -> list[Any]:
+    """Runs with no progress for the platform's stall time are marked and their owners told."""
+    from datetime import UTC, datetime
+
+    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.runs.sweeper import mark_stalled
+
+    return await mark_stalled(SessionLocal, tenant_txn, datetime.now(UTC))
 
 
 def _route_class(path: str) -> str:

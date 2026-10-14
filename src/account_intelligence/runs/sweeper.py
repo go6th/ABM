@@ -11,7 +11,13 @@ The sweep runs once at worker startup and every ``SWEEP_INTERVAL_S`` (``api.main
 worker role); ``ORPHAN_AFTER_S`` is how long a lease must be dead. A run waiting for a person
 (AWAITING_APPROVAL) is never swept. One pass is bounded by ``batch_size`` runs.
 
+``mark_stalled`` (owner decision 2026-10-14) finds running runs whose heartbeat
+(``account_runs.progress_at``, moved by every ledger event and model call) has not moved for the
+platform's ``stall_after_s``: each is marked stalled once and its owner is told in the app
+("research_stalled"); the screen then offers Resume, which ends it PARTIAL and continues it.
+
 GUARANTEE(test_the_sweeper_ends_an_orphaned_run_partial_and_keeps_its_data)
+GUARANTEE(test_a_stalled_run_is_marked_once_and_its_owner_told)
 GUARANTEE(test_the_sweeper_leaves_live_and_waiting_runs_alone)
 """
 
@@ -129,3 +135,41 @@ async def _end_one(
             ),
             refund_all=not usable,
         )
+
+
+async def mark_stalled(
+    sessions: SessionFactory, txn: TxnFactory, now: datetime, *, batch_size: int = 200
+) -> list[UUID]:
+    """Mark stalled runs and tell their owners (see the module docstring); their ids."""
+    from account_intelligence.connectors.spend_guard import limits
+    from account_intelligence.replica.notifications import notify
+
+    async with sessions() as s:
+        stall_after = (await limits(s)).stall_after_s
+        rows = (
+            await s.execute(
+                text("SELECT tenant_id, run_id FROM runs_stalled(:b) LIMIT :n"),
+                {"b": now - timedelta(seconds=stall_after), "n": batch_size},
+            )
+        ).all()
+    marked: list[UUID] = []
+    # LOOP(stall marking): cap=batch_size runs per pass; exit=rows exhausted
+    for row in rows:
+        tenant_id, run_id = UUID(str(row.tenant_id)), UUID(str(row.run_id))
+        async with txn(tenant_id) as s:
+            hit = await lifecycle.mark_stalled(s, run_id)
+            if hit is None:
+                continue
+            job = await s.scalar(
+                text("SELECT id FROM research_jobs WHERE run_id = :r"), {"r": run_id}
+            )
+            if hit.owner_user_id and not str(hit.owner_user_id).startswith("system:"):
+                await notify(
+                    s,
+                    user_id=str(hit.owner_user_id),
+                    kind="research_stalled",
+                    account_id=hit.account_id,
+                    job_id=job,
+                )
+        marked.append(run_id)
+    return marked

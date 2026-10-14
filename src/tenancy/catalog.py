@@ -94,6 +94,7 @@ EVENT_TYPES: dict[str, str] = {
     "task.run_slice": "Cloud Tasks payload {tenant_id, run_id, slice}",
     "task.file_process": "Cloud Tasks payload {tenant_id, file_id}",
     "task.document_process": "Cloud Tasks payload {tenant_id, document_id}",
+    "task.download_everything": "Cloud Tasks payload {tenant_id, job_id}",
     "task.research_job": "Cloud Tasks payload {tenant_id, job_id}",
     "task.approval_timeout": "Cloud Tasks payload {tenant_id, run_id}",
     "outbox.notification": "notification_outbox row (tenant-scoped, RLS)",
@@ -115,6 +116,10 @@ JOBS: dict[str, str] = {
     " then per tenant and file, inside tenant_txn",
     "document_sweep": "documents.service.sweep_documents: identifiers from documents_orphaned,"
     " then the document task per tenant and document, inside tenant_txn",
+    "part_sweep": "documents.service.sweep_documents: identifiers from document_parts_orphaned,"
+    " then the document task per tenant and document, inside tenant_txn",
+    "stall_sweep": "runs.sweeper.mark_stalled: identifiers from runs_stalled, then per tenant and"
+    " run, inside tenant_txn (marked once, the owner told)",
     "stuck_scan": "obs.stuck.scan: per tenant, inside tenant_txn",
     "cost_rollup": "obs.costs.refresh: per tenant and run, inside tenant_txn",
     "isolation_probe": "obs.canary.probe: synthetic tenants only, inside tenant_txn",
