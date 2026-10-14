@@ -1,12 +1,15 @@
 """Uploaded documents for input mode "file" (``documents.service``).
 
-* ``POST /v1/documents/uploads``: declare a document (name, size, type checked first) and get
-  where to PUT it: a signed storage URL in the cloud, or ``PUT /v1/documents/{id}/content``
-  with a one-time token locally. Bytes land in quarantine.
-* ``POST /v1/documents/{id}/complete``: size and hash checked; the scan is enqueued. Nothing is
-  parsed before the scan passed.
-* ``GET /v1/documents/{id}/status``, ``GET /v1/documents``: scanning, parsing, indexed or failed,
-  with the detected company.
+* ``POST /v1/documents/uploads``: declare a document (name, size, type checked first; the size
+  against the admin's per-file limit) and get where to send it: a resumable session straight
+  to object storage, sent in ``chunk_bytes`` chunks (``protocol: resumable``), or, only where the
+  store has none, ``PUT /v1/documents/{id}/content`` with a one-time token. Bytes land in
+  quarantine; a file never passes through the web app.
+* ``POST /v1/documents/{id}/complete``: size checked; the scan is enqueued. Nothing is parsed
+  before the scan passed.
+* ``GET /v1/documents/{id}/status``, ``GET /v1/documents``: scanning, reading (parts done of
+  parts total), indexed or failed, with the detected company and each failed part's reason.
+* ``POST /v1/documents/{id}/parts/{n}/retry``: "Try again" on a failed part (n from 1).
 * ``POST /v1/documents/confirm-company``: the user confirms the company; the documents are bound
   to its account and indexed.
 * ``POST /v1/documents/estimate``: what a file-mode run would cost, before it starts.
@@ -39,7 +42,7 @@ UPLOADERS = ("admin", "seller")
 DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
 _STATUS = {
     "not_found": 404, "account_not_found": 404, "upload_closed": 409, "upload_expired": 410,
-    "already_bound": 409, "not_uploaded": 409,
+    "already_bound": 409, "not_uploaded": 409, "part_not_failed": 409,
 }  # fmt: skip
 
 
@@ -102,6 +105,19 @@ def _problem(error: Any) -> APIProblem:
     return APIProblem(status, error.code, "Document refused", str(error))
 
 
+def _origin() -> str | None:
+    """The web app's origin, for the storage session's CORS (the app's own public URL)."""
+    from urllib.parse import urlsplit
+
+    from account_intelligence.config import get_settings
+
+    base = get_settings().public_base_url
+    if not base:
+        return None
+    parts = urlsplit(base)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 @router.post("/uploads", response_model=C.DocumentUploadStarted, status_code=201)
 async def start_upload(
     body: UploadStart, request: Request, ident: Identity = Depends(require_role(*UPLOADERS))
@@ -111,7 +127,13 @@ async def start_upload(
 
     try:
         out = await _docs(request).start_upload(
-            ident.tenant_id, ident.user_id, body.name, body.size_bytes, body.mime, body.account_id
+            ident.tenant_id,
+            ident.user_id,
+            body.name,
+            body.size_bytes,
+            body.mime,
+            body.account_id,
+            origin=_origin(),
         )
     except DocumentError as error:
         raise _problem(error) from None
@@ -193,6 +215,34 @@ async def status(
         return dict(await _docs(request).status(ident.tenant_id, document_id))
     except DocumentError as error:
         raise _problem(error) from None
+
+
+@router.post("/{document_id}/parts/{part}/retry", response_model=C.DocumentStatus)
+async def retry_part(
+    document_id: UUID,
+    part: int,
+    request: Request,
+    ident: Identity = Depends(require_role(*UPLOADERS)),
+) -> dict[str, Any]:
+    """Try a failed part again (``part`` counts from 1, as the screen shows it)."""
+    from documents.service import DocumentError
+
+    if part < 1:
+        raise APIProblem(404, "not_found", "Not found", "No such part.")
+    try:
+        out = await _docs(request).retry_part(ident.tenant_id, document_id, part - 1)
+    except DocumentError as error:
+        raise _problem(error) from None
+    async with tenant_txn(ident.tenant_id) as s:
+        await audit_action(
+            s,
+            request,
+            audit_class="run",
+            action="document_part_retry",
+            resource_type="document",
+            resource_id=document_id,
+        )
+    return dict(out)
 
 
 @router.get("", response_model=C.DocumentList)

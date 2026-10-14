@@ -1,12 +1,23 @@
-"""Uploaded documents from upload to index (input mode "file").
+"""Uploaded documents from upload to index (input mode "file"), at any size.
 
 ::
 
-    start_upload -> PUT bytes (signed URL, or the API's token-checked content route)
-      -> complete (size and sha256 checked; status quarantined; processing enqueued)
-      -> process: type check from content -> malware scan -> promote out of quarantine
-         -> parse in the sandbox -> company evidence (raw) -> redact -> chunk -> passages
-         -> (bound to an account) embed -> index in the private ``chunks`` index
+    start_upload -> chunks straight to object storage (a resumable session; the API's
+                    token-checked content route only where the store has none)
+      -> complete (size checked; status quarantined; processing enqueued)
+      -> process: type check from content -> malware scan -> sha256 -> promote out of quarantine
+         -> plan the parts (in the sandbox) -> read each part in its own sandbox child:
+            company evidence (raw) -> redact -> chunk -> passages, written in batches
+         -> (bound to an account) embed and index in the private ``chunks`` index, page by page
+
+* Files of any size (owner decision 2026-10-14, Phase 4B section 3): a file is split into parts
+  (``documents.parts``) stored in ``document_parts`` with a status each. Workers take parts
+  through a lease, at most ``max_parallel_parts`` per client at once; the rest wait. A part
+  writes passages numbered from its own range (part n: n * 10^7 + 1, ...), and a part read again
+  after a crash first removes what it wrote, so no passage is ever stored twice. A part that
+  fails keeps its reason, the other parts go on, and "Try again" queues it again
+  (``retry_part``). Every step renews its lease while it runs. Nothing holds the whole file, all
+  its passages, or all its vectors in memory.
 
 * Nothing is parsed before the scan passed; a wrong type, an oversized file, an infected file or
   an unavailable scanner ends ``rejected`` with the reason, and the parser never sees the bytes.
@@ -26,12 +37,13 @@ GUARANTEE(test_delete_removes_chunks_and_marks_facts_for_reevaluation)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import os
 import re
 import secrets
 import tempfile
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -46,7 +58,7 @@ from documents.company import Resolver
 from documents.config import InputModesConfig, load_config
 from documents.embed import EmbeddingPort
 from documents.redact import Redactor
-from documents.sandbox import ParsedUnit, SandboxFailed, parse_in_sandbox
+from documents.sandbox import ParsedUnit, SandboxFailed, parse_in_sandbox, plan_in_sandbox
 from documents.scan import ScanPort
 from research_files.blobstore import BlobMissing, BlobStore, PartTooLarge
 from research_files.detect import by_name, detect
@@ -68,7 +80,20 @@ MESSAGES = {
     "size_mismatch": "The uploaded size does not match the declared size. Upload it again.",
     "not_uploaded": "No file arrived for this upload. Upload it again.",
     "empty": "The file has no readable content.",
+    "parts_failed": "Some parts of the file could not be read. Try those parts again.",
 }
+PART_MESSAGES = {
+    "parse:parse_timeout": "This part took too long to read.",
+    "parse:text_limit": "This part holds more text than one part may.",
+    "parse:page_limit": "This part has more pages than one part may.",
+    "parse:unit_too_large": "One row or line in this part is too large to read.",
+    "parse:unsupported_type": "This part's content could not be read.",
+}
+
+
+def part_message(failure: str | None) -> str:
+    """The plain reason a part failed."""
+    return PART_MESSAGES.get(failure or "", "This part could not be read.")
 
 
 class DocumentError(Exception):
@@ -130,6 +155,10 @@ class DocumentService:
             raise DocumentError("wrong_type")
         return kind
 
+    async def max_file_bytes(self, s: AsyncSession) -> int:
+        """The per-file limit: the admin's platform setting (the config value without one)."""
+        return await repo.platform_max_file_bytes(s) or self.c.upload.max_file_bytes
+
     async def start_upload(
         self,
         tenant_id: UUID,
@@ -138,19 +167,21 @@ class DocumentService:
         size: int,
         mime: str | None,
         account_id: UUID | None,
+        origin: str | None = None,
     ) -> dict[str, Any]:
-        """A document row and where to PUT its bytes (checked before any byte arrives)."""
+        """A document row and where to send its bytes (checked before any byte arrives): a
+        resumable session straight to object storage, in ``chunk_bytes`` chunks."""
         display = clean_name(name)
         kind = self.declared_type(display)
         if size <= 0:
             raise DocumentError("empty")
-        if size > self.c.upload.max_file_bytes:
-            raise DocumentError("too_large")
         doc_id = uuid4()
         token = secrets.token_urlsafe(32)
         expires = self.clock.now() + timedelta(minutes=self.c.upload.upload_ttl_minutes)
         qkey = quarantine_key(tenant_id, doc_id)
         async with self.txn(tenant_id) as s:
+            if size > await self.max_file_bytes(s):
+                raise DocumentError("too_large")
             if account_id is not None:
                 from sqlalchemy import text
 
@@ -172,10 +203,8 @@ class DocumentService:
                 expires_at=expires,
             )
         content_type = mime or "application/octet-stream"
-        signed = await self.blobs.signed_put_url(
-            qkey, self.c.upload.upload_ttl_minutes * 60, content_type, size
-        )
-        url = signed or f"/v1/documents/{doc_id}/content?token={token}"
+        session = await self.blobs.resumable_upload(qkey, size, content_type, origin)
+        url = session or f"/v1/documents/{doc_id}/content?token={token}"
         return {
             "document_id": str(doc_id),
             "upload_url": url,
@@ -183,7 +212,9 @@ class DocumentService:
             "headers": {"Content-Type": content_type},
             "expires_at": expires.isoformat(),
             "max_bytes": size,
-            "direct": signed is not None,
+            "direct": session is not None,
+            "protocol": "resumable" if session is not None else "single",
+            "chunk_bytes": self.c.upload.chunk_bytes,
         }
 
     async def receive(
@@ -213,30 +244,27 @@ class DocumentService:
         return size
 
     async def complete(self, tenant_id: UUID, document_id: UUID) -> dict[str, Any]:
-        """Check what arrived (size and hash) and enqueue the scan. Nothing is parsed here."""
+        """Check what arrived (its size, from storage metadata: a large file is never read in
+        the request) and enqueue the scan, which also hashes it. Nothing is parsed here."""
         async with self.txn(tenant_id) as s:
             row = await repo.get(s, document_id, lock=True)
             if row is None:
                 raise DocumentError("not_found", "The document was not found.")
             if row.status != "awaiting_upload":
                 return self._view(row)
-            if not await self.blobs.exists(row.quarantine_key):
-                raise DocumentError("not_uploaded")
-            size, sha = await asyncio.to_thread(self._hash, row.quarantine_key)
+            try:
+                size = await self.blobs.size(row.quarantine_key)
+            except BlobMissing:
+                raise DocumentError("not_uploaded") from None
             if size != row.declared_bytes:
                 await repo.reject(s, document_id, "size_mismatch", None)
                 await self.blobs.delete(row.quarantine_key)
-            elif size > self.c.upload.max_file_bytes:
+            elif size > await self.max_file_bytes(s):
                 await repo.reject(s, document_id, "too_large", None)
                 await self.blobs.delete(row.quarantine_key)
             else:
                 await repo.set_status(
-                    s,
-                    document_id,
-                    "quarantined",
-                    size_bytes=size,
-                    sha256=sha,
-                    upload_token_sha256=None,
+                    s, document_id, "quarantined", size_bytes=size, upload_token_sha256=None
                 )
             row = await repo.get(s, document_id)
         if row.status == "quarantined":
@@ -256,36 +284,105 @@ class DocumentService:
     # ------------------------------------------------------------------ processing
 
     async def process(self, tenant_id: UUID, document_id: UUID) -> str:
-        """Scan, parse and index one document (see the module docstring). Returns the status,
-        ``busy`` when another worker holds it, ``noop`` when there is nothing to do."""
-        claimable = (*ACTIVE, "parsed")
+        """Scan, plan, read and index one document (see the module docstring). Returns the
+        status, ``busy`` when another worker holds the step (or every part slot of the client is
+        taken), ``noop`` when there is nothing to do. Any number of workers may run this for one
+        document at once: they share its parts."""
         async with self.txn(tenant_id) as s:
-            row = await repo.claim(
-                s, document_id, self.worker, self.c.parsing.lease_ttl_s, claimable
+            row = await repo.get(s, document_id)
+        if row is None:
+            return "noop"
+        if row.status in ("quarantined", "scanning") or (
+            row.status == "parsing" and not row.parts_total
+        ):
+            status = await self._leased(
+                tenant_id, document_id, ("quarantined", "scanning", "parsing"), self._prepare
             )
+            if status != "parsing":
+                return status
+            row = await self._row(tenant_id, document_id)
+        if row is not None and row.status == "parsing":
+            status = await self.read_parts(tenant_id, document_id)
+            if status != "parsed":
+                return status
+            row = await self._row(tenant_id, document_id)
+        if row is not None and row.status in ("parsed", "indexing") and row.account_id is not None:
+            return await self._leased(tenant_id, document_id, ("parsed", "indexing"), self._index)
+        return "noop" if row is None else str(row.status)
+
+    async def _row(self, tenant_id: UUID, document_id: UUID) -> Any:
+        async with self.txn(tenant_id) as s:
+            return await repo.get(s, document_id)
+
+    async def _leased(
+        self,
+        tenant_id: UUID,
+        document_id: UUID,
+        statuses: tuple[str, ...],
+        step: Callable[[UUID, Any], Awaitable[str]],
+    ) -> str:
+        """Run one step of the document under its lease, renewed while it runs."""
+        ttl = self.c.parsing.lease_ttl_s
+        async with self.txn(tenant_id) as s:
+            row = await repo.claim(s, document_id, self.worker, ttl, statuses)
             current = None if row is not None else await repo.get(s, document_id)
         if row is None:
             # another worker holds a document that still has work: retry later; a finished,
             # rejected or missing document (a duplicate task) has nothing to do
-            return "busy" if current is not None and current.status in claimable else "noop"
+            return "busy" if current is not None and current.status in statuses else "noop"
+
+        async def renew() -> bool:
+            async with self.txn(tenant_id) as s:
+                return await repo.renew_document(s, document_id, self.worker, ttl)
+
         try:
-            status = row.status
-            if status in ("quarantined", "scanning"):
-                status = await self._scan(tenant_id, row)
-                if status != "parsing":
-                    return status
-                async with self.txn(tenant_id) as s:
-                    row = await repo.get(s, document_id)
-            if status == "parsing":
-                status = await self._parse(tenant_id, row)
-                async with self.txn(tenant_id) as s:
-                    row = await repo.get(s, document_id)
-            if status in ("parsed", "indexing") and row.account_id is not None:
-                status = await self._index(tenant_id, row)
-            return str(status)
+            async with self._heartbeat(renew):
+                return await step(tenant_id, row)
         finally:
             async with self.txn(tenant_id) as s:
                 await repo.release(s, document_id, self.worker)
+
+    def _heartbeat(self, renew: Callable[[], Awaitable[bool]]) -> Any:
+        """Renew a lease every third of its life while the body runs; ``.lost`` turns true when
+        another worker took it over (the body stops at its next write)."""
+        from contextlib import asynccontextmanager
+
+        every = max(1.0, self.c.parsing.lease_ttl_s / 3)
+
+        class Beat:
+            lost = False
+
+        @asynccontextmanager
+        async def beating() -> AsyncIterator[Beat]:
+            beat = Beat()
+
+            async def loop() -> None:
+                # LOOP(lease heartbeat): cap=the step's duration / (lease_ttl_s / 3) renewals;
+                # exit=step finished (cancelled), lease lost
+                while not beat.lost:
+                    await asyncio.sleep(every)
+                    if not await renew():
+                        beat.lost = True
+
+            task = asyncio.create_task(loop())
+            try:
+                yield beat
+            finally:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+
+        return beating()
+
+    async def _prepare(self, tenant_id: UUID, row: Any) -> str:
+        status = str(row.status)
+        if status in ("quarantined", "scanning"):
+            status = await self._scan(tenant_id, row)
+            if status != "parsing":
+                return status
+            async with self.txn(tenant_id) as s:
+                row = await repo.get(s, row.id)
+        return await self._plan(tenant_id, row)
 
     async def _scan(self, tenant_id: UUID, row: Any) -> str:
         async with self.txn(tenant_id) as s:
@@ -299,6 +396,7 @@ class DocumentService:
         with reader:
             kind = await asyncio.to_thread(detect, reader, row.name)
             reason = self._type_problem(kind, row.declared_type)
+            reader.seek(0)
             verdict = None if reason else await self.scanner.scan(reader)
         if reason is None and verdict is not None:
             if verdict.result == "infected":
@@ -317,10 +415,19 @@ class DocumentService:
             if reason != "scan_unavailable":
                 await self.blobs.delete(row.quarantine_key)
             return "rejected"
+        size, sha = await asyncio.to_thread(self._hash, row.quarantine_key)
         target = document_key(tenant_id, row.id)
         await self.blobs.move(row.quarantine_key, target)
         async with self.txn(tenant_id) as s:
-            await repo.set_status(s, row.id, "parsing", object_key=target, detected_type=kind)
+            await repo.set_status(
+                s,
+                row.id,
+                "parsing",
+                object_key=target,
+                detected_type=kind,
+                sha256=sha,
+                size_bytes=size,
+            )
         return "parsing"
 
     def _type_problem(self, kind: str, declared: str) -> str | None:
@@ -334,57 +441,188 @@ class DocumentService:
             return "wrong_type"
         return None
 
-    async def _parse(self, tenant_id: UUID, row: Any) -> str:
-        async with self.txn(tenant_id) as s:
-            tier = await repo.policy_tier(s, self.c.redaction.default_tier)
-            exclude = await repo.tenant_domains(s)
-        redactor = Redactor(tier)
-        chunker = Chunker(self.c.chunking, row.name, redactor, self.c.parsing.max_passages)
-        resolver = Resolver(self.c.company, exclude)
-        passages: list[Passage] = []
-        pages: set[tuple[str, Any]] = set()
+    async def _plan(self, tenant_id: UUID, row: Any) -> str:
+        """Split the document into parts (planned in the sandbox: it reads the file); a document
+        the planner cannot split is one part. More workers are asked to share the parts."""
+        cfg = self.c
         try:
             async with self._local(row.object_key) as path:
-                async for unit in self._units(path, row):
+                plans = await plan_in_sandbox(
+                    path,
+                    row.detected_type,
+                    row.name,
+                    timeout_s=cfg.sandbox.timeout_s,
+                    memory_mb=cfg.sandbox.memory_mb,
+                    cpu_s=cfg.sandbox.cpu_s,
+                    part_bytes=cfg.parsing.part_bytes,
+                    pages_per_part=cfg.parsing.pages_per_part,
+                )
+        except SandboxFailed:
+            plans = [{"cursor": {}}]
+        async with self.txn(tenant_id) as s:
+            await repo.create_parts(s, row.id, plans)
+        for _ in range(min(len(plans), cfg.parsing.max_parallel_parts) - 1):
+            await self.scheduler.enqueue_document(tenant_id, row.id)
+        return "parsing"
+
+    async def read_parts(self, tenant_id: UUID, document_id: UUID) -> str:
+        """Read parts of the document until none is left for this worker, then, when every part
+        is read, decide the document (``parsed``, or ``failed`` naming the failed parts)."""
+        cfg = self.c.parsing
+        # LOOP(document parts): cap=parts_total parts per worker; exit=no part left, client busy
+        while True:
+            async with self.txn(tenant_id) as s:
+                part = await repo.claim_part(
+                    s, document_id, self.worker, cfg.lease_ttl_s, cfg.max_parallel_parts
+                )
+                doc = await repo.get(s, document_id) if part not in (None, "busy") else None
+            if part is None:
+                break
+            if part == "busy":
+                return "busy"
+            if doc is None:
+                return "noop"
+            await self._read_part(tenant_id, doc, part)
+        return await self._decide(tenant_id, document_id)
+
+    async def _read_part(self, tenant_id: UUID, doc: Any, part: Any) -> None:
+        cfg = self.c
+        part_no = int(part.part_no)
+        async with self.txn(tenant_id) as s:
+            tier = await repo.policy_tier(s, cfg.redaction.default_tier)
+            exclude = await repo.tenant_domains(s)
+            await repo.clear_part(s, doc.id, part_no)  # an interrupted read starts clean
+        cursor = dict(part.start_cursor or {})
+        redactor = Redactor(tier)
+        chunker = Chunker(
+            cfg.chunking,
+            doc.name,
+            redactor,
+            cfg.parsing.max_passages,
+            first_seq=part_no * repo.PART_SPAN,
+        )
+        header = cursor.get("header")
+        if header:
+            chunker.headers[str(cursor.get("table") or doc.name)] = [str(h) for h in header]
+        resolver = Resolver(cfg.company, exclude)
+        pages: set[tuple[str, Any]] = set()
+        batch: list[Passage] = []
+        written = 0
+
+        async def renew() -> bool:
+            async with self.txn(tenant_id) as s:
+                return await repo.renew_part(
+                    s, doc.id, part_no, self.worker, cfg.parsing.lease_ttl_s
+                )
+
+        async def flush(beat: Any) -> bool:
+            nonlocal written, batch
+            if beat.lost:
+                return False
+            entries = [
+                (p.seq, ph, kind, orig)
+                for p in batch
+                for ph, kind, orig in redactor.present(p.text)
+            ]
+            async with self.txn(tenant_id) as s:
+                if not await repo.alive(s, doc.id):
+                    return False
+                await repo.write_passages(s, doc.id, doc.account_id, batch, entries)
+            written += len(batch)
+            batch = []
+            return True
+
+        spec = {
+            "cursor": cursor,
+            "end_offset": part.end_offset,
+            "end_page": part.end_page,
+        }
+        try:
+            async with self._heartbeat(renew) as beat, self._local(doc.object_key) as path:
+                async for unit in self._units(path, doc, spec):
                     if unit.fatal and unit.check == "unsupported_type":
                         raise SandboxFailed("unsupported_type")
+                    if unit.rows is not None and not unit.header and header:
+                        unit.header = [str(h) for h in header]
                     for key in ("page", "slide", "sheet"):
                         if key in unit.location:
                             pages.add((key, unit.location[key]))
-                    if len(pages) > self.c.parsing.max_pages:
+                    if len(pages) > cfg.parsing.max_pages:
                         raise SandboxFailed("page_limit")
                     resolver.feed(unit)
-                    passages.extend(chunker.passages([unit]))
+                    batch.extend(chunker.passages([unit]))
+                    if len(batch) >= cfg.parsing.write_batch and not await flush(beat):
+                        return  # the lease was lost, or the document deleted
+                if batch and not await flush(beat):
+                    return
+                if beat.lost:
+                    return
         except SandboxFailed as failed:
             async with self.txn(tenant_id) as s:
-                await repo.set_status(s, row.id, "failed", stop_detail=f"parse:{failed.code}")
-            return "failed"
-        if not passages:
-            async with self.txn(tenant_id) as s:
-                await repo.set_status(s, row.id, "failed", stop_detail="parse:empty")
-            return "failed"
-        entries = [
-            (p.seq, ph, kind, orig) for p in passages for ph, kind, orig in redactor.present(p.text)
-        ]
-        company = resolver.decide()
-        if chunker.truncated:
-            company["truncated_at_passages"] = self.c.parsing.max_passages
+                await repo.fail_part(s, doc.id, part_no, self.worker, f"parse:{failed.code}")
+            return
+        evidence = {
+            "company": resolver.state(),
+            "redactions": len(redactor.entries()),
+            "truncated": chunker.truncated,
+        }
         async with self.txn(tenant_id) as s:
-            await repo.clear_passages(s, row.id)
-            await repo.write_passages(s, row.id, row.account_id, passages, entries)
+            await repo.finish_part(s, doc.id, part_no, self.worker, written, evidence)
+
+    async def _decide(self, tenant_id: UUID, document_id: UUID) -> str:
+        """Once no part is pending or running: ``parsed`` with the company decided from every
+        part's evidence, or ``failed`` when a part failed (the parts read are kept)."""
+        async with self.txn(tenant_id) as s:
+            doc = await repo.lock(s, document_id)
+            if doc is None:
+                return "noop"
+            if doc.status != "parsing":
+                return str(doc.status)
+            parts = await repo.parts(s, document_id)
+            if any(p.status in ("pending", "running") for p in parts):
+                return "parsing"
+            passages = sum(int(p.passages) for p in parts)
+            if any(p.status == "failed" for p in parts):
+                await repo.set_status(
+                    s, document_id, "failed", stop_detail="parts_failed", passages=passages
+                )
+                return "failed"
+            if not passages:
+                await repo.set_status(s, document_id, "failed", stop_detail="parse:empty")
+                return "failed"
+            resolver = Resolver(self.c.company, await repo.tenant_domains(s))
+            for p in parts:
+                resolver.absorb((p.evidence or {}).get("company"))
+            company = resolver.decide()
+            if any((p.evidence or {}).get("truncated") for p in parts):
+                company["truncated_at_passages"] = self.c.parsing.max_passages
+            tier = await repo.policy_tier(s, self.c.redaction.default_tier)
             await repo.set_status(
                 s,
-                row.id,
+                document_id,
                 "parsed",
-                passages=len(passages),
-                redactions=len(redactor.entries()),
+                passages=passages,
+                redactions=sum(int((p.evidence or {}).get("redactions") or 0) for p in parts),
                 redaction_tier=tier,
                 detected_company=company,
             )
-            await self._audit(s, "document.parse", row.id, "ok")
+            await self._audit(s, "document.parse", document_id, "ok")
         return "parsed"
 
-    async def _units(self, path: str, row: Any) -> AsyncIterator[ParsedUnit]:
+    async def retry_part(self, tenant_id: UUID, document_id: UUID, part_no: int) -> dict[str, Any]:
+        """Try a failed part again: it is queued again and the document reads on."""
+        async with self.txn(tenant_id) as s:
+            doc = await repo.lock(s, document_id)
+            if doc is None:
+                raise DocumentError("not_found", "The document was not found.")
+            if not await repo.retry_part(s, document_id, part_no):
+                raise DocumentError("part_not_failed", "This part has not failed.")
+            if doc.status == "failed":
+                await repo.set_status(s, document_id, "parsing", stop_detail=None)
+        await self.scheduler.enqueue_document(tenant_id, document_id)
+        return await self.status(tenant_id, document_id)
+
+    async def _units(self, path: str, row: Any, part: dict[str, Any]) -> AsyncIterator[ParsedUnit]:
         async for unit in parse_in_sandbox(
             path,
             row.detected_type,
@@ -393,6 +631,7 @@ class DocumentService:
             memory_mb=self.c.sandbox.memory_mb,
             cpu_s=self.c.sandbox.cpu_s,
             max_text_bytes=self.c.parsing.max_text_bytes,
+            part=part,
         ):
             yield unit
 
@@ -421,20 +660,30 @@ class DocumentService:
         return path()
 
     async def _index(self, tenant_id: UUID, row: Any) -> str:
+        """Embed and index the passages page by page, continuing after the last page indexed."""
+        cfg = self.c
         async with self.txn(tenant_id) as s:
             await repo.set_status(s, row.id, "indexing")
-            rows = await repo.passages(s, row.id)
-        vectors: list[list[float]] = []
-        batch = self.c.embedding.batch
-        for i in range(0, len(rows), batch):
-            texts = [r.content for r in rows[i : i + batch]]
-            vectors.extend(await self.embedder.embed(texts))
-            await self._meter(tenant_id, row.id, texts)
+        after = int(row.indexed_through) if row.indexed_through is not None else -1
+        # LOOP(index pages): cap=passages / index_batch pages; exit=no passage left, deleted
+        while True:
+            async with self.txn(tenant_id) as s:
+                rows = await repo.passages_after(s, row.id, after, cfg.parsing.index_batch)
+            if not rows:
+                break
+            vectors: list[list[float]] = []
+            batch = cfg.embedding.batch
+            for i in range(0, len(rows), batch):
+                texts = [r.content for r in rows[i : i + batch]]
+                vectors.extend(await self.embedder.embed(texts))
+                await self._meter(tenant_id, row.id, texts)
+            async with self.txn(tenant_id) as s:
+                if not await repo.index_page(
+                    s, row.id, row.account_id, rows, vectors, self.embedder.model
+                ):
+                    return "noop"  # deleted while it was being embedded
+            after = int(rows[-1].seq)
         async with self.txn(tenant_id) as s:
-            if not await repo.index_passages(
-                s, row.id, row.account_id, rows, vectors, self.embedder.model
-            ):
-                return "noop"  # deleted while it was being embedded
             await repo.set_status(s, row.id, "indexed")
         return "indexed"
 
@@ -518,18 +767,20 @@ class DocumentService:
         """The document's status view."""
         async with self.txn(tenant_id) as s:
             row = await repo.get(s, document_id)
+            counts = await repo.part_counts(s, [document_id]) if row is not None else {}
         if row is None:
             raise DocumentError("not_found", "The document was not found.")
-        return self._view(row)
+        return self._view(row, counts.get(row.id))
 
     async def list(self, tenant_id: UUID, account_id: UUID | None) -> list[dict[str, Any]]:
         """The tenant's documents (one account's when given)."""
         async with self.txn(tenant_id) as s:
             rows = await repo.list_for(s, account_id)
-        return [self._view(r) for r in rows]
+            counts = await repo.part_counts(s, [r.id for r in rows])
+        return [self._view(r, counts.get(r.id)) for r in rows]
 
     @staticmethod
-    def _view(row: Any) -> dict[str, Any]:
+    def _view(row: Any, parts: dict[str, Any] | None = None) -> dict[str, Any]:
         stage = {
             "awaiting_upload": "uploading", "quarantined": "scanning", "scanning": "scanning",
             "parsing": "parsing", "parsed": "parsed", "indexing": "indexing",
@@ -548,8 +799,18 @@ class DocumentService:
             "reason": row.reject_reason or (row.stop_detail if row.status == "failed" else None),
             "message": MESSAGES.get(row.reject_reason or "")
             if row.reject_reason
-            else ("The file could not be read." if row.status == "failed" else None),
-            "passages": row.passages,
+            else (
+                MESSAGES["parts_failed"]
+                if row.stop_detail == "parts_failed"
+                else ("The file could not be read." if row.status == "failed" else None)
+            ),
+            "passages": row.passages or (parts or {}).get("passages", 0),
+            "parts_total": int(row.parts_total or 0),
+            "parts_done": int((parts or {}).get("done", 0)),
+            "parts_failed": [
+                {"part": int(f["part"]) + 1, "reason": part_message(f.get("failure"))}
+                for f in (parts or {}).get("failed", [])
+            ],
             "redactions": row.redactions,
             "redaction_tier": row.redaction_tier,
             "authoritative": bool(row.authoritative),
@@ -570,13 +831,28 @@ async def sweep_documents(
     idempotent (a re-parse clears the document's passages first)."""
     from sqlalchemy import text
 
+    stale = now - timedelta(seconds=orphan_after_s)
     async with sessions() as s:
         rows = (
             await s.execute(
                 text("SELECT tenant_id, document_id FROM documents_orphaned(:b) LIMIT 200"),
-                {"b": now - timedelta(seconds=orphan_after_s)},
+                {"b": stale},
             )
         ).all()
-    for r in rows:
-        await scheduler.enqueue_document(UUID(str(r.tenant_id)), UUID(str(r.document_id)))
-    return [UUID(str(r.document_id)) for r in rows]
+        parted = (
+            await s.execute(
+                text(
+                    "SELECT DISTINCT tenant_id, document_id FROM document_parts_orphaned(:b)"
+                    " LIMIT 200"
+                ),
+                {"b": stale},
+            )
+        ).all()
+    found: list[tuple[UUID, UUID]] = []
+    for r in [*rows, *parted]:
+        key = (UUID(str(r.tenant_id)), UUID(str(r.document_id)))
+        if key not in found:
+            found.append(key)
+    for tenant_id, document_id in found:
+        await scheduler.enqueue_document(tenant_id, document_id)
+    return [d for _, d in found]

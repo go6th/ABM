@@ -116,19 +116,27 @@ def _split(text: str, max_chars: int, min_chars: int, overlap: int) -> list[tupl
 class Chunker:
     """Units in, passages out, in order (see the module docstring)."""
 
-    def __init__(self, cfg: ChunkingCfg, name: str, redactor: Redactor, max_passages: int):
+    def __init__(
+        self,
+        cfg: ChunkingCfg,
+        name: str,
+        redactor: Redactor,
+        max_passages: int,
+        first_seq: int = 0,
+    ):
         self.cfg = cfg
         self.name = name
         self.redactor = redactor
         self.max_passages = max_passages
-        self.seq = 0
+        self.first_seq = first_seq  # a part's passages are numbered from its own range
+        self.seq = first_seq
         self.headers: dict[str, list[str]] = {}
         self.truncated = False
 
     def _next(
         self, kind: str, location: dict[str, Any], heading: str | None, text: str
     ) -> Passage | None:
-        if self.seq >= self.max_passages:
+        if self.seq - self.first_seq >= self.max_passages:
             self.truncated = True
             return None
         self.seq += 1

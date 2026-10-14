@@ -287,5 +287,13 @@ async def test_page_limit_stops_the_parse_with_its_reason(tenant_a: UUID, tmp_pa
     doc = UUID(done["document_id"])
     assert await svc.process(tenant_a, doc) == "failed"
     row = doc_row(doc)
-    assert row["stop_detail"] == "parse:page_limit"
+    # the limit is per part (Phase 4B): the part fails with its reason, and says so
+    assert row["stop_detail"] == "parts_failed"
+    assert admin(
+        "SELECT part_no, status, failure FROM document_parts WHERE document_id = %s", doc
+    ) == [(0, "failed", "parse:page_limit")]
+    view = await svc.status(tenant_a, doc)
+    assert view["parts_failed"] == [
+        {"part": 1, "reason": "This part has more pages than one part may."}
+    ]
     assert admin("SELECT count(*) FROM document_passages WHERE document_id = %s", doc) == [(0,)]

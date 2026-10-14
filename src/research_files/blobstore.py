@@ -9,6 +9,10 @@ hashing it, opens an object as a binary file for streaming reads, and deletes. A
   google-cloud-storage API (resumable upload from a stream, compose, ``Blob.open``) and not yet run
   against a bucket.
 
+A browser upload goes straight to storage (owner decision 2026-10-14): ``resumable_upload`` opens
+a resumable session (GCS's own, or the development object store's on the same directory, see
+``devstore.server``) whose URL the browser sends chunks to; the API never sees the bytes.
+
 Keys are neutral: ``tenants/<tenant>/files/...``; no file name ever appears in a key.
 
 GUARANTEE(test_local_blob_store_streams_and_composes_without_holding_the_file)
@@ -68,10 +72,15 @@ class BlobStore(Protocol):
         """Remove every object under ``prefix``; the count removed."""
         ...
 
-    async def signed_put_url(
-        self, key: str, expires_s: int, content_type: str, max_bytes: int
+    async def resumable_upload(
+        self, key: str, size: int, content_type: str, origin: str | None
     ) -> str | None:
-        """A URL a client may PUT the object to directly, or None when the store has none."""
+        """A resumable upload session for exactly ``size`` bytes to ``key`` (the browser PUTs
+        chunks to the URL), or None when the store has none."""
+        ...
+
+    async def size(self, key: str) -> int:
+        """The object's size in bytes (``BlobMissing`` when absent)."""
         ...
 
 
@@ -162,12 +171,25 @@ class LocalBlobStore:
         """Whether the file exists."""
         return self.path(key).is_file()
 
-    async def signed_put_url(
-        self, key: str, expires_s: int, content_type: str, max_bytes: int
+    async def resumable_upload(
+        self, key: str, size: int, content_type: str, origin: str | None
     ) -> str | None:
-        """None: a local directory has no signed URLs (the API receives the bytes instead)."""
-        del key, expires_s, content_type, max_bytes
-        return None
+        """A session of the development object store serving this directory
+        (``DEVSTORE_PUBLIC_URL``); None without one (the API's content route stands in)."""
+        del content_type, origin
+        public = os.environ.get("DEVSTORE_PUBLIC_URL")
+        if not public:
+            return None
+        from devstore.server import Store, ttl_s
+
+        return Store(self.root, public, ttl_s()).open_session(key, size)
+
+    async def size(self, key: str) -> int:
+        """The file's size."""
+        try:
+            return self.path(key).stat().st_size
+        except FileNotFoundError:
+            raise BlobMissing(key) from None
 
     async def delete(self, key: str) -> None:
         """Unlink."""
@@ -272,24 +294,30 @@ class GcsBlobStore:
         if await asyncio.to_thread(blob.exists):
             await asyncio.to_thread(blob.delete)
 
-    async def signed_put_url(
-        self, key: str, expires_s: int, content_type: str, max_bytes: int
+    async def resumable_upload(
+        self, key: str, size: int, content_type: str, origin: str | None
     ) -> str | None:
-        """A V4 signed URL for one direct PUT of at most ``max_bytes`` to ``key`` (VERIFY
-        V-FILES-1: needs a signing service account in the cloud)."""
+        """A GCS resumable upload session URI for ``size`` bytes (VERIFY V-FILES-1). ``origin``
+        is the web app's origin, so the browser's chunk PUTs pass CORS."""
         import asyncio
-        from datetime import timedelta
 
         blob = self.bucket.blob(key)
         url: str = await asyncio.to_thread(
-            blob.generate_signed_url,
-            version="v4",
-            expiration=timedelta(seconds=expires_s),
-            method="PUT",
+            blob.create_resumable_upload_session,
             content_type=content_type,
-            headers={"x-goog-content-length-range": f"0,{max_bytes}"},
+            size=size,
+            origin=origin,
         )
         return url
+
+    async def size(self, key: str) -> int:
+        """The object's size from its metadata."""
+        import asyncio
+
+        blob = await asyncio.to_thread(self.bucket.get_blob, key)
+        if blob is None:
+            raise BlobMissing(key)
+        return int(blob.size)
 
     async def delete_prefix(self, prefix: str) -> int:
         """Delete every object under the prefix."""

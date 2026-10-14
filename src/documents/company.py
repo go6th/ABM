@@ -123,6 +123,25 @@ class Resolver:
         for m in _SUFFIX.finditer(text):
             self._name(f"{m.group(1)} {m.group(2)}", "legal_name", 1.5)
 
+    def state(self, keep: int = 200) -> dict[str, Any]:
+        """The evidence so far, the ``keep`` strongest of each kind (a part stores it; the
+        document's decision absorbs every part's)."""
+
+        def top(found: dict[str, Candidate]) -> list[list[Any]]:
+            best = sorted(found.items(), key=lambda kv: -kv[1].score)[:keep]
+            return [[k, c.name, c.domain, c.score, c.signals] for k, c in best]
+
+        return {"domains": top(self.by_domain), "names": top(self.by_name)}
+
+    def absorb(self, state: dict[str, Any] | None) -> None:
+        """Add one part's evidence (see ``state``)."""
+        for kind, found in (("domains", self.by_domain), ("names", self.by_name)):
+            for key, name, domain, score, signals in (state or {}).get(kind) or []:
+                cand = found.setdefault(key, Candidate(name=name, domain=domain))
+                cand.score += float(score)
+                for signal, n in dict(signals).items():
+                    cand.signals[signal] = cand.signals.get(signal, 0) + int(n)
+
     def candidates(self) -> list[Candidate]:
         """Merged candidates, best first."""
         merged: dict[str, Candidate] = {}

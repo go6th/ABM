@@ -22,8 +22,9 @@ _COLS = (
     "id, account_id, name, declared_bytes, size_bytes, declared_type, detected_type, sha256,"
     " quarantine_key, upload_token_sha256, object_key, status, reject_reason, stop_detail,"
     " redaction_tier, authoritative, detected_company, passages, redactions, uploaded_by,"
-    " upload_expires_at, created_at, updated_at"
+    " upload_expires_at, created_at, updated_at, parts_total, indexed_through"
 )
+PART_SPAN = 10_000_000  # passage numbers per part: part n writes n * PART_SPAN + 1, + 2, ...
 
 
 def _j(value: Any) -> str:
@@ -190,42 +191,49 @@ async def write_passages(
     passages: Sequence[Passage],
     redactions: Sequence[tuple[int, str, str, str]],
 ) -> None:
-    """Insert passages and the redaction map rows ``(passage seq, placeholder, kind, original)``."""
-    for p in passages:
+    """Insert passages and the redaction map rows ``(passage seq, placeholder, kind, original)``
+    (one batched statement each). A passage number already written is left as it is."""
+    if passages:
         await s.execute(
             text(
                 "INSERT INTO document_passages (tenant_id, account_id, document_id, seq, kind,"
                 " location, heading_path, content, content_sha256, token_count) VALUES"
                 " ((SELECT app_tenant()), :a, :d, :seq, :k, CAST(:loc AS jsonb), :h, :c, :sha,"
-                " :tok)"
+                " :tok) ON CONFLICT (document_id, seq) DO NOTHING"
             ),
-            {
-                "a": account_id,
-                "d": document_id,
-                "seq": p.seq,
-                "k": p.kind,
-                "loc": _j(p.location),
-                "h": p.heading_path,
-                "c": p.text,
-                "sha": p.sha256,
-                "tok": p.tokens,
-            },
+            [
+                {
+                    "a": account_id,
+                    "d": document_id,
+                    "seq": p.seq,
+                    "k": p.kind,
+                    "loc": _j(p.location),
+                    "h": p.heading_path,
+                    "c": p.text,
+                    "sha": p.sha256,
+                    "tok": p.tokens,
+                }
+                for p in passages
+            ],
         )
-    for seq, placeholder, kind, original in redactions:
+    if redactions:
         await s.execute(
             text(
                 "INSERT INTO document_redactions (tenant_id, account_id, document_id,"
                 " passage_seq, placeholder, kind, original) VALUES ((SELECT app_tenant()), :a,"
                 " :d, :seq, :ph, :k, :o)"
             ),
-            {
-                "a": account_id,
-                "d": document_id,
-                "seq": seq,
-                "ph": placeholder,
-                "k": kind,
-                "o": original[:500],
-            },
+            [
+                {
+                    "a": account_id,
+                    "d": document_id,
+                    "seq": seq,
+                    "ph": placeholder,
+                    "k": kind,
+                    "o": original[:500],
+                }
+                for seq, placeholder, kind, original in redactions
+            ],
         )
 
 
@@ -320,6 +328,23 @@ async def run_documents(s: AsyncSession, run_id: UUID) -> list[Any]:
             " ORDER BY d.created_at, d.id"
         ),
         {"r": run_id},
+    )
+    return list(rows.all())
+
+
+async def document_passages_page(
+    s: AsyncSession, document_id: UUID, after: int, limit: int
+) -> list[Any]:
+    """The next page of one document's passages by number (keyset), with the document's name and
+    flag, shaped like ``run_passages`` rows (a file of any size is read a page at a time)."""
+    rows = await s.execute(
+        text(
+            "SELECT p.document_id, d.name AS document_name, d.authoritative, p.seq, p.kind,"
+            " p.location, p.heading_path, p.content FROM document_passages p"
+            " JOIN documents d ON d.id = p.document_id"
+            " WHERE p.document_id = :d AND p.seq > :after ORDER BY p.seq LIMIT :n"
+        ),
+        {"d": document_id, "after": after, "n": limit},
     )
     return list(rows.all())
 
@@ -476,3 +501,281 @@ async def store_internal(
         ),
         {"a": account_id, "r": run_id, "l": label, "k": key, "sha": sha, "b": size},
     )
+
+
+# ---------------------------------------------------------------------- parts (Phase 4B section 3)
+
+_PART_COLS = (
+    "document_id, part_no, start_cursor, end_offset, end_page, status, attempts, passages,"
+    " evidence, failure, lease_owner"
+)
+
+
+async def platform_max_file_bytes(s: AsyncSession) -> int | None:
+    """The admin's per-file limit (None when the platform row is missing)."""
+    value = await s.scalar(text("SELECT max_file_bytes FROM platform_defaults WHERE id = 1"))
+    return int(value) if value is not None else None
+
+
+async def create_parts(s: AsyncSession, document_id: UUID, plans: Sequence[dict[str, Any]]) -> None:
+    """Store a document's parts (pending), owned by the document's owner, and their count."""
+    await s.execute(text("DELETE FROM document_parts WHERE document_id = :d"), {"d": document_id})
+    await s.execute(
+        text(
+            "INSERT INTO document_parts (owner_user_id, document_id, part_no, start_cursor,"
+            " end_offset, end_page) SELECT d.owner_user_id, d.id, :n, CAST(:c AS jsonb), :eo,"
+            " :ep FROM documents d WHERE d.id = :d"
+        ),
+        [
+            {
+                "d": document_id,
+                "n": n,
+                "c": _j(plan.get("cursor") or {}),
+                "eo": plan.get("end_offset"),
+                "ep": plan.get("end_page"),
+            }
+            for n, plan in enumerate(plans)
+        ],
+    )
+    await s.execute(
+        text("UPDATE documents SET parts_total = :n, updated_at = now() WHERE id = :d"),
+        {"d": document_id, "n": len(plans)},
+    )
+
+
+async def claim_part(s: AsyncSession, document_id: UUID, owner: str, ttl_s: int, limit: int) -> Any:
+    """Take the next part of the document to read: pending, or running under an expired lease.
+    ``"busy"`` when ``limit`` parts of this client already run (the part waits); None when no
+    part is left to take. The count and the claim are serialised per client."""
+    await s.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext('document_parts:' || app_tenant()::text))")
+    )
+    running = await s.scalar(
+        text(
+            "SELECT count(*) FROM document_parts WHERE status = 'running'"
+            " AND lease_expires_at > now() AND lease_owner IS DISTINCT FROM :o"
+        ),
+        {"o": owner},
+    )
+    nxt = (
+        await s.execute(
+            text(
+                "SELECT part_no FROM document_parts WHERE document_id = :d AND (status ="
+                " 'pending' OR (status = 'running' AND lease_expires_at < now()))"
+                " ORDER BY part_no LIMIT 1 FOR UPDATE SKIP LOCKED"
+            ),
+            {"d": document_id},
+        )
+    ).first()
+    if nxt is None:
+        return None
+    if int(running or 0) >= limit:
+        return "busy"
+    return (
+        await s.execute(
+            text(
+                f"UPDATE document_parts SET status = 'running', lease_owner = :o,"  # nosec B608 -- fixed columns.
+                f" lease_expires_at = now() + make_interval(secs => :ttl), attempts = attempts + 1,"
+                f" started_at = coalesce(started_at, now()), updated_at = now()"
+                f" WHERE document_id = :d AND part_no = :n RETURNING {_PART_COLS}"
+            ),
+            {"d": document_id, "n": int(nxt.part_no), "o": owner, "ttl": ttl_s},
+        )
+    ).first()
+
+
+async def renew_part(
+    s: AsyncSession, document_id: UUID, part_no: int, owner: str, ttl_s: int
+) -> bool:
+    """Extend a part's lease (False: another worker took it, or the document is gone)."""
+    res = await s.execute(
+        text(
+            "UPDATE document_parts SET lease_expires_at = now() + make_interval(secs => :ttl),"
+            " updated_at = now() WHERE document_id = :d AND part_no = :n AND lease_owner = :o"
+            " AND status = 'running'"
+        ),
+        {"d": document_id, "n": part_no, "o": owner, "ttl": ttl_s},
+    )
+    return bool(res.rowcount)  # type: ignore[attr-defined]
+
+
+async def renew_document(s: AsyncSession, document_id: UUID, owner: str, ttl_s: int) -> bool:
+    """Extend a document's processing lease (False: lost)."""
+    res = await s.execute(
+        text(
+            "UPDATE documents SET lease_expires_at = now() + make_interval(secs => :ttl)"
+            " WHERE id = :d AND lease_owner = :o"
+        ),
+        {"d": document_id, "o": owner, "ttl": ttl_s},
+    )
+    return bool(res.rowcount)  # type: ignore[attr-defined]
+
+
+async def clear_part(s: AsyncSession, document_id: UUID, part_no: int) -> None:
+    """Remove what an earlier, interrupted read of this part wrote (it starts clean)."""
+    lo, hi = part_no * PART_SPAN, (part_no + 1) * PART_SPAN - 1
+    for sql in (
+        "DELETE FROM document_redactions WHERE document_id = :d"
+        " AND passage_seq BETWEEN :lo AND :hi",
+        "DELETE FROM document_passages WHERE document_id = :d AND seq BETWEEN :lo AND :hi",
+    ):
+        await s.execute(text(sql), {"d": document_id, "lo": lo, "hi": hi})
+
+
+async def alive(s: AsyncSession, document_id: UUID) -> bool:
+    """Whether the document still exists (locked against deletion for the transaction)."""
+    found = await s.execute(
+        text("SELECT 1 FROM documents WHERE id = :d FOR SHARE"), {"d": document_id}
+    )
+    return found.first() is not None
+
+
+async def finish_part(
+    s: AsyncSession,
+    document_id: UUID,
+    part_no: int,
+    owner: str,
+    passages: int,
+    evidence: dict[str, Any],
+) -> bool:
+    """Mark a part read (False: the lease was lost meanwhile)."""
+    res = await s.execute(
+        text(
+            "UPDATE document_parts SET status = 'done', passages = :p, evidence = CAST(:e AS"
+            " jsonb), failure = NULL, lease_owner = NULL, lease_expires_at = NULL, finished_at ="
+            " now(), updated_at = now() WHERE document_id = :d AND part_no = :n AND lease_owner"
+            " = :o AND status = 'running'"
+        ),
+        {"d": document_id, "n": part_no, "o": owner, "p": passages, "e": _j(evidence)},
+    )
+    return bool(res.rowcount)  # type: ignore[attr-defined]
+
+
+async def fail_part(
+    s: AsyncSession, document_id: UUID, part_no: int, owner: str, failure: str
+) -> None:
+    """Mark a part failed with its reason (what it wrote is removed)."""
+    await clear_part(s, document_id, part_no)
+    await s.execute(
+        text(
+            "UPDATE document_parts SET status = 'failed', failure = :f, passages = 0,"
+            " lease_owner = NULL, lease_expires_at = NULL, finished_at = now(), updated_at ="
+            " now() WHERE document_id = :d AND part_no = :n AND lease_owner = :o"
+        ),
+        {"d": document_id, "n": part_no, "o": owner, "f": failure[:200]},
+    )
+
+
+async def retry_part(s: AsyncSession, document_id: UUID, part_no: int) -> bool:
+    """A failed part goes back to the queue ("Try again"); False when it had not failed."""
+    res = await s.execute(
+        text(
+            "UPDATE document_parts SET status = 'pending', failure = NULL, updated_at = now()"
+            " WHERE document_id = :d AND part_no = :n AND status = 'failed'"
+        ),
+        {"d": document_id, "n": part_no},
+    )
+    return bool(res.rowcount)  # type: ignore[attr-defined]
+
+
+async def parts(s: AsyncSession, document_id: UUID) -> list[Any]:
+    """A document's parts in order."""
+    rows = await s.execute(
+        text(
+            f"SELECT {_PART_COLS} FROM document_parts WHERE document_id = :d ORDER BY part_no"  # nosec B608 -- fixed columns.
+        ),
+        {"d": document_id},
+    )
+    return list(rows.all())
+
+
+async def part_counts(s: AsyncSession, document_ids: Sequence[UUID]) -> dict[UUID, dict[str, Any]]:
+    """Per document: parts done, running and failed (with their reasons), and passages so far."""
+    if not document_ids:
+        return {}
+    rows = await s.execute(
+        text(
+            "SELECT document_id, count(*) FILTER (WHERE status = 'done') AS done,"
+            " count(*) FILTER (WHERE status = 'running') AS running,"
+            " coalesce(sum(passages), 0) AS passages,"
+            " coalesce(jsonb_agg(jsonb_build_object('part', part_no, 'failure', failure)"
+            " ORDER BY part_no) FILTER (WHERE status = 'failed'), '[]') AS failed"
+            " FROM document_parts WHERE document_id = ANY(:ids) GROUP BY document_id"
+        ),
+        {"ids": list(document_ids)},
+    )
+    return {
+        r.document_id: {
+            "done": int(r.done),
+            "running": int(r.running),
+            "passages": int(r.passages),
+            "failed": list(r.failed),
+        }
+        for r in rows
+    }
+
+
+async def lock(s: AsyncSession, document_id: UUID) -> Any:
+    """The document row, locked for the transaction (None: gone)."""
+    return await get(s, document_id, lock=True)
+
+
+async def passages_after(s: AsyncSession, document_id: UUID, after: int, limit: int) -> list[Any]:
+    """The next page of a document's passages by number (keyset; never the whole document)."""
+    rows = await s.execute(
+        text(
+            "SELECT seq, kind, location, heading_path, content, content_sha256, token_count,"
+            " account_id FROM document_passages WHERE document_id = :d AND seq > :after"
+            " ORDER BY seq LIMIT :n"
+        ),
+        {"d": document_id, "after": after, "n": limit},
+    )
+    return list(rows.all())
+
+
+async def index_page(
+    s: AsyncSession,
+    document_id: UUID,
+    account_id: UUID,
+    rows: Sequence[Any],
+    vectors: Sequence[Sequence[float]],
+    model: str,
+) -> bool:
+    """Index one page of passages (their range is replaced, so a page indexed twice is written
+    once) and remember how far indexing got. False: the document was deleted meanwhile."""
+    if not await alive(s, document_id):
+        return False
+    lo, hi = int(rows[0].seq), int(rows[-1].seq)
+    await s.execute(
+        text(
+            "DELETE FROM chunks WHERE tenant_id = (SELECT app_tenant()) AND doc_id = :d"
+            " AND passage_seq BETWEEN :lo AND :hi"
+        ),
+        {"d": document_id, "lo": lo, "hi": hi},
+    )
+    await s.execute(
+        text(
+            "INSERT INTO chunks (tenant_id, account_id, doc_id, visibility, content,"
+            " embedding, passage_seq, location, heading_path, embedding_model) VALUES"
+            " ((SELECT app_tenant()), :a, :d, 'private', :c, CAST(:v AS halfvec), :seq,"
+            " CAST(:loc AS jsonb), :h, :m)"
+        ),
+        [
+            {
+                "a": account_id,
+                "d": document_id,
+                "c": row.content,
+                "v": literal(vec),
+                "seq": row.seq,
+                "loc": _j(row.location),
+                "h": row.heading_path,
+                "m": model,
+            }
+            for row, vec in zip(rows, vectors, strict=True)
+        ],
+    )
+    await s.execute(
+        text("UPDATE documents SET indexed_through = :hi, updated_at = now() WHERE id = :d"),
+        {"d": document_id, "hi": hi},
+    )
+    return True

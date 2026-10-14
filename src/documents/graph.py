@@ -65,6 +65,9 @@ class FileState(TypedDict, total=False):
     exits: Annotated[dict[str, str], merge_maps]
 
 
+PASSAGE_PAGE = 2000  # passages read and extracted per page (a file of any size)
+
+
 def _model_failure(error: BaseException) -> str | None:
     from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
     from llm.errors import (
@@ -117,53 +120,69 @@ def build_file_graph(deps: Any, documents: Any, cfg: InputModesConfig | None = N
         from account_intelligence.grading.config import load_grading_config
         from account_intelligence.grading.ports import RunInfo
         from account_intelligence.grading.repo import record_document_fact
+        from documents.chunking import cite
 
         tenant, run, account = ids(state)
         async with deps.txn(tenant) as s:
-            rows = await repo.run_passages(s, run)
-        cands = [c for r in rows if r.kind == "crm_row" for c in ex.from_row(r)]
-        prose = [r for r in rows if r.kind != "crm_row"]
+            documents = await repo.run_documents(s, run)
         drops: Counter[str] = Counter()
         model_error = None
-        if prose:
-            company = f"{state['account_name']} ({state['domain']})"
-            try:
-                found, drops = await ex.from_prose(model_call, company, prose, cfg)
-                cands += found
-            except Exception as error:  # noqa: BLE001 - re-raised unless a terminal model failure
-                model_error = _model_failure(error)
-                if model_error is None:
-                    raise
-        cands = ex.dedupe(cands)
+        company = f"{state['account_name']} ({state['domain']})"
         info = RunInfo(
             tenant, account, run, deps.clock.now(), state["domain"], state["account_name"]
         )
         config_hash = load_grading_config().content_hash
-        written = 0
-        async with deps.txn(tenant) as s:
-            for c in cands:
-                from documents.chunking import cite
-
-                location = {**c.location, "passage": c.seq, "cite": cite(c.location)}
-                _, created = await record_document_fact(
-                    s,
-                    run=info,
-                    attribute_key=ex.attribute_key(cfg, c),
-                    value=c.value,
-                    quote=c.quote,
-                    document_id=c.document_id,
-                    location=location,
-                    authoritative=c.authoritative,
-                    flags=(f"reader_{c.reader}", f"category_{c.category}"),
-                    config_hash=config_hash,
-                )
-                written += int(created)
+        seen: set[tuple[str, str]] = set()
+        facts = written = passages = 0
+        # a file of any size: each document is read a page of passages at a time (owner decision
+        # 2026-10-14); facts are written page by page and de-duplicated across pages
+        # LOOP(file extraction documents): cap=the run's documents; exit=last document
+        for doc in documents:
+            after = -1
+            # LOOP(file extraction pages): cap=passages / PASSAGE_PAGE; exit=a short page
+            while True:
+                async with deps.txn(tenant) as s:
+                    rows = await repo.document_passages_page(s, doc.id, after, PASSAGE_PAGE)
+                if not rows:
+                    break
+                after, passages = int(rows[-1].seq), passages + len(rows)
+                cands = [c for r in rows if r.kind == "crm_row" for c in ex.from_row(r)]
+                prose = [r for r in rows if r.kind != "crm_row"]
+                if prose and model_error is None:
+                    try:
+                        found, more = await ex.from_prose(model_call, company, prose, cfg)
+                        cands += found
+                        drops.update(more)
+                    except Exception as error:  # noqa: BLE001 - re-raised unless terminal
+                        model_error = _model_failure(error)
+                        if model_error is None:
+                            raise
+                cands = ex.dedupe(cands, seen)
+                facts += len(cands)
+                async with deps.txn(tenant) as s:
+                    for c in cands:
+                        location = {**c.location, "passage": c.seq, "cite": cite(c.location)}
+                        _, created = await record_document_fact(
+                            s,
+                            run=info,
+                            attribute_key=ex.attribute_key(cfg, c),
+                            value=c.value,
+                            quote=c.quote,
+                            document_id=c.document_id,
+                            location=location,
+                            authoritative=c.authoritative,
+                            flags=(f"reader_{c.reader}", f"category_{c.category}"),
+                            config_hash=config_hash,
+                        )
+                        written += int(created)
+                if len(rows) < PASSAGE_PAGE:
+                    break
         return {
             "model_error": model_error,
             "counters": {
-                "file_facts": len(cands),
+                "file_facts": facts,
                 "file_facts_written": written,
-                "passages": len(rows),
+                "passages": passages,
                 **{f"drop_{k}": v for k, v in drops.items()},
             },
             "exits": {"extract": "extracted" if model_error is None else "rows_only"},

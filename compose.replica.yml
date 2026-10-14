@@ -6,6 +6,9 @@
 #   api      FastAPI                              http://localhost:8090
 #   worker   run executor serving /tasks          http://localhost:8091
 #   web      Next.js                              http://localhost:3010
+#   objectstore dev object storage for uploads    http://localhost:8092
+#            (the browser sends files straight here in resumable chunks, never through the web
+#            app or the API; it writes the same payloads volume the API reads)
 #   fake-idp synthetic OIDC discovery and JWKS (the API's token settings need an issuer)
 # Defaults (dev only; the container refuses each of them outside dev and test):
 #   LLM_FAKE=hermetic      the deterministic fake model: Ask, research and files work end to end
@@ -29,6 +32,7 @@ x-app-env: &app-env
   CONNECTORS: hermetic
   RESEARCH_ENGINE: graph
   REDIS_URL: redis://redis:6379/0
+  DEVSTORE_PUBLIC_URL: http://localhost:8092
 
 services:
   db:
@@ -76,6 +80,22 @@ services:
     depends_on: { migrate: { condition: service_completed_successfully } }
     restart: unless-stopped
 
+  objectstore:
+    image: abm-replica-worker:local
+    volumes:
+      - ./src:/app/src:ro
+      - payloads:/tmp/payloads
+    entrypoint: ["uvicorn", "devstore.server:app", "--host", "0.0.0.0", "--port", "8092"]
+    environment:
+      APP_ENV: dev
+      PYTHONPATH: /app/src
+      DEVSTORE_ROOT: /tmp/payloads/files
+      DEVSTORE_PUBLIC_URL: http://localhost:8092
+      DEVSTORE_ALLOW_ORIGIN: http://localhost:3010,http://localhost:3000
+    ports: ["8092:8092"]
+    depends_on: { worker: { condition: service_started } }
+    restart: unless-stopped
+
   fake-idp:
     image: abm-replica-worker:local
     entrypoint: ["python", "/dev-tools/fake_idp.py"]
@@ -110,6 +130,7 @@ services:
     image: abm-replica-web:local
     environment:
       API_ORIGIN: http://api:8080
+      UPLOAD_ORIGIN: http://localhost:8092
     ports: ["3010:3000"]
     depends_on: { api: { condition: service_healthy } }
     restart: unless-stopped

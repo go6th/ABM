@@ -261,6 +261,30 @@ class Settings(BaseSettings):
     payload_dir: str | None = var(
         purpose="Local directory for raw payloads (memory store when unset).", forbidden_in=CLOUD
     )
+    devstore_public_url: str | None = var(
+        purpose=(
+            "Dev only: the browser-facing URL of the development object store (resumable"
+            " uploads straight to storage, owner decision 2026-10-14); unset: the API's"
+            " content route stands in."
+        ),
+        forbidden_in=CLOUD,
+    )
+    devstore_root: str | None = var(
+        purpose="Dev only: the directory the development object store writes (the blob root).",
+        forbidden_in=CLOUD,
+        component="objectstore",
+    )
+    devstore_allow_origin: str | None = var(
+        purpose="Dev only: comma-separated web origins the development object store answers.",
+        forbidden_in=CLOUD,
+        component="objectstore",
+    )
+    devstore_session_ttl_s: int = var(
+        172800,
+        purpose="Dev only: how long a development object store upload session lives (seconds).",
+        forbidden_in=CLOUD,
+        component="objectstore",
+    )
     connectors: Literal["on", "off", "hermetic"] = var(
         "off",
         purpose=(

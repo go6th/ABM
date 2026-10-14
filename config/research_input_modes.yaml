@@ -4,26 +4,37 @@
 version: "2026-10-13.1"
 status: "proposal (limits and thresholds unmeasured)"
 
+# Files of any size (owner decision 2026-10-14): the per-file limit is the admin's platform setting
+# (platform_defaults.max_file_bytes, default 20 GiB; this value is used only when it is missing);
+# no per-run file count or byte cap and no storage quota. The browser sends chunks straight to
+# object storage through a resumable session; a reload continues from the committed offset.
 upload:
-  max_file_bytes: 104857600          # 100 MiB per file (decision pending)
-  max_files_per_run: 20
-  max_run_bytes: 524288000           # 500 MiB of documents per run (decision pending)
-  upload_ttl_minutes: 60             # a signed upload target is valid this long
+  max_file_bytes: 21474836480        # 20 GiB (fallback; the platform setting wins)
+  chunk_bytes: 33554432              # 32 MiB per browser chunk (a multiple of 256 KiB, as GCS needs)
+  upload_ttl_minutes: 2880           # a resumable session lives two days
   # accepted document types (detected from content, the name only confirms)
   document_types: [pdf, docx, xlsx, csv, pptx, txt, md]
   # audio is accepted only when a transcription vendor is configured (decision pending)
   audio_types: [mp3, wav, m4a]
 
+# A document is read in parts (documents/parts.py): byte ranges of CSV and text files ending at a
+# record boundary, page ranges of PDFs, the whole file for other types. Every limit is per part;
+# each part runs in its own sandbox child, and at most max_parallel_parts run at once per client.
 parsing:
-  max_pages: 2000                    # pages, slides or sheets per document
-  max_passages: 5000                 # passages per document
-  max_text_bytes: 52428800           # 50 MiB of extracted text per document
-  lease_ttl_s: 300
+  part_bytes: 67108864               # 64 MiB per CSV or text part
+  pages_per_part: 200                # PDF pages per part
+  max_parallel_parts: 4              # parts running at once per client (the rest wait)
+  max_pages: 2000                    # pages, slides or sheets per part
+  max_passages: 2000000              # passages per part (the rest is recorded as truncated)
+  max_text_bytes: 268435456          # 256 MiB of extracted text per part
+  write_batch: 500                   # passages written per transaction
+  index_batch: 512                   # passages embedded and indexed per transaction
+  lease_ttl_s: 300                   # renewed while a step runs
   orphan_after_s: 900
 
 sandbox:
-  timeout_s: 300                     # wall clock per document parse
-  cpu_s: 300
+  timeout_s: 1800                    # wall clock per part (and per plan)
+  cpu_s: 1800
   memory_mb: 1536
 
 chunking:

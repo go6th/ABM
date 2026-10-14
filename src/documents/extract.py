@@ -290,9 +290,10 @@ async def from_prose(
     return kept, drops
 
 
-def dedupe(cands: Sequence[Candidate]) -> list[Candidate]:
-    """One candidate per (category, normalised value), the first passage kept."""
-    seen: set[tuple[str, str]] = set()
+def dedupe(cands: Sequence[Candidate], seen: set[tuple[str, str]] | None = None) -> list[Candidate]:
+    """One candidate per (category, normalised value), the first passage kept; ``seen`` carries
+    what earlier pages of the same run kept."""
+    seen = set() if seen is None else seen
     out = []
     for c in cands:
         key = (c.category, _norm(c.value))

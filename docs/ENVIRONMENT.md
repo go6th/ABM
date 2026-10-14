@@ -78,6 +78,10 @@ or a value has the wrong type (errors name the variable, never the value).
 | `MOONSHOT_API_KEY` | Kimi K3 (Moonshot AI) key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |
 | `MOONSHOT_API_KEY_FILE` | File holding the Kimi K3 key for local runs. | no | - | staging, production | api, worker |
 | `PAYLOAD_DIR` | Local directory for raw payloads (memory store when unset). | no | - | staging, production | api, worker |
+| `DEVSTORE_PUBLIC_URL` | Dev only: the browser-facing URL of the development object store (resumable uploads straight to storage, owner decision 2026-10-14); unset: the API's content route stands in. | no | - | staging, production | api, worker |
+| `DEVSTORE_ROOT` | Dev only: the directory the development object store writes (the blob root). | no | - | staging, production | objectstore |
+| `DEVSTORE_ALLOW_ORIGIN` | Dev only: comma-separated web origins the development object store answers. | no | - | staging, production | objectstore |
+| `DEVSTORE_SESSION_TTL_S` | Dev only: how long a development object store upload session lives (seconds). | no | - | staging, production | objectstore |
 | `CONNECTORS` | Provider connectors in dev: off, on (live providers, needs keys) or hermetic (synthetic replies, no outside call; dev and test only). Cloud always wires the live ones. | no | - | - | api, worker |
 | `ALLOW_UNAUTHENTICATED_TASKS` | Accept unsigned task calls (local stack only). | no | - | staging, production | api, worker |
 | `LLM_FAKE` | Select the deterministic fake model (hermetic dev and test only). | no | - | staging, production | api, worker |
@@ -106,6 +110,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `OPERATOR_GOOGLE_CLIENT_ID` | Google OAuth client id of the staff console. | no |
 | `OPERATOR_GOOGLE_CLIENT_SECRET` | Google OAuth client secret of the staff console. | **secret** |
 | `OPERATOR_GOOGLE_REDIRECT_URI` | Exact OAuth redirect URI of the staff console. | no |
+| `UPLOAD_ORIGIN` | Object storage origin the browser may send file chunks to (Content-Security-Policy). | no |
 | `NODE_ENV` | Node runtime mode (set to production by the image). | no |
 
 ## Tests, CI and local tooling

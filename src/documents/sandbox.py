@@ -2,8 +2,10 @@
 
 The child gets an empty environment, Python's isolated mode, resource limits and an audit hook
 that refuses network, processes and writes; the parent enforces a wall-clock timeout and caps the
-text it accepts. A child that dies, times out or prints something that is not a unit fails the
-parse with ``SandboxFailed`` (the error class only; document text never reaches a log).
+text it accepts. A large document is planned into parts (``plan_in_sandbox``) and each part is
+parsed by its own child with the same limits (``parse_in_sandbox(part=...)``). A child that
+dies, times out or prints something that is not a unit fails the parse with ``SandboxFailed``
+(the error class only; document text never reaches a log).
 
 GUARANTEE(test_the_parser_sandbox_has_no_network)
 """
@@ -63,18 +65,10 @@ def _unit(line: bytes) -> ParsedUnit:
     )
 
 
-async def parse_in_sandbox(
-    path: str,
-    kind: str,
-    name: str,
-    *,
-    timeout_s: float,
-    memory_mb: int,
-    cpu_s: int,
-    max_text_bytes: int,
-) -> AsyncIterator[ParsedUnit]:
-    """Units of the document at ``path`` (see the module docstring)."""
-    proc = await asyncio.create_subprocess_exec(
+async def _child(
+    path: str, kind: str, name: str, memory_mb: int, cpu_s: int, part: dict[str, Any]
+) -> asyncio.subprocess.Process:
+    return await asyncio.create_subprocess_exec(
         sys.executable,
         "-I",
         "-m",
@@ -84,12 +78,64 @@ async def parse_in_sandbox(
         name[:200],
         str(memory_mb),
         str(cpu_s),
+        json.dumps(part),
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env={"PYTHONHASHSEED": "0", "LANG": "C.UTF-8"},
         limit=_LINE_LIMIT,
     )
+
+
+async def plan_in_sandbox(
+    path: str,
+    kind: str,
+    name: str,
+    *,
+    timeout_s: float,
+    memory_mb: int,
+    cpu_s: int,
+    part_bytes: int,
+    pages_per_part: int,
+) -> list[dict[str, Any]]:
+    """The document's parts (``documents.parts``), planned in the sandbox: it reads the file."""
+    plan = {"plan": {"part_bytes": part_bytes, "pages_per_part": pages_per_part}}
+    proc = await _child(path, kind, name, memory_mb, cpu_s, plan)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout_s)
+    except TimeoutError:
+        raise SandboxFailed("plan_timeout") from None
+    except ValueError:
+        raise SandboxFailed("bad_output") from None
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+    if proc.returncode != 0:
+        detail = err[:200].decode("ascii", "replace").strip()
+        raise SandboxFailed(f"plan_failed:{detail or proc.returncode}"[:80])
+    try:
+        parts = json.loads(out)["parts"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        raise SandboxFailed("bad_output") from None
+    if not isinstance(parts, list) or not parts:
+        raise SandboxFailed("bad_output")
+    return [dict(p) for p in parts]
+
+
+async def parse_in_sandbox(
+    path: str,
+    kind: str,
+    name: str,
+    *,
+    timeout_s: float,
+    memory_mb: int,
+    cpu_s: int,
+    max_text_bytes: int,
+    part: dict[str, Any] | None = None,
+) -> AsyncIterator[ParsedUnit]:
+    """Units of the document at ``path``, or of one part of it (see the module docstring)."""
+    proc = await _child(path, kind, name, memory_mb, cpu_s, part or {})
     assert proc.stdout is not None and proc.stderr is not None
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_s

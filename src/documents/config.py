@@ -23,22 +23,26 @@ class _M(BaseModel):
 
 
 class UploadCfg(_M):
-    """Per-file and per-run limits and the accepted types."""
+    """The fallback per-file limit, the browser's chunk size and the accepted types."""
 
     max_file_bytes: int = Field(gt=0)
-    max_files_per_run: int = Field(gt=0)
-    max_run_bytes: int = Field(gt=0)
+    chunk_bytes: int = Field(gt=0, multiple_of=262144)
     upload_ttl_minutes: int = Field(gt=0)
     document_types: tuple[str, ...]
     audio_types: tuple[str, ...]
 
 
 class ParsingCfg(_M):
-    """Per-document parse limits and the processing lease."""
+    """How a document is split into parts, the per-part limits and the processing lease."""
 
+    part_bytes: int = Field(gt=0)
+    pages_per_part: int = Field(gt=0)
+    max_parallel_parts: int = Field(gt=0)
     max_pages: int = Field(gt=0)
-    max_passages: int = Field(gt=0)
+    max_passages: int = Field(gt=0, lt=10_000_000)  # a part's passages fit its number range
     max_text_bytes: int = Field(gt=0)
+    write_batch: int = Field(gt=0)
+    index_batch: int = Field(gt=0)
     lease_ttl_s: int = Field(gt=0)
     orphan_after_s: int = Field(gt=0)
 

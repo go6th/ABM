@@ -25,6 +25,11 @@ WEB = [
     ("OPERATOR_GOOGLE_CLIENT_ID", "Google OAuth client id of the staff console.", False),
     ("OPERATOR_GOOGLE_CLIENT_SECRET", "Google OAuth client secret of the staff console.", True),
     ("OPERATOR_GOOGLE_REDIRECT_URI", "Exact OAuth redirect URI of the staff console.", False),
+    (
+        "UPLOAD_ORIGIN",
+        "Object storage origin the browser may send file chunks to (Content-Security-Policy).",
+        False,
+    ),
     ("NODE_ENV", "Node runtime mode (set to production by the image).", False),
 ]
 TOOLING = [

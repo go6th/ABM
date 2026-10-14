@@ -1,6 +1,6 @@
 """``POST /v1/runs`` in input mode "file" (called by ``runs.create_run``; not a route itself).
 
-* The documents must belong to this tenant (RLS), be within the per-run limits, be scanned and
+* The documents must belong to this tenant (RLS), be scanned and
   parsed, and belong to one confirmed account. A document whose company was never confirmed
   refuses the run with 409 ``company_confirmation_required`` and the detected candidates: the
   company is never guessed.
@@ -39,33 +39,19 @@ from account_intelligence.runs.lifecycle import (
 )
 from documents import repo
 from documents.company import combine
-from documents.config import load_config
 from metering import events as usage
 from metering import limits
 
 
 async def _documents(s: Any, body: Any) -> tuple[Any, list[Any]]:
     """The run's account and documents, checked (see the module docstring)."""
-    cfg = load_config()
+    # no per-run file count or byte cap (owner decision 2026-10-14: files of any size); the
+    # request schema bounds how many ids one run names
     ids = list(dict.fromkeys(body.file.document_ids))
-    if len(ids) > cfg.upload.max_files_per_run:
-        raise APIProblem(
-            422,
-            "too_many_documents",
-            "Too many documents",
-            f"A run reads at most {cfg.upload.max_files_per_run} documents.",
-        )
     docs = await repo.many(s, ids)
     if len(docs) != len(ids):
         raise APIProblem(
             404, "document_not_found", "Document not found", "A document was not found."
-        )
-    if sum(int(d.size_bytes or d.declared_bytes) for d in docs) > cfg.upload.max_run_bytes:
-        raise APIProblem(
-            422,
-            "run_too_large",
-            "Too much material",
-            "The documents together are larger than the per-run limit.",
         )
     bad = [d for d in docs if d.status in ("rejected", "failed")]
     if bad:
