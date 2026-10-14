@@ -249,3 +249,52 @@ async def test_two_confirms_cannot_spend_the_same_credits(world: dict[str, Any])
         _set(
             tenant, "UPDATE client_settings SET monthly_credit_pool = %s WHERE tenant_id = %s", 3000
         )
+
+
+async def test_research_on_a_typed_topic_reserves_its_own_estimate(world: dict[str, Any]) -> None:
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    view = (await _call(plane, "GET", "/v1/accounts/cambiahealth.example/refresh")).json()
+    assert view["topic"]["credits"] == CR.rates().estimates["topic"].credits
+    body = {
+        "request_id": str(uuid4()),
+        "scope": "topic",
+        "credits": view["topic"]["credits"],
+        "topic": "  Their   ServiceNow renewal timing ",
+    }
+    r = await _call(plane, "POST", "/v1/accounts/cambiahealth.example/refresh", json=body)
+    assert r.status_code == 201, r.text
+    job = UUID(r.json()["job_id"])
+    ws = (await _call(plane, "GET", "/v1/accounts/cambiahealth.example/workspace")).json()
+    assert ws["open_job"]["scope"] == "topic"
+    assert ws["open_job"]["topic"] == "Their ServiceNow renewal timing"
+    assert await J.run_job(world["a"], job, J.HermeticEngine()) == "done"
+    with psycopg.connect(_admin()) as c:
+        row = c.execute(
+            "SELECT r.run_input->>'topic', j.topic FROM research_jobs j JOIN account_runs r ON"
+            " r.id = j.run_id"
+            " WHERE j.id = %s",
+            (job,),
+        ).fetchone()
+    assert row == ("Their ServiceNow renewal timing", "Their ServiceNow renewal timing")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"scope": "topic", "credits": 40},
+        {"scope": "topic", "credits": 40, "topic": "ab"},
+        {"scope": "topic", "credits": 40, "topic": "x" * 301},
+        {"scope": "jobs", "credits": 20, "topic": "not for this scope"},
+    ],
+)
+async def test_a_topic_must_be_given_for_topic_research_only(
+    world: dict[str, Any], body: dict[str, Any]
+) -> None:
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    r = await _call(
+        plane,
+        "POST",
+        "/v1/accounts/highmark.example/refresh",
+        json={"request_id": str(uuid4()), **body},
+    )
+    assert r.status_code == 422

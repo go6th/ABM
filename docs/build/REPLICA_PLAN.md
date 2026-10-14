@@ -306,3 +306,14 @@ Step 5 in detail:
 - Finding for the owner: at the placeholder credit costs the demo's schedules would use about
   3,240 credits a month against a 2,000 pool (the design shows "about 340"). Real credit values will
   change this.
+
+Owner changes on 2026-10-14 (after step 5):
+- Ask composer: "+ Upload a file" is now "+" (named "Upload a file" for screen readers and as a
+  tooltip); "All N accounts" is now "Accounts" (or the chosen account's name); "Web: off" is now a
+  real Search: off / Search: on toggle. With Search on, Ask becomes Search and sends the question
+  to the chosen account's Refresh screen as a research topic, where its credits are shown and
+  confirmed; with no account chosen it asks for one. Nothing is searched from the composer.
+- Refresh from web: a fourth option, "A specific topic", with a text box (3 to 300 characters).
+  Migration 0056 adds the `topic` scope and text to research jobs; `config/credits.yaml` has a
+  placeholder `topic` estimate (40 credits, about 8 minutes); the topic reaches the research engine
+  as the run's question.
