@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar, Token
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import create_engine, text
@@ -52,6 +53,34 @@ def bind_engine(new_engine: AsyncEngine) -> None:
 
 def _sessions() -> async_sessionmaker[AsyncSession]:
     return _BOUND[0] if _BOUND else SessionLocal
+
+
+def session_factory() -> async_sessionmaker[AsyncSession]:
+    """The session factory every untenanted job uses: the bound Cloud SQL engine in staging and
+    production, the local engine otherwise (never ``SessionLocal`` directly: in the cloud it
+    points at the unbound placeholder URL)."""
+    return _sessions()
+
+
+async def bind_cloud_engine(settings: Any) -> Any:
+    """In staging and production, open the Cloud SQL connector engine (IAM auth, private IP, the
+    registry's pool bounds) and bind it; returns the connector to close at shutdown, or None in
+    the local profiles. The API lifespan and the worker command line both start with it."""
+    if settings.app_env not in ("staging", "production"):
+        return None
+    from account_intelligence.platform.gcp.adapters import cloud_sql_engine
+
+    if not (settings.cloud_sql_instance and settings.db_iam_user and settings.db_name):
+        raise RuntimeError("CLOUD_SQL_INSTANCE, DB_IAM_USER and DB_NAME are required")
+    new_engine, connector = await cloud_sql_engine(
+        settings.cloud_sql_instance,
+        settings.db_iam_user,
+        settings.db_name,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+    )
+    bind_engine(new_engine)
+    return connector
 
 
 def make_sync_url(url: str) -> str:

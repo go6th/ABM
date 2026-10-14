@@ -67,8 +67,17 @@ class CloudTasksScheduler:
     """``RunScheduler`` over Cloud Tasks. Task names are deterministic per (run, slice) so a
     duplicate enqueue is refused by the service (``AlreadyExists``) and treated as success.
     Each task POSTs ids only to the worker with an OIDC token for the worker's audience.
+    Three queues (``ARCHITECTURE.md``): run slices and approval timeouts on ``queue``, document
+    processing on ``documents_queue``, research jobs and Download everything on ``jobs_queue``, so
+    document parsing never starves run slices. Every task carries an explicit dispatch deadline:
+    ``SLICE_DEADLINE_S`` (a 240 s slice with margin) and ``JOB_DEADLINE_S``, and the service's
+    30-minute maximum for documents.
     VERIFY(V-TASKS-1): name-based de-duplication window and dispatch deadline limits are
     service behaviour, not checked here."""
+
+    SLICE_DEADLINE_S = 600
+    JOB_DEADLINE_S = 600
+    DOCUMENT_DEADLINE_S = 1800  # the Cloud Tasks maximum
 
     def __init__(
         self,
@@ -79,18 +88,33 @@ class CloudTasksScheduler:
         worker_url: str,
         service_account_email: str,
         audience: str,
+        *,
+        documents_queue: str | None = None,
+        jobs_queue: str | None = None,
     ) -> None:
         self.client = client
         self.project, self.location, self.queue = project, location, queue
+        self.documents_queue = documents_queue or queue
+        self.jobs_queue = jobs_queue or queue
         self.worker_url = worker_url.rstrip("/")
         self.sa, self.audience = service_account_email, audience
 
-    def _task(self, name: str, path: str, payload: dict[str, str], at: datetime | None) -> Any:
+    def _task(
+        self,
+        name: str,
+        path: str,
+        payload: dict[str, str],
+        at: datetime | None,
+        *,
+        queue: str | None = None,
+        deadline_s: int = SLICE_DEADLINE_S,
+    ) -> Any:
         from google.cloud import tasks_v2
-        from google.protobuf import timestamp_pb2  # type: ignore[import-untyped]
+        from google.protobuf import duration_pb2, timestamp_pb2  # type: ignore[import-untyped]
 
         task = tasks_v2.Task(
-            name=self.client.task_path(self.project, self.location, self.queue, name),
+            name=self.client.task_path(self.project, self.location, queue or self.queue, name),
+            dispatch_deadline=duration_pb2.Duration(seconds=deadline_s),
             http_request=tasks_v2.HttpRequest(
                 url=f"{self.worker_url}{path}",
                 http_method=tasks_v2.HttpMethod.POST,
@@ -107,10 +131,10 @@ class CloudTasksScheduler:
             task.schedule_time = stamp
         return task
 
-    async def _create(self, task: Any) -> None:
+    async def _create(self, task: Any, queue: str | None = None) -> None:
         from google.api_core.exceptions import AlreadyExists
 
-        parent = self.client.queue_path(self.project, self.location, self.queue)
+        parent = self.client.queue_path(self.project, self.location, queue or self.queue)
         with contextlib.suppress(AlreadyExists):  # the same named task exists: idempotent
             await asyncio.to_thread(self.client.create_task, parent=parent, task=task)
 
@@ -133,20 +157,44 @@ class CloudTasksScheduler:
         payload = {"tenant_id": str(tenant_id), "document_id": str(document_id)}
         await self._create(
             self._task(
-                f"doc-{document_id}-{uuid4().hex[:12]}", "/tasks/document-process", payload, None
-            )
+                f"doc-{document_id}-{uuid4().hex[:12]}",
+                "/tasks/document-process",
+                payload,
+                None,
+                queue=self.documents_queue,
+                deadline_s=self.DOCUMENT_DEADLINE_S,
+            ),
+            self.documents_queue,
         )
 
     async def enqueue_research_job(self, tenant_id: UUID, job_id: UUID) -> None:
         """Create the job's named task (one task per job; a duplicate name is success)."""
         payload = {"tenant_id": str(tenant_id), "job_id": str(job_id)}
-        await self._create(self._task(f"job-{job_id}", "/tasks/research-job", payload, None))
+        await self._create(
+            self._task(
+                f"job-{job_id}",
+                "/tasks/research-job",
+                payload,
+                None,
+                queue=self.jobs_queue,
+                deadline_s=self.JOB_DEADLINE_S,
+            ),
+            self.jobs_queue,
+        )
 
     async def enqueue_download(self, tenant_id: UUID, job_id: UUID) -> None:
         """Create the archive job's named task (Download everything; one task per job)."""
         payload = {"tenant_id": str(tenant_id), "job_id": str(job_id)}
         await self._create(
-            self._task(f"download-{job_id}", "/tasks/download-everything", payload, None)
+            self._task(
+                f"download-{job_id}",
+                "/tasks/download-everything",
+                payload,
+                None,
+                queue=self.jobs_queue,
+                deadline_s=self.JOB_DEADLINE_S,
+            ),
+            self.jobs_queue,
         )
 
     async def schedule_timeout(self, tenant_id: UUID, run_id: UUID, at: datetime) -> None:
@@ -193,9 +241,13 @@ def verify_task_token(token: str, audience: str, allowed_email: str) -> None:
         raise PermissionError("task token is not from the scheduler service account")
 
 
-async def cloud_sql_engine(instance: str, user: str, database: str) -> tuple[Any, Any]:
+async def cloud_sql_engine(
+    instance: str, user: str, database: str, *, pool_size: int = 5, max_overflow: int = 5
+) -> tuple[Any, Any]:
     """Async SQLAlchemy engine through the Cloud SQL connector with IAM database authentication
-    (no password, private IP). Returns ``(engine, connector)``; close the connector on shutdown.
+    (no password, private IP), with the same pool bounds as the local engine (``DB_POOL_SIZE``,
+    ``DB_MAX_OVERFLOW``: the connection budget in the registry depends on them). Returns
+    ``(engine, connector)``; close the connector on shutdown.
     VERIFY(V-SQL-1): IAM DB auth and private-IP reachability need the real instance."""
     from google.cloud.sql.connector import IPTypes, create_async_connector
     from sqlalchemy.ext.asyncio import create_async_engine
@@ -206,5 +258,11 @@ async def cloud_sql_engine(instance: str, user: str, database: str) -> tuple[Any
         """Open one asyncpg connection through the connector (IAM auth, private IP)."""
         return await connector.connect_async(instance, "asyncpg", user=user, db=database)
 
-    engine = create_async_engine("postgresql+asyncpg://", async_creator=creator)
+    engine = create_async_engine(
+        "postgresql+asyncpg://",
+        async_creator=creator,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_pre_ping=True,
+    )
     return engine, connector

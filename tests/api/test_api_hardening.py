@@ -84,3 +84,35 @@ def test_the_cloud_profiles_serve_no_docs_or_schema(
 def test_the_local_profiles_keep_the_docs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "dev")
     assert TestClient(create_app()).get("/openapi.json").status_code == 200
+
+
+def test_a_sweeper_pass_logs_runs_stalled_with_a_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stalled-runs alert (infra observability ``runs_stalled``) counts this event."""
+    import asyncio
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from account_intelligence.api import main
+
+    async def nothing(*_a: object) -> SimpleNamespace:
+        return SimpleNamespace(partial=[], failed=[], truncated=False)
+
+    async def stalled() -> list[object]:
+        return [uuid4(), uuid4()]
+
+    monkeypatch.setattr(main, "_sweep_documents", nothing)
+    monkeypatch.setattr(main, "sweep_once", nothing)
+    monkeypatch.setattr(main, "_mark_stalled", stalled)
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(JsonFormatter(load_catalog(), DropCounter(), "worker"))
+    log = logging.getLogger("account_intelligence.api.main")
+    log.addHandler(handler)
+    try:
+        asyncio.run(main.sweep_pass(SimpleNamespace()))  # type: ignore[arg-type]
+    finally:
+        log.removeHandler(handler)
+    events = [json.loads(x) for x in buf.getvalue().splitlines()]
+    assert {"event": "runs.stalled", "count": 2} in [
+        {k: e[k] for k in ("event", "count") if k in e} for e in events
+    ]

@@ -107,8 +107,21 @@ class Settings(BaseSettings):
         secret=True,
         required_in=("dev", "staging", "production"),
     )
-    db_pool_size: int = var(10, purpose="Runtime connection pool size per instance.")
-    db_max_overflow: int = var(5, purpose="Extra connections allowed above the pool size.")
+    # Connection budget (docs/deploy/agents/backend-hardening.md): every process holds at most
+    # DB_POOL_SIZE + DB_MAX_OVERFLOW engine connections (the Cloud SQL engine too) and a worker one
+    # checkpointer connection per in-flight slice (concurrency 4). Production at every maximum
+    # with the stack's 5 + 5: api 10 x 10 + worker 8 x (10 + 4) + jobs 2 x 5 + 15 reserved
+    # (operators, Query Insights, maintenance) = 237 <= 400 max_connections (db-custom-2-7680);
+    # staging 3 x 10 + 2 x 14 + 10 + 15 = 83 <= 200. Raising either value needs that sum redone.
+    db_pool_size: int = var(
+        10,
+        purpose="Engine connections kept per process (the stack sets 5; the connection budget is"
+        " max instances x (DB_POOL_SIZE + DB_MAX_OVERFLOW), see the registry comment).",
+    )
+    db_max_overflow: int = var(
+        5,
+        purpose="Extra engine connections per process above DB_POOL_SIZE (the stack sets 5).",
+    )
     cloud_sql_instance: str | None = var(
         purpose="Cloud SQL connection name (project:region:instance).", required_in=CLOUD
     )
@@ -124,6 +137,11 @@ class Settings(BaseSettings):
     app_rw_password: SecretStr | None = var(
         purpose="Password the migrations set on the app_rw runtime role (migration step only).",
         secret=True,
+        component="migrate",
+    )
+    app_rw_iam_users: str | None = var(
+        purpose="Comma-separated Cloud SQL IAM database users that migration 0071 makes members of"
+        " app_rw (nothing else); unset: no grant.",
         component="migrate",
     )
 
@@ -160,7 +178,15 @@ class Settings(BaseSettings):
     # Google Cloud runtime
     gcp_project: str | None = var(purpose="Google Cloud project id.", required_in=CLOUD)
     gcp_region: str | None = var(purpose="Region of Cloud Run, Tasks and SQL.", required_in=CLOUD)
-    tasks_queue: str | None = var(purpose="Cloud Tasks queue for run slices.", required_in=CLOUD)
+    tasks_queue: str | None = var(
+        purpose="Cloud Tasks queue for run slices and approval timeouts.", required_in=CLOUD
+    )
+    tasks_queue_documents: str | None = var(
+        purpose="Cloud Tasks queue for document processing (unset: TASKS_QUEUE)."
+    )
+    tasks_queue_jobs: str | None = var(
+        purpose="Cloud Tasks queue for research jobs and Download everything (unset: TASKS_QUEUE)."
+    )
     worker_url: str | None = var(purpose="HTTPS URL of the worker service.", required_in=CLOUD)
     tasks_service_account: str | None = var(
         purpose="Service account Cloud Tasks signs OIDC tokens as.", required_in=CLOUD

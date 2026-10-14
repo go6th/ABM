@@ -23,19 +23,39 @@ from uuid import UUID
 COMMANDS = ("spend-invariants", "access-expiry")
 
 
-def _check(command: str) -> int:
+async def _on_engine(settings: Any, work: Any) -> Any:
+    """Bind the Cloud SQL engine in the cloud profiles (as the API lifespan does), run ``work``,
+    then close the connector. Locally the configured engine is used as it is."""
+    from account_intelligence.db.session import bind_cloud_engine
+
+    connector = await bind_cloud_engine(settings)
+    try:
+        return await work()
+    finally:
+        if connector is not None:
+            await connector.close_async()
+
+
+def _check(command: str, settings: Any = None) -> int:
     """Run one nightly check with the application's engine."""
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import SessionLocal, tenant_txn, untenanted_session
+    from account_intelligence.config import get_settings
+    from account_intelligence.db.session import session_factory, tenant_txn, untenanted_session
     from account_intelligence.worker import nightly
 
+    settings = settings or get_settings()
     if command == "access-expiry":
         from account_intelligence.replica import access
 
         try:
             done = asyncio.run(
-                access.expire_everywhere(untenanted_session, tenant_txn, datetime.now(UTC))
+                _on_engine(
+                    settings,
+                    lambda: access.expire_everywhere(
+                        untenanted_session, tenant_txn, datetime.now(UTC)
+                    ),
+                )
             )
         except Exception as exc:  # the pass itself could not run: say so, never pass silently
             print(f"{command}: could not run ({type(exc).__name__})", file=sys.stderr)
@@ -43,7 +63,12 @@ def _check(command: str) -> int:
         print(f"{command} {done.line()}")
         return 0 if not done.failed else 1
     try:
-        report = asyncio.run(nightly.spend_invariants(SessionLocal, tenant_txn, datetime.now(UTC)))
+        report = asyncio.run(
+            _on_engine(
+                settings,
+                lambda: nightly.spend_invariants(session_factory(), tenant_txn, datetime.now(UTC)),
+            )
+        )
     except Exception as exc:  # the check itself could not run: say so, never pass silently
         print(f"{command}: could not run ({type(exc).__name__})", file=sys.stderr)
         return 3
@@ -81,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
     set_system()  # a command is a system job (private workspaces, migration 0063)
     if command is not None:
-        return _check(command)
+        return _check(command, settings)
     from account_intelligence.db.owners import act_as_owner_of
     from account_intelligence.worker.job import run_job
 
@@ -91,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         return await run_job(args.tenant_id, args.run_id)
 
     try:
-        result = asyncio.run(as_owner())
+        result = asyncio.run(_on_engine(settings, as_owner))
     except LookupError:
         print("run not found", file=sys.stderr)
         return 2

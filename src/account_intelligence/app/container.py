@@ -580,6 +580,8 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         _require(env, "WORKER_URL"),
         _require(env, "TASKS_SERVICE_ACCOUNT"),
         _require(env, "TASKS_AUDIENCE"),
+        documents_queue=env.get("TASKS_QUEUE_DOCUMENTS"),
+        jobs_queue=env.get("TASKS_QUEUE_JOBS"),
     )
     payloads = GcsPayloadStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
     access = env.get("LLM_ACCESS", "vertex_ai")

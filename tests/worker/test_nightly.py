@@ -53,6 +53,51 @@ def test_the_command_says_when_it_could_not_run(monkeypatch: pytest.MonkeyPatch)
     assert main(["spend-invariants"]) == 3
 
 
+def test_in_the_cloud_the_command_binds_the_cloud_sql_engine_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The nightly job reaches the database through the Cloud SQL connector engine, as the API
+    does; the local engine's URL is a placeholder there (exit 3 before this was bound)."""
+    from types import SimpleNamespace
+
+    from account_intelligence.db import session
+    from account_intelligence.platform.gcp import adapters
+
+    calls: list[tuple[str, int, int]] = []
+    closed: list[bool] = []
+    marker = object()
+
+    class Connector:
+        async def close_async(self) -> None:
+            closed.append(True)
+
+    async def engine(instance: str, user: str, db: str, *, pool_size: int, max_overflow: int):  # type: ignore[no-untyped-def]
+        calls.append((instance, pool_size, max_overflow))
+        return marker, Connector()
+
+    seen: list[object] = []
+
+    async def check(sessions: object, *_a: object) -> nightly.InvariantReport:
+        seen.append(sessions)
+        return _report(runs_checked=1)
+
+    monkeypatch.setattr(adapters, "cloud_sql_engine", engine)
+    monkeypatch.setattr(session, "bind_engine", lambda e: seen.append(e))
+    monkeypatch.setattr(nightly, "spend_invariants", check)
+    cloud = SimpleNamespace(
+        app_env="production",
+        cloud_sql_instance="p:r:i",
+        db_iam_user="worker@p.iam",
+        db_name="ai",
+        db_pool_size=5,
+        db_max_overflow=5,
+    )
+    from account_intelligence.worker.__main__ import _check
+
+    assert _check("spend-invariants", cloud) == 0
+    assert calls == [("p:r:i", 5, 5)] and seen[0] is marker and closed == [True]
+
+
 def test_the_command_takes_no_arguments() -> None:
     assert main(["spend-invariants", "--tenant-id", str(uuid4())]) == 2
 

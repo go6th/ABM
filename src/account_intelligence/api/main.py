@@ -98,16 +98,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from account_intelligence.chat.credentials import TenantModelKeyStore
 
     app.state.tenant_model_keys = TenantModelKeyStore(settings.byok_kms_key)
-    connector = None
-    if container.env in ("staging", "production"):
-        from account_intelligence.db.session import bind_engine
-        from account_intelligence.platform.gcp.adapters import cloud_sql_engine
+    from account_intelligence.db.session import bind_cloud_engine
 
-        assert settings.cloud_sql_instance and settings.db_iam_user and settings.db_name
-        engine, connector = await cloud_sql_engine(
-            settings.cloud_sql_instance, settings.db_iam_user, settings.db_name
-        )
-        bind_engine(engine)
+    connector = await bind_cloud_engine(settings)
     previous = signal.getsignal(signal.SIGTERM)
     signal.signal(signal.SIGTERM, _on_sigterm(app, previous))
     sweeper = (
@@ -134,7 +127,7 @@ async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
     """One orphan sweep with the container's wiring (``runs.sweeper.sweep``)."""
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.session import session_factory, tenant_txn
     from account_intelligence.grading.config import load_grading_config
     from account_intelligence.runs.sweeper import sweep
     from account_intelligence.tracker.adapters import LedgerCallAdapter, RunInputAdapter
@@ -154,7 +147,7 @@ async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
         )
 
     return await sweep(
-        SessionLocal,
+        session_factory(),
         tenant_txn,
         tracker_for,
         now or datetime.now(UTC),
@@ -166,7 +159,7 @@ async def _sweep_documents(app: FastAPI) -> None:
     """Uploaded documents whose worker died mid-scan, mid-parse or mid-index are enqueued again."""
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import SessionLocal
+    from account_intelligence.db.session import session_factory
     from documents.config import load_config as load_documents_config
     from documents.service import sweep_documents
 
@@ -174,11 +167,40 @@ async def _sweep_documents(app: FastAPI) -> None:
     if getattr(container, "documents", None) is None:
         return
     await sweep_documents(
-        SessionLocal,
+        session_factory(),
         container.scheduler,
         datetime.now(UTC),
         orphan_after_s=load_documents_config().parsing.orphan_after_s,
     )
+
+
+async def sweep_pass(app: FastAPI) -> None:
+    """One pass of the worker's sweeper: documents, orphaned runs, stalled runs. Each step is
+    independent; a failing step is logged and the next one still runs."""
+    try:
+        await _sweep_documents(app)
+    except Exception as error:  # noqa: BLE001 - one bad pass never stops the sweeper
+        _logger.warning("documents.sweep_failed", extra={"error_class": type(error).__name__})
+    try:
+        result = await sweep_once(app)
+        if result.partial or result.failed:
+            _logger.info(
+                "runs.swept",
+                extra={
+                    "partial": len(result.partial),
+                    "failed": len(result.failed),
+                    "truncated": result.truncated,
+                },
+            )
+    except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
+        _logger.warning("runs.sweep_failed", extra={"error_class": type(error).__name__})
+    try:
+        stalled = await _mark_stalled()
+        if stalled:
+            # the stalled-runs alert counts this event (infra observability: runs_stalled)
+            _logger.warning("runs.stalled", extra={"count": len(stalled)})
+    except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
+        _logger.warning("runs.stall_failed", extra={"error_class": type(error).__name__})
 
 
 async def _sweep_loop(app: FastAPI, settings: Any) -> None:
@@ -190,27 +212,7 @@ async def _sweep_loop(app: FastAPI, settings: Any) -> None:
     # LOOP(orphan sweep loop): cap=none, one pass per interval for the life of the worker;
     # exit=task cancelled at shutdown
     while True:
-        try:
-            await _sweep_documents(app)
-        except Exception as error:  # noqa: BLE001 - one bad pass never stops the sweeper
-            _logger.warning("documents.sweep_failed", extra={"error_class": type(error).__name__})
-        try:
-            result = await sweep_once(app)
-            if result.partial or result.failed:
-                _logger.info(
-                    "runs.swept",
-                    extra={
-                        "partial": len(result.partial),
-                        "failed": len(result.failed),
-                        "truncated": result.truncated,
-                    },
-                )
-        except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
-            _logger.warning("runs.sweep_failed", extra={"error_class": type(error).__name__})
-        try:
-            await _mark_stalled()
-        except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
-            _logger.warning("runs.stall_failed", extra={"error_class": type(error).__name__})
+        await sweep_pass(app)
         await asyncio.sleep(max(1, int(settings.sweep_interval_s)))
 
 
@@ -218,10 +220,10 @@ async def _mark_stalled() -> list[Any]:
     """Runs with no progress for the platform's stall time are marked and their owners told."""
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.session import session_factory, tenant_txn
     from account_intelligence.runs.sweeper import mark_stalled
 
-    return await mark_stalled(SessionLocal, tenant_txn, datetime.now(UTC))
+    return await mark_stalled(session_factory(), tenant_txn, datetime.now(UTC))
 
 
 def _route_class(path: str) -> str:

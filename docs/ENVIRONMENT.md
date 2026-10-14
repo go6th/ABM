@@ -27,13 +27,14 @@ or a value has the wrong type (errors name the variable, never the value).
 | `CONFIG_DIR` | Directory of the versioned YAML config (image default). | no | - | - | api, worker |
 | `DATABASE_URL` | Async SQLAlchemy URL of the NOBYPASSRLS runtime role (local profiles only). | **secret** | dev, test | - | api, worker |
 | `CHECKPOINT_DATABASE_URL` | psycopg URL for the run checkpointer, direct to the writer (no pooler). | **secret** | dev, staging, production | - | api, worker |
-| `DB_POOL_SIZE` | Runtime connection pool size per instance. | no | - | - | api, worker |
-| `DB_MAX_OVERFLOW` | Extra connections allowed above the pool size. | no | - | - | api, worker |
+| `DB_POOL_SIZE` | Engine connections kept per process (the stack sets 5; the connection budget is max instances x (DB_POOL_SIZE + DB_MAX_OVERFLOW), see the registry comment). | no | - | - | api, worker |
+| `DB_MAX_OVERFLOW` | Extra engine connections per process above DB_POOL_SIZE (the stack sets 5). | no | - | - | api, worker |
 | `CLOUD_SQL_INSTANCE` | Cloud SQL connection name (project:region:instance). | no | staging, production | - | api, worker |
 | `DB_IAM_USER` | IAM database user of the runtime service account. | no | staging, production | - | api, worker |
 | `DB_NAME` | Application database name. | no | staging, production | - | api, worker |
 | `MIGRATOR_DATABASE_URL` | Owner-role URL used only by the migration step. | **secret** | - | - | migrate |
 | `APP_RW_PASSWORD` | Password the migrations set on the app_rw runtime role (migration step only). | **secret** | - | - | migrate |
+| `APP_RW_IAM_USERS` | Comma-separated Cloud SQL IAM database users that migration 0071 makes members of app_rw (nothing else); unset: no grant. | no | - | - | migrate |
 | `JWKS_URL` | JWKS endpoint that signs tenant API bearer tokens. | no | staging, production | - | api, worker |
 | `JWT_AUDIENCE` | Expected audience of tenant bearer tokens. | no | staging, production | - | api, worker |
 | `JWT_ISSUER` | Expected issuer of tenant bearer tokens. | no | staging, production | - | api, worker |
@@ -48,7 +49,9 @@ or a value has the wrong type (errors name the variable, never the value).
 | `RUN_RESERVE_CREDITS` | Credits reserved when a run starts. | no | - | - | api, worker |
 | `GCP_PROJECT` | Google Cloud project id. | no | staging, production | - | api, worker |
 | `GCP_REGION` | Region of Cloud Run, Tasks and SQL. | no | staging, production | - | api, worker |
-| `TASKS_QUEUE` | Cloud Tasks queue for run slices. | no | staging, production | - | api, worker |
+| `TASKS_QUEUE` | Cloud Tasks queue for run slices and approval timeouts. | no | staging, production | - | api, worker |
+| `TASKS_QUEUE_DOCUMENTS` | Cloud Tasks queue for document processing (unset: TASKS_QUEUE). | no | - | - | api, worker |
+| `TASKS_QUEUE_JOBS` | Cloud Tasks queue for research jobs and Download everything (unset: TASKS_QUEUE). | no | - | - | api, worker |
 | `WORKER_URL` | HTTPS URL of the worker service. | no | staging, production | - | api, worker |
 | `TASKS_SERVICE_ACCOUNT` | Service account Cloud Tasks signs OIDC tokens as. | no | staging, production | - | api, worker |
 | `TASKS_AUDIENCE` | Audience the worker expects on task tokens. | no | staging, production | - | api, worker |
