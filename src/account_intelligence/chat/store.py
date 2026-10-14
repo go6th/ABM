@@ -116,7 +116,8 @@ async def get_thread(tenant_id: UUID, user_id: str, thread_id: UUID) -> dict[str
                 text(
                     "SELECT id, turn_number, request_id, model_id, user_content, assistant_content,"
                     " client, account_id, phase, status, input_tokens, output_tokens,"
-                    " cache_read_tokens, cache_write_tokens, cost_usd, created_at, completed_at"
+                    " cache_read_tokens, cache_write_tokens, cost_usd, created_at, completed_at,"
+                    " answer_json"
                     " FROM chat_turns WHERE thread_id = :t ORDER BY turn_number"
                 ),
                 {"t": thread_id},
@@ -149,6 +150,7 @@ async def get_thread(tenant_id: UUID, user_id: str, thread_id: UUID) -> dict[str
                 "cost_usd": str(row.cost_usd),
                 "created_at": row.created_at.isoformat(),
                 "completed_at": None if row.completed_at is None else row.completed_at.isoformat(),
+                "answer": row.answer_json,
             }
             for row in turns
         ],

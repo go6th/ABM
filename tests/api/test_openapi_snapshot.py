@@ -28,6 +28,8 @@ NOT_JSON = {
     ("get", "/v1/sso/oidc/callback"),
     ("post", "/v1/sso/saml/acs"),
     ("post", "/v1/chat/threads/{thread_id}/turns/stream"),
+    ("post", "/v1/chat/ask"),  # the Ask answer stream
+    ("get", "/v1/accounts/{domain}/deliverables/download"),  # a file or a zip
 }
 
 

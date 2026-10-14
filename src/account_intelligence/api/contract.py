@@ -156,6 +156,11 @@ class Me(Out):
     mfa_enabled: bool
     mfa_required: bool
     mfa_step_up_fresh: bool
+    accounts_used: int = 0
+    account_cap: int = 0
+    accounts_total: int = 0
+    mail_drive_allowed: bool = True
+    web_refresh_allowed: bool = True
 
 
 class IdpConnection(Out):
@@ -218,6 +223,22 @@ class AccountItem(Out):
     domain: str
     name: str | None
     latest_run: LatestRun | None
+    id: str | None = None
+    lanes: list[str] = []
+    cadence: str = "off"
+    cadence_label: str = "Off"
+    last_researched_at: str | None = None
+    last_researched_label: str = "Not yet"
+    state: Literal[
+        "researching",
+        "waiting_credit_limit",
+        "failed",
+        "not_researched",
+        "first_scan",
+        "new_signals",
+        "no_change",
+    ] = "not_researched"
+    new_signals: int = 0
 
 
 class AccountPage(Out):
@@ -244,6 +265,80 @@ class AccountRun(Out):
     mode: str
     created_at: str
     finished_at: str | None
+
+
+class NarrativeSentence(Out):
+    """One sentence of the one-minute narrative and the source it rests on."""
+
+    text: str
+    source_code: str | None
+    source_title: str | None
+    source_url: str | None
+
+
+class Narrative(Out):
+    """The one-minute version of an account."""
+
+    sentences: list[NarrativeSentence]
+
+
+class FindingRow(Out):
+    """A graded finding or change with its date label and source."""
+
+    grade: str | None
+    text: str
+    when: str
+    source_url: str | None
+    source_code: str | None
+
+
+class Changes(Out):
+    """What changed in the latest refresh, and the lanes that stayed quiet."""
+
+    since: str
+    rows: list[FindingRow]
+    quiet_lanes: list[str]
+
+
+class DeepDiveCounts(Out):
+    """Row counts of the deep-dive tables (mail and drive: the caller's own items only)."""
+
+    signals: int
+    people: int
+    jobs: int
+    tech: int
+    news: int
+    mail_drive: int
+    sources: int
+
+
+class DeliverableFile(Out):
+    """One downloadable deliverable."""
+
+    id: str
+    kind: str
+    name: str
+    filename: str
+    meta: str
+    built_at: str
+
+
+class DeliverableFiles(Out):
+    """The account's current deliverables."""
+
+    files: list[DeliverableFile]
+
+
+class AccountWorkspace(AccountItem):
+    """The Account workspace screen."""
+
+    subline: str
+    first_scan: bool
+    narrative: Narrative | None
+    findings: list[FindingRow]
+    changes: Changes | None
+    counts: DeepDiveCounts
+    files: list[DeliverableFile]
 
 
 class AccountDetail(Out):
@@ -1391,6 +1486,64 @@ class ChatThreads(Out):
     threads: list[ChatThreadSummary]
 
 
+class AnswerPart(Out):
+    """One run of answer text: plain, bold, or a numbered citation."""
+
+    t: Literal["text", "bold", "cite"]
+    v: str
+
+
+class AnswerSource(Out):
+    """A stored row an answer cites: what it is, when, and where to open it."""
+
+    n: int
+    title: str
+    meta: str
+    date: str | None
+    url: str | None
+    kind: Literal["fact", "job", "person", "signal", "technology", "mail_drive", "file"]
+    account_domain: str | None
+    account_name: str | None
+
+
+class AnswerItems(Out):
+    """A titled list shown in its own card under the answer (for example first call questions)."""
+
+    title: str
+    items: list[str]
+
+
+class AnswerUsed(Out):
+    """What one answer drew on, for the "What this answer used" panel."""
+
+    workspace: Literal["used", "not_used"]
+    web: Literal["used", "not_used"]
+    mail_drive: Literal["used", "not_used", "not_connected"]
+
+
+class AnswerOffer(Out):
+    """The "Want anything newer?" card: shown when the workspace is older than the account's
+    refresh cadence or could not answer. Nothing goes to the web unless the user confirms."""
+
+    account_domain: str | None
+    account_name: str | None
+    refreshed_days_ago: int | None
+
+
+class ChatAnswer(Out):
+    """A workspace answer: paragraphs with numbered citations to stored rows."""
+
+    paragraphs: list[list[AnswerPart]]
+    items: AnswerItems | None
+    sources: list[AnswerSource]
+    used: AnswerUsed
+    offer: AnswerOffer | None
+    followups: list[str]
+    account_domain: str | None
+    account_name: str | None
+    answered: bool
+
+
 class ChatTurn(Out):
     """One persisted user/model turn and safe token attribution."""
 
@@ -1411,6 +1564,7 @@ class ChatTurn(Out):
     cost_usd: str
     created_at: str
     completed_at: str | None
+    answer: ChatAnswer | None = None
 
 
 class ChatThread(Out):
@@ -1424,6 +1578,13 @@ class ChatThread(Out):
     created_at: str
     updated_at: str
     turns: list[ChatTurn]
+
+
+class ChatSuggestions(Out):
+    """Questions the workspace can answer well now, and how many accounts it holds."""
+
+    suggestions: list[str]
+    accounts: int
 
 
 class ChatThreadDeleted(Out):

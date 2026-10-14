@@ -87,8 +87,53 @@
         "additionalProperties": false,
         "description": "Response body: account item.",
         "properties": {
+          "cadence": {
+            "default": "off",
+            "title": "Cadence",
+            "type": "string"
+          },
+          "cadence_label": {
+            "default": "Off",
+            "title": "Cadence Label",
+            "type": "string"
+          },
           "domain": {
             "title": "Domain",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "lanes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "last_researched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Researched At"
+          },
+          "last_researched_label": {
+            "default": "Not yet",
+            "title": "Last Researched Label",
             "type": "string"
           },
           "latest_run": {
@@ -111,6 +156,25 @@
               }
             ],
             "title": "Name"
+          },
+          "new_signals": {
+            "default": 0,
+            "title": "New Signals",
+            "type": "integer"
+          },
+          "state": {
+            "default": "not_researched",
+            "enum": [
+              "researching",
+              "waiting_credit_limit",
+              "failed",
+              "not_researched",
+              "first_scan",
+              "new_signals",
+              "no_change"
+            ],
+            "title": "State",
+            "type": "string"
           }
         },
         "required": [
@@ -196,6 +260,160 @@
           "finished_at"
         ],
         "title": "AccountRun",
+        "type": "object"
+      },
+      "AccountWorkspace": {
+        "additionalProperties": false,
+        "description": "The Account workspace screen.",
+        "properties": {
+          "cadence": {
+            "default": "off",
+            "title": "Cadence",
+            "type": "string"
+          },
+          "cadence_label": {
+            "default": "Off",
+            "title": "Cadence Label",
+            "type": "string"
+          },
+          "changes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Changes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counts": {
+            "$ref": "#/components/schemas/DeepDiveCounts"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DeliverableFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRow"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "first_scan": {
+            "title": "First Scan",
+            "type": "boolean"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "lanes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "last_researched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Researched At"
+          },
+          "last_researched_label": {
+            "default": "Not yet",
+            "title": "Last Researched Label",
+            "type": "string"
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LatestRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "narrative": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Narrative"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "new_signals": {
+            "default": 0,
+            "title": "New Signals",
+            "type": "integer"
+          },
+          "state": {
+            "default": "not_researched",
+            "enum": [
+              "researching",
+              "waiting_credit_limit",
+              "failed",
+              "not_researched",
+              "first_scan",
+              "new_signals",
+              "no_change"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "subline": {
+            "title": "Subline",
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "name",
+          "latest_run",
+          "subline",
+          "first_scan",
+          "narrative",
+          "findings",
+          "changes",
+          "counts",
+          "files"
+        ],
+        "title": "AccountWorkspace",
         "type": "object"
       },
       "AddBody": {
@@ -386,6 +604,225 @@
         "title": "Alerts",
         "type": "object"
       },
+      "AnswerItems": {
+        "additionalProperties": false,
+        "description": "A titled list shown in its own card under the answer (for example first call questions).",
+        "properties": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "items"
+        ],
+        "title": "AnswerItems",
+        "type": "object"
+      },
+      "AnswerOffer": {
+        "additionalProperties": false,
+        "description": "The \"Want anything newer?\" card: shown when the workspace is older than the account's\nrefresh cadence or could not answer. Nothing goes to the web unless the user confirms.",
+        "properties": {
+          "account_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Domain"
+          },
+          "account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Name"
+          },
+          "refreshed_days_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refreshed Days Ago"
+          }
+        },
+        "required": [
+          "account_domain",
+          "account_name",
+          "refreshed_days_ago"
+        ],
+        "title": "AnswerOffer",
+        "type": "object"
+      },
+      "AnswerPart": {
+        "additionalProperties": false,
+        "description": "One run of answer text: plain, bold, or a numbered citation.",
+        "properties": {
+          "t": {
+            "enum": [
+              "text",
+              "bold",
+              "cite"
+            ],
+            "title": "T",
+            "type": "string"
+          },
+          "v": {
+            "title": "V",
+            "type": "string"
+          }
+        },
+        "required": [
+          "t",
+          "v"
+        ],
+        "title": "AnswerPart",
+        "type": "object"
+      },
+      "AnswerSource": {
+        "additionalProperties": false,
+        "description": "A stored row an answer cites: what it is, when, and where to open it.",
+        "properties": {
+          "account_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Domain"
+          },
+          "account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Name"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "kind": {
+            "enum": [
+              "fact",
+              "job",
+              "person",
+              "signal",
+              "technology",
+              "mail_drive",
+              "file"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "meta": {
+            "title": "Meta",
+            "type": "string"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "n",
+          "title",
+          "meta",
+          "date",
+          "url",
+          "kind",
+          "account_domain",
+          "account_name"
+        ],
+        "title": "AnswerSource",
+        "type": "object"
+      },
+      "AnswerUsed": {
+        "additionalProperties": false,
+        "description": "What one answer drew on, for the \"What this answer used\" panel.",
+        "properties": {
+          "mail_drive": {
+            "enum": [
+              "used",
+              "not_used",
+              "not_connected"
+            ],
+            "title": "Mail Drive",
+            "type": "string"
+          },
+          "web": {
+            "enum": [
+              "used",
+              "not_used"
+            ],
+            "title": "Web",
+            "type": "string"
+          },
+          "workspace": {
+            "enum": [
+              "used",
+              "not_used"
+            ],
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace",
+          "web",
+          "mail_drive"
+        ],
+        "title": "AnswerUsed",
+        "type": "object"
+      },
       "Approval": {
         "additionalProperties": false,
         "description": "A batch to approve.",
@@ -463,6 +900,53 @@
           "expected_version"
         ],
         "title": "Archive",
+        "type": "object"
+      },
+      "AskBody": {
+        "additionalProperties": false,
+        "description": "One question. The tenant and user come from the session, never from the body.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "question": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "question"
+        ],
+        "title": "AskBody",
         "type": "object"
       },
       "AuditEvent": {
@@ -1016,6 +1500,129 @@
         "title": "ChangeBody",
         "type": "object"
       },
+      "Changes": {
+        "additionalProperties": false,
+        "description": "What changed in the latest refresh, and the lanes that stayed quiet.",
+        "properties": {
+          "quiet_lanes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Quiet Lanes",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          }
+        },
+        "required": [
+          "since",
+          "rows",
+          "quiet_lanes"
+        ],
+        "title": "Changes",
+        "type": "object"
+      },
+      "ChatAnswer": {
+        "additionalProperties": false,
+        "description": "A workspace answer: paragraphs with numbered citations to stored rows.",
+        "properties": {
+          "account_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Domain"
+          },
+          "account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Name"
+          },
+          "answered": {
+            "title": "Answered",
+            "type": "boolean"
+          },
+          "followups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Followups",
+            "type": "array"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerItems"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerOffer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paragraphs": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/AnswerPart"
+              },
+              "type": "array"
+            },
+            "title": "Paragraphs",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "used": {
+            "$ref": "#/components/schemas/AnswerUsed"
+          }
+        },
+        "required": [
+          "paragraphs",
+          "items",
+          "sources",
+          "used",
+          "offer",
+          "followups",
+          "account_domain",
+          "account_name",
+          "answered"
+        ],
+        "title": "ChatAnswer",
+        "type": "object"
+      },
       "ChatModel": {
         "additionalProperties": false,
         "description": "Public model identifier, prices and capability flags; never provider credentials.",
@@ -1121,6 +1728,29 @@
           "models"
         ],
         "title": "ChatModels",
+        "type": "object"
+      },
+      "ChatSuggestions": {
+        "additionalProperties": false,
+        "description": "Questions the workspace can answer well now, and how many accounts it holds.",
+        "properties": {
+          "accounts": {
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "suggestions",
+          "accounts"
+        ],
+        "title": "ChatSuggestions",
         "type": "object"
       },
       "ChatThread": {
@@ -1285,6 +1915,16 @@
               }
             ],
             "title": "Account Id"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatAnswer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "assistant_content": {
             "anyOf": [
@@ -2458,6 +3098,51 @@
         "title": "CrmWrites",
         "type": "object"
       },
+      "DeepDiveCounts": {
+        "additionalProperties": false,
+        "description": "Row counts of the deep-dive tables (mail and drive: the caller's own items only).",
+        "properties": {
+          "jobs": {
+            "title": "Jobs",
+            "type": "integer"
+          },
+          "mail_drive": {
+            "title": "Mail Drive",
+            "type": "integer"
+          },
+          "news": {
+            "title": "News",
+            "type": "integer"
+          },
+          "people": {
+            "title": "People",
+            "type": "integer"
+          },
+          "signals": {
+            "title": "Signals",
+            "type": "integer"
+          },
+          "sources": {
+            "title": "Sources",
+            "type": "integer"
+          },
+          "tech": {
+            "title": "Tech",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "signals",
+          "people",
+          "jobs",
+          "tech",
+          "news",
+          "mail_drive",
+          "sources"
+        ],
+        "title": "DeepDiveCounts",
+        "type": "object"
+      },
       "DeletionRequested": {
         "additionalProperties": false,
         "description": "Response body: deletion requested.",
@@ -2567,6 +3252,64 @@
           "request_id"
         ],
         "title": "DeletionStep",
+        "type": "object"
+      },
+      "DeliverableFile": {
+        "additionalProperties": false,
+        "description": "One downloadable deliverable.",
+        "properties": {
+          "built_at": {
+            "title": "Built At",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "meta": {
+            "title": "Meta",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "filename",
+          "meta",
+          "built_at"
+        ],
+        "title": "DeliverableFile",
+        "type": "object"
+      },
+      "DeliverableFiles": {
+        "additionalProperties": false,
+        "description": "The account's current deliverables.",
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DeliverableFile"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "DeliverableFiles",
         "type": "object"
       },
       "Disconnected": {
@@ -4346,6 +5089,62 @@
         "title": "Filter",
         "type": "object"
       },
+      "FindingRow": {
+        "additionalProperties": false,
+        "description": "A graded finding or change with its date label and source.",
+        "properties": {
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "source_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Code"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "when": {
+            "title": "When",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grade",
+          "text",
+          "when",
+          "source_url",
+          "source_code"
+        ],
+        "title": "FindingRow",
+        "type": "object"
+      },
       "Flag": {
         "additionalProperties": false,
         "description": "Response body: flag.",
@@ -5171,6 +5970,21 @@
         "additionalProperties": false,
         "description": "Authenticated tenant identity and server-evaluated capabilities.",
         "properties": {
+          "account_cap": {
+            "default": 0,
+            "title": "Account Cap",
+            "type": "integer"
+          },
+          "accounts_total": {
+            "default": 0,
+            "title": "Accounts Total",
+            "type": "integer"
+          },
+          "accounts_used": {
+            "default": 0,
+            "title": "Accounts Used",
+            "type": "integer"
+          },
           "capabilities": {
             "items": {
               "type": "string"
@@ -5210,6 +6024,11 @@
           "isolation_tier": {
             "title": "Isolation Tier",
             "type": "string"
+          },
+          "mail_drive_allowed": {
+            "default": true,
+            "title": "Mail Drive Allowed",
+            "type": "boolean"
           },
           "mfa_enabled": {
             "title": "Mfa Enabled",
@@ -5255,6 +6074,11 @@
           "user_id": {
             "title": "User Id",
             "type": "string"
+          },
+          "web_refresh_allowed": {
+            "default": true,
+            "title": "Web Refresh Allowed",
+            "type": "boolean"
           }
         },
         "required": [
@@ -5374,6 +6198,75 @@
           "percent"
         ],
         "title": "MonitoringBudget",
+        "type": "object"
+      },
+      "Narrative": {
+        "additionalProperties": false,
+        "description": "The one-minute version of an account.",
+        "properties": {
+          "sentences": {
+            "items": {
+              "$ref": "#/components/schemas/NarrativeSentence"
+            },
+            "title": "Sentences",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sentences"
+        ],
+        "title": "Narrative",
+        "type": "object"
+      },
+      "NarrativeSentence": {
+        "additionalProperties": false,
+        "description": "One sentence of the one-minute narrative and the source it rests on.",
+        "properties": {
+          "source_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Code"
+          },
+          "source_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Title"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "source_code",
+          "source_title",
+          "source_url"
+        ],
+        "title": "NarrativeSentence",
         "type": "object"
       },
       "NewTenant": {
@@ -10977,6 +11870,134 @@
         ]
       }
     },
+    "/v1/accounts/{domain}/deliverables": {
+      "get": {
+        "description": "The account's current deliverables (newest version of each).",
+        "operationId": "account_deliverables_v1_accounts__domain__deliverables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableFiles"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Deliverables",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/deliverables/download": {
+      "get": {
+        "description": "One file as itself, or several as one zip named after the account.",
+        "operationId": "download_deliverables_v1_accounts__domain__deliverables_download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "maxLength": 400,
+              "minLength": 1,
+              "pattern": "^(all|[0-9a-f-]{36}(,[0-9a-f-]{36}){0,9})$",
+              "title": "Ids",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Deliverables",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
     "/v1/accounts/{domain}/history": {
       "get": {
         "description": "An account's expired signals (newest first).",
@@ -11167,6 +12188,65 @@
           }
         },
         "summary": "Read Table",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/workspace": {
+      "get": {
+        "description": "The Account workspace screen for one account.",
+        "operationId": "account_workspace_v1_accounts__domain__workspace_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountWorkspace"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Workspace",
         "tags": [
           "accounts"
         ]
@@ -11903,6 +12983,64 @@
         ]
       }
     },
+    "/v1/chat/ask": {
+      "post": {
+        "description": "Answer one question from the workspace and stream the structured answer.",
+        "operationId": "ask_v1_chat_ask_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
     "/v1/chat/provider-key": {
       "delete": {
         "description": "Remove encrypted BYO key bytes and audit the content-free administrative action.",
@@ -12056,6 +13194,56 @@
         "summary": "Set Provider Key",
         "tags": [
           "chat"
+        ]
+      }
+    },
+    "/v1/chat/suggestions": {
+      "get": {
+        "description": "Up to five questions the workspace can answer well now, and the account count.",
+        "operationId": "chat_suggestions_v1_chat_suggestions_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSuggestions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chat Suggestions",
+        "tags": [
+          "ask"
         ]
       }
     },

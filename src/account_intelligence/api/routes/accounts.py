@@ -89,7 +89,7 @@ async def list_accounts(
         rows = (
             await s.execute(
                 text(
-                    "SELECT a.domain, a.name, r.id AS run_id, r.status, r.created_at"
+                    "SELECT a.id, a.domain, a.name, r.id AS run_id, r.status, r.created_at"
                     " FROM accounts a LEFT JOIN LATERAL (SELECT id, status, created_at"
                     " FROM account_runs WHERE account_id = a.id ORDER BY created_at DESC LIMIT 1)"
                     " r ON true WHERE (CAST(:after AS text) IS NULL OR a.domain > :after)"
@@ -99,9 +99,16 @@ async def list_accounts(
                 {"after": after, "sp": search_pattern, "n": limit + 1},
             )
         ).all()
+        from datetime import UTC, datetime
+
+        from account_intelligence.replica.workspace import account_rows
+
+        extra = {r["domain"]: r for r in await account_rows(s, datetime.now(UTC))}
     page = rows[:limit]
     items = [
         {
+            **{k: v for k, v in extra.get(r.domain, {}).items() if k not in ("domain", "name")},
+            "id": str(r.id),
             "domain": r.domain,
             "name": r.name,
             "latest_run": None

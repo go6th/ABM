@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends
 
 from account_intelligence.api.guard import authorize, route_guard
 from account_intelligence.api.routes import (
+    account_workspace,
     accounts,
+    ask,
     audit,
     auth,
     chat,
@@ -39,6 +41,7 @@ from account_intelligence.api.routes import (
 v1_router = APIRouter(prefix="/v1", dependencies=[Depends(route_guard), Depends(authorize)])
 v1_router.include_router(runs.router)
 v1_router.include_router(chat.router)
+v1_router.include_router(ask.router)
 v1_router.include_router(me.router)
 v1_router.include_router(spend.router)
 v1_router.include_router(spend_v2.router)
@@ -48,6 +51,7 @@ v1_router.include_router(users.router)
 v1_router.include_router(settings.router)
 v1_router.include_router(settings.branding_router)
 v1_router.include_router(audit.router)
+v1_router.include_router(account_workspace.router)
 v1_router.include_router(accounts.router)
 v1_router.include_router(views.router)
 v1_router.include_router(exports.router)

@@ -13,6 +13,7 @@ from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.replica.settings import accounts_used, client_settings
 from admin import flags
 from identity import roles, sessions
 from metering import limits
@@ -76,6 +77,9 @@ async def current_user(request: Request, ident: Identity = Depends(authorize)) -
                 )
             )
         ).all()
+        limits_now = await client_settings(s)
+        used = await accounts_used(s, ident.user_id)
+        total = int(await s.scalar(text("SELECT count(*) FROM accounts")) or 0)
         enabled_flags = {
             str(flag_row.flag): flags.evaluate(
                 dict(flag_row.rule), str(flag_row.flag), ident.tenant_id, plan
@@ -109,4 +113,9 @@ async def current_user(request: Request, ident: Identity = Depends(authorize)) -
         "mfa_step_up_fresh": sessions.step_up_fresh(
             ident.step_up_at, plane.clock.now(), plane.policy
         ),
+        "accounts_used": used,
+        "account_cap": limits_now.account_cap_per_user,
+        "accounts_total": total,
+        "mail_drive_allowed": limits_now.mail_drive_allowed,
+        "web_refresh_allowed": limits_now.web_refresh_allowed,
     }

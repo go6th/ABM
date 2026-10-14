@@ -40,9 +40,17 @@ export const LatestRun = z.object({
 export type LatestRun = z.infer<typeof LatestRun>;
 
 export const AccountItem = z.object({
+  "cadence": z.string().optional(),
+  "cadence_label": z.string().optional(),
   "domain": z.string(),
+  "id": z.string().nullable().optional(),
+  "lanes": z.array(z.string()).optional(),
+  "last_researched_at": z.string().nullable().optional(),
+  "last_researched_label": z.string().optional(),
   "latest_run": LatestRun.nullable(),
   "name": z.string().nullable(),
+  "new_signals": z.number().int().optional(),
+  "state": z.string().optional(),
 }).strict();
 export type AccountItem = z.infer<typeof AccountItem>;
 
@@ -51,6 +59,78 @@ export const AccountPage = z.object({
   "next_after": z.string().nullable(),
 }).strict();
 export type AccountPage = z.infer<typeof AccountPage>;
+
+export const FindingRow = z.object({
+  "grade": z.string().nullable(),
+  "source_code": z.string().nullable(),
+  "source_url": z.string().nullable(),
+  "text": z.string(),
+  "when": z.string(),
+}).strict();
+export type FindingRow = z.infer<typeof FindingRow>;
+
+export const Changes = z.object({
+  "quiet_lanes": z.array(z.string()),
+  "rows": z.array(FindingRow),
+  "since": z.string(),
+}).strict();
+export type Changes = z.infer<typeof Changes>;
+
+export const DeepDiveCounts = z.object({
+  "jobs": z.number().int(),
+  "mail_drive": z.number().int(),
+  "news": z.number().int(),
+  "people": z.number().int(),
+  "signals": z.number().int(),
+  "sources": z.number().int(),
+  "tech": z.number().int(),
+}).strict();
+export type DeepDiveCounts = z.infer<typeof DeepDiveCounts>;
+
+export const DeliverableFile = z.object({
+  "built_at": z.string(),
+  "filename": z.string(),
+  "id": z.string(),
+  "kind": z.string(),
+  "meta": z.string(),
+  "name": z.string(),
+}).strict();
+export type DeliverableFile = z.infer<typeof DeliverableFile>;
+
+export const NarrativeSentence = z.object({
+  "source_code": z.string().nullable(),
+  "source_title": z.string().nullable(),
+  "source_url": z.string().nullable(),
+  "text": z.string(),
+}).strict();
+export type NarrativeSentence = z.infer<typeof NarrativeSentence>;
+
+export const Narrative = z.object({
+  "sentences": z.array(NarrativeSentence),
+}).strict();
+export type Narrative = z.infer<typeof Narrative>;
+
+export const AccountWorkspace = z.object({
+  "cadence": z.string().optional(),
+  "cadence_label": z.string().optional(),
+  "changes": Changes.nullable(),
+  "counts": DeepDiveCounts,
+  "domain": z.string(),
+  "files": z.array(DeliverableFile),
+  "findings": z.array(FindingRow),
+  "first_scan": z.boolean(),
+  "id": z.string().nullable().optional(),
+  "lanes": z.array(z.string()).optional(),
+  "last_researched_at": z.string().nullable().optional(),
+  "last_researched_label": z.string().optional(),
+  "latest_run": LatestRun.nullable(),
+  "name": z.string().nullable(),
+  "narrative": Narrative.nullable(),
+  "new_signals": z.number().int().optional(),
+  "state": z.string().optional(),
+  "subline": z.string(),
+}).strict();
+export type AccountWorkspace = z.infer<typeof AccountWorkspace>;
 
 export const AddBody = z.object({
   "display_name": z.string().nullable().optional(),
@@ -93,6 +173,44 @@ export const Alerts = z.object({
 }).strict();
 export type Alerts = z.infer<typeof Alerts>;
 
+export const AnswerItems = z.object({
+  "items": z.array(z.string()),
+  "title": z.string(),
+}).strict();
+export type AnswerItems = z.infer<typeof AnswerItems>;
+
+export const AnswerOffer = z.object({
+  "account_domain": z.string().nullable(),
+  "account_name": z.string().nullable(),
+  "refreshed_days_ago": z.number().int().nullable(),
+}).strict();
+export type AnswerOffer = z.infer<typeof AnswerOffer>;
+
+export const AnswerPart = z.object({
+  "t": z.string(),
+  "v": z.string(),
+}).strict();
+export type AnswerPart = z.infer<typeof AnswerPart>;
+
+export const AnswerSource = z.object({
+  "account_domain": z.string().nullable(),
+  "account_name": z.string().nullable(),
+  "date": z.string().nullable(),
+  "kind": z.string(),
+  "meta": z.string(),
+  "n": z.number().int(),
+  "title": z.string(),
+  "url": z.string().nullable(),
+}).strict();
+export type AnswerSource = z.infer<typeof AnswerSource>;
+
+export const AnswerUsed = z.object({
+  "mail_drive": z.string(),
+  "web": z.string(),
+  "workspace": z.string(),
+}).strict();
+export type AnswerUsed = z.infer<typeof AnswerUsed>;
+
 export const Approval = z.object({
   "write_ids": z.array(z.string()),
 }).strict();
@@ -113,6 +231,14 @@ export const Archive = z.object({
   "expected_version": z.number().int(),
 }).strict();
 export type Archive = z.infer<typeof Archive>;
+
+export const AskBody = z.object({
+  "account_id": z.string().nullable().optional(),
+  "question": z.string(),
+  "request_id": z.string(),
+  "thread_id": z.string().nullable().optional(),
+}).strict();
+export type AskBody = z.infer<typeof AskBody>;
 
 export const AuditEvent = z.object({
   "action": z.string(),
@@ -212,6 +338,19 @@ export const ChangeBody = z.object({
 }).strict();
 export type ChangeBody = z.infer<typeof ChangeBody>;
 
+export const ChatAnswer = z.object({
+  "account_domain": z.string().nullable(),
+  "account_name": z.string().nullable(),
+  "answered": z.boolean(),
+  "followups": z.array(z.string()),
+  "items": AnswerItems.nullable(),
+  "offer": AnswerOffer.nullable(),
+  "paragraphs": z.array(z.array(AnswerPart)),
+  "sources": z.array(AnswerSource),
+  "used": AnswerUsed,
+}).strict();
+export type ChatAnswer = z.infer<typeof ChatAnswer>;
+
 export const ChatModelCapabilities = z.object({
   "streaming": z.boolean(),
   "tool_use": z.boolean(),
@@ -239,8 +378,15 @@ export const ChatModels = z.object({
 }).strict();
 export type ChatModels = z.infer<typeof ChatModels>;
 
+export const ChatSuggestions = z.object({
+  "accounts": z.number().int(),
+  "suggestions": z.array(z.string()),
+}).strict();
+export type ChatSuggestions = z.infer<typeof ChatSuggestions>;
+
 export const ChatTurn = z.object({
   "account_id": z.string().nullable(),
+  "answer": ChatAnswer.nullable().optional(),
   "assistant_content": z.string().nullable(),
   "cache_read_tokens": z.number().int(),
   "cache_write_tokens": z.number().int(),
@@ -511,6 +657,11 @@ export const DeletionStep = z.object({
   "request_id": z.string(),
 }).strict();
 export type DeletionStep = z.infer<typeof DeletionStep>;
+
+export const DeliverableFiles = z.object({
+  "files": z.array(DeliverableFile),
+}).strict();
+export type DeliverableFiles = z.infer<typeof DeliverableFiles>;
 
 export const Disconnected = z.object({
   "connection_id": z.string(),
@@ -1073,11 +1224,15 @@ export const Materialization = z.object({
 export type Materialization = z.infer<typeof Materialization>;
 
 export const Me = z.object({
+  "account_cap": z.number().int().optional(),
+  "accounts_total": z.number().int().optional(),
+  "accounts_used": z.number().int().optional(),
   "capabilities": z.array(z.string()),
   "display_name": z.string().nullable(),
   "email": z.string().nullable(),
   "feature_flags": z.record(z.string(), z.boolean()),
   "isolation_tier": z.string(),
+  "mail_drive_allowed": z.boolean().optional(),
   "mfa_enabled": z.boolean(),
   "mfa_required": z.boolean(),
   "mfa_step_up_fresh": z.boolean(),
@@ -1087,6 +1242,7 @@ export const Me = z.object({
   "tenant_id": z.string(),
   "tenant_name": z.string(),
   "user_id": z.string(),
+  "web_refresh_allowed": z.boolean().optional(),
 }).strict();
 export type Me = z.infer<typeof Me>;
 
@@ -1885,11 +2041,56 @@ export type account_intelligence__api__routes__support__GrantBody = z.infer<type
 
 /** Known values of enumerated fields (labels map them; others are Unknown). */
 export const KNOWN_VALUES = {
+  "AccountItem.state": [
+    "researching",
+    "waiting_credit_limit",
+    "failed",
+    "not_researched",
+    "first_scan",
+    "new_signals",
+    "no_change"
+  ],
+  "AccountWorkspace.state": [
+    "researching",
+    "waiting_credit_limit",
+    "failed",
+    "not_researched",
+    "first_scan",
+    "new_signals",
+    "no_change"
+  ],
   "AddBody.role": [
     "admin",
     "analyst",
     "seller",
     "viewer"
+  ],
+  "AnswerPart.t": [
+    "text",
+    "bold",
+    "cite"
+  ],
+  "AnswerSource.kind": [
+    "fact",
+    "job",
+    "person",
+    "signal",
+    "technology",
+    "mail_drive",
+    "file"
+  ],
+  "AnswerUsed.mail_drive": [
+    "used",
+    "not_used",
+    "not_connected"
+  ],
+  "AnswerUsed.web": [
+    "used",
+    "not_used"
+  ],
+  "AnswerUsed.workspace": [
+    "used",
+    "not_used"
   ],
   "CapProposalView.state": [
     "proposed",
@@ -2093,8 +2294,11 @@ export const operations = {
   "GET /v1/accounts": { method: "GET", path: "/v1/accounts", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountPage },
   "POST /v1/accounts": { method: "POST", path: "/v1/accounts", plane: "tenant", status: 201, request: AccountBody, requestRequired: true, response: AccountAdded },
   "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountDetail },
+  "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
+  "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, request: null, requestRequired: false, response: History },
   "GET /v1/accounts/{domain}/tables/{table}": { method: "GET", path: "/v1/accounts/{domain}/tables/{table}", plane: "tenant", status: 200, request: null, requestRequired: false, response: TablePage },
+  "GET /v1/accounts/{domain}/workspace": { method: "GET", path: "/v1/accounts/{domain}/workspace", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountWorkspace },
   "GET /v1/alerts": { method: "GET", path: "/v1/alerts", plane: "tenant", status: 200, request: null, requestRequired: false, response: Alerts },
   "GET /v1/alerts/usefulness": { method: "GET", path: "/v1/alerts/usefulness", plane: "tenant", status: 200, request: null, requestRequired: false, response: AlertUsefulness },
   "POST /v1/alerts/{alert_id}/feedback": { method: "POST", path: "/v1/alerts/{alert_id}/feedback", plane: "tenant", status: 201, request: Rating, requestRequired: true, response: AlertRated },
@@ -2107,9 +2311,11 @@ export const operations = {
   "POST /v1/auth/password/reset": { method: "POST", path: "/v1/auth/password/reset", plane: "tenant", status: 200, request: ResetPasswordBody, requestRequired: true, response: PasswordResetCompleted },
   "POST /v1/auth/password/reset/request": { method: "POST", path: "/v1/auth/password/reset/request", plane: "tenant", status: 202, request: EmailBody, requestRequired: true, response: PasswordResetAccepted },
   "GET /v1/branding": { method: "GET", path: "/v1/branding", plane: "tenant", status: 200, request: null, requestRequired: false, response: Branding },
+  "POST /v1/chat/ask": { method: "POST", path: "/v1/chat/ask", plane: "tenant", status: 200, request: AskBody, requestRequired: true, response: null },
   "DELETE /v1/chat/provider-key": { method: "DELETE", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyDeleted },
   "GET /v1/chat/provider-key": { method: "GET", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyStatus },
   "PUT /v1/chat/provider-key": { method: "PUT", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: TenantModelKeyBody, requestRequired: true, response: TenantModelKeyStatus },
+  "GET /v1/chat/suggestions": { method: "GET", path: "/v1/chat/suggestions", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatSuggestions },
   "GET /v1/chat/threads": { method: "GET", path: "/v1/chat/threads", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThreads },
   "POST /v1/chat/threads": { method: "POST", path: "/v1/chat/threads", plane: "tenant", status: 201, request: NewThread, requestRequired: true, response: ChatThreadCreated },
   "DELETE /v1/chat/threads/{thread_id}": { method: "DELETE", path: "/v1/chat/threads/{thread_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThreadDeleted },

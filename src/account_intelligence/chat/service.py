@@ -268,12 +268,14 @@ class AnthropicChatProvider:
         request_id: str | None = None,
         fresh_output: bool = True,
         context: str = "",
+        system: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
-        """Stream text and final token counts; provider exceptions retain no user text."""
+        """Stream text and final token counts; provider exceptions retain no user text.
+        ``system`` replaces the default grounded rules (the Ask answer format supplies its own)."""
         request_messages = [
             {"role": message.role, "content": message.content} for message in messages
         ]
-        system_instruction = grounded_system_prompt(context, max_output_tokens)
+        system_instruction = system or grounded_system_prompt(context, max_output_tokens)
         async with self._client.messages.stream(
             model=model.id,
             max_tokens=max_output_tokens,
