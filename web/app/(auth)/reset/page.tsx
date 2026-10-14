@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
+import { AuthFrame } from "@/ui/AuthFrame";
 
 export default function ResetPasswordPage() {
   const [token, setToken] = useState("");
@@ -58,10 +58,9 @@ export default function ResetPasswordPage() {
 
   return (
     <AuthFrame plane="client">
-      <AuthBrand plane="client" />
       <div>
         <h1 id="auth-title">Choose a new password</h1>
-        {!complete ? <p className="muted">Use at least 12 characters. Leave out your email and name.</p> : null}
+        {!complete ? <p className="sub">Use at least 12 characters. Leave out your email and name.</p> : null}
       </div>
       {complete ? (
         <div className="notice" role="status" aria-live="polite">

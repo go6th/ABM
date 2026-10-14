@@ -4,7 +4,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
+import { AuthFrame } from "@/ui/AuthFrame";
 
 export default function AcceptInvitePage() {
   const [token, setToken] = useState("");
@@ -60,10 +60,9 @@ export default function AcceptInvitePage() {
 
   return (
     <AuthFrame plane="client">
-      <AuthBrand plane="client" />
       <div>
         <h1 id="auth-title">Join your workspace</h1>
-        {!complete ? <p className="muted">Choose a password to finish joining. Use at least 12 characters and leave out your email and name.</p> : null}
+        {!complete ? <p className="sub">Choose a password to finish joining. Use at least 12 characters and leave out your email and name.</p> : null}
       </div>
       {complete ? (
         <div className="notice" role="status" aria-live="polite">

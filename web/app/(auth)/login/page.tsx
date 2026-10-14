@@ -1,154 +1,240 @@
 "use client";
+// The workspace sign-in, as PDF page 1 draws it. Password sign-in with "Keep me signed in on this
+// device" (on: the normal long session; off: the cookie ends when the browser closes; it applies
+// to both ways of signing in), or
+// "Continue with SSO", which looks up the company's sign-in from the email's domain
+// (POST /v1/sso/discover) and goes to it. Errors are in plain words and never say whether an
+// account or a company exists.
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
+import { AuthFrame, AuthPitch, KeyIcon, type PitchPoint } from "@/ui/AuthFrame";
 import { clearSession } from "@/lib/api";
 
-const SLUG = /^[a-z0-9][a-z0-9-]{2,62}$/;
+const POINTS: PitchPoint[] = [
+  {
+    icon: "shield",
+    title: "Every fact is graded and sourced",
+    body: "Each fact is Confirmed, Probable, Hypothesis or Lead and links to where it came from, so you know what to say on a call and what to check first.",
+    grades: true,
+  },
+  {
+    icon: "lock",
+    title: "Your work stays in your workspace",
+    body: "Each company has its own workspace. Files you add are private to it and never appear in research files you share.",
+  },
+  {
+    icon: "document",
+    title: "Ready to use on a call",
+    body: "Every account comes with a brief, a senior people list and a coverage tracker, as files you can download. We never send outreach for you.",
+  },
+];
+
+const TOO_MANY = "Too many attempts, try again in a minute.";
+const UNAVAILABLE = "Sign in is unavailable right now. Try again in a moment.";
+
+type Notice = { text: string; tone: "error" | "info"; resend?: boolean };
+
+async function post(path: string, body: unknown): Promise<Response> {
+  return fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+}
 
 export default function TenantLoginPage() {
   const router = useRouter();
-  const [organization, setOrganization] = useState("");
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [tenants, setTenants] = useState<Array<{ tenant_id: string; role: string }>>([]);
   const [tenantId, setTenantId] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState(false);
-  const [authMode, setAuthMode] = useState<"password" | "sso">("password");
-  const [showPassword, setShowPassword] = useState(false);
-  const slug = organization.trim().toLowerCase();
+  const [pending, setPending] = useState<"password" | "sso" | "resend" | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
-    setNotice(false);
-    setPending(true);
+    setNotice(null);
+    setEmailError(null);
+    setPending("password");
     try {
-      const response = await fetch("/v1/auth/login", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ email, password, ...(tenantId ? { workspace_id: tenantId } : {}) }),
-        cache: "no-store",
-      });
-      const result = (await response.json()) as { code?: string; tenants?: Array<{ tenant_id: string; role: string }> };
+      const response = await post("/v1/auth/login", { email, password, remember, ...(tenantId ? { workspace_id: tenantId } : {}) });
+      const result = (await response.json().catch(() => ({}))) as { code?: string; tenants?: Array<{ tenant_id: string; role: string }> };
       const firstTenant = result.tenants?.[0];
       if (response.status === 409 && result.code === "tenant_selection_required" && firstTenant) {
         setTenants(result.tenants ?? [firstTenant]);
         setTenantId(firstTenant.tenant_id);
+        setNotice({ tone: "info", text: "Your email opens more than one workspace. Choose one, then sign in." });
         return;
       }
-      if (!response.ok) {
-        setError("Sign in could not be completed. Check your details or contact your administrator.");
-        return;
+      if (response.status === 429) return setNotice({ tone: "error", text: TOO_MANY });
+      if (response.status === 401 || response.status === 422) {
+        return setNotice({ tone: "error", text: "That email and password don't match.", resend: response.status === 401 });
       }
+      if (!response.ok) return setNotice({ tone: "error", text: UNAVAILABLE });
       clearSession();
       router.replace("/");
     } catch {
-      setError("Sign in is unavailable right now. Try again in a moment.");
+      setNotice({ tone: "error", text: UNAVAILABLE });
     } finally {
-      setPending(false);
+      setPending(null);
+    }
+  }
+
+  async function continueWithSso() {
+    setNotice(null);
+    const field = emailRef.current;
+    if (!email.trim() || (field && !field.validity.valid)) {
+      setEmailError(email.trim() ? "Enter your full work email, like name@company.com." : "Enter your work email first, then choose Continue with SSO.");
+      field?.focus();
+      return;
+    }
+    setEmailError(null);
+    setPending("sso");
+    try {
+      const response = await post("/v1/sso/discover", { email });
+      if (response.status === 429) return setNotice({ tone: "error", text: TOO_MANY });
+      if (!response.ok) return setNotice({ tone: "error", text: UNAVAILABLE });
+      const found = (await response.json()) as { next: "sso" | "password"; start_url: string | null };
+      if (found.next === "sso" && found.start_url?.startsWith("/v1/sso/")) {
+        window.location.assign(remember ? found.start_url : `${found.start_url}&remember=false`);
+        return;
+      }
+      setNotice({ tone: "info", text: "Your company signs in with a password here. Enter your password above." });
+      passwordRef.current?.focus();
+    } catch {
+      setNotice({ tone: "error", text: UNAVAILABLE });
+    } finally {
+      setPending((p) => (p === "sso" ? null : p));
     }
   }
 
   async function resendVerification() {
-    setError(null);
-    setNotice(false);
-    setPending(true);
+    setPending("resend");
     try {
-      const response = await fetch("/v1/auth/email/resend", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ email }),
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        setError("A verification message could not be sent right now. Try again later.");
-      } else {
-        setNotice(true);
-        setError("If this address has a pending account, a fresh verification link has been sent.");
-      }
+      const response = await post("/v1/auth/email/resend", { email });
+      setNotice(response.ok
+        ? { tone: "info", text: "If this address is waiting to be verified, a new verification link is on its way." }
+        : { tone: "error", text: response.status === 429 ? TOO_MANY : "A verification link could not be sent right now. Try again later." });
     } catch {
-      setError("A verification message could not be sent right now. Try again.");
+      setNotice({ tone: "error", text: "A verification link could not be sent right now. Try again later." });
     } finally {
-      setPending(false);
-    }
-  }
-
-  function continueToOrganization(event: FormEvent<HTMLFormElement>) {
-    if (!SLUG.test(slug)) {
-      event.preventDefault();
-      setNotice(false);
-      setError("Enter the organization sign in ID provided by your administrator.");
+      setPending(null);
     }
   }
 
   return (
-    <AuthFrame plane="client">
-      <AuthBrand plane="client" />
+    <AuthFrame
+      plane="client"
+      pitch={
+        <AuthPitch
+          title="6th is a go-to-market consultancy."
+          lead="Account Intelligence is the research process we run for our own clients, now a workspace your team can use directly."
+          points={POINTS}
+        />
+      }
+      below={<>6th team? <Link href="/operator/login">Sign in to the admin console</Link></>}
+    >
       <div>
         <h1 id="auth-title">Sign in</h1>
-        <p className="muted">Continue to your workspace.</p>
+        <p className="sub">Use the work email your team invited. You&apos;ll land in your company&apos;s workspace.</p>
       </div>
 
-      <div className="seg" role="tablist" aria-label="Sign in method">
-        <button type="button" role="tab" id="password-tab" aria-selected={authMode === "password"} aria-controls="login-panel" onClick={() => { setAuthMode("password"); setError(null); }}>
-          Email and password
-        </button>
-        <button type="button" role="tab" id="sso-tab" aria-selected={authMode === "sso"} aria-controls="login-panel" onClick={() => { setAuthMode("sso"); setError(null); }}>
-          Enterprise SSO
-        </button>
-      </div>
-
-      <div id="login-panel" role="tabpanel" aria-labelledby={authMode === "password" ? "password-tab" : "sso-tab"} className="stack">
-        {error ? <div className={notice ? "notice" : "notice error"} role="alert"><p>{error}</p></div> : null}
-
-        {authMode === "password" ? (
-          <form onSubmit={signIn}>
-            <div className="field">
-              <label htmlFor="email">Work email</label>
-              <input id="email" className="input" type="email" autoComplete="username" autoCapitalize="none" spellCheck={false} required maxLength={320} placeholder="name@company.com" value={email} onChange={(event) => setEmail(event.target.value)} />
-            </div>
-            <div className="field">
-              <div className="label-row">
-                <label htmlFor="password">Password</label>
-                <Link href="/forgot">Forgot password?</Link>
-              </div>
-              <input id="password" className="input" type={showPassword ? "text" : "password"} autoComplete="current-password" required maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} />
-              <label className="check small"><input type="checkbox" checked={showPassword} onChange={(e) => setShowPassword(e.target.checked)} />Show password</label>
-            </div>
-            {tenants.length > 0 ? (
-              <div className="field">
-                <label htmlFor="tenant">Select workspace</label>
-                <select id="tenant" className="select" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
-                  {tenants.map((tenant) => <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.tenant_id} ({tenant.role})</option>)}
-                </select>
-              </div>
+      <form onSubmit={signIn}>
+        {notice ? (
+          <div className={notice.tone === "error" ? "notice error" : "notice info"} role={notice.tone === "error" ? "alert" : "status"}>
+            <p>{notice.text}</p>
+            {notice.resend ? (
+              <button type="button" className="linkish" disabled={pending !== null || !email} onClick={() => void resendVerification()}>
+                Waiting to verify your email? Send a new link
+              </button>
             ) : null}
-            <button className="btn primary block" type="submit" disabled={pending}>{pending ? "Signing in" : "Sign in to workspace"}</button>
-            <div className="auth-links">
-              <button type="button" disabled={pending || !email} onClick={() => void resendVerification()}>Resend verification email</button>
-              <Link href="/verify-email">Verify email</Link>
-            </div>
-          </form>
-        ) : (
-          <form action={`/v1/sso/${encodeURIComponent(slug)}/start?return_to=%2F`} method="get" onSubmit={continueToOrganization}>
-            <div className="field">
-              <label htmlFor="organization">Organization sign in ID</label>
-              <input id="organization" className="input mono" autoComplete="organization" autoCapitalize="none" spellCheck={false} required maxLength={63} placeholder="acme-corp" aria-describedby="organization-hint" value={organization} onChange={(event) => { setOrganization(event.target.value); setError(null); }} />
-              <p className="hint" id="organization-hint">Use the sign in ID from your IT administrator.</p>
-            </div>
-            <button className="btn primary block" type="submit">Continue with SSO</button>
-          </form>
-        )}
+          </div>
+        ) : null}
+        <div className="field">
+          <label htmlFor="email">Work email</label>
+          <input
+            ref={emailRef}
+            id="email"
+            className="input"
+            type="email"
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
+            required
+            maxLength={320}
+            placeholder="name@company.com"
+            value={email}
+            aria-invalid={emailError ? true : undefined}
+            aria-describedby={emailError ? "email-error" : undefined}
+            onChange={(event) => { setEmail(event.target.value); setEmailError(null); }}
+          />
+          {emailError ? <p className="field-error" id="email-error">{emailError}</p> : null}
+        </div>
+        <div className="field">
+          <div className="label-row">
+            <label htmlFor="password">Password</label>
+            <Link href="/forgot">Forgot password?</Link>
+          </div>
+          <div className="pw">
+            <input
+              ref={passwordRef}
+              id="password"
+              className="input"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              required
+              maxLength={1024}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <button
+              type="button"
+              className="reveal"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-controls="password"
+              onClick={() => setShowPassword((v) => !v)}
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
+        </div>
+        {tenants.length > 0 ? (
+          <div className="field">
+            <label htmlFor="tenant">Workspace</label>
+            <select id="tenant" className="select" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+              {tenants.map((tenant) => <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.tenant_id} ({tenant.role})</option>)}
+            </select>
+          </div>
+        ) : null}
+        <label className="check">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          Keep me signed in on this device
+        </label>
+        <button className="btn primary block" type="submit" disabled={pending !== null}>
+          {pending === "password" ? "Signing in" : "Sign in"}
+        </button>
+      </form>
+
+      <p className="or">or</p>
+
+      <div className="sso-block">
+        <button type="button" className="btn block sso" disabled={pending !== null} aria-describedby="sso-note" onClick={() => void continueWithSso()}>
+          <KeyIcon />
+          {pending === "sso" ? "Finding your sign-in" : "Continue with SSO"}
+        </button>
+        <p className="sso-note" id="sso-note">We&apos;ll find your company&apos;s sign-in from your work email.</p>
       </div>
 
-      <p className="auth-foot">Need access? Ask your workspace administrator.</p>
+      <p className="auth-foot">Don&apos;t have access? Ask your 6th contact to send you an invite.</p>
     </AuthFrame>
   );
 }

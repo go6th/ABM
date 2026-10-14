@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
+import { AuthFrame } from "@/ui/AuthFrame";
 
 export default function VerifyEmailPage() {
   const [status, setStatus] = useState("Checking your verification link");
@@ -37,7 +37,6 @@ export default function VerifyEmailPage() {
 
   return (
     <AuthFrame plane="client">
-      <AuthBrand plane="client" />
       <h1 id="auth-title">Email verification</h1>
       <div className={finished && !ok ? "notice error" : "notice"} role="status" aria-live="polite">
         {!finished ? <span className="spinner" aria-hidden="true" /> : null}

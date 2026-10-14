@@ -13,10 +13,10 @@ export function LogoMark({ size = 28, inverse = false }: { size?: number; invers
   );
 }
 
-export function Logo({ name = "Account Intelligence", by = "by 6th" }: { name?: string; by?: string }) {
+export function Logo({ name = "Account Intelligence", by = "by 6th", inverse = false }: { name?: string; by?: string; inverse?: boolean }) {
   return (
-    <span className="logo">
-      <LogoMark />
+    <span className={inverse ? "logo inverse" : "logo"}>
+      <LogoMark inverse={inverse} />
       <span className="name">{name}<span className="by">{by}</span></span>
     </span>
   );

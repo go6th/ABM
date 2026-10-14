@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { AuthBrand, AuthFrame } from "@/ui/AuthFrame";
+import { AuthFrame } from "@/ui/AuthFrame";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -36,10 +36,9 @@ export default function ForgotPasswordPage() {
 
   return (
     <AuthFrame plane="client">
-      <AuthBrand plane="client" />
       <div>
         <h1 id="auth-title">Reset your password</h1>
-        {!submitted ? <p className="muted">Enter your work email. If it has an account, we send a single-use reset link.</p> : null}
+        {!submitted ? <p className="sub">Enter your work email. If it has an account, we send a single-use reset link.</p> : null}
       </div>
       {submitted ? (
         <div className="notice" role="status" aria-live="polite">

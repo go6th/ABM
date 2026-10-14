@@ -15,7 +15,7 @@ const CLIENT = [
   `${ACCOUNT}/files`, `${ACCOUNT}/refresh`, "/research/new", "/schedules", "/mail-and-drive",
 ];
 const OPERATOR = ["/operator", "/operator/clients", "/operator/users", "/operator/library", "/operator/runs", "/operator/defaults", "/operator/view"];
-const PUBLIC = ["/login", "/forgot", "/invite", "/operator/login"];
+const PUBLIC = ["/login", "/forgot", "/reset", "/verify-email", "/invite", "/operator/login"];
 
 function watch(page: Page): string[] {
   const errors: string[] = [];
