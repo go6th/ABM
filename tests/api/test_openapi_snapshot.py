@@ -30,6 +30,7 @@ NOT_JSON = {
     ("post", "/v1/chat/threads/{thread_id}/turns/stream"),
     ("post", "/v1/chat/ask"),  # the Ask answer stream
     ("get", "/v1/accounts/{domain}/deliverables/download"),  # a file or a zip
+    ("get", "/v1/accounts/{domain}/sheets/{sheet}/xlsx"),  # an Excel workbook
 }
 
 

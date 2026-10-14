@@ -341,6 +341,51 @@ class AccountWorkspace(AccountItem):
     files: list[DeliverableFile]
 
 
+class SheetColumn(Out):
+    """One column of a deep-dive table."""
+
+    key: str
+    label: str
+    sortable: bool
+    kind: str
+
+
+class SheetFilter(Out):
+    """One filter chip and how many rows it holds."""
+
+    key: str
+    label: str
+    count: int
+
+
+class SheetRow(Out):
+    """One row: its absolute number, its cells as shown, and its link if it has one."""
+
+    n: int
+    cells: dict[str, str]
+    link: str | None
+
+
+class Sheet(Out):
+    """One page of a deep-dive table, sorted and filtered on the server."""
+
+    key: str
+    title: str
+    file: str
+    scope: str
+    footnote: str
+    private: bool
+    account_name: str
+    columns: list[SheetColumn]
+    filters: list[SheetFilter]
+    filter: str
+    sort: str
+    dir: Literal["asc", "desc"]
+    total: int
+    offset: int
+    rows: list[SheetRow]
+
+
 class AccountDetail(Out):
     """Response body: account detail."""
 

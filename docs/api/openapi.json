@@ -8053,6 +8053,194 @@
         "title": "SettingsBody",
         "type": "object"
       },
+      "Sheet": {
+        "additionalProperties": false,
+        "description": "One page of a deep-dive table, sorted and filtered on the server.",
+        "properties": {
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/SheetColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "dir": {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Dir",
+            "type": "string"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "filter": {
+            "title": "Filter",
+            "type": "string"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/SheetFilter"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "footnote": {
+            "title": "Footnote",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "private": {
+            "title": "Private",
+            "type": "boolean"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "sort": {
+            "title": "Sort",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "file",
+          "scope",
+          "footnote",
+          "private",
+          "account_name",
+          "columns",
+          "filters",
+          "filter",
+          "sort",
+          "dir",
+          "total",
+          "offset",
+          "rows"
+        ],
+        "title": "Sheet",
+        "type": "object"
+      },
+      "SheetColumn": {
+        "additionalProperties": false,
+        "description": "One column of a deep-dive table.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "sortable": {
+            "title": "Sortable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "sortable",
+          "kind"
+        ],
+        "title": "SheetColumn",
+        "type": "object"
+      },
+      "SheetFilter": {
+        "additionalProperties": false,
+        "description": "One filter chip and how many rows it holds.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count"
+        ],
+        "title": "SheetFilter",
+        "type": "object"
+      },
+      "SheetRow": {
+        "additionalProperties": false,
+        "description": "One row: its absolute number, its cells as shown, and its link if it has one.",
+        "properties": {
+          "cells": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Cells",
+            "type": "object"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "n",
+          "cells",
+          "link"
+        ],
+        "title": "SheetRow",
+        "type": "object"
+      },
       "SignalEvent": {
         "additionalProperties": false,
         "description": "Response body: signal event.",
@@ -12054,6 +12242,266 @@
         "summary": "Account History",
         "tags": [
           "signals"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/sheets/{sheet}": {
+      "get": {
+        "description": "One page of a deep-dive table, filtered and sorted on the server.",
+        "operationId": "account_sheet_v1_accounts__domain__sheets__sheet__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sheet",
+            "required": true,
+            "schema": {
+              "title": "Sheet",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filter"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dir",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dir"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sheet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Sheet",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/sheets/{sheet}/xlsx": {
+      "get": {
+        "description": "The filtered, sorted table as an Excel workbook (an audited export).",
+        "operationId": "account_sheet_xlsx_v1_accounts__domain__sheets__sheet__xlsx_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sheet",
+            "required": true,
+            "schema": {
+              "title": "Sheet",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filter"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dir",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dir"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Sheet Xlsx",
+        "tags": [
+          "accounts"
         ]
       }
     },

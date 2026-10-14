@@ -24,9 +24,11 @@ from sqlalchemy import text
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
+from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.replica import sheets as SH
 from account_intelligence.replica import workspace as W
 from tenancy.storage import PathRefused, require_owned
 
@@ -36,6 +38,16 @@ register(
 )
 register(
     "GET", "/v1/accounts/{domain}/deliverables", tenant_route("read_public", "read", step_up=False)
+)
+register(
+    "GET",
+    "/v1/accounts/{domain}/sheets/{sheet}",
+    tenant_route("read_public", "read", step_up=False),
+)
+register(
+    "GET",
+    "/v1/accounts/{domain}/sheets/{sheet}/xlsx",
+    tenant_route("export_files", "export", step_up=False),
 )
 register(
     "GET",
@@ -134,4 +146,81 @@ async def download_deliverables(
         buffer.getvalue(),
         media_type=MEDIA["zip"],
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+def _sheet_query(
+    sheet: str, filter: str | None, sort: str | None, dir: str | None, offset: int, limit: int
+) -> SH.Query:
+    try:
+        return SH.parse(sheet, filter, sort, dir, offset, limit)
+    except SH.SheetNotFound:
+        raise HTTPException(404, "not found") from None
+    except SH.BadSheetQuery:
+        raise APIProblem(
+            422,
+            "bad_sheet_query",
+            "Unknown filter or sort",
+            "Choose a filter and a column from the table.",
+        ) from None
+
+
+async def _account_name(s: Any, account_id: UUID) -> str:
+    return str(
+        await s.scalar(
+            text("SELECT coalesce(name, domain) FROM accounts WHERE id = :a"), {"a": account_id}
+        )
+    )
+
+
+@router.get("/{domain}/sheets/{sheet}", response_model=C.Sheet)
+async def account_sheet(
+    domain: str,
+    sheet: str,
+    filter: str | None = Query(default=None, max_length=40),
+    sort: str | None = Query(default=None, max_length=40),
+    dir: str | None = Query(default=None, max_length=4),
+    offset: int = Query(default=0, ge=0, le=100_000),
+    limit: int = Query(default=200, ge=1, le=SH.MAX_PAGE),
+    ident: Identity = Depends(authorize),
+) -> dict[str, Any]:
+    """One page of a deep-dive table, filtered and sorted on the server."""
+    q = _sheet_query(sheet, filter, sort, dir, offset, limit)
+    async with tenant_txn(ident.tenant_id) as s:
+        account_id = await account_id_of(s, domain)
+        name = await _account_name(s, account_id)
+        out = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC))
+    return {**out, "account_name": name}
+
+
+@router.get("/{domain}/sheets/{sheet}/xlsx")
+async def account_sheet_xlsx(
+    domain: str,
+    sheet: str,
+    request: Request,
+    filter: str | None = Query(default=None, max_length=40),
+    sort: str | None = Query(default=None, max_length=40),
+    dir: str | None = Query(default=None, max_length=4),
+    ident: Identity = Depends(authorize),
+) -> Response:
+    """The filtered, sorted table as an Excel workbook (an audited export)."""
+    q = _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE)
+    async with tenant_txn(ident.tenant_id) as s:
+        account_id = await account_id_of(s, domain)
+        name = await _account_name(s, account_id)
+        out = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC), export=True)
+        await audit_action(
+            s,
+            request,
+            audit_class="export",
+            action="export_sheet",
+            resource_type="account",
+            resource_id=account_id,
+        )
+    body = SH.workbook(out, name)
+    stem = re.sub(r"[^A-Za-z0-9]+", "-", f"{name} {out['file'].rsplit('.', 1)[0]}").strip("-")
+    return Response(
+        body,
+        media_type=MEDIA["xlsx"],
+        headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'},
     )

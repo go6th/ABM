@@ -1669,6 +1669,47 @@ export const SettingsBody = z.object({
 }).strict();
 export type SettingsBody = z.infer<typeof SettingsBody>;
 
+export const SheetColumn = z.object({
+  "key": z.string(),
+  "kind": z.string(),
+  "label": z.string(),
+  "sortable": z.boolean(),
+}).strict();
+export type SheetColumn = z.infer<typeof SheetColumn>;
+
+export const SheetFilter = z.object({
+  "count": z.number().int(),
+  "key": z.string(),
+  "label": z.string(),
+}).strict();
+export type SheetFilter = z.infer<typeof SheetFilter>;
+
+export const SheetRow = z.object({
+  "cells": z.record(z.string(), z.string()),
+  "link": z.string().nullable(),
+  "n": z.number().int(),
+}).strict();
+export type SheetRow = z.infer<typeof SheetRow>;
+
+export const Sheet = z.object({
+  "account_name": z.string(),
+  "columns": z.array(SheetColumn),
+  "dir": z.string(),
+  "file": z.string(),
+  "filter": z.string(),
+  "filters": z.array(SheetFilter),
+  "footnote": z.string(),
+  "key": z.string(),
+  "offset": z.number().int(),
+  "private": z.boolean(),
+  "rows": z.array(SheetRow),
+  "scope": z.string(),
+  "sort": z.string(),
+  "title": z.string(),
+  "total": z.number().int(),
+}).strict();
+export type Sheet = z.infer<typeof Sheet>;
+
 export const SignalEvent = z.object({
   "account": z.string(),
   "detected_at": z.string(),
@@ -2202,6 +2243,10 @@ export const KNOWN_VALUES = {
     "seller",
     "viewer"
   ],
+  "Sheet.dir": [
+    "asc",
+    "desc"
+  ],
   "Sort.direction": [
     "asc",
     "desc"
@@ -2297,6 +2342,8 @@ export const operations = {
   "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
   "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, request: null, requestRequired: false, response: History },
+  "GET /v1/accounts/{domain}/sheets/{sheet}": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}", plane: "tenant", status: 200, request: null, requestRequired: false, response: Sheet },
+  "GET /v1/accounts/{domain}/sheets/{sheet}/xlsx": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/xlsx", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/tables/{table}": { method: "GET", path: "/v1/accounts/{domain}/tables/{table}", plane: "tenant", status: 200, request: null, requestRequired: false, response: TablePage },
   "GET /v1/accounts/{domain}/workspace": { method: "GET", path: "/v1/accounts/{domain}/workspace", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountWorkspace },
   "GET /v1/alerts": { method: "GET", path: "/v1/alerts", plane: "tenant", status: 200, request: null, requestRequired: false, response: Alerts },

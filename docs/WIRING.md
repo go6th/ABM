@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **158**.
+- Backend operations in OpenAPI: **160**.
 - Frontend literal call sites found: **77**.
 - Frontend call sites mapped to backend operations: **71**.
-- Backend operations without a direct frontend call site: **108**.
+- Backend operations without a direct frontend call site: **110**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **1**.
 
@@ -135,6 +135,8 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/accounts/{domain}/deliverables` | — | DeliverableFiles (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/deliverables/download` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/accounts/{domain}/history` | — | History (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/sheets/{sheet}` | — | Sheet (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/sheets/{sheet}/xlsx` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/accounts/{domain}/tables/{table}` | — | TablePage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/workspace` | — | AccountWorkspace (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/alerts` | — | Alerts (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
