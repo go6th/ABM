@@ -118,6 +118,7 @@ class LocalBlobStore:
                 os.fsync(out.fileno())
             os.replace(tmp, target)
         except BaseException:
+            # remove the temporary file on any exit, cancellation included, then re-raise
             Path(tmp).unlink(missing_ok=True)
             raise
         return size, digest.hexdigest()
@@ -147,6 +148,7 @@ class LocalBlobStore:
                 os.fsync(out.fileno())
             os.replace(tmp, target)
         except BaseException:
+            # remove the temporary file on any exit, cancellation included, then re-raise
             Path(tmp).unlink(missing_ok=True)
             raise
         return size, digest.hexdigest()
@@ -212,10 +214,24 @@ class LocalBlobStore:
 
 
 class GcsBlobStore:
-    """See the module docstring (VERIFY V-FILES-1)."""
+    """See the module docstring (VERIFY V-FILES-1). With ``mount_dir`` (the worker's read-only
+    Cloud Storage volume, ``BLOB_MOUNT_DIR``) the store also offers ``path(key)``: the parser
+    sandbox then reads the object in place instead of a whole-file temporary copy, which on
+    Cloud Run would sit in memory."""
 
-    def __init__(self, client: Any, bucket: str) -> None:
+    def __init__(self, client: Any, bucket: str, mount_dir: str | None = None) -> None:
         self.bucket = client.bucket(bucket)
+        self.mount_dir = Path(mount_dir) if mount_dir else None
+        if self.mount_dir is not None:
+            self.path = self._mounted
+
+    def _mounted(self, key: str) -> Path:
+        """The object's file on the mounted bucket (refuses a key that escapes the mount)."""
+        assert self.mount_dir is not None
+        target = (self.mount_dir / key).resolve()
+        if self.mount_dir.resolve() not in target.parents:
+            raise ValueError("object key escapes the mount")
+        return target
 
     async def write_stream(
         self, key: str, chunks: AsyncIterator[bytes], *, max_bytes: int
@@ -327,18 +343,3 @@ class GcsBlobStore:
         for blob in blobs:
             await asyncio.to_thread(blob.delete)
         return len(blobs)
-
-
-def file_key(tenant_id: object, file_id: object) -> str:
-    """The raw object of a file."""
-    return f"tenants/{tenant_id}/files/{file_id}/raw"
-
-
-def part_key(tenant_id: object, upload_id: object, part_no: int) -> str:
-    """One uploaded part."""
-    return f"tenants/{tenant_id}/files/uploads/{upload_id}/part-{part_no:06d}"
-
-
-def upload_prefix(tenant_id: object, upload_id: object) -> str:
-    """Every part of one upload."""
-    return f"tenants/{tenant_id}/files/uploads/{upload_id}/"

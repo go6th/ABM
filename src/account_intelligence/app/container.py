@@ -130,8 +130,6 @@ class Container:
     router: Any | None = None
     # research cache: model reply log and cross-run reuse (``llm.reply_cache``); None logs nothing
     reply_cache: Any | None = None
-    # research files (``research_files.service.FileServices``): uploads, processing, questions
-    files: Any | None = None
     # uploaded documents for input mode "file" (``documents.service.DocumentService``)
     documents: Any | None = None
     # Phase 3 tenant plane (identity broker, secret and object stores, mailer, scanner): the
@@ -289,9 +287,9 @@ def with_model_choice(llm: Any, env: Mapping[str, str], key: str | None = None) 
             moonshot_key = None
     moonshot = None
     if moonshot_key:
-        from llm.adapters.moonshot_api import MoonshotClient
+        from llm.adapters.moonshot_api import BASE_URL, MoonshotClient
 
-        moonshot = MoonshotClient(moonshot_key)
+        moonshot = MoonshotClient(moonshot_key, base_url=env.get("MOONSHOT_BASE_URL") or BASE_URL)
     if isinstance(llm, AnthropicLlm):
         return ChoiceLlm(llm, moonshot)
     if moonshot is not None and isinstance(llm, UnconfiguredLlm):
@@ -413,6 +411,11 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         raise RuntimeMisconfigured(
             f"CONNECTORS=hermetic is for development and tests and refused for APP_ENV={app_env}"
         )
+    from account_intelligence.config import deployment_refusals
+
+    refusals = deployment_refusals(env)  # L13: dev/test on Cloud Run, DEVSTORE_* in the cloud
+    if refusals:
+        raise RuntimeMisconfigured("; ".join(refusals))
     spec = load_spec()
     if app_env in CLOUD_ENVS:
         container = _cloud(env, app_env, spec)
@@ -494,7 +497,6 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     )
     container.extras["maildrive_apps"] = maildrive_apps(env)
     blobs = local_blob_store(env.get("PAYLOAD_DIR"))
-    container.files = file_services(blobs, llm, container.scheduler)
     container.documents = document_service(blobs, container.scheduler, clock, env, app_env)
     # the pre-delivery gate for both input modes (``documents.gate``): without it no run could
     # ever complete (audit F1)
@@ -519,7 +521,17 @@ def document_service(
         int(env.get("CLAMD_PORT", "3310")),
     )
     embedder = HashingEmbedder(cfg.embedding.dimensions, cfg.embedding.model)
-    return DocumentService(tenant_txn, blobs, scanner, embedder, scheduler, clock, cfg)
+    return DocumentService(
+        tenant_txn,
+        blobs,
+        scanner,
+        embedder,
+        scheduler,
+        clock,
+        cfg,
+        # one part per Cloud Tasks request in the cloud (the 30-minute dispatch maximum)
+        parts_per_request=1 if app_env in CLOUD_ENVS else None,
+    )
 
 
 def delivery_gate(payloads: Any, documents: Any) -> Any:
@@ -530,7 +542,7 @@ def delivery_gate(payloads: Any, documents: Any) -> Any:
 
 
 def local_blob_store(payload_dir: str | None) -> Any:
-    """Research file objects on the payloads volume (a temporary directory without one)."""
+    """Uploaded document objects on the payloads volume (a temporary directory without one)."""
     import tempfile
     from pathlib import Path
 
@@ -539,13 +551,6 @@ def local_blob_store(payload_dir: str | None) -> Any:
     root = Path(payload_dir) / "files" if payload_dir else Path(tempfile.mkdtemp(prefix="rf-"))
     root.mkdir(parents=True, exist_ok=True)
     return LocalBlobStore(root)
-
-
-def file_services(blobs: Any, llm: Any, scheduler: Any) -> Any:
-    """The research file services over a blob store, the LLM port and the task scheduler."""
-    from research_files.service import FileServices, usable_llm
-
-    return FileServices(blobs, tenant_txn, usable_llm(llm), scheduler)
 
 
 def hermetic_fake_model(env: Mapping[str, str]) -> FakeModel:
@@ -590,6 +595,8 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         _require(env, "WORKER_URL"),
         _require(env, "TASKS_SERVICE_ACCOUNT"),
         _require(env, "TASKS_AUDIENCE"),
+        documents_queue=env.get("TASKS_QUEUE_DOCUMENTS"),
+        jobs_queue=env.get("TASKS_QUEUE_JOBS"),
     )
     payloads = GcsPayloadStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
     access = env.get("LLM_ACCESS", "vertex_ai")
@@ -643,8 +650,13 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     )
     from research_files.blobstore import GcsBlobStore
 
-    blobs = GcsBlobStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
-    built.files = file_services(blobs, llm, scheduler)
+    blobs = GcsBlobStore(
+        gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"), env.get("BLOB_MOUNT_DIR")
+    )
+    if env.get("SERVICE_ROLE") == "worker" and not env.get("BLOB_MOUNT_DIR"):
+        # the worker parses documents: without the bucket mount every file would be copied into
+        # the instance's memory first (Cloud Run has no disk)
+        raise RuntimeMisconfigured("BLOB_MOUNT_DIR is required for the worker in the cloud")
     built.extras["maildrive_apps"] = maildrive_apps(env)
     built.documents = document_service(blobs, scheduler, clock, env, app_env)
     built.gate = delivery_gate(built.payloads, built.documents)

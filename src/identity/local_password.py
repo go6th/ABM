@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from anyio import to_thread
+from anyio import CapacityLimiter, to_thread
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
@@ -153,6 +153,13 @@ def _verify(stored_hash: str | None, candidate: str, policy: PasswordPolicy) -> 
     return bool(stored_hash) and verified
 
 
+# At most this many Argon2id computations at once per process (security audit L7): each takes the
+# policy's memory cost (64 MiB), so 4 at once use 256 MiB of a 1 GiB API instance, where anyio's
+# default 40 worker threads would need 2.5 GiB under a burst of sign-ins. Others wait their turn.
+HASH_CONCURRENCY = 4
+_HASHING = CapacityLimiter(HASH_CONCURRENCY)
+
+
 async def hash_password(
     password: str,
     *,
@@ -163,7 +170,7 @@ async def hash_password(
     """Validate and hash a password using Argon2id off the event loop."""
     rules = policy or load_policy()
     validate_password(password, email=email, display_name=display_name, policy=rules)
-    return await to_thread.run_sync(_hash, password, rules)
+    return await to_thread.run_sync(_hash, password, rules, limiter=_HASHING)
 
 
 async def verify_password(
@@ -174,7 +181,7 @@ async def verify_password(
     # Bound attacker-controlled input before passing it into the hashing backend. The bounded
     # replacement still runs against a real Argon2 digest, preserving the expensive work path.
     bounded = candidate[: rules.max_length + 1]
-    return await to_thread.run_sync(_verify, stored_hash, bounded, rules)
+    return await to_thread.run_sync(_verify, stored_hash, bounded, rules, limiter=_HASHING)
 
 
 def password_context_terms(values: Iterable[str | None]) -> tuple[str, ...]:

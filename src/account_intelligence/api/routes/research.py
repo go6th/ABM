@@ -32,6 +32,7 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.ratelimit import limit_user
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.db.session import tenant_txn
@@ -204,6 +205,7 @@ async def resume_research(
     for. A stalled run is ended PARTIAL first, with everything it holds. It continues the research
     already counted: it uses none of the user's researches. 409 when the run is still moving or
     finished whole."""
+    await limit_user(ident, "research_resume")
     from account_intelligence.runs.stop import has_usable_output
     from account_intelligence.runs.transitions import RunStatus
 

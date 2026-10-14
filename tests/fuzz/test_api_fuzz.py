@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -100,10 +99,12 @@ def fuzz_app() -> Any:
     plane = make_app()
     tenant = new_tenant("fuzz")
     add_member(tenant, "fuzz-admin", "admin")  # the membership re-check must pass
-    now = datetime.now(UTC)
 
     async def admin() -> Identity:
-        return Identity("fuzz-admin", tenant, "admin", now, "jwt", None, ("pwd", "mfa"))
+        # a fresh MFA step-up on every call, so step-up (settings, users, caps) never hides a
+        # route from the fuzz
+        fresh = plane.clock.now()
+        return Identity("fuzz-admin", tenant, "admin", fresh, "jwt", None, ("pwd", "mfa"))
 
     plane.app.dependency_overrides[identity] = admin
     return plane.app

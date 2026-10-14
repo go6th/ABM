@@ -123,6 +123,7 @@ def parse_answer(text: str) -> QaAnswer:
     try:
         answer = QaAnswer.model_validate(payload)
     except Exception:
+        # a generator reply that fails the schema in any way is refused, never shown
         return refusal("generator output failed schema validation")
     return answer.model_copy(
         update={"confidence_score": min(1.0, max(0.0, answer.confidence_score))}

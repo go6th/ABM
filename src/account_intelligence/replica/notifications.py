@@ -39,3 +39,23 @@ async def mark_read(session: Any, notification_id: UUID, user_id: str) -> bool:
         {"n": notification_id, "u": user_id},
     )
     return done is not None
+
+
+async def latest(session: Any, user_id: str, limit: int = 20) -> list[Any]:
+    """The user's latest notifications, unread first, with the account and job they are about."""
+    return list(
+        (
+            await session.execute(
+                text(
+                    "SELECT n.id, n.kind, n.created_at, n.read_at, a.domain, coalesce(a.name,"
+                    " a.domain) AS name,"
+                    " j.scope, j.topic, j.credits_used, j.failure_reason"
+                    " FROM notifications n LEFT JOIN accounts a ON a.id = n.account_id"
+                    " LEFT JOIN research_jobs j ON j.id = n.job_id"
+                    " WHERE n.user_id = :u ORDER BY (n.read_at IS NULL) DESC, n.created_at DESC"
+                    " LIMIT :n"
+                ),
+                {"u": user_id, "n": limit},
+            )
+        ).all()
+    )

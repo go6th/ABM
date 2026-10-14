@@ -295,6 +295,7 @@ async def account_sheet_xlsx(
                 resource_id=account_id,
             )
     except BaseException:
+        # remove the temporary file on any exit, cancellation included, then re-raise
         Path(tmp).unlink(missing_ok=True)
         raise
     return FileResponse(

@@ -48,7 +48,7 @@ from llm.errors import (
     ProviderCreditsExhausted,
 )
 
-BASE_URL = "https://api.moonshot.ai/v1"
+BASE_URL = "https://api.moonshot.ai/v1"  # the registry default (MOONSHOT_BASE_URL)
 # Our effort levels onto Kimi K3's three (low, high, max; the documented default is max).
 EFFORT = {"low": "low", "medium": "high", "high": "high", "xhigh": "max", "max": "max"}
 RETRYABLE_429 = frozenset({"rate_limit_reached_error", "engine_overloaded_error"})

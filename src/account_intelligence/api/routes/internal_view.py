@@ -140,4 +140,5 @@ async def _internal_bytes(request: Request, key: str) -> bytes:
     try:
         return bytes(await payloads.get(key))
     except Exception:
+        # a missing or unreadable stored file reads as not found (no store detail leaks)
         raise HTTPException(404, "no internal file for this run") from None

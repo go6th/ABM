@@ -27,7 +27,6 @@ import hashlib
 import os
 import secrets
 from datetime import timedelta
-from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
@@ -41,6 +40,7 @@ from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.operator import StaffIdentity, require_staff
 from account_intelligence.api.policy import OperatorRole, operator_route, register
 from account_intelligence.api.tenant_plane import plane_of
+from account_intelligence.config import CONFIG_DIR, SKILL_PACKAGE_DIR
 from account_intelligence.db.session import tenant_txn, untenanted_session
 from account_intelligence.replica import admin as A
 from account_intelligence.replica import isolation
@@ -83,7 +83,7 @@ INVITE_HOURS = 24  # the database refuses longer invite tokens
 # they join as a member; client admin rights come through the client's own SSO with MFA.
 INVITED_ROLE = "analyst"
 RUNS_SHOWN = 100
-SKILL_DIR = Path("skills/abm-account-research")
+SKILL_DIR = SKILL_PACKAGE_DIR
 Idle = Literal[7, 10, 14, 30]
 Schedule = Literal["3d", "weekly", "2w", "monthly"]
 
@@ -673,7 +673,7 @@ def _admins() -> list[dict[str, str]]:
 
 
 def _skill_version() -> str:
-    doc = yaml.safe_load(Path("config/skill_versions.yaml").read_text(encoding="utf-8"))
+    doc = yaml.safe_load((CONFIG_DIR / "skill_versions.yaml").read_text(encoding="utf-8"))
     return str(doc["current"]["value"])
 
 

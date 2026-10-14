@@ -724,3 +724,13 @@ async def expire_cap_pause(session: AsyncSession, run_id: UUID, now: datetime) -
     await expire(session, run_id, now, load_v2_config())
     await move(session, run_id, RunStatus.AWAITING_APPROVAL, RunStatus.RUNNING)
     return True
+
+
+async def waiting(s: AsyncSession, run_id: UUID) -> Any:
+    """Why the run waits (``awaiting_kind``) and the slices it used, or None when not found."""
+    return (
+        await s.execute(
+            text("SELECT awaiting_kind, slices_used FROM account_runs WHERE id = :r"),
+            {"r": run_id},
+        )
+    ).first()

@@ -24,16 +24,19 @@ or a value has the wrong type (errors name the variable, never the value).
 | `SERVICE_ROLE` | Which entry point this container serves (set by the deployment). | no | - | - | api, worker |
 | `LOG_LEVEL` | Minimum level of the structured JSON logs. | no | - | - | api, worker |
 | `PORT` | HTTP port the API listens on (Cloud Run injects it). | no | - | - | api, worker |
+| `K_SERVICE` | Set by Cloud Run on services: a dev or test profile is refused when present. | no | - | - | api, worker |
+| `CLOUD_RUN_JOB` | Set by Cloud Run on jobs: a dev or test profile is refused when present. | no | - | - | job, migrate |
 | `CONFIG_DIR` | Directory of the versioned YAML config (image default). | no | - | - | api, worker |
 | `DATABASE_URL` | Async SQLAlchemy URL of the NOBYPASSRLS runtime role (local profiles only). | **secret** | dev, test | - | api, worker |
 | `CHECKPOINT_DATABASE_URL` | psycopg URL for the run checkpointer, direct to the writer (no pooler). | **secret** | dev, staging, production | - | api, worker |
-| `DB_POOL_SIZE` | Runtime connection pool size per instance. | no | - | - | api, worker |
-| `DB_MAX_OVERFLOW` | Extra connections allowed above the pool size. | no | - | - | api, worker |
+| `DB_POOL_SIZE` | Engine connections kept per process (the stack sets 5; the connection budget is max instances x (DB_POOL_SIZE + DB_MAX_OVERFLOW), see the registry comment). | no | - | - | api, worker |
+| `DB_MAX_OVERFLOW` | Extra engine connections per process above DB_POOL_SIZE (the stack sets 5). | no | - | - | api, worker |
 | `CLOUD_SQL_INSTANCE` | Cloud SQL connection name (project:region:instance). | no | staging, production | - | api, worker |
 | `DB_IAM_USER` | IAM database user of the runtime service account. | no | staging, production | - | api, worker |
 | `DB_NAME` | Application database name. | no | staging, production | - | api, worker |
 | `MIGRATOR_DATABASE_URL` | Owner-role URL used only by the migration step. | **secret** | - | - | migrate |
 | `APP_RW_PASSWORD` | Password the migrations set on the app_rw runtime role (migration step only). | **secret** | - | - | migrate |
+| `APP_RW_IAM_USERS` | Comma-separated Cloud SQL IAM database users that migration 0071 makes members of app_rw (nothing else); unset: no grant. | no | - | - | migrate |
 | `JWKS_URL` | JWKS endpoint that signs tenant API bearer tokens. | no | staging, production | - | api, worker |
 | `JWT_AUDIENCE` | Expected audience of tenant bearer tokens. | no | staging, production | - | api, worker |
 | `JWT_ISSUER` | Expected issuer of tenant bearer tokens. | no | staging, production | - | api, worker |
@@ -48,10 +51,13 @@ or a value has the wrong type (errors name the variable, never the value).
 | `RUN_RESERVE_CREDITS` | Credits reserved when a run starts. | no | - | - | api, worker |
 | `GCP_PROJECT` | Google Cloud project id. | no | staging, production | - | api, worker |
 | `GCP_REGION` | Region of Cloud Run, Tasks and SQL. | no | staging, production | - | api, worker |
-| `TASKS_QUEUE` | Cloud Tasks queue for run slices. | no | staging, production | - | api, worker |
+| `TASKS_QUEUE` | Cloud Tasks queue for run slices and approval timeouts. | no | staging, production | - | api, worker |
+| `TASKS_QUEUE_DOCUMENTS` | Cloud Tasks queue for document processing (unset: TASKS_QUEUE). | no | - | - | api, worker |
+| `TASKS_QUEUE_JOBS` | Cloud Tasks queue for research jobs and Download everything (unset: TASKS_QUEUE). | no | - | - | api, worker |
 | `WORKER_URL` | HTTPS URL of the worker service. | no | staging, production | - | api, worker |
 | `TASKS_SERVICE_ACCOUNT` | Service account Cloud Tasks signs OIDC tokens as. | no | staging, production | - | api, worker |
 | `TASKS_AUDIENCE` | Audience the worker expects on task tokens. | no | staging, production | - | api, worker |
+| `BLOB_MOUNT_DIR` | Read-only mount of the payload bucket on the worker (/mnt/blobs); the parser sandbox reads documents there instead of a whole-file copy in memory. Required for the worker in the cloud. | no | - | - | worker |
 | `PAYLOAD_BUCKET` | GCS bucket for raw payloads and exports (per-tenant prefixes). | no | staging, production | - | api, worker |
 | `REDIS_URL` | Redis URL (redis:// locally, rediss:// for Memorystore with TLS): the shared rate limiters (sign-in and providers) and the research cache index. Unset: in-process rate buckets and Postgres-only cache lookups. | no | staging, production | - | api, worker |
 | `DEV_ASSUME_PROVIDER_BALANCE` | Local stack only: treat every provider balance as funded (unattended runs). | no | - | staging, production | worker |
@@ -72,7 +78,12 @@ or a value has the wrong type (errors name the variable, never the value).
 | `VERTEX_REGION` | Vertex AI region when LLM_ACCESS=vertex_ai. | no | - | - | api, worker |
 | `MODEL_ROUTER` | Route model calls through the recorded router (legacy switch). | no | - | - | api, worker |
 | `ANTHROPIC_SECRET` | Secret Manager secret id holding the model API key. | no | - | - | api, worker |
+| `MOONSHOT_BASE_URL` | Kimi K3 (Moonshot AI) API base URL (https). | no | - | - | api, worker |
+| `GMAIL_API_BASE` | Gmail API base URL for the per-user Mail and drive sync. | no | - | - | worker |
+| `GOOGLE_DRIVE_API_BASE` | Google Drive API base URL for the per-user Mail and drive sync. | no | - | - | worker |
+| `MICROSOFT_GRAPH_API_BASE` | Microsoft Graph API base URL (Outlook, OneDrive, SharePoint sync). | no | - | - | worker |
 | `MOONSHOT_SECRET` | Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up. | no | - | - | api, worker |
+| `CSRF_KEY_SECRET` | Secret Manager secret id of the CSRF signing key (32 or more random bytes). | no | - | - | api |
 | `BYOK_KMS_KEY` | Cloud KMS crypto-key resource for optional encrypted tenant model keys. | no | - | - | api, worker |
 | `ANTHROPIC_API_KEY` | Model API key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |
 | `MOONSHOT_API_KEY` | Kimi K3 (Moonshot AI) key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |

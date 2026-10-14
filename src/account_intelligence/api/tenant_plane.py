@@ -11,6 +11,8 @@ GUARANTEE(test_unconfigured_tenant_plane_fails_closed)
 
 from __future__ import annotations
 
+import os
+import re
 import secrets
 from dataclasses import dataclass
 from typing import Any
@@ -28,8 +30,12 @@ from tenancy.ports import (
     UnconfiguredSecretStore,
 )
 
-CSRF_KEY_REF = "tenant-plane/csrf-key"
-DOWNLOAD_KEY_REF = "tenant-plane/download-key"
+# Secret ids, as Secret Manager accepts them (letters, digits, "-" and "_" only; audit M5: the
+# earlier "tenant-plane/csrf-key" was refused there, so every cookie write would have been a 503).
+# The CSRF key's id is CSRF_KEY_SECRET (the registry's default is the Terraform secret's name).
+SECRET_ID = re.compile(r"^[A-Za-z0-9_-]{1,255}$")
+CSRF_KEY_REF = os.environ.get("CSRF_KEY_SECRET") or "csrf-signing-key"
+DOWNLOAD_KEY_REF = "download-signing-key"
 
 
 class UnconfiguredIdentityProvider:
@@ -190,14 +196,21 @@ class ReadOnlySecretStore:
 def cloud_plane(secret_source: Any, clock: Clock, base_url: str | None) -> TenantPlane:
     """The staging and production tenant plane: the HTTPS identity provider adapter (SSRF
     guarded), signing keys read from Secret Manager, everything else fail closed."""
-    import httpx
-
-    from identity.ports import HttpIdentityProvider
+    from identity.ports import HttpIdentityProvider, pinned_client
 
     plane = unconfigured_plane(clock, base_url)
-    plane.idp = HttpIdentityProvider(httpx.AsyncClient(follow_redirects=False))
+    plane.idp = HttpIdentityProvider(pinned_client())
     plane.secrets = ReadOnlySecretStore(secret_source)
     return plane
+
+
+async def assert_signing_keys(plane: TenantPlane) -> None:
+    """At API start in staging and production (audit M5): the CSRF key's secret id is one Secret
+    Manager accepts and the key reads back with 32 or more bytes, so a missing or misnamed secret
+    stops the deploy instead of failing every cookie write with 503."""
+    if not SECRET_ID.match(CSRF_KEY_REF):
+        raise NotConfigured("CSRF_KEY_SECRET is not a valid Secret Manager secret id")
+    await plane.key(CSRF_KEY_REF)
 
 
 def plane_of(request: Any) -> TenantPlane:

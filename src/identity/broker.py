@@ -393,7 +393,10 @@ class Broker:
             await sessions.event(s, "provisioned", now, user_id=user_id, connection_id=conn.id)
             if (await membership.active_role(s, user_id)) is None:
                 raise SignInRefused("tenant_suspended_or_inactive")
-        admin_mfa = conn.require_admin_mfa and self.policy.admin_requires_mfa
+        # the platform policy wins: a client admin cannot switch admin MFA off for their own
+        # connection while the platform requires it (security audit L8); a connection may still
+        # ask for it when the platform does not
+        admin_mfa = self.policy.admin_requires_mfa or conn.require_admin_mfa
         if decision.role == "admin" and admin_mfa and "mfa" not in amr:
             raise SignInRefused("admin_requires_mfa")
         if old_token:

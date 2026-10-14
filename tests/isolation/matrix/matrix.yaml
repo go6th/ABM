@@ -306,7 +306,7 @@ functions:
   governor_signal: {returns: void, proof: tests/parallel}
   spend_runs_to_check: {returns: (tenant_id, run_id) pairs only, proof: tests/spend}
   runs_orphaned: {returns: (tenant_id, run_id) pairs only, proof: tests/system/test_durable_runs.py}
-  research_files_orphaned: {returns: (tenant_id, file_id) pairs only, proof: tests/research_files/test_pipeline_db.py}
+  research_files_orphaned: {returns: (tenant_id, file_id) pairs only, proof: tests/isolation/test_definer_owners.py}
   documents_orphaned: {returns: (tenant_id, document_id) pairs only, proof: tests/documents/test_documents_db.py}
   document_parts_orphaned: {returns: (tenant_id, document_id, part_no) only, proof: tests/documents/test_parts.py}
   runs_stalled: {returns: (tenant_id, run_id) pairs only, proof: tests/replica/test_resume_research.py}
@@ -448,7 +448,6 @@ routes:
       thread_id: chat_threads.id
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/collected: {probe: tenant, params: {run_id: account_runs.id}}
-  GET /v1/files: {probe: tenant}
   POST /v1/documents/uploads: {probe: tenant, body: {name: synthetic-b.pdf, size_bytes: 10, account_id: accounts.id}}
   PUT /v1/documents/{document_id}/content:
     probe: tenant
@@ -477,19 +476,6 @@ routes:
     params: {document_id: documents.id, part: "0"}
   GET /v1/runs/{run_id}/internal: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/internal/file: {probe: tenant, params: {run_id: internal_deliverables.run_id}}
-  POST /v1/files/uploads: {probe: tenant, body: {name: synthetic-b.csv, size: 10}}
-  GET /v1/files/uploads/{upload_id}: {probe: tenant, params: {upload_id: research_file_uploads.id}}
-  PUT /v1/files/uploads/{upload_id}/parts/{part_no}:
-    probe: tenant
-    params: {upload_id: research_file_uploads.id, part_no: "0"}
-  POST /v1/files/uploads/{upload_id}/complete: {probe: tenant, params: {upload_id: research_file_uploads.id}}
-  POST /v1/files/{file_id}/ask: {probe: tenant, params: {file_id: research_files.id}, body: {question: what is here}}
-  POST /v1/files/{file_id}/approve: {probe: tenant, params: {file_id: research_files.id}}
-  POST /v1/files/{file_id}/resume: {probe: tenant, params: {file_id: research_files.id}}
-  DELETE /v1/files/{file_id}: {probe: tenant, params: {file_id: research_files.id}}
-  GET /v1/files/{file_id}: {probe: tenant, params: {file_id: research_files.id}}
-  GET /v1/files/{file_id}/audit: {probe: tenant, params: {file_id: research_files.id}}
-  GET /v1/files/{file_id}/analytics: {probe: tenant, params: {file_id: research_files.id}}
   GET /v1/runs/{run_id}/cap: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/spend: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/spend/live: {probe: tenant, params: {run_id: account_runs.id}}
@@ -824,7 +810,6 @@ routes:
     body: {account_confirmed: true}
   POST /tasks/run-slice: {probe: machine, body: {tenant_id: owner, run_id: account_runs.id}}
   POST /tasks/approval-timeout: {probe: machine, body: {tenant_id: owner, run_id: account_runs.id}}
-  POST /tasks/file-process: {probe: machine, body: {tenant_id: owner, file_id: research_files.id}}
   POST /tasks/document-process: {probe: machine, body: {tenant_id: owner, document_id: documents.id}}
   POST /tasks/download-everything: {probe: machine, body: {tenant_id: owner, job_id: download_jobs.id}}
   POST /tasks/research-job: {probe: machine, body: {tenant_id: owner, job_id: research_jobs.id}}
@@ -842,7 +827,7 @@ storage:
   branding_upload_quarantine: {layout: "tenants/<tenant>/uploads/branding/<sha256>"}
   export_file: {layout: "tenants/<tenant>/exports/<run>/<sha256>.<ext>"}
   connector_quarantine: {layout: "tenants/<tenant>/connector-quarantine/<connection>/<sha256>"}
-  document_quarantine: {layout: "tenants/<tenant>/quarantine/<document>/raw"}
+  document_quarantine: {layout: "quarantine/tenants/<tenant>/<document>/raw"}
   document: {layout: "tenants/<tenant>/documents/<document>/raw"}
   internal_file: {layout: "tenants/<tenant>/internal/<run>/<sha256>.docx"}
 # Cache purposes (tenancy.catalog.CACHE_PURPOSES): keys start with t:<tenant>:<purpose>:.
@@ -853,7 +838,6 @@ cache:
 events:
   task.run_slice: {route: POST /tasks/run-slice}
   task.approval_timeout: {route: POST /tasks/approval-timeout}
-  task.file_process: {route: POST /tasks/file-process}
   task.document_process: {route: POST /tasks/document-process}
   task.download_everything: {route: POST /tasks/download-everything}
   task.research_job: {route: POST /tasks/research-job}
@@ -869,7 +853,6 @@ events:
 jobs:
   spend_invariants: {via: spend_runs_to_check, proof: tests/spend}
   orphan_sweep: {via: runs_orphaned, proof: tests/system/test_durable_runs.py}
-  file_sweep: {via: research_files_orphaned, proof: tests/research_files/test_pipeline_db.py}
   document_sweep: {via: documents_orphaned, proof: tests/documents/test_documents_db.py}
   part_sweep: {via: document_parts_orphaned, proof: tests/documents/test_parts.py}
   stall_sweep: {via: runs_stalled, proof: tests/replica/test_resume_research.py}

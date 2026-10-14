@@ -112,8 +112,10 @@ def clean_name(name: str) -> str:
 
 
 def quarantine_key(tenant_id: UUID, document_id: UUID) -> str:
-    """Where uploaded bytes wait for the scan (separate from accepted documents)."""
-    return f"tenants/{tenant_id}/quarantine/{document_id}/raw"
+    """Where uploaded bytes wait for the scan (separate from accepted documents), under the
+    top-level ``quarantine/`` prefix so the bucket's lifecycle rule deletes what is never
+    completed. Documents created before this keep the key stored in their row."""
+    return f"quarantine/tenants/{tenant_id}/{document_id}/raw"
 
 
 def document_key(tenant_id: UUID, document_id: UUID) -> str:
@@ -133,6 +135,9 @@ class DocumentService:
     clock: Any
     cfg: InputModesConfig | None = None
     worker: str = ""
+    # parts one call of ``read_parts`` reads before it hands the rest to a new task (None: all).
+    # The cloud sets 1, so one Cloud Tasks request never runs past the 30-minute maximum.
+    parts_per_request: int | None = None
 
     def __post_init__(self) -> None:
         self.cfg = self.cfg or load_config()
@@ -469,8 +474,17 @@ class DocumentService:
         """Read parts of the document until none is left for this worker, then, when every part
         is read, decide the document (``parsed``, or ``failed`` naming the failed parts)."""
         cfg = self.c.parsing
-        # LOOP(document parts): cap=parts_total parts per worker; exit=no part left, client busy
+        read = 0
+        # LOOP(document parts): cap=parts_total parts per worker, parts_per_request per call;
+        # exit=no part left, client busy, request's share read (the next task continues)
         while True:
+            if self.parts_per_request is not None and read >= self.parts_per_request:
+                async with self.txn(tenant_id) as s:
+                    pending = any(p.status == "pending" for p in await repo.parts(s, document_id))
+                if pending:
+                    await self.scheduler.enqueue_document(tenant_id, document_id)
+                    return "parsing"
+                break
             async with self.txn(tenant_id) as s:
                 part = await repo.claim_part(
                     s, document_id, self.worker, cfg.lease_ttl_s, cfg.max_parallel_parts
@@ -483,6 +497,7 @@ class DocumentService:
             if doc is None:
                 return "noop"
             await self._read_part(tenant_id, doc, part)
+            read += 1
         return await self._decide(tenant_id, document_id)
 
     async def _read_part(self, tenant_id: UUID, doc: Any, part: Any) -> None:
@@ -691,18 +706,14 @@ class DocumentService:
         """Every embedding batch is logged with its model and cost (the file model call log)."""
         from decimal import Decimal
 
-        from research_files import repo as files_repo
-
         tokens = sum(int(len(t) / self.c.chunking.chars_per_token) + 1 for t in texts)
         key = hashlib.sha256("\x1f".join(texts).encode("utf-8")).hexdigest()
         async with self.txn(tenant_id) as s:
-            await files_repo.log_call(
+            await repo.log_embedding_call(
                 s,
-                file_id=document_id,
-                task="embed_passages",
+                document_id=document_id,
                 model=self.embedder.model,
                 key=f"embed:{self.embedder.model}:{key}",
-                served_from="model",
                 input_tokens=tokens,
                 cost=Decimal(str(round(self.embedder.cost_usd(texts), 6))),
             )

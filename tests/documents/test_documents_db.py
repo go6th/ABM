@@ -68,11 +68,19 @@ async def test_file_upload_runs_through_scan_parse_and_index(
     )
     assert index == [(len(passages), True, "local-hash-v1", True)]
     # the raw object left quarantine; the embedding batch was metered
-    assert not (tmp_path / f"tenants/{tenant_a}/quarantine/{doc}/raw").exists()
+    assert not (tmp_path / f"quarantine/tenants/{tenant_a}/{doc}/raw").exists()
     assert (tmp_path / f"tenants/{tenant_a}/documents/{doc}/raw").exists()
     assert admin(
         "SELECT task, model, cost_usd FROM research_file_model_calls WHERE file_id = %s", doc
     )[0] == ("embed_passages", "local-hash-v1", 0)
+    # S5: each logged embedding call belongs to the document's owner (the table's owner trigger
+    # looks for a research file, which a document never has)
+    owners = admin(
+        "SELECT DISTINCT c.owner_user_id = d.owner_user_id FROM research_file_model_calls c"
+        " JOIN documents d ON d.id = c.file_id WHERE c.file_id = %s",
+        doc,
+    )
+    assert owners == [(True,)]
     kinds = {p[0] for p in passages}
     assert kinds == ({"crm_row"} if name.endswith(".xlsx") else {"section"})
     events = admin("SELECT action, outcome FROM audit_events WHERE resource_id = %s", str(doc))
@@ -148,7 +156,7 @@ async def test_an_unavailable_scanner_rejects_without_parsing(
     assert await svc.process(tenant_a, doc) == "rejected"
     assert doc_row(doc)["reject_reason"] == "scan_unavailable" and called == []
     # kept in quarantine for a later retry, never promoted
-    assert (tmp_path / f"tenants/{tenant_a}/quarantine/{doc}/raw").exists()
+    assert (tmp_path / f"quarantine/tenants/{tenant_a}/{doc}/raw").exists()
 
 
 async def test_company_is_detected_and_ambiguity_is_never_guessed(

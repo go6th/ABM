@@ -19,7 +19,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import text
 
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
@@ -65,21 +64,8 @@ async def credits_now(ident: Identity = Depends(authorize)) -> dict[str, Any]:
 
 async def _refresh_view(s: Any, account_id: UUID, now: datetime) -> dict[str, Any]:
     settings = await client_settings(s)
-    acct = (
-        await s.execute(
-            text("SELECT domain, coalesce(name, domain) AS name FROM accounts WHERE id = :a"),
-            {"a": account_id},
-        )
-    ).one()
-    last = await s.scalar(
-        text(
-            "SELECT max(f) FROM (SELECT finished_at AS f FROM account_runs WHERE account_id = :a"
-            " AND status IN ('COMPLETED', 'PARTIAL') UNION ALL SELECT finished_at FROM"
-            " research_jobs"
-            " WHERE account_id = :a AND status = 'done') x"
-        ),
-        {"a": account_id},
-    )
+    acct = await CR.account_label(s, account_id)
+    last = await CR.last_finished(s, account_id)
     pool = await CR.pool(s, now)
     options = []
     for scope, (name, desc) in OPTIONS.items():
@@ -238,21 +224,10 @@ async def confirm_refresh(
 @router.get("/notifications", response_model=C.Notifications)
 async def notifications(ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """The caller's latest notifications, unread first."""
+    from account_intelligence.replica.notifications import latest
+
     async with tenant_txn(ident.tenant_id) as s:
-        rows = (
-            await s.execute(
-                text(
-                    "SELECT n.id, n.kind, n.created_at, n.read_at, a.domain, coalesce(a.name,"
-                    " a.domain) AS name,"
-                    " j.scope, j.topic, j.credits_used, j.failure_reason"
-                    " FROM notifications n LEFT JOIN accounts a ON a.id = n.account_id"
-                    " LEFT JOIN research_jobs j ON j.id = n.job_id"
-                    " WHERE n.user_id = :u ORDER BY (n.read_at IS NULL) DESC, n.created_at DESC"
-                    " LIMIT 20"
-                ),
-                {"u": ident.user_id},
-            )
-        ).all()
+        rows = await latest(s, ident.user_id)
     return {
         "notifications": [
             {

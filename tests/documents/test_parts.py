@@ -95,6 +95,38 @@ def test_text_parts_carry_the_line_number_and_heading() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.requires_postgres
+async def test_one_part_per_request_hands_the_rest_to_new_tasks(
+    tenant_a: UUID, tmp_path: Path
+) -> None:
+    """The cloud reads one part per Cloud Tasks request (its 30-minute maximum): each request
+    reads one part and queues the next, and the last one decides the document; the passages are
+    the same as one long request gives."""
+    data = _crm_csv(400)
+    account = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
+    whole = service(tmp_path / "whole")
+    _small_parts(whole, 4096)
+    one = UUID((await upload(whole, tenant_a, "crm.csv", data, account))["document_id"])
+    assert await whole.process(tenant_a, one) == "indexed"
+    split = service(tmp_path / "split")
+    split.parts_per_request = 1
+    _small_parts(split, 4096)
+    doc = UUID((await upload(split, tenant_a, "crm.csv", data, account))["document_id"])
+    queued = split.scheduler.documents
+    queued.clear()
+    outcomes = []
+    for _ in range(200):
+        outcomes.append(await split.process(tenant_a, doc))
+        if outcomes[-1] != "parsing":
+            break
+    (parts,) = admin("SELECT parts_total FROM documents WHERE id = %s", doc)
+    assert parts[0] > 3
+    assert outcomes[-1] == "indexed" and outcomes.count("parsing") == parts[0] - 1
+    assert len(queued) >= parts[0] - 1  # every request that left parts queued the next
+    assert _passages(doc) == _passages(one)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_postgres
 @pytest.mark.parametrize(
     ("name", "make"), [("crm.csv", lambda: _crm_csv(400)), ("notes.md", lambda: _notes_md(40))]
 )

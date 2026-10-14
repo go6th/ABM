@@ -81,15 +81,9 @@ OWNERS: dict[str, set[str]] = {
     "llm_call_attempts": {"llm/record.py"},
     # research cache (migration 0049): the model reply log has one writer
     "model_reply_log": {"llm/reply_cache.py"},
-    # research files (migration 0051): one writer module for every table
-    "research_files": {"research_files/repo.py", "research_files/pipeline.py"},
-    "research_file_uploads": {"research_files/repo.py"},
-    "research_file_upload_parts": {"research_files/repo.py"},
-    "research_file_chunks": {"research_files/repo.py"},
-    "research_file_findings": {"research_files/repo.py"},
-    "research_file_state": {"research_files/repo.py"},
-    "research_file_model_calls": {"research_files/repo.py"},
-    "research_file_deletions": {"research_files/repo.py"},
+    # research files (migration 0051): the earlier upload path is gone and nothing writes its
+    # tables any more, except the file model call log, where documents record embedding calls
+    "research_file_model_calls": {"documents/repo.py"},
     # two research input modes (migration 0052): the document store and the private index, the
     # gate's insert-only records, and the facts marked when their document is deleted
     "documents": {"documents/repo.py"},

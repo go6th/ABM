@@ -7,10 +7,13 @@ fetches the connection's signing keys. ``HttpIdentityProvider`` is the productio
 provider ([VERIFY] each IdP's token endpoint authentication method). SAML needs no outbound call:
 the tenant admin enters the IdP's certificate and sign-in URL.
 
-Tenant admins configure the IdP endpoints, so every outbound call is SSRF-guarded: HTTPS only,
-and every address the host resolves to must be public (no loopback, private, link-local,
-reserved or multicast address), with redirects off. [VERIFY] the platform egress proxy (ARCH 11)
-remains the production backstop against DNS rebinding.
+Tenant admins configure the IdP endpoints, so every outbound call is SSRF-guarded: HTTPS on port
+443 only, and every address the host resolves to must be public (no loopback, private,
+link-local, reserved or multicast address), with redirects off. The production client
+(``pinned_client``) connects through ``PinnedBackend``, which resolves the host, checks every
+address and opens the TCP connection to that same checked address in one step, so a DNS answer
+that changes between the check and the connect (rebinding) is never used (security audit L17);
+TLS still verifies the certificate for the host name (SNI unchanged).
 
 No token, code or secret is logged or returned in an error message.
 
@@ -27,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 
 Resolver = Callable[[str], Awaitable[list[str]]]
@@ -44,8 +48,15 @@ async def require_public_https(url: str, resolve: Resolver) -> None:
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
         raise IdentityProviderError("idp_endpoint_refused")
+    if parts.port not in (None, 443):
+        raise IdentityProviderError("idp_endpoint_refused")
+    await public_addresses(parts.hostname, resolve)
+
+
+async def public_addresses(host: str, resolve: Resolver) -> list[str]:
+    """Every address of ``host``, all of them public (IdentityProviderError otherwise)."""
     try:
-        addresses = await resolve(parts.hostname)
+        addresses = await resolve(host)
     except OSError:
         raise IdentityProviderError("idp_unreachable") from None
     if not addresses:
@@ -54,6 +65,55 @@ async def require_public_https(url: str, resolve: Resolver) -> None:
         ip = ipaddress.ip_address(raw.split("%", 1)[0])
         if not ip.is_global or ip.is_multicast:
             raise IdentityProviderError("idp_endpoint_refused")
+    return addresses
+
+
+class PinnedBackend(httpcore.AsyncNetworkBackend):
+    """An ``httpcore`` network backend that resolves, checks and connects in one step: the TCP
+    connection goes to an address that ``public_addresses`` has just approved, never to a second
+    resolution (see the module docstring). Port 443 only."""
+
+    def __init__(self, resolve: Resolver = system_resolver, inner: Any = None) -> None:
+        from httpcore._backends.auto import AutoBackend
+
+        self._resolve = resolve
+        self._inner = inner or AutoBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> Any:
+        """Connect to the first approved address of ``host``."""
+        if port != 443:
+            raise IdentityProviderError("idp_endpoint_refused")
+        address = (await public_addresses(host, self._resolve))[0]
+        return await self._inner.connect_tcp(
+            address,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    async def connect_unix_socket(self, *_args: Any, **_kwargs: Any) -> Any:
+        """Never: the IdP is reached over TCP only."""
+        raise IdentityProviderError("idp_endpoint_refused")
+
+    async def sleep(self, seconds: float) -> None:
+        """The inner backend's sleep."""
+        await self._inner.sleep(seconds)
+
+
+def pinned_client(resolve: Resolver = system_resolver) -> httpx.AsyncClient:
+    """The production IdP client: no redirects, every connection through ``PinnedBackend``."""
+    transport = httpx.AsyncHTTPTransport(retries=0)
+    # httpcore takes the backend at construction only; httpx does not pass it through
+    transport._pool._network_backend = PinnedBackend(resolve)
+    return httpx.AsyncClient(transport=transport, follow_redirects=False)
 
 
 class IdentityProviderError(RuntimeError):

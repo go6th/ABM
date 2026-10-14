@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **208**.
+- Backend operations in OpenAPI: **196**.
 - Frontend literal call sites found: **90**.
 - Frontend call sites mapped to backend operations: **85**.
-- Backend operations without a direct frontend call site: **138**.
+- Backend operations without a direct frontend call site: **126**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -126,7 +126,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `DELETE /v1/files/{file_id}` | — | — | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `DELETE /v1/sso/sessions/{session_id}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `GET /healthz` | — | Health (200) | public health probe |
 | `GET /operator/v1/console/clients` | — | ConsoleClients (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
@@ -186,11 +185,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/exports/{package_id}` | — | ExportPackage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/exports/{package_id}/files/{index}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/feedback` | — | FeedbackList (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/files` | — | FileList (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/files/uploads/{upload_id}` | — | FileUploadState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/files/{file_id}` | — | FileStatus (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/files/{file_id}/analytics` | — | FileAnalytics (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/files/{file_id}/audit` | — | FileAudit (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/library/available` | — | LibraryAvailable (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/mail-and-drive` | — | MailAndDrive (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/mail-and-drive/callback` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
@@ -285,11 +279,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/documents/{document_id}/parts/{part}/retry` | — | DocumentStatus (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/exports` | ExportBody (required) | ExportPackage (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `POST /v1/feedback` | FeedbackBody (required) | FeedbackCreated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
-| `POST /v1/files/uploads` | UploadInit (required) | FileUploadStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `POST /v1/files/uploads/{upload_id}/complete` | — | FileUploadCompleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `POST /v1/files/{file_id}/approve` | — | FileState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `POST /v1/files/{file_id}/ask` | Question (required) | FileAnswer (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `POST /v1/files/{file_id}/resume` | — | FileState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/limits/requests` | MoreBody (required) | LimitRequestSent (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/mail-and-drive/{family}/disconnect` | — | MailDriveDisconnected (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/mail-and-drive/{kind}/connect` | — | MailDriveConnect (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
@@ -323,7 +312,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `PUT /v1/chat/provider-key` | TenantModelKeyBody (required) | TenantModelKeyStatus (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/documents/policy` | PolicyBody (required) | DocumentPolicy (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/documents/{document_id}/content` | — | DocumentReceived (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `PUT /v1/files/uploads/{upload_id}/parts/{part_no}` | — | FileUploadPart (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `PUT /v1/me/model-preferences` | Preferences (required) | ModelChoices (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `PUT /v1/settings` | SettingsBody (required) | TenantSettings (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
@@ -338,7 +326,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 - `scripts/gen_web_client.py --check` compares generated TypeScript and Zod schemas with the snapshot.
 - `scripts/check_route_catalog.py` verifies route policy coverage and tenant-source rules.
 - OpenAPI snapshot drift check: **PASS**.
-- Generated client drift check: **PASS**.
+- Generated client drift check: **FAIL**.
 - The tenant browser helper now validates JSON request and successful response payloads against those generated schemas.
 - The operator client already validates successful JSON responses and its proxy admits only generated operator operations.
 
@@ -351,4 +339,6 @@ Schema names come from the live application OpenAPI document. Policy values come
 
 ## Findings
 
-- **No static frontend route breaks or route-policy gaps found.**
+Static breaks found:
+
+- generated web client drift: scripts/gen_web_client.py --check

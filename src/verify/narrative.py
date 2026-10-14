@@ -79,6 +79,8 @@ async def reread(
         try:
             verdict = (await ask(s.text, cited)).verdict
         except Exception:
+            # a verifier call that fails in any way marks the sentence unsupported (fail closed:
+            # never shown as supported)
             verdict = "unsupported"
         out.append(apply(s, verdict, actions))
     return out

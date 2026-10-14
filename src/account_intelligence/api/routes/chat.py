@@ -142,6 +142,7 @@ async def provider_key_status(
     try:
         status = await key_status(ident.tenant_id)
     except Exception:
+        # the key store (KMS and database) may fail in any way: 503, never key material
         raise APIProblem(
             503, "key_store_unavailable", "Key storage unavailable", "Try again later."
         ) from None
@@ -328,6 +329,7 @@ async def stream_turn(
             await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
             raise
         except Exception:
+            # release the reserved turn on any provider failure, then answer 503
             await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
             raise DependencyUnavailable() from None
     if turn_provider is None:
@@ -342,6 +344,7 @@ async def stream_turn(
                 reservation.account_id,
             )
         except Exception:
+            # release the reserved turn on any retrieval failure, then answer 503
             await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
             raise DependencyUnavailable() from None
 
@@ -412,6 +415,7 @@ async def stream_turn(
                 await fail_turn(ident.tenant_id, reservation)
             raise
         except Exception:
+            # the stream has started: release the turn and send an SSE error event instead
             if not completed:
                 await fail_turn(ident.tenant_id, reservation)
             yield sse(

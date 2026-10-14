@@ -28,16 +28,16 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 import yaml
 from sqlalchemy import text
 
+from account_intelligence.config import CONFIG_DIR
 from account_intelligence.replica.settings import client_settings
 
-CONFIG = Path(__file__).resolve().parents[3] / "config" / "credits.yaml"
+CONFIG = CONFIG_DIR / "credits.yaml"
 SCOPES = ("jobs", "people", "full", "topic")
 PURPOSE = {
     "web_refresh": "web_refresh",
@@ -569,3 +569,26 @@ async def ledger_problems(session: Any) -> list[str]:
     ).all()
     out.extend(f"negative_hold:{p.period}" for p in periods if p.held < 0)
     return out
+
+
+async def account_label(s: Any, account_id: UUID) -> Any:
+    """The account's domain and display name (the domain when it has no name)."""
+    return (
+        await s.execute(
+            text("SELECT domain, coalesce(name, domain) AS name FROM accounts WHERE id = :a"),
+            {"a": account_id},
+        )
+    ).one()
+
+
+async def last_finished(s: Any, account_id: UUID) -> Any:
+    """When research on the account last finished: a completed or partial run, or a done job."""
+    return await s.scalar(
+        text(
+            "SELECT max(f) FROM (SELECT finished_at AS f FROM account_runs WHERE account_id = :a"
+            " AND status IN ('COMPLETED', 'PARTIAL') UNION ALL SELECT finished_at FROM"
+            " research_jobs"
+            " WHERE account_id = :a AND status = 'done') x"
+        ),
+        {"a": account_id},
+    )

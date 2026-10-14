@@ -35,6 +35,7 @@ from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity, require_role
 from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.ratelimit import limit_user
 from account_intelligence.db.session import tenant_txn
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -123,6 +124,7 @@ async def start_upload(
     body: UploadStart, request: Request, ident: Identity = Depends(require_role(*UPLOADERS))
 ) -> dict[str, Any]:
     """Declare a document and get its upload target (checked before any byte arrives)."""
+    await limit_user(ident, "document_upload")
     from documents.service import DocumentError
 
     try:
@@ -226,6 +228,8 @@ async def retry_part(
 ) -> dict[str, Any]:
     """Try a failed part again (``part`` counts from 1, as the screen shows it)."""
     from documents.service import DocumentError
+
+    await limit_user(ident, "part_retry")
 
     if part < 1:
         raise APIProblem(404, "not_found", "Not found", "No such part.")

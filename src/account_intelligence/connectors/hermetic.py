@@ -21,15 +21,15 @@ import json
 import re
 from collections.abc import Callable, Mapping
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
 import httpx
 
+from account_intelligence.config import CONFIG_DIR
 from account_intelligence.connectors.base import ProviderCode
 
-CASSETTES = Path(__file__).resolve().parents[3] / "config" / "hermetic" / "providers"
+CASSETTES = CONFIG_DIR / "hermetic" / "providers"
 PUBLIC_ADDRESS = "93.184.215.14"
 _DOMAIN = re.compile(r"\b([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,})\b")
 PLACEHOLDER_KEYS = {

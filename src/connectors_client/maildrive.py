@@ -38,6 +38,7 @@ from uuid import UUID
 
 import httpx
 
+from account_intelligence.config import get_settings
 from connectors_client.ports import TokenRevoked, TokenSet
 from connectors_client.scopes import spec
 
@@ -190,7 +191,7 @@ class HttpMailDriveReader:
 
     async def _gmail(self, client: httpx.AsyncClient, since: datetime) -> list[Item]:
         days = max(1, (datetime.now(UTC) - since).days + 1)
-        base = "https://gmail.googleapis.com/gmail/v1/users/me"
+        base = get_settings().gmail_api_base.rstrip("/") + "/users/me"
         listed = await client.get(
             f"{base}/messages", params={"q": f"newer_than:{days}d", "maxResults": MAX_ITEMS}
         )
@@ -230,7 +231,7 @@ class HttpMailDriveReader:
 
     async def _outlook(self, client: httpx.AsyncClient, since: datetime) -> list[Item]:
         reply = await client.get(
-            "https://graph.microsoft.com/v1.0/me/messages",
+            get_settings().microsoft_graph_api_base.rstrip("/") + "/me/messages",
             params={
                 "$top": str(MAX_ITEMS),
                 "$select": "subject,bodyPreview,receivedDateTime,from,toRecipients,"
@@ -265,7 +266,7 @@ class HttpMailDriveReader:
     async def _drive(self, client: httpx.AsyncClient, since: datetime) -> list[Item]:
         stamp = since.strftime("%Y-%m-%dT%H:%M:%S")
         reply = await client.get(
-            "https://www.googleapis.com/drive/v3/files",
+            get_settings().google_drive_api_base.rstrip("/") + "/files",
             params={
                 "q": f"modifiedTime > '{stamp}' and trashed = false",
                 "fields": "files(id,name,modifiedTime,owners(emailAddress),webViewLink)",
@@ -292,7 +293,7 @@ class HttpMailDriveReader:
 
     async def _graph_files(self, client: httpx.AsyncClient, kind: str) -> list[Item]:
         path = "me/drive/recent" if kind == "onedrive" else "me/insights/used"
-        reply = await client.get(f"https://graph.microsoft.com/v1.0/{path}")
+        reply = await client.get(f"{get_settings().microsoft_graph_api_base.rstrip('/')}/{path}")
         reply.raise_for_status()
         out = []
         for f in (reply.json().get("value") or [])[:MAX_ITEMS]:

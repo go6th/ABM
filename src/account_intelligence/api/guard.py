@@ -129,6 +129,7 @@ async def _record_read(request: Request, ident: Identity) -> None:
         async with tenant_txn(ident.tenant_id) as s:
             await record(s, event, dedupe=key)
     except Exception as error:
+        # a read that cannot be audited is refused when the policy says so (fail closed)
         if load_policy().read_fail_closed:
             raise DependencyUnavailable() from error
 

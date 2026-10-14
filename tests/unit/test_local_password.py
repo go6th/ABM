@@ -39,3 +39,31 @@ async def test_passwords_are_argon2id_and_unknown_accounts_verify_a_dummy_hash()
     assert not await verify_password("not-a-valid-phc-hash", "candidate", policy=policy)
     with pytest.raises(PasswordRejected):
         await hash_password("short", policy=policy)
+
+
+def test_at_most_four_argon2_computations_run_at_once(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """L7: a burst of sign-ins waits for the hashing limiter instead of taking 40 threads."""
+    import asyncio
+    import threading
+    import time
+
+    from identity import local_password as lp
+
+    lock, active, peak = threading.Lock(), [0], [0]
+
+    def slow(*_args: object) -> bool:
+        with lock:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        time.sleep(0.05)
+        with lock:
+            active[0] -= 1
+        return False
+
+    monkeypatch.setattr(lp, "_verify", slow)
+
+    async def burst() -> None:
+        await asyncio.gather(*(lp.verify_password(None, "x" * 20) for _ in range(16)))
+
+    asyncio.run(burst())
+    assert peak[0] == lp.HASH_CONCURRENCY == 4

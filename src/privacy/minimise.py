@@ -14,12 +14,12 @@ from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
+from account_intelligence.config import CONFIG_DIR
 
 
 def load_map(path: Path | None = None) -> dict[str, dict[str, object]]:
     """The minimisation map (validated: every field has at least one consumer)."""
-    doc = yaml.safe_load((path or ROOT / "config/minimisation_map.yaml").read_text())
+    doc = yaml.safe_load((path or CONFIG_DIR / "minimisation_map.yaml").read_text())
     fields = doc.get("fields") or {}
     if not fields:
         raise ValueError("minimisation_map.yaml: no fields")

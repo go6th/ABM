@@ -32,7 +32,19 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 # Versioned YAML assets (grading weights, routing, checklist). The default resolves to the
 # repository's config/ directory; images that install the package non-editably set CONFIG_DIR.
-CONFIG_DIR = Path(os.getenv("CONFIG_DIR", Path(__file__).resolve().parents[2] / "config"))
+# Every file under config/ is found through CONFIG_DIR or config_dir(), never relative to a
+# module's own file (an installed package has no config/ beside it; guard test
+# test_no_module_finds_repository_files_relative_to_its_own_file).
+_SOURCE_CONFIG = Path(__file__).resolve().parents[2] / "config"
+CONFIG_DIR = Path(os.getenv("CONFIG_DIR", _SOURCE_CONFIG))
+# The research skill package (``replica.jobs`` readiness words, the console's "skill installed").
+SKILL_PACKAGE_DIR = CONFIG_DIR / "skills" / "abm-account-research"
+
+
+def config_dir() -> Path:
+    """CONFIG_DIR as the environment says now (tests point it elsewhere after import)."""
+    return Path(os.environ.get("CONFIG_DIR") or _SOURCE_CONFIG)
+
 
 Profile = Literal["dev", "test", "staging", "production"]
 LOCAL: tuple[Profile, ...] = ("dev", "test")
@@ -82,6 +94,14 @@ class Settings(BaseSettings):
         "INFO", purpose="Minimum level of the structured JSON logs."
     )
     port: int = var(8080, purpose="HTTP port the API listens on (Cloud Run injects it).")
+    k_service: str | None = var(
+        purpose="Set by Cloud Run on services: a dev or test profile is refused when present.",
+        component="api, worker",
+    )
+    cloud_run_job: str | None = var(
+        purpose="Set by Cloud Run on jobs: a dev or test profile is refused when present.",
+        component="job, migrate",
+    )
     config_dir: str | None = var(purpose="Directory of the versioned YAML config (image default).")
 
     # database
@@ -95,8 +115,21 @@ class Settings(BaseSettings):
         secret=True,
         required_in=("dev", "staging", "production"),
     )
-    db_pool_size: int = var(10, purpose="Runtime connection pool size per instance.")
-    db_max_overflow: int = var(5, purpose="Extra connections allowed above the pool size.")
+    # Connection budget (docs/deploy/agents/backend-hardening.md): every process holds at most
+    # DB_POOL_SIZE + DB_MAX_OVERFLOW engine connections (the Cloud SQL engine too) and a worker one
+    # checkpointer connection per in-flight slice (concurrency 4). Production at every maximum
+    # with the stack's 5 + 5: api 10 x 10 + worker 8 x (10 + 4) + jobs 2 x 5 + 15 reserved
+    # (operators, Query Insights, maintenance) = 237 <= 400 max_connections (db-custom-2-7680);
+    # staging 3 x 10 + 2 x 14 + 10 + 15 = 83 <= 200. Raising either value needs that sum redone.
+    db_pool_size: int = var(
+        10,
+        purpose="Engine connections kept per process (the stack sets 5; the connection budget is"
+        " max instances x (DB_POOL_SIZE + DB_MAX_OVERFLOW), see the registry comment).",
+    )
+    db_max_overflow: int = var(
+        5,
+        purpose="Extra engine connections per process above DB_POOL_SIZE (the stack sets 5).",
+    )
     cloud_sql_instance: str | None = var(
         purpose="Cloud SQL connection name (project:region:instance).", required_in=CLOUD
     )
@@ -112,6 +145,11 @@ class Settings(BaseSettings):
     app_rw_password: SecretStr | None = var(
         purpose="Password the migrations set on the app_rw runtime role (migration step only).",
         secret=True,
+        component="migrate",
+    )
+    app_rw_iam_users: str | None = var(
+        purpose="Comma-separated Cloud SQL IAM database users that migration 0071 makes members of"
+        " app_rw (nothing else); unset: no grant.",
         component="migrate",
     )
 
@@ -148,13 +186,27 @@ class Settings(BaseSettings):
     # Google Cloud runtime
     gcp_project: str | None = var(purpose="Google Cloud project id.", required_in=CLOUD)
     gcp_region: str | None = var(purpose="Region of Cloud Run, Tasks and SQL.", required_in=CLOUD)
-    tasks_queue: str | None = var(purpose="Cloud Tasks queue for run slices.", required_in=CLOUD)
+    tasks_queue: str | None = var(
+        purpose="Cloud Tasks queue for run slices and approval timeouts.", required_in=CLOUD
+    )
+    tasks_queue_documents: str | None = var(
+        purpose="Cloud Tasks queue for document processing (unset: TASKS_QUEUE)."
+    )
+    tasks_queue_jobs: str | None = var(
+        purpose="Cloud Tasks queue for research jobs and Download everything (unset: TASKS_QUEUE)."
+    )
     worker_url: str | None = var(purpose="HTTPS URL of the worker service.", required_in=CLOUD)
     tasks_service_account: str | None = var(
         purpose="Service account Cloud Tasks signs OIDC tokens as.", required_in=CLOUD
     )
     tasks_audience: str | None = var(
         purpose="Audience the worker expects on task tokens.", required_in=CLOUD
+    )
+    blob_mount_dir: str | None = var(
+        purpose="Read-only mount of the payload bucket on the worker (/mnt/blobs); the parser"
+        " sandbox reads documents there instead of a whole-file copy in memory. Required for the"
+        " worker in the cloud.",
+        component="worker",
     )
     payload_bucket: str | None = var(
         purpose="GCS bucket for raw payloads and exports (per-tenant prefixes).",
@@ -237,8 +289,31 @@ class Settings(BaseSettings):
     anthropic_secret: str = var(
         "anthropic-api-key", purpose="Secret Manager secret id holding the model API key."
     )
+    moonshot_base_url: str = var(
+        "https://api.moonshot.ai/v1", purpose="Kimi K3 (Moonshot AI) API base URL (https)."
+    )
+    gmail_api_base: str = var(
+        "https://gmail.googleapis.com/gmail/v1",
+        purpose="Gmail API base URL for the per-user Mail and drive sync.",
+        component="worker",
+    )
+    google_drive_api_base: str = var(
+        "https://www.googleapis.com/drive/v3",
+        purpose="Google Drive API base URL for the per-user Mail and drive sync.",
+        component="worker",
+    )
+    microsoft_graph_api_base: str = var(
+        "https://graph.microsoft.com/v1.0",
+        purpose="Microsoft Graph API base URL (Outlook, OneDrive, SharePoint sync).",
+        component="worker",
+    )
     moonshot_secret: str | None = var(
         purpose="Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up."
+    )
+    csrf_key_secret: str = var(
+        "csrf-signing-key",
+        purpose="Secret Manager secret id of the CSRF signing key (32 or more random bytes).",
+        component="api",
     )
     byok_kms_key: str | None = var(
         purpose="Cloud KMS crypto-key resource for optional encrypted tenant model keys."
@@ -363,9 +438,25 @@ class Settings(BaseSettings):
         staff = (self.staff_jwt_issuer, self.staff_jwt_audience, self.staff_jwks_url)
         if any(staff) and not all(staff):
             problems.append("STAFF_JWT_ISSUER, STAFF_JWT_AUDIENCE and STAFF_JWKS_URL go together")
+        if self.app_env in CLOUD and self.connectors == "hermetic":
+            problems.append(f"CONNECTORS: synthetic providers refused for APP_ENV={self.app_env}")
+        for idp_field in ("jwks_url", "jwt_issuer", "staff_jwks_url", "staff_jwt_issuer"):
+            url = getattr(self, idp_field) or ""
+            host = url.split("://", 1)[-1].split("/", 1)[0].rsplit(":", 1)[0].lower()
+            local = not url.startswith("https://") or any(h in host for h in _LOCAL_HOSTS)
+            if self.app_env in CLOUD and url and local:
+                # the replica's fake IdP (or any local or plain-http one) signs nothing in the cloud
+                problems.append(f"{idp_field.upper()} must be a real https identity provider")
         if self.app_env in CLOUD and self.llm_access == "vertex_ai" and not self.vertex_region:
             problems.append("VERTEX_REGION is required when LLM_ACCESS=vertex_ai")
-        for url_field in ("worker_url", "public_base_url"):
+        for url_field in (
+            "worker_url",
+            "public_base_url",
+            "moonshot_base_url",
+            "gmail_api_base",
+            "google_drive_api_base",
+            "microsoft_graph_api_base",
+        ):
             url = getattr(self, url_field)
             if self.app_env in CLOUD and url and not url.startswith("https://"):
                 problems.append(f"{url_field.upper()} must be https in {self.app_env}")
@@ -404,8 +495,36 @@ class _Explicit(Settings):
         return (init_settings,)
 
 
+# Local identity providers and hosts a cloud profile must never trust (the replica's fake IdP).
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "fake-idp", "host.docker.internal", "[::1]")
+
+
+def deployment_refusals(env: Mapping[str, str]) -> list[str]:
+    """Rules on the raw environment that the typed fields cannot see (names only):
+
+    * a dev or test profile on Cloud Run (``K_SERVICE`` for services, ``CLOUD_RUN_JOB`` for jobs,
+      both set by the platform): those profiles turn on the dev staff verifier and unsigned task
+      calls (security audit L13);
+    * any ``DEVSTORE_*`` variable in staging or production (the development object store is
+      local only), whatever its value, the defaults included.
+
+    GUARANTEE(test_cloud_profile_refuses_local_switches)"""
+    problems: list[str] = []
+    profile = env.get("APP_ENV", "dev")
+    if profile in LOCAL and (env.get("K_SERVICE") or env.get("CLOUD_RUN_JOB")):
+        problems.append(f"APP_ENV={profile} is refused on Cloud Run (K_SERVICE or CLOUD_RUN_JOB)")
+    if profile in CLOUD:
+        devstore = sorted(k.upper() for k in env if k.upper().startswith("DEVSTORE_"))
+        if devstore:
+            problems.append(f"{', '.join(devstore)} must not be set for APP_ENV={profile}")
+    return problems
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     """Validate ``env`` (default: the process environment); names, never values, on failure."""
+    refusals = deployment_refusals(os.environ if env is None else env)
+    if refusals:
+        raise EnvironmentInvalid("invalid environment: " + " | ".join(refusals))
     try:
         if env is None:
             return Settings()

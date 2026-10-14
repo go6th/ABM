@@ -11,7 +11,6 @@ GUARANTEE(test_routing_config_loads_and_every_candidate_fact_is_sourced): R1.
 from __future__ import annotations
 
 import hashlib
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
@@ -21,6 +20,7 @@ from typing import Any
 
 import yaml
 
+from account_intelligence.config import config_dir as _config_dir
 from llm.errors import ConfigInvalid
 
 DATA_CLASSES = frozenset({"public_web", "tenant", "private"})
@@ -254,7 +254,7 @@ def build(data: Mapping[str, Any], raw: bytes) -> RoutingConfig:
 
 def config_dir() -> Path:
     """The repository's ``config`` directory."""
-    return Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config")
+    return _config_dir()
 
 
 SPLIT_FROM, SPLIT_TO = "extractor", "planner"

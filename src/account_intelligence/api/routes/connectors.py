@@ -283,7 +283,10 @@ async def held(
 ) -> dict[str, Any]:
     """Items surfaced outside the allow-list (identifiers and reasons only)."""
     async with tenant_txn(ident.tenant_id) as s:
-        return {"items": await quarantine.listing(s, connection_id)}
+        items = await quarantine.listing(s, connection_id)
+    if items is None:  # L14: another client's connection is not found, never an empty list
+        raise HTTPException(404, "connection not found")
+    return {"items": items}
 
 
 @router.post("/{connection_id}/quarantine/{item_id}/{decision}", response_model=C.QuarantineDecided)

@@ -91,3 +91,12 @@ def enforce_rate_limit(allowed: bool, retry_after_seconds: int) -> None:
             "The request rate limit was exceeded.",
             headers={"Retry-After": str(max(1, retry_after_seconds))},
         )
+
+
+async def limit_user(ident: object, action: str) -> None:
+    """The per-user bucket for one money or compute action (security audit M4): document uploads,
+    part retries, resumed research, Download everything and exports. ``ident`` is the verified
+    ``api.auth.Identity``; the key is its client and user, never a request field."""
+    from identity.rate_limit import consume_user
+
+    await consume_user(ident.tenant_id, ident.user_id, action)  # type: ignore[attr-defined]

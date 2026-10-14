@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import signal
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -68,6 +70,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.draining = False
     container = build_container()
     app.state.container = container
+    if container.env in ("staging", "production") and settings.service_role == "api":
+        from account_intelligence.api.tenant_plane import assert_signing_keys, plane_of
+
+        await assert_signing_keys(plane_of(SimpleNamespace(app=app)))
     from account_intelligence.replica import jobs as research_jobs
 
     research_jobs.configure(container.scheduler, research_jobs.engine_for(container))
@@ -92,16 +98,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from account_intelligence.chat.credentials import TenantModelKeyStore
 
     app.state.tenant_model_keys = TenantModelKeyStore(settings.byok_kms_key)
-    connector = None
-    if container.env in ("staging", "production"):
-        from account_intelligence.db.session import bind_engine
-        from account_intelligence.platform.gcp.adapters import cloud_sql_engine
+    from account_intelligence.db.session import bind_cloud_engine
 
-        assert settings.cloud_sql_instance and settings.db_iam_user and settings.db_name
-        engine, connector = await cloud_sql_engine(
-            settings.cloud_sql_instance, settings.db_iam_user, settings.db_name
-        )
-        bind_engine(engine)
+    connector = await bind_cloud_engine(settings)
     previous = signal.getsignal(signal.SIGTERM)
     signal.signal(signal.SIGTERM, _on_sigterm(app, previous))
     sweeper = (
@@ -128,7 +127,7 @@ async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
     """One orphan sweep with the container's wiring (``runs.sweeper.sweep``)."""
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.session import session_factory, tenant_txn
     from account_intelligence.grading.config import load_grading_config
     from account_intelligence.runs.sweeper import sweep
     from account_intelligence.tracker.adapters import LedgerCallAdapter, RunInputAdapter
@@ -148,7 +147,7 @@ async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
         )
 
     return await sweep(
-        SessionLocal,
+        session_factory(),
         tenant_txn,
         tracker_for,
         now or datetime.now(UTC),
@@ -156,29 +155,11 @@ async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
     )
 
 
-async def _sweep_files(app: FastAPI, settings: Any) -> None:
-    """Research files whose worker died end PARTIAL ``worker_lost`` (resume continues them)."""
-    from datetime import UTC, datetime
-
-    from account_intelligence.db.session import SessionLocal, tenant_txn
-    from research_files.config import load_config
-    from research_files.pipeline import sweep_files
-
-    if getattr(app.state.container, "files", None) is None:
-        return
-    await sweep_files(
-        SessionLocal,
-        tenant_txn,
-        datetime.now(UTC),
-        orphan_after_s=load_config().parsing.orphan_after_s,
-    )
-
-
 async def _sweep_documents(app: FastAPI) -> None:
     """Uploaded documents whose worker died mid-scan, mid-parse or mid-index are enqueued again."""
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import SessionLocal
+    from account_intelligence.db.session import session_factory
     from documents.config import load_config as load_documents_config
     from documents.service import sweep_documents
 
@@ -186,11 +167,40 @@ async def _sweep_documents(app: FastAPI) -> None:
     if getattr(container, "documents", None) is None:
         return
     await sweep_documents(
-        SessionLocal,
+        session_factory(),
         container.scheduler,
         datetime.now(UTC),
         orphan_after_s=load_documents_config().parsing.orphan_after_s,
     )
+
+
+async def sweep_pass(app: FastAPI) -> None:
+    """One pass of the worker's sweeper: documents, orphaned runs, stalled runs. Each step is
+    independent; a failing step is logged and the next one still runs."""
+    try:
+        await _sweep_documents(app)
+    except Exception as error:  # noqa: BLE001 - one bad pass never stops the sweeper
+        _logger.warning("documents.sweep_failed", extra={"error_class": type(error).__name__})
+    try:
+        result = await sweep_once(app)
+        if result.partial or result.failed:
+            _logger.info(
+                "runs.swept",
+                extra={
+                    "partial": len(result.partial),
+                    "failed": len(result.failed),
+                    "truncated": result.truncated,
+                },
+            )
+    except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
+        _logger.warning("runs.sweep_failed", extra={"error_class": type(error).__name__})
+    try:
+        stalled = await _mark_stalled()
+        if stalled:
+            # the stalled-runs alert counts this event (infra observability: runs_stalled)
+            _logger.warning("runs.stalled", extra={"count": len(stalled)})
+    except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
+        _logger.warning("runs.stall_failed", extra={"error_class": type(error).__name__})
 
 
 async def _sweep_loop(app: FastAPI, settings: Any) -> None:
@@ -202,31 +212,7 @@ async def _sweep_loop(app: FastAPI, settings: Any) -> None:
     # LOOP(orphan sweep loop): cap=none, one pass per interval for the life of the worker;
     # exit=task cancelled at shutdown
     while True:
-        try:
-            await _sweep_files(app, settings)
-        except Exception as error:  # noqa: BLE001 - one bad pass never stops the sweeper
-            _logger.warning("files.sweep_failed", extra={"error_class": type(error).__name__})
-        try:
-            await _sweep_documents(app)
-        except Exception as error:  # noqa: BLE001 - one bad pass never stops the sweeper
-            _logger.warning("documents.sweep_failed", extra={"error_class": type(error).__name__})
-        try:
-            result = await sweep_once(app)
-            if result.partial or result.failed:
-                _logger.info(
-                    "runs.swept",
-                    extra={
-                        "partial": len(result.partial),
-                        "failed": len(result.failed),
-                        "truncated": result.truncated,
-                    },
-                )
-        except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
-            _logger.warning("runs.sweep_failed", extra={"error_class": type(error).__name__})
-        try:
-            await _mark_stalled()
-        except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
-            _logger.warning("runs.stall_failed", extra={"error_class": type(error).__name__})
+        await sweep_pass(app)
         await asyncio.sleep(max(1, int(settings.sweep_interval_s)))
 
 
@@ -234,10 +220,10 @@ async def _mark_stalled() -> list[Any]:
     """Runs with no progress for the platform's stall time are marked and their owners told."""
     from datetime import UTC, datetime
 
-    from account_intelligence.db.session import SessionLocal, tenant_txn
+    from account_intelligence.db.session import session_factory, tenant_txn
     from account_intelligence.runs.sweeper import mark_stalled
 
-    return await mark_stalled(SessionLocal, tenant_txn, datetime.now(UTC))
+    return await mark_stalled(session_factory(), tenant_txn, datetime.now(UTC))
 
 
 def _route_class(path: str) -> str:
@@ -263,9 +249,69 @@ def _observe(path: str, status: int, seconds: float) -> None:
     record("api_latency_ms", seconds * 1000, {"route_class": route})
 
 
+PROBES = frozenset({"/healthz", "/readyz"})
+
+
+def _route_template(request: Request) -> str:
+    """The matched route's template (``/v1/accounts/{domain}``), never the raw path: paths carry
+    account domains and ids, and the query string carries download and upload tokens."""
+    from account_intelligence.api.guard import route_template
+
+    return route_template(request) or "unmatched"
+
+
+def _log_request(request: Request, status: int, seconds: float, request_id: str) -> None:
+    """The API's own request log through the allow-list logger (security audit L10): method,
+    route template, status, duration and request id. No query string, header or body is ever
+    logged, so uvicorn's access log can be switched off (``--no-access-log``). Probes are left
+    out (Cloud Run calls them every few seconds)."""
+    if request.url.path in PROBES:
+        return
+    _logger.info(
+        "http.request",
+        extra={
+            "method": request.method,
+            "route": _route_template(request),
+            "http_status": status,
+            "latency_ms": round(seconds * 1000, 1),
+            "request_id": request_id,
+        },
+    )
+
+
+def _is_https(request: Request) -> bool:
+    """Served over HTTPS: directly, or behind Cloud Run's front end (``X-Forwarded-Proto``)."""
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return request.url.scheme == "https" or forwarded == "https"
+
+
+def security_headers(headers: Any, *, https: bool) -> None:
+    """Headers on every API response. The API serves JSON only: nothing may load, frame or cache
+    it (``Cache-Control: no-store`` on every response, authenticated or not); HSTS when the request
+    came over HTTPS. The nonce CSP for HTML pages is the web BFF's.
+
+    GUARANTEE(test_every_api_response_carries_the_security_headers)"""
+    headers["X-Content-Type-Options"] = "nosniff"
+    headers["X-Frame-Options"] = "DENY"
+    headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    headers["Referrer-Policy"] = "no-referrer"
+    headers["Cache-Control"] = "no-store"
+    if https:
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+
 def create_app() -> FastAPI:
     """The FastAPI application with probes, the /v1 routes and the /tasks worker routes."""
-    app = FastAPI(title="Account Intelligence API", lifespan=lifespan)
+    # L12: no interactive docs or schema route in the cloud profiles (the API is internal-only
+    # there; scripts/export_openapi.py calls app.openapi() directly, so the snapshot is the same)
+    cloud = os.environ.get("APP_ENV", "dev") in ("staging", "production")
+    app = FastAPI(
+        title="Account Intelligence API",
+        lifespan=lifespan,
+        docs_url=None if cloud else "/docs",
+        redoc_url=None if cloud else "/redoc",
+        openapi_url=None if cloud else "/openapi.json",
+    )
 
     @app.middleware("http")
     async def request_context(request: Request, call_next: Any) -> Any:
@@ -285,14 +331,11 @@ def create_app() -> FastAPI:
             response = await call_next(request)
         finally:
             REQUEST_ID.reset(token)
-        _observe(request.url.path, response.status_code, time.monotonic() - started)
+        elapsed = time.monotonic() - started
+        _observe(request.url.path, response.status_code, elapsed)
+        _log_request(request, response.status_code, elapsed, request_id)
         response.headers["X-Request-ID"] = request_id
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        # JSON only: nothing may load or frame. The nonce CSP for HTML is set by the web BFF.
-        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Cache-Control"] = "no-store"
+        security_headers(response.headers, https=_is_https(request))
         return response
 
     @app.exception_handler(StarletteHTTPException)

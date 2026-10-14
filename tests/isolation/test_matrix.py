@@ -15,6 +15,7 @@ GUARANTEE(test_every_discovered_object_is_covered_by_the_matrix)
 GUARANTEE(test_cross_tenant_table_operations_are_refused)
 GUARANTEE(test_a_broken_policy_is_caught_by_the_probes)
 GUARANTEE(test_routes_leak_nothing_with_the_authorisation_layer_disabled)
+GUARANTEE(test_routes_refuse_another_user_of_the_same_client)
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from uuid import UUID, uuid4
 import httpx
 import psycopg
 import pytest
+import yaml
 
 from tests.conftest import ADMIN_DSN, APP_DSN
 from tests.isolation.matrix.plant import CANARY_PREFIX, Table, plant, probe, tenant_tables
@@ -64,6 +66,17 @@ class World:
 
 @pytest.fixture(scope="module")
 def world() -> Iterator[World]:
+    yield _build_world()
+
+
+@pytest.fixture(scope="module")
+def owner_world() -> Iterator[World]:
+    """A world of its own for the same-client probes: the cross-client probes suspend tenant A
+    and run its deletion, which would leave nothing to find."""
+    yield _build_world()
+
+
+def _build_world() -> World:
     w = World()
     with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
         for who in ("A", "B", "C"):
@@ -75,7 +88,7 @@ def world() -> Iterator[World]:
             over = (MATRIX["tables"].get(table.name) or {}).get("plant")
             for who in ("A", "B", "C"):
                 w.rows[(table.name, who)] = plant(admin, table, w.tenants[who], over)
-    yield w
+    return w
 
 
 def test_every_discovered_object_is_covered_by_the_matrix() -> None:
@@ -254,9 +267,11 @@ def _value(world: World, spec: str) -> str:
     return str(world.rows[(table, "A")][column])
 
 
-def _app(world: World) -> Any:
+def _app(world: World, who: str = "B", user: str = "matrix-b") -> Any:
     """The real application over the faked tenant plane, with the authorisation layer replaced
-    by a fixed tenant-B principal (a fresh step-up, so step-up never hides a route)."""
+    by a fixed principal: by default an admin of tenant B; ``who="A", user="matrix-a2"`` is
+    another admin of tenant A who owns none of A's canaries (a fresh step-up, so step-up never
+    hides a route)."""
     from datetime import UTC, datetime
     from types import SimpleNamespace
 
@@ -264,12 +279,12 @@ def _app(world: World) -> Any:
     from account_intelligence.api.operator import OperatorIdentity, require_operator
     from tests.phase3.conftest import make_app
 
-    b = world.tenants["B"]
+    b = world.tenants[who]
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         c.execute(
-            "INSERT INTO memberships (tenant_id, user_id, role) VALUES (%s, 'matrix-b', 'admin')"
+            "INSERT INTO memberships (tenant_id, user_id, role) VALUES (%s, %s, 'admin')"
             " ON CONFLICT (tenant_id, user_id) DO NOTHING",
-            (b,),
+            (b, user),
         )
     plane = make_app()
     app = plane.app
@@ -286,7 +301,7 @@ def _app(world: World) -> Any:
     plane.clock.current = now
 
     async def as_b() -> Identity:
-        return Identity("matrix-b", b, "admin", now)
+        return Identity(user, b, "admin", now)
 
     async def operator_b() -> OperatorIdentity:
         return OperatorIdentity("matrix-op", b, "matrix-session", now)
@@ -311,17 +326,21 @@ class _Merged:
         setattr(self._base, name, value)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("route", sorted(MATRIX["routes"]))
-async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
-    world: World, route: str
-) -> None:
-    os.environ.pop("ALLOW_UNAUTHENTICATED_TASKS", None)
+def _absent(spec: str) -> str:
+    """A stand-in for ``table.column`` that names no row at all (the same shape)."""
+    column = spec.partition(".")[2]
+    return f"absent-{uuid4().hex[:8]}.example" if column == "domain" else str(uuid4())
+
+
+async def _call(world: World, route: str, app: Any, *, absent: bool = False) -> tuple[Any, str]:
+    """Call one matrix route with A's identifiers (``absent``: with identifiers of no row in
+    their place); the reply and everything the caller sent."""
     entry = MATRIX["routes"][route]
     method, template = route.split(" ", 1)
     path = template
     for param, spec in (entry.get("params") or {}).items():
-        path = path.replace("{" + param + "}", _value(world, spec))
+        named = absent and "." in str(spec) and str(spec).split(".")[0] in world.tables
+        path = path.replace("{" + param + "}", _absent(spec) if named else _value(world, spec))
     body = entry.get("body")
     if body is not None:
 
@@ -344,7 +363,6 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
     form = {
         k: _value(world, v) if "." in str(v) else v for k, v in (entry.get("form") or {}).items()
     }
-    app = _app(world)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
         base_url="https://app.test",
@@ -361,8 +379,39 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
             reply = await client.request(method, path, content=buf.getvalue(), headers=headers)
         else:
             reply = await client.request(method, path, json=body, headers=headers, params=query)
+    return reply, path + json.dumps(body or {}) + json.dumps(query) + json.dumps(form)
+
+
+def _names_an_object(entry: dict[str, Any]) -> bool:
+    """The route's path carries an identifier of one of A's rows."""
+    return any("." in str(spec) for spec in (entry.get("params") or {}).values())
+
+
+async def _refused_as_if_absent(world: World, route: str, app: Any, reply: Any, key: str) -> None:
+    """L14: another client's (or user's) object answers 404; any other answer must be exactly
+    what the route answers for an identifier that names no row at all, so the reply cannot tell
+    that the object exists (a route that refuses before it looks anything up, for example on a
+    settings precondition or a missing approval hash). Never a 2xx."""
+    entry = MATRIX["routes"][route]
+    assert not 200 <= reply.status_code < 300, (route, reply.status_code, reply.text[:200])
+    if reply.status_code == 404 or reply.status_code in entry.get(key, []):
+        return
+    blank, _ = await _call(world, route, app, absent=True)
+    assert (blank.status_code, blank.json().get("type")) == (
+        reply.status_code,
+        reply.json().get("type"),
+    ), (route, reply.status_code, blank.status_code, reply.text[:200])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("route", sorted(MATRIX["routes"]))
+async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
+    world: World, route: str
+) -> None:
+    os.environ.pop("ALLOW_UNAUTHENTICATED_TASKS", None)
+    entry = MATRIX["routes"][route]
+    reply, sent = await _call(world, route, _app(world))
     text = reply.text + json.dumps(dict(reply.headers))
-    sent = path + json.dumps(body or {}) + json.dumps(query) + json.dumps(form)
     public = {_value(world, spec) for spec in entry.get("public") or ()}
     # a value the caller sent and the reply echoes back discloses nothing; any other value does
     leaked = sorted(
@@ -387,3 +436,44 @@ async def test_routes_leak_nothing_with_the_authorisation_layer_disabled(
         assert "__Host-ai_session" not in reply.headers.get("set-cookie", ""), route
     else:
         assert reply.status_code != 422, (route, "probe body malformed", json.loads(reply.text))
+        if entry["probe"] == "tenant" and _names_an_object(entry):
+            # L14: another client's object is not found, never refused in a way that tells it
+            # exists (an entry names any other 4xx it answers, with the reason in the matrix)
+            await _refused_as_if_absent(world, route, _app(world), reply, "status")
+
+
+OWNED = set(yaml.safe_load((ROOT / "config/ownership.yaml").read_text())["owned"])
+
+
+def _owned_routes() -> list[str]:
+    """Tenant routes whose path names a row of an owned table (private to one user)."""
+    out = []
+    for route, entry in MATRIX["routes"].items():
+        specs = [str(v) for v in (entry.get("params") or {}).values() if "." in str(v)]
+        if entry["probe"] == "tenant" and specs and all(v.split(".")[0] in OWNED for v in specs):
+            out.append(route)
+    return sorted(out)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("route", _owned_routes())
+async def test_routes_refuse_another_user_of_the_same_client(
+    owner_world: World, route: str
+) -> None:
+    """L14: owner isolation at the route level. Another admin of tenant A, who owns none of A's
+    canaries, gets 404 for every object of an owned table and sees none of its owned values."""
+    os.environ.pop("ALLOW_UNAUTHENTICATED_TASKS", None)
+    reply, sent = await _call(owner_world, route, _app(owner_world, "A", "matrix-a2"))
+    owned_values = {
+        str(v)
+        for (table, who), values in owner_world.rows.items()
+        if who == "A" and table in OWNED
+        for v in values.values()
+        if isinstance(v, UUID) or (isinstance(v, str) and CANARY_PREFIX in v)
+    }
+    text = reply.text + json.dumps(dict(reply.headers))
+    leaked = sorted(v for v in owned_values if v in text and v not in sent)
+    assert not leaked, (route, reply.status_code, leaked)
+    await _refused_as_if_absent(
+        owner_world, route, _app(owner_world, "A", "matrix-a2"), reply, "owner_status"
+    )

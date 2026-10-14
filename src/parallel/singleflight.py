@@ -36,6 +36,7 @@ class InProcessSingleFlight:
         try:
             result = await run()
         except BaseException as exc:
+            # hand any outcome, cancellation included, to the waiters, then re-raise
             if not future.done():
                 future.set_exception(exc)
                 future.exception()  # mark retrieved: waiters re-raise it, nobody else must

@@ -1,0 +1,14 @@
+# Per-user money and compute limits on the tenant plane (security audit M4, 2026-10-14). INTERNAL.
+# One token bucket per client, user and action: `capacity` requests at once, then one more every
+# 1 / refill_per_second seconds. Cloud runs keep the buckets in the shared Redis (REDIS_URL), so
+# they hold across API instances; dev and test use a bounded in-process bucket. A denied call is a
+# 429 with Retry-After. Proposals until measured on real use; the sign-in buckets are in auth.yaml.
+version: "2026-10-14.1"
+status: "proposal (limits unmeasured)"
+
+user_buckets:
+  document_upload:     {capacity: 120, refill_per_second: 0.5}       # 120 at once, then 30 a minute
+  part_retry:          {capacity: 60,  refill_per_second: 0.2}       # 60 at once, then 12 a minute
+  research_resume:     {capacity: 20,  refill_per_second: 0.05}      # 20 at once, then 3 a minute
+  download_everything: {capacity: 10,  refill_per_second: 0.0028}    # 10 at once, then 10 an hour
+  export:              {capacity: 30,  refill_per_second: 0.05}      # 30 at once, then 3 a minute

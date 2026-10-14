@@ -157,6 +157,8 @@ def _narrative(summary: bytes) -> list[str]:
     try:
         doc = Document(io.BytesIO(summary))
     except Exception:
+        # a summary that python-docx cannot read (any of its errors) yields no narrative; the copy
+        # still lists its files
         return []
     paragraphs = [p.text.strip() for p in doc.paragraphs if len(p.text.strip()) > 40]
     return paragraphs[:4]

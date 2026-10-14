@@ -62,6 +62,7 @@ class JsonFormatter(std_logging.Formatter):
             payload.update(kept)
             return json.dumps(payload, sort_keys=True, default=str)
         except Exception:
+            # a log line must never raise into the caller: count a drop, write a minimal line
             self.drops.add("logs")
             return json.dumps({"event": "log_format_failed", "service": self.service})
 

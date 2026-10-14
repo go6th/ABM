@@ -1,7 +1,8 @@
 """Probes. ``/healthz`` is liveness (the process answers). ``/readyz`` is readiness and FAILS
 CLOSED (W5): it answers 200 only when every check passes (database reachable under the runtime
-role, configuration loads, the runtime assertion holds, the process is not draining after
-SIGTERM); any exception or failed check is a 503 that names the failed check, never a 200.
+role, the schema is at the code's revision or later, configuration loads, the runtime assertion
+holds, the process is not draining after SIGTERM); any exception or failed check is a 503 that
+names the failed check, never a 200.
 ``components`` (informational, never a reason for 503) reports each external component by a
 status word only: each provider ``off``, ``configured`` or ``unconfigured`` (the request path's
 own rule), the model ``present``, ``fake (LLM_FAKE)`` or ``not configured (ANTHROPIC_API_KEY)``
@@ -32,11 +33,35 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# The schema revision this code needs (the newest migration it was written with). Readiness
+# fails while the database is older: a revision rolled out before its migration job finished
+# never takes traffic. GUARANTEE(test_readiness_needs_the_schema_revision_of_the_code)
+EXPECTED_REVISION = "0072"
+
+
 async def _database() -> None:
     from account_intelligence.db.session import _sessions
 
     async with _sessions()() as session:
         await session.execute(text("SELECT 1"))
+
+
+async def _migrations() -> str:
+    """``ok`` when the database's revision is at or after ``EXPECTED_REVISION``."""
+    from account_intelligence.db.session import _sessions
+
+    async with _sessions()() as session:
+        found = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
+    return revision_check(found)
+
+
+def revision_check(found: object) -> str:
+    """Compare the database revision with the code's (revisions are zero-padded numbers)."""
+    if not isinstance(found, str) or not found.isdigit():
+        return "failed: no schema revision"
+    if int(found) < int(EXPECTED_REVISION):
+        return f"failed: schema {found} is older than {EXPECTED_REVISION}"
+    return "ok"
 
 
 def _config() -> None:
@@ -60,7 +85,12 @@ def components(container: Any, env: Mapping[str, str]) -> dict[str, str]:
         except (KeyError, LookupError):
             continue
         state = "configured" if provider_configured(cfg, env) else "unconfigured"
-        if env.get("CONNECTORS") == "hermetic":
+        cloud_api = env.get("SERVICE_ROLE") == "api" and env.get("APP_ENV") in CLOUD_PROFILES
+        if cloud_api and code is not ProviderCode.P_PEOPLE:
+            # provider keys are mounted on the worker only (least privilege): the api cannot see
+            # them, so it names where they are checked instead of reporting "unconfigured"
+            state = "checked on the worker"
+        elif env.get("CONNECTORS") == "hermetic":
             state = "hermetic (synthetic replies, no outside call)"
         elif code is ProviderCode.P_PEOPLE:
             # no documented people-search API: it runs a grid the owner builds (FIX_LOG D11)
@@ -83,6 +113,7 @@ def components(container: Any, env: Mapping[str, str]) -> dict[str, str]:
 
 
 LLM_MISSING = "not configured (ANTHROPIC_API_KEY)"
+CLOUD_PROFILES = ("staging", "production")
 PEOPLE_DISABLED = (
     "disabled (needs the owner's people-search grid; people rows use the org source and web search)"
 )
@@ -129,8 +160,13 @@ async def readyz(request: Request) -> JSONResponse:
     try:
         await _database()
         checks["database"] = "ok"
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:  # noqa: BLE001 - fail closed on anything, naming the class only
         checks["database"] = f"failed: {type(error).__name__}"
+    if checks["database"] == "ok":
+        try:
+            checks["migrations"] = await _migrations()
+        except Exception as error:  # noqa: BLE001 - fail closed on anything, naming the class only
+            checks["migrations"] = f"failed: {type(error).__name__}"
     ok = all(v == "ok" for v in checks.values())
     body: dict[str, Any] = {"ready": ok, "checks": checks}
     if container is not None:

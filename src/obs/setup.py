@@ -57,6 +57,7 @@ def safe(fn: Callable[[], T], default: T) -> T:
     try:
         return fn()
     except Exception:
+        # telemetry must never raise into the caller: any failure is a counted drop
         drops().add("metrics")
         return default
 

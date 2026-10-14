@@ -13,7 +13,7 @@
 * ``POST /tasks/isolation-check``: the nightly isolation check (``replica.isolation``).
 
 Private workspaces (migration 0063): every task starts as a system job, which is all a tick
-needs (it reads identifiers across one client's users). A task about one run, file, document or
+needs (it reads identifiers across one client's users). A task about one run, document or
 job then acts as that item's owner in user scope, so the database confines it to that user's
 rows (``_act_as_owner_of``).
 
@@ -125,31 +125,6 @@ async def run_slice(
     if outcome.outcome == "busy":  # another worker holds the run: Cloud Tasks redelivers later
         raise HTTPException(503, "run is being processed by another worker")
     return {"outcome": outcome.outcome, "status": outcome.status}
-
-
-class FileTask(BaseModel):
-    """The file-processing task body: ids only."""
-
-    model_config = ConfigDict(extra="forbid")
-    tenant_id: UUID
-    file_id: UUID
-
-
-@router.post("/file-process")
-async def file_process(
-    task: FileTask, request: Request, authorization: str | None = Header(default=None)
-) -> dict[str, str]:
-    """Process or resume one research file (``research_files.pipeline``). The tenant in the body
-    is checked against the file row under RLS: another tenant's file is not found."""
-    container = _authorise(request, authorization)
-    files = getattr(container, "files", None)
-    if files is None:
-        raise HTTPException(503, "file processing is not configured")
-    await _act_as_owner_of("file", task.tenant_id, task.file_id)
-    outcome = await files.processor().process(task.tenant_id, task.file_id)
-    if outcome == "busy":
-        raise HTTPException(503, "the file is being processed by another worker")
-    return {"outcome": outcome}
 
 
 class DocumentTask(BaseModel):

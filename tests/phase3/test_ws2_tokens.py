@@ -371,3 +371,48 @@ def test_idp_calls_refuse_private_addresses_and_redirects() -> None:
         assert not any("169.254" in u for u in seen)  # a redirect is never followed
 
     asyncio.run(run())
+
+
+def test_idp_connections_go_to_the_address_that_was_checked() -> None:
+    """L17: the TCP connection is opened to the address the check approved, resolved once in the
+    same step (no second DNS answer), on port 443 only."""
+    import asyncio
+
+    from identity.ports import (
+        IdentityProviderError,
+        PinnedBackend,
+        pinned_client,
+        require_public_https,
+    )
+
+    answers = [["93.184.216.34"], ["127.0.0.1"]]
+    asked: list[str] = []
+    connected: list[tuple[str, int]] = []
+
+    async def resolve(host: str) -> list[str]:
+        asked.append(host)
+        return answers.pop(0)
+
+    class Inner:
+        async def connect_tcp(self, host: str, port: int, **_: object) -> str:
+            connected.append((host, port))
+            return "stream"
+
+        async def sleep(self, seconds: float) -> None:
+            return None
+
+    async def run() -> None:
+        backend = PinnedBackend(resolve, Inner())
+        assert await backend.connect_tcp("idp.example", 443) == "stream"
+        with pytest.raises(IdentityProviderError):  # the next answer is private: never used
+            await backend.connect_tcp("idp.example", 443)
+        with pytest.raises(IdentityProviderError):
+            await backend.connect_tcp("idp.example", 8443)
+        with pytest.raises(IdentityProviderError):
+            await require_public_https("https://idp.example:8443/token", resolve)
+
+    asyncio.run(run())
+    assert connected == [("93.184.216.34", 443)] and asked == ["idp.example", "idp.example"]
+    client = pinned_client()
+    assert isinstance(client._transport._pool._network_backend, PinnedBackend)
+    assert client.follow_redirects is False

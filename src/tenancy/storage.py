@@ -2,7 +2,8 @@
 
 Pure: no clock, no randomness, no I/O. Every new object key is built by ``tenant_path`` from the
 CONTEXT tenant (``tenants/<tenant>/<kind>/...``); listing prefixes come from ``tenant_prefix``;
-``tenant_of_key`` reads the owner back from any key the platform writes, including the two
+``tenant_of_key`` reads the owner back from any key the platform writes, including the
+lifecycle prefixes ``quarantine/tenants/<tenant>/`` and ``uploads/tenants/<tenant>/`` and the two
 layouts that predate this module (deliverables ``<tenant>/<account>/<run>/deliverables/..`` and
 the operator upload quarantine ``quarantine/<tenant>/..``), so a download is refused unless the
 key belongs to the session's tenant.
@@ -29,6 +30,10 @@ _SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,199}$")
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _LAYOUTS = (
     re.compile(rf"^tenants/(?P<t>{_UUID})/"),
+    # short-lived objects under top-level prefixes, so the bucket's lifecycle rules (which match
+    # a key's start only) delete them: uploads waiting for the scan, resumable upload leftovers
+    re.compile(rf"^quarantine/tenants/(?P<t>{_UUID})/"),
+    re.compile(rf"^uploads/tenants/(?P<t>{_UUID})/"),
     re.compile(rf"^(?P<t>{_UUID})/{_UUID}/{_UUID}/deliverables/"),
     re.compile(rf"^quarantine/(?P<t>{_UUID})/"),
 )
@@ -52,6 +57,17 @@ class PathRefused(ValueError):
 def tenant_prefix(tenant_id: UUID) -> str:
     """The listing prefix of one tenant's new-layout objects (trailing slash included)."""
     return f"tenants/{tenant_id}/"
+
+
+def tenant_prefixes(tenant_id: UUID) -> tuple[str, ...]:
+    """Every prefix that can hold one tenant's objects (offboarding deletes all of them): the
+    tenant's own tree, the two lifecycle prefixes and the older operator upload quarantine."""
+    return (
+        tenant_prefix(tenant_id),
+        f"quarantine/tenants/{tenant_id}/",
+        f"uploads/tenants/{tenant_id}/",
+        f"quarantine/{tenant_id}/",
+    )
 
 
 def tenant_path(tenant_id: UUID, kind: str, *parts: str) -> str:

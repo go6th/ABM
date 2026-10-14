@@ -143,6 +143,7 @@ async def check_membership(request: Request, ident: Identity) -> None:
     try:
         active = await cache_of(request).is_active(ident.tenant_id, ident.user_id, ident.role)
     except Exception as error:
+        # the membership cache's backend may fail in any way: fail closed (503), never allow
         raise DependencyUnavailable() from error
     if not active:
         raise HTTPException(status_code=401, detail="invalid token")
