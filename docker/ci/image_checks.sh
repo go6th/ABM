@@ -32,7 +32,19 @@ absent() { # description, extended regex over full paths
   if [[ -z "$hits" ]]; then ok "no $1"; else bad "$1 present:"; head -5 <<<"$hits" >&2; fi
 }
 absent "env files" '/\.env($|\.)'
-absent "credential key files" '/(gha-creds-[^/]*\.json|[^/]*\.pem|id_rsa|id_ed25519)$'
+absent "credential files (CA certificates are public and allowed)" \
+  '/(gha-creds-[^/]*\.json|service[-_]account[^/]*\.json|id_rsa|id_ed25519|[^/]*\.(key|p12|pfx))$'
+# Private key material inside the application's own directories (content search; names only)
+case "$kind" in
+  api | worker | web)
+    if docker run --rm --user 0 --entrypoint grep "$image" -rIl --exclude-dir=.venv --exclude-dir=node_modules -e "BEGIN [A-Z ]*PRIVATE KEY" /app 2>/dev/null | grep -q .; then
+      bad "private key material in the application files"
+    else
+      ok "no private key material in the application files"
+    fi
+    ;;
+  *) ;;
+esac
 absent "git metadata" '/\.git($|/)'
 absent "source maps (*.map)" '\.map$'
 

@@ -27,6 +27,16 @@ idp_port="${IDP_PORT:-19090}"
 net="${stack}-net"
 state="${HS_STATE_DIR:-${RUNNER_TEMP:-/tmp}/${stack}-state}"
 
+# Diagnostic only (default off): some modules (replica/credits.py, replica/jobs.py,
+# connectors/hermetic.py) find config/ (and replica/jobs.py also skills/) relative to the package file, which only works
+# from a source tree. In an installed image those paths are wrong and POST /v1/runs answers 500.
+# PACKAGE_PATH_SHIM=1 mounts config/ at the path those modules look in, to let the rest
+# of the stack be checked. CI runs without it, so the defect fails the build until src/ is fixed.
+shim=()
+if [[ "${PACKAGE_PATH_SHIM:-0}" == "1" ]]; then
+  shim=(-v "$root/config:/app/.venv/lib/python3.12/config:ro")
+fi
+
 app_env=(
   -e APP_ENV=dev -e LOG_LEVEL=INFO
   -e DATABASE_URL=postgresql+asyncpg://app_rw:local-dev-only@db:5432/ai
@@ -70,7 +80,7 @@ up() {
     -e FAKE_IDP_AUDIENCE=account-intelligence-local \
     -v "$root/ops/dev:/dev-tools:ro" --entrypoint python "$worker_image" /dev-tools/fake_idp.py >/dev/null
   docker run -d --name "${stack}-worker" --network "$net" --network-alias worker \
-    "${app_env[@]}" -e SERVICE_ROLE=worker -e ALLOW_UNAUTHENTICATED_TASKS=1 \
+    "${app_env[@]}" "${shim[@]}" -e SERVICE_ROLE=worker -e ALLOW_UNAUTHENTICATED_TASKS=1 \
     -e WORKER_URL=http://worker:8081 -v "${stack}-payloads:/tmp/payloads" \
     --entrypoint uvicorn "$worker_image" account_intelligence.api.main:app \
     --host 0.0.0.0 --port 8081 >/dev/null
@@ -79,7 +89,7 @@ up() {
     -e "DEVSTORE_ALLOW_ORIGIN=http://localhost:${web_port}" -v "${stack}-payloads:/tmp/payloads" \
     --entrypoint uvicorn "$worker_image" devstore.server:app --host 0.0.0.0 --port 8092 >/dev/null
   docker run -d --name "${stack}-api" --network "$net" --network-alias api \
-    -p "127.0.0.1:${api_port}:8080" "${app_env[@]}" -e SERVICE_ROLE=api \
+    -p "127.0.0.1:${api_port}:8080" "${app_env[@]}" "${shim[@]}" -e SERVICE_ROLE=api \
     -e WORKER_URL=http://worker:8081 -v "${stack}-payloads:/tmp/payloads" "$api_image" >/dev/null
   # API_ORIGIN is fixed at web build time (http://api:8080), hence the network alias above.
   docker run -d --name "${stack}-web" --network "$net" -p "127.0.0.1:${web_port}:3000" \
@@ -102,9 +112,9 @@ up() {
 
 psql_value() { docker exec "${stack}-db" psql -U postgres -d ai -tA -c "$1"; }
 
-mint() { # subject tenant -> token (synthetic; printed to stdout only)
+mint() { # subject tenant -> token (role analyst: the seeded members' stored role) (synthetic; printed to stdout only)
   curl -fsS -X POST "http://127.0.0.1:${idp_port}/token" -H 'Content-Type: application/json' \
-    -d "{\"sub\":\"$1\",\"tenant_id\":\"$2\",\"role\":\"admin\",\"mfa\":true}" |
+    -d "{\"sub\":\"$1\",\"tenant_id\":\"$2\",\"role\":\"analyst\",\"mfa\":true}" |
     python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'
 }
 

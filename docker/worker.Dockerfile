@@ -14,7 +14,9 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim AS runtime
-RUN useradd --system --uid 10001 --no-create-home app
+# Current Debian security updates on top of the base image (the Trivy gate fails on fixable HIGH).
+RUN apt-get update && apt-get -y upgrade && apt-get clean && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --no-create-home app
 # Local payload store (compose mounts the shared `payloads` volume here; it inherits this owner).
 RUN mkdir -p /tmp/payloads && chown 10001:10001 /tmp/payloads
 WORKDIR /app

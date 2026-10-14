@@ -22,7 +22,10 @@ import urllib.error
 import urllib.request
 import uuid
 
-TERMINAL = {"completed", "failed", "cancelled"}
+# Run statuses are upper case (account_runs.status). PARTIAL is "Complete with gaps": the fake
+# model and synthetic providers leave some lanes thin, and the run still finishes and is graded.
+TERMINAL = {"COMPLETED", "PARTIAL", "BUDGET_EXCEEDED", "FAILED", "CANCELED"}
+PASSING = {"COMPLETED", "PARTIAL"}
 
 
 def call(
@@ -55,6 +58,7 @@ def main() -> int:
     parser.add_argument("--idp", required=True)
     parser.add_argument("--tenant", required=True)
     parser.add_argument("--sub", default="ci-hermetic", help="token subject (a seeded member)")
+    parser.add_argument("--role", default="analyst", help="must match the member's stored role")
     parser.add_argument("--domain", default="northwind.example")
     parser.add_argument("--timeout", type=int, default=240)
     args = parser.parse_args()
@@ -65,7 +69,7 @@ def main() -> int:
     status, minted = call(
         "POST",
         f"{args.idp}/token",
-        body={"sub": args.sub, "tenant_id": args.tenant, "role": "admin", "mfa": True},
+        body={"sub": args.sub, "tenant_id": args.tenant, "role": args.role, "mfa": True},
     )
     token = str(minted.get("access_token", ""))
     if status != 200 or not token:
@@ -85,10 +89,10 @@ def main() -> int:
     last = ""
     while time.monotonic() < deadline:
         status, state = call("GET", f"{args.api}/v1/runs/{run}", token)
-        last = str(state.get("status", f"HTTP {status}"))
+        last = str(state.get("status", f"HTTP {status}")).upper()
         if last in TERMINAL:
             break
-        if last == "paused":
+        if last in {"AWAITING_APPROVAL", "PAUSED"}:
             cap_status, cap = call("GET", f"{args.api}/v1/runs/{run}/cap", token)
             if cap_status == 200:
                 call(
@@ -99,7 +103,7 @@ def main() -> int:
                 )
         time.sleep(3)
     print(f"run {run} finished with status {last}")
-    return 0 if last == "completed" else 1
+    return 0 if last in PASSING else 1
 
 
 if __name__ == "__main__":

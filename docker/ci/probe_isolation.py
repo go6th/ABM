@@ -45,9 +45,14 @@ def get(url: str, token: str | None = None) -> int:
 
 
 def post_empty(url: str) -> int:
-    """POST an empty JSON body with no credential; only the refusal is observed."""
+    """POST a well-formed task body, no credential; only the refusal is observed."""
     request = urllib.request.Request(
-        url, data=b"{}", method="POST", headers={"Content-Type": "application/json"}
+        url,
+        data=json.dumps(
+            {"tenant_id": str(uuid.uuid4()), "run_id": str(uuid.uuid4()), "slice": 0}
+        ).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(request, timeout=20) as reply:  # noqa: S310 - http(s) only
@@ -67,7 +72,13 @@ def forged_token() -> str:
     now = int(time.time())
     head = part({"alg": "HS256", "typ": "JWT"})
     body = part(
-        {"sub": "probe", "tenant_id": str(uuid.uuid4()), "role": "admin", "iat": now, "exp": now + 300}
+        {
+            "sub": "probe",
+            "tenant_id": str(uuid.uuid4()),
+            "role": "admin",
+            "iat": now,
+            "exp": now + 300,
+        }
     )
     mac = hmac.new(os.urandom(32), f"{head}.{body}".encode(), hashlib.sha256).digest()
     return f"{head}.{body}.{base64.urlsafe_b64encode(mac).rstrip(b'=').decode()}"

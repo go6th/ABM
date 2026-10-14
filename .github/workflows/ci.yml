@@ -248,7 +248,7 @@ jobs:
       - name: gitleaks (redacted output; a finding fails the check)
         run: |
           docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.28.0 \
-            git /repo --redact --no-banner --verbose --exit-code 1
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1
 
   images:
     runs-on: ubuntu-latest
