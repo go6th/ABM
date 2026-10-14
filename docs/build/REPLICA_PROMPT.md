@@ -16,7 +16,7 @@ Reversals (these features come **back** because the design has them):
 | Normal / Deep, then "Research: off/on" chip | The design's **`Web: off`** chip. Answers come from the workspace; the web is used only through "Refresh from web", which the user confirms |
 | Checkpoint "Continue?" approvals | Replaced by the design's model: credits are shown and confirmed **before** a refresh starts, and a run stops at the credit cap per pull |
 | No Schedules page | Build the Schedules page as designed |
-| Ask heading and suggestions removed | Keep them as designed ("What do you want to know?" and the suggestion chips) |
+| Ask heading and suggestions removed | Keep the heading as designed ("What do you want to know?"); the suggestion chips are removed again (owner decision 2026-10-14, section 2) |
 | Model picker (Opus 5.5, Fable 5.1, Kimi K3) | Not in the design: do **not** build it. The model split is the admin "Model split" setting |
 | "What this answer used" panel removed | Build it as on PDF page 4 |
 
@@ -34,6 +34,18 @@ Another session may be working in this repo. Check `git status` and `git log -3`
 
 For each screen: build the UI pixel-close to the design, then wire every element to the API. Section 3 lists the API and data. Where the design shows sample numbers, show real numbers from the database.
 
+### Owner decision, 2026-10-14: sign-in pages and a cleaner Ask
+
+The owner updated the design PDF (19 pages; page 1 is the user sign-in) and decided:
+
+- **User sign-in (`/login`) copies PDF page 1.** Left column (light grey, 552px): logo, white card with "Sign in", "Work email", "Password" with "Forgot password?" and a Show / Hide button inside the field, **Keep me signed in on this device** (checked by default), **Sign in**, "or", **Continue with SSO** with "We'll find your company's sign-in from your work email.", and "Don't have access? Ask your 6th contact to send you an invite."; under the card "6th team? Sign in to the admin console". Right column (lavender with a CSS dot grid): "6th is a go-to-market consultancy.", its line of text and one card of three points (graded and sourced, with the four grade pills; your work stays in your workspace; ready to use on a call). Below 1024px the right column moves under the card (it is not hidden).
+- **Keep me signed in** is real: `POST /v1/auth/login` takes `remember` (default true). On, the session cookie has `Max-Age` = `sessions.absolute_timeout_s` from `config/session.yaml`; off, it is a browser-session cookie with no `Max-Age`, gone when the browser closes. The server-side idle and absolute limits apply either way. It holds for SSO too: the page adds `remember=false` to the SSO start URL, `/v1/sso/{slug}/start` sets a companion cookie beside the pre-auth cookie, and the callback then sets the session cookie without `Max-Age`.
+- **Continue with SSO** uses the email typed above (asks for it first if empty) and calls `POST /v1/sso/discover {email}` (anonymous sign-in route, same-origin, rate limited per source and per email domain). It answers `{"next": "sso", "start_url": "/v1/sso/<slug>/start?return_to=%2F"}` for an active connection whose verified domains hold the email's domain, otherwise `{"next": "password", "start_url": null}`; the same status and shape either way, nothing about the company. The lookup is the definer function `idp_connection_for_domain` (migration 0062).
+- Sign-in errors are plain and never say whether an account exists: "That email and password don't match.", "Too many attempts, try again in a minute." After a refused sign-in the card also offers "Waiting to verify your email? Send a new link" (the enumeration-safe resend), because the page has no other way to reach it.
+- `/forgot`, `/reset`, `/verify-email` and `/invite` use the same left column and card, centred, with no right column.
+- **Admin sign-in (`/operator/login`)**, which the design does not draw, is page 1's shape with the admin console's navy: inverse logo mark and "6th Admin / Account Intelligence"; card "Admin sign in", "For 6th staff only. Sign in with your 6th Google account.", **Sign in with Google** (the existing operator Google sign-in with all its checks); "Staff sign-in is not set up on this server." in place of the button when it is not configured; "Not 6th staff? Go to the workspace sign in" under the card. Right column navy (#101828) with a lighter navy dot grid: "The 6th admin console.", "Manage clients, users, the 6th Library and platform defaults." and a #1B2638 card: counts, never content; every change is recorded; checked every night.
+- **Ask without sample text.** The composer placeholder is "Ask about your accounts" (follow-up: "Ask a follow up"). The five suggestion chips and `GET /v1/chat/suggestions` are removed (route, OpenAPI, generated client, isolation matrix, tests); the two follow-up questions after an answer stay, drawn from the workspace. The sidebar's "Accounts used N of M" meter is removed; Add account still enforces the cap with its message.
+
 ### Shared user shell (every user screen)
 
 - Logo, "Account Intelligence / by 6th".
@@ -41,13 +53,13 @@ For each screen: build the UI pixel-close to the design, then wire every element
 - **New chat** button: starts an empty Ask thread.
 - Nav: Ask, Accounts, New research (shown as in the HTML for screens 9 and 10; include it in the nav on all screens), Schedules, Mail and drive. Active item styled as designed.
 - **RECENT**: the user's latest chat threads by title; click opens the thread.
-- Footer: **Accounts used N of M** with progress bar (N = accounts this user has added, M = the client's account cap per user), then avatar initial, name, email, and a Sign out control (add it under the email, same style as a secondary text link).
+- Footer: avatar initial, name, email, and a Sign out control (under the email, same style as a secondary text link). The "Accounts used N of M" meter was removed (owner decision 2026-10-14); the cap is still enforced on Add account.
 
 ### 1. Ask (`01-home-chat`)
 
 - Empty state: "What do you want to know?" and "Ask across your N accounts. Answers come from your workspace unless you choose the web."
 - Composer: text field; chips **+ Upload a file** (opens New research, file tab), **All N accounts** (scope picker: all accounts or one account), **Web: off** (toggle; turning it on does not search silently: it opens the Refresh confirmation for the scoped account, or asks the user to pick an account if scope is all); **Ask** button; Enter sends.
-- Suggestion chips under the composer: generated from the workspace (recent signals and accounts), five at most, clicking one asks it.
+- No suggestion chips under the composer and a neutral placeholder, "Ask about your accounts" (owner decision 2026-10-14).
 - Thread: navy user bubble; "Searching your workspace" state with a pulsing dot while the answer streams; answer paragraphs with **numbered citation chips**; an optional item card (for example `FIRST CALL QUESTIONS`) when the answer has a list; clicking a citation opens the **source card** under the answer (number, title, meta, Close; plus a link to open the source URL or file location).
 - **Offer card** "Want anything newer? Your workspace was refreshed N days ago. I can check the web, only if you confirm." with **Refresh from web** (opens Refresh for the relevant account) and **Stay local** (dismisses for this answer). Show it when the answer's newest source is older than the account's refresh cadence, or the workspace could not answer.
 - Follow-up chips after each answer (two related questions) and the follow-up composer at the bottom.
@@ -140,7 +152,7 @@ Nav: Overview, Clients, Users, 6th Library, Runs and spend, Platform defaults; *
 
 ### Screens the design does not show (build them in the same style)
 
-- Sign-in, forgot password, reset, verify email (the existing auth pages, restyled).
+- Sign-in is now in the design (PDF page 1); forgot password, reset, verify email and invite use its left column and card; the admin sign-in uses its shape in navy (owner decision 2026-10-14 above).
 - A small notification list in the user shell for "refresh finished" and "waiting: credit limit".
 - Empty, loading and error states for every screen.
 
