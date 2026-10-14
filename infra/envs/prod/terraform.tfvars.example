@@ -1,19 +1,22 @@
 # Copy to terraform.tfvars (not committed) and fill in. Every value here is a placeholder; no
-# secret belongs in this file (secrets are Secret Manager values added out of band).
-project_id         = "REPLACE-prod-project-id"
-region             = "REPLACE-region"            # e.g. us-central1 (US-only inference for healthcare)
-billing_account    = "000000-000000-000000"
-domain             = "REPLACE.example.com"
-github_repository  = "OWNER/REPO"
+# secret belongs in this file (secrets are Secret Manager values added out of band,
+# docs/deploy/RUNBOOK.md). Values with a default in main.tf are shown commented out.
+project_id        = "REPLACE-prod-project-id"
+region            = "REPLACE-region" # us-central1 or europe-west2 (docs/deploy/ARCHITECTURE.md, costs)
+billing_account   = "000000-000000-000000"
+domain            = "REPLACE.example.com"
+github_repository = "OWNER/REPO"
 images = {
   api    = "REGION-docker.pkg.dev/PROJECT/ai-prod-images/api@sha256:0000000000000000000000000000000000000000000000000000000000000000"
   worker = "REGION-docker.pkg.dev/PROJECT/ai-prod-images/worker@sha256:0000000000000000000000000000000000000000000000000000000000000000"
   web    = "REGION-docker.pkg.dev/PROJECT/ai-prod-images/web@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 }
-db_tier            = "REPLACE-tier"
+# ClamAV mirrored into this project's registry and pinned (docs/deploy/RUNBOOK.md, one-time setup)
+clamav_image       = "REGION-docker.pkg.dev/PROJECT/ai-prod-images/clamav@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+db_tier            = "db-custom-2-7680"
 llm_access         = "anthropic_api"
-monthly_budget_usd = 0
-alert_channels     = []
+monthly_budget_usd = 1500 # the owner's amount; alerts at 50, 90 and 100 percent
+alert_channels     = []   # notification channel ids (projects/PROJECT/notificationChannels/ID)
 raw_retention_days = 30
 staff = {
   workspace_domain = "example.com"
@@ -21,3 +24,11 @@ staff = {
   support_emails   = ""
   oauth_client_id  = "REPLACE.apps.googleusercontent.com"
 }
+# db_availability    = "REGIONAL" # REGIONAL = high availability
+# db_max_connections = 400
+# redis_tier         = "STANDARD_HA"
+# scaling = { api = { min = 1, max = 10 }, web = { min = 1, max = 10 }, worker = { min = 1, max = 8 } }
+# moonshot_enabled   = false # true only after moonshot-api-key has a version
+# maildrive = { google_client_id = "", microsoft_client_id = "" } # an id here needs its secret
+# archive_lock       = false # true locks the audit archive for 7 years (irreversible)
+# workload_alerts_enabled = false # true once the OTLP exporter ships metrics (V-OBS-1)

@@ -1,7 +1,9 @@
 # Public edge for the web app: global external HTTPS load balancer -> serverless NEG -> Cloud Run
-# web, a Google-managed certificate for the domain, HTTP redirected to HTTPS, and a Cloud Armor
-# policy (preconfigured OWASP rules and a per-client rate limit). The api is not exposed here: the
-# web server reaches it privately.
+# web, a Google-managed certificate for the domain, TLS 1.2+ (MODERN), HTTP redirected to HTTPS,
+# and a Cloud Armor policy (preconfigured OWASP CRS rules, a stricter limit on sign-in routes, a
+# per-client rate limit, Adaptive Protection alerts). The api and the worker are not exposed here:
+# the web server reaches the api privately, Cloud Tasks reaches the worker. File uploads go from
+# the browser straight to Cloud Storage, so large bodies never pass this policy.
 
 variable "project_id" {
   type = string
@@ -37,26 +39,61 @@ resource "google_compute_region_network_endpoint_group" "web" {
   }
 }
 
+locals {
+  # OWASP ModSecurity CRS 3.3 rule sets at sensitivity 1 (the fewest false positives); raise
+  # after watching preview logs on staging
+  waf = {
+    1000 = ["sqli-v33-stable", "xss-v33-stable"]
+    1010 = ["lfi-v33-stable", "rfi-v33-stable", "rce-v33-stable"]
+    1020 = ["protocolattack-v33-stable", "sessionfixation-v33-stable", "scannerdetection-v33-stable"]
+    1030 = ["methodenforcement-v33-stable"]
+  }
+}
+
 resource "google_compute_security_policy" "web" {
   project = var.project_id
   name    = "${var.name}-web-armor"
+  advanced_options_config {
+    json_parsing = "STANDARD" # JSON bodies are inspected field by field, not as one string
+    log_level    = "NORMAL"
+  }
+  adaptive_protection_config {
+    layer_7_ddos_defense_config {
+      enable = true
+    }
+  }
+  dynamic "rule" {
+    for_each = local.waf
+    content {
+      action      = "deny(403)"
+      priority    = rule.key
+      description = "OWASP CRS: ${join(", ", rule.value)}"
+      match {
+        expr {
+          expression = join(" || ", [for r in rule.value : "evaluatePreconfiguredWaf('${r}', {'sensitivity': 1})"])
+        }
+      }
+    }
+  }
   rule {
     action      = "deny(403)"
-    priority    = 1000
-    description = "OWASP: SQL injection and XSS"
+    priority    = 1040
+    description = "Log4j message lookup (CVE-2021-44228)"
     match {
       expr {
-        expression = "evaluatePreconfiguredWaf('sqli-v33-stable') || evaluatePreconfiguredWaf('xss-v33-stable')"
+        expression = "evaluatePreconfiguredExpr('cve-canary')"
       }
     }
   }
   rule {
     action      = "rate_based_ban"
     priority    = 1500
-    description = "Stricter per-client rate limit for authentication endpoints"
+    description = "Stricter per-client limit: sign-in, reset, invite accept, SSO discovery and start"
     match {
       expr {
-        expression = "request.path.matches('^/v1/auth/(login|email/(resend|verify)|password/enroll)$')"
+        # the api skips its own per-IP bucket behind the web server (identity/rate_limit.py), so
+        # this is the per-IP limit for these routes in the cloud (security audit M3)
+        expression = "request.path.matches('^/v1/(auth/(login|email/(resend|verify)|password/(enroll|reset(/request)?)|invite/accept)|sso/(discover|[a-z0-9-]+/start))$')"
       }
     }
     rate_limit_options {
@@ -67,6 +104,36 @@ resource "google_compute_security_policy" "web" {
       rate_limit_threshold {
         count        = 30
         interval_sec = 60
+      }
+    }
+  }
+  rule {
+    action      = "rate_based_ban"
+    priority    = 1600
+    description = "Looser per-client limit for the staff console's Google sign-in"
+    match {
+      expr {
+        expression = "request.path.matches('^/api/operator/(login|callback|session)$')"
+      }
+    }
+    rate_limit_options {
+      conform_action   = "allow"
+      exceed_action    = "deny(429)"
+      ban_duration_sec = 300
+      enforce_on_key   = "IP"
+      rate_limit_threshold {
+        count        = 60
+        interval_sec = 60
+      }
+    }
+  }
+  rule {
+    action      = "allow"
+    priority    = 1900
+    description = "Build assets (hashed, immutable) do not count against the per-client limit"
+    match {
+      expr {
+        expression = "request.method == 'GET' && request.path.startsWith('/_next/static/')"
       }
     }
   }
@@ -104,6 +171,13 @@ resource "google_compute_security_policy" "web" {
   }
 }
 
+resource "google_compute_ssl_policy" "web" {
+  project         = var.project_id
+  name            = "${var.name}-web-tls"
+  profile         = "MODERN"
+  min_tls_version = "TLS_1_2"
+}
+
 resource "google_compute_backend_service" "web" {
   project               = var.project_id
   name                  = "${var.name}-web-be"
@@ -138,6 +212,7 @@ resource "google_compute_target_https_proxy" "web" {
   name             = "${var.name}-web-https"
   url_map          = google_compute_url_map.web.id
   ssl_certificates = [google_compute_managed_ssl_certificate.web.id]
+  ssl_policy       = google_compute_ssl_policy.web.id
 }
 
 resource "google_compute_global_forwarding_rule" "https" {

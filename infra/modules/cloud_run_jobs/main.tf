@@ -1,11 +1,9 @@
-# Cloud Run Jobs.
-#   run              one account run per execution: the api starts an execution with overridden
-#                    arguments (--tenant-id, --run-id); the container drives the run's slices to a
-#                    stop and exits. One task, bounded retries (the checkpoint resumes a retried
-#                    execution), a timeout above the 4 h slice ceiling.
-#   migrate          `alembic upgrade head`; executed by the deploy pipeline before any rollout.
+# Cloud Run Jobs (run to completion; not request driven).
+#   migrate          `alembic upgrade head` as the migrator identity; executed by the deploy
+#                    pipeline before any rollout and never by a runtime account.
 #   spend-invariants the nightly invariant pass (started by Cloud Scheduler).
-# Starting an execution with overrides needs run.jobs.runWithOverrides: granted per job
+# Research runs are NOT jobs: each slice is a Cloud Tasks request to the private worker service
+# (modules/cloud_run, ADR-0018). Starting an execution needs run.jobs.run: granted per job
 # (roles/run.developer on that job only), never project-wide.
 
 variable "project_id" {
@@ -22,6 +20,10 @@ variable "network_id" {
 }
 variable "subnet_id" {
   type = string
+}
+variable "labels" {
+  type    = map(string)
+  default = {}
 }
 variable "jobs" {
   type = map(object({
@@ -51,6 +53,7 @@ resource "google_cloud_run_v2_job" "job" {
   name                = "${var.name}-${each.key}"
   location            = var.region
   deletion_protection = true
+  labels              = merge(var.labels, { job = each.key })
   template {
     task_count  = 1
     parallelism = 1

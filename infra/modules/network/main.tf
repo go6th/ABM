@@ -23,13 +23,34 @@ resource "google_compute_network" "vpc" {
   auto_create_subnetworks = false
 }
 
+# Nothing in this VPC accepts connections from outside it: an explicit deny-all ingress rule (the
+# implied rule says the same; this one is visible and logged nowhere, to keep cost at zero).
+resource "google_compute_firewall" "deny_ingress" {
+  project       = var.project_id
+  name          = "${var.name}-deny-ingress"
+  network       = google_compute_network.vpc.id
+  direction     = "INGRESS"
+  priority      = 65534
+  source_ranges = ["0.0.0.0/0"]
+  deny {
+    protocol = "all"
+  }
+}
+
 resource "google_compute_subnetwork" "run" {
   project                  = var.project_id
   name                     = "${var.name}-run"
   region                   = var.region
   network                  = google_compute_network.vpc.id
   ip_cidr_range            = var.subnet_cidr
-  private_ip_google_access = true
+  private_ip_google_access = true # Google APIs (Storage, Secret Manager, Tasks) without NAT
+  # Direct VPC egress takes two addresses per instance (four while a revision rolls): a /24 holds
+  # 60 instances in all services at the documented maximums with room for a rollout.
+  log_config {
+    aggregation_interval = "INTERVAL_10_MIN"
+    flow_sampling        = 0.1
+    metadata             = "EXCLUDE_ALL_METADATA"
+  }
 }
 
 resource "google_compute_global_address" "private_services" {
@@ -68,6 +89,11 @@ resource "google_compute_router_nat" "nat" {
   nat_ip_allocate_option             = "MANUAL_ONLY"
   nat_ips                            = [google_compute_address.nat.self_link]
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+  # many concurrent provider calls from one instance: ports grow on demand from 64 to 4096
+  enable_dynamic_port_allocation      = true
+  enable_endpoint_independent_mapping = false
+  min_ports_per_vm                    = 64
+  max_ports_per_vm                    = 4096
   log_config {
     enable = true
     filter = "ERRORS_ONLY"

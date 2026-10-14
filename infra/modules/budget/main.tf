@@ -13,6 +13,10 @@ variable "name" {
 }
 variable "monthly_budget_usd" {
   type = number
+  validation {
+    condition     = var.monthly_budget_usd > 0
+    error_message = "monthly_budget_usd must be a positive amount (the owner's input)."
+  }
 }
 variable "notification_channels" {
   type = list(string)
@@ -36,6 +40,10 @@ resource "google_billing_budget" "env" {
   threshold_rules {
     threshold_percent = 0.9
   }
+  threshold_rules {
+    threshold_percent = 1.0
+  }
+  # an early warning: the month is on course to pass the budget
   threshold_rules {
     threshold_percent = 1.0
     spend_basis       = "FORECASTED_SPEND"
