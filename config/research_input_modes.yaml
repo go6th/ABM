@@ -33,8 +33,8 @@ parsing:
   orphan_after_s: 900
 
 sandbox:
-  timeout_s: 1800                    # wall clock per part (and per plan)
-  cpu_s: 1800
+  timeout_s: 1500                    # wall clock per part (and per plan); one part per Cloud Tasks
+  cpu_s: 1500                        # request, inside its 1800 s maximum with room for the writes
   memory_mb: 1536
 
 chunking:

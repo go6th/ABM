@@ -516,7 +516,17 @@ def document_service(
         int(env.get("CLAMD_PORT", "3310")),
     )
     embedder = HashingEmbedder(cfg.embedding.dimensions, cfg.embedding.model)
-    return DocumentService(tenant_txn, blobs, scanner, embedder, scheduler, clock, cfg)
+    return DocumentService(
+        tenant_txn,
+        blobs,
+        scanner,
+        embedder,
+        scheduler,
+        clock,
+        cfg,
+        # one part per Cloud Tasks request in the cloud (the 30-minute dispatch maximum)
+        parts_per_request=1 if app_env in CLOUD_ENVS else None,
+    )
 
 
 def delivery_gate(payloads: Any, documents: Any) -> Any:
@@ -635,7 +645,13 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     )
     from research_files.blobstore import GcsBlobStore
 
-    blobs = GcsBlobStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
+    blobs = GcsBlobStore(
+        gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"), env.get("BLOB_MOUNT_DIR")
+    )
+    if env.get("SERVICE_ROLE") == "worker" and not env.get("BLOB_MOUNT_DIR"):
+        # the worker parses documents: without the bucket mount every file would be copied into
+        # the instance's memory first (Cloud Run has no disk)
+        raise RuntimeMisconfigured("BLOB_MOUNT_DIR is required for the worker in the cloud")
     built.extras["maildrive_apps"] = maildrive_apps(env)
     built.documents = document_service(blobs, scheduler, clock, env, app_env)
     built.gate = delivery_gate(built.payloads, built.documents)

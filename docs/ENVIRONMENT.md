@@ -55,6 +55,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `WORKER_URL` | HTTPS URL of the worker service. | no | staging, production | - | api, worker |
 | `TASKS_SERVICE_ACCOUNT` | Service account Cloud Tasks signs OIDC tokens as. | no | staging, production | - | api, worker |
 | `TASKS_AUDIENCE` | Audience the worker expects on task tokens. | no | staging, production | - | api, worker |
+| `BLOB_MOUNT_DIR` | Read-only mount of the payload bucket on the worker (/mnt/blobs); the parser sandbox reads documents there instead of a whole-file copy in memory. Required for the worker in the cloud. | no | - | - | worker |
 | `PAYLOAD_BUCKET` | GCS bucket for raw payloads and exports (per-tenant prefixes). | no | staging, production | - | api, worker |
 | `REDIS_URL` | Redis URL (redis:// locally, rediss:// for Memorystore with TLS): the shared rate limiters (sign-in and providers) and the research cache index. Unset: in-process rate buckets and Postgres-only cache lookups. | no | staging, production | - | api, worker |
 | `DEV_ASSUME_PROVIDER_BALANCE` | Local stack only: treat every provider balance as funded (unattended runs). | no | - | staging, production | worker |

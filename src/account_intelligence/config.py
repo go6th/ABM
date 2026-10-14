@@ -194,6 +194,12 @@ class Settings(BaseSettings):
     tasks_audience: str | None = var(
         purpose="Audience the worker expects on task tokens.", required_in=CLOUD
     )
+    blob_mount_dir: str | None = var(
+        purpose="Read-only mount of the payload bucket on the worker (/mnt/blobs); the parser"
+        " sandbox reads documents there instead of a whole-file copy in memory. Required for the"
+        " worker in the cloud.",
+        component="worker",
+    )
     payload_bucket: str | None = var(
         purpose="GCS bucket for raw payloads and exports (per-tenant prefixes).",
         required_in=CLOUD,
