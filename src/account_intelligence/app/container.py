@@ -209,6 +209,14 @@ def build_connectors(
     return with_governance(runtime), retry_policy_for(config)
 
 
+def maildrive_apps(env: Mapping[str, str]) -> dict[str, tuple[str, str]]:
+    """The Mail and drive OAuth apps registered in the environment (empty until the owner
+    registers them: every source then says "Not available yet")."""
+    from connectors_client.maildrive import oauth_apps
+
+    return oauth_apps(env)
+
+
 def hermetic_connectors(env: Mapping[str, str], payloads: PayloadStore) -> tuple[Any, Any]:
     """The connector runtime on synthetic providers (``connectors.hermetic``): the real ledger,
     routing and grading path, with no request leaving the process (dev and test only)."""
@@ -453,6 +461,7 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         dev_auto_approve=app_env == "dev" and env.get("DEV_AUTO_APPROVE_CAPS") == "1",
         reply_cache=reply_cache(env) if connectors is not None else None,
     )
+    container.extras["maildrive_apps"] = maildrive_apps(env)
     blobs = local_blob_store(env.get("PAYLOAD_DIR"))
     container.files = file_services(blobs, llm, container.scheduler)
     container.documents = document_service(blobs, container.scheduler, clock, env, app_env)
@@ -601,6 +610,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
 
     blobs = GcsBlobStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
     built.files = file_services(blobs, llm, scheduler)
+    built.extras["maildrive_apps"] = maildrive_apps(env)
     built.documents = document_service(blobs, scheduler, clock, env, app_env)
     built.gate = delivery_gate(built.payloads, built.documents)
     return built

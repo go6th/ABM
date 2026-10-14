@@ -453,3 +453,9 @@ table.xl th span.th { color: var(--text-3); }
   .fa-cite { white-space: normal; flex-basis: 100%; }
   .fa-rail { max-width: none; }
 }
+.stack-8 { display: flex; flex-direction: column; gap: 8px; }
+.stack-16 { display: flex; flex-direction: column; gap: 16px; }
+.card-title { font-weight: 600; font-size: 17px; }
+.kv-list { margin: 0; padding-top: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.kv-list > div { display: flex; justify-content: space-between; gap: 12px; }
+.kv-list dd { margin: 0; font-weight: 600; text-align: right; }

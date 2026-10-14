@@ -1311,6 +1311,42 @@ export const LogoUploaded = z.object({
 }).strict();
 export type LogoUploaded = z.infer<typeof LogoUploaded>;
 
+export const MailDriveOption = z.object({
+  "available": z.boolean(),
+  "kind": z.string(),
+  "label": z.string(),
+}).strict();
+export type MailDriveOption = z.infer<typeof MailDriveOption>;
+
+export const MailDriveFamily = z.object({
+  "accounts": z.number().int(),
+  "items": z.number().int(),
+  "kind": z.string().nullable(),
+  "last_synced_at": z.string().nullable(),
+  "options": z.array(MailDriveOption),
+  "source": z.string().nullable(),
+  "status": z.string(),
+}).strict();
+export type MailDriveFamily = z.infer<typeof MailDriveFamily>;
+
+export const MailAndDrive = z.object({
+  "allowed": z.boolean(),
+  "drive": MailDriveFamily,
+  "mail": MailDriveFamily,
+}).strict();
+export type MailAndDrive = z.infer<typeof MailAndDrive>;
+
+export const MailDriveConnect = z.object({
+  "authorize_url": z.string(),
+}).strict();
+export type MailDriveConnect = z.infer<typeof MailDriveConnect>;
+
+export const MailDriveDisconnected = z.object({
+  "disconnected": z.number().int(),
+  "items_deleted": z.number().int(),
+}).strict();
+export type MailDriveDisconnected = z.infer<typeof MailDriveDisconnected>;
+
 export const MappingBody = z.object({
   "domain": z.string(),
   "record_id": z.string(),
@@ -2442,6 +2478,12 @@ export const KNOWN_VALUES = {
     "is_empty",
     "not_empty"
   ],
+  "MailDriveFamily.status": [
+    "connected",
+    "not_connected",
+    "not_available",
+    "broken"
+  ],
   "Me.role": [
     "admin",
     "analyst",
@@ -2692,6 +2734,10 @@ export const operations = {
   "GET /v1/files/{file_id}/audit": { method: "GET", path: "/v1/files/{file_id}/audit", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAudit },
   "POST /v1/files/{file_id}/resume": { method: "POST", path: "/v1/files/{file_id}/resume", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileState },
   "GET /v1/library/available": { method: "GET", path: "/v1/library/available", plane: "tenant", status: 200, request: null, requestRequired: false, response: LibraryAvailable },
+  "GET /v1/mail-and-drive": { method: "GET", path: "/v1/mail-and-drive", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailAndDrive },
+  "GET /v1/mail-and-drive/callback": { method: "GET", path: "/v1/mail-and-drive/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "POST /v1/mail-and-drive/{family}/disconnect": { method: "POST", path: "/v1/mail-and-drive/{family}/disconnect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveDisconnected },
+  "POST /v1/mail-and-drive/{kind}/connect": { method: "POST", path: "/v1/mail-and-drive/{kind}/connect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveConnect },
   "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
   "GET /v1/models": { method: "GET", path: "/v1/models", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatModels },
   "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, request: null, requestRequired: false, response: MonitoringBudget },

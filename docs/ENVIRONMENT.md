@@ -85,6 +85,12 @@ or a value has the wrong type (errors name the variable, never the value).
 | `P_SIGNALS_API_TOKEN` | Signals provider token. | **secret** | - | - | api, worker |
 | `P_PEOPLE_API_KEY` | People provider key. | **secret** | - | - | api, worker |
 | `P_ORG_API_KEY` | Organisation provider key. | **secret** | - | - | api, worker |
+| `MAILDRIVE_GOOGLE_CLIENT_ID` | Google OAuth app client id for Gmail and Google Drive (Mail and drive). | no | - | - | api, worker |
+| `MAILDRIVE_GOOGLE_CLIENT_SECRET` | Google OAuth app client secret (cloud: injected from Secret Manager). | **secret** | - | - | api, worker |
+| `MAILDRIVE_GOOGLE_CLIENT_SECRET_FILE` | Path to a file holding the Google client secret (instead of the variable). | no | - | - | api, worker |
+| `MAILDRIVE_MICROSOFT_CLIENT_ID` | Microsoft OAuth app client id for Outlook, OneDrive and SharePoint. | no | - | - | api, worker |
+| `MAILDRIVE_MICROSOFT_CLIENT_SECRET` | Microsoft OAuth app client secret (cloud: injected from Secret Manager). | **secret** | - | - | api, worker |
+| `MAILDRIVE_MICROSOFT_CLIENT_SECRET_FILE` | Path to a file holding the Microsoft client secret (instead of the variable). | no | - | - | api, worker |
 | `RESEARCH_ENGINE` | Research job engine: graph (the run lifecycle on the ABM agent graph; cloud default), hermetic (no outside call; dev and test default) or skill (the skill executor, refused until it is built). | no | - | - | api, worker |
 | `EXPORT_RENDERER` | Word renderer override (see exports.wiring). | no | - | - | api, worker |
 | `EXPORT_RENDER_CHECKS` | Run LibreOffice render checks on every export. | no | - | - | api, worker |

@@ -20,6 +20,7 @@ from account_intelligence.api.routes import (
     health,
     internal_view,
     library,
+    maildrive,
     me,
     operator_admin,
     operator_view,
@@ -49,6 +50,7 @@ v1_router.include_router(ask.router)
 v1_router.include_router(credits.router)
 v1_router.include_router(research.router)
 v1_router.include_router(library.router)
+v1_router.include_router(maildrive.router)
 v1_router.include_router(schedules.router)
 v1_router.include_router(me.router)
 v1_router.include_router(spend.router)

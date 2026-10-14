@@ -9,8 +9,12 @@ source: "Roadmap Phase 3 connectors; D-08 (Grain first, then CRM and Drive); D-6
 connectors:
   google_drive:
     enabled: true
+    family: drive
+    provider: google
     scopes: ["https://www.googleapis.com/auth/drive.readonly"]   # [VERIFY] narrowest scope that can read admin-named folders
     authorize_endpoint: "https://accounts.google.com/o/oauth2/v2/auth"  # [VERIFY]
+    token_endpoint: "https://oauth2.googleapis.com/token"
+    revoke_endpoint: "https://oauth2.googleapis.com/revoke"
     grant_kinds: [drive_folder]
   salesforce:
     enabled: true
@@ -24,10 +28,42 @@ connectors:
     authorize_endpoint: "https://app.hubspot.com/oauth/authorize"     # [VERIFY]
     grant_kinds: [crm_object, crm_field]
     objects: {companies: [id, name, domain, industry], deals: [id, dealname, dealstage, closedate]}
+  # Mail and drive (REPLICA_PROMPT, owner decision 2026-10-14, reverses D-65): per-user,
+  # read-only. Each needs an OAuth app the owner registers (client id and secret); until then
+  # the Mail and drive page says "Not available yet". Scopes and endpoints are the providers'
+  # documented read-only ones, [VERIFY] against a real app before going live.
   gmail:
-    enabled: false                                                 # D-65: not in ARCH; owner decides
+    enabled: true
+    family: mail
+    provider: google
     scopes: ["https://www.googleapis.com/auth/gmail.readonly"]     # [VERIFY]
     authorize_endpoint: "https://accounts.google.com/o/oauth2/v2/auth"
+    token_endpoint: "https://oauth2.googleapis.com/token"
+    revoke_endpoint: "https://oauth2.googleapis.com/revoke"
+    grant_kinds: []
+  outlook:
+    enabled: true
+    family: mail
+    provider: microsoft
+    scopes: ["offline_access", "https://graph.microsoft.com/Mail.Read"]   # [VERIFY]
+    authorize_endpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+    token_endpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+    grant_kinds: []
+  onedrive:
+    enabled: true
+    family: drive
+    provider: microsoft
+    scopes: ["offline_access", "https://graph.microsoft.com/Files.Read"]  # [VERIFY]
+    authorize_endpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+    token_endpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+    grant_kinds: []
+  sharepoint:
+    enabled: true
+    family: drive
+    provider: microsoft
+    scopes: ["offline_access", "https://graph.microsoft.com/Sites.Read.All"]   # [VERIFY]
+    authorize_endpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+    token_endpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/token"
     grant_kinds: []
   call_notes:
     enabled: false                                                 # D-65: source not chosen

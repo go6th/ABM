@@ -277,6 +277,28 @@ class Settings(BaseSettings):
     p_org_api_key: SecretStr | None = var(purpose="Organisation provider key.", secret=True)
 
     # exports
+    # Mail and drive (per-user, read-only): the OAuth apps the owner registers. Until both the
+    # id and the secret of a provider are set, its sources say "Not available yet".
+    maildrive_google_client_id: str | None = var(
+        purpose="Google OAuth app client id for Gmail and Google Drive (Mail and drive)."
+    )
+    maildrive_google_client_secret: SecretStr | None = var(
+        purpose="Google OAuth app client secret (cloud: injected from Secret Manager).",
+        secret=True,
+    )
+    maildrive_google_client_secret_file: str | None = var(
+        purpose="Path to a file holding the Google client secret (instead of the variable)."
+    )
+    maildrive_microsoft_client_id: str | None = var(
+        purpose="Microsoft OAuth app client id for Outlook, OneDrive and SharePoint."
+    )
+    maildrive_microsoft_client_secret: SecretStr | None = var(
+        purpose="Microsoft OAuth app client secret (cloud: injected from Secret Manager).",
+        secret=True,
+    )
+    maildrive_microsoft_client_secret_file: str | None = var(
+        purpose="Path to a file holding the Microsoft client secret (instead of the variable)."
+    )
     research_engine: Literal["graph", "hermetic", "skill"] | None = var(
         purpose=(
             "Research job engine: graph (the run lifecycle on the ABM agent graph; cloud"

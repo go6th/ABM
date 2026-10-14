@@ -6306,6 +6306,164 @@
         "title": "LogoUploaded",
         "type": "object"
       },
+      "MailAndDrive": {
+        "additionalProperties": false,
+        "description": "The signed-in user's Mail and drive page.",
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "drive": {
+            "$ref": "#/components/schemas/MailDriveFamily"
+          },
+          "mail": {
+            "$ref": "#/components/schemas/MailDriveFamily"
+          }
+        },
+        "required": [
+          "allowed",
+          "mail",
+          "drive"
+        ],
+        "title": "MailAndDrive",
+        "type": "object"
+      },
+      "MailDriveConnect": {
+        "additionalProperties": false,
+        "description": "Where to send the browser for the consent.",
+        "properties": {
+          "authorize_url": {
+            "title": "Authorize Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorize_url"
+        ],
+        "title": "MailDriveConnect",
+        "type": "object"
+      },
+      "MailDriveDisconnected": {
+        "additionalProperties": false,
+        "description": "What Disconnect did.",
+        "properties": {
+          "disconnected": {
+            "title": "Disconnected",
+            "type": "integer"
+          },
+          "items_deleted": {
+            "title": "Items Deleted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "disconnected",
+          "items_deleted"
+        ],
+        "title": "MailDriveDisconnected",
+        "type": "object"
+      },
+      "MailDriveFamily": {
+        "additionalProperties": false,
+        "description": "The Mail card or the Drive card.",
+        "properties": {
+          "accounts": {
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/MailDriveOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "enum": [
+              "connected",
+              "not_connected",
+              "not_available",
+              "broken"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "kind",
+          "source",
+          "options",
+          "accounts",
+          "items",
+          "last_synced_at"
+        ],
+        "title": "MailDriveFamily",
+        "type": "object"
+      },
+      "MailDriveOption": {
+        "additionalProperties": false,
+        "description": "One source the user may connect.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "available"
+        ],
+        "title": "MailDriveOption",
+        "type": "object"
+      },
       "MappingBody": {
         "additionalProperties": false,
         "description": "A confirmed mapping.",
@@ -18521,6 +18679,255 @@
         "summary": "Library Available",
         "tags": [
           "library"
+        ]
+      }
+    },
+    "/v1/mail-and-drive": {
+      "get": {
+        "description": "The caller's Mail and Drive cards.",
+        "operationId": "mail_and_drive_v1_mail_and_drive_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailAndDrive"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mail And Drive",
+        "tags": [
+          "mail-and-drive"
+        ]
+      }
+    },
+    "/v1/mail-and-drive/callback": {
+      "get": {
+        "description": "Finish a consent (bound to this user) and return to the page.",
+        "operationId": "callback_v1_mail_and_drive_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 16,
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "mail-and-drive"
+        ]
+      }
+    },
+    "/v1/mail-and-drive/{family}/disconnect": {
+      "post": {
+        "description": "Revoke, destroy the token and delete what the caller's connection synced.",
+        "operationId": "disconnect_v1_mail_and_drive__family__disconnect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "family",
+            "required": true,
+            "schema": {
+              "enum": [
+                "mail",
+                "drive"
+              ],
+              "title": "Family",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailDriveDisconnected"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disconnect",
+        "tags": [
+          "mail-and-drive"
+        ]
+      }
+    },
+    "/v1/mail-and-drive/{kind}/connect": {
+      "post": {
+        "description": "Start the read-only consent for one source.",
+        "operationId": "connect_v1_mail_and_drive__kind__connect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "gmail",
+                "outlook",
+                "google_drive",
+                "onedrive",
+                "sharepoint"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailDriveConnect"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect",
+        "tags": [
+          "mail-and-drive"
         ]
       }
     },

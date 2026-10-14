@@ -48,19 +48,34 @@ class Started:
 
 
 async def start(
-    s: Any, *, kind: str, user: str, client_id: str, redirect_uri: str, now: datetime
+    s: Any,
+    *,
+    kind: str,
+    user: str,
+    client_id: str,
+    redirect_uri: str,
+    now: datetime,
+    personal: bool = False,
 ) -> Started:
-    """Create a pending connection and its single-use consent state."""
+    """Create a pending connection and its single-use consent state. ``personal``: a Mail and
+    drive connection owned by ``user`` alone (never a tenant-wide source)."""
     sp = spec(kind)
     if not sp.enabled:
         raise ConnectorRefused("connector_not_enabled")
     connection_id: UUID = (
         await s.execute(
             text(
-                "INSERT INTO connector_connections (kind, status, created_by, created_at)"
-                " VALUES (:k, 'pending', :u, :now) RETURNING id"
+                "INSERT INTO connector_connections (kind, status, created_by, created_at,"
+                " owner_user_id, provider) VALUES (:k, 'pending', :u, :now, :owner, :p)"
+                " RETURNING id"
             ),
-            {"k": kind, "u": user, "now": now},
+            {
+                "k": kind,
+                "u": user,
+                "now": now,
+                "owner": user if personal else None,
+                "p": sp.provider if personal else None,
+            },
         )
     ).scalar_one()
     state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(48)

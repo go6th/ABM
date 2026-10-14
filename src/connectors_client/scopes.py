@@ -15,7 +15,16 @@ import yaml
 
 from account_intelligence.config import CONFIG_DIR
 
-KINDS = ("google_drive", "salesforce", "hubspot", "gmail", "call_notes")
+KINDS = (
+    "google_drive",
+    "salesforce",
+    "hubspot",
+    "gmail",
+    "call_notes",
+    "outlook",
+    "onedrive",
+    "sharepoint",
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +37,11 @@ class ConnectorSpec:
     authorize_endpoint: str
     grant_kinds: frozenset[str]
     objects: dict[str, frozenset[str]]
+    # Mail and drive sources: "mail" or "drive", the OAuth provider and its token endpoints
+    family: str | None = None
+    provider: str | None = None
+    token_endpoint: str | None = None
+    revoke_endpoint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +69,10 @@ def load() -> tuple[dict[str, ConnectorSpec], Limits]:
             authorize_endpoint=str(c["authorize_endpoint"]),
             grant_kinds=frozenset(c.get("grant_kinds") or ()),
             objects={o: frozenset(f) for o, f in (c.get("objects") or {}).items()},
+            family=c.get("family"),
+            provider=c.get("provider"),
+            token_endpoint=c.get("token_endpoint"),
+            revoke_endpoint=c.get("revoke_endpoint"),
         )
         for kind, c in raw["connectors"].items()
     }

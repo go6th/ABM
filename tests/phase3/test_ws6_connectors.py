@@ -134,7 +134,8 @@ def test_scopes_are_exactly_the_table_and_crm_fields_are_allow_listed() -> None:
     ) == ("Name",)
     assert scopes.allowed_fields("salesforce", "Account", set(), {"Account.Name"}) == ()
     assert scopes.allowed_fields("salesforce", "Lead", {"Lead"}, {"Lead.Email"}) == ()
-    assert not scopes.spec("gmail").enabled and not scopes.spec("call_notes").enabled
+    # Gmail is a personal Mail and drive source (REPLICA_PROMPT); call notes stay off (D-65)
+    assert scopes.spec("gmail").family == "mail" and not scopes.spec("call_notes").enabled
 
 
 def test_connector_ports_are_read_only_and_fail_closed() -> None:

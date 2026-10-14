@@ -30,6 +30,7 @@ from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from connectors_client import framework, oauth, quarantine
+from connectors_client.scopes import spec
 from metering import limits
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
@@ -123,6 +124,14 @@ async def start(
     body: StartBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
     """Start a consent for one source."""
+    if spec(body.kind).family == "mail":
+        # a mailbox is personal: only its owner connects it, on the Mail and drive page
+        raise APIProblem(
+            409,
+            "personal_source",
+            "Personal source",
+            "Mail is connected by each person on the Mail and drive page.",
+        )
     plane = plane_of(request)
     client_id = (
         plane.connector_client_id(body.kind) if body.kind not in ("gmail", "call_notes") else ""

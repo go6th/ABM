@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **176**.
-- Frontend literal call sites found: **80**.
-- Frontend call sites mapped to backend operations: **75**.
-- Backend operations without a direct frontend call site: **120**.
+- Backend operations in OpenAPI: **180**.
+- Frontend literal call sites found: **82**.
+- Frontend call sites mapped to backend operations: **77**.
+- Backend operations without a direct frontend call site: **122**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -82,6 +82,8 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/FileUploader.tsx` | tenant client | `GET /v1/files/uploads/{upload_id}` | — | FileUploadState | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/FileUploader.tsx` | tenant client | `POST /v1/files/uploads/{upload_id}/complete` | — | FileUploadCompleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/FileUploader.tsx` | tenant client | `PUT /v1/files/uploads/{upload_id}/parts/{part_no}` | — | FileUploadPart | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{kind}/connect` | — | MailDriveConnect | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
+| `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{family}/disconnect` | — | MailDriveDisconnected | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `web/components/ws/WorkspaceShell.tsx` | tenant client | `POST /v1/notifications/{notification_id}/read` | — | NotificationRead | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/components/accounts/ResearchCompany.tsx` | tenant client | `POST /v1/research` | ResearchBody (required) | ResearchStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -172,6 +174,8 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/files/{file_id}/analytics` | — | FileAnalytics (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/files/{file_id}/audit` | — | FileAudit (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/library/available` | — | LibraryAvailable (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/mail-and-drive` | — | MailAndDrive (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/mail-and-drive/callback` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `GET /v1/me` | — | Me (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/models` | — | ChatModels (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/monitoring/budget` | — | MonitoringBudget (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
@@ -257,6 +261,8 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/files/{file_id}/approve` | — | FileState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/files/{file_id}/ask` | Question (required) | FileAnswer (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/files/{file_id}/resume` | — | FileState (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/mail-and-drive/{family}/disconnect` | — | MailDriveDisconnected (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
+| `POST /v1/mail-and-drive/{kind}/connect` | — | MailDriveConnect (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/notifications/{notification_id}/read` | — | NotificationRead (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/research` | ResearchBody (required) | ResearchStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/runs` | RunBody (required) | RunCreated (202) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |

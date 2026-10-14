@@ -2102,6 +2102,47 @@ class InternalFinding(Out):
     quote: str
 
 
+class MailDriveOption(Out):
+    """One source the user may connect."""
+
+    kind: str
+    label: str
+    available: bool
+
+
+class MailDriveFamily(Out):
+    """The Mail card or the Drive card."""
+
+    status: Literal["connected", "not_connected", "not_available", "broken"]
+    kind: str | None
+    source: str | None
+    options: list[MailDriveOption]
+    accounts: int
+    items: int
+    last_synced_at: str | None
+
+
+class MailAndDrive(Out):
+    """The signed-in user's Mail and drive page."""
+
+    allowed: bool
+    mail: MailDriveFamily
+    drive: MailDriveFamily
+
+
+class MailDriveConnect(Out):
+    """Where to send the browser for the consent."""
+
+    authorize_url: str
+
+
+class MailDriveDisconnected(Out):
+    """What Disconnect did."""
+
+    disconnected: int
+    items_deleted: int
+
+
 class FileAnalysisRun(Out):
     """An account's file analysis run, as the File analysis screen needs it."""
 

@@ -1,13 +1,12 @@
-"""Gmail (D-65): not in ARCH; off behind ``config/connectors.yaml`` (enabled: false) until the
-owner decides. Any use refuses."""
+"""Gmail as a tenant-wide source stays off (decision D-65): a whole client's mailbox is never
+connected. Gmail exists only as a personal, read-only Mail and drive source of one user
+(``connectors_client.maildrive``, REPLICA_PROMPT screen 8). Any tenant-wide use refuses."""
 
 from __future__ import annotations
 
 from account_intelligence.platform.ports import NotConfigured
-from connectors_client.scopes import spec
 
 
 def require_enabled() -> None:
-    """Refuse while the source is off (label constraints would be enforced here when on)."""
-    if not spec("gmail").enabled:
-        raise NotConfigured("the Gmail connector is off (decision D-65)")
+    """Refuse: Gmail is never a tenant-wide source (personal Mail and drive only)."""
+    raise NotConfigured("Gmail is a personal Mail and drive source only (decision D-65)")

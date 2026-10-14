@@ -6,6 +6,7 @@
 * ``POST /tasks/approval-timeout``: expires an approval past its deadline (cancel and refund).
 * ``POST /tasks/research-job``: runs one confirmed research job within its reserved credits.
 * ``POST /tasks/schedules-tick``: starts due scheduled refreshes from each client's credit pool.
+* ``POST /tasks/maildrive-sync``: syncs the per-user Mail and drive connections that are due.
 
 The body carries ids only. The token must be for the worker audience and from the scheduler's
 service account (W3: no caller identity is trusted from the body). The tenant in the body is then
@@ -207,3 +208,48 @@ async def schedules_tick(
     from account_intelligence.replica import jobs, schedules
 
     return await schedules.tick(datetime.now(UTC), jobs.run_or_enqueue)
+
+
+@router.post("/maildrive-sync")
+async def maildrive_sync(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, int]:
+    """Sync the per-user Mail and drive connections not synced in the last hour (Cloud
+    Scheduler; identifiers from ``maildrive_connections_due``, then each tenant's own
+    transaction). Only items matching the user's accounts are kept."""
+    _authorise(request, authorization)
+    from datetime import UTC, datetime, timedelta
+
+    from account_intelligence.api.tenant_plane import plane_of
+    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from connectors_client import maildrive
+
+    container = request.app.state.container
+    now = datetime.now(UTC)
+    oauth = container.extras.get("maildrive_oauth") or maildrive.HttpOAuthClient(
+        container.extras.get("maildrive_apps") or {}
+    )
+    reader = container.extras.get("maildrive_reader") or maildrive.HttpMailDriveReader()
+    async with untenanted_session() as plain:
+        due = (
+            await plain.execute(
+                text("SELECT * FROM maildrive_connections_due(:b)"),
+                {"b": now - timedelta(hours=1)},
+            )
+        ).all()
+    synced = matched = broken = 0
+    # LOOP(mail and drive sync): cap=500 connections per tick (the lookup's limit); exit=end
+    for tenant_id, connection_id in due:
+        result = await maildrive.sync_connection(
+            tenant_txn,
+            tenant_id,
+            connection_id,
+            oauth=oauth,
+            reader=reader,
+            store=plane_of(request).secrets,
+            now=now,
+        )
+        synced += 1
+        matched += result.matched
+        broken += result.broken is not None
+    return {"connections": synced, "matched": matched, "broken": broken}

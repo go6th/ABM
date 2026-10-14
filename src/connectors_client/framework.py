@@ -424,3 +424,64 @@ async def _crm(
             page_token = page.next_token
             if not page_token:
                 break
+
+
+async def store_matched_item(
+    s: Any,
+    *,
+    tenant_id: UUID,
+    connection_id: UUID,
+    owner_user_id: str,
+    account_id: UUID,
+    resource_id: str,
+    sha256: str,
+    kind: str,
+    title: str,
+    snippet: str,
+    when: datetime | None,
+    location: str,
+    now: datetime,
+) -> None:
+    """One mail thread or file matched to one of the user's accounts (Mail and drive): its
+    metadata only, private to its owner. A repeated sync of the same item changes nothing."""
+    await s.execute(
+        text(
+            "INSERT INTO connector_items (tenant_id, connection_id, resource_id, sha256,"
+            " object_key, bytes, state, fetched_at, owner_user_id, account_id, item_kind, title,"
+            " snippet, item_date, location) VALUES (:t, :c, :r, :sha, :k, 0, 'matched', :now,"
+            " :u, :a, :kind, :ti, :sn, :d, :loc)"
+            " ON CONFLICT (tenant_id, connection_id, resource_id, sha256) DO NOTHING"
+        ),
+        {
+            "t": tenant_id,
+            "c": connection_id,
+            "r": resource_id[:500],
+            "sha": sha256,
+            "k": f"tenants/{tenant_id}/connector-quarantine/{sha256}",
+            "now": now,
+            "u": owner_user_id,
+            "a": account_id,
+            "kind": kind,
+            "ti": title,
+            "sn": snippet or None,
+            "d": when,
+            "loc": location,
+        },
+    )
+
+
+async def mark_synced(s: Any, connection_id: UUID, now: datetime) -> None:
+    """Record when a per-user connection was last synced."""
+    await s.execute(
+        text("UPDATE connector_connections SET last_synced_at = :now WHERE id = :c"),
+        {"now": now, "c": connection_id},
+    )
+
+
+async def delete_connection_items(s: Any, connection_id: UUID) -> int:
+    """Delete everything a connection synced (Disconnect). Returns how many rows went."""
+    gone = await s.execute(
+        text("DELETE FROM connector_items WHERE connection_id = :c RETURNING id"),
+        {"c": connection_id},
+    )
+    return len(gone.all())

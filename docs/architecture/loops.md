@@ -17,7 +17,7 @@ unannotated (the generator's check fails otherwise).
 | cause chain | `src/account_intelligence/workflow/runner.py:319` | the chain length (each exception visited once) | end of chain |
 | clamd stream chunks | `src/documents/scan.py:137` | file size / 1 MiB chunks | end of stream |
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
-| connector token refresh | `src/connectors_client/oauth.py:211` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
+| connector token refresh | `src/connectors_client/oauth.py:226` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
 | converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
 | copy document for the sandbox | `src/documents/service.py:415` | size / 1 MiB | end of object |
 | credit ledger pass | `src/account_intelligence/worker/nightly.py:87` | the tenants with credit activity in the window | end |
@@ -44,6 +44,7 @@ unannotated (the generator's check fails otherwise).
 | gate fix loop | `src/account_intelligence/workflow/stages/core.py:249` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
 | gcs compose hash read | `src/research_files/blobstore.py:240` | the object's size in COPY_BUFFER reads | end |
 | gcs compose rounds | `src/research_files/blobstore.py:227` | ceil(log32(parts)) rounds | one source left |
+| gmail message metadata | `src/connectors_client/maildrive.py:200` | MAX_ITEMS listed messages | end of the list |
 | grading hand-off | `src/refresh/probe.py:201` | observations of this poll | end |
 | graph-neighbors | `src/account_intelligence/rag/graphrag.py:96` | entity_count | queue empty or max_hops. |
 | hash uploaded document | `src/documents/service.py:251` | size / 1 MiB reads | end of object |
@@ -57,6 +58,7 @@ unannotated (the generator's check fails otherwise).
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:133` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
+| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:242` | 500 connections per tick (the lookup's limit) | end |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
@@ -105,7 +107,7 @@ unannotated (the generator's check fails otherwise).
 | union-find path walk | `src/jobs/dedupe.py:60` | number of identities (path halving) | root found |
 | union-find root walk | `src/people/merge.py:78` | number of records (each step moves to a parent; unions always point the larger root at the smaller, so there is no cycle) | root reached |
 | verification batch | `src/verify/claims.py:110` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
-| walk to verifying | `src/account_intelligence/runs/lifecycle.py:474` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
+| walk to verifying | `src/account_intelligence/runs/lifecycle.py:520` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |
 | xlsx header row | `src/research_files/parsers/tabular.py:387` | one row | header read |
 | xlsx sheets | `src/research_files/parsers/tabular.py:342` | the workbook's sheets | last sheet |

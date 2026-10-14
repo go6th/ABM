@@ -302,6 +302,7 @@ functions:
   tenants_with_waiting_jobs: {returns: tenant_id identifiers only, proof: tests/replica/test_schedules.py}
   tenants_with_credit_activity: {returns: tenant_id identifiers only, proof: tests/worker/test_nightly.py}
   library_publication_counts: {returns: (library_account_id, count) pairs only, proof: tests/replica/test_library.py}
+  maildrive_connections_due: {returns: (tenant_id, connection_id) pairs only, proof: tests/replica/test_maildrive.py}
   erase_rows:
     returns: a row count; the caller's context tenant only, allow-listed tables, approved requests
     proof: tests/phase3/test_ws1_tenancy.py
@@ -377,6 +378,12 @@ routes:
   GET /v1/credits: {probe: tenant}
   GET /v1/research/estimate: {probe: tenant}
   GET /v1/library/available: {probe: tenant}
+  GET /v1/mail-and-drive: {probe: tenant}
+  POST /v1/mail-and-drive/{kind}/connect: {probe: tenant, params: {kind: gmail}}
+  GET /v1/mail-and-drive/callback:
+    probe: tenant
+    query: {state: matrix-state-0000000000, code: matrix-code}
+  POST /v1/mail-and-drive/{family}/disconnect: {probe: tenant, params: {family: mail}}
   POST /v1/accounts/from-library:
     probe: tenant
     body: {library_account_ids: ["00000000-0000-4000-8000-000000000009"]}
@@ -722,6 +729,7 @@ routes:
   POST /tasks/document-process: {probe: machine, body: {tenant_id: owner, document_id: documents.id}}
   POST /tasks/research-job: {probe: machine, body: {tenant_id: owner, job_id: research_jobs.id}}
   POST /tasks/schedules-tick: {probe: machine, body: {}}
+  POST /tasks/maildrive-sync: {probe: machine, body: {}}
 # Storage layouts (tenancy.catalog.STORAGE_LAYOUTS): a sample key of tenant A must resolve to A,
 # never to B, and a download token for it must be refused in B's session.
 storage:
