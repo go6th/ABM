@@ -50,11 +50,11 @@ the gates run.
 | PRD-D5 | Tech Stack and Teams workbook includes detections, dates, and posting cross-checks | PRD 3.4 | `src/exports/excel/`, `src/datamodel/`; `tests/exports/` | Partial |
 | PRD-D6 | Workspace ZIP contains the shareable artifacts and restore metadata, with no internal-only file | PRD 3.4 | `src/exports/`; `config/export_rules.yaml`; `tests/exports/` | Partial |
 | PRD-D7 | Internal Only Word output is separate and excluded from the shared ZIP | PRD 3.4 | `src/agents/production/delivery.py` documents the absent builder; OI-ABM-4 | Missing |
-| PRD-Q1 | Word deliverables render to PDF and table rows survive page breaks | PRD 3.4 | `src/gate/`, `src/exports/`; renderer adapters remain `NotConfigured` | Partial |
-| PRD-Q2 | Export checks find zero orphan citations, banned punctuation, stale phrases, and excluded names | PRD 3.4 | `src/gate/`, `scripts/scan_client_output.py`; `tests/exports/` | Partial |
-| PRD-Q3 | Workbooks recalculate without formula errors and totals match row counts | PRD 3.4 | `src/exports/excel/`, `src/gate/`; `tests/exports/` | Partial |
+| PRD-Q1 | Word deliverables render to PDF and table rows survive page breaks | PRD 3.4 | `src/documents/gate.py` (rows_dropped), `src/exports/` (PDF row presence with EXPORT_RENDER_CHECKS=on) | Partial |
+| PRD-Q2 | Export checks find zero orphan citations, banned punctuation, stale phrases, and excluded names | PRD 3.4 | `src/documents/gate.py`, `scripts/scan_client_output.py`; `tests/exports/` | Partial |
+| PRD-Q3 | Workbooks recalculate without formula errors and totals match row counts | PRD 3.4 | `src/exports/excel/`, `src/documents/gate.py`; `tests/exports/` | Partial |
 | PRD-Q4 | Tracker totals are recomputed from rows | PRD 3.4 | `src/account_intelligence/tracker/`; `tests/tracker/` | Partial |
-| PRD-Q5 | Narrative statements map to graded rows and source IDs | PRD 3.4 | `src/exports/policy.py`, `src/gate/`; `tests/exports/` | Partial |
+| PRD-Q5 | Narrative statements map to graded rows and source IDs | PRD 3.4 | `src/exports/policy.py`, `src/documents/gate.py`; `tests/exports/` | Partial |
 | PRD-Q6 | Third-party names, costs, and cross-account names are scanned from packages and metadata | PRD 3.4 | `scripts/scan_client_output.py`; `tests/security/`, `tests/exports/` | Partial |
 | PRD-C1 | The system never sends outreach or overwrites client records | PRD 3.5 | No send route; create-only connector contracts; `tests/phase4/`, `tests/connectors/` | Partial |
 | PRD-C2 | Client outputs never name brokers, costs, client staff, or another account | PRD 3.5 | `src/exports/policy.py`, `scripts/scan_client_output.py`; leak tests | Partial |
@@ -82,7 +82,7 @@ the gates run.
 | PRD-P09 | Leads receive the required queries and are rechecked when evidence supports them | PRD 4.2 step 9 | `src/account_intelligence/grading/leads.py`; tests | Partial |
 | PRD-P10 | Distillation grades claims and gives each Hypothesis a confirming question | PRD 4.2 step 10 | `src/agents/distill/`, `src/account_intelligence/grading/`; tests | Partial |
 | PRD-P11 | Builders create the standing files and workspace ZIP | PRD 4.2 step 11 | `src/exports/`; `tests/exports/`; production renderer remains partial | Partial |
-| PRD-P12 | Quality gate blocks bad output and reruns after a fix | PRD 4.2 step 12 | `src/gate/`; `tests/exports/`, `tests/phase4/` | Partial |
+| PRD-P12 | Quality gate blocks bad output and reruns after a fix | PRD 4.2 step 12 | `src/documents/gate.py`; `tests/documents/test_gate_db.py`, `tests/exports/` | Partial |
 | PRD-P13 | Delivery reports findings, fixes, open work, and spend; lessons are updated | PRD 4.2 step 13 | `src/agents/production/delivery.py`; `src/agents/lessons.py`; tests | Partial |
 
 ### PRD Appendix A: coverage tracker rows
@@ -169,7 +169,7 @@ shape and terminal statuses. Real-source completeness is not proven in this loca
 | SAAS-7-B | Ingestion parses, classifies, detects entities, stores redaction maps, chunks, and embeds | SaaS 7.3 | Phase B pipeline not implemented | Missing |
 | SAAS-7-C | Internal facts retain passage links and are never Confirmed without authoritative support | SaaS 7.3–7.4 | internal grading path is incomplete | Missing |
 | SAAS-7-D | Client-facing output contains public evidence only; Internal Only output is separate | SaaS 7.5 | public/client scan exists; Internal Only file builder absent (OI-ABM-4) | Partial |
-| SAAS-7-E | Internal source IDs and identifiers from redaction maps block delivery | SaaS 7.5 | `src/privacy/`, `src/gate/`; internal leak-map adapter absent | Missing |
+| SAAS-7-E | Internal source IDs and identifiers from redaction maps block delivery | SaaS 7.5 | `src/privacy/`, `src/documents/gate.py`; internal leak-map adapter absent | Missing |
 | SAAS-7-F | Key management, retention, regional storage, and vendor data terms are verified | SaaS 7.6–7.7 | Terraform and secret ports exist; real keys, legal terms, and regional proof require owner inputs | Blocked-by-external |
 
 ## Architecture v2: isolation, lifecycle, API, billing, infrastructure, and SLOs

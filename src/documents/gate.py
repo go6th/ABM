@@ -15,6 +15,15 @@ the defects stored in ``run_gate_results`` for the operator, and Resume reruns t
    (``documents.leakcheck``); every check is recorded in ``leak_checks``.
 6. ``internal_label`` (input mode file): the Internal Only file exists and is labelled
    "Internal: from your uploaded material".
+7. ``deliverable_set`` (company runs): the five client files exist (Summary, Sources and
+   Evidence, People list, Job postings, Tech stack and teams). A file-only run makes none.
+8. ``rows_dropped``: every row the builder recorded for a file (its manifest ``refs``) is in the
+   file, and in a Word file each appears once and in order (no row lost at a page or a table).
+9. ``third_party_domains``: no client file names a data provider's host (the providers' hosts
+   from ``config/providers.yaml`` join the shared scanner's terms).
+
+This is the single pre-delivery gate (the orphaned roadmap gate in ``src/gate`` is gone; its
+row-drop, document and third-party checks live here).
 
 Defects carry identifiers, codes and counts only, never document or client text.
 
@@ -23,6 +32,7 @@ GUARANTEE(test_gate_blocks_a_run_with_a_defect_and_passes_a_clean_one)
 
 from __future__ import annotations
 
+import html
 import io
 import re
 import zipfile
@@ -60,10 +70,47 @@ def client_text(data: bytes) -> str:
                     and name.endswith(".xml")
                 ) or name.endswith((".md", ".txt", ".csv")):
                     body = z.read(name).decode("utf-8", "ignore")
-                    parts.append(_XML_TAG.sub(" ", body) if name.endswith(".xml") else body)
+                    # character references (openpyxl writes an em dash as &#8212;) are decoded
+                    parts.append(
+                        html.unescape(_XML_TAG.sub(" ", body)) if name.endswith(".xml") else body
+                    )
             return "\n".join(parts)
     except zipfile.BadZipFile:
         return data.decode("utf-8", "ignore")
+
+
+CLIENT_FILES = frozenset({"summary", "evidence", "people", "jobs", "tech"})
+
+
+def provider_hosts() -> tuple[str, ...]:
+    """Every data provider's registrable host (``example.com`` of ``api.example.com``), from
+    config: a client file must never name one."""
+    from urllib.parse import urlsplit
+
+    from account_intelligence.connectors.settings import load_providers_config
+
+    out = set()
+    for provider in load_providers_config().providers.values():
+        host = (urlsplit(provider.base_url).hostname or "").lower()
+        if host:
+            out.add(".".join(host.split(".")[-2:]))
+    return tuple(sorted(out))
+
+
+def rows_lost(kind: str, data: bytes, body: str, manifest: Any) -> int:
+    """How many of the rows the builder recorded for this file (manifest ``refs``) are missing
+    from it; in a Word file each must appear once and in order."""
+    refs = list((manifest.get("refs") or {}).get(kind) or ()) if isinstance(manifest, dict) else []
+    if not refs:
+        return 0
+    if kind in ("summary", "evidence"):
+        from exports.verify import docx_text, keys_once_in_order
+
+        try:
+            return len(keys_once_in_order(docx_text(data), refs))
+        except (zipfile.BadZipFile, KeyError):
+            return len(refs)
+    return sum(1 for ref in refs if ref not in body)
 
 
 @dataclass
@@ -96,8 +143,8 @@ class PreDeliveryGate:
             files = (
                 await s.execute(
                     text(
-                        "SELECT id, kind, object_key FROM deliverables WHERE run_id = :r"
-                        " ORDER BY kind"
+                        "SELECT id, kind, object_key, manifest_json FROM deliverables"
+                        " WHERE run_id = :r ORDER BY kind"
                     ),
                     {"r": run},
                 )
@@ -121,6 +168,14 @@ class PreDeliveryGate:
         failing["client_dashes"] = []
         failing["client_terms"] = []
         failing["leak_check"] = []
+        # a file-only run makes no client file (its facts are private); its linked public run
+        # makes them, and is gated as a company run
+        failing["deliverable_set"] = (
+            [] if meta.input_mode == "file" else sorted(CLIENT_FILES - {str(f.kind) for f in files})
+        )
+        failing["rows_dropped"] = []
+        failing["third_party_domains"] = []
+        hosts = provider_hosts()
         account = meta.account_id
 
         async def nearest(vec: Any) -> float:
@@ -143,6 +198,13 @@ class PreDeliveryGate:
                 hits = ()
             if hits:
                 failing["client_terms"].append(f"{f.kind}:{len(hits)}")
+            lowered = body.lower()
+            named = [h for h in hosts if h in lowered]
+            if named:
+                failing["third_party_domains"].append(f"{f.kind}:{len(named)}")
+            lost = rows_lost(str(f.kind), data, body, f.manifest_json or {})
+            if lost:
+                failing["rows_dropped"].append(f"{f.kind}:{lost}")
             result = await checker.check(str(f.kind), body)
             async with self.txn(tenant) as s:
                 await repo.record_leak_check(

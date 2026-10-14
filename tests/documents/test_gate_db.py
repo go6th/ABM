@@ -81,7 +81,14 @@ def _rows(tenant: UUID, run: UUID, unset: bool = False) -> None:
 
 
 async def _deliver(
-    store: MemoryPayloadStore, tenant: UUID, account: UUID, run: UUID, data: bytes, version: int
+    store: MemoryPayloadStore,
+    tenant: UUID,
+    account: UUID,
+    run: UUID,
+    data: bytes,
+    version: int,
+    kind: str = "summary",
+    manifest: dict[str, object] | None = None,
 ) -> None:
     sha = hashlib.sha256(data).hexdigest()
     key = f"{tenant}/{account}/{run}/deliverables/{sha}.docx"
@@ -90,21 +97,32 @@ async def _deliver(
     admin(
         "INSERT INTO deliverables (tenant_id, account_id, run_id, set_hash, kind, version,"
         " filename, sha256, size_bytes, object_key, manifest_json, content_hash, snapshot_hash,"
-        " theme_hash, rules_hash, built_at) VALUES (%s, %s, %s, %s, 'summary', %s, 'Summary.docx',"
-        " %s, %s, %s, '{}', %s, %s, %s, %s, now())",
+        " theme_hash, rules_hash, built_at) VALUES (%s, %s, %s, %s, %s, %s, %s,"
+        " %s, %s, %s, %s, %s, %s, %s, %s, now())",
         tenant,
         account,
         run,
         h,
+        kind,
         version,
+        f"{kind}.docx",
         sha,
         len(data),
         key,
+        json.dumps(manifest or {}),
         h,
         h,
         h,
         h,
     )
+
+
+async def _deliver_set(
+    store: MemoryPayloadStore, tenant: UUID, account: UUID, run: UUID, data: bytes
+) -> None:
+    """The five client files (the same clean body each; enough for the gate's checks)."""
+    for kind in ("summary", "evidence", "people", "jobs", "tech"):
+        await _deliver(store, tenant, account, run, data, 1, kind)
 
 
 def _private_passage(tenant: UUID, account: UUID, text: str) -> None:
@@ -150,14 +168,14 @@ async def test_gate_blocks_a_run_with_a_defect_and_passes_a_clean_one(tenant_a: 
     )
     clean = _run(tenant_a, account)
     _rows(tenant_a, clean)
-    await _deliver(store, tenant_a, account, clean, docx(CLEAN), 1)
+    await _deliver_set(store, tenant_a, account, clean, docx(CLEAN))
     passed = await _gate(store).check(str(tenant_a), str(clean))
     assert not any(passed.values()), passed
     assert admin("SELECT verdict FROM run_gate_results WHERE run_id = %s", clean) == [("pass",)]
-    (leak,) = admin(
+    leaks = admin(
         "SELECT verdict, passages_checked, hits FROM leak_checks WHERE run_id = %s", clean
     )
-    assert leak[0] == "pass" and leak[1] == 1 and leak[2] == []
+    assert len(leaks) == 5 and all(v == "pass" and n == 1 and h == [] for v, n, h in leaks)
 
     other = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
     _private_passage(tenant_a, other, f"Call notes. {fixtures.CANARY}. The budget renews in April.")
@@ -175,6 +193,7 @@ async def test_gate_blocks_a_run_with_a_defect_and_passes_a_clean_one(tenant_a: 
     await _deliver(store, tenant_a, other, bad, docx(text), 1)
     failing = await _gate(store).check(str(tenant_a), str(bad))
     assert failing["tracker_rows"] == ["youtube:unset"]
+    assert failing["deliverable_set"] == ["evidence", "jobs", "people", "tech"]
     assert failing["client_dashes"] and failing["client_terms"] and failing["leak_check"]
     (verdict, defects) = admin(
         "SELECT verdict, defects FROM run_gate_results WHERE run_id = %s", bad
@@ -210,3 +229,24 @@ async def test_file_mode_gate_requires_the_labelled_internal_file(tenant_a: UUID
         "b" * 64,
     )
     assert not any((await _gate(store).check(str(tenant_a), str(run))).values())
+
+
+async def test_gate_finds_a_lost_row_and_a_provider_host(tenant_a: UUID) -> None:
+    from documents.gate import provider_hosts
+
+    account = _make_account(tenant_a, f"rows-{uuid4().hex[:6]}.example")
+    store = MemoryPayloadStore()
+    run = _run(tenant_a, account)
+    _rows(tenant_a, run)
+    # the builder recorded a row the Word file does not hold, and a workbook names a host
+    await _deliver(
+        store, tenant_a, account, run, docx(CLEAN), 1, "summary", {"refs": {"summary": ["F-0001"]}}
+    )
+    for kind in ("evidence", "people", "jobs"):
+        await _deliver(store, tenant_a, account, run, docx(CLEAN), 1, kind)
+    await _deliver(
+        store, tenant_a, account, run, docx(f"{CLEAN} See {provider_hosts()[0]}."), 1, "tech"
+    )
+    failing = await _gate(store).check(str(tenant_a), str(run))
+    assert failing["rows_dropped"] == ["summary:1"]
+    assert failing["third_party_domains"] == ["tech:1"]
