@@ -74,8 +74,27 @@ def test_google_workspace_role_allowlist_rejects_unverified_or_unlisted_users(
         _verifier(monkeypatch, _claims(**updates)).verify("header.payload.signature")
 
 
-def test_google_claim_without_mfa_is_not_step_up_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
-    identity = _verifier(monkeypatch, _claims(amr=["pwd"])).verify("header.payload.signature")
+def test_a_google_sign_in_steps_up_at_its_own_time_without_amr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Google never sends amr: the step-up is the Google sign-in itself (auth_time, else iat)
+    signed_in = int(datetime.now(UTC).timestamp()) - 30
+    claims = _claims(auth_time=signed_in)
+    del claims["amr"]
+    identity = _verifier(monkeypatch, claims).verify("header.payload.signature")
+    assert identity.step_up_at == datetime.fromtimestamp(signed_in, tz=UTC)
+    claims = _claims(iat=signed_in)
+    del claims["amr"], claims["auth_time"]
+    identity = _verifier(monkeypatch, claims).verify("header.payload.signature")
+    assert identity.step_up_at == datetime.fromtimestamp(signed_in, tz=UTC)
+
+
+def test_another_staff_idp_without_mfa_is_not_step_up_fresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verifier = _verifier(monkeypatch, _claims(amr=["pwd"], iss="https://idp.sixth.example"))
+    verifier.issuer = "https://idp.sixth.example"
+    identity = verifier.verify("header.payload.signature")
     assert identity.role == "operator"
     assert identity.step_up_at is None
 

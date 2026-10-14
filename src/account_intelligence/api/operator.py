@@ -125,6 +125,14 @@ class JwtStaffVerifier:
             raise PermissionError("invalid staff workspace")
         auth_time = claims.get("auth_time")
         mfa = "mfa" in (claims.get("amr") or [])
+        # Google ID tokens never carry amr (the claims request is ignored), so for Google the
+        # step-up is a fresh Google sign-in: the console asks for max_age=600, Google makes the
+        # person authenticate again past that, and two-step verification is the Google account's
+        # own (Workspace policy, or the personal account's setting). Owner decision 2026-10-15.
+        if not mfa and self.issuer == "https://accounts.google.com":
+            mfa = True
+            if not isinstance(auth_time, int):
+                auth_time = claims.get("iat")
         step = (
             datetime.fromtimestamp(auth_time, tz=UTC)
             if mfa and isinstance(auth_time, int)
