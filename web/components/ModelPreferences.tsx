@@ -1,7 +1,7 @@
 "use client";
 // The two default models, saved to the user's own profile (PUT /v1/me/model-preferences).
 import { useState } from "react";
-import { ModelMenu, useModelChoices } from "@/components/ModelMenu";
+import { ModelMenu, useModelChoicesState } from "@/components/ModelMenu";
 import { api, ApiError } from "@/lib/api";
 import type { ModelChoices } from "@/lib/gen/api.gen";
 import { StateCard } from "@/ui/design";
@@ -12,10 +12,12 @@ const ROLES = [
 ] as const;
 
 export function ModelPreferences() {
-  const loaded = useModelChoices();
+  const state = useModelChoicesState();
+  const loaded = state === "failed" ? null : state;
   const [saved, setSaved] = useState<ModelChoices | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const choices = saved ?? loaded;
+  if (state === "failed" && !saved) return <StateCard title="Model preferences could not be loaded" body="Reload the page in a moment." action={<a className="btn" href="/model-preferences">Reload</a>} />;
   if (!choices) return <div className="card pad"><div className="skel line" /><div className="skel line w80" /></div>;
   if (!choices.models.length) return <StateCard title="No models are available" body="Ask your administrator to set up a model." />;
 
