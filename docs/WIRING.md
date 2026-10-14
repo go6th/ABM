@@ -10,9 +10,9 @@ provider calls. Those require separate local-stack or externally configured chec
 ## Summary
 
 - Backend operations in OpenAPI: **196**.
-- Frontend literal call sites found: **90**.
-- Frontend call sites mapped to backend operations: **85**.
-- Backend operations without a direct frontend call site: **126**.
+- Frontend literal call sites found: **72**.
+- Frontend call sites mapped to backend operations: **68**.
+- Backend operations without a direct frontend call site: **133**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -26,7 +26,6 @@ calls are listed only when their wrapper has a statically visible literal call s
 | Source | Call type | Method and path | Request schema | Response schema | Access rule |
 |---|---|---|---|---|---|
 | `web/components/ws/WorkspaceShell.tsx` | same-origin or external fetch | `POST /api/auth/logout` | Next.js route | Next.js route | staff session / same-origin |
-| `web/lib/provider-labels.ts` | same-origin or external fetch | `GET /api/operator/providers` | Next.js route | Next.js route | staff session / same-origin |
 | `web/app/operator/(console)/OperatorSignOut.tsx` | same-origin or external fetch | `DELETE /api/operator/session` | Next.js route | Next.js route | staff session / same-origin |
 | `web/app/operator/(console)/OperatorSessionGate.tsx` | same-origin or external fetch | `GET /api/operator/session` | Next.js route | Next.js route | staff session / same-origin |
 | `web/app/operator/(console)/clients/page.tsx` | generated operator operation reference | `GET /operator/v1/console/clients` | — | ConsoleClients | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
@@ -51,12 +50,9 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/lib/operator-proxy.ts` | generated operator operation reference | `POST /operator/v1/library/uploads` | — | LibraryUploaded | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
 | `web/app/operator/(console)/library/page.tsx` | generated operator operation reference | `POST /operator/v1/library/{library_account_id}/publish` | PublishBody (required) | LibraryPublished | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
 | `web/app/api/operator/callback/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
-| `web/app/api/operator/providers/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
 | `web/app/api/operator/session/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
 | `web/app/operator/(console)/view/page.tsx` | generated operator operation reference | `GET /operator/v1/view/workspace` | — | ViewAsWorkspace | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
 | `web/app/readyz/route.ts` | server API fetch | `GET /readyz` | — | Ready | public health probe |
-| `web/components/ws/AccountList.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/Ask.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/AddAccount.tsx` | tenant client | `POST /v1/accounts/from-library` | FromLibrary (required) | LibraryAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DownloadEverything.tsx` | tenant client | `POST /v1/accounts/{domain}/download-everything` | EverythingBody (required) | DownloadJob | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `web/components/accounts/RefreshForm.tsx` | tenant client | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -67,10 +63,6 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ProviderKey.tsx` | tenant client | `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/components/ProviderKey.tsx` | tenant client | `GET /v1/chat/provider-key` | — | TenantModelKeyStatus | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ProviderKey.tsx` | tenant client | `PUT /v1/chat/provider-key` | TenantModelKeyBody (required) | TenantModelKeyStatus | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
-| `web/components/ws/Conversations.tsx` | tenant client | `GET /v1/chat/threads` | — | ChatThreads | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `web/components/ws/Ask.tsx` | tenant client | `POST /v1/chat/threads` | NewThread (required) | ChatThreadCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/Conversations.tsx` | tenant client | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
-| `web/components/ws/Conversations.tsx` | tenant client | `GET /v1/chat/threads/{thread_id}` | — | ChatThread | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/DocumentDrop.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/FileAnalysis.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -79,10 +71,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/DocumentDrop.tsx` | tenant client | `GET /v1/documents/{document_id}/status` | — | DocumentStatus | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `web/lib/upload.ts` | tenant client | `POST /v1/documents/uploads` | UploadStart (required) | DocumentUploadStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DownloadEverything.tsx` | tenant client | `GET /v1/downloads/{job_id}` | — | DownloadJob | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `web/components/ws/Downloads.tsx` | tenant client | `GET /v1/exports` | — | ExportPackages | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/exports` | — | ExportPackages | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `web/components/ws/Downloads.tsx` | tenant client | `POST /v1/exports` | ExportBody (required) | ExportPackage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
-| `web/components/ws/TableScreen.tsx` | tenant client | `POST /v1/exports` | ExportBody (required) | ExportPackage | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `web/components/Limits.tsx` | tenant client | `POST /v1/limits/requests` | MoreBody (required) | LimitRequestSent | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{kind}/connect` | — | MailDriveConnect | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `web/components/accounts/MailDrive.tsx` | tenant client | `POST /v1/mail-and-drive/{family}/disconnect` | — | MailDriveDisconnected | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
@@ -93,20 +82,13 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/accounts/ResearchCompany.tsx` | tenant client | `POST /v1/research` | ResearchBody (required) | ResearchStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/ResumeResearch.tsx` | tenant client | `POST /v1/research/resume` | ResumeBody (required) | ResearchResumed | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/AccountHeader.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/Ask.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/RefreshDialog.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/RunStopReport.tsx` | tenant client | `POST /v1/runs` | RunBody (required) | RunCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/NewResearch.tsx` | tenant client | `GET /v1/runs/{run_id}` | — | RunStatusView | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}` | — | RunStatusView | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `POST /v1/runs/{run_id}/approve` | — | RunState | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/RunStatus.tsx` | tenant client | `POST /v1/runs/{run_id}/cancel` | — | RunState | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/RunSteps.tsx` | tenant client | `POST /v1/runs/{run_id}/cancel` | — | RunState | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/cap` | — | CapProposalView | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `POST /v1/runs/{run_id}/cap/approve` | ApproveBody (required) | CapApproved | tenant; roles=admin; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/RunSteps.tsx` | progress event stream | `GET /v1/runs/{run_id}/events` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `web/components/ws/InternalView.tsx` | tenant page query | `GET /v1/runs/{run_id}/internal` | — | InternalView | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
-| `web/components/ws/RunStatus.tsx` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/spend/live` | — | TenantLiveSpend | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/accounts/SchedulesView.tsx` | tenant client | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -326,7 +308,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 - `scripts/gen_web_client.py --check` compares generated TypeScript and Zod schemas with the snapshot.
 - `scripts/check_route_catalog.py` verifies route policy coverage and tenant-source rules.
 - OpenAPI snapshot drift check: **PASS**.
-- Generated client drift check: **FAIL**.
+- Generated client drift check: **PASS**.
 - The tenant browser helper now validates JSON request and successful response payloads against those generated schemas.
 - The operator client already validates successful JSON responses and its proxy admits only generated operator operations.
 
@@ -339,6 +321,4 @@ Schema names come from the live application OpenAPI document. Policy values come
 
 ## Findings
 
-Static breaks found:
-
-- generated web client drift: scripts/gen_web_client.py --check
+- **No static frontend route breaks or route-policy gaps found.**
