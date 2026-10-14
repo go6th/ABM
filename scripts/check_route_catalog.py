@@ -26,6 +26,7 @@ _ENV_DEFAULTS = {
 AUDIT_CLASSES = {"read", "run", "export", "admin", "none"}
 # The only routes that may be called without a principal: starting and finishing a sign-in.
 ANONYMOUS_ALLOWED = {
+    ("POST", "/v1/sso/discover"),
     ("GET", "/v1/sso/{slug}/start"),
     ("GET", "/v1/sso/oidc/callback"),
     ("POST", "/v1/sso/saml/acs"),

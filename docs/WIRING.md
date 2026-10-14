@@ -10,9 +10,9 @@ provider calls. Those require separate local-stack or externally configured chec
 ## Summary
 
 - Backend operations in OpenAPI: **194**.
-- Frontend literal call sites found: **85**.
-- Frontend call sites mapped to backend operations: **80**.
-- Backend operations without a direct frontend call site: **129**.
+- Frontend literal call sites found: **84**.
+- Frontend call sites mapped to backend operations: **79**.
+- Backend operations without a direct frontend call site: **130**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -55,9 +55,8 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/Ask.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/AddAccount.tsx` | tenant client | `POST /v1/accounts/from-library` | FromLibrary (required) | LibraryAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/RefreshForm.tsx` | tenant client | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/app/(auth)/login/page.tsx` | same-origin or external fetch | `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `web/app/(auth)/verify-email/page.tsx` | same-origin or external fetch | `POST /v1/auth/email/verify` | VerifyEmailBody (required) | EmailVerified | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
-| `web/app/(auth)/login/page.tsx` | same-origin or external fetch | `POST /v1/auth/login` | LoginBody (required) | SignedIn | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `web/app/(auth)/invite/page.tsx` | same-origin or external fetch | `POST /v1/auth/invite/accept` | ResetPasswordBody (required) | PasswordResetCompleted | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `web/app/(auth)/reset/page.tsx` | same-origin or external fetch | `POST /v1/auth/password/reset` | ResetPasswordBody (required) | PasswordResetCompleted | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `web/app/(auth)/forgot/page.tsx` | same-origin or external fetch | `POST /v1/auth/password/reset/request` | EmailBody (required) | PasswordResetAccepted | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `web/components/ProviderKey.tsx` | tenant client | `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
@@ -290,6 +289,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/runs/{run_id}/cap/reject` | RejectBody (required) | CapRejected (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/settings/branding/logo` | — | LogoUploaded (201) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/sso/connections` | ConnectionBody (required) | IdpConnection (201) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
+| `POST /v1/sso/discover` | EmailBody (required) | SsoDiscovery (200) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `POST /v1/sso/logout` | — | SignedOut (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/sso/logout-all` | — | SessionsEnded (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/sso/saml/acs` | Body_saml_acs_v1_sso_saml_acs_post (required) | — | tenant; roles=—; principal=anonymous; tenant=none; audit=none |

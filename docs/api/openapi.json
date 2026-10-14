@@ -7318,6 +7318,11 @@
             "title": "Password",
             "type": "string"
           },
+          "remember": {
+            "default": true,
+            "title": "Remember",
+            "type": "boolean"
+          },
           "workspace_id": {
             "anyOf": [
               {
@@ -10738,6 +10743,37 @@
           "column"
         ],
         "title": "Sort",
+        "type": "object"
+      },
+      "SsoDiscovery": {
+        "additionalProperties": false,
+        "description": "Response body: where a work email signs in. The same shape whether or not a company has a\nconnection, so the only thing it tells is \"continue with SSO\" or \"use your password\".",
+        "properties": {
+          "next": {
+            "enum": [
+              "sso",
+              "password"
+            ],
+            "title": "Next",
+            "type": "string"
+          },
+          "start_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Url"
+          }
+        },
+        "required": [
+          "next",
+          "start_url"
+        ],
+        "title": "SsoDiscovery",
         "type": "object"
       },
       "StartBody": {
@@ -23166,6 +23202,48 @@
         ]
       }
     },
+    "/v1/sso/discover": {
+      "post": {
+        "description": "Find the company's sign-in from a work email's domain, without saying who exists.",
+        "operationId": "discover_v1_sso_discover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SsoDiscovery"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discover",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
     "/v1/sso/logout": {
       "post": {
         "description": "End this session (cookie sessions only).",
@@ -23545,6 +23623,16 @@
             "schema": {
               "default": false,
               "title": "Step Up",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "remember",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Remember",
               "type": "boolean"
             }
           }

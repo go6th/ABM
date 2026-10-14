@@ -1508,6 +1508,7 @@ export type LibraryUploaded = z.infer<typeof LibraryUploaded>;
 export const LoginBody = z.object({
   "email": z.string(),
   "password": z.string(),
+  "remember": z.boolean().optional(),
   "workspace_id": z.string().nullable().optional(),
 }).strict();
 export type LoginBody = z.infer<typeof LoginBody>;
@@ -2239,6 +2240,12 @@ export const SliceTask = z.object({
 }).strict();
 export type SliceTask = z.infer<typeof SliceTask>;
 
+export const SsoDiscovery = z.object({
+  "next": z.string(),
+  "start_url": z.string().nullable(),
+}).strict();
+export type SsoDiscovery = z.infer<typeof SsoDiscovery>;
+
 export const StartBody = z.object({
   "kind": z.string(),
 }).strict();
@@ -2859,6 +2866,10 @@ export const KNOWN_VALUES = {
     "asc",
     "desc"
   ],
+  "SsoDiscovery.next": [
+    "sso",
+    "password"
+  ],
   "StartBody.kind": [
     "google_drive",
     "salesforce",
@@ -3084,6 +3095,7 @@ export const operations = {
   "GET /v1/sso/connections": { method: "GET", path: "/v1/sso/connections", plane: "tenant", status: 200, request: null, requestRequired: false, response: IdpConnections },
   "POST /v1/sso/connections": { method: "POST", path: "/v1/sso/connections", plane: "tenant", status: 201, request: ConnectionBody, requestRequired: true, response: IdpConnection },
   "PUT /v1/sso/connections/{connection_id}": { method: "PUT", path: "/v1/sso/connections/{connection_id}", plane: "tenant", status: 200, request: ConnectionUpdate, requestRequired: true, response: IdpConnection },
+  "POST /v1/sso/discover": { method: "POST", path: "/v1/sso/discover", plane: "tenant", status: 200, request: EmailBody, requestRequired: true, response: SsoDiscovery },
   "POST /v1/sso/logout": { method: "POST", path: "/v1/sso/logout", plane: "tenant", status: 200, request: null, requestRequired: false, response: SignedOut },
   "POST /v1/sso/logout-all": { method: "POST", path: "/v1/sso/logout-all", plane: "tenant", status: 200, request: null, requestRequired: false, response: SessionsEnded },
   "GET /v1/sso/oidc/callback": { method: "GET", path: "/v1/sso/oidc/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },

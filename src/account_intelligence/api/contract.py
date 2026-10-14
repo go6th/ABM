@@ -125,6 +125,14 @@ class SignedIn(Out):
     tenant_id: str
 
 
+class SsoDiscovery(Out):
+    """Response body: where a work email signs in. The same shape whether or not a company has a
+    connection, so the only thing it tells is "continue with SSO" or "use your password"."""
+
+    next: Literal["sso", "password"]
+    start_url: str | None
+
+
 class TenantChoice(Out):
     """One tenant the verified identity may enter."""
 

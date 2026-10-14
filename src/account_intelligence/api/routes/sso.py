@@ -2,9 +2,15 @@
 
 Anonymous (``public_router``; the catalog guard still applies, nothing else does):
 
+* ``POST /v1/sso/discover``: which way a work email signs in. It answers ``sso`` with the start
+  URL of the active connection whose verified domains hold the email's domain, otherwise
+  ``password``; the same shape and status either way, so it never says whether a company or an
+  account exists. Rate limited per source and per domain.
 * ``GET /v1/sso/{slug}/start``: open a sign-in for the connection and redirect to its IdP; sets
   the pre-auth cookie that binds the sign-in to this browser (``SameSite=None`` for SAML, whose
-  ACS is a cross-site POST; ``Lax`` for OIDC, whose callback is a top-level GET).
+  ACS is a cross-site POST; ``Lax`` for OIDC, whose callback is a top-level GET). With
+  ``remember=false`` ("Keep me signed in" off) it also sets a companion cookie of the same
+  lifetime, so the finished sign-in's session cookie has no ``Max-Age`` and ends with the browser.
 * ``GET /v1/sso/oidc/callback`` and ``POST /v1/sso/saml/acs``: finish it; set the session cookie
   (HttpOnly, Secure, SameSite=Lax, ``__Host-``) and redirect to a LOCAL path only.
 
@@ -17,26 +23,30 @@ from __future__ import annotations
 
 import re
 from typing import Any, Literal
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import text
 
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import ANONYMOUS, register, tenant_route
+from account_intelligence.api.routes.auth import EmailBody, _require_same_origin
 from account_intelligence.api.tenant_plane import CSRF_KEY_REF, plane_of
-from account_intelligence.db.session import tenant_txn
-from identity import connections, sessions
+from account_intelligence.db.session import tenant_txn, untenanted_session
+from identity import connections, rate_limit, sessions
 from identity.broker import SignedIn, SignInRefused
 from identity.csrf import csrf_token
 from identity.roles import ROLES
 
 public_router = APIRouter(prefix="/sso", tags=["sso"])
 router = APIRouter(prefix="/sso", tags=["sso"])
+register("POST", "/v1/sso/discover", ANONYMOUS)
 register("GET", "/v1/sso/{slug}/start", ANONYMOUS)
 register("GET", "/v1/sso/oidc/callback", ANONYMOUS)
 register("POST", "/v1/sso/saml/acs", ANONYMOUS)
@@ -56,18 +66,41 @@ register("PUT", "/v1/sso/connections/{connection_id}", tenant_route("manage_sso"
 _REFUSED = "sign-in could not be completed"
 
 
+def _browser_session_cookie(policy: Any) -> str:
+    """The companion of the pre-auth cookie that marks "Keep me signed in" as off."""
+    return f"{policy.preauth_cookie}_once"
+
+
 def _session_cookie(response: Response, signed: SignedIn, request: Request) -> None:
     policy = plane_of(request).policy
+    once = request.cookies.get(_browser_session_cookie(policy)) == "1"
     response.set_cookie(
         policy.session_cookie,
         signed.token,
-        max_age=policy.absolute_timeout_s,
+        max_age=None if once else policy.absolute_timeout_s,
         path="/",
         secure=True,
         httponly=True,
         samesite="lax",
     )
     response.delete_cookie(policy.preauth_cookie, path="/", secure=True, httponly=True)
+    if once:
+        response.delete_cookie(
+            _browser_session_cookie(policy), path="/", secure=True, httponly=True
+        )
+
+
+@public_router.post("/discover", response_model=C.SsoDiscovery)
+async def discover(body: EmailBody, request: Request) -> dict[str, Any]:
+    """Find the company's sign-in from a work email's domain, without saying who exists."""
+    await _require_same_origin(request)
+    domain = body.email.rsplit("@", 1)[1]
+    await rate_limit.consume(request, account=domain, action="sso_discover")
+    async with untenanted_session() as session:
+        slug = await session.scalar(text("SELECT idp_connection_for_domain(:d)"), {"d": domain})
+    if slug is None:
+        return {"next": "password", "start_url": None}
+    return {"next": "sso", "start_url": f"/v1/sso/{quote(str(slug))}/start?return_to=%2F"}
 
 
 @public_router.get("/{slug}/start")
@@ -76,6 +109,7 @@ async def start(
     request: Request,
     return_to: str = Query(default="/", max_length=200),
     step_up: bool = Query(default=False),
+    remember: bool = Query(default=True),
 ) -> Response:
     """Open a sign-in and redirect to the tenant's IdP."""
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,62}", slug):
@@ -98,6 +132,16 @@ async def start(
         httponly=True,
         samesite="none" if saml else "lax",
     )
+    if not remember:
+        response.set_cookie(
+            _browser_session_cookie(plane.policy),
+            "1",
+            max_age=plane.policy.state_ttl_s,
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="none" if saml else "lax",
+        )
     return response
 
 

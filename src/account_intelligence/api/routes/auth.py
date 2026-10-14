@@ -58,6 +58,10 @@ class LoginBody(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1, max_length=1024)
     workspace_id: UUID | None = None
+    # "Keep me signed in on this device": on, the cookie lives as long as the session may
+    # (sessions.absolute_timeout_s); off, it is a browser-session cookie with no Max-Age, gone
+    # when the browser closes. The server-side idle and absolute limits apply either way.
+    remember: bool = True
 
     @field_validator("email")
     @classmethod
@@ -111,12 +115,12 @@ class ResetPasswordBody(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
-def _cookie(response: Response, token: str, request: Request) -> None:
+def _cookie(response: Response, token: str, request: Request, *, remember: bool = True) -> None:
     policy = plane_of(request).policy
     response.set_cookie(
         policy.session_cookie,
         token,
-        max_age=policy.absolute_timeout_s,
+        max_age=policy.absolute_timeout_s if remember else None,
         path="/",
         secure=True,
         httponly=True,
@@ -238,7 +242,7 @@ async def login(body: LoginBody, request: Request) -> Response:
         )
 
     response = JSONResponse({"signed_in": True, "tenant_id": str(tenant_id)})
-    _cookie(response, token, request)
+    _cookie(response, token, request, remember=body.remember)
     return response
 
 
