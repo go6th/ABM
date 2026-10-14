@@ -302,6 +302,11 @@ export const BrandingSaved = z.object({
 }).strict();
 export type BrandingSaved = z.infer<typeof BrandingSaved>;
 
+export const CadenceBody = z.object({
+  "cadence": z.string(),
+}).strict();
+export type CadenceBody = z.infer<typeof CadenceBody>;
+
 export const CapApproved = z.object({
   "cap_micros": z.number().int().nullable(),
   "resumed": z.boolean(),
@@ -1711,6 +1716,34 @@ export const SavedViews = z.object({
 }).strict();
 export type SavedViews = z.infer<typeof SavedViews>;
 
+export const ScheduleOption = z.object({
+  "allowed": z.boolean(),
+  "cadence": z.string(),
+  "label": z.string(),
+}).strict();
+export type ScheduleOption = z.infer<typeof ScheduleOption>;
+
+export const ScheduleRow = z.object({
+  "account_id": z.string(),
+  "cadence": z.string(),
+  "domain": z.string(),
+  "name": z.string(),
+  "next_label": z.string(),
+  "next_refresh_at": z.string().nullable(),
+  "options": z.array(ScheduleOption),
+}).strict();
+export type ScheduleRow = z.infer<typeof ScheduleRow>;
+
+export const Schedules = z.object({
+  "estimate_month": z.number().int(),
+  "fastest": z.string(),
+  "fastest_label": z.string(),
+  "pool": z.number().int(),
+  "resets_on": z.string(),
+  "rows": z.array(ScheduleRow),
+}).strict();
+export type Schedules = z.infer<typeof Schedules>;
+
 export const Session = z.object({
   "credential": z.string(),
   "csrf_token": z.string().nullable().optional(),
@@ -2219,6 +2252,13 @@ export const KNOWN_VALUES = {
     "used",
     "not_used"
   ],
+  "CadenceBody.cadence": [
+    "3d",
+    "weekly",
+    "2w",
+    "monthly",
+    "off"
+  ],
   "CapProposalView.state": [
     "proposed",
     "approved",
@@ -2332,6 +2372,20 @@ export const KNOWN_VALUES = {
     "full",
     "pull",
     "build"
+  ],
+  "ScheduleOption.cadence": [
+    "3d",
+    "weekly",
+    "2w",
+    "monthly",
+    "off"
+  ],
+  "ScheduleRow.cadence": [
+    "3d",
+    "weekly",
+    "2w",
+    "monthly",
+    "off"
   ],
   "Session.role": [
     "admin",
@@ -2535,6 +2589,8 @@ export const operations = {
   "GET /v1/runs/{run_id}/progress": { method: "GET", path: "/v1/runs/{run_id}/progress", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunProgress },
   "GET /v1/runs/{run_id}/spend": { method: "GET", path: "/v1/runs/{run_id}/spend", plane: "tenant", status: 200, request: null, requestRequired: false, response: z.record(z.string(), z.unknown()) },
   "GET /v1/runs/{run_id}/spend/live": { method: "GET", path: "/v1/runs/{run_id}/spend/live", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantLiveSpend },
+  "GET /v1/schedules": { method: "GET", path: "/v1/schedules", plane: "tenant", status: 200, request: null, requestRequired: false, response: Schedules },
+  "PUT /v1/schedules/{account_id}": { method: "PUT", path: "/v1/schedules/{account_id}", plane: "tenant", status: 200, request: CadenceBody, requestRequired: true, response: Schedules },
   "GET /v1/settings": { method: "GET", path: "/v1/settings", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantSettings },
   "PUT /v1/settings": { method: "PUT", path: "/v1/settings", plane: "tenant", status: 200, request: SettingsBody, requestRequired: true, response: TenantSettings },
   "PUT /v1/settings/branding": { method: "PUT", path: "/v1/settings/branding", plane: "tenant", status: 200, request: BrandingBody, requestRequired: true, response: BrandingSaved },

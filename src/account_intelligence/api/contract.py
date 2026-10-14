@@ -466,6 +466,37 @@ class NotificationRead(Out):
     read: bool
 
 
+class ScheduleOption(Out):
+    """One cadence on an account's segmented control."""
+
+    cadence: Literal["3d", "weekly", "2w", "monthly", "off"]
+    label: str
+    allowed: bool
+
+
+class ScheduleRow(Out):
+    """One account's refresh schedule."""
+
+    account_id: str
+    domain: str
+    name: str
+    cadence: Literal["3d", "weekly", "2w", "monthly", "off"]
+    next_label: str
+    next_refresh_at: str | None
+    options: list[ScheduleOption]
+
+
+class Schedules(Out):
+    """Every account's schedule, what it costs a month, and the pool."""
+
+    rows: list[ScheduleRow]
+    fastest: str
+    fastest_label: str
+    estimate_month: int
+    pool: int
+    resets_on: str
+
+
 class AccountDetail(Out):
     """Response body: account detail."""
 

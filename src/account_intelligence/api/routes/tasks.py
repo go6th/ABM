@@ -5,6 +5,7 @@
   layer's graph under the same slice lifecycle (``agents.production.wiring``).
 * ``POST /tasks/approval-timeout``: expires an approval past its deadline (cancel and refund).
 * ``POST /tasks/research-job``: runs one confirmed research job within its reserved credits.
+* ``POST /tasks/schedules-tick``: starts due scheduled refreshes from each client's credit pool.
 
 The body carries ids only. The token must be for the worker audience and from the scheduler's
 service account (W3: no caller identity is trusted from the body). The tenant in the body is then
@@ -191,3 +192,18 @@ async def research_job(
 
     engine = jobs.engine_from_env(request.app.state.container.env)
     return {"outcome": await jobs.run_job(task.tenant_id, task.job_id, engine)}
+
+
+@router.post("/schedules-tick")
+async def schedules_tick(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, int]:
+    """Start due scheduled refreshes from each client's pool (Cloud Scheduler, every 15 minutes).
+    Reads identifiers only across tenants; everything else happens in each tenant's own
+    transaction (``replica.schedules.tick``)."""
+    _authorise(request, authorization)
+    from datetime import UTC, datetime
+
+    from account_intelligence.replica import jobs, schedules
+
+    return await schedules.tick(datetime.now(UTC), jobs.run_or_enqueue)

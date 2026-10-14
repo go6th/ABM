@@ -1285,6 +1285,28 @@
         "title": "BrandingSaved",
         "type": "object"
       },
+      "CadenceBody": {
+        "additionalProperties": false,
+        "description": "One account's new cadence.",
+        "properties": {
+          "cadence": {
+            "enum": [
+              "3d",
+              "weekly",
+              "2w",
+              "monthly",
+              "off"
+            ],
+            "title": "Cadence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cadence"
+        ],
+        "title": "CadenceBody",
+        "type": "object"
+      },
       "CapApproved": {
         "additionalProperties": false,
         "description": "Response body: cap approved.",
@@ -8272,6 +8294,143 @@
           "views"
         ],
         "title": "SavedViews",
+        "type": "object"
+      },
+      "ScheduleOption": {
+        "additionalProperties": false,
+        "description": "One cadence on an account's segmented control.",
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "cadence": {
+            "enum": [
+              "3d",
+              "weekly",
+              "2w",
+              "monthly",
+              "off"
+            ],
+            "title": "Cadence",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cadence",
+          "label",
+          "allowed"
+        ],
+        "title": "ScheduleOption",
+        "type": "object"
+      },
+      "ScheduleRow": {
+        "additionalProperties": false,
+        "description": "One account's refresh schedule.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "cadence": {
+            "enum": [
+              "3d",
+              "weekly",
+              "2w",
+              "monthly",
+              "off"
+            ],
+            "title": "Cadence",
+            "type": "string"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_label": {
+            "title": "Next Label",
+            "type": "string"
+          },
+          "next_refresh_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Refresh At"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleOption"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "account_id",
+          "domain",
+          "name",
+          "cadence",
+          "next_label",
+          "next_refresh_at",
+          "options"
+        ],
+        "title": "ScheduleRow",
+        "type": "object"
+      },
+      "Schedules": {
+        "additionalProperties": false,
+        "description": "Every account's schedule, what it costs a month, and the pool.",
+        "properties": {
+          "estimate_month": {
+            "title": "Estimate Month",
+            "type": "integer"
+          },
+          "fastest": {
+            "title": "Fastest",
+            "type": "string"
+          },
+          "fastest_label": {
+            "title": "Fastest Label",
+            "type": "string"
+          },
+          "pool": {
+            "title": "Pool",
+            "type": "integer"
+          },
+          "resets_on": {
+            "title": "Resets On",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "fastest",
+          "fastest_label",
+          "estimate_month",
+          "pool",
+          "resets_on"
+        ],
+        "title": "Schedules",
         "type": "object"
       },
       "Session": {
@@ -18908,6 +19067,126 @@
         "summary": "Tenant Live",
         "tags": [
           "spend-v2"
+        ]
+      }
+    },
+    "/v1/schedules": {
+      "get": {
+        "description": "Every account's schedule and the monthly estimate.",
+        "operationId": "schedules_v1_schedules_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schedules"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Schedules",
+        "tags": [
+          "schedules"
+        ]
+      }
+    },
+    "/v1/schedules/{account_id}": {
+      "put": {
+        "description": "Save the cadence now and return the updated view.",
+        "operationId": "save_cadence_v1_schedules__account_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CadenceBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schedules"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Cadence",
+        "tags": [
+          "schedules"
         ]
       }
     },

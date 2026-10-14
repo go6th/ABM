@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **165**.
-- Frontend literal call sites found: **79**.
-- Frontend call sites mapped to backend operations: **73**.
-- Backend operations without a direct frontend call site: **113**.
+- Backend operations in OpenAPI: **167**.
+- Frontend literal call sites found: **80**.
+- Frontend call sites mapped to backend operations: **74**.
+- Backend operations without a direct frontend call site: **114**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **1**.
 
@@ -101,6 +101,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/RunStatus.tsx` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/spend/live` | — | TenantLiveSpend | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `web/components/accounts/SchedulesView.tsx` | tenant client | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/app/api/auth/logout/route.ts` | server API fetch | `GET /v1/sso/logout` | unmapped | unmapped | unverified |
 | `web/app/api/auth/logout/route.ts` | server API fetch | `GET /v1/sso/session` | — | Session | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/app/api/operator/callback/route.ts` | same-origin or external fetch | `POST https://oauth2.googleapis.com/token` | OAuth code exchange | OAuth token response | external identity provider; server-only |
@@ -183,6 +184,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/runs/{run_id}/progress` | — | RunProgress (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs/{run_id}/spend` | — | inline object (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/runs/{run_id}/spend/live` | — | TenantLiveSpend (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/schedules` | — | Schedules (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/settings` | — | TenantSettings (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/signals` | — | SignalPage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/sso/connections` | — | IdpConnections (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
@@ -272,6 +274,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `PUT /v1/documents/policy` | PolicyBody (required) | DocumentPolicy (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/documents/{document_id}/content` | — | DocumentReceived (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
 | `PUT /v1/files/uploads/{upload_id}/parts/{part_no}` | — | FileUploadPart (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `PUT /v1/settings` | SettingsBody (required) | TenantSettings (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/settings/branding` | BrandingBody (required) | BrandingSaved (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/sso/connections/{connection_id}` | ConnectionUpdate (required) | IdpConnection (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
