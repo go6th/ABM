@@ -12,6 +12,20 @@
 # routes, storage, cache, events: see the comments on each section.
 status: generated-coverage
 tables:
+  client_settings:
+    plant: {account_cap_per_user: 34, idle_expiry_days: 7, monthly_credit_pool: 2000, fastest_schedule: "3d",
+            updated_by: "{canary}"}
+  research_jobs:
+    plant: {kind: web_refresh, scope: jobs, status: queued, period: "2026-10", credits_estimated: 20,
+            requested_by: "{canary}"}
+  credit_entries:
+    plant: {period: "2026-10", kind: reserve, credits: 20, purpose: web_refresh, actor: "{canary}"}
+  notifications:
+    plant: {user_id: "{canary}", kind: refresh_finished}
+  question_categories:
+    plant: {week: "2026-10-12", category: people, questions: 1}
+  library_publications:
+    plant: {published_by: "{canary}"}
   account_runs: {}
   account_source_counters: {}
   link_checks: {}
@@ -348,6 +362,19 @@ functions:
 # tenant principal; an operator naming tenant A in the path must still see none of A's content).
 # params: path parameter -> "table.column" of A's canary row.
 routes:
+  GET /v1/accounts/{domain}/workspace: {probe: tenant, params: {domain: accounts.domain}}
+  GET /v1/accounts/{domain}/deliverables: {probe: tenant, params: {domain: accounts.domain}}
+  GET /v1/accounts/{domain}/deliverables/download:
+    probe: tenant
+    params: {domain: accounts.domain}
+    query: {ids: deliverables.id}
+  GET /v1/chat/suggestions: {probe: tenant}
+  POST /v1/chat/ask:
+    probe: tenant
+    body:
+      request_id: "00000000-0000-4000-8000-000000000002"
+      question: Synthetic isolation probe
+      thread_id: chat_threads.id
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/collected: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/files: {probe: tenant}
