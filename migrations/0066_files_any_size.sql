@@ -66,6 +66,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON document_parts TO app_rw;
 
 -- Parts whose worker died (lease expired) or that waited for a free worker too long: the sweeper
 -- enqueues them again (each part is idempotent).
+-- reviewed: SECURITY DEFINER returns (tenant_id, document_id, part_no) identifiers only, of parts of documents still parsing whose lease expired, or that waited, before the given time;
+-- search_path pinned; EXECUTE granted to app_rw only (catalogued in tenancy.catalog.JOBS).
 CREATE FUNCTION document_parts_orphaned(stale_before timestamptz)
    RETURNS TABLE (tenant_id uuid, document_id uuid, part_no integer)
    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$

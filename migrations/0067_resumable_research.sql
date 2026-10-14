@@ -39,6 +39,8 @@ ALTER TABLE notifications ADD CONSTRAINT ck_notifications_kind CHECK (kind IN ('
 
 -- Running runs that have not moved since ``stale_before`` and are not marked yet (the sweeper
 -- marks each once and tells its owner).
+-- reviewed: SECURITY DEFINER returns (tenant_id, run_id) identifiers only, of running runs that have not moved since the given time and are not marked yet;
+-- search_path pinned; EXECUTE granted to app_rw only (catalogued in tenancy.catalog.JOBS).
 CREATE FUNCTION runs_stalled(stale_before timestamptz)
    RETURNS TABLE (tenant_id uuid, run_id uuid)
    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$

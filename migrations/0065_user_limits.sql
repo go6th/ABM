@@ -75,21 +75,32 @@ CREATE UNIQUE INDEX uq_limit_requests_open ON limit_requests (tenant_id, owner_u
    WHERE status = 'pending';
 CREATE INDEX ix_limit_requests_tenant_status ON limit_requests (tenant_id, status, created_at);
 
-DO $$
-DECLARE t text;
-BEGIN
-   FOREACH t IN ARRAY ARRAY['user_limits', 'usage_periods', 'limit_requests'] LOOP
-      EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
-      EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
-      EXECUTE format(
-         'CREATE POLICY tenant_owner_isolation ON %I TO app_rw'
-         ' USING (tenant_id = (SELECT app_tenant())'
-         ' AND (owner_user_id = (SELECT app_user()) OR (SELECT app_scope()) = ''system''))'
-         ' WITH CHECK (tenant_id = (SELECT app_tenant())'
-         ' AND (owner_user_id = (SELECT app_user()) OR (SELECT app_scope()) = ''system''))', t);
-      EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %I TO app_rw', t);
-   END LOOP;
-END $$;
+ALTER TABLE user_limits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_limits FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_owner_isolation ON user_limits TO app_rw
+   USING (tenant_id = (SELECT app_tenant())
+          AND (owner_user_id = (SELECT app_user()) OR (SELECT app_scope()) = 'system'))
+   WITH CHECK (tenant_id = (SELECT app_tenant())
+          AND (owner_user_id = (SELECT app_user()) OR (SELECT app_scope()) = 'system'));
+GRANT SELECT, INSERT, UPDATE ON user_limits TO app_rw;
+
+ALTER TABLE usage_periods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE usage_periods FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_owner_isolation ON usage_periods TO app_rw
+   USING (tenant_id = (SELECT app_tenant())
+          AND (owner_user_id = (SELECT app_user()) OR (SELECT app_scope()) = 'system'))
+   WITH CHECK (tenant_id = (SELECT app_tenant())
+          AND (owner_user_id = (SELECT app_user()) OR (SELECT app_scope()) = 'system'));
+GRANT SELECT, INSERT, UPDATE ON usage_periods TO app_rw;
+
+ALTER TABLE limit_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE limit_requests FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_owner_isolation ON limit_requests TO app_rw
+   USING (tenant_id = (SELECT app_tenant())
+          AND (owner_user_id = (SELECT app_user()) OR (SELECT app_scope()) = 'system'))
+   WITH CHECK (tenant_id = (SELECT app_tenant())
+          AND (owner_user_id = (SELECT app_user()) OR (SELECT app_scope()) = 'system'));
+GRANT SELECT, INSERT, UPDATE ON limit_requests TO app_rw;
 
 -- The in-app answer to a request, and a scheduled refresh that the user's limit stopped.
 ALTER TABLE notifications DROP CONSTRAINT ck_notifications_kind;
