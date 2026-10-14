@@ -23,6 +23,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from account_intelligence.replica.admin import WARN_DAYS, days_between
+from account_intelligence.replica.isolation import check_clients
 from account_intelligence.replica.notifications import notify
 from account_intelligence.replica.settings import client_settings
 from identity import membership, sessions
@@ -78,9 +79,11 @@ async def expire_everywhere(plain_factory: Any, txn: Any, now: datetime) -> Expi
     """One pass over every client (identifiers from ``operator_tenant_overview``)."""
     report = ExpiryReport()
     async with plain_factory() as plain:
+        skip = await check_clients(plain)
         ids = [
             UUID(str(r.tenant_id))
             for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+            if UUID(str(r.tenant_id)) not in skip
         ]
     # LOOP(idle expiry): cap=one pass over the clients; exit=every client checked or failed
     for tid in ids:

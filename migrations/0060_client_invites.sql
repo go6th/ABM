@@ -19,10 +19,9 @@ CREATE FUNCTION local_auth_invite_email(p_token_hash text, p_now timestamptz)
       AND u.status IN ('pending_verification', 'active')
 $$;
 
--- reviewed: SECURITY DEFINER (owner identity_authenticator, as above). Consumes the single-use
--- invite token and, for that one identity only, sets the chosen password hash, activates it and
--- marks the email verified, in one transaction; refuses malformed hashes and disabled identities;
--- writes no tenant row and reads no tenant data.
+-- reviewed: SECURITY DEFINER (owner identity_authenticator, as above). Consumes one invite token;
+-- for that identity only sets the password hash, activates it and verifies the email; refuses
+-- malformed hashes and disabled identities; no tenant row is read or written.
 CREATE FUNCTION local_auth_accept_invite(
    p_token_hash text, p_password_hash text, p_now timestamptz)
    RETURNS uuid

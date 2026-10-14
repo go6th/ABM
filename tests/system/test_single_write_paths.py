@@ -215,6 +215,8 @@ OWNERS: dict[str, set[str]] = {
     # replica (migrations 0053 to 0056): client limits, the credit pool and its jobs, notices
     "client_settings": {"replica/settings.py"},
     "platform_defaults": {"replica/settings.py"},
+    "isolation_checks": {"replica/isolation.py"},
+    "isolation_check_pair": {"replica/isolation.py"},
     "credit_entries": {"replica/credits.py"},
     "research_jobs": {"replica/credits.py"},
     "notifications": {"replica/notifications.py"},

@@ -82,11 +82,13 @@ Schedule = Literal["3d", "weekly", "2w", "monthly"]
 
 
 async def _client_ids() -> list[UUID]:
+    """Every real client (the isolation check's own pair is left out)."""
     async with untenanted_session() as plain:
         rows = await plain.execute(
             text("SELECT tenant_id FROM operator_tenant_overview() ORDER BY created_at")
         )
-        return [UUID(str(r.tenant_id)) for r in rows]
+        skip = await isolation.check_clients(plain)
+        return [UUID(str(r.tenant_id)) for r in rows if UUID(str(r.tenant_id)) not in skip]
 
 
 async def _isolation() -> dict[str, Any]:

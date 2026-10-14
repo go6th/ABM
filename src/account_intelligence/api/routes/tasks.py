@@ -9,6 +9,7 @@
 * ``POST /tasks/maildrive-sync``: syncs the per-user Mail and drive connections that are due.
 * ``POST /tasks/access-expiry``: warns idle users and ends the access of those past their client's
   idle days (``replica.access``).
+* ``POST /tasks/isolation-check``: the nightly isolation check (``replica.isolation``).
 
 The body carries ids only. The token must be for the worker audience and from the scheduler's
 service account (W3: no caller identity is trusted from the body). The tenant in the body is then
@@ -287,4 +288,26 @@ async def access_expiry(
         "warned": done.warned,
         "expired": done.expired,
         "failed": len(done.failed),
+    }
+
+
+@router.post("/isolation-check")
+async def isolation_check(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    """The nightly isolation check (Cloud Scheduler, 02:00): structure, every tenant table and
+    the read routes, from a dedicated probe client; the pass is recorded either way."""
+    _authorise(request, authorization)
+    from datetime import UTC, datetime
+
+    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.replica import isolation
+
+    done = await isolation.run_check(request.app, untenanted_session, tenant_txn, datetime.now(UTC))
+    return {
+        "passed": done.passed,
+        "clients": done.clients,
+        "tables": done.tables,
+        "routes": done.routes,
+        "failures": len(done.failures),
     }
