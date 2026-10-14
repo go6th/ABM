@@ -156,7 +156,7 @@ gave **4327 passed, 14 skipped, 1 failed** in 19 min 28 s. The one failure is
 is the lead's and still holds the removed `/v1/files*` operations (section 3); it passes once the
 lead regenerates the client. (The run before it had two more failures, both fixed: the fuzz
 admin had no fresh step-up after L9, and `.env.example` lacked `K_SERVICE` and `CLOUD_RUN_JOB`.)
-The isolation suite (`tests/isolation`, 750+ tests including the 251 route probes and the new
+The isolation suite (`tests/isolation`, 823 tests including the 251 route probes and the new
 definer-owner and IAM-user tests) is part of that run.
 
 | Check | Command | Result |
