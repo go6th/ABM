@@ -1,5 +1,5 @@
 // A deep-dive table of an account (People, Signals, Job postings, Tech stack and teams, News,
-// From your mail and drive, Sources), sorted, filtered and paged on the server.
+// From your mail and drive, Sources, Coverage), sorted, filtered and paged on the server.
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { Sheet } from "@/lib/gen/api.gen";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 const TITLES: Record<string, string> = {
   people: "People", signals: "Signals", jobs: "Job postings", technology: "Tech stack and teams",
-  news: "News", "mail-and-drive": "From your mail and drive", sources: "Sources",
+  news: "News", "mail-and-drive": "From your mail and drive", sources: "Sources", coverage: "Coverage",
 };
 
 type Props = { params: Promise<{ domain: string; sheet: string }>; searchParams: Promise<Record<string, string | undefined>> };

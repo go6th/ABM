@@ -77,6 +77,8 @@ export const Changes = z.object({
 export type Changes = z.infer<typeof Changes>;
 
 export const DeepDiveCounts = z.object({
+  "coverage_done": z.number().int().optional(),
+  "coverage_total": z.number().int().optional(),
   "jobs": z.number().int(),
   "mail_drive": z.number().int(),
   "news": z.number().int(),

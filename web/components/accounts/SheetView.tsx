@@ -6,10 +6,16 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Sheet } from "@/lib/gen/api.gen";
 import { LINK_REL, safeLink } from "@/lib/render";
-import { Grade, Pill } from "@/ui/design";
+import { Grade, Pill, type PillTone } from "@/ui/design";
 
 type Row = Sheet["rows"][number];
 type Column = Sheet["columns"][number];
+
+// Coverage tracker statuses: Done is good, Partial and None found are worth a look, Not done and
+// Blocked are gaps.
+const STATUS_TONE: Record<string, PillTone> = {
+  Done: "ok", Partial: "warn", "None found": "neutral", "Not done": "bad", Blocked: "bad", "Not checked": "neutral",
+};
 
 function Cell({ col, row }: { col: Column; row: Row }) {
   const value = row.cells[col.key] ?? "";
@@ -22,9 +28,13 @@ function Cell({ col, row }: { col: Column; row: Row }) {
     const tone = value === "A" ? "run" : "neutral";
     return <td className="c">{value ? <Pill tone={tone} small>{value}</Pill> : null}</td>;
   }
+  if (col.kind === "status") {
+    const tone = STATUS_TONE[value] ?? "neutral";
+    return <td>{value ? <Pill tone={tone} small>{value}</Pill> : null}</td>;
+  }
   if (col.kind === "strong") return <td><b>{value}</b></td>;
   if (col.kind === "num") return <td className="c">{value}</td>;
-  return <td className={col.key === "snippet" ? "wrap" : undefined}>{value}</td>;
+  return <td className={col.key === "snippet" || col.key === "reason" ? "wrap" : undefined}>{value}</td>;
 }
 
 export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: string; moreHref: string | null }) {

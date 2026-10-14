@@ -3174,8 +3174,18 @@
       },
       "DeepDiveCounts": {
         "additionalProperties": false,
-        "description": "Row counts of the deep-dive tables (mail and drive: the caller's own items only).",
+        "description": "Row counts of the deep-dive tables (mail and drive: the caller's own items only; coverage:\nthe tracker items Done out of all items of the latest finished run).",
         "properties": {
+          "coverage_done": {
+            "default": 0,
+            "title": "Coverage Done",
+            "type": "integer"
+          },
+          "coverage_total": {
+            "default": 0,
+            "title": "Coverage Total",
+            "type": "integer"
+          },
           "jobs": {
             "title": "Jobs",
             "type": "integer"

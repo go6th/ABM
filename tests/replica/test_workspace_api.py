@@ -62,6 +62,8 @@ async def test_workspace_after_a_refresh_shows_what_changed_and_live_counts(
         "news": 12,
         "mail_drive": 3,
         "sources": 86,
+        "coverage_done": 24,
+        "coverage_total": 33,
     }
     assert [f["name"] for f in ws["files"]] == [
         "Account summary",
@@ -275,3 +277,33 @@ async def test_another_clients_sheets_are_not_found(world: dict[str, Any]) -> No
     ).status_code == 404
     own = (await _call(b, "GET", "/v1/accounts/cigna.example/sheets/people")).json()
     assert own["total"] == 3
+
+
+async def test_coverage_shows_every_tracker_item_with_its_status_and_reason(
+    world: dict[str, Any],
+) -> None:
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    ws = (await _call(plane, "GET", "/v1/accounts/highmark.example/workspace")).json()
+    assert (ws["counts"]["coverage_done"], ws["counts"]["coverage_total"]) == (24, 33)
+    sheet = (await _call(plane, "GET", "/v1/accounts/highmark.example/sheets/coverage")).json()
+    assert sheet["total"] == 33
+    assert {f["key"]: f["count"] for f in sheet["filters"]} == {
+        "all": 33,
+        "done": 24,
+        "partial": 2,
+        "open": 7,
+        "high": 19,
+    }
+    by_status = {r["cells"]["status"]: r["cells"] for r in sheet["rows"]}
+    assert by_status["Blocked"]["reason"] == "Source unavailable"  # never silently missing
+    assert by_status["Not done"]["reason"] and by_status["Done"]["reason"] == ""
+    assert all(r["cells"]["item"] and "_" not in r["cells"]["item"] for r in sheet["rows"])
+    worst = await _call(
+        plane, "GET", "/v1/accounts/highmark.example/sheets/coverage?sort=status&filter=open"
+    )
+    assert worst.json()["rows"][0]["cells"]["status"] == "Blocked"
+    xlsx = await _call(plane, "GET", "/v1/accounts/highmark.example/sheets/coverage/xlsx")
+    assert xlsx.status_code == 200  # the tracker export passes the client-file checks
+    other = _plane(world["b"], "other-test", world["payloads"])
+    gone = await _call(other, "GET", "/v1/accounts/highmark.example/sheets/coverage")
+    assert gone.status_code == 404

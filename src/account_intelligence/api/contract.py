@@ -302,7 +302,8 @@ class Changes(Out):
 
 
 class DeepDiveCounts(Out):
-    """Row counts of the deep-dive tables (mail and drive: the caller's own items only)."""
+    """Row counts of the deep-dive tables (mail and drive: the caller's own items only; coverage:
+    the tracker items Done out of all items of the latest finished run)."""
 
     signals: int
     people: int
@@ -311,6 +312,8 @@ class DeepDiveCounts(Out):
     news: int
     mail_drive: int
     sources: int
+    coverage_done: int = 0
+    coverage_total: int = 0
 
 
 class DeliverableFile(Out):

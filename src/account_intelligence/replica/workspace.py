@@ -9,7 +9,7 @@ client's account is simply not found.
   "no_change", one researched once is "first_scan", and one never researched is "not_researched".
 * The workspace: the one-minute narrative with the sources each sentence rests on, key findings,
   what changed in the latest refresh (only after a refresh; never on a first scan), the deep-dive
-  counts and the deliverable files.
+  counts (Coverage as items Done out of all tracker items) and the deliverable files.
 """
 
 from __future__ import annotations
@@ -306,7 +306,17 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 " (SELECT count(*) FROM connector_items WHERE account_id = :a AND owner_user_id ="
                 " :u"
                 "   AND state = 'matched') AS mail_drive,"
-                " (SELECT count(*) FROM sources WHERE account_id = :a) AS sources"
+                " (SELECT count(*) FROM sources WHERE account_id = :a) AS sources,"
+                " (SELECT count(*) FILTER (WHERE c.status = 'done') FROM coverage_rows c WHERE"
+                "   c.run_id = (SELECT r.id FROM account_runs r WHERE r.account_id = :a"
+                "   AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
+                "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.run_id = r.id)"
+                "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)) AS coverage_done,"
+                " (SELECT count(*) FROM coverage_rows c WHERE"
+                "   c.run_id = (SELECT r.id FROM account_runs r WHERE r.account_id = :a"
+                "   AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
+                "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.run_id = r.id)"
+                "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)) AS coverage_total"
             ),
             {"a": account_id, "u": user_id},
         )

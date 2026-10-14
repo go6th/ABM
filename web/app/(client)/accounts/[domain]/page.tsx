@@ -49,7 +49,8 @@ export default async function AccountWorkspacePage({ params }: Params) {
   }
   const name = ws.name ?? ws.domain;
   const d = encodeURIComponent(ws.domain);
-  const rail: Array<[string, string, number]> = [
+  const coverage = ws.counts.coverage_total ? `${ws.counts.coverage_done} of ${ws.counts.coverage_total} done` : "Not run yet";
+  const rail: Array<[string, string, number | string]> = [
     ["Signals", `${here}/signals`, ws.counts.signals],
     ["People", `${here}/people`, ws.counts.people],
     ["Job postings", `${here}/jobs`, ws.counts.jobs],
@@ -57,6 +58,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
     ["News", `${here}/news`, ws.counts.news],
     ["From your mail and drive", `${here}/mail-and-drive`, ws.counts.mail_drive],
     ["Sources", `${here}/sources`, ws.counts.sources],
+    ["Coverage", `${here}/coverage`, coverage],
   ];
   return (
     <div className="split">

@@ -1,5 +1,6 @@
 """The deep-dive tables of an account, as spreadsheet sheets: People, Signals, Job postings,
-Tech stack and teams, News, From your mail and drive, and Sources.
+Tech stack and teams, News, From your mail and drive, Sources and Coverage (the 33-item research
+tracker of the latest finished run, with each item's status and reason).
 
 Each sheet is a fixed definition: a base query over the account's rows, its columns (each with an
 allow-listed sort expression), and its filter chips (each a fixed SQL predicate with a live
@@ -12,9 +13,11 @@ that sheet is labelled private.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
@@ -43,7 +46,7 @@ class Col:
     key: str
     label: str
     sort: str | None
-    kind: str = "text"  # text, strong, grade, priority, date, ago, link, num
+    kind: str = "text"  # text, strong, grade, priority, status, date, ago, link, num
 
 
 @dataclass(frozen=True)
@@ -301,6 +304,54 @@ SHEETS: dict[str, Sheet] = {
         ),
         default_sort="code",
     ),
+    "coverage": Sheet(
+        key="coverage",
+        title="Coverage",
+        file="Coverage tracker.xlsx",
+        scope=(
+            "The research tracker of the latest finished run: every item, whether it was covered"
+            f" and why not. {SORT_HINT}"
+        ),
+        base=(
+            "SELECT c.row_key AS _id,"
+            " coalesce(CAST(:tracker AS jsonb)->'label'->>c.row_key, c.row_key) AS item,"
+            " initcap(c.priority) AS priority_label,"
+            " CASE c.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END AS prio,"
+            " CASE c.status WHEN 'done' THEN 'Done' WHEN 'partial' THEN 'Partial'"
+            "   WHEN 'not_done' THEN 'Not done' WHEN 'blocked' THEN 'Blocked' WHEN 'none' THEN"
+            " 'None found'"
+            "   ELSE 'Not checked' END AS status,"
+            " CASE c.status WHEN 'blocked' THEN 0 WHEN 'not_done' THEN 1 WHEN 'partial' THEN 2"
+            "   WHEN 'none' THEN 3 WHEN 'done' THEN 4 ELSE 5 END AS status_order,"
+            " coalesce(CAST(:tracker AS jsonb)->'reason'->>c.reason_code, '') AS reason,"
+            " coalesce(CAST(CAST(:tracker AS jsonb)->'order'->>c.row_key AS int), 999) AS ord,"
+            " c.last_checked_at AS checked"
+            " FROM coverage_rows c WHERE c.run_id = (SELECT r.id FROM account_runs r"
+            "   WHERE r.account_id = :a AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
+            "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.run_id = r.id)"
+            "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
+        ),
+        cols=(
+            Col("item", "Research item", "s.ord", "strong"),
+            Col("priority_label", "Priority", "s.prio"),
+            Col("status", "Status", "s.status_order", "status"),
+            Col("reason", "Reason", None),
+            Col("checked", "Checked", "s.checked", "date"),
+        ),
+        filters=(
+            Filter("all", "All", "true"),
+            Filter("done", "Done", "s.status = 'Done'"),
+            Filter("partial", "Partial", "s.status = 'Partial'"),
+            Filter("open", "Not done or blocked", "s.status IN ('Not done', 'Blocked')"),
+            Filter("high", "High priority", "s.prio = 0"),
+        ),
+        default_sort="item",
+        tiebreak="s.ord, s._id",
+        footnote=(
+            "Each item ends Done, Partial, Not done, Blocked or None found. A source that failed"
+            " shows Blocked with its reason; nothing is left out silently."
+        ),
+    ),
 }
 
 MAX_PAGE = 500
@@ -370,11 +421,29 @@ def display(col: Col, value: Any, now: datetime) -> str:
     return str(value)
 
 
+@lru_cache(maxsize=1)
+def tracker_labels() -> str:
+    """The tracker's item labels, reason wording and checklist order, as the JSON the Coverage
+    sheet binds (the labels live in configuration, not in the database)."""
+    from account_intelligence.tracker.config import load_checklist, load_tracker_config
+
+    rows = load_checklist().rows
+    return json.dumps(
+        {
+            "label": {r.key: r.label for r in rows},
+            "reason": load_tracker_config().reason_codes,
+            "order": {r.key: i for i, r in enumerate(sorted(rows, key=lambda r: r.pass_no))},
+        }
+    )
+
+
 async def read(
     session: Any, q: Query, account_id: UUID, user_id: str, now: datetime, *, export: bool = False
 ) -> dict[str, Any]:
     """One page of the sheet (or the whole filtered sheet for an export) and the chip counts."""
-    params = {"a": account_id, "u": user_id, "now": now}
+    params: dict[str, Any] = {"a": account_id, "u": user_id, "now": now}
+    if q.sheet.key == "coverage":
+        params["tracker"] = tracker_labels()
     counts_sql = ", ".join(
         f"count(*) FILTER (WHERE {f.where}) AS c{i}" for i, f in enumerate(q.sheet.filters)
     )

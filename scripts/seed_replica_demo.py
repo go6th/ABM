@@ -679,7 +679,47 @@ class Seeder:
                 "k": f"demo-{rid}",
             },
         )
+        self.x(
+            "INSERT INTO runs (id, tenant_id, account_id, run_type, status, config_version,"
+            " credit_cap, started_at, finished_at, created_at) VALUES (%(id)s, %(t)s, %(a)s,"
+            " 'full', 'completed', 'replica-demo', 1, %(c)s, %(f)s, %(c)s)",
+            {"id": rid, "t": tid, "a": aid, "c": at - timedelta(hours=1), "f": at},
+        )
+        self.tracker(tid, rid, at)
         return rid
+
+    # The demo tracker: most items covered, two partial, the optional items not planned and one
+    # source that failed (Blocked with its reason), as a real finished run reports them.
+    DEMO_PARTIAL = ("job_postings_12_months", "executive_speaking")
+    DEMO_BLOCKED = "regulatory_quality_events"
+
+    def tracker(self, tid: uuid.UUID, rid: uuid.UUID, at: datetime) -> None:
+        from account_intelligence.tracker.config import load_checklist
+
+        for row in load_checklist().rows:
+            if row.key == self.DEMO_BLOCKED:
+                status, reason = "blocked", "source_unavailable"
+            elif row.key in self.DEMO_PARTIAL:
+                status, reason = "partial", "fewer_than_expected"
+            elif row.priority == "optional":
+                status, reason = "not_done", "not_planned"
+            else:
+                status, reason = "done", None
+            self.x(
+                "INSERT INTO coverage_rows (run_id, row_key, tenant_id, priority, status,"
+                " reason_code, proof, owner_stage, last_checked_at) VALUES (%(r)s, %(k)s, %(t)s,"
+                " %(p)s, %(s)s, %(why)s, %(proof)s, 'demo', %(at)s)",
+                {
+                    "r": rid,
+                    "k": row.key,
+                    "t": tid,
+                    "p": row.priority,
+                    "s": status,
+                    "why": reason,
+                    "proof": json.dumps({"calls": [], "notes": ["demo"], "call_refs": []}),
+                    "at": at,
+                },
+            )
 
     def source(
         self,
@@ -1269,6 +1309,8 @@ DEMO_TABLES = [
     "facts",
     "sources",
     "deliverables",
+    "coverage_rows",
+    "runs",
     "account_runs",
     "accounts",
     "client_settings",
