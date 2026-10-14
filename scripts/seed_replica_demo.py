@@ -1366,7 +1366,11 @@ async def recent_chats(dsn: str, tenant: uuid.UUID, user: str, now: datetime) ->
         async with engine.begin() as conn:
             await conn.execute(text("SET LOCAL ROLE app_rw"))
             await conn.execute(
-                text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)}
+                text(
+                    "SELECT set_config('app.tenant_id', :t, true),"
+                    " set_config('app.user_id', :u, true)"
+                ),
+                {"t": str(tenant), "u": user},
             )
             ws = await answers.load_workspace(conn, user)
             for title, question, minutes in RECENT_CHATS:

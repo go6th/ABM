@@ -112,6 +112,8 @@ async def _signed_in(
     add_member(t, f"{slug}:root", role)
     groups = {"admin": "admins", "seller": "sales", "viewer": "readers", "analyst": "analysts"}
     await browser.oidc_sign_in(slug, "root", extra={"groups": [groups[role]]})
+    # the account is the signed-in user's own (private workspaces, migration 0063)
+    db("UPDATE accounts SET owner_user_id = %s WHERE id = %s", f"{slug}:root", a)
     return t, a, f"{slug}:root"
 
 

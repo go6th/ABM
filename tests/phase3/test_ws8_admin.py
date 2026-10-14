@@ -128,9 +128,15 @@ async def test_support_view_as_is_read_only_audited_and_visible(
     t = await _admin(plane, browser, "ad-view")
     other = new_tenant("ad-view-other")
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
-        c.execute("INSERT INTO accounts (tenant_id, domain) VALUES (%s, 'mine.example')", (t,))
         c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, 'theirs.example')", (other,)
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', 'mine.example')",
+            (t,),
+        )
+        c.execute(
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', 'theirs.example')",
+            (other,),
         )
     too_long = await browser.call(
         "POST",
@@ -355,7 +361,8 @@ async def test_view_as_a_client_shows_the_workspace_read_only_and_never_question
     t = await _admin(plane, browser, "ad-viewas")
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         c.execute(
-            "INSERT INTO accounts (tenant_id, domain, name, lanes) VALUES (%s, 'seen.example',"
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain, name, lanes)"
+            " VALUES (%s, 'test-owner', 'seen.example',"
             " 'Seen Health', ARRAY['Salesforce'])",
             (t,),
         )

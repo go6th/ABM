@@ -29,7 +29,8 @@ def tenant_with_account(name: str, domain: str | None = None) -> tuple[UUID, UUI
         ).fetchone()[0]
         c.execute("INSERT INTO wallets (tenant_id, balance) VALUES (%s, 100)", (t,))
         a = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', %s) RETURNING id",
             (t, domain or f"{uuid4().hex[:8]}.example"),
         ).fetchone()[0]
     return t, a

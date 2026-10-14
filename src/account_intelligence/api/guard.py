@@ -106,6 +106,12 @@ async def authorize(request: Request, ident: Identity = Depends(identity)) -> Id
             "Sign in again with multi-factor authentication to do this.",
         )
     request.state.principal = ident
+    # private workspaces (migration 0063): this request acts as the verified caller, so the
+    # database shows it only the caller's own rows of owned tables
+    from account_intelligence.db.session import set_actor, set_user_scope
+
+    set_actor(ident.user_id)
+    set_user_scope()
     if policy.audit == "read":
         await _record_read(request, ident)
     return ident

@@ -125,7 +125,11 @@ async def test_settings_versions_are_insert_only_and_conflict_safe() -> None:
         "DELETE FROM tenant_settings_versions",
     ):
         with psycopg.connect(APP_DSN) as c, c.transaction():
-            c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(t),))
+            c.execute(
+                "SELECT set_config('app.tenant_id', %s, true),"
+                " set_config('app.scope', 'system', true)",
+                (str(t),),
+            )
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 c.execute(sql)
 
@@ -143,7 +147,8 @@ async def test_a_run_records_the_settings_version_once() -> None:
     t = _tenant()
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         acc = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, 'pin.example') RETURNING id",
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', 'pin.example') RETURNING id",
             (t,),
         ).fetchone()[0]
         run = c.execute(
@@ -245,7 +250,10 @@ async def test_lifecycle_changes_are_append_only_and_race_safe() -> None:
     assert results.count("ok") == 1
     assert any(isinstance(r, lifecycle.LifecycleConflict) for r in results)
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(t),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(t),),
+        )
         for sql in ("UPDATE tenant_events SET actor = 'x'", "DELETE FROM tenant_events"):
             with pytest.raises(psycopg.errors.InsufficientPrivilege), c.transaction():
                 c.execute(sql)
@@ -331,13 +339,19 @@ async def test_deletion_needs_a_second_person_and_never_touches_ledgers_or_audit
             await lifecycle.execute(s, req, actor="op-1", now=NOW)  # not approved
     # the database refuses the erase without an approval, too
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(t),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(t),),
+        )
         with pytest.raises(psycopg.errors.InsufficientPrivilege), c.transaction():
             c.execute("SELECT erase_rows(%s, 'facts', 10)", (req,))
     async with tenant_txn(t) as s:
         await lifecycle.approve(s, req, actor="op-2", now=NOW)
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(t),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(t),),
+        )
         for table in ("wallet_ledger", "tool_calls", "tenant_events", "sources", "people"):
             with pytest.raises(psycopg.errors.InsufficientPrivilege), c.transaction():
                 c.execute("SELECT erase_rows(%s, %s, 10)", (req, table))

@@ -42,9 +42,12 @@ def seed(admin_dsn: str, tenants: int, accounts: int, rows: int) -> list[tuple[s
                 "INSERT INTO tenants (name) VALUES (%s) RETURNING id", (f"{SCALE_PREFIX}-{t_i}",)
             ).fetchone()[0]
             c.execute("INSERT INTO wallets (tenant_id, balance) VALUES (%s, 0)", (tid,))
-            with c.cursor().copy("COPY accounts (tenant_id, domain) FROM STDIN") as cp:
+            # each account belongs to one user (private workspaces, migration 0063)
+            with c.cursor().copy(
+                "COPY accounts (tenant_id, owner_user_id, domain) FROM STDIN"
+            ) as cp:
                 for a in range(accounts):
-                    cp.write_row((tid, f"acct-{t_i}-{a}.example"))
+                    cp.write_row((tid, "scale-user", f"acct-{t_i}-{a}.example"))
             acc = c.execute(
                 "SELECT id FROM accounts WHERE tenant_id = %s ORDER BY domain LIMIT 1", (tid,)
             ).fetchone()[0]

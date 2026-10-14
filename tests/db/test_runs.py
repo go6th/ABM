@@ -120,7 +120,9 @@ def test_refresh_parent_must_belong_to_the_same_account(admin, account) -> None:
 def test_run_cannot_reference_another_tenants_account(admin) -> None:  # type: ignore[no-untyped-def]
     mine, theirs = make_tenant(admin), make_tenant(admin)
     their_account = make_account(admin, theirs)
-    with pytest.raises(psycopg.errors.ForeignKeyViolation, match="account_id_accounts"):
+    # refused either way: the run's owner cannot be taken from another client's account
+    # (NOT NULL, migration 0063), or the composite foreign key refuses the reference
+    with pytest.raises(psycopg.errors.IntegrityError, match="account_id_accounts|owner_user_id"):
         make_run(admin, mine, their_account)
 
 

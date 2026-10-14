@@ -64,5 +64,8 @@ async def finish(tenant: UUID, run: UUID) -> None:
 
 
 if __name__ == "__main__":
+    from tests.scope import act_as_test_system
+
+    act_as_test_system()
     mode, tenant, run = sys.argv[1], UUID(sys.argv[2]), UUID(sys.argv[3])
     asyncio.run({"claim": claim, "finish": finish}[mode](tenant, run))

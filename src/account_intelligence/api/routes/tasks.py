@@ -11,6 +11,11 @@
   idle days (``replica.access``).
 * ``POST /tasks/isolation-check``: the nightly isolation check (``replica.isolation``).
 
+Private workspaces (migration 0063): every task starts as a system job, which is all a tick
+needs (it reads identifiers across one client's users). A task about one run, file, document or
+job then acts as that item's owner in user scope, so the database confines it to that user's
+rows (``_act_as_owner_of``).
+
 The body carries ids only. The token must be for the worker audience and from the scheduler's
 service account (W3: no caller identity is trusted from the body). The tenant in the body is then
 checked against the run row under RLS: a run that is not the tenant's is not found. In ``dev`` and
@@ -27,7 +32,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
-from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.session import set_system, tenant_txn
 from account_intelligence.runs import lifecycle
 from account_intelligence.workflow.runner import execute_slice
 from obs.logging import logger
@@ -53,7 +58,19 @@ class TimeoutTask(BaseModel):
     run_id: UUID
 
 
+async def _act_as_owner_of(kind: str, tenant_id: UUID, item_id: UUID) -> None:
+    """Act as the owner of one owned item for the rest of this task (404 when it is not in the
+    tenant; ``db.owners``)."""
+    from account_intelligence.db.owners import ItemNotFound, act_as_owner_of
+
+    try:
+        await act_as_owner_of(kind, tenant_id, item_id)
+    except ItemNotFound:
+        raise HTTPException(404, f"{kind} not found") from None
+
+
 def _authorise(request: Request, authorization: str | None) -> Any:
+    set_system()
     container = request.app.state.container
     if container.verify_task_token is None:
         if os.environ.get("ALLOW_UNAUTHENTICATED_TASKS") == "1" and container.env in (
@@ -80,6 +97,7 @@ async def run_slice(
     from agents.production.wiring import AbmGraphFactory, uses_abm
     from documents.graph import FileGraphFactory, is_file_run
 
+    await _act_as_owner_of("run", task.tenant_id, task.run_id)
     try:
         deps = await container.deps_for(task.tenant_id, task.run_id)
         factory: Any = None
@@ -126,6 +144,7 @@ async def file_process(
     files = getattr(container, "files", None)
     if files is None:
         raise HTTPException(503, "file processing is not configured")
+    await _act_as_owner_of("file", task.tenant_id, task.file_id)
     outcome = await files.processor().process(task.tenant_id, task.file_id)
     if outcome == "busy":
         raise HTTPException(503, "the file is being processed by another worker")
@@ -150,6 +169,7 @@ async def document_process(
     docs = getattr(container, "documents", None)
     if docs is None:
         raise HTTPException(503, "document processing is not configured")
+    await _act_as_owner_of("document", task.tenant_id, task.document_id)
     outcome = await docs.process(task.tenant_id, task.document_id)
     if outcome == "busy":
         raise HTTPException(503, "the document is being processed by another worker")
@@ -164,6 +184,7 @@ async def approval_timeout(
     defect 8); a cap pause (D-45) records the timeout and resumes the run, which then ends
     BUDGET_EXCEEDED with partial results."""
     container = _authorise(request, authorization)
+    await _act_as_owner_of("run", task.tenant_id, task.run_id)
     deps = await container.deps_for(task.tenant_id, task.run_id)
     now = container.clock.now()
     async with tenant_txn(task.tenant_id) as s:
@@ -194,6 +215,7 @@ async def research_job(
     """Run one confirmed research job (``replica.jobs.run_job``). The tenant in the body is
     checked against the job row under RLS: another tenant's job is simply not claimed."""
     _authorise(request, authorization)
+    await _act_as_owner_of("job", task.tenant_id, task.job_id)
     from account_intelligence.replica import jobs
 
     engine = jobs.engine_for(request.app.state.container)

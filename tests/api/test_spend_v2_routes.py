@@ -50,7 +50,7 @@ def app_for(
     from account_intelligence.api.main import create_app
 
     admin(
-        "INSERT INTO memberships (tenant_id, user_id, role) VALUES (%s, 'u1', %s)"
+        "INSERT INTO memberships (tenant_id, user_id, role) VALUES (%s, 'test-owner', %s)"
         " ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role",
         tenant,
         role,
@@ -68,7 +68,7 @@ def app_for(
     app.state.draining = False
 
     async def ident() -> Identity:
-        return Identity("u1", tenant, role, step)
+        return Identity("test-owner", tenant, role, step)
 
     app.dependency_overrides[identity] = ident
     if operator:

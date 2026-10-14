@@ -81,7 +81,10 @@ async def test_a_tenant_sees_and_writes_no_other_tenants_pipeline_passes(
         psycopg.connect(APP_DSN) as c,
         c.transaction(),
     ):
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant_a),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(tenant_a),),
+        )
         c.execute(
             "INSERT INTO job_pipeline_passes (tenant_id, run_id, pass_no, gap_exit,"
             " record_json) VALUES (%s, %s, 2, 'converged', '{}')",

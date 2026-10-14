@@ -141,7 +141,8 @@ async def insert_file(
             text(
                 "INSERT INTO research_files (id, tenant_id, name, size_bytes, mime, detected_type,"
                 " sha256, object_key, uploaded_by) VALUES (:id, (SELECT app_tenant()), :n, :sz,"
-                " :m, :d, :h, :k, :u) ON CONFLICT (tenant_id, sha256) DO NOTHING RETURNING id"
+                " :m, :d, :h, :k, :u)"
+                " ON CONFLICT (tenant_id, owner_user_id, sha256) DO NOTHING RETURNING id"
             ),
             {
                 "id": file_id,

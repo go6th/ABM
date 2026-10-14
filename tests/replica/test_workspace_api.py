@@ -83,10 +83,11 @@ async def test_workspace_on_a_first_scan_has_findings_and_no_changes(world: dict
     assert ws["subline"].startswith("First scan · ")
 
 
-async def test_mail_and_drive_count_is_the_callers_own(world: dict[str, Any]) -> None:
+async def test_a_colleagues_account_is_not_found(world: dict[str, Any]) -> None:
+    # private workspaces (migration 0063): another user of the same client cannot open it
     plane = _plane(world["a"], "someone-else", world["payloads"])
-    ws = (await _call(plane, "GET", "/v1/accounts/highmark.example/workspace")).json()
-    assert ws["counts"]["mail_drive"] == 0
+    got = await _call(plane, "GET", "/v1/accounts/highmark.example/workspace")
+    assert got.status_code == 404
 
 
 async def test_one_file_downloads_as_itself_and_several_as_a_zip(world: dict[str, Any]) -> None:
@@ -255,11 +256,9 @@ async def test_mail_and_drive_sheet_holds_only_the_callers_items(world: dict[str
     owner = _plane(world["a"], "priya-test", world["payloads"])
     colleague = _plane(world["a"], "colleague-test", world["payloads"])
     mine = (await _call(owner, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive")).json()
-    theirs = (
-        await _call(colleague, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive")
-    ).json()
+    theirs = await _call(colleague, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive")
     assert mine["total"] == 3 and mine["private"] is True
-    assert theirs["total"] == 0 and theirs["rows"] == []
+    assert theirs.status_code == 404  # the account itself is the owner's (migration 0063)
 
 
 async def test_another_clients_sheets_are_not_found(world: dict[str, Any]) -> None:

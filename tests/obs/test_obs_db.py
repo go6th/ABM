@@ -28,7 +28,10 @@ TERMINAL = {"COMPLETED", "PARTIAL", "FAILED", "CANCELED", "BUDGET_EXCEEDED"}
 def new_run(tenant: UUID, status: str = "RUNNING", created: datetime = NOW) -> UUID:
     domain = f"obs-{uuid4().hex[:8]}.example.com"
     acct = admin(
-        "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id", tenant, domain
+        "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+        " VALUES (%s, 'test-owner', %s) RETURNING id",
+        tenant,
+        domain,
     )[0][0]
     finished = created + timedelta(minutes=1) if status in TERMINAL else None
     return admin(  # type: ignore[return-value]

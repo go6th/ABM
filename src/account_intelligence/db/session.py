@@ -1,9 +1,23 @@
-"""Tenant-scoped database access. All tenant queries go through tenant_txn()."""
+"""Tenant-scoped database access. All tenant queries go through tenant_txn().
+
+Every transaction carries the tenant and, since migration 0063 (private workspaces), the acting
+user: a row of an owned table (``config/ownership.yaml``) is visible only to its own user, or to
+a system job. Who is acting comes from a context variable:
+
+* ``set_actor(user)``: the verified caller of a tenant route (``api.guard.authorize``), or the
+  owner of the run, document or job a worker task works on;
+* ``system_scope()``: scheduler ticks, the sweeper, the isolation check, operator counts. A
+  system transaction sees every row of its tenant; rows it inserts into an owned table must name
+  their owner (the column default is the acting user).
+
+With neither, owned rows are invisible and inserts into them fail (fail closed).
+"""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar, Token
 from uuid import UUID
 
 from sqlalchemy import create_engine, text
@@ -62,9 +76,60 @@ def get_sync_engine() -> Engine:
     return _sync_engine
 
 
+_ACTOR: ContextVar[str | None] = ContextVar("app_user", default=None)
+_SYSTEM: ContextVar[bool] = ContextVar("app_system", default=False)
+
+
+def set_actor(user_id: str | None) -> Token[str | None]:
+    """Act as ``user_id`` for the rest of this context (a request or a worker task)."""
+    return _ACTOR.set(user_id)
+
+
+def current_actor() -> str | None:
+    """The user this context acts as, if any."""
+    return _ACTOR.get()
+
+
+@contextmanager
+def acting_as(user_id: str) -> Iterator[None]:
+    """Act as ``user_id`` inside the block (a worker working on that user's run or file)."""
+    token = _ACTOR.set(user_id)
+    try:
+        yield
+    finally:
+        _ACTOR.reset(token)
+
+
+def set_system() -> Token[bool]:
+    """Mark the rest of this context as a system job (see the module docstring)."""
+    return _SYSTEM.set(True)
+
+
+def set_user_scope() -> Token[bool]:
+    """Leave the system scope for the rest of this context (a task acting as one user)."""
+    return _SYSTEM.set(False)
+
+
+@contextmanager
+def system_scope() -> Iterator[None]:
+    """A system job inside the block."""
+    token = _SYSTEM.set(True)
+    try:
+        yield
+    finally:
+        _SYSTEM.reset(token)
+
+
 @asynccontextmanager
-async def tenant_txn(tenant_id: UUID, *, snapshot: bool = False) -> AsyncIterator[AsyncSession]:
-    """One transaction == one tenant context.
+async def tenant_txn(
+    tenant_id: UUID,
+    *,
+    snapshot: bool = False,
+    user: str | None = None,
+    system: bool | None = None,
+) -> AsyncIterator[AsyncSession]:
+    """One transaction == one tenant context, with the acting user (``user``, else the context
+    variable) and the scope (``system``, else the context variable).
 
     set_config(..., true) is transaction-local: when the transaction ends, the setting is reset,
     so a pooled connection can never carry tenant A into tenant B's request. (A bare SET LOCAL
@@ -79,9 +144,14 @@ async def tenant_txn(tenant_id: UUID, *, snapshot: bool = False) -> AsyncIterato
             await session.execute(
                 text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             )
+        actor = user if user is not None else _ACTOR.get()
+        scope = "system" if (_SYSTEM.get() if system is None else system) else "user"
         await session.execute(
-            text("SELECT set_config('app.tenant_id', :tid, true)"),
-            {"tid": str(tenant_id)},
+            text(
+                "SELECT set_config('app.tenant_id', :tid, true),"
+                " set_config('app.user_id', :uid, true), set_config('app.scope', :scope, true)"
+            ),
+            {"tid": str(tenant_id), "uid": actor or "", "scope": scope},
         )
         yield session
 

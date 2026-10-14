@@ -33,7 +33,10 @@ def _as_app_rw(tenant: UUID, sql: str, *params: object) -> None:
     from tests.conftest import APP_DSN
 
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(tenant),),
+        )
         c.execute(sql, params)
 
 

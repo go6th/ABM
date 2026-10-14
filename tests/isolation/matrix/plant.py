@@ -193,6 +193,10 @@ def synthesise(
             values[col.name] = _render(over[col.name], tenant, canary)
         elif col.name in (table.key_column,) or (col.not_null and not col.has_default):
             values[col.name] = _value(table, col, tenant, canary)
+    if any(c.name == "owner_user_id" for c in table.columns):
+        # private workspaces (0063): every owned row names its user; the default (the acting
+        # user) and the fill trigger are off for the migrator's plant
+        values.setdefault("owner_user_id", f"matrix-owner-{tenant.hex[:8]}")
     values.setdefault(table.key_column, tenant if table.key_column == "tenant_id" else None)
     if values[table.key_column] is None:
         values[table.key_column] = f"{tenant}:{uuid4()}"
@@ -241,13 +245,26 @@ class Outcome:
     detail: str
 
 
-def _as_tenant(app_dsn: str, tenant: UUID | None, statement: sql.Composable) -> tuple[int, str]:
-    """Run one statement as app_rw in ``tenant``'s transaction-local context (None: no context).
-    Returns (rowcount or count(*), error text or '')."""
+def _as_tenant(
+    app_dsn: str,
+    tenant: UUID | None,
+    statement: sql.Composable,
+    *,
+    user: str | None = None,
+    scope: str = "system",
+) -> tuple[int, str]:
+    """Run one statement as app_rw in ``tenant``'s transaction-local context (None: no context),
+    as ``user`` in ``scope``. The cross-tenant probes run in the system scope, which sees every
+    row of its own tenant: the strongest attacker inside a client. Returns (rowcount or
+    count(*), error text or '')."""
     try:
         with psycopg.connect(app_dsn) as c, c.transaction():
             if tenant is not None:
-                c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant),))
+                c.execute(
+                    "SELECT set_config('app.tenant_id', %s, true),"
+                    " set_config('app.user_id', %s, true), set_config('app.scope', %s, true)",
+                    (str(tenant), user or "", scope),
+                )
             cur = c.execute(statement)
             if cur.description:
                 row = cur.fetchone()

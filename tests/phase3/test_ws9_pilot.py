@@ -47,8 +47,11 @@ def _db(sql: str, *params: Any) -> list[tuple[Any, ...]]:
 def _plant(tenant: UUID, domain: str) -> Planted:
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         acc = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
-            (tenant, domain),
+            # owned by the signed-in member (private workspaces, migration 0063)
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain) VALUES (%s, coalesce((SELECT"
+            " user_id FROM memberships WHERE tenant_id = %s LIMIT 1), 'test-owner'), %s)"
+            " RETURNING id",
+            (tenant, tenant, domain),
         ).fetchone()[0]
         run = c.execute(
             "INSERT INTO account_runs (tenant_id, account_id, status, graph_version, budget_json,"
@@ -95,6 +98,16 @@ def _plant(tenant: UUID, domain: str) -> Planted:
                 (tenant, run, acc, pos, f"F-{pos}", str(f)),
             )
     return Planted(tenant, domain, run, questions, old, confirmed, probable)
+
+
+def _member(tenant: UUID) -> str:
+    """The signed-in member (events are that user's own, private workspaces)."""
+    with psycopg.connect(ADMIN_DSN) as c:
+        return str(
+            c.execute("SELECT user_id FROM memberships WHERE tenant_id = %s", (tenant,)).fetchone()[
+                0
+            ]
+        )
 
 
 async def _admin(plane: Plane, browser: Browser, name: str) -> UUID:
@@ -236,6 +249,7 @@ async def test_usefulness_events_are_identifiers_only_and_counted_once(
         "user_id",
         "dedupe_key",
         "at",
+        "owner_user_id",
     }
     # a downloaded export references the run's Confirmed facts once a day, never others
     async with tenant_txn(t) as s:
@@ -262,7 +276,7 @@ async def test_the_usefulness_metric_carries_its_base(plane: Plane, browser: Bro
                 kind=usefulness.QUESTION,
                 subject=subject,
                 via="marked",
-                user_id="u",
+                user_id=_member(t),
                 now=plane.clock.now(),
             )
     await browser.call(

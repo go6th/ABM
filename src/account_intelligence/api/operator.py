@@ -207,6 +207,11 @@ async def require_staff(request: Request, who: StaffIdentity = Depends(staff)) -
     if not step_up_fresh(who.step_up_at, plane_of(request).clock.now(), load_policy()):
         raise HTTPException(status_code=403, detail="step-up required")
     request.state.principal = who
+    # staff read counts and categories across a client's users (system scope, migration 0063);
+    # the console routes return names and counts only, never content
+    from account_intelligence.db.session import set_system
+
+    set_system()
     return who
 
 
@@ -228,6 +233,9 @@ async def require_operator(
         raise HTTPException(status_code=403, detail="forbidden")
     if not step_up_fresh(who.step_up_at, plane_of(request).clock.now(), load_policy()):
         raise HTTPException(status_code=403, detail="step-up required")
+    from account_intelligence.db.session import set_system
+
+    set_system()
     try:
         grant_id = UUID(grant_header or "")
     except ValueError:

@@ -269,7 +269,11 @@ async def test_expired_signals_move_to_history_and_are_never_deleted() -> None:
     from tests.conftest import APP_DSN
 
     with psycopg.connect(APP_DSN) as c, pytest.raises(psycopg.errors.InsufficientPrivilege):
-        c.execute("SELECT set_config('app.tenant_id', %s, false)", (str(t),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, false),"
+            " set_config('app.scope', 'system', false)",
+            (str(t),),
+        )
         c.execute("DELETE FROM signal_history WHERE fact_id = %s", (f,))
 
 

@@ -44,7 +44,10 @@ def _as_app_rw(tenant: UUID, sql: str, *params: object) -> list[tuple[object, ..
     from tests.conftest import APP_DSN
 
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(tenant),),
+        )
         cur = c.execute(sql, params)
         return cur.fetchall() if cur.description else []
 
@@ -379,7 +382,10 @@ async def test_tenant_role_cannot_read_the_operator_report(
     from tests.conftest import APP_DSN
 
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant_a),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(tenant_a),),
+        )
         c.execute("SET LOCAL ROLE public_reader")
         assert (
             c.execute("SELECT count(*) FROM spend_reports WHERE run_id = %s", (run,)).fetchone()[0]
@@ -393,6 +399,9 @@ async def test_tenant_role_cannot_read_the_operator_report(
         psycopg.connect(APP_DSN) as c,
         c.transaction(),
     ):
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant_a),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(tenant_a),),
+        )
         c.execute("SET LOCAL ROLE public_reader")
         c.execute("SELECT operator_json FROM spend_reports")

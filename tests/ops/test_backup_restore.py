@@ -120,7 +120,9 @@ def _seed() -> tuple[uuid.UUID, uuid.UUID]:
                 "INSERT INTO tenants (name) VALUES (%s) RETURNING id", (f"{name}-synthetic",)
             ).fetchone()[0]
             c.execute(
-                "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s)", (t, f"{name}.example")
+                "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+                " VALUES (%s, 'test-owner', %s)",
+                (t, f"{name}.example"),
             )
             ids.append(t)
     return ids[0], ids[1]
@@ -158,7 +160,11 @@ def test_backup_restores_an_equivalent_isolated_database(tmp_path: Path) -> None
         with psycopg.connect(app) as c:
             assert c.execute("SELECT count(*) FROM accounts").fetchone()[0] == 0  # no tenant set
             with c.transaction():
-                c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant_a),))
+                c.execute(
+                    "SELECT set_config('app.tenant_id', %s, true),"
+                    " set_config('app.scope', 'system', true)",
+                    (str(tenant_a),),
+                )
                 seen = {r[0] for r in c.execute("SELECT tenant_id FROM accounts")}
             assert seen == {tenant_a}
             assert tenant_b not in seen

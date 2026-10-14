@@ -57,7 +57,11 @@ def _app(
 ) -> list[tuple[object, ...]]:
     with psycopg.connect(APP_DSN) as c, c.transaction():
         if tenant is not None:
-            c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant),))
+            c.execute(
+                "SELECT set_config('app.tenant_id', %s, true),"
+                " set_config('app.scope', 'system', true)",
+                (str(tenant),),
+            )
         if role is not None:
             c.execute(f"SET LOCAL ROLE {role}")
         cur = c.execute(sql, params or {})

@@ -131,6 +131,6 @@ def test_multi_column_constraint_names_join_columns_with_underscores() -> None:
     from account_intelligence.db.models import Account, Run
 
     uniques = {c.name for c in Account.__table__.constraints if isinstance(c, UniqueConstraint)}
-    assert {"uq_accounts_tenant_id_domain", "uq_accounts_tenant_id_id"} <= uniques
+    assert {"uq_accounts_tenant_owner_domain", "uq_accounts_tenant_id_id"} <= uniques
     fks = {c.name for c in Run.__table__.constraints if isinstance(c, ForeignKeyConstraint)}
     assert "fk_runs_tenant_id_account_id_accounts" in fks

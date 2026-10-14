@@ -28,7 +28,8 @@ def capped_run(
     domain = f"synthetic-{uuid4().hex[:8]}.example.com"
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         account = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', %s) RETURNING id",
             (tenant, domain),
         ).fetchone()[0]
         run = c.execute(

@@ -219,7 +219,7 @@ async def create_run(
                 " run_input, checklist_version, model_versions, cap_required, input_mode)"
                 " VALUES (:id, :t, :a, :gv, CAST(:budget AS jsonb), :credits, :k, :h, :usd, :cap,"
                 " CAST(:input AS jsonb), :cl, CAST(:mv AS jsonb), :capreq, :mode)"
-                " ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING id"
+                " ON CONFLICT (tenant_id, owner_user_id, idempotency_key) DO NOTHING RETURNING id"
             ),
             {
                 "id": run_id,
@@ -361,8 +361,12 @@ async def add_account(
     that person's account cap (``replica.settings.ensure_account_room``, ``AccountCapReached``)
     whichever way it is added: research, a file, the library. The one writer of ``accounts``
     besides ``create_run`` (W1)."""
+    # private workspaces (0063): an account is one user's; the owner is the person adding it,
+    # else the acting user, so a system job adding for someone names them
+    owner = {"d": domain, "by": added_by}
+    mine = "domain = :d AND owner_user_id = coalesce(CAST(:by AS text), app_user())"
     existing: Any = (
-        await session.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+        await session.execute(text(f"SELECT id FROM accounts WHERE {mine}"), owner)  # noqa: S608
     ).scalar_one_or_none()
     if existing is not None:
         return UUID(str(existing)), False
@@ -373,16 +377,17 @@ async def add_account(
     created = (
         await session.execute(
             text(
-                "INSERT INTO accounts (tenant_id, domain, added_by) VALUES (:t, :d, :by)"
-                " ON CONFLICT (tenant_id, domain) DO NOTHING RETURNING id"
+                "INSERT INTO accounts (tenant_id, domain, added_by, owner_user_id)"
+                " VALUES (:t, :d, :by, coalesce(CAST(:by AS text), app_user()))"
+                " ON CONFLICT (tenant_id, owner_user_id, domain) DO NOTHING RETURNING id"
             ),
-            {"t": tenant_id, "d": domain, "by": added_by},
+            {"t": tenant_id, **owner},
         )
     ).scalar_one_or_none()
     if created is not None:
         return UUID(str(created)), True
     raced: Any = (
-        await session.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+        await session.execute(text(f"SELECT id FROM accounts WHERE {mine}"), owner)  # noqa: S608
     ).scalar_one()
     return UUID(str(raced)), False
 

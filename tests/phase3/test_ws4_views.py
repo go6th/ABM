@@ -352,7 +352,7 @@ def _admin() -> str:
     return ADMIN_DSN
 
 
-def _app(w: Any, payloads: Any, build: Any, role: str = "admin", user: str = "idp:ws4") -> Any:
+def _app(w: Any, payloads: Any, build: Any, role: str = "admin", user: str = "test-owner") -> Any:
     from datetime import UTC, datetime
 
     from account_intelligence.api.auth import Identity, identity

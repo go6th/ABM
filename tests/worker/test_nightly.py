@@ -61,7 +61,8 @@ def _tenant_with_job(admin: str, *, reserve: int, release: int | None, settle: i
     with psycopg.connect(admin, autocommit=True) as c:
         t = c.execute("INSERT INTO tenants (name) VALUES ('synthetic') RETURNING id").fetchone()[0]
         a = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, 'acme.example') RETURNING id",
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', 'acme.example') RETURNING id",
             (t,),
         ).fetchone()[0]
         j = c.execute(

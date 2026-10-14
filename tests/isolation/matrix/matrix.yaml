@@ -27,6 +27,8 @@ tables:
   library_publications:
     plant: {published_by: "{canary}"}
   account_runs: {}
+  ownership_backfill:
+    plant: {rule: account, derived_rows: 1, fallback_rows: 0}
   account_source_counters: {}
   link_checks: {}
   audit_chain_checks:

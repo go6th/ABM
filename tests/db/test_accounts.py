@@ -49,11 +49,12 @@ def test_domain_shape_is_enforced_by_the_database(admin, bad_domain) -> None:  #
         make_account(admin, tenant, bad_domain[0])
 
 
-def test_domain_must_be_unique_per_tenant_but_not_globally(admin) -> None:  # type: ignore[no-untyped-def]
+def test_domain_must_be_unique_per_owner_but_not_globally(admin) -> None:  # type: ignore[no-untyped-def]
     tenant = make_tenant(admin)
     make_account(admin, tenant, "bigco.example.com")
-    with pytest.raises(Exception, match="uq_accounts_tenant_id_domain"):
+    with pytest.raises(Exception, match="uq_accounts_tenant_owner_domain"):
         make_account(admin, tenant, "bigco.example.com")
+    make_account(admin, tenant, "bigco.example.com", owner="second-user")  # another user: fine
     other = make_tenant(admin)
     make_account(admin, other, "bigco.example.com")  # different tenant: fine
 
@@ -67,7 +68,7 @@ def test_tenant_name_index_exists(admin) -> None:  # type: ignore[no-untyped-def
     rows = admin.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'accounts'").fetchall()
     names = {row[0] for row in rows}
     assert "ix_accounts_tenant_id_name" in names
-    assert "uq_accounts_tenant_id_domain" in names
+    assert "uq_accounts_tenant_owner_domain" in names
 
 
 def test_timestamps_are_set_by_the_database(admin) -> None:  # type: ignore[no-untyped-def]

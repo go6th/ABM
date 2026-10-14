@@ -12,6 +12,10 @@ client's data:
 3. **Routes**: a real signed-in session of the probe client's check user calls every tenant read
    route that takes no identifier, and the routes that take an account domain with the canary
    client's account; the canary never appears and that account is never found.
+4. **Owners** (private workspaces, migration 0063): every owned table (``config/ownership.yaml``)
+   still has its required owner column and only the tenant-and-owner policy; and inside every
+   real client, acting as a check user who owns nothing, every owned table shows no row at all
+   (an existence probe: nothing is read). A broken owner policy would show the client's rows.
 
 The probe and canary clients are a dedicated pair (``isolation_check_pair``), created on the
 first pass through the normal provisioning path; the console and the platform jobs leave them
@@ -59,6 +63,15 @@ STRUCTURE_SQL = (
     " UNION ALL SELECT 'runtime role owns ' || c.relname FROM pg_class c"
     " JOIN pg_roles r ON r.oid = c.relowner WHERE r.rolname = current_user"
     " AND c.relkind IN ('r', 'p', 'v', 'm')"
+)
+OWNER_STRUCTURE_SQL = (
+    "SELECT 'no owner policy: ' || t.name FROM unnest(CAST(:tables AS text[])) AS t(name)"
+    " WHERE NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = to_regclass(t.name)"
+    " AND p.polname = 'tenant_owner_isolation')"
+    " OR EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = to_regclass(t.name)"
+    " AND p.polname <> 'tenant_owner_isolation' AND 'app_rw'::regrole = ANY (p.polroles))"
+    " OR NOT EXISTS (SELECT 1 FROM information_schema.columns c WHERE c.table_schema = 'public'"
+    " AND c.table_name = t.name AND c.column_name = 'owner_user_id' AND c.is_nullable = 'NO')"
 )
 TENANT_TABLES_SQL = (
     "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
@@ -163,6 +176,37 @@ async def probe_tables(txn: Any, probe: UUID) -> tuple[int, list[str]]:
     return len(tables), failures
 
 
+def owned_tables() -> list[str]:
+    """The owned tables of ``config/ownership.yaml``."""
+    from pathlib import Path
+
+    import yaml
+
+    from account_intelligence.config import CONFIG_DIR
+
+    doc = yaml.safe_load((Path(CONFIG_DIR) / "ownership.yaml").read_text())
+    return sorted({**doc["owned"], **(doc.get("created_owned") or {})})
+
+
+async def probe_owners(txn: Any, probe: UUID, clients: set[UUID]) -> tuple[int, list[str]]:
+    """The owner rule: structure from the catalog, then an existence probe in every real client
+    acting as the check user, who owns no row anywhere."""
+    tables = owned_tables()
+    failures: list[str] = []
+    async with txn(probe) as s:
+        failures += [
+            str(r[0]) for r in await s.execute(text(OWNER_STRUCTURE_SQL), {"tables": tables})
+        ]
+    # LOOP(isolation owner probe): cap=every real client once; exit=all probed
+    for client in sorted(clients):
+        async with txn(client, user=PROBE_USER, system=False) as s:
+            for table in tables:
+                quoted = '"' + table.replace('"', '""') + '"'
+                if await s.scalar(text(f"SELECT EXISTS (SELECT 1 FROM {quoted})")):  # nosec B608
+                    failures.append(f"table {table} shows another user's rows")
+    return len(tables), failures
+
+
 def read_routes() -> list[str]:
     """Every tenant read route a session may call that takes no identifier or only an account
     domain (the catalog in ``api.policy``)."""
@@ -222,11 +266,14 @@ async def run_check(app: Any, plain_factory: Any, txn: Any, now: datetime) -> Ch
             UUID(str(r.tenant_id))
             for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
         }
-        result.clients = len(others - await check_clients(plain))
+        real = others - await check_clients(plain)
+        result.clients = len(real)
     try:
         result.tables, failures = await probe_tables(txn, probe)
         result.failures += failures
         result.routes, failures = await probe_routes(app, txn, probe, canary, now)
+        result.failures += failures
+        _, failures = await probe_owners(txn, probe, real)
         result.failures += failures
     except Exception as error:  # a pass that could not finish is a failed pass, never a pass
         result.failures.append(f"check could not finish ({type(error).__name__})")

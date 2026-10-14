@@ -120,7 +120,10 @@ def test_postgres_and_memory_governors_agree(
     from tests.conftest import APP_DSN
 
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(me_t),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(me_t),),
+        )
         got = c.execute(
             "SELECT governor_acquire(%s, %s, 'me', %s, %s, 60, 60, 50, 50, 30, 9, 1)",
             (provider, me_r, me_prio, now),

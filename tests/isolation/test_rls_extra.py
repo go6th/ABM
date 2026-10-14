@@ -47,7 +47,8 @@ async def test_ledgers_are_insert_only(tenant_a: UUID):
     async with tenant_txn(tenant_a) as s:
         account = await s.scalar(
             text(
-                "INSERT INTO accounts (tenant_id, domain) VALUES ((SELECT app_tenant()),"
+                "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+                " VALUES ((SELECT app_tenant()), 'test-owner',"
                 " 'ledger.example') RETURNING id"
             )
         )
@@ -95,7 +96,8 @@ async def test_100_concurrent_mixed_tenant_requests_over_5_connections(
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         for t in (tenant_a, tenant_b):
             acct = c.execute(
-                "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+                "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+                " VALUES (%s, 'test-owner', %s) RETURNING id",
                 (t, f"{t.hex[:8]}.example.com"),
             ).fetchone()[0]
             for i in range(3):
@@ -124,7 +126,8 @@ async def test_canary_vector_does_not_cross_tenants(tenant_a: UUID, tenant_b: UU
     vec = "[" + ",".join(["0.1"] * 1536) + "]"
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         acct = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', %s) RETURNING id",
             (tenant_b, f"canary-{tenant_b.hex[:6]}.example.com"),
         ).fetchone()[0]
         c.execute(

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from typing import Any
 from uuid import UUID
 
 COMMANDS = ("spend-invariants", "access-expiry")
@@ -76,12 +77,20 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     configure_logging(settings.log_level, service="worker")
+    from account_intelligence.db.session import set_system
+
+    set_system()  # a command is a system job (private workspaces, migration 0063)
     if command is not None:
         return _check(command)
+    from account_intelligence.db.owners import act_as_owner_of
     from account_intelligence.worker.job import run_job
 
+    async def as_owner() -> Any:
+        await act_as_owner_of("run", args.tenant_id, args.run_id)
+        return await run_job(args.tenant_id, args.run_id)
+
     try:
-        result = asyncio.run(run_job(args.tenant_id, args.run_id))
+        result = asyncio.run(as_owner())
     except LookupError:
         print("run not found", file=sys.stderr)
         return 2

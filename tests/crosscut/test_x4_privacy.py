@@ -213,7 +213,10 @@ async def test_a_dsar_runs_end_to_end() -> None:
         0
     ][0]
     a = admin_db(
-        "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id", t, "dsar.example"
+        "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+        " VALUES (%s, 'test-owner', %s) RETURNING id",
+        t,
+        "dsar.example",
     )[0][0]
     run = admin_db(
         "INSERT INTO account_runs (tenant_id, account_id, status, graph_version, budget_json,"

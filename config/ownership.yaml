@@ -1,0 +1,199 @@
+# Private workspaces (owner decision 2026-10-14, Phase 4B section 7). Every tenant table is in
+# exactly one of the two lists below; tests/isolation/test_ownership.py fails on a table in
+# neither. INTERNAL.
+#
+# owned: rows belong to one user of the client. The table has `owner_user_id` (added where
+# missing, NOT NULL, default the transaction's app.user_id) and its app_rw policy is
+#   tenant_id = app_tenant() AND owner_visible(owner_user_id)
+# so the database refuses another user's rows. `from` says how existing rows get their owner
+# (scripts/gen_ownership_migration.py writes migration 0063 from this file, in this order):
+#   column: <c>                  the row's own column holding the user (copied)
+#   account                      the owner of accounts(id = account_id)
+#   run                          the owner of account_runs(id = run_id), else runs(id = run_id)
+#   parent: <table>.<column>     the owner of <table>(id = <column>), listed earlier
+# A row whose owner cannot be found gets the client's first user (users.created_at), and each
+# such choice is counted in `ownership_backfill`.
+#
+# tenant: rows are the client's, not one user's, with the reason. Users reach none of these
+# directly; anything a user screen shows from them is reached through an owned row.
+version: "2026-10-14.1"
+
+owned:
+  accounts: {column: added_by}
+  account_runs: account
+  runs: account
+  account_source_counters: account
+  research_jobs: account
+  notifications: {column: user_id}
+  abm_distill_outputs: run
+  abm_sense_checks: run
+  alerts: account
+  alert_feedback: {column: user_id}
+  alert_outbox: {parent: alerts.alert_id}
+  chat_threads: {column: owner_user_id}
+  chat_turns: {parent: chat_threads.thread_id}
+  chunks: account
+  claim_drops: run
+  connector_connections: {column: owner_user_id}
+  connector_items: {column: owner_user_id}
+  connector_oauth_states: {column: user_id}
+  connector_access_log: {parent: connector_connections.connection_id}
+  connector_grants: {parent: connector_connections.connection_id}
+  connector_quarantine: {parent: connector_connections.connection_id}
+  coverage_rows: run
+  coverage_row_events: run
+  crm_mappings: account
+  crm_writes: account
+  crm_write_events: {parent: crm_writes.write_id}
+  deliverables: account
+  deltas: account
+  delta_items: {parent: deltas.delta_id}
+  digest_runs: {column: user_id}
+  documents: {column: uploaded_by}
+  document_deletions: {parent: documents.document_id}
+  document_passages: {parent: documents.document_id}
+  document_redactions: {parent: documents.document_id}
+  export_packages: account
+  export_verifications: {parent: export_packages.package_id}
+  facts: account
+  fact_evidence: {parent: facts.fact_id}
+  fact_reevaluations: account
+  grade_events: {parent: facts.fact_id}
+  intake_drops: account
+  internal_deliverables: account
+  job_pipeline_runs: account
+  job_pipeline_passes: run
+  job_postings: account
+  job_posting_classifications: run
+  job_posting_observations: account
+  job_posting_platform_sentences: run
+  lead_verifications: run
+  lead_verification_queries: {parent: lead_verifications.lead_verification_id}
+  leak_checks: account
+  link_checks: run
+  missing_observations: account
+  monitor_configs: account
+  monitor_runs: account
+  notification_outbox: run
+  notification_deliveries: {parent: notification_outbox.outbox_id}
+  people: account
+  people_pipeline_runs: account
+  person_events: account
+  person_post_pulls: account
+  person_posts: account
+  person_profiles: account
+  person_search_pages: account
+  person_sources: account
+  prepulled_intents: run
+  prepulled_intent_events: {parent: prepulled_intents.intent_id}
+  prepulled_files: run
+  pull_manifests: run
+  refresh_runs: account
+  refresh_row_plans: {parent: refresh_runs.refresh_run_id}
+  refresh_slots: account
+  report_sections: account
+  research_files: {column: uploaded_by}
+  research_file_chunks: {parent: research_files.file_id}
+  research_file_deletions: {parent: research_files.file_id}
+  research_file_findings: {parent: research_files.file_id}
+  research_file_model_calls: {parent: research_files.file_id}
+  research_file_state: {parent: research_files.file_id}
+  research_file_uploads: {column: uploaded_by}
+  research_file_upload_parts: {parent: research_file_uploads.upload_id}
+  review_samples: run
+  run_cap_versions: run
+  run_cap_events: run
+  run_coverage_meta: run
+  run_documents: account
+  run_feedback: {column: user_id}
+  run_gate_results: account
+  saved_views: {column: owner}
+  signal_events: account
+  signal_event_evidence: {parent: signal_events.event_id}
+  signal_event_links: {parent: signal_events.event_a}
+  signal_history: account
+  sources: account
+  subscriptions: {column: user_id}
+  tech_detections: account
+  usefulness_events: {column: user_id}
+  verifier_findings: run
+  view_materializations: account
+  view_rows: account
+  work_units: run
+  work_unit_events: run
+
+tenant:
+  # identity, access and the client's own settings
+  users: client directory; each user's own row is read by sign-in and the admin
+  memberships: who may enter the client, with role and access state
+  membership_events: membership history for the client admin and audit
+  auth_events: sign-in events, read by security and audit
+  auth_sessions: sessions, keyed by token hash
+  login_states: pending sign-ins (no user yet)
+  saml_assertion_ids: replay protection for the client's IdP
+  idp_connections: the client's SSO connections, managed by the client admin
+  support_grants: the client admin's grant for View as a client
+  support_session_events: support access history
+  client_settings: limits and features the 6th admin sets for the client
+  tenant_events: client lifecycle (suspended, reactivated)
+  tenant_model_credentials: client-level model key (retired; kept until removed)
+  tenant_rules: client-level rules set by the client admin
+  tenant_rule_accounts: which accounts a client rule applies to (rule data, not research)
+  tenant_settings_versions: history of client settings
+  branding_assets: client branding for deliverables
+  document_policies: client redaction policy
+  people_data_consents: the client's consent records for people data
+  shelf_life_overrides: client-level freshness settings
+  alert_suppressions: client-level alert rules
+  library_publications: which 6th Library accounts are published to the client
+  question_categories: question category counts (no question text), read by the 6th admin
+  # money, metering and the paid-call ledger: the client's pool and the platform's cost truth,
+  # read by the system and by Runs and spend; no user screen shows them, and a user reaches a
+  # run's calls only through an owned run
+  wallets: the client's credit pool
+  wallet_ledger: credit pool movements
+  credit_entries: credit reservations and settlements
+  balance_snapshots: pool snapshots
+  spend_defects: spend invariant findings for the owner
+  spend_limit_events: spend limit history
+  spend_reports: nightly spend reports
+  unit_cost_rollups: cost rollups
+  ops_cost_rollups: cost rollups for Runs and spend
+  ops_rollup_watermarks: rollup progress
+  usage_counters: client metering
+  usage_events: client metering
+  usage_thresholds: client metering thresholds
+  quota_versions: client quota history
+  plan_assignments: client plan
+  monitoring_budget_versions: client monitoring budget
+  monitoring_usage: client monitoring usage
+  throttle_events: provider throttling history
+  tool_calls: the paid-call ledger (idempotency across runs; never pay twice)
+  tool_call_records: raw call records of the ledger
+  tool_call_events: ledger events
+  llm_calls: model call records
+  llm_call_attempts: model call attempts
+  model_reply_log: the research cache's reply log (private task kinds are never reused across users)
+  provider_leases: provider concurrency leases shared by the client's runs
+  provider_waiters: provider concurrency queue
+  run_leases: worker leases on runs
+  run_anomaly_events: run anomaly detector findings
+  stuck_run_observations: sweeper observations
+  # platform operations
+  audit_events: the client's audit log
+  audit_chain_checks: audit hash-chain checks
+  canary_probe_results: isolation canary probes
+  eval_runs: evaluation runs
+  eval_case_results: evaluation results
+  eval_metrics: evaluation metrics
+  eval_baselines: evaluation baselines
+  tombstones: deletion tombstones
+  webhook_receipts: inbound webhook replay protection
+  crm_connection_events: the client's CRM connection history (CRM is being removed)
+
+# Keys that were unique per client and become unique per user, so two users of one client never
+# collide or dedupe into each other's rows (a re-uploaded file, a repeated request).
+unique_per_owner:
+  - {table: account_runs, constraint: account_runs_tenant_id_idempotency_key_key, columns: [idempotency_key]}
+  - {table: research_files, constraint: uq_research_files_tenant_sha256, columns: [sha256]}
+  - {table: research_jobs, index: uq_research_jobs_request, columns: [request_id], where: "request_id IS NOT NULL"}

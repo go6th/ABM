@@ -53,7 +53,11 @@ def db(sync_engine: Engine) -> Iterator[Session]:
 def set_tenant(session: Session, tenant_id: UUID) -> None:
     """Bind the session's transaction to a tenant for RLS (transaction-local)."""
     session.execute(
-        text("SELECT set_config('app.tenant_id', :tid, true)"),
+        text(
+            "SELECT set_config('app.tenant_id', :tid, true),"
+            " set_config('app.scope', 'system', true),"
+            " set_config('app.user_id', 'test-owner', true)"
+        ),
         {"tid": str(tenant_id)},
     )
 
@@ -67,10 +71,12 @@ def make_tenant(conn: psycopg.Connection, name: str | None = None) -> UUID:
     return UUID(str(row[0]))
 
 
-def make_account(conn: psycopg.Connection, tenant: UUID, domain: str | None = None) -> UUID:
+def make_account(
+    conn: psycopg.Connection, tenant: UUID, domain: str | None = None, owner: str = "test-owner"
+) -> UUID:
     row = conn.execute(
-        "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
-        (tenant, domain or f"{uuid4().hex[:10]}.example.com"),
+        "INSERT INTO accounts (tenant_id, owner_user_id, domain) VALUES (%s, %s, %s) RETURNING id",
+        (tenant, owner, domain or f"{uuid4().hex[:10]}.example.com"),
     ).fetchone()
     assert row is not None
     return UUID(str(row[0]))

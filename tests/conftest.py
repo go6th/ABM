@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -72,6 +73,14 @@ def database(request: pytest.FixtureRequest):
     # room for many runs. Pool tests set their own client settings.
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         c.execute("UPDATE platform_defaults SET monthly_credit_pool = 1000000 WHERE id = 1")
+        # Private workspaces (0063): rows the migrator plants in this scratch database without
+        # naming an owner belong to ``test-owner`` (the runtime role is unaffected; it always
+        # sets its own acting user per transaction).
+        c.execute(
+            sql.SQL("ALTER ROLE {} IN DATABASE {} SET app.user_id = 'test-owner'").format(
+                sql.Identifier(ADMIN_USER), sql.Identifier(TEST_DB)
+            )
+        )
     yield
 
 
@@ -97,7 +106,8 @@ def _make_tenant(name: str) -> UUID:
 def _make_account(tenant: UUID, domain: str) -> UUID:
     with _admin() as c:
         return c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', %s) RETURNING id",
             (tenant, domain),
         ).fetchone()[0]
 
@@ -169,3 +179,29 @@ def tenant_a_dsn(tenant_a: UUID) -> str:
 os.environ.setdefault("JWKS_URL", "http://localhost:9/jwks.json")
 os.environ.setdefault("JWT_AUDIENCE", "ai-saas")
 os.environ.setdefault("JWT_ISSUER", "https://idp.example.com/")
+
+
+def _test_scope() -> None:
+    from account_intelligence.db.session import _ACTOR, _SYSTEM
+
+    _SYSTEM.set(True)
+    _ACTOR.set("test-owner")
+
+
+@pytest.fixture(autouse=True)
+def _system_scope_by_default() -> Iterator[None]:
+    """Direct service calls in tests act as system jobs (private workspaces, migration 0063):
+    they see every row of their tenant, and rows they insert are owned by ``test-owner`` (the
+    owner the fixtures give their accounts). Set once for the session in ``pytest_configure`` (so
+    module-scoped fixtures have it too) and restored after every test. A request through the API
+    still acts as its verified user in user scope (``api.guard.authorize`` switches), and the
+    isolation tests set the scope explicitly."""
+    _test_scope()
+    yield
+    _test_scope()
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """The test scope for the whole session (see ``_system_scope_by_default``)."""
+    del config
+    _test_scope()

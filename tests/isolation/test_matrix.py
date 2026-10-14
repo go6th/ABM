@@ -110,7 +110,11 @@ def test_each_tenant_still_sees_its_own_canary(world: World) -> None:
         table = world.tables[name]
         key = {k: world.rows[(name, "B")][k] for k in table.primary_key}
         with psycopg.connect(APP_DSN) as c, c.transaction():
-            c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(b),))
+            c.execute(
+                "SELECT set_config('app.tenant_id', %s, true),"
+                " set_config('app.scope', 'system', true)",
+                (str(b),),
+            )
             where = " AND ".join(f"{k} = %s" for k in key)
             n = c.execute(f"SELECT count(*) FROM {name} WHERE {where}", list(key.values()))  # noqa: S608
             assert n.fetchone()[0] == 1, name
@@ -125,7 +129,10 @@ def test_views_run_as_the_invoker_and_hide_other_tenants(world: World, name: str
     assert "security_invoker=true" in opts or "security_invoker=on" in opts, (name, opts)
     col = MATRIX["views"][name]["tenant_column"]
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(world.tenants["B"]),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(world.tenants["B"]),),
+        )
         try:
             n = c.execute(
                 f"SELECT count(*) FROM {name} WHERE {col} <> %s",  # noqa: S608 - catalog names

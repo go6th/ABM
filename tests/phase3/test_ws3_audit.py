@@ -78,7 +78,10 @@ async def test_audit_chain_is_gapless_and_serialised_under_concurrency() -> None
     assert result.ok and result.to_seq == 20 and result.exit_reason == "complete"
     # app_rw can neither edit nor delete an audit row
     with psycopg.connect(APP_DSN) as c, c.transaction():
-        c.execute("SELECT set_config('app.tenant_id', %s, true)", (str(t),))
+        c.execute(
+            "SELECT set_config('app.tenant_id', %s, true), set_config('app.scope', 'system', true)",
+            (str(t),),
+        )
         for sql in ("UPDATE audit_events SET actor = 'x'", "DELETE FROM audit_events"):
             with pytest.raises(psycopg.errors.InsufficientPrivilege), c.transaction():
                 c.execute(sql)

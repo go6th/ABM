@@ -1,7 +1,9 @@
-"""``accounts``: one pursued company per tenant.
+"""``accounts``: one pursued company of one user of a tenant.
 
 The row is the anchor for every run, source, fact, person, posting and
-detection. ``domain`` is the identity key (unique per tenant) and is stored as
+detection. ``domain`` is the identity key (unique per tenant and owner since the
+private workspaces of migration 0063: two users of one client may each research
+the same company; ``owner_user_id`` defaults to the acting user) and is stored as
 a bare hostname, enforced by the database. ``tenant_id`` defaults to the
 transaction's tenant context (``app_tenant()``), so application code never
 passes it. ``careers_url_verified_at`` is set only when the careers site has
@@ -36,7 +38,9 @@ class Account(UuidPkMixin, TimestampMixin, Base):
 
     __tablename__ = "accounts"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "domain"),
+        UniqueConstraint(
+            "tenant_id", "owner_user_id", "domain", name="uq_accounts_tenant_owner_domain"
+        ),
         UniqueConstraint("tenant_id", "id"),  # target of composite tenant-scoped FKs
         CheckConstraint(DOMAIN_SHAPE_CHECK, name="domain_shape"),
         Index("ix_accounts_tenant_id_name", "tenant_id", "name"),
@@ -45,6 +49,9 @@ class Account(UuidPkMixin, TimestampMixin, Base):
     # Defaults to the transaction's tenant context; RLS WITH CHECK rejects any other value.
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("tenants.id"), nullable=False, server_default=text("app_tenant()")
+    )
+    owner_user_id: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("app_user()")
     )
     domain: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str | None] = mapped_column(Text)

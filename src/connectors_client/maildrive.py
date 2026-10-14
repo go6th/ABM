@@ -387,13 +387,15 @@ async def sync_connection(
         conn = (
             await s.execute(
                 text(
-                    "SELECT kind, token_ref, scopes, owner_user_id, last_synced_at"
+                    "SELECT kind, token_ref, scopes, owner_user_id, provider, last_synced_at"
                     " FROM connector_connections WHERE id = :c AND status = 'active'"
                 ),
                 {"c": connection_id},
             )
         ).first()
-        if conn is None or conn.owner_user_id is None or conn.kind not in KINDS:
+        # a personal Mail and drive source names its provider; an admin's client-wide source
+        # (owned by that admin since migration 0063) is not synced here
+        if conn is None or conn.provider is None or conn.kind not in KINDS:
             return result
         if apps is not None and spec(conn.kind).provider not in apps:
             result.skipped = True  # no OAuth app registered: not available, not broken

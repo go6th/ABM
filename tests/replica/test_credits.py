@@ -217,7 +217,8 @@ async def test_two_confirms_cannot_spend_the_same_credits(world: dict[str, Any])
     with psycopg.connect(_admin(), autocommit=True) as c:
         for name in ("race-one", "race-two"):
             row = c.execute(
-                "INSERT INTO accounts (tenant_id, domain, name, added_by) VALUES (%s, %s, %s,"
+                "INSERT INTO accounts (tenant_id, owner_user_id, domain, name, added_by)"
+                " VALUES (%s, 'test-owner', %s, %s,"
                 " 'other-test')"
                 " RETURNING id",
                 (tenant, f"{name}.example", name),

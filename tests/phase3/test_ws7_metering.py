@@ -48,7 +48,9 @@ async def test_usage_events_are_idempotent_and_settlement_emits_once() -> None:
         assert not await events.record(s, "export_created", "pkg-1", NOW)
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         acc = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, 'mt.example') RETURNING id", (t,)
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', 'mt.example') RETURNING id",
+            (t,),
         ).fetchone()[0]
         run = c.execute(
             "INSERT INTO account_runs (tenant_id, account_id, status, graph_version, budget_json,"

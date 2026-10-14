@@ -73,7 +73,9 @@ async def start(
                 "k": kind,
                 "u": user,
                 "now": now,
-                "owner": user if personal else None,
+                # private workspaces (0063): every connection is its creator's; a personal one
+                # also names its provider
+                "owner": user,
                 "p": sp.provider if personal else None,
             },
         )

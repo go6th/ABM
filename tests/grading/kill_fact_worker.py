@@ -32,4 +32,7 @@ async def main(mode: str, tenant: str, account: str, run: str) -> None:
 
 
 if __name__ == "__main__":
+    from tests.scope import act_as_test_system
+
+    act_as_test_system()
     asyncio.run(main(*sys.argv[1:5]))

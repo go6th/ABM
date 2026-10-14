@@ -19,7 +19,8 @@ pytestmark = pytest.mark.requires_postgres
 def _tenant_account(c: psycopg.Connection) -> tuple[UUID, UUID]:
     tenant = c.execute("INSERT INTO tenants (name) VALUES ('guard') RETURNING id").fetchone()[0]
     account = c.execute(
-        "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+        "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+        " VALUES (%s, 'test-owner', %s) RETURNING id",
         (tenant, f"g{uuid4().hex[:8]}.example.com"),
     ).fetchone()[0]
     return tenant, account

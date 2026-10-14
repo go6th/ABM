@@ -17,7 +17,7 @@ unannotated (the generator's check fails otherwise).
 | cause chain | `src/account_intelligence/workflow/runner.py:319` | the chain length (each exception visited once) | end of chain |
 | clamd stream chunks | `src/documents/scan.py:137` | file size / 1 MiB chunks | end of stream |
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
-| connector token refresh | `src/connectors_client/oauth.py:226` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
+| connector token refresh | `src/connectors_client/oauth.py:228` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
 | converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
 | copy document for the sandbox | `src/documents/service.py:415` | size / 1 MiB | end of object |
 | credit ledger pass | `src/account_intelligence/worker/nightly.py:87` | the tenants with credit activity in the window | end |
@@ -52,7 +52,8 @@ unannotated (the generator's check fails otherwise).
 | idle expiry | `src/account_intelligence/replica/access.py:89` | one pass over the clients | every client checked or failed |
 | in-flight wait | `src/account_intelligence/connectors/service.py:296` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:145` | limit (1000) | queue empty, limit |
-| isolation route probe | `src/account_intelligence/replica/isolation.py:203` | the read routes of the catalog | all probed |
+| isolation owner probe | `src/account_intelligence/replica/isolation.py:201` | every real client once | all probed |
+| isolation route probe | `src/account_intelligence/replica/isolation.py:247` | the read routes of the catalog | all probed |
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
 | jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
 | json array items | `src/research_files/parsers/tabular.py:653` | the array's items | closing bracket, corrupt item |
@@ -60,7 +61,7 @@ unannotated (the generator's check fails otherwise).
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:133` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
-| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:246` | 500 connections per tick (the lookup's limit) | end |
+| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:268` | 500 connections per tick (the lookup's limit) | end |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
@@ -69,7 +70,7 @@ unannotated (the generator's check fails otherwise).
 | notification relay | `src/spend/notify.py:217` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:70` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:84` | max_pages * batch_size runs per pass | rows exhausted |
-| orphan sweep loop | `src/account_intelligence/api/main.py:190` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
+| orphan sweep loop | `src/account_intelligence/api/main.py:194` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
@@ -110,7 +111,7 @@ unannotated (the generator's check fails otherwise).
 | union-find path walk | `src/jobs/dedupe.py:60` | number of identities (path halving) | root found |
 | union-find root walk | `src/people/merge.py:78` | number of records (each step moves to a parent; unions always point the larger root at the smaller, so there is no cycle) | root reached |
 | verification batch | `src/verify/claims.py:110` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
-| walk to verifying | `src/account_intelligence/runs/lifecycle.py:520` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
+| walk to verifying | `src/account_intelligence/runs/lifecycle.py:525` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |
 | xlsx header row | `src/research_files/parsers/tabular.py:387` | one row | header read |
 | xlsx sheets | `src/research_files/parsers/tabular.py:342` | the workbook's sheets | last sheet |

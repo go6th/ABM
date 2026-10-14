@@ -66,7 +66,11 @@ def _seed(plane: Any) -> dict[str, UUID]:
 
         with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
             for d in domains:
-                c.execute("INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s)", (t, d))
+                c.execute(
+                    "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+                    " VALUES (%s, 'test-owner', %s)",
+                    (t, d),
+                )
             if abm_enabled:
                 # The production setup agent requires a pursuing client. Seed one through the
                 # same validated, versioned tenant-settings shape the admin UI writes so the

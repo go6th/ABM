@@ -251,7 +251,10 @@ async def test_connector_oauth_is_bound_minimal_and_fails_closed(
         stolen = await other.client.get(
             "/v1/connectors/oauth/callback", params={"state": state, "code": code}
         )
-        assert stolen.status_code == 409 and "state_bound_to_another_user" in stolen.text
+        # another user cannot even see the state (private workspaces, migration 0063)
+        assert stolen.status_code == 409 and (
+            "state_bound_to_another_user" in stolen.text or "unknown_or_used_state" in stolen.text
+        )
     finally:
         await other.close()
     # the refused attempt rolled back: the owner finishes once, and a replay is refused

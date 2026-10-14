@@ -47,7 +47,8 @@ def make_world(status: str = "RUNNING", tenant: UUID | None = None) -> World:
                 "INSERT INTO tenants (name) VALUES (%s) RETURNING id", ("synthetic-tenant",)
             ).fetchone()[0]
         account = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', %s) RETURNING id",
             (tenant, domain),
         ).fetchone()[0]
         run = uuid4()

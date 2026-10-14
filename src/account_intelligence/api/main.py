@@ -184,7 +184,11 @@ async def _sweep_documents(app: FastAPI) -> None:
 
 
 async def _sweep_loop(app: FastAPI, settings: Any) -> None:
-    """Startup sweep, then one every ``sweep_interval_s``; a failing pass is logged, never fatal."""
+    """Startup sweep, then one every ``sweep_interval_s``; a failing pass is logged, never fatal.
+    A system job (private workspaces, migration 0063): it sees every user's orphans."""
+    from account_intelligence.db.session import set_system
+
+    set_system()  # this task's own context only
     # LOOP(orphan sweep loop): cap=none, one pass per interval for the life of the worker;
     # exit=task cancelled at shutdown
     while True:

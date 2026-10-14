@@ -230,7 +230,8 @@ def make_run(
     domain = domain or f"acme-{uuid4().hex[:8]}.example.com"
     with psycopg.connect(admin_dsn(), autocommit=True) as c:
         account = c.execute(
-            "INSERT INTO accounts (tenant_id, domain) VALUES (%s, %s) RETURNING id",
+            "INSERT INTO accounts (tenant_id, owner_user_id, domain)"
+            " VALUES (%s, 'test-owner', %s) RETURNING id",
             (tenant, domain),
         ).fetchone()[0]
         run = c.execute(

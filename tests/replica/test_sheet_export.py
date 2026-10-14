@@ -123,4 +123,4 @@ async def test_the_mail_and_drive_export_is_the_owners_and_labelled_private(
         book["About"].iter_rows(values_only=True)
     )
     assert len(_cells(mine.content, "Private to you")) > 0
-    assert _cells(theirs.content, "Private to you") == []
+    assert theirs.status_code == 404  # the account itself is the owner's (migration 0063)
