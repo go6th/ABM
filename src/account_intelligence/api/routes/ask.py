@@ -1,11 +1,16 @@
 """Ask: workspace answers with numbered citations, the "What this answer used" summary, the
 offer to refresh from the web (never taken without the user's confirmation) and follow-ups.
 
-``POST /v1/chat/ask`` streams server-sent events: ``thread`` (the thread the turn belongs to,
-created on the first question), ``status`` (searching the workspace), ``answer`` (the whole
-structured answer) and ``done``; or ``error``. A repeated ``request_id`` replays the stored
-answer. Answers never reach the web or a data tool; with a model key set, Claude writes the
-prose from the same rows and its citations are checked (``replica.model_answer``).
+``POST /v1/chat/ask`` streams server-sent events: ``status`` (searching the workspace), ``text``
+(the answer as it is written, one sentence at a time: paragraph index and parts, with citation
+numbers already final), ``reset`` (the model's reply could not be used: forget the text so far,
+the local answer follows), ``thread`` (the thread the turn belongs to, created on the first
+question), ``answer`` (the whole structured answer, the same text) and ``done``; or ``error``. A
+repeated ``request_id`` replays the stored answer. Answers never reach the web or a data tool;
+with a model key set, Claude writes the prose from the same rows and every sentence's citations
+are checked before it is sent (``replica.model_answer``). The rows include the account's
+research, the tracker, previous deliverables, the client's uploaded files (Internal) and the
+user's own mail and drive.
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from account_intelligence.chat.service import ChatService, sse
 from account_intelligence.chat.store import record_ask_turn
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import answers as A
-from account_intelligence.replica.model_answer import compose_with_model
+from account_intelligence.replica.model_answer import stream_with_model
 from account_intelligence.replica.settings import touch_activity
 from obs.logging import logger
 
@@ -119,6 +124,9 @@ async def ask(
             q, draft = A.draft_local(body.question, ws, now, scope)
             model_id = LOCAL_MODEL
             usage = None
+            numbering: dict[str, int] = {}
+            streamed = False
+            from_model = False
             service = getattr(request.app.state, "chat_service", None)
             if isinstance(service, ChatService) and service.provider is not None and ws.accounts:
                 try:
@@ -127,7 +135,7 @@ async def ask(
                     model = service.registry.resolve(
                         get_model_router().select_model(PipelinePhase.CHAT).id
                     )
-                    reply = await compose_with_model(
+                    async for kind, value in stream_with_model(
                         service.provider,
                         model,
                         q,
@@ -135,11 +143,26 @@ async def ask(
                         draft,
                         user_id=ident.user_id,
                         request_id=str(body.request_id),
-                    )
-                    if reply is not None:
-                        draft, usage, model_id = reply.draft, reply.usage, model.id
+                    ):
+                        if kind == "piece":
+                            index, piece = value
+                            parts = A.number_marks(piece, numbering)
+                            yield sse("text", {"p": index, "parts": parts})
+                            streamed = True
+                        elif kind == "done":
+                            draft, usage, model_id = value.draft, value.usage, model.id
+                            from_model = True
+                        else:  # the reply could not be used: the local answer follows
+                            usage = value
                 except Exception:  # the local answer stands; no user text is logged
                     log.warning("ask_model_fallback", extra={"request_id": str(body.request_id)})
+            if not from_model:
+                if streamed:
+                    yield sse("reset", {})
+                numbering = {}
+                for index, para in enumerate(draft.paragraphs):
+                    for piece in A.pieces(para):
+                        yield sse("text", {"p": index, "parts": A.number_marks(piece, numbering)})
             answer = A.finish(draft, q, ws, now, scope)
             plain = A.plain_text(answer["paragraphs"])[:100_000] or " "
             async with audited_txn(

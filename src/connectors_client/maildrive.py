@@ -70,7 +70,7 @@ def oauth_apps(env: Mapping[str, str]) -> dict[str, tuple[str, str]]:
                 with open(path, encoding="utf-8") as handle:
                     secret = handle.read().strip()
             except OSError:
-                secret = str()  # an unreadable file is no secret
+                continue  # an unreadable file is no secret: the app is not registered
         if client_id and secret:
             out[provider] = (client_id, secret)
     return out

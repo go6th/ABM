@@ -39,3 +39,17 @@ export async function readFrames(reply: Response, onFrame: (frame: Frame) => voi
     if (done) break;
   }
 }
+
+export interface StreamPart { t: string; v: string }
+
+// One "text" frame of the Ask stream: append its checked parts to paragraph `p`. A malformed
+// frame changes nothing (the final "answer" frame replaces the partial answer anyway).
+export function addPieces(partial: StreamPart[][], data: Record<string, unknown>): StreamPart[][] {
+  const p = data.p;
+  const parts = data.parts;
+  if (typeof p !== "number" || !Number.isInteger(p) || p < 0 || p > partial.length || !Array.isArray(parts)) return partial;
+  const clean = parts.filter((x): x is StreamPart => typeof x === "object" && x !== null && typeof (x as StreamPart).t === "string" && typeof (x as StreamPart).v === "string");
+  const next = partial.slice();
+  next[p] = [...(next[p] ?? []), ...clean];
+  return next;
+}

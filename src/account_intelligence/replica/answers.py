@@ -10,7 +10,7 @@ Two composers produce the same output shape:
 
 * ``compose_local``: written in code from the retrieved rows. Used when no model key is set
   (local development, tests) and as the fallback when the model reply cannot be used.
-* ``compose_with_model`` (``replica.model_answer``): Claude writes the prose from the same
+* ``stream_with_model`` (``replica.model_answer``): Claude writes the prose from the same
   numbered rows; its citations are checked against those rows before anything is shown.
 
 Answer text uses two inline marks, parsed into parts for the client: ``**bold**`` and ``[n]``.
@@ -237,6 +237,11 @@ class Workspace:
     mail: list[Row]
     questions: dict[UUID, list[str]]
     mail_connected: bool
+    # Internal facts from the client's uploaded files (labelled "From your files"), the research
+    # tracker of each account's latest run, and the text of previous deliverables
+    files: list[Row] = field(default_factory=list)
+    tracker: list[Row] = field(default_factory=list)
+    reports: list[Row] = field(default_factory=list)
 
 
 def _as_dt(value: Any) -> datetime | None:
@@ -511,7 +516,133 @@ async def load_workspace(session: Any, user_id: str, account_id: UUID | None = N
         mail=mail,
         questions=questions,
         mail_connected=connected,
+        files=await _file_rows(session, by_id, scope),
+        tracker=await _tracker_rows(session, by_id, scope),
+        reports=await _report_rows(session, by_id, scope),
     )
+
+
+async def _file_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) -> list[Row]:
+    """Internal facts read from the client's own uploaded files, with the file they came from
+    (private to the workspace; never in a shareable file)."""
+    out = []
+    for r in (
+        await session.execute(
+            text(
+                "SELECT f.id, f.account_id, coalesce(f.value_text, f.value_json->>'text') AS v,"
+                " f.created_at, e.supporting_sentence, e.document_location,"
+                " coalesce(d.name, 'an uploaded file') AS document"
+                " FROM facts f JOIN LATERAL (SELECT supporting_sentence, document_location,"
+                "   document_id FROM fact_evidence x WHERE x.fact_id = f.id"
+                "   AND x.evidence_kind = 'document' LIMIT 1) e ON true"
+                " LEFT JOIN documents d ON d.id = e.document_id"
+                " WHERE f.status = 'current' AND f.superseded_at IS NULL"
+                " AND f.visibility = 'private' ORDER BY f.created_at DESC LIMIT 1000"
+            )
+        )
+    ).all():
+        acct = by_id.get(r.account_id)
+        if acct is None or r.account_id not in scope or not r.v:
+            continue
+        where = (r.document_location or {}).get("cite") if r.document_location else None
+        when = _as_dt(r.created_at)
+        out.append(
+            Row(
+                key=f"file:{r.id}",
+                kind="file",
+                account=acct,
+                text=str(r.v),
+                title=f"From your files: {r.document}",
+                meta=f"Internal · {where}" if where else "Internal · from your files",
+                when=when,
+                url=None,
+                grade="internal",
+                extra={"quote": r.supporting_sentence or ""},
+            )
+        )
+    return out
+
+
+async def _tracker_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) -> list[Row]:
+    """Each account's research tracker from its latest finished run: what was covered and why
+    a row was not."""
+    from uuid import NAMESPACE_URL, uuid5
+
+    from account_intelligence.tracker.config import load_checklist, load_tracker_config
+
+    labels = {r.key: r.label for r in load_checklist().rows}
+    reasons = load_tracker_config().reason_codes
+    out = []
+    for r in (
+        await session.execute(
+            text(
+                "SELECT c.run_id, c.row_key, c.status, c.reason_code, r.account_id, r.finished_at"
+                " FROM coverage_rows c JOIN account_runs r ON r.id = c.run_id"
+                " WHERE r.id IN (SELECT DISTINCT ON (account_id) id FROM account_runs"
+                "   WHERE status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
+                "   AND graph_version NOT IN ('library-copy', 'hermetic-research')"
+                "   ORDER BY account_id, finished_at DESC)"
+                " AND c.status IS NOT NULL"
+            )
+        )
+    ).all():
+        acct = by_id.get(r.account_id)
+        if acct is None or r.account_id not in scope:
+            continue
+        status = str(r.status).replace("_", " ")
+        why = reasons.get(r.reason_code or "", "") if r.reason_code else ""
+        label = labels.get(r.row_key, r.row_key)
+        when = _as_dt(r.finished_at)
+        out.append(
+            Row(
+                key=f"tracker:{uuid5(NAMESPACE_URL, f'{r.run_id}/{r.row_key}')}",
+                kind="tracker",
+                account=acct,
+                text=f"{label}: {status}" + (f" ({why})" if why else ""),
+                title=f"{acct.name} research tracker",
+                meta=f"Coverage · {day_month(when)}",
+                when=when,
+                url=None,
+                extra={"row": r.row_key},
+            )
+        )
+    return out
+
+
+async def _report_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) -> list[Row]:
+    """The text of each account's latest deliverables (the Summary's one minute version, its
+    hypotheses and caveats), including a 6th Library copy."""
+    out = []
+    for r in (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (account_id, kind, position) id, account_id, kind, text,"
+                " created_at FROM report_sections"
+                " WHERE visibility = 'public'"
+                " AND kind IN ('narrative', 'hypothesis', 'caveat', 'executive_voice')"
+                " ORDER BY account_id, kind, position, version DESC, created_at DESC"
+            )
+        )
+    ).all():
+        acct = by_id.get(r.account_id)
+        if acct is None or r.account_id not in scope:
+            continue
+        when = _as_dt(r.created_at)
+        out.append(
+            Row(
+                key=f"report:{r.id}",
+                kind="report",
+                account=acct,
+                text=str(r.text),
+                title=f"{acct.name} account summary",
+                meta=f"Previous deliverable · {day_month(when)}",
+                when=when,
+                url=None,
+                grade="hypothesis" if r.kind == "hypothesis" else None,
+                extra={"section": r.kind},
+            )
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1006,7 +1137,7 @@ def compose_other(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
             "please",
         }
     ]
-    pool = ws.facts + ws.jobs + ws.signals + ws.mail
+    pool = ws.facts + ws.jobs + ws.signals + ws.mail + ws.files + ws.reports + ws.tracker
     if q.accounts:
         pool = [r for r in pool if r.account in q.accounts]
     scored = []
@@ -1083,6 +1214,29 @@ def to_parts(value: str, numbering: dict[str, int]) -> list[dict[str, str]]:
     if pos < len(value):
         parts.append({"t": "text", "v": value[pos:]})
     return [p for p in parts if p["v"]]
+
+
+_PIECE_END = re.compile(r"[.!?](?:\s*\[\[[a-z_]+:[0-9a-f-]{36}\]\])*\s+(?=\S)")
+
+
+def pieces(paragraph: str) -> list[str]:
+    """A drafted paragraph split into sentences, each with the citations that follow it (the
+    pieces an answer streams in)."""
+    out, pos = [], 0
+    for m in _PIECE_END.finditer(paragraph):
+        out.append(paragraph[pos : m.end()])
+        pos = m.end()
+    if pos < len(paragraph):
+        out.append(paragraph[pos:])
+    return [x for x in out if x.strip()]
+
+
+def number_marks(text: str, numbering: dict[str, int]) -> list[dict[str, str]]:
+    """One streamed piece as answer parts, numbering new citations in order of appearance (the
+    same numbers ``finish`` gives the whole answer)."""
+    for key in re.findall(r"\[\[([a-z_]+:[0-9a-f-]{36})\]\]", text):
+        numbering.setdefault(key, len(numbering) + 1)
+    return to_parts(text, numbering)
 
 
 def plain_text(paragraphs: list[list[dict[str, str]]]) -> str:

@@ -1753,7 +1753,9 @@ class AnswerSource(Out):
     meta: str
     date: str | None
     url: str | None
-    kind: Literal["fact", "job", "person", "signal", "technology", "mail_drive", "file"]
+    kind: Literal[
+        "fact", "job", "person", "signal", "technology", "mail_drive", "file", "tracker", "report"
+    ]
     account_domain: str | None
     account_name: str | None
 

@@ -2392,7 +2392,9 @@ export const KNOWN_VALUES = {
     "signal",
     "technology",
     "mail_drive",
-    "file"
+    "file",
+    "tracker",
+    "report"
   ],
   "AnswerUsed.mail_drive": [
     "used",

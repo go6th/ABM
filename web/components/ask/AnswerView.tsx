@@ -114,6 +114,25 @@ function usedLabel(value: string): { text: string; ok: boolean } {
   return { text: "Not used", ok: false };
 }
 
+// The answer while it streams: the checked sentences so far, citation numbers shown but not
+// clickable until the finished answer (with its sources) arrives.
+export function StreamingAnswer({ paragraphs }: { paragraphs: { t: string; v: string }[][] }) {
+  return (
+    <div className="reply" aria-busy="true">
+      <div className="answered"><span className="pdot" aria-hidden="true" />Writing the answer</div>
+      {paragraphs.map((para, i) => (
+        <p key={i}>
+          {para.map((part, j) => {
+            if (part.t === "bold") return <b key={j}>{part.v}</b>;
+            if (part.t === "cite") return <span key={j} className="cite static" aria-label={`Source ${part.v}`}>{part.v}</span>;
+            return <span key={j}>{part.v}</span>;
+          })}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function UsedPanel({ answer, onOpenSource }: { answer: ChatAnswer; onOpenSource: (n: number) => void }) {
   const rows: Array<[string, string]> = [
     ["Your workspace", answer.used.workspace],

@@ -96,6 +96,7 @@ unannotated (the generator's check fails otherwise).
 | slice loop | `src/account_intelligence/workflow/runner.py:146` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
+| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:198` | the pieces in the text received so far | no complete piece left, a refused piece |
 | stuck scan | `src/obs/stuck.py:73` | keyset pages of `page` runs until none remain | all scanned |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
 | topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |

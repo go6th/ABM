@@ -4,11 +4,19 @@ The model sees only the rows (as untrusted data inside a fenced block) and the q
 reply must cite rows as ``[R3]``; every cited id is checked against the rows that were sent, and
 a reply with no valid citation, an unknown id or a broken format is discarded in favour of the
 local answer. The model never goes to the web and has no tools.
+
+``stream_with_model`` yields the reply sentence by sentence while the model writes: each
+sentence's citations are checked before it is sent (so a streamed citation always points at a
+real row), a heading or list, or an unknown id, stops the stream (``reset``) and the local
+answer is used instead; the final structured answer follows the stream.
+
+GUARANTEE(test_a_streamed_answer_only_sends_checked_citations)
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,7 +59,7 @@ class ModelReply:
 def pick_rows(q: Question, ws: Workspace, local: Draft) -> list[Row]:
     """The rows the model may cite: what the local composer cited, then the most relevant rest."""
     rows: dict[str, Row] = dict(local.rows)
-    pool = ws.facts + ws.jobs + ws.people + ws.signals + ws.tech + ws.mail
+    pool = ws.facts + ws.jobs + ws.people + ws.signals + ws.tech + ws.mail + ws.files + ws.reports
     if q.accounts:
         pool = [r for r in pool if r.account in q.accounts]
     ranked = sorted(
@@ -111,7 +119,37 @@ def parse(reply: str, ids: dict[str, Row]) -> Draft | None:
     return d
 
 
-async def compose_with_model(
+_SENTENCE_END = re.compile(r"[.!?](?:\s*\[R\d{1,3}\])*\s+(?=\S)")
+_PARA_BREAK = re.compile(r"\n\s*\n")
+_LIST_START = ("#", "- ", "* ", "|")
+
+
+def take(buffer: str, final: bool = False) -> tuple[str | None, bool, str]:
+    """The next complete piece of ``buffer``: (text or None, ends a paragraph, the rest). A piece
+    is a sentence with the citations that follow it, or the rest of a paragraph; at the end
+    (``final``) whatever is left."""
+    para = _PARA_BREAK.search(buffer)
+    sent = _SENTENCE_END.search(buffer)
+    if para is not None and (sent is None or para.start() <= sent.end()):
+        return buffer[: para.start()], True, buffer[para.end() :]
+    if sent is not None:
+        return buffer[: sent.end()], False, buffer[sent.end() :]
+    if final and buffer.strip():
+        return buffer, True, ""
+    return None, False, buffer
+
+
+def checked(piece: str, ids: dict[str, Row], starts_paragraph: bool, live: Draft) -> str | None:
+    """The piece with its ``[R3]`` ids turned into row markers, or None when it cites a row that
+    was not sent, or starts a heading or a list."""
+    if starts_paragraph and piece.lstrip().startswith(_LIST_START):
+        return None
+    if any(rid not in ids for rid in _CITE.findall(piece)):
+        return None
+    return _CITE.sub(lambda m: live.cite(ids[m.group(1)]), piece)
+
+
+async def stream_with_model(
     provider: Any,
     model: Any,
     q: Question,
@@ -120,17 +158,23 @@ async def compose_with_model(
     *,
     user_id: str,
     request_id: str,
-) -> ModelReply | None:
-    """Ask the model to write the answer from the rows; None when its reply is not usable."""
+) -> AsyncIterator[tuple[str, Any]]:
+    """Events while the model writes: ("piece", (paragraph index, text with row markers)) for
+    each checked sentence, then ("done", ModelReply) or ("reset", usage) when its reply cannot
+    be used (the caller streams the local answer instead)."""
     rows = pick_rows(q, ws, local)
     if not rows:
-        return None
+        yield "reset", None
+        return
     block, ids = context_block(rows)
     prompt = (
         "<workspace_rows>\n" + block + "\n</workspace_rows>\n\n"
         "<question>\n" + q.text[:2000] + "\n</question>"
     )
-    text_out: list[str] = []
+    full: list[str] = []
+    buffer = ""
+    para, fresh, broken, written = 0, True, False, False
+    live = Draft()
     usage: ChatUsage | None = None
     async for event in provider.stream(
         model,
@@ -140,16 +184,48 @@ async def compose_with_model(
         request_id=request_id,
         system=SYSTEM,
     ):
-        if event.kind == "text":
-            text_out.append(event.text)
-        elif event.kind == "usage":
+        if event.kind == "usage":
             usage = event.usage
-    draft = parse("".join(text_out), ids)
+            continue
+        if event.kind != "text" or broken:
+            continue
+        full.append(event.text)
+        buffer += event.text
+        body = buffer.split("ITEMS:", 1)[0]
+        held = buffer[len(body) :]
+        # LOOP(streamed answer pieces): cap=the pieces in the text received so far; exit=no
+        # complete piece left, a refused piece
+        while True:
+            piece, ends, body = take(body)
+            if piece is None:
+                break
+            out = checked(piece, ids, fresh, live)
+            if out is None:
+                broken = True
+                break
+            if out.strip():
+                yield "piece", (para, out)
+                written = True
+            fresh = ends
+            if ends and written:  # an empty paragraph is no paragraph (as in ``parse``)
+                para, written = para + 1, False
+        buffer = body + held
+    if not broken:
+        body = buffer.split("ITEMS:", 1)[0]
+        piece, _, _ = take(body, final=True)
+        if piece is not None:
+            out = checked(piece, ids, fresh, live)
+            if out is None:
+                broken = True
+            elif out.strip():
+                yield "piece", (para, out)
+    draft = None if broken else parse("".join(full), ids)
     if draft is None:
-        return None
+        yield "reset", usage
+        return
     draft.focus = local.focus or next(iter(draft.rows.values())).account
     if draft.items is None and local.items is not None:
         draft.items = local.items
     if draft.items is None and q.intent == "first_call" and draft.focus is not None:
         draft.items = ("FIRST CALL QUESTIONS", first_call_questions(ws, draft.focus, q.topics))
-    return ModelReply(draft=draft, usage=usage)
+    yield "done", ModelReply(draft=draft, usage=usage)

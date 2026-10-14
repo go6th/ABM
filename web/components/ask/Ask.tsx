@@ -1,17 +1,20 @@
 "use client";
 // Ask (home) as designed. Empty: "What do you want to know?", the composer and up to five
 // suggestions drawn from the workspace. Thread: the navy question bubble, "Searching your
-// workspace" while the answer is built, the answer with citations, and the follow-up composer at
-// the bottom; "What this answer used" sits to the right on wide screens and under the latest
-// answer otherwise. A failed question stays on screen with its error and a Retry. The thread id
-// goes into the address with history.replaceState, so the component is never remounted mid-chat.
+// workspace" until the first checked sentence arrives, then the answer as it streams (citation
+// numbers shown but not yet clickable), then the finished answer with citations; the follow-up
+// composer sits at the bottom and "What this answer used" to the right on wide screens and under
+// the latest answer otherwise. If the model's reply fails its checks the partial text is cleared
+// and the workspace's own answer streams instead. A failed question stays on screen with its
+// error and a Retry. The thread id goes into the address with history.replaceState, so the
+// component is never remounted mid-chat.
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiStream, ApiError } from "@/lib/api";
 import type { ChatAnswer } from "@/lib/gen/api.gen";
-import { readFrames } from "@/lib/sse";
+import { addPieces, readFrames, type StreamPart } from "@/lib/sse";
 import { NEW_CHAT_EVENT } from "@/components/ws/WorkspaceShell";
-import { AnswerView, UsedPanel } from "./AnswerView";
+import { AnswerView, StreamingAnswer, UsedPanel } from "./AnswerView";
 import { AskComposer, type ScopeAccount } from "./AskComposer";
 
 export interface AskTurn {
@@ -19,6 +22,7 @@ export interface AskTurn {
   question: string;
   status: "searching" | "done" | "failed";
   answer?: ChatAnswer;
+  partial?: StreamPart[][];
   error?: string;
 }
 
@@ -102,7 +106,7 @@ export function Ask({
     const text = question.trim();
     if (!text || busy) return;
     const key = retryKey ?? crypto.randomUUID();
-    if (retryKey) patch(retryKey, { status: "searching", error: undefined });
+    if (retryKey) patch(retryKey, { status: "searching", error: undefined, partial: undefined });
     else setTurns((all) => [...all, { key, question: text, status: "searching" }]);
     setDraft("");
     setWebHint(false);
@@ -124,9 +128,13 @@ export function Ask({
             setThreadId(id);
             if (frame.data.created) created = id;
           }
+        } else if (frame.event === "text") {
+          setTurns((all) => all.map((t) => (t.key === key ? { ...t, partial: addPieces(t.partial ?? [], frame.data) } : t)));
+        } else if (frame.event === "reset") {
+          patch(key, { partial: undefined });
         } else if (frame.event === "answer") {
           got = true;
-          patch(key, { status: "done", answer: frame.data as unknown as ChatAnswer });
+          patch(key, { status: "done", answer: frame.data as unknown as ChatAnswer, partial: undefined });
           setActive(key);
         } else if (frame.event === "error" || frame.event === "invalid") {
           throw new ApiError(502, "answer_failed", "");
@@ -139,7 +147,7 @@ export function Ask({
       }
     } catch (cause) {
       if (controller.signal.aborted) return;
-      patch(key, { status: "failed", error: failureText(cause) });
+      patch(key, { status: "failed", error: failureText(cause), partial: undefined });
     }
   }, [busy, threadId, scope, router]);
 
@@ -188,7 +196,8 @@ export function Ask({
             {turns.map((t) => (
               <div key={t.key} className="reply">
                 <div className="bubble">{t.question}</div>
-                {t.status === "searching" ? (
+                {t.status === "searching" && t.partial?.length ? <StreamingAnswer paragraphs={t.partial} /> : null}
+                {t.status === "searching" && !t.partial?.length ? (
                   <div className="searching" role="status"><span className="pdot" aria-hidden="true" />Searching your workspace</div>
                 ) : null}
                 {t.status === "failed" ? (
