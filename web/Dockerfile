@@ -15,7 +15,9 @@ ARG API_ORIGIN=http://api:8080
 ENV API_ORIGIN=${API_ORIGIN}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN npm run build \
+ # Next writes server-side source maps into .next/server; the browser bundle has none. No map ships.
+ && find .next -name '*.map' -type f -delete
 
 # Runtime: Debian slim with current security updates; npm, npx, corepack and perl (unused by the
 # server, and the source of HIGH/CRITICAL findings) are removed from the final layer.

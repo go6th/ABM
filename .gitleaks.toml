@@ -1,0 +1,18 @@
+# gitleaks configuration for the secret scan in .github/workflows/ci.yml. The default rules stay
+# on; this file only lists findings reviewed and found not to be secrets. Each entry is one reviewed file or
+# directory, so a real key anywhere else still fails the scan.
+title = "account intelligence platform"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Reviewed: vendor example requests in provider reference documents; names of secrets and variables (never values); synthetic test values."
+paths = [
+  '''(^|/)docs/providers/sources/''',
+  '''^scripts/gen_env_docs\.py$''',
+  '''^infra/stack/main\.tf$''',
+  '''(^|/)tests/connectors/test_contracts\.py$''',
+  '''^tests/research_files/fixtures\.py$''',
+  '''^tests/runs/test_stop\.py$''',
+]
