@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { googleOperatorOidcConfig, operatorOAuthCookieNames, safeOperatorReturnPath } from "@/lib/operator-oidc";
+import { publicOrigin } from "@/lib/same-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (request.nextUrl.origin !== config.redirectUri.origin) {
+  if (publicOrigin(request) !== config.redirectUri.origin) {
     const canonicalLogin = new URL("/api/operator/login", config.redirectUri);
     canonicalLogin.searchParams.set("return_to", safeOperatorReturnPath(request.nextUrl.searchParams.get("return_to")));
     return NextResponse.redirect(canonicalLogin, 303);

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isSameOriginRouteRequest } from "@/lib/same-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (request.headers.get("origin") !== request.nextUrl.origin) {
+  if (!isSameOriginRouteRequest(request)) {
     return NextResponse.json(
       { type: "urn:6th:problem:403", title: "Request refused", status: 403, detail: "A same-origin request is required." },
       { status: 403, headers: { "Cache-Control": "no-store" } },
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (typeof body.csrf_token === "string") {
         await fetch(new URL("/v1/sso/logout", origin), {
           method: "POST",
-          headers: { cookie, origin: request.nextUrl.origin, "x-csrf-token": body.csrf_token, accept: "application/json" },
+          headers: { cookie, origin: request.headers.get("origin") ?? "", "x-csrf-token": body.csrf_token, accept: "application/json" },
           cache: "no-store",
           redirect: "error",
         });

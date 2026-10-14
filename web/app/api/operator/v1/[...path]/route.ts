@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { isSameOriginRouteRequest } from "@/lib/same-origin";
 import { operations } from "@/lib/gen/api.gen";
 import { googleOperatorOidcConfig, operatorApiOrigin, operatorOAuthCookieNames } from "@/lib/operator-oidc";
 import { BINARY_LIMIT, isBinaryUpload } from "@/lib/operator-proxy";
@@ -31,17 +32,12 @@ function problem(status: number, type: string, detail: string): NextResponse {
   );
 }
 
-function sameOrigin(request: NextRequest): boolean {
-  const origin = request.headers.get("origin");
-  return origin !== null && origin === new URL(request.url).origin;
-}
-
 async function proxy(request: NextRequest): Promise<NextResponse> {
   const method = request.method.toUpperCase();
   const apiPath = new URL(request.url).pathname.slice("/api".length);
   if (!isOperation(method, apiPath)) return problem(404, "not_found", "Not found.");
   const apiOrigin = operatorApiOrigin();
-  if (method !== "GET" && method !== "HEAD" && !sameOrigin(request)) {
+  if (method !== "GET" && method !== "HEAD" && !isSameOriginRouteRequest(request)) {
     return problem(403, "origin_refused", "The request origin could not be verified.");
   }
 

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { isSameOriginRouteRequest } from "@/lib/same-origin";
 import { OperatorSession } from "@/lib/gen/api.gen";
 import { googleOperatorOidcConfig, operatorApiOrigin, operatorOAuthCookieNames } from "@/lib/operator-oidc";
 
@@ -15,11 +16,6 @@ function problem(status: number, type: string, detail: string): NextResponse {
     { type: `urn:6th:problem:${type}`, title: "Operator sign-in refused", status, detail },
     { status, headers: { "Cache-Control": "no-store" } },
   );
-}
-
-function isSameOrigin(request: NextRequest): boolean {
-  const origin = request.headers.get("origin");
-  return origin !== null && origin === new URL(request.url).origin;
 }
 
 async function verifyToken(token: string): Promise<{ staff_id: string; role: string; mfa_fresh: boolean } | null> {
@@ -54,7 +50,7 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (!isSameOrigin(request)) return problem(403, "origin_refused", "The request origin could not be verified.");
+  if (!isSameOriginRouteRequest(request)) return problem(403, "origin_refused", "The request origin could not be verified.");
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(contentLength) && contentLength > 16_384) {
     return problem(413, "body_too_large", "Sign-in response is too large.");
@@ -96,7 +92,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  if (!isSameOrigin(request)) return problem(403, "origin_refused", "The request origin could not be verified.");
+  if (!isSameOriginRouteRequest(request)) return problem(403, "origin_refused", "The request origin could not be verified.");
   const response = NextResponse.json({ signed_out: true }, { headers: { "Cache-Control": "no-store" } });
   response.cookies.set(sessionCookieName(), "", {
     httpOnly: true,
