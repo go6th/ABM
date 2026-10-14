@@ -57,6 +57,40 @@ The owner updated the design PDF (19 pages; page 1 is the user sign-in) and deci
 - **Admin sign-in (`/operator/login`)**, which the design does not draw, is page 1's shape with the admin console's navy: inverse logo mark and "6th Admin / Account Intelligence"; card "Admin sign in", "For 6th staff only. Sign in with your 6th Google account.", **Sign in with Google** (the existing operator Google sign-in with all its checks); "Staff sign-in is not set up on this server." in place of the button when it is not configured; "Not 6th staff? Go to the workspace sign in" under the card. Right column navy (#101828) with a lighter navy dot grid: "The 6th admin console.", "Manage clients, users, the 6th Library and platform defaults." and a #1B2638 card: counts, never content; every change is recorded; checked every night.
 - **Ask without sample text.** The composer placeholder is "Ask about your accounts" (follow-up: "Ask a follow up"). The five suggestion chips and `GET /v1/chat/suggestions` are removed (route, OpenAPI, generated client, isolation matrix, tests); the two follow-up questions after an answer stay, drawn from the workspace. The sidebar's "Accounts used N of M" meter is removed; Add account still enforces the cap with its message.
 
+### Owner decision, 2026-10-14 (Phase 4B): what the screens show now
+
+Where a screen below still says credits, the account cap or "Choose files", this note wins
+(`docs/build/PHASE_4B_PLAN.md`):
+
+- **No credits and no account cap on user screens.** New research, Refresh and Schedules say what
+  an action uses in researches and chats ("1 of 2 researches left this month"); a used-up limit
+  shows the refusal in plain words and **Request more from admin** ("Request sent"). Add account
+  has no cap. Credits stay internal (Runs and spend).
+- **Models.** The Ask composer has a model chip; New research and Refresh have "Research: Opus
+  5.5" and "Analysis: Fable 5.1" chips; the user menu has Model preferences; run details and
+  "What this answer used" name the models quietly.
+- **Files (screen 9, file tab).** Two sources only: **Add files** and **Connect Google Drive**
+  ("Not available yet" until the owner's Google OAuth apps exist). Any type the parser reads, any
+  size up to the admin's per-file limit (default 20 GB). Each file shows the bytes sent, then
+  "Reading part 3 of 12"; a part that could not be read shows its reason and **Try again**. A
+  paused upload is listed; choosing the same file continues it. One company named in the files
+  is attached automatically ("These files are about Northwind", **Change**); several still ask
+  "We found more than one company. Which is this about?". The Ask composer's "+" opens the same
+  two choices.
+- **Account workspace (screen 3).** While research runs: "N of M steps done", refreshed live. A
+  research that stopped or stalled shows why, what it holds, and **Resume research** ("Resuming:
+  N of M steps already done"; it reuses everything found at no cost and uses none of the user's
+  researches). FILES adds **Download everything** (deliverables, every table whole as CSV and
+  Excel, and the user's own files and file findings, in zip parts with links that work for an
+  hour).
+- **Tables (screen 7 and the others).** **Download CSV** and **Open in Excel** export every row of
+  the current filter and sort; a table longer than one Excel sheet continues on the next.
+- **An empty workspace** (a new user) shows the first steps under the Ask composer: **Add your
+  first account** and **Add files**; the Accounts page says the same.
+- **Admin console.** A7 adds the largest file a user may add, the dollar cap per run, how often
+  one run may pay for the same search, and when a run counts as stalled; Users shows each user's
+  limits with Change limits; Requests lists requests for more with Approve and Decline.
+
 ### Shared user shell (every user screen)
 
 - Logo, "Account Intelligence / by 6th".

@@ -193,3 +193,95 @@ sign-in, Keep me signed in (password and SSO), SSO discovery by email domain
   owner's inputs (Phase 8).
 - Phase 4B (`docs/build/PHASE_4B_PLAN.md`) replaces the account cap and user-facing credits
   with per-user research and chat limits, and makes every user's workspace private.
+
+
+## Phase 4B: model choice, files at any size, per-user limits, resumable research, full downloads, private workspaces
+
+Owner prompt of 2026-10-14; plan and reversals in `docs/build/PHASE_4B_PLAN.md`, `PLAN.md` and
+`REPLICA_PROMPT.md` section 0 (screens: section 2, "Owner decision, 2026-10-14 (Phase 4B)").
+No live paid run was started; every test used the fake model and the hermetic providers.
+
+| # | Item | Status | Where |
+| --- | --- | --- | --- |
+| 4B.1 | Model choice: research and analysis model per user (Opus 5.5, Fable 5.1, Kimi K3), remembered; Ask model chip; New research and Refresh chips; Model preferences; models recorded per run and answer and shown quietly; Kimi K3 adapter (Moonshot Chat Completions) with the Claude schema fallback recorded; admin A7 enabled models and defaults, A3 allowed models (Kimi off until allowed); Haiku removed; Model split retired | Fixed (Kimi live needs `MOONSHOT_API_KEY`) | d3af415, eecc81c, ac05e3e |
+| 4B.2 | File sources: "Add files" and "Connect Google Drive" only ("Choose from storage" removed); the composer "+" opens the same two; one company named in the files attaches automatically (account created when needed), several ask | Fixed; the Drive picker and server-side copy are blocked on the owner's Google OAuth app ("Not available yet") | c3b72a5, 8118e2b |
+| 4B.3 | Files of any size: browser to object storage in resumable 32 MiB chunks (retry per chunk, survives a reload, real-byte progress; never through the web app or the API body); admin per-file limit (default 20 GiB, A7); no per-run caps; parts table with a status each, parallel workers under a per-client limit, a sandbox child per part, bounded readers, idempotent passages; parts done of total; a failed part's reason and Try again; paged indexing | Fixed | 341d6ca, c3b72a5, 0a52647, 8c38c12 |
+| 4B.4 | Research that never loses data: hard dollar cap per run (provider and model spend together, A7, default $25), repeated-search stop (A7, default 3), heartbeat and stalled runs (marked once, owner told), Resume research ("Resuming: N of M steps already done", uses no research), live step counts | Fixed | ac05e3e, c3b72a5 |
+| 4B.5 | Limits per user: researches (2) and chats (40), monthly or never; checked before start; plain refusals; Request more from admin; console Requests with Approve and Decline; audit-logged; account cap and credits off user screens | Fixed | 4851a29, 6c98bce |
+| 4B.6 | Everything downloadable: every table whole as CSV and Excel (split past 1,048,576 rows; client-file rules on every cell; a shareable workbook checked again as a whole); Download everything in the background (deliverables, every table, the user's own files and file findings, README), zip parts, short-lived links renewed on each read, range requests; raw provider responses left out | Fixed | ac05e3e, c3b72a5 |
+| 4B.7 | Private workspaces: owner column and forced RLS on tenant and owner for every user table, migration of existing rows, new users start empty with first steps ("Add your first account", "Add files"), admins see counts only, cross-user tests and the nightly check | Fixed | 195e7a0, 6c98bce |
+
+FIX_PROMPT Phase 5 overlaps done here: private retrieval (the index rows are the owner's under
+RLS), the scheduler and Refresh (jobs, schedules and runs are the owner's; a scheduled refresh
+counts the owner's research and is skipped with a notice when none is left).
+
+### Why the 1 GB file failed
+
+Recorded in `PHASE_4B_PLAN.md` ("Cause of the earlier 1 GB failure"): the browser refused files
+over 25 MiB and more than 20 files (the "20" the owner saw); the server refused over 100 MiB and
+500 MiB per run; the web app's proxy read the whole body into memory; one sandbox parse per file
+with 300 s of CPU and 1.5 GB of memory; text and passage caps truncated the rest. Building the fix
+found three more: `complete` hashed the whole file inside the HTTP request, the parse kept every
+passage of a file in memory and wrote them in one transaction, and indexing loaded every passage
+and vector at once. All are gone.
+
+### Found by the click-through on the containers (older than Phase 4B)
+
+The click-through ran against the built images (a throwaway copy of the replica stack, its own
+database and ports, hermetic model and providers). It found four defects that the test suite
+could not, because the tests run from the source tree and call the API directly:
+
+| Defect | Since | Fix |
+| --- | --- | --- |
+| An analyst was refused on upload (`POST /v1/documents`): the route allowed sellers and admins only | before Phase 4B | 8118e2b: an analyst may add files like a seller |
+| `documents`, `research_files` and `devstore` were missing from the wheel the images install, so they imported only where `src` was on the path; the sandbox child (`python -I`) and every production container would fail | before Phase 4B | 0a52647, with a guard test that every package under `src/` ships in the wheel |
+| The parser sandbox child runs with an empty environment, so in an installed image `CONFIG_DIR` fell back to `site-packages/../config` and every upload failed with `parse:parser_failed:FileNotFoundError` | 3206a9e (2026-10-13) | 8c38c12: the child gets `CONFIG_DIR` and nothing else; a test pins the child's environment |
+| The operator proxy and session routes compared the browser's Origin with `request.url`, which inside the container is the server's own address: every operator write (Approve, Decline, every console save) got 403; staff sign-in would redirect to itself; sign-out got 403 and forwarded the internal origin | 9b0de9b (2026-10-08) | 98f444d: the shared same-origin check and a `publicOrigin` helper (Host and X-Forwarded headers), with tests |
+
+The axe pass also found four accessibility faults (fixed in 9d3ff7b): the account sheets' filter
+chips are links and used `aria-pressed` (now `aria-current`); the Clients table header had
+`role="row"` outside a table; the Library and Runs tables scroll sideways on a phone but could not
+be reached by keyboard (now focusable named regions); the account's file analysis had no `h1`
+when empty (now a visually hidden "File analysis").
+
+### Checks after Phase 4B (2026-10-14, replica Postgres on port 5433)
+
+- Python, full suite with PostgreSQL and isolation (`pytest -m "not eval"`, four groups on their
+  own test databases): **4,254 passed, 14 skipped, 0 failed** (1,559 + 991 + 669 + 1,035). One
+  earlier run of the fourth group aborted inside a native library in
+  `tests/research_files/test_pipeline_db.py` while an image build, Playwright and the other three
+  groups ran at the same time; the file passes alone (30 of 30) and the whole group passed on the
+  rerun. Recorded, not reproduced.
+- The isolation suite and the limits tests on a database migrated from scratch after the 0065
+  rewrite (41055d9): 780 passed; RLS catalog: no violations on that database and on the replica's.
+- `check_route_catalog.py`, `check_guarantees.py` (430 tags, 0 dangling), `check_routing_governance.py`,
+  `check_comments.py`, `gen_web_client.py --check`, `gen_env_docs.py --check`,
+  `gen_isolation_matrix.py --check` (every discovered object covered), the loop inventory
+  (regenerated, 65513a1) and the skill's migration lint (**134 files pass**; it failed on 0065 to
+  0067 before 41055d9): pass.
+- Images: `python -I -c "import documents.sandbox_child, research_files.blobstore, devstore.server"`
+  succeeds in the api and worker images.
+- Web: typecheck, lint (0 errors; 1 warning in the tracked leftover `web/.probe.mjs`), 59 unit tests
+  and the production build (web image) pass.
+- Playwright with axe (`web/e2e/replica/screens.spec.ts`) on every screen, public, workspace and
+  admin console, at 1360 and 375: **6 of 6 pass**, no violations, no console or CSP errors, no
+  sideways scroll, no "not found".
+- The click-through (`web/scripts/phase4b-shots.mjs`) on a throwaway copy of the replica stack: 24
+  screenshots, no sideways scroll, no console errors; a 150 MB and a 73 MB file uploaded (one paused
+  by a reload and continued), read in 3 and 2 parts (81,586 and 38,078 passages); the research
+  limit refused, Request more from admin sent, the admin approved it (limit 1 to 3); Download
+  everything built a zip part (200, and 206 for a byte range); a second user's workspace is empty
+  and Priya's account answers 404 for that user. Screenshots for review:
+  https://claude.ai/artifact/G1LKpUdE5LhxSVBcgQ6UMo (private to the owner).
+
+### Owner inputs still needed
+
+- `MOONSHOT_API_KEY` (and the Kimi K3 model id if Moonshot's differs from `kimi-k3`) for Kimi K3.
+- `ANTHROPIC_API_KEY` and the provider keys for any live research.
+- Google OAuth apps (client id and secret with Drive read and download scopes) for Connect Google
+  Drive and for Mail and drive.
+- Cloud: `UPLOAD_ORIGIN=https://storage.googleapis.com` on the web service, and a CORS rule on the
+  payload bucket for the web origin with `PUT` and the `Range` response header (VERIFY V-FILES-1).
+- Confirm or change the defaults: 2 researches and 40 chats a month; a file analysis counts as a
+  chat; 20 GB per file and no storage quota; $25 per run; 3 paid repeats of one search; stalled
+  after 30 minutes; raw provider responses left out of downloads; Kimi K3 off per client.
