@@ -94,6 +94,7 @@ def load(paths: Sequence[Path], today: date, max_age_days: int) -> GoldenSet:
         try:
             account = GoldenAccount.model_validate(yaml.safe_load(raw))
         except Exception as exc:
+            # any parse or validation error names the golden file (fail closed)
             raise GoldenInvalid(f"{path.name}: {exc}") from exc
         for label in account.labels:
             if not ANALYST.match(label.analyst):

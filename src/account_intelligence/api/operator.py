@@ -278,6 +278,7 @@ async def require_operator(
                 ),
             )
     except Exception as error:
+        # any failure to check the support grant is a 503, never an allow
         raise DependencyUnavailable() from error
     if not allowed:
         raise HTTPException(status_code=403, detail="forbidden")

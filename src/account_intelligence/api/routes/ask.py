@@ -211,6 +211,7 @@ async def ask(
             yield sse("answer", answer)
             yield sse("done", {"turn_id": str(turn_id), "replayed": False})
         except Exception:
+            # the stream has started: any failure becomes an SSE error event (logged), not a 500
             log.exception("ask_failed")
             yield sse(
                 "error",

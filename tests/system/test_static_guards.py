@@ -3,6 +3,7 @@
 GUARANTEE(test_one_retry_owner_per_failure_class_w6)
 GUARANTEE(test_loop_inventory_is_generated_and_complete_w8)
 GUARANTEE(test_no_module_finds_repository_files_relative_to_its_own_file)
+GUARANTEE(test_every_broad_except_says_why)
 """
 
 from __future__ import annotations
@@ -136,3 +137,22 @@ def test_the_alert_rules_copy_matches_the_skill_asset() -> None:
     """config/alert_rules.yaml ships in the image; the skill's asset stays the source of truth."""
     asset = ROOT / ".claude/skills/account-intelligence-platform/assets/alert_rules.yaml"
     assert (ROOT / "config/alert_rules.yaml").read_bytes() == asset.read_bytes()
+
+
+def test_every_broad_except_says_why() -> None:
+    """S9: ``except Exception`` / ``BaseException`` (or a bare ``except``) carries its reason in a
+    comment on the line, the line above or the two lines below: a swallowed error is a decision
+    someone must be able to read."""
+    bad: list[str] = []
+    for rel, text in _source().items():
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            m = re.match(r"^\s*except\b(.*):", line)
+            if not m or not (
+                m.group(1).strip() == "" or re.search(r"\b(Exception|BaseException)\b", m.group(1))
+            ):
+                continue
+            near = [line, *(lines[i + 1 : i + 3]), lines[i - 1] if i else ""]
+            if not any("#" in x for x in near):
+                bad.append(f"{rel}:{i + 1}")
+    assert not bad, bad

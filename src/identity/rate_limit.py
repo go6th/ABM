@@ -86,6 +86,7 @@ def _redis_store() -> RedisRateStore:
             )
         return RedisRateStore(_redis_client, prefix="identity:ratelimit:")
     except Exception as error:
+        # a Redis client that cannot be built: fail closed (503), never an unlimited path
         raise DependencyUnavailable() from error
 
 
@@ -111,6 +112,7 @@ async def consume(request: Request, *, account: str, action: str) -> None:
                     key, BucketLimit(rate_per_s=refill, burst=capacity), time.time()
                 )
             except Exception as error:
+                # any Redis failure: fail closed (503), never an unlimited sign-in
                 raise DependencyUnavailable() from error
             waits.append(wait)
         else:
@@ -159,6 +161,7 @@ async def consume_user(tenant_id: object, user_id: str, action: str) -> None:
                 key, BucketLimit(rate_per_s=refill, burst=capacity), time.time()
             )
         except Exception as error:
+            # any Redis failure: fail closed (503), never an unlimited action
             raise DependencyUnavailable() from error
         enforce_rate_limit(wait <= 0, math.ceil(wait))
         return

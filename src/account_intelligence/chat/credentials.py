@@ -65,6 +65,7 @@ class TenantModelKeyStore:
                 },
             )
         except Exception as exc:
+            # KMS errors are many types; one typed error, never key material in the message
             raise TenantKeyUnavailable("tenant model key encryption failed") from exc
         return bytes(result.ciphertext)
 
@@ -85,6 +86,7 @@ class TenantModelKeyStore:
                 raise ValueError("decrypted value is not an Anthropic API key")
             return value
         except Exception as exc:
+            # KMS or decoding errors are many types; one typed error, never key material
             raise TenantKeyUnavailable("tenant model key decryption failed") from exc
 
 

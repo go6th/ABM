@@ -326,6 +326,7 @@ async def run_job(tenant_id: UUID, job_id: UUID, engine: ResearchEngine) -> str:
     except EngineNotConfigured as err:
         status, reason = "failed", str(err)
     except Exception:
+        # one job failing in any way is recorded failed (logged) and its credits released
         log.exception("research_job_failed", extra={"job_id": str(job_id)})
         status, reason = (
             "failed",

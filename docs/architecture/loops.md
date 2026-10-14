@@ -12,7 +12,7 @@ unannotated (the generator's check fails otherwise).
 | archive copy | `src/account_intelligence/replica/downloads.py:364` | the file's size / 1 MiB | end of file |
 | archive part upload | `src/account_intelligence/replica/downloads.py:380` | part size / 1 MiB | end of part |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
-| blob compose copy | `src/research_files/blobstore.py:142` | the part's size in COPY_BUFFER reads | end of part |
+| blob compose copy | `src/research_files/blobstore.py:143` | the part's size in COPY_BUFFER reads | end of part |
 | cache-eviction | `src/account_intelligence/rag/cache.py:103` | max_entries excess | capacity reached. |
 | cancel watch | `src/account_intelligence/workflow/runner.py:233` | the slice timeout around it | graph done, canceled, timeout |
 | catch-up selection | `src/refresh/schedule.py:66` | len(missed) | per_tick reached or end |
@@ -47,15 +47,15 @@ unannotated (the generator's check fails otherwise).
 | findings extractor | `src/people/findings.py:103` | max_extractor_calls, one call per person | converged, cap_reached |
 | gap pass over the remainder | `src/jobs/pipeline.py:461` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
 | gate fix loop | `src/account_intelligence/workflow/stages/core.py:249` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
-| gcs compose hash read | `src/research_files/blobstore.py:276` | the object's size in COPY_BUFFER reads | end |
-| gcs compose rounds | `src/research_files/blobstore.py:263` | ceil(log32(parts)) rounds | one source left |
+| gcs compose hash read | `src/research_files/blobstore.py:278` | the object's size in COPY_BUFFER reads | end |
+| gcs compose rounds | `src/research_files/blobstore.py:265` | ceil(log32(parts)) rounds | one source left |
 | gmail message metadata | `src/connectors_client/maildrive.py:200` | MAX_ITEMS listed messages | end of the list |
 | grading hand-off | `src/refresh/probe.py:201` | observations of this poll | end |
 | graph-neighbors | `src/account_intelligence/rag/graphrag.py:96` | entity_count | queue empty or max_hops. |
 | hash uploaded document | `src/documents/service.py:284` | size / 1 MiB reads | end of object |
 | idle expiry | `src/account_intelligence/replica/access.py:89` | one pass over the clients | every client checked or failed |
 | in-flight wait | `src/account_intelligence/connectors/service.py:296` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
-| in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:145` | limit (1000) | queue empty, limit |
+| in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:146` | limit (1000) | queue empty, limit |
 | index pages | `src/documents/service.py:684` | passages / index_batch pages | no passage left, deleted |
 | isolation owner probe | `src/account_intelligence/replica/isolation.py:201` | every real client once | all probed |
 | isolation route probe | `src/account_intelligence/replica/isolation.py:247` | the read routes of the catalog | all probed |

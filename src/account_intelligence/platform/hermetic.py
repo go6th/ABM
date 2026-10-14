@@ -83,6 +83,7 @@ class LocalPayloadStore:
                 os.fsync(handle.fileno())
             os.replace(tmp, path)
         except BaseException:
+            # remove the temporary file on any exit, cancellation included, then re-raise
             Path(tmp).unlink(missing_ok=True)
             raise
 

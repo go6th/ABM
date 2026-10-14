@@ -91,6 +91,7 @@ class AnthropicAdapter:
         try:
             message = await self.client.messages.create(**kwargs)
         except Exception as exc:
+            # map SDK errors to the platform's types; anything unmapped is re-raised
             mapped = map_error(exc)
             if mapped is exc:
                 raise

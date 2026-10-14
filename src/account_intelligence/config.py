@@ -421,7 +421,7 @@ class Settings(BaseSettings):
         if any(staff) and not all(staff):
             problems.append("STAFF_JWT_ISSUER, STAFF_JWT_AUDIENCE and STAFF_JWKS_URL go together")
         if self.app_env in CLOUD and self.connectors == "hermetic":
-            problems.append(f"CONNECTORS: synthetic providers are refused for APP_ENV={self.app_env}")
+            problems.append(f"CONNECTORS: synthetic providers refused for APP_ENV={self.app_env}")
         for idp_field in ("jwks_url", "jwt_issuer", "staff_jwks_url", "staff_jwt_issuer"):
             url = getattr(self, idp_field) or ""
             host = url.split("://", 1)[-1].split("/", 1)[0].rsplit(":", 1)[0].lower()

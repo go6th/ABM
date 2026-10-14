@@ -652,6 +652,7 @@ async def _consume_prepulled(
             )
         _post_checks(op, args, parsed, ctx)
     except Exception as error:
+        # every failure of a paid call is finalised in the ledger first, then re-raised
         setattr(error, "call_ref", key.args_hash)  # noqa: B010 - foreign exception type
         await rt.ledger.finalize_failed(
             ctx,

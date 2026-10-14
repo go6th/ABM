@@ -118,6 +118,7 @@ class LocalBlobStore:
                 os.fsync(out.fileno())
             os.replace(tmp, target)
         except BaseException:
+            # remove the temporary file on any exit, cancellation included, then re-raise
             Path(tmp).unlink(missing_ok=True)
             raise
         return size, digest.hexdigest()
@@ -147,6 +148,7 @@ class LocalBlobStore:
                 os.fsync(out.fileno())
             os.replace(tmp, target)
         except BaseException:
+            # remove the temporary file on any exit, cancellation included, then re-raise
             Path(tmp).unlink(missing_ok=True)
             raise
         return size, digest.hexdigest()

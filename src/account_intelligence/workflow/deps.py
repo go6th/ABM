@@ -352,6 +352,7 @@ class RunDeps:
                 return result
             return await self.llm.complete(tier, system, user, max_tokens=max_tokens)
         except Exception as error:
+            # map provider errors to the platform's types; anything unmapped is re-raised
             mapped = map_error(error)
             if mapped is error:
                 raise
