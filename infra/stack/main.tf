@@ -476,7 +476,7 @@ module "cloud_run" {
       # the worker image's entry point runs one CLI command; as a service it serves the same
       # application as the api with SERVICE_ROLE=worker (the /tasks/* routes and the sweeper)
       command = ["uvicorn", "account_intelligence.api.main:app", "--host", "0.0.0.0", "--port", "8080",
-      "--workers", "1", "--timeout-graceful-shutdown", "8"]
+      "--workers", "1", "--timeout-graceful-shutdown", "8", "--no-access-log"]
       sa_email = local.sa.worker
       port     = 8080
       ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY" # Cloud Tasks and Cloud Scheduler count as internal

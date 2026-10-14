@@ -31,6 +31,8 @@ USER 10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
   CMD ["python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=2).status==200 else 1)"]
-# exec form: uvicorn is PID 1 and receives SIGTERM directly. One process per instance.
+# exec form: uvicorn is PID 1 and receives SIGTERM directly. One process per instance. The drain
+# fits Cloud Run's 10 s shutdown window; the app's own request log (no query strings) replaces
+# uvicorn's access log, which would record URLs with one-time tokens.
 CMD ["uvicorn", "account_intelligence.api.main:app", "--host", "0.0.0.0", "--port", "8080", \
-     "--workers", "1", "--timeout-graceful-shutdown", "20", "--proxy-headers"]
+     "--workers", "1", "--timeout-graceful-shutdown", "8", "--proxy-headers", "--no-access-log"]

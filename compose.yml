@@ -75,7 +75,7 @@ services:
       # config is read at run time: mount it like src, or edits only land on an image rebuild
       - ./config:/app/config:ro
       - payloads:/tmp/payloads
-    entrypoint: ["uvicorn", "account_intelligence.api.main:app", "--host", "0.0.0.0", "--port", "8081"]
+    entrypoint: ["uvicorn", "account_intelligence.api.main:app", "--host", "0.0.0.0", "--port", "8081", "--no-access-log"]
     environment:
       <<: *app-env
       PYTHONPATH: /app/src
