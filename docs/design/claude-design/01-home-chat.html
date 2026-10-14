@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Home chat</title>
+<!-- Claude Design runtime script removed -->
+</head>
+<body>
+<x-dc>
+<helmet>
+<!-- @font-face blocks for Hanken Grotesk 400/500/600/700 removed; self-host the font instead -->
+<style>
+body{margin:0;font-family:'Hanken Grotesk',system-ui,sans-serif;color:#101828;background:#F5F6F8}
+a{color:inherit;text-decoration:none}
+.nav a{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border-radius:10px;font-size:14px;color:#475467;box-sizing:border-box}
+.nav a.on{background:#fff;color:#101828;font-weight:600;box-shadow:0 0 0 1px #E4E7EC}
+.nav a:hover{background:#ECEEF2}
+.rec a{display:block;padding:9px 12px;border-radius:8px;font-size:13px;color:#475467;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rec a:hover{background:#ECEEF2}
+.card{background:#fff;border:1px solid #E4E7EC;border-radius:16px}
+.chipb{font:inherit;display:inline-flex;align-items:center;min-height:40px;padding:0 16px;border-radius:999px;background:#fff;border:1px solid #E4E7EC;font-size:14px;color:#344054;cursor:pointer}
+.chipb:hover{border-color:#2F4BE0;color:#2F4BE0}
+.chipa{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border-radius:999px;background:#F2F4F7;font-size:13px;color:#475467}
+a.chipa:hover{color:#2F4BE0}
+.btn{font:inherit;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border-radius:12px;font-weight:600;font-size:14px;background:#2F4BE0;color:#fff;border:0;cursor:pointer}
+.btn2{font:inherit;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:12px;font-weight:600;font-size:14px;background:#fff;border:1px solid #D0D5DD;color:#344054;cursor:pointer}
+.mut{color:#667085}
+.cite{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:6px;background:#EEF1FF;color:#2F4BE0;font-size:12px;font-weight:700;margin:0 2px;text-decoration:underline;text-underline-offset:2px;vertical-align:1px}
+.cite:hover{background:#2F4BE0;color:#fff}
+.comp input{font:inherit;font-size:17px;border:0;outline:0;min-height:48px;width:100%;box-sizing:border-box;background:transparent;color:#101828}
+</style>
+</helmet>
+<div style="display:flex;flex-wrap:wrap;min-height:840px;background:#F5F6F8">
+  <aside style="flex:0 0 248px;box-sizing:border-box;padding:20px 16px;display:flex;flex-direction:column;gap:18px;border-right:1px solid #E4E7EC">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 4px">
+      <svg width="28" height="28" sc-camel-view-box="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="#101828"></rect><path d="M8 19l6-10 6 10" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="14" cy="16.5" r="1.6" fill="#7C93FF"></circle></svg>
+      <div style="font-weight:700;font-size:15px;line-height:1.1">Account Intelligence<div style="font-weight:500;font-size:11px;color:#667085">by 6th</div></div>
+    </div>
+    <div class="card" style="padding:10px 12px;border-radius:12px"><div style="font-size:11px;color:#667085">Workspace</div><div style="font-weight:600;font-size:14px">Meridian Health Partners</div></div>
+    <button class="btn" sc-camel-on-click="{{newChat}}" style="width:100%">New chat</button>
+    <nav class="nav" style="display:flex;flex-direction:column;gap:2px" aria-label="Main">
+      <a class="on" href="Main.dc.html"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"></path></svg>Ask</a>
+      <a href="Accounts.dc.html"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg>Accounts</a>
+      <a href="Schedule.dc.html"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg>Schedules</a>
+      <a href="Connections.dc.html"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7V4M15 7V4M7 7h10v4a5 5 0 0 1-10 0zM12 16v4"></path></svg>Mail and drive</a>
+    </nav>
+    <div class="rec">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.04em;color:#98A2B3;padding:0 12px 6px">RECENT</div>
+      <a href="Main.dc.html">Salesforce roles this month</a>
+      <a href="Main.dc.html">First call prep: Highmark</a>
+      <a href="Main.dc.html">Who owns ServiceNow</a>
+    </div>
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
+      <div><div style="display:flex;justify-content:space-between;font-size:12px;color:#667085"><span>Accounts used</span><span style="font-weight:600;color:#101828">6 of 34</span></div><div style="height:6px;border-radius:99px;background:#E4E7EC;margin-top:6px"><div style="width:18%;height:6px;border-radius:99px;background:#2F4BE0"></div></div></div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px"><div style="width:32px;height:32px;border-radius:99px;background:#DDE3FF;color:#2F4BE0;display:flex;align-items:center;justify-content:center;font-weight:700">P</div><div><div style="font-weight:600">Priya Nair</div><div class="mut" style="font-size:12px">priya@meridian.example</div></div></div>
+    </div>
+  </aside>
+
+  <main style="flex:999 1 560px;min-width:0;height:840px;box-sizing:border-box;display:flex;flex-direction:column">
+    <sc-if value="{{empty}}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 48px;gap:28px">
+        <div style="text-align:center">
+          <h1 style="margin:0;font-size:36px;font-weight:700;letter-spacing:-0.02em">What do you want to know?</h1>
+          <p class="mut" style="margin:10px 0 0;font-size:16px">Ask across your 6 accounts. Answers come from your workspace unless you choose the web.</p>
+        </div>
+        <div class="card comp" style="width:100%;max-width:780px;box-sizing:border-box;padding:16px 18px 12px;border-radius:22px;box-shadow:0 10px 32px rgba(16,24,40,0.07)">
+          <label for="q1" style="position:absolute;left:-9999px">Ask a question</label>
+          <input id="q1" placeholder="Which of my accounts posted Salesforce build roles this month?" value="{{draft}}" sc-camel-on-change="{{onInput}}" sc-camel-on-key-down="{{onKey}}">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px">
+            <a class="chipa" href="Upload.dc.html">+ Upload a file</a>
+            <span class="chipa">All 6 accounts</span>
+            <span class="chipa">Web: off</span>
+            <span style="flex:1"></span>
+            <button class="btn" sc-camel-on-click="{{send}}">Ask</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;max-width:780px">
+          <sc-for list="{{starters}}" as="s" hint-placeholder-count="4"><button class="chipb" sc-camel-on-click="{{s.pick}}">{{s.label}}</button></sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{hasMsgs}}" hint-placeholder-val="{{ false }}">
+      <div ref="{{scrollRef}}" style="flex:1;min-height:0;overflow-y:auto;padding:36px 48px 12px">
+        <div style="max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:26px">
+          <sc-for list="{{msgs}}" as="m" hint-placeholder-count="2">
+            <sc-if value="{{m.isUser}}" hint-placeholder-val="{{ true }}">
+              <div style="align-self:flex-end;max-width:80%;background:#101828;color:#fff;padding:14px 18px;border-radius:18px 18px 4px 18px;font-size:16px;line-height:1.5">{{m.text}}</div>
+            </sc-if>
+            <sc-if value="{{m.isBot}}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <sc-if value="{{m.thinking}}" hint-placeholder-val="{{ false }}">
+                  <div class="mut" style="font-size:14px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:9px;background:#2F4BE0"></span>Searching your workspace</div>
+                </sc-if>
+                <sc-if value="{{m.done}}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;flex-direction:column;gap:14px">
+                    <sc-for list="{{m.paras}}" as="p" hint-placeholder-count="2">
+                      <p style="margin:0;font-size:16.5px;line-height:1.7;color:#1D2939"><sc-for list="{{p.parts}}" as="t" hint-placeholder-count="4"><sc-if value="{{t.isText}}" hint-placeholder-val="{{ true }}"><span style="{{t.style}}">{{t.v}}</span></sc-if><sc-if value="{{t.isCite}}" hint-placeholder-val="{{ false }}"><a class="cite" href="#" sc-camel-on-click="{{t.open}}" aria-label="Open source">{{t.n}}</a></sc-if></sc-for></p>
+                    </sc-for>
+                    <sc-if value="{{m.hasItems}}" hint-placeholder-val="{{ false }}">
+                      <div class="card" style="padding:16px 20px;display:flex;flex-direction:column;gap:8px">
+                        <div style="font-size:12px;font-weight:700;letter-spacing:0.04em;color:#667085">{{m.itemsTitle}}</div>
+                        <sc-for list="{{m.items}}" as="it" hint-placeholder-count="3"><div style="font-size:15px;line-height:1.5">{{it}}</div></sc-for>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{m.src}}" hint-placeholder-val="{{ false }}">
+                      <div class="card" style="padding:12px 16px;display:flex;align-items:center;gap:12px;border-color:#C9D2FF;background:#F7F8FF;font-size:14px">
+                        <span class="cite" style="margin:0">{{m.srcN}}</span><span style="flex:1"><b>{{m.srcTitle}}</b><br><span class="mut" style="font-size:12px">{{m.srcMeta}}</span></span><a href="#" sc-camel-on-click="{{m.srcClose}}" style="font-weight:600;color:#2F4BE0;font-size:13px">Close</a>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{m.offerShow}}" hint-placeholder-val="{{ false }}">
+                      <div class="card" style="padding:16px 18px;border-color:#C9D2FF;background:#F7F8FF;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+                        <div style="flex:1 1 260px;font-size:14px;line-height:1.5"><b>Want anything newer?</b> Your workspace was refreshed 2 days ago. I can check the web, only if you confirm.</div>
+                        <a class="btn" href="Refresh.dc.html">Refresh from web</a>
+                        <button class="btn2" sc-camel-on-click="{{m.dismiss}}">Stay local</button>
+                      </div>
+                    </sc-if>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{m.chips}}" as="c" hint-placeholder-count="2"><button class="chipb" style="min-height:36px;font-size:13px" sc-camel-on-click="{{c.pick}}">{{c.label}}</button></sc-for></div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </sc-for>
+        </div>
+      </div>
+      <div style="padding:8px 48px 24px">
+        <div class="card comp" style="max-width:780px;margin:0 auto;box-sizing:border-box;padding:10px 16px 10px;border-radius:20px;box-shadow:0 8px 26px rgba(16,24,40,0.06)">
+          <label for="q2" style="position:absolute;left:-9999px">Ask a follow up</label>
+          <input id="q2" placeholder="Ask a follow up" style="font-size:16px;min-height:44px" value="{{draft}}" sc-camel-on-change="{{onInput}}" sc-camel-on-key-down="{{onKey}}">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <a class="chipa" href="Upload.dc.html">+ Upload a file</a>
+            <span class="chipa">All 6 accounts</span>
+            <span class="chipa">Web: off</span>
+            <span style="flex:1"></span>
+            <button class="btn" sc-camel-on-click="{{send}}">Ask</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:840}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { convo: [], draft: '', open: null, dismissed: [] };
+    this.scrollEl = null;
+    this.timers = [];
+  }
+  componentDidUpdate() { if (this.scrollEl) this.scrollEl.scrollTop = this.scrollEl.scrollHeight; }
+  componentWillUnmount() { this.timers.forEach((t) => clearTimeout(t)); }
+  answers() {
+    const T = (v) => ['t', v], B = (v) => ['b', v], C = (n) => ['c', n];
+    return {
+      salesforce: {
+        paras: [
+          [T('Two accounts posted Salesforce build roles in the last 30 days: '), B('Highmark'), T(' (two roles)'), C(1), C(2), T(' and '), B('Cambia Health'), T(' (one role)'), C(3), T('.')],
+          [T('At Highmark, the best first call is the newly named technology leader'), C(4), T(', which is a Confirmed fact. The roles suggest a customer data program. That is Probable, so ask about it rather than state it.')]
+        ],
+        itemsTitle: 'FIRST CALL QUESTIONS',
+        items: ['1. How are you sequencing the data platform work this year?', '2. Where does the integration architect role sit in that plan?'],
+        srcs: { 1: ['Highmark careers posting', 'Salesforce Architect · 11 Oct'], 2: ['Highmark careers posting', 'Integration Architect · 9 Oct'], 3: ['Cambia Health careers posting', 'Salesforce Developer · 3 Oct'], 4: ['Leadership announcement', 'Highmark · 8 Oct'] },
+        offer: true,
+        chips: ['Who owns ServiceNow at Cigna?', 'What changed this week?']
+      },
+      servicenow: {
+        paras: [
+          [T('ServiceNow ownership at Cigna is not confirmed. Two senior people sit closest to it: [Name], VP IT Service Management'), C(1), T(' (Probable), and [Name], Director of Enterprise Platforms'), C(2), T(' (Hypothesis).')],
+          [T('Only the first has a source that ties them to ServiceNow. Confirm it on the call rather than assume.')]
+        ],
+        srcs: { 1: ['Cigna leadership page', 'Retrieved 6 Oct'], 2: ['Conference speaker listing', '28 Sep'] },
+        offer: false,
+        chips: ['Which accounts hired in data and AI?', 'First call questions for Highmark']
+      },
+      changed: {
+        paras: [
+          [T('Since your last visit, two accounts moved. '), B('Highmark'), T(' posted two new platform roles'), C(1), T(' and named a new technology leader'), C(2), T('. '), B('Medica'), T(' was refreshed with no material change. Nothing new at the other four.')]
+        ],
+        srcs: { 1: ['Highmark careers posting', '11 Oct'], 2: ['Leadership announcement', 'Highmark · 8 Oct'] },
+        offer: true,
+        chips: ['First call questions for Highmark', 'Which accounts hired in data and AI?']
+      },
+      firstcall: {
+        paras: [
+          [T('Here is a starting set for Highmark, built only from what is Confirmed'), C(1), T('. Do not state anything graded Probable or Hypothesis as fact.')]
+        ],
+        itemsTitle: 'FIRST CALL QUESTIONS',
+        items: ['1. What changed in your technology organization this quarter?', '2. How are you thinking about the customer data work in the year ahead?', '3. Who else should be in the room for an integration conversation?'],
+        srcs: { 1: ['Leadership announcement', 'Highmark · 8 Oct'] },
+        offer: false,
+        chips: ['Who owns ServiceNow at Cigna?', 'What changed this week?']
+      },
+      dataai: {
+        paras: [
+          [B('AmeriHealth'), T(' and '), B('Availity'), T(' both posted data and AI roles this month'), C(1), C(2), T('. AmeriHealth leans toward data engineering; Availity toward analytics platform ownership.')]
+        ],
+        srcs: { 1: ['AmeriHealth careers posting', '10 Oct'], 2: ['Availity careers posting', '7 Oct'] },
+        offer: true,
+        chips: ['What changed this week?', 'Who owns ServiceNow at Cigna?']
+      },
+      other: {
+        paras: [[T('I searched your 6 accounts and found nothing specific on that yet. Try asking about hiring, people, technology or what changed. If you need something newer, I can check the web, but only if you confirm.')]],
+        srcs: {}, offer: true,
+        chips: ['What changed this week?', 'Which accounts hired in data and AI?']
+      }
+    };
+  }
+  keyFor(q) {
+    const s = q.toLowerCase();
+    if (s.includes('servicenow') || s.includes('owns')) return 'servicenow';
+    if (s.includes('first call') || s.includes('question')) return 'firstcall';
+    if (s.includes('changed') || s.includes('new ')) return 'changed';
+    if (s.includes('data') || s.includes(' ai')) return 'dataai';
+    if (s.includes('salesforce') || s.includes('role') || s.includes('post')) return 'salesforce';
+    return 'other';
+  }
+  ask(q) {
+    const text = (q || '').trim();
+    if (!text) return;
+    const i = this.state.convo.length;
+    this.setState({ convo: [...this.state.convo, { q: text, key: this.keyFor(text), done: false }], draft: '', open: null });
+    this.timers.push(setTimeout(() => {
+      this.setState({ convo: this.state.convo.map((c, j) => (j === i ? { ...c, done: true } : c)) });
+    }, 1100));
+  }
+  renderVals() {
+    const A = this.answers();
+    const s = this.state;
+    const msgs = [];
+    s.convo.forEach((c, i) => {
+      const a = A[c.key];
+      msgs.push({ isUser: true, isBot: false, text: c.q });
+      const opened = s.open && s.open.i === i ? s.open.n : null;
+      const info = opened && a.srcs[opened] ? a.srcs[opened] : null;
+      msgs.push({
+        isUser: false, isBot: true, thinking: !c.done, done: c.done,
+        paras: a.paras.map((p) => ({
+          parts: p.map((part) => part[0] === 'c'
+            ? { isCite: true, isText: false, n: part[1], open: (e) => { if (e && e.preventDefault) e.preventDefault(); this.setState({ open: { i, n: part[1] } }); } }
+            : { isCite: false, isText: true, v: part[1], style: 'white-space:pre-wrap;' + (part[0] === 'b' ? 'font-weight:700' : '') })
+        })),
+        hasItems: !!a.items, items: a.items || [], itemsTitle: a.itemsTitle || '',
+        src: !!info, srcN: opened, srcTitle: info ? info[0] : '', srcMeta: info ? info[1] : '',
+        srcClose: (e) => { if (e && e.preventDefault) e.preventDefault(); this.setState({ open: null }); },
+        offerShow: a.offer && !s.dismissed.includes(i),
+        dismiss: () => this.setState({ dismissed: [...s.dismissed, i] }),
+        chips: a.chips.map((label) => ({ label, pick: () => this.ask(label) }))
+      });
+    });
+    return {
+      empty: s.convo.length === 0, hasMsgs: s.convo.length > 0, msgs,
+      draft: s.draft,
+      scrollRef: (el) => { this.scrollEl = el; },
+      onInput: (e) => this.setState({ draft: e.target.value }),
+      onKey: (e) => { if (e.key === 'Enter') this.ask(e.target.value); },
+      send: () => this.ask(s.draft || 'Which of my accounts posted Salesforce build roles this month?'),
+      newChat: () => this.setState({ convo: [], draft: '', open: null, dismissed: [] }),
+      starters: ['Which of my accounts posted Salesforce build roles this month?', 'Who owns ServiceNow at Cigna?', 'What changed this week?', 'First call questions for Highmark', 'Which accounts hired in data and AI?']
+        .map((label) => ({ label, pick: () => this.ask(label) }))
+    };
+  }
+}
+</script>
+
+
+</body></html>

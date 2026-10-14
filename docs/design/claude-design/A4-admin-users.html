@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Admin users</title>
+<!-- Claude Design runtime script removed -->
+</head>
+<body>
+<x-dc>
+<helmet>
+<!-- @font-face blocks for Hanken Grotesk 400/500/600/700 removed; self-host the font instead -->
+<style>
+body{margin:0;font-family:'Hanken Grotesk',system-ui,sans-serif;color:#101828;background:#F5F6F8}
+a{color:inherit;text-decoration:none}
+.an a{display:flex;align-items:center;min-height:44px;padding:0 12px;border-radius:10px;font-size:14px;color:#B6BDCB;box-sizing:border-box}
+.an a.on{background:#232F45;color:#fff;font-weight:600}
+.an a:hover{background:#1B2638;color:#fff}
+.card{background:#fff;border:1px solid #E4E7EC;border-radius:16px}
+.mut{color:#667085}
+.ur{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,1.1fr) minmax(0,.9fr);gap:16px;align-items:center;min-height:64px;padding:0 22px;border-top:1px solid #EEF0F3;font-size:14px}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px}
+button.act{font:inherit;font-size:13px;font-weight:600;min-height:40px;padding:0 14px;border-radius:10px;cursor:pointer;background:#fff;border:1px solid #D0D5DD;color:#344054}
+button.act:hover{border-color:#2F4BE0;color:#2F4BE0}
+</style>
+</helmet>
+<div style="display:flex;flex-wrap:wrap;min-height:840px;background:#F5F6F8">
+  <aside style="flex:0 0 232px;box-sizing:border-box;padding:20px 14px;display:flex;flex-direction:column;gap:20px;background:#101828">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 6px;color:#fff">
+      <svg width="28" height="28" sc-camel-view-box="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="#fff"></rect><path d="M8 19l6-10 6 10" fill="none" stroke="#101828" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="14" cy="16.5" r="1.6" fill="#2F4BE0"></circle></svg>
+      <div style="font-weight:700;font-size:15px;line-height:1.1">6th Admin<div style="font-weight:500;font-size:11px;color:#8A94A8">Account Intelligence</div></div>
+    </div>
+    <nav class="an" style="display:flex;flex-direction:column;gap:2px" aria-label="Admin">
+      <a href="AdminOverview.dc.html">Overview</a>
+      <a href="AdminClients.dc.html">Clients</a>
+      <a class="on" href="AdminUsers.dc.html">Users</a>
+      <a href="AdminLibrary.dc.html">6th Library</a>
+      <a href="AdminRuns.dc.html">Runs and spend</a>
+      <a href="AdminDefaults.dc.html">Platform defaults</a>
+    </nav>
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
+      <a href="Main.dc.html" style="display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;border:1px solid #33415C;color:#fff;font-size:13px;font-weight:600">View as a client</a>
+      <div style="color:#B6BDCB;font-size:13px;padding:0 6px">Admin<br><span style="color:#8A94A8;font-size:12px">admin@6th.example</span></div>
+    </div>
+  </aside>
+
+  <main style="flex:999 1 560px;min-width:0;box-sizing:border-box;padding:36px 44px;display:flex;flex-direction:column;gap:22px">
+    <div>
+      <h1 style="margin:0;font-size:28px;font-weight:700;letter-spacing:-0.02em">Users</h1>
+      <div class="mut" style="font-size:13px;margin-top:2px">Usage and access across all clients · sample data. Usage is counts only, never question text.</div>
+    </div>
+
+    <div class="card" style="overflow:hidden">
+      <div class="ur mut" style="border-top:0;min-height:44px;font-size:12px;font-weight:600"><span>User</span><span>Client</span><span>Accounts</span><span>Questions (30d)</span><span>Last active</span><span>Access</span></div>
+      <sc-for list="{{rows}}" as="u" hint-placeholder-count="7">
+        <div class="ur">
+          <span style="font-weight:600">{{u.email}}</span>
+          <span class="mut">{{u.client}}</span>
+          <span>{{u.accounts}}</span>
+          <span>{{u.q}}</span>
+          <span class="mut">{{u.last}}</span>
+          <span style="display:flex;flex-direction:column;gap:6px;align-items:flex-start"><span class="pill" style="{{u.pillStyle}}">{{u.pill}}</span><button class="act" sc-camel-on-click="{{u.toggle}}">{{u.action}}</button></span>
+        </div>
+      </sc-for>
+    </div>
+    <div class="mut" style="font-size:12px">Terminating or letting access expire keeps the user's history. Re-enable restores access in one click.</div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:840}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { off: { 'k.s@kestrel.example': false, 'a.r@harbor.example': true } };
+  }
+  renderVals() {
+    const base = [
+      { email: 'priya@meridian.example', client: 'Meridian Partners', accounts: '12 of 34', q: '96', last: 'Today', st: 'active' },
+      { email: 'dan@meridian.example', client: 'Meridian Partners', accounts: '31 of 34', q: '142', last: 'Today', st: 'active' },
+      { email: 'l.m@northline.example', client: 'Northline Group', accounts: '22 of 34', q: '77', last: 'Yesterday', st: 'active' },
+      { email: 'j.t@brightwave.example', client: 'Brightwave Partners', accounts: '9 of 20', q: '31', last: '2 days ago', st: 'active' },
+      { email: 'k.s@kestrel.example', client: 'Kestrel Consulting', accounts: '5 of 34', q: '8', last: '4 days ago', st: 'warn' },
+      { email: 'a.r@harbor.example', client: 'Harbor Digital', accounts: '4 of 34', q: '3', last: '6 days ago', st: 'expiring' },
+      { email: 'o.p@harbor.example', client: 'Harbor Digital', accounts: '0 of 34', q: '0', last: '9 days ago', st: 'ended' }
+    ];
+    return {
+      rows: base.map((u) => {
+        let st = u.st;
+        if (u.email in this.state.off) st = this.state.off[u.email] ? 'ended' : 'active';
+        const map = {
+          active: ['Active', 'background:#DCF5E8;color:#137A4B', 'Terminate'],
+          warn: ['Idle 4 days', 'background:#F2F4F7;color:#475467', 'Terminate'],
+          expiring: ['Expires in 1 day', 'background:#FFF1D6;color:#8A5200', 'Terminate'],
+          ended: ['Access ended', 'background:#FDE7E7;color:#B42318', 'Re-enable']
+        }[st];
+        return {
+          ...u, pill: map[0], pillStyle: map[1], action: map[2],
+          toggle: () => this.setState({ off: { ...this.state.off, [u.email]: st !== 'ended' } })
+        };
+      })
+    };
+  }
+}
+</script>
+
+
+</body></html>

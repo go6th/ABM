@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Mail and drive</title>
+<!-- Claude Design runtime script removed -->
+</head>
+<body>
+<x-dc>
+<helmet>
+<!-- @font-face blocks for Hanken Grotesk 400/500/600/700 removed; self-host the font instead -->
+<style>
+body{margin:0;font-family:'Hanken Grotesk',system-ui,sans-serif;color:#101828;background:#F5F6F8}
+a{color:inherit;text-decoration:none}
+.nav a{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border-radius:10px;font-size:14px;color:#475467;box-sizing:border-box}
+.nav a.on{background:#fff;color:#101828;font-weight:600;box-shadow:0 0 0 1px #E4E7EC}
+.nav a:hover{background:#ECEEF2}
+.card{background:#fff;border:1px solid #E4E7EC;border-radius:16px}
+.mut{color:#667085}
+button.cn{font:inherit;font-size:14px;font-weight:600;min-height:44px;padding:0 18px;border-radius:12px;cursor:pointer}
+</style>
+</helmet>
+<div style="display:flex;flex-wrap:wrap;min-height:840px;background:#F5F6F8">
+  <aside style="flex:0 0 248px;box-sizing:border-box;padding:20px 16px;display:flex;flex-direction:column;gap:20px;border-right:1px solid #E4E7EC">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 4px">
+      <svg width="28" height="28" sc-camel-view-box="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="#101828"></rect><path d="M8 19l6-10 6 10" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="14" cy="16.5" r="1.6" fill="#7C93FF"></circle></svg>
+      <div style="font-weight:700;font-size:15px;line-height:1.1">Account Intelligence<div style="font-weight:500;font-size:11px;color:#667085">by 6th</div></div>
+    </div>
+    <div class="card" style="padding:10px 12px;border-radius:12px"><div style="font-size:11px;color:#667085">Workspace</div><div style="font-weight:600;font-size:14px">Meridian Health Partners</div></div>
+    <nav class="nav" style="display:flex;flex-direction:column;gap:2px" aria-label="Main">
+      <a href="Main.dc.html"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"></path></svg>Ask</a>
+      <a href="Accounts.dc.html"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg>Accounts</a>
+      <a href="Schedule.dc.html"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg>Schedules</a>
+      <a class="on" href="Connections.dc.html"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7V4M15 7V4M7 7h10v4a5 5 0 0 1-10 0zM12 16v4"></path></svg>Mail and drive</a>
+    </nav>
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
+      <div><div style="display:flex;justify-content:space-between;font-size:12px;color:#667085"><span>Accounts used</span><span style="font-weight:600;color:#101828">6 of 34</span></div><div style="height:6px;border-radius:99px;background:#E4E7EC;margin-top:6px"><div style="width:18%;height:6px;border-radius:99px;background:#2F4BE0"></div></div></div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px"><div style="width:32px;height:32px;border-radius:99px;background:#DDE3FF;color:#2F4BE0;display:flex;align-items:center;justify-content:center;font-weight:700">P</div><div><div style="font-weight:600">Priya Nair</div><div class="mut" style="font-size:12px">priya@meridian.example</div></div></div>
+    </div>
+  </aside>
+
+  <main style="flex:999 1 560px;min-width:0;box-sizing:border-box;padding:40px 48px;display:flex;justify-content:center;align-items:flex-start">
+    <div style="width:100%;max-width:760px;display:flex;flex-direction:column;gap:24px">
+      <div>
+        <h1 style="margin:0;font-size:28px;font-weight:700;letter-spacing:-0.02em">Mail and drive</h1>
+        <p class="mut" style="margin:6px 0 0;font-size:15px;line-height:1.55">Connect your own mail and files so answers can include what you already know about an account. Access is read only, and only items that match your accounts are used.</p>
+      </div>
+
+      <sc-for list="{{items}}" as="c" hint-placeholder-count="2">
+        <section class="card" style="padding:22px 24px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <div style="flex:1 1 240px">
+              <div style="font-weight:600;font-size:17px">{{c.title}}</div>
+              <div class="mut" style="font-size:13px;margin-top:2px">{{c.sub}}</div>
+            </div>
+            <span style="{{c.badge}}">{{c.status}}</span>
+            <button class="cn" sc-camel-on-click="{{c.toggle}}" style="{{c.btn}}">{{c.action}}</button>
+          </div>
+          <sc-if value="{{c.on}}" hint-placeholder-val="{{ true }}">
+            <div style="border-top:1px solid #EEF0F3;padding-top:14px;display:flex;flex-direction:column;gap:8px;font-size:14px">
+              <div style="display:flex;justify-content:space-between"><span class="mut">Matched to your accounts</span><span style="font-weight:600">{{c.matched}}</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="mut">Last synced</span><span style="font-weight:600">Today, 09:12</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="mut">Shown only to</span><span style="font-weight:600">You</span></div>
+            </div>
+          </sc-if>
+        </section>
+      </sc-for>
+
+      <div class="card" style="padding:18px 22px;display:flex;flex-direction:column;gap:8px;background:#F9FAFB">
+        <div style="font-size:12px;font-weight:700;letter-spacing:0.04em;color:#667085">HOW IT IS USED</div>
+        <div style="font-size:14px;line-height:1.55">Mail and files are labelled <b>From your mail and drive</b> wherever they appear, and sit in their own section on each account. They are never mixed into the research files you download. You can disconnect at any time and the synced items are removed.</div>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:840}}">
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { mail: true, drive: false }; }
+  renderVals() {
+    const mk = (key, title, sub, matched) => {
+      const on = this.state[key];
+      return {
+        title, sub, on, matched,
+        status: on ? 'Connected' : 'Not connected',
+        badge: 'font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;' + (on ? 'background:#DCF5E8;color:#137A4B' : 'background:#F2F4F7;color:#475467'),
+        action: on ? 'Disconnect' : 'Connect',
+        btn: on ? 'background:#fff;border:1px solid #D0D5DD;color:#344054' : 'background:#2F4BE0;border:1px solid #2F4BE0;color:#fff',
+        toggle: () => this.setState({ [key]: !on })
+      };
+    };
+    return {
+      items: [
+        mk('mail', 'Mail', 'Gmail or Outlook. Threads that mention your accounts.', '3 accounts · 18 threads'),
+        mk('drive', 'Drive', 'Google Drive, OneDrive or SharePoint. Proposals, notes and decks.', '4 accounts · 22 files')
+      ]
+    };
+  }
+}
+</script>
+
+
+</body></html>
