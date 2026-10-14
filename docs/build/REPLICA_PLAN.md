@@ -221,6 +221,7 @@ the wallet. (Reversible: the pool can be moved onto the wallet later.)
 | --- | --- |
 | 1. Design system, shell, demo seed, Ask | Done; approved by the owner on 2026-10-14. |
 | 2. Accounts and Account workspace | Done; checked against PDF pages 2 and 3 and the HTML at 1360px and 375px. |
+| 3. Deep-dive tables | Done; People checked against the HTML (07) and PDF page 8 chip counts; the six other tables use the same view. |
 
 Step 1 in detail:
 - Tokens, Hanken Grotesk (self-hosted latin woff2 with its OFL licence), components, user and admin shells, sign-in pages restyled.
@@ -251,3 +252,14 @@ Step 2 in detail:
   yet (Schedules, Refresh, Add account, the deep-dive tables) do not prefetch; until their steps,
   Schedules, Refresh and Add account show the not-found page, and the deep-dive links open the
   pre-replica table pages.
+
+Step 3 in detail:
+- `GET /v1/accounts/{domain}/sheets/{sheet}` for people, signals, jobs, technology, news,
+  mail-and-drive and sources: fixed column and filter allow-lists, chip counts, sort and paging in
+  SQL, absolute row numbers. Anything else is a 422; an unknown table a 404. The mail-and-drive
+  sheet holds only the caller's own items and is labelled private.
+- `GET .../sheets/{sheet}/xlsx`: the filtered, sorted table as a real workbook (a "Sheet 1" with a
+  frozen header and an "About" sheet), audited as an export.
+- One screen for all seven tables (`/accounts/{domain}/{sheet}`): chips with counts, Expand or
+  Shrink, Open in Excel, the spreadsheet with sticky header, row numbers, sort arrows and
+  `aria-sort`, and "Show more rows" past 200. The old per-table pages were removed.

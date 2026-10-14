@@ -269,3 +269,71 @@ async def test_suggestions_come_from_the_workspace(world: dict[str, Any]) -> Non
     got = (await _call(plane, "GET", "/v1/chat/suggestions")).json()
     assert got["accounts"] == 4
     assert "Who owns ServiceNow at Cigna?" in got["suggestions"]
+
+
+async def test_people_sheet_counts_filters_and_sorts_on_the_server(world: dict[str, Any]) -> None:
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    base = "/v1/accounts/highmark.example/sheets/people"
+    sheet = (await _call(plane, "GET", base)).json()
+    assert {f["label"]: f["count"] for f in sheet["filters"]} == {
+        "All": 41,
+        "Priority A": 8,
+        "Technology": 17,
+        "Commercial": 11,
+        "Changed this month": 2,
+    }
+    assert [r["n"] for r in sheet["rows"]] == list(range(1, 42))
+    page2 = (await _call(plane, "GET", f"{base}?limit=10&offset=10")).json()
+    assert [r["n"] for r in page2["rows"]] == list(range(11, 21))
+    a = (await _call(plane, "GET", f"{base}?filter=priority_a&sort=title&dir=asc")).json()
+    titles = [r["cells"]["title"] for r in a["rows"]]
+    assert a["total"] == 8 and titles == sorted(titles)
+    assert {r["cells"]["priority"] for r in a["rows"]} == {"A"}
+    desc = (await _call(plane, "GET", f"{base}?filter=priority_a&sort=title&dir=desc")).json()
+    assert [r["cells"]["title"] for r in desc["rows"]] == titles[::-1]
+
+
+@pytest.mark.parametrize("query", ["sort=title;drop", "filter=nope", "dir=up", "sort=link"])
+async def test_sheet_refuses_anything_outside_its_allow_lists(
+    world: dict[str, Any], query: str
+) -> None:
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    r = await _call(plane, "GET", f"/v1/accounts/highmark.example/sheets/people?{query}")
+    assert r.status_code == 422
+    r = await _call(plane, "GET", "/v1/accounts/highmark.example/sheets/payroll")
+    assert r.status_code == 404
+
+
+async def test_sheet_export_is_a_real_workbook_of_the_filtered_rows(world: dict[str, Any]) -> None:
+    from openpyxl import load_workbook
+
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    r = await _call(
+        plane, "GET", "/v1/accounts/highmark.example/sheets/people/xlsx?filter=technology"
+    )
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == 'attachment; filename="Highmark-People-list.xlsx"'
+    ws = load_workbook(io.BytesIO(r.content))["Sheet 1"]
+    assert ws.max_row - 1 == 17
+    assert [c.value for c in ws[1]][:3] == ["#", "Name", "Role"]
+
+
+async def test_mail_and_drive_sheet_holds_only_the_callers_items(world: dict[str, Any]) -> None:
+    owner = _plane(world["a"], "priya-test", world["payloads"])
+    colleague = _plane(world["a"], "colleague-test", world["payloads"])
+    mine = (await _call(owner, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive")).json()
+    theirs = (
+        await _call(colleague, "GET", "/v1/accounts/highmark.example/sheets/mail-and-drive")
+    ).json()
+    assert mine["total"] == 3 and mine["private"] is True
+    assert theirs["total"] == 0 and theirs["rows"] == []
+
+
+async def test_another_clients_sheets_are_not_found(world: dict[str, Any]) -> None:
+    b = _plane(world["b"], "other-test", world["payloads"])
+    assert (await _call(b, "GET", "/v1/accounts/highmark.example/sheets/people")).status_code == 404
+    assert (
+        await _call(b, "GET", "/v1/accounts/highmark.example/sheets/people/xlsx")
+    ).status_code == 404
+    own = (await _call(b, "GET", "/v1/accounts/cigna.example/sheets/people")).json()
+    assert own["total"] == 3
