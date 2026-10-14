@@ -41,11 +41,10 @@ export function OperatorSessionGate({ children }: { children: React.ReactNode })
     return () => { alive = false; };
   }, [pathname, router]);
 
-  if (state.kind === "loading") return <Loading label="Checking staff access" />;
-  if (state.kind === "error") return <Notice kind="error">{state.message}</Notice>;
+  if (state.kind === "loading") return <main id="main" className="pg admin"><Loading label="Checking staff access" /></main>;
+  if (state.kind === "error") return <main id="main" className="pg admin"><Notice kind="error">{state.message}</Notice></main>;
   return (
     <OperatorViewerContext.Provider value={{ staffId: state.staffId, role: state.role }}>
-      <p className="small muted" aria-label="Signed in staff identity">Signed in as <span className="mono">{state.staffId}</span> ({state.role === "operator" ? "Operator" : "Support"})</p>
       {children}
     </OperatorViewerContext.Provider>
   );

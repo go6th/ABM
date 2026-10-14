@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
@@ -255,6 +255,26 @@ def build(data: Mapping[str, Any], raw: bytes) -> RoutingConfig:
 def config_dir() -> Path:
     """The repository's ``config`` directory."""
     return Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config")
+
+
+SPLIT_FROM, SPLIT_TO = "extractor", "planner"
+
+
+def with_model_split(cfg: RoutingConfig, mode: str) -> RoutingConfig:
+    """The admin console's Model split (platform defaults). ``split`` keeps the configured tiers
+    (the lower cost model for pulls and extraction, the stronger model for analysis); ``single``
+    sends the extractor tier's task kinds to the planner tier, so one model does both. The judge
+    tier is never changed (its independence from the generator stays, R6), and the routing
+    version changes with the mode so a recorded reply is never reused across modes."""
+    if mode == "split":
+        return cfg
+    if mode != "single":
+        raise ValueError(f"unknown model split {mode!r}")
+    kinds = {
+        name: replace(kind, tier=SPLIT_TO) if kind.tier == SPLIT_FROM else kind
+        for name, kind in cfg.task_kinds.items()
+    }
+    return replace(cfg, task_kinds=kinds, routing_version=f"{cfg.routing_version}+single")
 
 
 @lru_cache(maxsize=4)

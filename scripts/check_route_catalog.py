@@ -34,6 +34,7 @@ ANONYMOUS_ALLOWED = {
     ("POST", "/v1/auth/email/verify"),
     ("POST", "/v1/auth/password/reset/request"),
     ("POST", "/v1/auth/password/reset"),
+    ("POST", "/v1/auth/invite/accept"),
 }
 
 

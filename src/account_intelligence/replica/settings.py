@@ -4,6 +4,10 @@ A client's row is created from the platform defaults the first time it is read, 
 client's own transaction, so every client always has limits. The account cap counts the
 accounts one user added (``accounts.added_by``); accounts added by the scheduler or copied in by
 another user do not count against this user.
+
+The operator plane (admin console A3, A7) changes a client's settings with ``update_client`` (in
+that client's transaction) and the platform defaults with ``update_defaults``; a client created
+in the console starts ``invited`` and becomes ``active`` at its first activity.
 """
 
 from __future__ import annotations
@@ -110,12 +114,97 @@ async def ensure_account_room(session: Any, user_id: str, adding: int = 1) -> No
 
 
 async def touch_activity(session: Any, user_id: str, now: Any) -> None:
-    """Record that the user was active (idle expiry counts from here). At most once a minute."""
+    """Record that the user was active (idle expiry counts from here; an invited client becomes
+    active). At most once a minute."""
+    touched = (
+        await session.execute(
+            text(
+                "UPDATE memberships SET last_active_at = :now WHERE user_id = :u"
+                " AND access_state = 'active' AND (last_active_at IS NULL"
+                " OR last_active_at < CAST(:now AS timestamptz) - interval '1 minute')"
+                " RETURNING 1"
+            ),
+            {"u": user_id, "now": now},
+        )
+    ).first()
+    if touched is not None:
+        await session.execute(
+            text("UPDATE client_settings SET status = 'active' WHERE status = 'invited'")
+        )
+
+
+DEFAULT_FIELDS = (
+    "account_cap_per_user",
+    "idle_expiry_days",
+    "monthly_credit_pool",
+    "fastest_schedule",
+    "credit_cap_per_pull",
+    "model_split",
+    "skill_version",
+)
+CLIENT_FIELDS = (
+    "account_cap_per_user",
+    "idle_expiry_days",
+    "monthly_credit_pool",
+    "fastest_schedule",
+    "mail_drive_allowed",
+    "web_refresh_allowed",
+)
+
+
+async def start_invited(session: Any, actor: str) -> None:
+    """A new client's settings, from the platform defaults, marked invited (inside its
+    transaction)."""
     await session.execute(
         text(
-            "UPDATE memberships SET last_active_at = :now WHERE user_id = :u"
-            " AND (last_active_at IS NULL OR last_active_at < CAST(:now AS timestamptz) - interval"
-            " '1 minute')"
+            "INSERT INTO client_settings (account_cap_per_user, idle_expiry_days,"
+            " monthly_credit_pool, fastest_schedule, status, updated_by)"
+            " SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
+            " fastest_schedule, 'invited', :by FROM platform_defaults WHERE id = 1"
+            " ON CONFLICT (tenant_id) DO NOTHING"
         ),
-        {"u": user_id, "now": now},
+        {"by": actor},
     )
+
+
+async def client_status(session: Any) -> str:
+    """``invited`` until the client's first activity, then ``active``."""
+    await client_settings(session)
+    return str(await session.scalar(text("SELECT status FROM client_settings")))
+
+
+async def update_client(session: Any, values: dict[str, Any], actor: str, now: Any) -> None:
+    """Change the caller tenant's limits and features (only the named fields)."""
+    await client_settings(session)
+    fields = [f for f in CLIENT_FIELDS if f in values]
+    if not fields:
+        return
+    sets = ", ".join(f"{f} = :{f}" for f in fields) + ", updated_by = :by, updated_at = :now"
+    await session.execute(
+        text(f"UPDATE client_settings SET {sets}"),  # nosec B608 -- fields from CLIENT_FIELDS; values bound.
+        {**{f: values[f] for f in fields}, "by": actor, "now": now},
+    )
+
+
+async def defaults(session: Any) -> dict[str, Any]:
+    """The platform defaults (one row)."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT account_cap_per_user, idle_expiry_days, monthly_credit_pool,"
+                " fastest_schedule, credit_cap_per_pull, model_split, skill_version, updated_by,"
+                " updated_at FROM platform_defaults WHERE id = 1"
+            )
+        )
+    ).one()
+    return dict(row._mapping)
+
+
+async def update_defaults(session: Any, values: dict[str, Any], actor: str, now: Any) -> None:
+    """Change the platform defaults (only the named fields; new clients start from them)."""
+    fields = [f for f in DEFAULT_FIELDS if f in values]
+    if not fields:
+        return
+    sets = ", ".join(f"{f} = :{f}" for f in fields) + ", updated_by = :by, updated_at = :now"
+    sql = f"UPDATE platform_defaults SET {sets} WHERE id = 1"  # nosec B608 -- allow-listed fields
+    await session.execute(text(sql), {**{f: values[f] for f in fields}, "by": actor, "now": now})

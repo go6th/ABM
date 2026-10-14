@@ -214,6 +214,7 @@ OWNERS: dict[str, set[str]] = {
     "abm_distill_outputs": {"agents/production/state.py"},
     # replica (migrations 0053 to 0056): client limits, the credit pool and its jobs, notices
     "client_settings": {"replica/settings.py"},
+    "platform_defaults": {"replica/settings.py"},
     "credit_entries": {"replica/credits.py"},
     "research_jobs": {"replica/credits.py"},
     "notifications": {"replica/notifications.py"},

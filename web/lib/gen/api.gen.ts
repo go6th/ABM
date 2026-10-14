@@ -2,6 +2,17 @@
 
 import { z } from "zod";
 
+export const AccessChanged = z.object({
+  "access": z.string(),
+  "changed": z.boolean(),
+}).strict();
+export type AccessChanged = z.infer<typeof AccessChanged>;
+
+export const AccessTarget = z.object({
+  "user_id": z.string(),
+}).strict();
+export type AccessTarget = z.infer<typeof AccessTarget>;
+
 export const AccountAdded = z.object({
   "account_id": z.string(),
   "created": z.boolean(),
@@ -460,6 +471,25 @@ export const ChatThreads = z.object({
 }).strict();
 export type ChatThreads = z.infer<typeof ChatThreads>;
 
+export const ClientChange = z.object({
+  "account_cap_per_user": z.number().int().nullable().optional(),
+  "fastest_schedule": z.string().nullable().optional(),
+  "idle_expiry_days": z.string().nullable().optional(),
+  "library_account_ids": z.array(z.string()).nullable().optional(),
+  "mail_drive_allowed": z.boolean().nullable().optional(),
+  "monthly_credit_pool": z.number().int().nullable().optional(),
+  "web_refresh_allowed": z.boolean().nullable().optional(),
+}).strict();
+export type ClientChange = z.infer<typeof ClientChange>;
+
+export const ClientInvite = z.object({
+  "email": z.string(),
+  "expires_at": z.string(),
+  "invite_url": z.string(),
+  "tenant_id": z.string(),
+}).strict();
+export type ClientInvite = z.infer<typeof ClientInvite>;
+
 export const CollectedClaim = z.object({
   "fact_ids": z.array(z.string()),
   "text": z.string(),
@@ -588,6 +618,172 @@ export const ConnectorStarted = z.object({
 }).strict();
 export type ConnectorStarted = z.infer<typeof ConnectorStarted>;
 
+export const ConsoleAdmin = z.object({
+  "email": z.string(),
+  "role": z.string(),
+}).strict();
+export type ConsoleAdmin = z.infer<typeof ConsoleAdmin>;
+
+export const ConsoleCategory = z.object({
+  "key": z.string(),
+  "label": z.string(),
+  "questions": z.number().int(),
+}).strict();
+export type ConsoleCategory = z.infer<typeof ConsoleCategory>;
+
+export const ConsoleClient = z.object({
+  "accounts": z.number().int(),
+  "active_users": z.number().int(),
+  "answered_locally": z.number().int(),
+  "credit_pool": z.number().int(),
+  "credits_held": z.number().int(),
+  "credits_used": z.number().int(),
+  "expires_in_days": z.number().int().nullable(),
+  "idle_days": z.number().int().nullable(),
+  "last_active_at": z.string().nullable(),
+  "name": z.string(),
+  "questions": z.number().int(),
+  "status": z.string(),
+  "tenant_id": z.string(),
+  "users": z.number().int(),
+}).strict();
+export type ConsoleClient = z.infer<typeof ConsoleClient>;
+
+export const ConsoleClientSettings = z.object({
+  "account_cap_per_user": z.number().int(),
+  "fastest_schedule": z.string(),
+  "idle_expiry_days": z.number().int(),
+  "mail_drive_allowed": z.boolean(),
+  "monthly_credit_pool": z.number().int(),
+  "web_refresh_allowed": z.boolean(),
+}).strict();
+export type ConsoleClientSettings = z.infer<typeof ConsoleClientSettings>;
+
+export const ConsoleIsolation = z.object({
+  "failures": z.number().int(),
+  "ran_at": z.string().nullable(),
+  "status": z.string(),
+  "workspaces_checked": z.number().int(),
+}).strict();
+export type ConsoleIsolation = z.infer<typeof ConsoleIsolation>;
+
+export const ConsoleLibraryChoice = z.object({
+  "domain": z.string(),
+  "library_account_id": z.string(),
+  "name": z.string(),
+  "published": z.boolean(),
+}).strict();
+export type ConsoleLibraryChoice = z.infer<typeof ConsoleLibraryChoice>;
+
+export const ConsoleClientDetail = z.object({
+  "client": ConsoleClient,
+  "isolation": ConsoleIsolation,
+  "library": z.array(ConsoleLibraryChoice),
+  "pending_invites": z.array(z.string()),
+  "settings": ConsoleClientSettings,
+  "user_idle_days": z.array(z.number().int()),
+}).strict();
+export type ConsoleClientDetail = z.infer<typeof ConsoleClientDetail>;
+
+export const ConsoleClientName = z.object({
+  "name": z.string(),
+  "tenant_id": z.string(),
+}).strict();
+export type ConsoleClientName = z.infer<typeof ConsoleClientName>;
+
+export const ConsoleClients = z.object({
+  "clients": z.array(ConsoleClient),
+}).strict();
+export type ConsoleClients = z.infer<typeof ConsoleClients>;
+
+export const ConsoleDefaults = z.object({
+  "account_cap_per_user": z.number().int(),
+  "admins": z.array(ConsoleAdmin),
+  "credit_cap_per_pull": z.number().int(),
+  "fastest_schedule": z.string(),
+  "idle_expiry_days": z.number().int(),
+  "model_router_on": z.boolean(),
+  "model_split": z.string(),
+  "monthly_credit_pool": z.number().int(),
+  "skill_installed": z.boolean(),
+  "skill_version": z.string(),
+  "updated_at": z.string(),
+  "updated_by": z.string(),
+}).strict();
+export type ConsoleDefaults = z.infer<typeof ConsoleDefaults>;
+
+export const ConsoleWeek = z.object({
+  "questions": z.number().int(),
+  "week": z.string(),
+}).strict();
+export type ConsoleWeek = z.infer<typeof ConsoleWeek>;
+
+export const ConsoleOverview = z.object({
+  "active_clients": z.number().int(),
+  "active_users": z.number().int(),
+  "answered_locally": z.number().int(),
+  "categories": z.array(ConsoleCategory),
+  "client_names": z.array(ConsoleClientName),
+  "clients": z.number().int(),
+  "credit_pool": z.number().int(),
+  "credits_used": z.number().int(),
+  "isolation": ConsoleIsolation,
+  "not_using": z.array(ConsoleClient),
+  "questions": z.number().int(),
+  "users": z.number().int(),
+  "weekly": z.array(ConsoleWeek),
+  "weekly_client": z.string().nullable(),
+}).strict();
+export type ConsoleOverview = z.infer<typeof ConsoleOverview>;
+
+export const ConsolePurpose = z.object({
+  "credits": z.number().int(),
+  "key": z.string(),
+  "label": z.string(),
+}).strict();
+export type ConsolePurpose = z.infer<typeof ConsolePurpose>;
+
+export const ConsoleRun = z.object({
+  "account": z.string(),
+  "client": z.string(),
+  "credits": z.number().int(),
+  "job_id": z.string(),
+  "started_at": z.string(),
+  "status": z.string(),
+  "tenant_id": z.string(),
+  "type": z.string(),
+}).strict();
+export type ConsoleRun = z.infer<typeof ConsoleRun>;
+
+export const ConsoleRuns = z.object({
+  "by_purpose": z.array(ConsolePurpose),
+  "isolation": ConsoleIsolation,
+  "runs": z.array(ConsoleRun),
+  "workspaces": z.number().int(),
+}).strict();
+export type ConsoleRuns = z.infer<typeof ConsoleRuns>;
+
+export const ConsoleUser = z.object({
+  "access": z.string(),
+  "account_cap": z.number().int(),
+  "accounts": z.number().int(),
+  "client": z.string(),
+  "email": z.string(),
+  "ended_at": z.string().nullable(),
+  "expires_in_days": z.number().int().nullable(),
+  "last_active_at": z.string().nullable(),
+  "questions": z.number().int(),
+  "role": z.string(),
+  "tenant_id": z.string(),
+  "user_id": z.string(),
+}).strict();
+export type ConsoleUser = z.infer<typeof ConsoleUser>;
+
+export const ConsoleUsers = z.object({
+  "users": z.array(ConsoleUser),
+}).strict();
+export type ConsoleUsers = z.infer<typeof ConsoleUsers>;
+
 export const CostLine = z.object({
   "calls": z.number().int(),
   "cost_micros": z.number().int().nullable(),
@@ -668,6 +864,16 @@ export const CrmWrites = z.object({
   "writes": z.array(CrmWrite),
 }).strict();
 export type CrmWrites = z.infer<typeof CrmWrites>;
+
+export const DefaultsChange = z.object({
+  "account_cap_per_user": z.number().int().nullable().optional(),
+  "credit_cap_per_pull": z.number().int().nullable().optional(),
+  "fastest_schedule": z.string().nullable().optional(),
+  "idle_expiry_days": z.string().nullable().optional(),
+  "model_split": z.string().nullable().optional(),
+  "monthly_credit_pool": z.number().int().nullable().optional(),
+}).strict();
+export type DefaultsChange = z.infer<typeof DefaultsChange>;
 
 export const DeletionRequested = z.object({
   "request_id": z.string(),
@@ -1411,6 +1617,12 @@ export const MonitoringBudget = z.object({
   "period": z.string(),
 }).strict();
 export type MonitoringBudget = z.infer<typeof MonitoringBudget>;
+
+export const NewClient = z.object({
+  "admin_email": z.string(),
+  "name": z.string(),
+}).strict();
+export type NewClient = z.infer<typeof NewClient>;
 
 export const NewTenant = z.object({
   "name": z.string(),
@@ -2358,6 +2570,11 @@ export type account_intelligence__api__routes__support__GrantBody = z.infer<type
 
 /** Known values of enumerated fields (labels map them; others are Unknown). */
 export const KNOWN_VALUES = {
+  "AccessChanged.access": [
+    "active",
+    "expired",
+    "terminated"
+  ],
   "AccountItem.state": [
     "researching",
     "waiting_credit_limit",
@@ -2436,6 +2653,18 @@ export const KNOWN_VALUES = {
     "suspended",
     "removed"
   ],
+  "ClientChange.fastest_schedule": [
+    "3d",
+    "weekly",
+    "2w",
+    "monthly"
+  ],
+  "ClientChange.idle_expiry_days": [
+    "7",
+    "10",
+    "14",
+    "30"
+  ],
   "ConnectionBody.protocol": [
     "oidc",
     "saml"
@@ -2447,6 +2676,46 @@ export const KNOWN_VALUES = {
   "ConnectionUpdate.status": [
     "active",
     "disabled"
+  ],
+  "ConsoleAdmin.role": [
+    "Operator",
+    "Support"
+  ],
+  "ConsoleClient.status": [
+    "Invited",
+    "Expiring",
+    "Near credit limit",
+    "Idle",
+    "Active"
+  ],
+  "ConsoleDefaults.model_split": [
+    "split",
+    "single"
+  ],
+  "ConsoleIsolation.status": [
+    "passed",
+    "failed",
+    "not_run"
+  ],
+  "ConsoleUser.access": [
+    "active",
+    "expired",
+    "terminated"
+  ],
+  "DefaultsChange.fastest_schedule": [
+    "3d",
+    "weekly",
+    "2w"
+  ],
+  "DefaultsChange.idle_expiry_days": [
+    "7",
+    "10",
+    "14",
+    "30"
+  ],
+  "DefaultsChange.model_split": [
+    "split",
+    "single"
   ],
   "ExportBody.kind": [
     "files",
@@ -2625,6 +2894,18 @@ export interface Operation {
 
 export const operations = {
   "GET /healthz": { method: "GET", path: "/healthz", plane: "tenant", status: 200, request: null, requestRequired: false, response: Health },
+  "GET /operator/v1/console/clients": { method: "GET", path: "/operator/v1/console/clients", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleClients },
+  "POST /operator/v1/console/clients": { method: "POST", path: "/operator/v1/console/clients", plane: "operator", status: 201, request: NewClient, requestRequired: true, response: ClientInvite },
+  "GET /operator/v1/console/clients/{tenant_id}": { method: "GET", path: "/operator/v1/console/clients/{tenant_id}", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleClientDetail },
+  "PUT /operator/v1/console/clients/{tenant_id}": { method: "PUT", path: "/operator/v1/console/clients/{tenant_id}", plane: "operator", status: 200, request: ClientChange, requestRequired: true, response: ConsoleClientDetail },
+  "POST /operator/v1/console/clients/{tenant_id}/invite": { method: "POST", path: "/operator/v1/console/clients/{tenant_id}/invite", plane: "operator", status: 200, request: null, requestRequired: false, response: ClientInvite },
+  "GET /operator/v1/console/defaults": { method: "GET", path: "/operator/v1/console/defaults", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleDefaults },
+  "PUT /operator/v1/console/defaults": { method: "PUT", path: "/operator/v1/console/defaults", plane: "operator", status: 200, request: DefaultsChange, requestRequired: true, response: ConsoleDefaults },
+  "GET /operator/v1/console/overview": { method: "GET", path: "/operator/v1/console/overview", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleOverview },
+  "GET /operator/v1/console/runs": { method: "GET", path: "/operator/v1/console/runs", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleRuns },
+  "GET /operator/v1/console/users": { method: "GET", path: "/operator/v1/console/users", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleUsers },
+  "POST /operator/v1/console/users/{tenant_id}/re-enable": { method: "POST", path: "/operator/v1/console/users/{tenant_id}/re-enable", plane: "operator", status: 200, request: AccessTarget, requestRequired: true, response: AccessChanged },
+  "POST /operator/v1/console/users/{tenant_id}/terminate": { method: "POST", path: "/operator/v1/console/users/{tenant_id}/terminate", plane: "operator", status: 200, request: AccessTarget, requestRequired: true, response: AccessChanged },
   "GET /operator/v1/flags": { method: "GET", path: "/operator/v1/flags", plane: "operator", status: 200, request: null, requestRequired: false, response: Flags },
   "POST /operator/v1/flags": { method: "POST", path: "/operator/v1/flags", plane: "operator", status: 201, request: account_intelligence__api__routes__operator_admin__FlagBody, requestRequired: true, response: FlagSet },
   "GET /operator/v1/keys": { method: "GET", path: "/operator/v1/keys", plane: "operator", status: 200, request: null, requestRequired: false, response: KeyVersions },
@@ -2677,6 +2958,7 @@ export const operations = {
   "GET /v1/audit/export": { method: "GET", path: "/v1/audit/export", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/auth/email/resend": { method: "POST", path: "/v1/auth/email/resend", plane: "tenant", status: 202, request: EmailBody, requestRequired: true, response: EmailVerificationSent },
   "POST /v1/auth/email/verify": { method: "POST", path: "/v1/auth/email/verify", plane: "tenant", status: 200, request: VerifyEmailBody, requestRequired: true, response: EmailVerified },
+  "POST /v1/auth/invite/accept": { method: "POST", path: "/v1/auth/invite/accept", plane: "tenant", status: 200, request: ResetPasswordBody, requestRequired: true, response: PasswordResetCompleted },
   "POST /v1/auth/login": { method: "POST", path: "/v1/auth/login", plane: "tenant", status: 200, request: LoginBody, requestRequired: true, response: SignedIn },
   "POST /v1/auth/password/enroll": { method: "POST", path: "/v1/auth/password/enroll", plane: "tenant", status: 202, request: EnrollPasswordBody, requestRequired: true, response: EmailVerificationSent },
   "POST /v1/auth/password/reset": { method: "POST", path: "/v1/auth/password/reset", plane: "tenant", status: 200, request: ResetPasswordBody, requestRequired: true, response: PasswordResetCompleted },

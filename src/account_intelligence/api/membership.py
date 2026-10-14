@@ -78,6 +78,12 @@ class MembershipCache:
             self._entries[key] = MembershipEntry(current_role, now + self._ttl_seconds)
             return current_role == role
 
+    def forget(self, tenant_id: UUID, user_id: str) -> None:
+        """Drop one cached decision (after an access change in this process); other processes
+        recheck within the TTL."""
+        key = cache_key(tenant_id, "membership", hashlib.sha256(user_id.encode()).hexdigest())
+        self._entries.pop(key, None)
+
 
 def cache_of(request: Any) -> MembershipCache:
     """The application's membership cache (one per app; TTL from ``config/session.yaml``)."""

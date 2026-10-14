@@ -1,6 +1,48 @@
 {
   "components": {
     "schemas": {
+      "AccessChanged": {
+        "additionalProperties": false,
+        "description": "A user's access after Terminate or Re-enable.",
+        "properties": {
+          "access": {
+            "enum": [
+              "active",
+              "expired",
+              "terminated"
+            ],
+            "title": "Access",
+            "type": "string"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "changed",
+          "access"
+        ],
+        "title": "AccessChanged",
+        "type": "object"
+      },
+      "AccessTarget": {
+        "additionalProperties": false,
+        "description": "The user whose access changes.",
+        "properties": {
+          "user_id": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "AccessTarget",
+        "type": "object"
+      },
       "AccountAdded": {
         "additionalProperties": false,
         "description": "Response body: account added.",
@@ -2061,6 +2103,142 @@
         "title": "ChatTurn",
         "type": "object"
       },
+      "ClientChange": {
+        "additionalProperties": false,
+        "description": "A3 Save changes (only the fields sent change).",
+        "properties": {
+          "account_cap_per_user": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Cap Per User"
+          },
+          "fastest_schedule": {
+            "anyOf": [
+              {
+                "enum": [
+                  "3d",
+                  "weekly",
+                  "2w",
+                  "monthly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fastest Schedule"
+          },
+          "idle_expiry_days": {
+            "anyOf": [
+              {
+                "enum": [
+                  7,
+                  10,
+                  14,
+                  30
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Expiry Days"
+          },
+          "library_account_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Account Ids"
+          },
+          "mail_drive_allowed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mail Drive Allowed"
+          },
+          "monthly_credit_pool": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Credit Pool"
+          },
+          "web_refresh_allowed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web Refresh Allowed"
+          }
+        },
+        "title": "ClientChange",
+        "type": "object"
+      },
+      "ClientInvite": {
+        "additionalProperties": false,
+        "description": "A new client's (or a renewed) invite link, to copy; nothing is sent.",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "invite_url": {
+            "title": "Invite Url",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "email",
+          "invite_url",
+          "expires_at"
+        ],
+        "title": "ClientInvite",
+        "type": "object"
+      },
       "CollectedClaim": {
         "additionalProperties": false,
         "description": "Response body: one distilled claim and the fact ids it rests on.",
@@ -2820,6 +2998,778 @@
         "title": "ConnectorStarted",
         "type": "object"
       },
+      "ConsoleAdmin": {
+        "additionalProperties": false,
+        "description": "One 6th admin (from the staff allow-lists).",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "Operator",
+              "Support"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "title": "ConsoleAdmin",
+        "type": "object"
+      },
+      "ConsoleCategory": {
+        "additionalProperties": false,
+        "description": "Questions in one category (counts only).",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "questions": {
+            "title": "Questions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "questions"
+        ],
+        "title": "ConsoleCategory",
+        "type": "object"
+      },
+      "ConsoleClient": {
+        "additionalProperties": false,
+        "description": "One client as the console lists it.",
+        "properties": {
+          "accounts": {
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "active_users": {
+            "title": "Active Users",
+            "type": "integer"
+          },
+          "answered_locally": {
+            "title": "Answered Locally",
+            "type": "integer"
+          },
+          "credit_pool": {
+            "title": "Credit Pool",
+            "type": "integer"
+          },
+          "credits_held": {
+            "title": "Credits Held",
+            "type": "integer"
+          },
+          "credits_used": {
+            "title": "Credits Used",
+            "type": "integer"
+          },
+          "expires_in_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires In Days"
+          },
+          "idle_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Days"
+          },
+          "last_active_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Active At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "questions": {
+            "title": "Questions",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "Invited",
+              "Expiring",
+              "Near credit limit",
+              "Idle",
+              "Active"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "users": {
+            "title": "Users",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "users",
+          "active_users",
+          "accounts",
+          "credits_used",
+          "credits_held",
+          "credit_pool",
+          "last_active_at",
+          "idle_days",
+          "expires_in_days",
+          "questions",
+          "answered_locally",
+          "status"
+        ],
+        "title": "ConsoleClient",
+        "type": "object"
+      },
+      "ConsoleClientDetail": {
+        "additionalProperties": false,
+        "description": "Client detail (A3).",
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/ConsoleClient"
+          },
+          "isolation": {
+            "$ref": "#/components/schemas/ConsoleIsolation"
+          },
+          "library": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleLibraryChoice"
+            },
+            "title": "Library",
+            "type": "array"
+          },
+          "pending_invites": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pending Invites",
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ConsoleClientSettings"
+          },
+          "user_idle_days": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "User Idle Days",
+            "type": "array"
+          }
+        },
+        "required": [
+          "client",
+          "settings",
+          "library",
+          "user_idle_days",
+          "pending_invites",
+          "isolation"
+        ],
+        "title": "ConsoleClientDetail",
+        "type": "object"
+      },
+      "ConsoleClientName": {
+        "additionalProperties": false,
+        "description": "A client for a filter.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name"
+        ],
+        "title": "ConsoleClientName",
+        "type": "object"
+      },
+      "ConsoleClientSettings": {
+        "additionalProperties": false,
+        "description": "A client's limits per user and features.",
+        "properties": {
+          "account_cap_per_user": {
+            "title": "Account Cap Per User",
+            "type": "integer"
+          },
+          "fastest_schedule": {
+            "title": "Fastest Schedule",
+            "type": "string"
+          },
+          "idle_expiry_days": {
+            "title": "Idle Expiry Days",
+            "type": "integer"
+          },
+          "mail_drive_allowed": {
+            "title": "Mail Drive Allowed",
+            "type": "boolean"
+          },
+          "monthly_credit_pool": {
+            "title": "Monthly Credit Pool",
+            "type": "integer"
+          },
+          "web_refresh_allowed": {
+            "title": "Web Refresh Allowed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "account_cap_per_user",
+          "idle_expiry_days",
+          "monthly_credit_pool",
+          "fastest_schedule",
+          "mail_drive_allowed",
+          "web_refresh_allowed"
+        ],
+        "title": "ConsoleClientSettings",
+        "type": "object"
+      },
+      "ConsoleClients": {
+        "additionalProperties": false,
+        "description": "Clients (A2).",
+        "properties": {
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleClient"
+            },
+            "title": "Clients",
+            "type": "array"
+          }
+        },
+        "required": [
+          "clients"
+        ],
+        "title": "ConsoleClients",
+        "type": "object"
+      },
+      "ConsoleDefaults": {
+        "additionalProperties": false,
+        "description": "Platform defaults (A7).",
+        "properties": {
+          "account_cap_per_user": {
+            "title": "Account Cap Per User",
+            "type": "integer"
+          },
+          "admins": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleAdmin"
+            },
+            "title": "Admins",
+            "type": "array"
+          },
+          "credit_cap_per_pull": {
+            "title": "Credit Cap Per Pull",
+            "type": "integer"
+          },
+          "fastest_schedule": {
+            "title": "Fastest Schedule",
+            "type": "string"
+          },
+          "idle_expiry_days": {
+            "title": "Idle Expiry Days",
+            "type": "integer"
+          },
+          "model_router_on": {
+            "title": "Model Router On",
+            "type": "boolean"
+          },
+          "model_split": {
+            "enum": [
+              "split",
+              "single"
+            ],
+            "title": "Model Split",
+            "type": "string"
+          },
+          "monthly_credit_pool": {
+            "title": "Monthly Credit Pool",
+            "type": "integer"
+          },
+          "skill_installed": {
+            "title": "Skill Installed",
+            "type": "boolean"
+          },
+          "skill_version": {
+            "title": "Skill Version",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "title": "Updated By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_cap_per_user",
+          "idle_expiry_days",
+          "monthly_credit_pool",
+          "fastest_schedule",
+          "credit_cap_per_pull",
+          "model_split",
+          "model_router_on",
+          "skill_version",
+          "skill_installed",
+          "admins",
+          "updated_by",
+          "updated_at"
+        ],
+        "title": "ConsoleDefaults",
+        "type": "object"
+      },
+      "ConsoleIsolation": {
+        "additionalProperties": false,
+        "description": "The latest nightly isolation check.",
+        "properties": {
+          "failures": {
+            "title": "Failures",
+            "type": "integer"
+          },
+          "ran_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ran At"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "not_run"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "workspaces_checked": {
+            "title": "Workspaces Checked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "ran_at",
+          "workspaces_checked",
+          "failures"
+        ],
+        "title": "ConsoleIsolation",
+        "type": "object"
+      },
+      "ConsoleLibraryChoice": {
+        "additionalProperties": false,
+        "description": "A passed 6th Library account and whether it is published to this client.",
+        "properties": {
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "library_account_id": {
+            "title": "Library Account Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "published": {
+            "title": "Published",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "library_account_id",
+          "name",
+          "domain",
+          "published"
+        ],
+        "title": "ConsoleLibraryChoice",
+        "type": "object"
+      },
+      "ConsoleOverview": {
+        "additionalProperties": false,
+        "description": "Overview (A1): the last 30 days across clients.",
+        "properties": {
+          "active_clients": {
+            "title": "Active Clients",
+            "type": "integer"
+          },
+          "active_users": {
+            "title": "Active Users",
+            "type": "integer"
+          },
+          "answered_locally": {
+            "title": "Answered Locally",
+            "type": "integer"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleCategory"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "client_names": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleClientName"
+            },
+            "title": "Client Names",
+            "type": "array"
+          },
+          "clients": {
+            "title": "Clients",
+            "type": "integer"
+          },
+          "credit_pool": {
+            "title": "Credit Pool",
+            "type": "integer"
+          },
+          "credits_used": {
+            "title": "Credits Used",
+            "type": "integer"
+          },
+          "isolation": {
+            "$ref": "#/components/schemas/ConsoleIsolation"
+          },
+          "not_using": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleClient"
+            },
+            "title": "Not Using",
+            "type": "array"
+          },
+          "questions": {
+            "title": "Questions",
+            "type": "integer"
+          },
+          "users": {
+            "title": "Users",
+            "type": "integer"
+          },
+          "weekly": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleWeek"
+            },
+            "title": "Weekly",
+            "type": "array"
+          },
+          "weekly_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Client"
+          }
+        },
+        "required": [
+          "clients",
+          "active_clients",
+          "users",
+          "active_users",
+          "questions",
+          "answered_locally",
+          "credits_used",
+          "credit_pool",
+          "weekly",
+          "weekly_client",
+          "categories",
+          "not_using",
+          "client_names",
+          "isolation"
+        ],
+        "title": "ConsoleOverview",
+        "type": "object"
+      },
+      "ConsolePurpose": {
+        "additionalProperties": false,
+        "description": "Credits used this month for one purpose.",
+        "properties": {
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "credits"
+        ],
+        "title": "ConsolePurpose",
+        "type": "object"
+      },
+      "ConsoleRun": {
+        "additionalProperties": false,
+        "description": "One research job across clients (A6).",
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "client",
+          "job_id",
+          "account",
+          "type",
+          "credits",
+          "started_at",
+          "status"
+        ],
+        "title": "ConsoleRun",
+        "type": "object"
+      },
+      "ConsoleRuns": {
+        "additionalProperties": false,
+        "description": "Runs and spend (A6).",
+        "properties": {
+          "by_purpose": {
+            "items": {
+              "$ref": "#/components/schemas/ConsolePurpose"
+            },
+            "title": "By Purpose",
+            "type": "array"
+          },
+          "isolation": {
+            "$ref": "#/components/schemas/ConsoleIsolation"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "workspaces": {
+            "title": "Workspaces",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "by_purpose",
+          "isolation",
+          "workspaces",
+          "runs"
+        ],
+        "title": "ConsoleRuns",
+        "type": "object"
+      },
+      "ConsoleUser": {
+        "additionalProperties": false,
+        "description": "One user across clients (A4): counts only.",
+        "properties": {
+          "access": {
+            "enum": [
+              "active",
+              "expired",
+              "terminated"
+            ],
+            "title": "Access",
+            "type": "string"
+          },
+          "account_cap": {
+            "title": "Account Cap",
+            "type": "integer"
+          },
+          "accounts": {
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "expires_in_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires In Days"
+          },
+          "last_active_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Active At"
+          },
+          "questions": {
+            "title": "Questions",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "client",
+          "user_id",
+          "email",
+          "role",
+          "accounts",
+          "account_cap",
+          "questions",
+          "last_active_at",
+          "access",
+          "ended_at",
+          "expires_in_days"
+        ],
+        "title": "ConsoleUser",
+        "type": "object"
+      },
+      "ConsoleUsers": {
+        "additionalProperties": false,
+        "description": "Users (A4).",
+        "properties": {
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/ConsoleUser"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": [
+          "users"
+        ],
+        "title": "ConsoleUsers",
+        "type": "object"
+      },
+      "ConsoleWeek": {
+        "additionalProperties": false,
+        "description": "Questions asked in one week (ISO date of its Monday).",
+        "properties": {
+          "questions": {
+            "title": "Questions",
+            "type": "integer"
+          },
+          "week": {
+            "title": "Week",
+            "type": "string"
+          }
+        },
+        "required": [
+          "week",
+          "questions"
+        ],
+        "title": "ConsoleWeek",
+        "type": "object"
+      },
       "CostLine": {
         "additionalProperties": false,
         "description": "Response body: cost line.",
@@ -3225,6 +4175,101 @@
           "sources"
         ],
         "title": "DeepDiveCounts",
+        "type": "object"
+      },
+      "DefaultsChange": {
+        "additionalProperties": false,
+        "description": "A7 Save defaults (only the fields sent change; new clients start from them).",
+        "properties": {
+          "account_cap_per_user": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Cap Per User"
+          },
+          "credit_cap_per_pull": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Cap Per Pull"
+          },
+          "fastest_schedule": {
+            "anyOf": [
+              {
+                "enum": [
+                  "3d",
+                  "weekly",
+                  "2w"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fastest Schedule"
+          },
+          "idle_expiry_days": {
+            "anyOf": [
+              {
+                "enum": [
+                  7,
+                  10,
+                  14,
+                  30
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Expiry Days"
+          },
+          "model_split": {
+            "anyOf": [
+              {
+                "enum": [
+                  "split",
+                  "single"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Split"
+          },
+          "monthly_credit_pool": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Credit Pool"
+          }
+        },
+        "title": "DefaultsChange",
         "type": "object"
       },
       "DeletionRequested": {
@@ -6839,6 +7884,31 @@
           "source_url"
         ],
         "title": "NarrativeSentence",
+        "type": "object"
+      },
+      "NewClient": {
+        "additionalProperties": false,
+        "description": "Add client: its name and its first user's email (the design calls it the admin email).",
+        "properties": {
+          "admin_email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Admin Email",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "admin_email"
+        ],
+        "title": "NewClient",
         "type": "object"
       },
       "NewTenant": {
@@ -11329,6 +12399,717 @@
         ]
       }
     },
+    "/operator/v1/console/clients": {
+      "get": {
+        "description": "A2: every client.",
+        "operationId": "clients_operator_v1_console_clients_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleClients"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clients",
+        "tags": [
+          "admin-console"
+        ]
+      },
+      "post": {
+        "description": "A2 Add client: the client, its settings (invited) and its first user; an invite link to\ncopy is returned and nothing is sent.",
+        "operationId": "add_client_operator_v1_console_clients_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewClient"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientInvite"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Client",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/clients/{tenant_id}": {
+      "get": {
+        "description": "A3: one client's limits, features and library publications.",
+        "operationId": "client_detail_operator_v1_console_clients__tenant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleClientDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Client Detail",
+        "tags": [
+          "admin-console"
+        ]
+      },
+      "put": {
+        "description": "A3 Save changes: limits, features, and which passed library accounts it has.",
+        "operationId": "change_client_operator_v1_console_clients__tenant_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleClientDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Client",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/clients/{tenant_id}/invite": {
+      "post": {
+        "description": "A3: a new invite link for the invited user who has not accepted yet (the old one stops\nworking).",
+        "operationId": "renew_invite_operator_v1_console_clients__tenant_id__invite_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientInvite"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Renew Invite",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/defaults": {
+      "get": {
+        "description": "A7: the platform defaults.",
+        "operationId": "defaults_operator_v1_console_defaults_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleDefaults"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Defaults",
+        "tags": [
+          "admin-console"
+        ]
+      },
+      "put": {
+        "description": "A7 Save defaults.",
+        "operationId": "change_defaults_operator_v1_console_defaults_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefaultsChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleDefaults"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Defaults",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/overview": {
+      "get": {
+        "description": "A1: the last 30 days across clients (or the weekly chart for one client).",
+        "operationId": "overview_operator_v1_console_overview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "client",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleOverview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/runs": {
+      "get": {
+        "description": "A6: credits by purpose this month, the isolation check and the newest jobs.",
+        "operationId": "runs_operator_v1_console_runs_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleRuns"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Runs",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/users": {
+      "get": {
+        "description": "A4: every user's counts and access, across clients.",
+        "operationId": "users_operator_v1_console_users_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleUsers"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Users",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/users/{tenant_id}/re-enable": {
+      "post": {
+        "description": "A4 Re-enable: restore access ended by an admin or by idle expiry.",
+        "operationId": "re_enable_operator_v1_console_users__tenant_id__re_enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessTarget"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessChanged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Re Enable",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/users/{tenant_id}/terminate": {
+      "post": {
+        "description": "A4 Terminate: end the user's access now (history kept, signed out everywhere).",
+        "operationId": "terminate_operator_v1_console_users__tenant_id__terminate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessTarget"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessChanged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Terminate",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
     "/operator/v1/flags": {
       "get": {
         "description": "Every flag's newest rule.",
@@ -14982,6 +16763,48 @@
           }
         },
         "summary": "Verify Email",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/invite/accept": {
+      "post": {
+        "description": "Consume one invite token (from the link an operator copied in Add client), set the chosen\npassword and activate the identity; the invited person then signs in as usual.",
+        "operationId": "accept_invite_v1_auth_invite_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordResetCompleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Invite",
         "tags": [
           "auth"
         ]

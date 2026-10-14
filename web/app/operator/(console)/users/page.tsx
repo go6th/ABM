@@ -1,48 +1,73 @@
 "use client";
-// Users: usage and access across clients, as counts per client. The API lists users only inside
-// a client workspace, so this page shows member counts and the client enable or disable control;
-// per user rows need an operator users endpoint.
-import { operatorRequest } from "@/lib/operator-api";
+// Users (A4): every user across clients with their accounts (of the cap), questions in the last
+// 30 days, last activity and access, with Terminate or Re-enable. Counts only, never question
+// text. Ending access keeps the user's history and signs them out everywhere.
 import { useState } from "react";
+import { operatorRequest } from "@/lib/operator-api";
+import type { ConsoleUser } from "@/lib/gen/api.gen";
 import { useOperatorApi } from "../useOperatorApi";
-import { Loading, Notice, PageHead, Status } from "@/ui/primitives";
+import { ConsoleLoad } from "../ConsoleLoad";
+import { Pill } from "@/ui/design";
+import { expiresIn, lastActive, num } from "@/lib/console";
+
+function access(u: ConsoleUser): { text: string; tone: "ok" | "warn" | "neutral" } {
+  if (u.access !== "active") return { text: "Access ended", tone: "neutral" };
+  if (u.expires_in_days !== null && u.expires_in_days <= 3) return { text: expiresIn(u.expires_in_days), tone: "warn" };
+  return { text: "Active", tone: "ok" };
+}
 
 export default function Users() {
-  const tenants = useOperatorApi("GET /operator/v1/tenants");
-  const pilot = useOperatorApi("GET /operator/v1/pilot/aggregate");
+  const data = useOperatorApi("GET /operator/v1/console/users");
   const [busy, setBusy] = useState<string | null>(null);
-  if (tenants.error) return <Notice kind="error">{tenants.error.detail}</Notice>;
-  if (!tenants.data) return <Loading />;
-  const questions = new Map((pilot.data?.tenants ?? []).map((t) => [t.tenant_id, t.questions_used]));
-  const toggle = async (id: string, suspended: boolean) => {
-    setBusy(id);
+  const [message, setMessage] = useState<string | null>(null);
+  if (!data.data) return <ConsoleLoad title="Users" state={data} />;
+  const rows = data.data.users;
+
+  const change = async (u: ConsoleUser) => {
+    const end = u.access === "active";
+    if (end && !window.confirm(`End access for ${u.email}? Their history is kept and they are signed out everywhere.`)) return;
+    const key = `${u.tenant_id}/${u.user_id}`;
+    setBusy(key);
+    setMessage(null);
     try {
-      await operatorRequest(suspended ? "POST /operator/v1/tenants/{tenant_id}/reactivate" : "POST /operator/v1/tenants/{tenant_id}/suspend", { params: { tenant_id: id }, body: { reason_code: suspended ? "operator_reenable" : "operator_disable" } });
-      tenants.reload();
+      await operatorRequest(end ? "POST /operator/v1/console/users/{tenant_id}/terminate" : "POST /operator/v1/console/users/{tenant_id}/re-enable", { params: { tenant_id: u.tenant_id }, body: { user_id: u.user_id } });
+      setMessage(end ? `Access ended for ${u.email}.` : `Access restored for ${u.email}.`);
+      data.reload();
+    } catch {
+      setMessage("The change was not saved. Try again.");
     } finally {
       setBusy(null);
     }
   };
+
   return (
-    <>
-      <PageHead title="Users" sub="Usage is counts only, never question text." />
-      <Notice>Per user rows are not available: the API lists members only inside a client workspace. Counts per client are shown below.</Notice>
-      <div className="table-wrap">
-        <table className="table">
-          <thead><tr><th scope="col">Client</th><th scope="col" className="num">Users</th><th scope="col" className="num">Questions</th><th scope="col">Access</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
-          <tbody>
-            {tenants.data.tenants.map((t) => (
-              <tr key={t.tenant_id}>
-                <td className="mono small">{t.tenant_id}</td>
-                <td className="num">{t.members}</td>
-                <td className="num">{questions.get(t.tenant_id) ?? "—"}</td>
-                <td>{t.suspended ? <Status tone="bad">Disabled</Status> : <Status tone="ok">Active</Status>}</td>
-                <td><button type="button" className="btn sm" disabled={busy === t.tenant_id} onClick={() => void toggle(t.tenant_id, t.suspended)}>{t.suspended ? "Enable" : "Disable"}</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="pg admin">
+      <div className="head"><div className="ttl"><h1>Users</h1><div className="sub">Usage and access across all clients. Usage is counts only, never question text.</div></div></div>
+      {message ? <p className="sm-text" role="status">{message}</p> : null}
+      <div className="card tscroll">
+        <div className="trow th cols-users"><span>User</span><span>Client</span><span>Accounts</span><span>Questions (30d)</span><span>Last active</span><span>Access</span></div>
+        {rows.map((u) => {
+          const a = access(u);
+          const key = `${u.tenant_id}/${u.user_id}`;
+          return (
+            <div key={key} className="trow cols-users">
+              <b>{u.email}</b>
+              <span>{u.client}</span>
+              <span>{num(u.accounts)} of {num(u.account_cap)}</span>
+              <span>{num(u.questions)}</span>
+              <span>{lastActive(u.last_active_at)}</span>
+              <span className="stack-6">
+                <Pill tone={a.tone} small>{a.text}</Pill>
+                <button type="button" className={u.access === "active" ? "link-danger sm-text align-start" : "link-strong sm-text align-start"} disabled={busy === key} onClick={() => void change(u)}>
+                  {u.access === "active" ? "Terminate" : "Re-enable"}
+                </button>
+              </span>
+            </div>
+          );
+        })}
+        {!rows.length ? <div className="state"><h2>No users yet</h2><p>Users appear here once a client invites them.</p></div> : null}
       </div>
-    </>
+      <p className="mut xs-text">Terminating or letting access expire keeps the user&apos;s history. Re-enable restores access in one click.</p>
+    </div>
   );
 }

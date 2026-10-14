@@ -143,7 +143,9 @@ class Container:
                 await s.execute(
                     text(
                         "SELECT r.account_id, a.domain, r.run_input, a.careers_url,"
-                        " a.careers_url_verified_at FROM account_runs r JOIN accounts a"
+                        " a.careers_url_verified_at,"
+                        " (SELECT model_split FROM platform_defaults WHERE id = 1) AS model_split"
+                        " FROM account_runs r JOIN accounts a"
                         " ON a.id = r.account_id AND a.tenant_id = r.tenant_id WHERE r.id = :r"
                     ),
                     {"r": run_id},
@@ -175,6 +177,7 @@ class Container:
             run_input=dict(row.run_input or {}),
             router=self.router,
             reply_cache=self.reply_cache,
+            model_split=str(row.model_split or "split"),
         )
 
 
@@ -274,7 +277,7 @@ def router_factory(client: Any, access: str) -> Any:
     candidates whose ``adapter`` equals ``access`` can be served; any other candidate fails with
     ``AdapterNotConfigured`` (never silently sent through another path)."""
     from llm.adapters.anthropic_api import AnthropicAdapter
-    from llm.config import load_routing_config
+    from llm.config import load_routing_config, with_model_split
     from llm.health import PgHealth
     from llm.port import Router
     from llm.record import PgCallStore
@@ -289,7 +292,7 @@ def router_factory(client: Any, access: str) -> Any:
 
     def make(deps: Any) -> Any:
         return Router(
-            cfg,
+            with_model_split(cfg, getattr(deps, "model_split", "split")),
             adapters,
             PgCallStore(deps.txn, deps.tenant_id, deps.run_id),
             PgHealth(

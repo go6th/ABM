@@ -459,3 +459,12 @@ table.xl th span.th { color: var(--text-3); }
 .kv-list { margin: 0; padding-top: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .kv-list > div { display: flex; justify-content: space-between; gap: 12px; }
 .kv-list dd { margin: 0; font-weight: 600; text-align: right; }
+
+/* ---------- Admin console helpers ---------- */
+.row-12.wrap, .row-14.wrap, .row-16.wrap { flex-wrap: wrap; }
+.row-16.align-stretch { align-items: stretch; }
+.input.sm { min-height: 36px; padding: 0 10px; font-size: 13px; width: auto; }
+.invite-link { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; word-break: break-all; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-field); background: var(--hover-soft); }
+.kv-grid { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px; }
+.kv-grid dt { color: var(--muted); }
+.kv-grid dd { margin: 0; font-weight: 600; text-align: right; }

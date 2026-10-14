@@ -7,6 +7,7 @@ from account_intelligence.api.guard import authorize, route_guard
 from account_intelligence.api.routes import (
     account_workspace,
     accounts,
+    admin_console,
     ask,
     audit,
     auth,
@@ -84,6 +85,7 @@ operator_router.include_router(spend_v2.operator_router)
 operator_router.include_router(ops.router)
 operator_router.include_router(library.operator_router)
 operator_router.include_router(operator_admin.router)
+operator_router.include_router(admin_console.router)
 operator_router.include_router(operator_view.router)
 operator_router.include_router(feedback.operator_router)
 

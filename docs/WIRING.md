@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **180**.
+- Backend operations in OpenAPI: **193**.
 - Frontend literal call sites found: **82**.
 - Frontend call sites mapped to backend operations: **77**.
-- Backend operations without a direct frontend call site: **122**.
+- Backend operations without a direct frontend call site: **131**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -29,26 +29,26 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/lib/provider-labels.ts` | same-origin or external fetch | `GET /api/operator/providers` | Next.js route | Next.js route | staff session / same-origin |
 | `web/app/operator/(console)/OperatorSignOut.tsx` | same-origin or external fetch | `DELETE /api/operator/session` | Next.js route | Next.js route | staff session / same-origin |
 | `web/app/operator/(console)/OperatorSessionGate.tsx` | same-origin or external fetch | `GET /api/operator/session` | Next.js route | Next.js route | staff session / same-origin |
-| `web/app/operator/(console)/settings/page.tsx` | generated operator operation reference | `GET /operator/v1/flags` | — | Flags | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
-| `web/app/operator/(console)/settings/page.tsx` | generated operator operation reference | `POST /operator/v1/flags` | account_intelligence__api__routes__operator_admin__FlagBody (required) | FlagSet | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
-| `web/app/operator/(console)/settings/page.tsx` | generated operator operation reference | `GET /operator/v1/keys` | — | KeyVersions | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
-| `web/app/operator/(console)/runs/page.tsx` | generated operator operation reference | `GET /operator/v1/ops/failures` | — | Failures | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
-| `web/app/operator/(console)/page.tsx` | generated operator operation reference | `GET /operator/v1/ops/stuck` | — | Stuck | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
-| `web/app/operator/(console)/runs/page.tsx` | generated operator operation reference | `GET /operator/v1/ops/stuck` | — | Stuck | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
-| `web/app/operator/(console)/page.tsx` | generated operator operation reference | `GET /operator/v1/pilot/aggregate` | — | PilotAggregate | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
-| `web/app/operator/(console)/users/page.tsx` | generated operator operation reference | `GET /operator/v1/pilot/aggregate` | — | PilotAggregate | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
-| `web/app/operator/(console)/runs/page.tsx` | generated operator operation reference | `GET /operator/v1/runs/{run_id}/spend/live` | — | OperatorLiveSpend | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
-| `web/app/operator/(console)/runs/page.tsx` | generated operator operation reference | `GET /operator/v1/runs/{run_id}/timeline` | — | RunTimeline | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
+| `web/app/operator/(console)/clients/page.tsx` | generated operator operation reference | `GET /operator/v1/console/clients` | — | ConsoleClients | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `web/app/operator/(console)/library/page.tsx` | generated operator operation reference | `GET /operator/v1/console/clients` | — | ConsoleClients | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `web/app/operator/(console)/clients/page.tsx` | generated operator operation reference | `POST /operator/v1/console/clients` | NewClient (required) | ClientInvite | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
+| `web/app/operator/(console)/clients/[tenantId]/page.tsx` | generated operator operation reference | `GET /operator/v1/console/clients/{tenant_id}` | — | ConsoleClientDetail | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=read |
+| `web/app/operator/(console)/clients/[tenantId]/page.tsx` | generated operator operation reference | `PUT /operator/v1/console/clients/{tenant_id}` | ClientChange (required) | ConsoleClientDetail | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
+| `web/app/operator/(console)/clients/[tenantId]/page.tsx` | generated operator operation reference | `POST /operator/v1/console/clients/{tenant_id}/invite` | — | ClientInvite | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
+| `web/app/operator/(console)/defaults/page.tsx` | generated operator operation reference | `GET /operator/v1/console/defaults` | — | ConsoleDefaults | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `web/app/operator/(console)/defaults/page.tsx` | generated operator operation reference | `PUT /operator/v1/console/defaults` | DefaultsChange (required) | ConsoleDefaults | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
+| `web/app/operator/(console)/page.tsx` | generated operator operation reference | `GET /operator/v1/console/overview` | — | ConsoleOverview | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `web/app/operator/(console)/runs/page.tsx` | generated operator operation reference | `GET /operator/v1/console/runs` | — | ConsoleRuns | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `web/app/operator/(console)/users/page.tsx` | generated operator operation reference | `GET /operator/v1/console/users` | — | ConsoleUsers | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `web/app/operator/(console)/users/page.tsx` | generated operator operation reference | `POST /operator/v1/console/users/{tenant_id}/re-enable` | AccessTarget (required) | AccessChanged | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
+| `web/app/operator/(console)/users/page.tsx` | generated operator operation reference | `POST /operator/v1/console/users/{tenant_id}/terminate` | AccessTarget (required) | AccessChanged | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
+| `web/app/operator/(console)/library/page.tsx` | generated operator operation reference | `GET /operator/v1/library` | — | LibraryList | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `web/app/operator/(console)/library/page.tsx` | generated operator operation reference | `POST /operator/v1/library/uploads` | — | LibraryUploaded | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
+| `web/lib/operator-proxy.ts` | generated operator operation reference | `POST /operator/v1/library/uploads` | — | LibraryUploaded | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
+| `web/app/operator/(console)/library/page.tsx` | generated operator operation reference | `POST /operator/v1/library/{library_account_id}/publish` | PublishBody (required) | LibraryPublished | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
 | `web/app/api/operator/callback/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
 | `web/app/api/operator/providers/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
 | `web/app/api/operator/session/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
-| `web/app/operator/(console)/clients/page.tsx` | generated operator operation reference | `GET /operator/v1/tenants` | — | TenantsOverview | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
-| `web/app/operator/(console)/page.tsx` | generated operator operation reference | `GET /operator/v1/tenants` | — | TenantsOverview | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
-| `web/app/operator/(console)/users/page.tsx` | generated operator operation reference | `GET /operator/v1/tenants` | — | TenantsOverview | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
-| `web/app/operator/(console)/clients/page.tsx` | generated operator operation reference | `POST /operator/v1/tenants/{tenant_id}/reactivate` | Reason (required) | TenantLifecycle | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
-| `web/app/operator/(console)/users/page.tsx` | generated operator operation reference | `POST /operator/v1/tenants/{tenant_id}/reactivate` | Reason (required) | TenantLifecycle | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
-| `web/app/operator/(console)/clients/page.tsx` | generated operator operation reference | `POST /operator/v1/tenants/{tenant_id}/suspend` | Reason (required) | TenantLifecycle | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
-| `web/app/operator/(console)/users/page.tsx` | generated operator operation reference | `POST /operator/v1/tenants/{tenant_id}/suspend` | Reason (required) | TenantLifecycle | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `web/app/readyz/route.ts` | server API fetch | `GET /readyz` | — | Ready | public health probe |
 | `web/components/ws/AccountList.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/Ask.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -121,6 +121,12 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `DELETE /v1/files/{file_id}` | — | — | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `DELETE /v1/sso/sessions/{session_id}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `GET /healthz` | — | Health (200) | public health probe |
+| `GET /operator/v1/console/clients` | — | ConsoleClients (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `GET /operator/v1/console/clients/{tenant_id}` | — | ConsoleClientDetail (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=read |
+| `GET /operator/v1/console/defaults` | — | ConsoleDefaults (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `GET /operator/v1/console/overview` | — | ConsoleOverview (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `GET /operator/v1/console/runs` | — | ConsoleRuns (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
+| `GET /operator/v1/console/users` | — | ConsoleUsers (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
 | `GET /operator/v1/flags` | — | Flags (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
 | `GET /operator/v1/keys` | — | KeyVersions (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
 | `GET /operator/v1/library` | — | LibraryList (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=read |
@@ -209,6 +215,10 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/users` | — | Members (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/views` | — | SavedViews (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `PATCH /v1/users` | ChangeBody (required) | Member (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
+| `POST /operator/v1/console/clients` | NewClient (required) | ClientInvite (201) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
+| `POST /operator/v1/console/clients/{tenant_id}/invite` | — | ClientInvite (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
+| `POST /operator/v1/console/users/{tenant_id}/re-enable` | AccessTarget (required) | AccessChanged (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
+| `POST /operator/v1/console/users/{tenant_id}/terminate` | AccessTarget (required) | AccessChanged (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `POST /operator/v1/flags` | account_intelligence__api__routes__operator_admin__FlagBody (required) | FlagSet (201) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
 | `POST /operator/v1/keys` | KeyBody (required) | KeyAdded (201) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
 | `POST /operator/v1/library/uploads` | — | LibraryUploaded (201) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
@@ -231,6 +241,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/alerts/{alert_id}/feedback` | Rating (required) | AlertRated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent (202) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `POST /v1/auth/email/verify` | VerifyEmailBody (required) | EmailVerified (200) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
+| `POST /v1/auth/invite/accept` | ResetPasswordBody (required) | PasswordResetCompleted (200) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `POST /v1/auth/login` | LoginBody (required) | SignedIn (200) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
 | `POST /v1/auth/password/enroll` | EnrollPasswordBody (required) | EmailVerificationSent (202) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/auth/password/reset` | ResetPasswordBody (required) | PasswordResetCompleted (200) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |
@@ -285,6 +296,8 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/users` | AddBody (required) | Member (201) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/views` | ViewBody (required) | SavedView (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/views/{view_id}/archive` | Archive (required) | ViewArchived (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=admin |
+| `PUT /operator/v1/console/clients/{tenant_id}` | ClientChange (required) | ConsoleClientDetail (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
+| `PUT /operator/v1/console/defaults` | DefaultsChange (required) | ConsoleDefaults (200) | operator; roles=operator; principal=operator_support; tenant=none; audit=admin |
 | `PUT /v1/chat/provider-key` | TenantModelKeyBody (required) | TenantModelKeyStatus (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/documents/policy` | PolicyBody (required) | DocumentPolicy (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/documents/{document_id}/content` | — | DocumentReceived (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |

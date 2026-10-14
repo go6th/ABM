@@ -2174,4 +2174,206 @@ class InternalView(Out):
     file_available: bool
 
 
+# ---- admin console (A1 to A7): counts and categories only, never question or file text --------
+
+
+class ConsoleIsolation(Out):
+    """The latest nightly isolation check."""
+
+    status: Literal["passed", "failed", "not_run"]
+    ran_at: str | None
+    workspaces_checked: int
+    failures: int
+
+
+class ConsoleClient(Out):
+    """One client as the console lists it."""
+
+    tenant_id: str
+    name: str
+    users: int
+    active_users: int
+    accounts: int
+    credits_used: int
+    credits_held: int
+    credit_pool: int
+    last_active_at: str | None
+    idle_days: int | None
+    expires_in_days: int | None
+    questions: int
+    answered_locally: int
+    status: Literal["Invited", "Expiring", "Near credit limit", "Idle", "Active"]
+
+
+class ConsoleWeek(Out):
+    """Questions asked in one week (ISO date of its Monday)."""
+
+    week: str
+    questions: int
+
+
+class ConsoleCategory(Out):
+    """Questions in one category (counts only)."""
+
+    key: str
+    label: str
+    questions: int
+
+
+class ConsoleClientName(Out):
+    """A client for a filter."""
+
+    tenant_id: str
+    name: str
+
+
+class ConsoleOverview(Out):
+    """Overview (A1): the last 30 days across clients."""
+
+    clients: int
+    active_clients: int
+    users: int
+    active_users: int
+    questions: int
+    answered_locally: int
+    credits_used: int
+    credit_pool: int
+    weekly: list[ConsoleWeek]
+    weekly_client: str | None
+    categories: list[ConsoleCategory]
+    not_using: list[ConsoleClient]
+    client_names: list[ConsoleClientName]
+    isolation: ConsoleIsolation
+
+
+class ConsoleClients(Out):
+    """Clients (A2)."""
+
+    clients: list[ConsoleClient]
+
+
+class ClientInvite(Out):
+    """A new client's (or a renewed) invite link, to copy; nothing is sent."""
+
+    tenant_id: str
+    email: str
+    invite_url: str
+    expires_at: str
+
+
+class ConsoleClientSettings(Out):
+    """A client's limits per user and features."""
+
+    account_cap_per_user: int
+    idle_expiry_days: int
+    monthly_credit_pool: int
+    fastest_schedule: str
+    mail_drive_allowed: bool
+    web_refresh_allowed: bool
+
+
+class ConsoleLibraryChoice(Out):
+    """A passed 6th Library account and whether it is published to this client."""
+
+    library_account_id: str
+    name: str
+    domain: str
+    published: bool
+
+
+class ConsoleClientDetail(Out):
+    """Client detail (A3)."""
+
+    client: ConsoleClient
+    settings: ConsoleClientSettings
+    library: list[ConsoleLibraryChoice]
+    user_idle_days: list[int]
+    pending_invites: list[str]
+    isolation: ConsoleIsolation
+
+
+class ConsoleUser(Out):
+    """One user across clients (A4): counts only."""
+
+    tenant_id: str
+    client: str
+    user_id: str
+    email: str
+    role: str
+    accounts: int
+    account_cap: int
+    questions: int
+    last_active_at: str | None
+    access: Literal["active", "expired", "terminated"]
+    ended_at: str | None
+    expires_in_days: int | None
+
+
+class ConsoleUsers(Out):
+    """Users (A4)."""
+
+    users: list[ConsoleUser]
+
+
+class AccessChanged(Out):
+    """A user's access after Terminate or Re-enable."""
+
+    changed: bool
+    access: Literal["active", "expired", "terminated"]
+
+
+class ConsolePurpose(Out):
+    """Credits used this month for one purpose."""
+
+    key: str
+    label: str
+    credits: int
+
+
+class ConsoleRun(Out):
+    """One research job across clients (A6)."""
+
+    tenant_id: str
+    client: str
+    job_id: str
+    account: str
+    type: str
+    credits: int
+    started_at: str
+    status: str
+
+
+class ConsoleRuns(Out):
+    """Runs and spend (A6)."""
+
+    by_purpose: list[ConsolePurpose]
+    isolation: ConsoleIsolation
+    workspaces: int
+    runs: list[ConsoleRun]
+
+
+class ConsoleAdmin(Out):
+    """One 6th admin (from the staff allow-lists)."""
+
+    email: str
+    role: Literal["Operator", "Support"]
+
+
+class ConsoleDefaults(Out):
+    """Platform defaults (A7)."""
+
+    account_cap_per_user: int
+    idle_expiry_days: int
+    monthly_credit_pool: int
+    fastest_schedule: str
+    credit_cap_per_pull: int
+    model_split: Literal["split", "single"]
+    model_router_on: bool
+    skill_version: str
+    skill_installed: bool
+    admins: list[ConsoleAdmin]
+    updated_by: str
+    updated_at: str
+
+
 AccountWorkspace.model_rebuild()

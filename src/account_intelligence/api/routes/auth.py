@@ -3,6 +3,10 @@
 Credential lookups run through the narrow global identity functions. A tenant is selected only
 after the password has been verified, and the server-side session is created in that tenant's
 transaction after its live membership is checked again.
+
+An invited client admin (Add client in the admin console) opens the copied invite link and
+chooses a password through ``POST /v1/auth/invite/accept``; the single-use token is consumed in
+``local_auth_accept_invite``.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ register("POST", "/v1/auth/email/resend", ANONYMOUS)
 register("POST", "/v1/auth/email/verify", ANONYMOUS)
 register("POST", "/v1/auth/password/reset/request", ANONYMOUS)
 register("POST", "/v1/auth/password/reset", ANONYMOUS)
+register("POST", "/v1/auth/invite/accept", ANONYMOUS)
 register("POST", "/v1/auth/password/enroll", tenant_route("manage_own_auth", "admin"))
 
 _REFUSED = "Email or password is incorrect, or this account cannot sign in."
@@ -533,4 +538,34 @@ async def reset_password(body: ResetPasswordBody, request: Request) -> Response:
     for member in memberships:
         async with tenant_txn(UUID(str(member.tenant_id))) as session:
             await sessions.revoke_all(session, str(member.user_id), "password_reset", now)
+    return JSONResponse({"password_updated": True})  # nosec B105 -- a response flag, not a secret.
+
+
+@public_router.post("/invite/accept", response_model=C.PasswordResetCompleted)
+async def accept_invite(body: ResetPasswordBody, request: Request) -> Response:
+    """Consume one invite token (from the link an operator copied in Add client), set the chosen
+    password and activate the identity; the invited person then signs in as usual."""
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
+    await _require_same_origin(request)
+    await rate_limit.consume(request, account=token_hash, action="invite_accept")
+    now = plane_of(request).clock.now()
+    async with untenanted_session() as session:
+        email = await session.scalar(
+            text("SELECT local_auth_invite_email(:hash, :now)"),
+            {"hash": token_hash, "now": now},
+        )
+    if not isinstance(email, str):
+        await local_password.verify_password(None, body.password)
+        raise HTTPException(400, "invite link is invalid or expired")
+    try:
+        password_hash = await local_password.hash_password(body.password, email=email)
+    except PasswordRejected as error:
+        raise HTTPException(422, str(error)) from None
+    async with untenanted_session() as session:
+        user_id = await session.scalar(
+            text("SELECT local_auth_accept_invite(:hash, :password_hash, :now)"),
+            {"hash": token_hash, "password_hash": password_hash, "now": now},
+        )
+    if user_id is None:
+        raise HTTPException(400, "invite link is invalid or expired")
     return JSONResponse({"password_updated": True})  # nosec B105 -- a response flag, not a secret.

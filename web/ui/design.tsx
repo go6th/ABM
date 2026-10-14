@@ -3,12 +3,12 @@
 // rect width, because the CSP forbids inline styles) and the skeleton blocks.
 import type { ReactNode } from "react";
 
-export function LogoMark({ size = 28 }: { size?: number }) {
+export function LogoMark({ size = 28, inverse = false }: { size?: number; inverse?: boolean }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" aria-hidden="true">
-      <rect width="28" height="28" rx="8" fill="#101828" />
-      <path d="M8 19l6-10 6 10" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="14" cy="16.5" r="1.6" fill="#7C93FF" />
+      <rect width="28" height="28" rx="8" fill={inverse ? "#fff" : "#101828"} />
+      <path d="M8 19l6-10 6 10" fill="none" stroke={inverse ? "#101828" : "#fff"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="14" cy="16.5" r="1.6" fill={inverse ? "#2F4BE0" : "#7C93FF"} />
     </svg>
   );
 }

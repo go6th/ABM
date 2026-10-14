@@ -351,6 +351,12 @@ functions:
   local_auth_reset_password:
     returns: identity UUID after consuming one reset token and replacing its password hash
     proof: tests/phase3/test_ws2_local_auth_api.py
+  local_auth_invite_email:
+    returns: the email for one live invite token only
+    proof: tests/replica/test_admin_console.py
+  local_auth_accept_invite:
+    returns: identity UUID after consuming one invite token, setting its password and verifying it
+    proof: tests/replica/test_admin_console.py
   local_auth_success:
     returns: whether one verified active identity's lockout was cleared
     proof: tests/phase3/test_ws2_local_auth.py
@@ -595,6 +601,41 @@ routes:
     probe: staff
     params: {tenant_id: owner, request_id: 00000000-0000-4000-8000-000000000001}
   GET /operator/v1/library: {probe: staff}
+  GET /operator/v1/console/overview: {probe: staff, public: [owner]}
+  GET /operator/v1/console/clients: {probe: staff, public: [owner]}
+  POST /operator/v1/console/clients:
+    probe: staff
+    allow_service_unavailable: true
+    body: {name: Probe Client, admin_email: probe-admin@probe.example}
+  GET /operator/v1/console/clients/{tenant_id}:
+    probe: staff
+    params: {tenant_id: owner}
+    public: [owner]
+  PUT /operator/v1/console/clients/{tenant_id}:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {}
+    public: [owner]
+  POST /operator/v1/console/clients/{tenant_id}/invite:
+    probe: staff
+    params: {tenant_id: owner}
+    allow_service_unavailable: true
+  GET /operator/v1/console/users:
+    probe: staff
+    public: [owner, memberships.user_id]
+  POST /operator/v1/console/users/{tenant_id}/terminate:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {user_id: memberships.user_id}
+  POST /operator/v1/console/users/{tenant_id}/re-enable:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {user_id: memberships.user_id}
+  GET /operator/v1/console/runs:
+    probe: staff
+    public: [owner, research_jobs.id]
+  GET /operator/v1/console/defaults: {probe: staff}
+  PUT /operator/v1/console/defaults: {probe: staff, body: {}}
   POST /operator/v1/library/uploads:
     probe: staff
     query: {filename: probe.docx, domain: probe-library.example, account_name: Probe Library}
@@ -705,6 +746,10 @@ routes:
   POST /v1/auth/password/reset/request:
     probe: anonymous
     body: {email: matrix-isolation@synthetic.test}
+  POST /v1/auth/invite/accept:
+    probe: anonymous
+    body: {token: matrix-isolation-token-0123456789abcdef0123456789abcdef,
+           password: synthetic-isolation-password}
   POST /v1/auth/password/reset:
     probe: anonymous
     body: {token: matrix-isolation-token-0123456789abcdef0123456789abcdef,

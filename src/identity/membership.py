@@ -8,8 +8,15 @@ taken under row locks on the admin rows, so two admins demoting each other at th
 cannot leave the tenant without one (the second waits, re-counts and is refused).
 
 The authorisation layer reads membership through ``api.membership.MembershipCache`` (about 60 s,
-ARCH); ``active_role`` is its database source: the role of an ACTIVE member of a tenant that is
-not suspended, else None.
+ARCH); ``active_role`` is its database source: the role of an ACTIVE member whose access is
+active (not ended by an admin or by idle expiry) in a tenant that is not suspended, else None.
+Every sign-in method (password, OIDC, SAML) and every API call goes through it, so ending a
+member's access is enforced everywhere.
+
+Access (admin console A4, idle expiry): ``end_access`` ends it (terminated by an admin, or
+expired after the client's idle days) and ``reenable`` restores it; history is kept, the user's
+sessions end, and each change is a ``membership_events`` row (``suspended`` / ``reactivated`` with
+the reason).
 
 GUARANTEE(test_membership_changes_follow_the_role_rules_under_races)
 """
@@ -27,6 +34,7 @@ from identity.roles import is_role, role_change_refusal
 
 ACTIVE_ROLE_SQL = (
     "SELECT m.role FROM memberships m WHERE m.user_id = :u AND m.status = 'active'"
+    " AND m.access_state = 'active'"
     " AND NOT COALESCE((SELECT e.event = 'suspended' FROM tenant_events e"
     " WHERE e.event IN ('suspended', 'reactivated') ORDER BY e.seq DESC LIMIT 1), false)"
 )
@@ -204,3 +212,42 @@ async def listing(s: AsyncSession, limit: int = 500) -> list[Member]:
         )
     ).all()
     return [Member(r.user_id, r.role, r.status, int(r.version)) for r in rows]
+
+
+async def end_access(s: AsyncSession, user_id: str, state: str, actor: str, now: datetime) -> bool:
+    """End one member's access (``state`` is ``terminated`` or ``expired``); False when it had
+    already ended. History is kept; the caller ends the user's sessions."""
+    if state not in ("terminated", "expired"):
+        raise ValueError("unknown access state")
+    done = (
+        await s.execute(
+            text(
+                "UPDATE memberships SET access_state = :st, ended_at = :now, updated_at = :now"
+                " WHERE user_id = :u AND access_state = 'active' RETURNING role"
+            ),
+            {"u": user_id, "st": state, "now": now},
+        )
+    ).first()
+    if done is None:
+        return False
+    await _event(s, user_id, "suspended", now, actor, role=done.role, reason=state)
+    return True
+
+
+async def reenable(s: AsyncSession, user_id: str, actor: str, now: datetime) -> bool:
+    """Restore one member's ended access; idle expiry counts again from now. False when it was
+    not ended."""
+    done = (
+        await s.execute(
+            text(
+                "UPDATE memberships SET access_state = 'active', ended_at = NULL,"
+                " last_active_at = :now, updated_at = :now"
+                " WHERE user_id = :u AND access_state <> 'active' RETURNING role"
+            ),
+            {"u": user_id, "now": now},
+        )
+    ).first()
+    if done is None:
+        return False
+    await _event(s, user_id, "reactivated", now, actor, role=done.role, reason="re_enabled")
+    return True

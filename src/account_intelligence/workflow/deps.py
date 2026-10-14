@@ -73,6 +73,9 @@ class RunDeps:
     dev_auto_approve: bool = False
     # model routing (D-48): with a router every call goes through it; None uses ``llm`` directly
     router: Any | None = None
+    # the admin console's Model split (platform defaults): "split" or "single"; the router applies
+    # it (``llm.config.with_model_split``); the legacy path has fixed per-step models
+    model_split: str = "split"
     # research cache: the model reply log and cross-run reply reuse (``llm.reply_cache``)
     reply_cache: Any | None = None
 

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { operations } from "@/lib/gen/api.gen";
 import { googleOperatorOidcConfig, operatorApiOrigin, operatorOAuthCookieNames } from "@/lib/operator-oidc";
+import { BINARY_LIMIT, isBinaryUpload } from "@/lib/operator-proxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,16 +57,26 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
     if (value) headers.set(name, value);
   }
 
-  let body: string | undefined;
+  let body: string | ArrayBuffer | undefined;
   if (method !== "GET" && method !== "HEAD") {
+    const binary = isBinaryUpload(method, apiPath);
+    const limit = binary ? BINARY_LIMIT : 1_000_000;
     const size = Number(request.headers.get("content-length") ?? "0");
-    if (Number.isFinite(size) && size > 1_000_000) return problem(413, "body_too_large", "Request body is too large.");
-    const contentType = request.headers.get("content-type") ?? "";
-    if (!contentType.toLowerCase().startsWith("application/json")) {
-      return problem(415, "content_type_refused", "JSON is required for this operation.");
+    if (Number.isFinite(size) && size > limit) return problem(413, "body_too_large", "Request body is too large.");
+    const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
+    if (binary) {
+      if (!contentType.startsWith("application/octet-stream") && !contentType.startsWith("application/zip")) {
+        return problem(415, "content_type_refused", "Upload the file itself.");
+      }
+      body = await request.arrayBuffer();
+      if (body.byteLength > limit) return problem(413, "body_too_large", "Request body is too large.");
+    } else {
+      if (!contentType.startsWith("application/json")) {
+        return problem(415, "content_type_refused", "JSON is required for this operation.");
+      }
+      body = await request.text();
+      if (body.length > limit) return problem(413, "body_too_large", "Request body is too large.");
     }
-    body = await request.text();
-    if (body.length > 1_000_000) return problem(413, "body_too_large", "Request body is too large.");
   }
 
   if (apiOrigin) {

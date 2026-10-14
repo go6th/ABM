@@ -9,6 +9,8 @@ export interface OperatorRequestOptions {
   params?: Record<string, string>;
   query?: Record<string, string | number | boolean | null | undefined>;
   body?: unknown;
+  /** A file sent as the request body (the 6th Library upload); replaces ``body``. */
+  file?: Blob;
   headers?: Record<string, string>;
 }
 
@@ -67,7 +69,10 @@ export async function operatorRequest<K extends OperatorOperation>(
   if (!path.startsWith("/operator/v1/")) throw new Error("operator client refused a non-operator path");
   const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
   let body: BodyInit | undefined;
-  if (options.body !== undefined) {
+  if (options.file !== undefined) {
+    headers["Content-Type"] = "application/octet-stream";
+    body = options.file;
+  } else if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(options.body);
   }
