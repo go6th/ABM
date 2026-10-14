@@ -43,6 +43,8 @@ TOOLING = [
     ("E2E_WEB_ORIGIN", "Web origin the E2E harness redirects to.", False),
     ("E2E_API_ORIGIN", "API origin used by the Playwright harness.", False),
     ("E2E_API_PORT", "Local port for the synthetic E2E API server.", False),
+    ("REPLICA_WEB_ORIGIN", "Web origin of the replica stack for its screen check.", False),
+    ("DEMO_PASSWORD", "Password of the replica demo seed's users (shell only).", False),
     ("FAKE_IDP_ISSUER", "Issuer of the local fake IdP (local stack only).", False),
     ("FAKE_IDP_AUDIENCE", "Audience the local fake IdP mints tokens for.", False),
     ("TF_STATE_BUCKET", "GCS bucket of the Terraform remote state (deploy pipeline).", False),

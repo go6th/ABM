@@ -120,6 +120,8 @@ or a value has the wrong type (errors name the variable, never the value).
 | `E2E_WEB_ORIGIN` | Web origin the E2E harness redirects to. | no |
 | `E2E_API_ORIGIN` | API origin used by the Playwright harness. | no |
 | `E2E_API_PORT` | Local port for the synthetic E2E API server. | no |
+| `REPLICA_WEB_ORIGIN` | Web origin of the replica stack for its screen check. | no |
+| `DEMO_PASSWORD` | Password of the replica demo seed's users (shell only). | no |
 | `FAKE_IDP_ISSUER` | Issuer of the local fake IdP (local stack only). | no |
 | `FAKE_IDP_AUDIENCE` | Audience the local fake IdP mints tokens for. | no |
 | `TF_STATE_BUCKET` | GCS bucket of the Terraform remote state (deploy pipeline). | no |
