@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import signal
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -68,6 +70,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.draining = False
     container = build_container()
     app.state.container = container
+    if container.env in ("staging", "production") and settings.service_role == "api":
+        from account_intelligence.api.tenant_plane import assert_signing_keys, plane_of
+
+        await assert_signing_keys(plane_of(SimpleNamespace(app=app)))
     from account_intelligence.replica import jobs as research_jobs
 
     research_jobs.configure(container.scheduler, research_jobs.engine_for(container))
@@ -241,9 +247,69 @@ def _observe(path: str, status: int, seconds: float) -> None:
     record("api_latency_ms", seconds * 1000, {"route_class": route})
 
 
+PROBES = frozenset({"/healthz", "/readyz"})
+
+
+def _route_template(request: Request) -> str:
+    """The matched route's template (``/v1/accounts/{domain}``), never the raw path: paths carry
+    account domains and ids, and the query string carries download and upload tokens."""
+    from account_intelligence.api.guard import route_template
+
+    return route_template(request) or "unmatched"
+
+
+def _log_request(request: Request, status: int, seconds: float, request_id: str) -> None:
+    """The API's own request log through the allow-list logger (security audit L10): method,
+    route template, status, duration and request id. No query string, header or body is ever
+    logged, so uvicorn's access log can be switched off (``--no-access-log``). Probes are left
+    out (Cloud Run calls them every few seconds)."""
+    if request.url.path in PROBES:
+        return
+    _logger.info(
+        "http.request",
+        extra={
+            "method": request.method,
+            "route": _route_template(request),
+            "http_status": status,
+            "latency_ms": round(seconds * 1000, 1),
+            "request_id": request_id,
+        },
+    )
+
+
+def _is_https(request: Request) -> bool:
+    """Served over HTTPS: directly, or behind Cloud Run's front end (``X-Forwarded-Proto``)."""
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return request.url.scheme == "https" or forwarded == "https"
+
+
+def security_headers(headers: Any, *, https: bool) -> None:
+    """Headers on every API response. The API serves JSON only: nothing may load, frame or cache
+    it (``Cache-Control: no-store`` on every response, authenticated or not); HSTS when the request
+    came over HTTPS. The nonce CSP for HTML pages is the web BFF's.
+
+    GUARANTEE(test_every_api_response_carries_the_security_headers)"""
+    headers["X-Content-Type-Options"] = "nosniff"
+    headers["X-Frame-Options"] = "DENY"
+    headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    headers["Referrer-Policy"] = "no-referrer"
+    headers["Cache-Control"] = "no-store"
+    if https:
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+
 def create_app() -> FastAPI:
     """The FastAPI application with probes, the /v1 routes and the /tasks worker routes."""
-    app = FastAPI(title="Account Intelligence API", lifespan=lifespan)
+    # L12: no interactive docs or schema route in the cloud profiles (the API is internal-only
+    # there; scripts/export_openapi.py calls app.openapi() directly, so the snapshot is the same)
+    cloud = os.environ.get("APP_ENV", "dev") in ("staging", "production")
+    app = FastAPI(
+        title="Account Intelligence API",
+        lifespan=lifespan,
+        docs_url=None if cloud else "/docs",
+        redoc_url=None if cloud else "/redoc",
+        openapi_url=None if cloud else "/openapi.json",
+    )
 
     @app.middleware("http")
     async def request_context(request: Request, call_next: Any) -> Any:
@@ -263,14 +329,11 @@ def create_app() -> FastAPI:
             response = await call_next(request)
         finally:
             REQUEST_ID.reset(token)
-        _observe(request.url.path, response.status_code, time.monotonic() - started)
+        elapsed = time.monotonic() - started
+        _observe(request.url.path, response.status_code, elapsed)
+        _log_request(request, response.status_code, elapsed, request_id)
         response.headers["X-Request-ID"] = request_id
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        # JSON only: nothing may load or frame. The nonce CSP for HTML is set by the web BFF.
-        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Cache-Control"] = "no-store"
+        security_headers(response.headers, https=_is_https(request))
         return response
 
     @app.exception_handler(StarletteHTTPException)
