@@ -305,6 +305,17 @@ async def test_internal_view_is_role_gated_and_audited(harness: Harness) -> None
             await viewer.call(method, path, json=body) if body else await viewer.call(method, path)
         )
         assert reply.status_code == 403, (method, path, reply.status_code)
+    # an analyst may do everything a seller may, adding files included
+    analyst_slug = f"docs-analyst-{uid()}"
+    add_oidc_connection(a.tenant, stack.plane, analyst_slug)
+    add_member(a.tenant, f"{analyst_slug}:analyst", "analyst")
+    analyst = Browser(stack.plane)
+    assert (await analyst.oidc_sign_in(analyst_slug, "analyst")).status_code == 303
+    started = await analyst.call(
+        "POST", "/v1/documents/uploads", json={"name": "notes.md", "size_bytes": 10}
+    )
+    assert started.status_code == 201, started.text
+    await analyst.close()
     # the admin's access is an audit event
     assert (await a.browser.call("GET", f"/v1/runs/{run}/internal")).status_code == 200
     reads = admin(

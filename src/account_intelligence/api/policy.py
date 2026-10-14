@@ -71,7 +71,7 @@ def operator_route(
 
 
 _SELLERS: set[Role] = {"admin", "analyst", "seller"}
-_UPLOADERS: set[Role] = {"admin", "seller"}
+_UPLOADERS: set[Role] = {"admin", "analyst", "seller"}
 _INTERNAL: set[Role] = {"admin", "analyst", "seller"}
 _EVERYONE: set[Role] = set(ALL_ROLES)
 

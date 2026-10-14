@@ -71,13 +71,13 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/Ask.tsx` | tenant client | `POST /v1/chat/threads` | NewThread (required) | ChatThreadCreated | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/Conversations.tsx` | tenant client | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `web/components/ws/Conversations.tsx` | tenant client | `GET /v1/chat/threads/{thread_id}` | — | ChatThread | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
-| `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/DocumentDrop.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/FileAnalysis.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/lib/upload.ts` | tenant client | `POST /v1/documents/{document_id}/complete` | — | DocumentStatus | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/DocumentDrop.tsx` | tenant client | `POST /v1/documents/{document_id}/parts/{part}/retry` | — | DocumentStatus | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/components/ws/DocumentDrop.tsx` | tenant client | `GET /v1/documents/{document_id}/status` | — | DocumentStatus | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
-| `web/lib/upload.ts` | tenant client | `POST /v1/documents/uploads` | UploadStart (required) | DocumentUploadStarted | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/NewResearch.tsx` | tenant client | `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/ws/DocumentDrop.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/ws/FileAnalysis.tsx` | tenant client | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/lib/upload.ts` | tenant client | `POST /v1/documents/{document_id}/complete` | — | DocumentStatus | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/ws/DocumentDrop.tsx` | tenant client | `POST /v1/documents/{document_id}/parts/{part}/retry` | — | DocumentStatus | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/ws/DocumentDrop.tsx` | tenant client | `GET /v1/documents/{document_id}/status` | — | DocumentStatus | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
+| `web/lib/upload.ts` | tenant client | `POST /v1/documents/uploads` | UploadStart (required) | DocumentUploadStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DownloadEverything.tsx` | tenant client | `GET /v1/downloads/{job_id}` | — | DownloadJob | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/Downloads.tsx` | tenant client | `GET /v1/exports` | — | ExportPackages | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/exports` | — | ExportPackages | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -125,7 +125,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 |---|---|---|---|
 | `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
-| `DELETE /v1/documents/{document_id}` | — | DocumentDeleted (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
+| `DELETE /v1/documents/{document_id}` | — | DocumentDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `DELETE /v1/files/{file_id}` | — | — | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `DELETE /v1/sso/sessions/{session_id}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `GET /healthz` | — | Health (200) | public health probe |
@@ -177,9 +177,9 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/connectors/{connection_id}/quarantine` | — | Quarantine (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/credits` | — | Credits (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/crm/{crm}/writes` | — | CrmWrites (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/documents` | — | DocumentList (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/documents/policy` | — | DocumentPolicy (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
-| `GET /v1/documents/{document_id}/status` | — | DocumentStatus (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/documents` | — | DocumentList (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/documents/policy` | — | DocumentPolicy (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/documents/{document_id}/status` | — | DocumentStatus (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/downloads/{job_id}` | — | DownloadJob (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/downloads/{job_id}/parts/{n}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/exports` | — | ExportPackages (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -277,12 +277,12 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/crm/{crm}/revoke` | — | CrmToggle (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/crm/{crm}/writes` | Target (required) | CrmWriteRequested (201) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `POST /v1/crm/{crm}/writes/approve` | Approval (required) | CrmApproved (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
-| `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
-| `POST /v1/documents/estimate` | EstimateBody (required) | DocumentEstimate (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=read |
-| `POST /v1/documents/uploads` | UploadStart (required) | DocumentUploadStarted (201) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/documents/confirm-company` | ConfirmCompany (required) | CompanyConfirmed (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/documents/estimate` | EstimateBody (required) | DocumentEstimate (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=read |
+| `POST /v1/documents/uploads` | UploadStart (required) | DocumentUploadStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/documents/{document_id}/authoritative` | account_intelligence__api__routes__documents__FlagBody (required) | DocumentFlag (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
-| `POST /v1/documents/{document_id}/complete` | — | DocumentStatus (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
-| `POST /v1/documents/{document_id}/parts/{part}/retry` | — | DocumentStatus (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/documents/{document_id}/complete` | — | DocumentStatus (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `POST /v1/documents/{document_id}/parts/{part}/retry` | — | DocumentStatus (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/exports` | ExportBody (required) | ExportPackage (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `POST /v1/feedback` | FeedbackBody (required) | FeedbackCreated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/files/uploads` | UploadInit (required) | FileUploadStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -322,7 +322,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `PUT /operator/v1/console/users/{tenant_id}/limits` | LimitsChange (required) | LimitsChanged (200) | operator; roles=operator; principal=operator_support; tenant=operator_target; audit=admin |
 | `PUT /v1/chat/provider-key` | TenantModelKeyBody (required) | TenantModelKeyStatus (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `PUT /v1/documents/policy` | PolicyBody (required) | DocumentPolicy (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
-| `PUT /v1/documents/{document_id}/content` | — | DocumentReceived (200) | tenant; roles=admin, seller; principal=jwt, session; tenant=session; audit=run |
+| `PUT /v1/documents/{document_id}/content` | — | DocumentReceived (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `PUT /v1/files/uploads/{upload_id}/parts/{part_no}` | — | FileUploadPart (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `PUT /v1/me/model-preferences` | Preferences (required) | ModelChoices (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |

@@ -18,8 +18,8 @@
 * ``GET``/``PUT /v1/documents/policy`` (PUT admin only): the redaction tier;
   ``POST /v1/documents/{id}/authoritative`` (admin only) marks a source authoritative.
 
-Admins and sellers may upload; viewers may not. Every mutating handler records its audit event
-in its own transaction. The tenant comes only from the verified identity.
+Admins, analysts and sellers may upload; viewers may not. Every mutating handler records its
+audit event in its own transaction. The tenant comes only from the verified identity.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from account_intelligence.api.errors import APIProblem
 from account_intelligence.db.session import tenant_txn
 
 router = APIRouter(prefix="/documents", tags=["documents"])
-UPLOADERS = ("admin", "seller")
+UPLOADERS = ("admin", "seller")  # require_role admits analyst wherever seller is
 DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
 _STATUS = {
     "not_found": 404, "account_not_found": 404, "upload_closed": 409, "upload_expired": 410,
