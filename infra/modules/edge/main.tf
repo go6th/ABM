@@ -93,7 +93,7 @@ resource "google_compute_security_policy" "web" {
       expr {
         # the api skips its own per-IP bucket behind the web server (identity/rate_limit.py), so
         # this is the per-IP limit for these routes in the cloud (security audit M3)
-        expression = "request.path.matches('^/v1/(auth/(login|email/(resend|verify)|password/(enroll|reset(/request)?)|invite/accept)|sso/(discover|[a-z0-9-]+/start))$')"
+        expression = "request.path.matches('^/v1/(?:auth/(?:login|email/(?:resend|verify)|password/(?:enroll|reset(?:/request)?)|invite/accept)|sso/(?:discover|[a-z0-9-]+/start))$')"
       }
     }
     rate_limit_options {
@@ -113,7 +113,7 @@ resource "google_compute_security_policy" "web" {
     description = "Looser per-client limit for the staff console's Google sign-in"
     match {
       expr {
-        expression = "request.path.matches('^/api/operator/(login|callback|session)$')"
+        expression = "request.path == '/api/operator/login' || request.path == '/api/operator/callback' || request.path == '/api/operator/session'"
       }
     }
     rate_limit_options {

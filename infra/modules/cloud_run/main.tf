@@ -220,14 +220,8 @@ resource "google_cloud_run_v2_service" "svc" {
           timeout_seconds       = 5
           failure_threshold     = 24 # signature download and load can take a few minutes
         }
-        liveness_probe {
-          tcp_socket {
-            port = containers.value.probe_port
-          }
-          period_seconds    = 30
-          timeout_seconds   = 5
-          failure_threshold = 3
-        }
+        # no liveness probe: Cloud Run accepts only HTTP or gRPC there and the scanner speaks TCP;
+        # a dead scanner fails the scans, which the worker reports as scan_unavailable
       }
     }
   }

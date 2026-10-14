@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
-from sqlalchemy import create_engine, pool
+from sqlalchemy import Connection, create_engine, event, pool
 
 from account_intelligence.db import models  # noqa: F401  imported for the metadata side effect
 from account_intelligence.db.base import Base
@@ -65,8 +67,59 @@ def run_migrations_online() -> None:
             include_object=include_object,
         )
         with context.begin_transaction():
+            superuser = connection.exec_driver_sql(
+                "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+            ).scalar()
+            owners: set[str] = set()
+            if not superuser:
+                _grant_owner_changes(connection, owners)
             context.run_migrations()
+            if not superuser:
+                for role in sorted(owners):
+                    connection.exec_driver_sql(f'REVOKE "{role}" FROM CURRENT_USER')
+                connection.exec_driver_sql("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
     engine.dispose()
+
+
+OWNER_CHANGE = re.compile(r"^ALTER FUNCTION\b[^;]*?\bOWNER TO ([a-z_][a-z0-9_]*)\s*;", re.M)
+
+
+def _grant_owner_changes(connection: Connection, owners: set[str]) -> None:
+    """Let a non-superuser migrator (Cloud SQL's) work on functions the NOLOGIN definer roles own.
+
+    Changing an owner needs the migrator to be able to SET ROLE to the new owner and the new owner
+    to hold CREATE on the schema; replacing or dropping a definer's function needs the migrator to
+    hold the owner's privileges. A superuser skips all three checks. On PostgreSQL 16 the creator
+    of a role holds only ADMIN on it, so for this transaction the migrator is made a member (SET
+    and INHERIT) of every definer that already owns a function, and of each new owner just before
+    its ``ALTER FUNCTION ... OWNER TO role;``; CREATE goes to PUBLIC. Every migration runs in the
+    one transaction above and all of it is revoked before it commits, so no other session ever
+    sees it (0070 still grants and revokes its own; revoking again only warns).
+    """
+    existing = connection.exec_driver_sql(
+        "SELECT DISTINCT r.rolname FROM pg_proc p"
+        " JOIN pg_roles r ON r.oid = p.proowner"
+        " JOIN pg_namespace n ON n.oid = p.pronamespace"
+        " WHERE n.nspname = 'public' AND r.rolname <> current_user AND NOT r.rolcanlogin"
+        " AND pg_has_role(current_user, r.oid, 'MEMBER WITH ADMIN OPTION')"
+    ).scalars()
+    for role in existing:
+        owners.add(role)
+        connection.exec_driver_sql(f'GRANT "{role}" TO CURRENT_USER WITH SET TRUE, INHERIT TRUE')
+
+    def grant_first(
+        conn: Connection, cursor: Any, statement: str, params: Any, context: Any, many: bool
+    ) -> tuple[str, Any]:
+        def with_grant(m: re.Match[str]) -> str:
+            owners.add(m.group(1))
+            return (
+                f'GRANT "{m.group(1)}" TO CURRENT_USER WITH SET TRUE, INHERIT TRUE;\n{m.group(0)}'
+            )
+
+        return OWNER_CHANGE.sub(with_grant, statement), params
+
+    event.listen(connection, "before_cursor_execute", grant_first, retval=True)
+    connection.exec_driver_sql("GRANT CREATE ON SCHEMA public TO PUBLIC")
 
 
 if context.is_offline_mode():
