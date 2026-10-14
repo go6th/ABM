@@ -1097,6 +1097,21 @@ export const DownloadJob = z.object({
 }).strict();
 export type DownloadJob = z.infer<typeof DownloadJob>;
 
+export const DriveFile = z.object({
+  "google_native": z.boolean(),
+  "id": z.string(),
+  "modified_at": z.string().nullable(),
+  "name": z.string(),
+  "size_bytes": z.number().int().nullable(),
+  "type": z.string(),
+}).strict();
+export type DriveFile = z.infer<typeof DriveFile>;
+
+export const DriveFileList = z.object({
+  "files": z.array(DriveFile),
+}).strict();
+export type DriveFileList = z.infer<typeof DriveFileList>;
+
 export const EmailBody = z.object({
   "email": z.string(),
 }).strict();
@@ -1284,6 +1299,12 @@ export const Flags = z.object({
   "flags": z.array(Flag),
 }).strict();
 export type Flags = z.infer<typeof Flags>;
+
+export const FromDrive = z.object({
+  "account_id": z.string().nullable().optional(),
+  "file_id": z.string(),
+}).strict();
+export type FromDrive = z.infer<typeof FromDrive>;
 
 export const FromLibrary = z.object({
   "library_account_ids": z.array(z.string()),
@@ -3140,7 +3161,9 @@ export const operations = {
   "POST /v1/crm/{crm}/writes/approve": { method: "POST", path: "/v1/crm/{crm}/writes/approve", plane: "tenant", status: 200, request: Approval, requestRequired: true, response: CrmApproved },
   "GET /v1/documents": { method: "GET", path: "/v1/documents", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentList },
   "POST /v1/documents/confirm-company": { method: "POST", path: "/v1/documents/confirm-company", plane: "tenant", status: 200, request: ConfirmCompany, requestRequired: true, response: CompanyConfirmed },
+  "GET /v1/documents/drive-files": { method: "GET", path: "/v1/documents/drive-files", plane: "tenant", status: 200, request: null, requestRequired: false, response: DriveFileList },
   "POST /v1/documents/estimate": { method: "POST", path: "/v1/documents/estimate", plane: "tenant", status: 200, request: EstimateBody, requestRequired: true, response: DocumentEstimate },
+  "POST /v1/documents/from-drive": { method: "POST", path: "/v1/documents/from-drive", plane: "tenant", status: 201, request: FromDrive, requestRequired: true, response: DocumentStatus },
   "GET /v1/documents/policy": { method: "GET", path: "/v1/documents/policy", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentPolicy },
   "PUT /v1/documents/policy": { method: "PUT", path: "/v1/documents/policy", plane: "tenant", status: 200, request: PolicyBody, requestRequired: true, response: DocumentPolicy },
   "POST /v1/documents/uploads": { method: "POST", path: "/v1/documents/uploads", plane: "tenant", status: 201, request: UploadStart, requestRequired: true, response: DocumentUploadStarted },

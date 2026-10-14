@@ -19,6 +19,8 @@ ROUTES = ROOT / "src" / "account_intelligence" / "api" / "routes"
 LIMITED = {
     ("documents.py", "start_upload"): "document_upload",
     ("documents.py", "retry_part"): "part_retry",
+    ("documents.py", "drive_files"): "drive_list",
+    ("documents.py", "import_from_drive"): "document_upload",
     ("research.py", "resume_research"): "research_resume",
     ("downloads.py", "start_everything"): "download_everything",
     ("exports.py", "create_export"): "export",

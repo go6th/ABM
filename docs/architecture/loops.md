@@ -21,7 +21,7 @@ unannotated (the generator's check fails otherwise).
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
 | connector token refresh | `src/connectors_client/oauth.py:228` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
 | converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
-| copy document for the sandbox | `src/documents/service.py:669` | size / 1 MiB | end of object |
+| copy document for the sandbox | `src/documents/service.py:706` | size / 1 MiB | end of object |
 | credit ledger pass | `src/account_intelligence/worker/nightly.py:87` | the tenants with credit activity in the window | end |
 | crm fetch pass | `src/connectors_client/framework.py:402` | max_pages_per_pass pages per pass | last page, page_cap |
 | deletion cascade | `src/tenancy/lifecycle.py:341` | max_batches_per_pass erasing batches per pass, plus one empty probe per table | completed, blocked (blocked items remain), batch_cap |
@@ -33,8 +33,9 @@ unannotated (the generator's check fails otherwise).
 | devstore session lock | `src/devstore/server.py:98` | 1200 tries of 50 ms (one minute) | lock taken |
 | digest assembly | `src/alerts/digest.py:42` | len(items) | end |
 | distill re-ask | `src/agents/distill/agent.py:69` | 2 attempts | a narrative survived, or the second attempt (a narrative the model wrote and the guards dropped whole is asked for once more, with the reasons; the Summary needs a narrative and used to fail its build without one) |
-| document parts | `src/documents/service.py:480` | parts_total parts per worker, parts_per_request per call | no part left, client busy, request's share read (the next task continues) |
+| document parts | `src/documents/service.py:517` | parts_total parts per worker, parts_per_request per call | no part left, client busy, request's share read (the next task continues) |
 | drive ancestry resolution | `src/connectors_client/framework.py:298` | max_ancestry_depth levels | no unresolved parent, depth cap (the decision is then unknown ancestry: deny) |
+| drive download | `src/connectors_client/drive_files.py:200` | max_bytes | end of body or over the cap |
 | drive fetch pass | `src/connectors_client/framework.py:317` | max_pages_per_pass pages and max_items_per_pass items per pass | complete, page_cap or item_cap (a cursor is saved and the next pass resumes) |
 | eval repeats | `src/evalgate/runner.py:104` | accounts x repeats_k runs | all cases executed |
 | event evidence | `src/refresh/probe.py:349` | outlets of one item | end |
@@ -52,11 +53,12 @@ unannotated (the generator's check fails otherwise).
 | gmail message metadata | `src/connectors_client/maildrive.py:201` | MAX_ITEMS listed messages | end of the list |
 | grading hand-off | `src/refresh/probe.py:201` | observations of this poll | end |
 | graph-neighbors | `src/account_intelligence/rag/graphrag.py:96` | entity_count | queue empty or max_hops. |
-| hash uploaded document | `src/documents/service.py:284` | size / 1 MiB reads | end of object |
+| hash uploaded document | `src/documents/service.py:321` | size / 1 MiB reads | end of object |
 | idle expiry | `src/account_intelligence/replica/access.py:89` | one pass over the clients | every client checked or failed |
+| import spool | `src/documents/service.py:277` | size / chunk_bytes reads | end of the spool file |
 | in-flight wait | `src/account_intelligence/connectors/service.py:296` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:146` | limit (1000) | queue empty, limit |
-| index pages | `src/documents/service.py:684` | passages / index_batch pages | no passage left, deleted |
+| index pages | `src/documents/service.py:721` | passages / index_batch pages | no passage left, deleted |
 | isolation owner probe | `src/account_intelligence/replica/isolation.py:201` | every real client once | all probed |
 | isolation route probe | `src/account_intelligence/replica/isolation.py:247` | the read routes of the catalog | all probed |
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
@@ -65,14 +67,14 @@ unannotated (the generator's check fails otherwise).
 | judge re-ask | `src/account_intelligence/grading/judge.py:88` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:133` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
-| lease heartbeat | `src/documents/service.py:367` | the step's duration / (lease_ttl_s / 3) renewals | step finished (cancelled), lease lost |
+| lease heartbeat | `src/documents/service.py:404` | the step's duration / (lease_ttl_s / 3) renewals | step finished (cancelled), lease lost |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
 | mail and drive sync | `src/account_intelligence/api/routes/tasks.py:267` | 500 connections per tick (the lookup's limit) | end |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
 | month normalisation | `src/jobs/window.py:15` | one iteration (month - 12 >= -11) | month in 1..12 |
-| moonshot stream | `src/llm/adapters/moonshot_api.py:200` | the server's chunks until [DONE] | [DONE], end |
+| moonshot stream | `src/llm/adapters/moonshot_api.py:237` | the server's chunks until [DONE] | [DONE], end |
 | narrative reread | `src/verify/narrative.py:74` | one verdict per sentence | all sentences decided |
 | notification relay | `src/spend/notify.py:217` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:76` | max_pages pages of batch_size | short page |

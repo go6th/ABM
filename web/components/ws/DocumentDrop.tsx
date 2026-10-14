@@ -1,6 +1,7 @@
 "use client";
 // Add the files a "From a file" research reads (owner decision 2026-10-14): drop them or "Add
-// files", or "Connect Google Drive". Each file goes straight to storage in resumable chunks (the
+// files", or "Connect Google Drive" (DriveChooser: the server fetches the chosen files from the
+// user's own Drive into the same path). Each file goes straight to storage in resumable chunks (the
 // bar shows the bytes sent; a reload keeps the place: choose the same file again to continue),
 // is completed, then followed through scanning and reading. A large file is read in parts
 // ("Reading part 3 of 12"); a part that could not be read shows its reason and "Try again".
@@ -12,9 +13,10 @@ import { uploadDocument } from "@/lib/upload";
 import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
 import { Status } from "@/ui/primitives";
 import { cellText } from "@/lib/render";
-import type { DocumentStatus } from "@/lib/gen/api.gen";
+import type { DocumentStatus, DriveFile } from "@/lib/gen/api.gen";
+import { DriveChooser } from "./DriveChooser";
 
-export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number }
+export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number; driveId?: string }
 
 const POLL_MS = 2000;
 
@@ -87,6 +89,18 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     }
   }, [accountId, update]);
 
+  const addFromDrive = useCallback(async (file: DriveFile) => {
+    counter.current += 1;
+    const key = `${counter.current}-drive-${file.id}`;
+    setItems((prev) => [...prev, { key, name: file.name, size: file.size_bytes ?? 0, stage: "uploading", message: null, doc: null, sent: 0, driveId: file.id }]);
+    try {
+      const doc = await api<DocumentStatus>("POST", "/v1/documents/from-drive", { file_id: file.id, account_id: accountId });
+      update(key, { doc, size: doc.size_bytes, stage: doc.stage as Stage, message: doc.message ?? null });
+    } catch (error) {
+      update(key, { stage: "failed", message: error instanceof ApiError ? error.detail : m.research.driveError });
+    }
+  }, [accountId, update]);
+
   const remove = async (it: DropItem) => {
     aborts.current.get(it.key)?.abort();
     if (it.doc) {
@@ -128,7 +142,13 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
         </div>
         <input ref={input} type="file" multiple accept={ACCEPT.join(",")} aria-label={m.research.chooseFiles} onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = ""; }} />
       </div>
-      {drive ? <p className="small muted" role="status">{m.research.driveUnavailable}</p> : null}
+      {drive ? (
+        <DriveChooser
+          onPick={(f) => void addFromDrive(f)}
+          picked={new Set(items.filter((i) => i.driveId && i.stage !== "failed").map((i) => i.driveId!))}
+          disabled={disabled}
+        />
+      ) : null}
       {paused.length ? (
         <ul className="rows uploads" aria-label="Paused uploads">
           {paused.map((p) => (
@@ -152,7 +172,9 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                   <div>
                     <p>{cellText(it.name)}</p>
                     <span className="sub">
-                      {it.stage === "uploading" ? `${fileSize(it.sent)} of ${fileSize(it.size)} sent` : fileSize(it.size)}
+                      {it.stage === "uploading"
+                        ? it.driveId ? m.research.driveFetching : `${fileSize(it.sent)} of ${fileSize(it.size)} sent`
+                        : fileSize(it.size)}
                       {reading ? `. ${reading}` : ""}
                       {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} passages` : ""}
                       {it.message ? `. ${it.message}` : ""}
@@ -163,7 +185,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                     <button type="button" className="link-btn small" onClick={() => void remove(it)} disabled={disabled}>{m.research.remove}</button>
                   </div>
                 </div>
-                {it.stage === "uploading" ? (
+                {it.stage === "uploading" && !it.driveId ? (
                   <progress className="upload-bar" max={Math.max(it.size, 1)} value={it.sent} aria-label={`Upload of ${it.name}`} />
                 ) : it.doc && it.doc.parts_total > 1 && it.stage === "parsing" ? (
                   <progress className="upload-bar" max={it.doc.parts_total} value={it.doc.parts_done} aria-label={`Reading ${it.name}`} />

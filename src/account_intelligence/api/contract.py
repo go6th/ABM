@@ -1999,6 +1999,23 @@ class DocumentStatus(Out):
     parts_failed: list[DocumentPartFailure]
 
 
+class DriveFile(Out):
+    """One file of the caller's Google Drive that a research can read (metadata only)."""
+
+    id: str
+    name: str
+    type: str
+    size_bytes: int | None
+    modified_at: str | None
+    google_native: bool
+
+
+class DriveFileList(Out):
+    """Response body: the caller's newest readable Drive files."""
+
+    files: list[DriveFile]
+
+
 class DocumentList(Out):
     """Response body: the tenant's documents."""
 

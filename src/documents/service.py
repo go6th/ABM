@@ -47,6 +47,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -247,6 +248,42 @@ class DocumentService:
         except PartTooLarge:
             raise DocumentError("size_mismatch") from None
         return size
+
+    async def file_limit(self, tenant_id: UUID) -> int:
+        """The per-file limit for this client (what a server-side fetch may download)."""
+        async with self.txn(tenant_id) as s:
+            return await self.max_file_bytes(s)
+
+    async def import_file(
+        self,
+        tenant_id: UUID,
+        user: str,
+        name: str,
+        path: Path,
+        mime: str | None,
+        account_id: UUID | None,
+    ) -> dict[str, Any]:
+        """A file the server fetched for the user (a Google Drive import): declared like an
+        upload (name, type, size and the per-file limit checked first), streamed from ``path``
+        into quarantine, then completed, so the scan, typing from content and reading are
+        exactly an upload's. The caller deletes ``path``."""
+        size = path.stat().st_size
+        started = await self.start_upload(tenant_id, user, name, size, mime, account_id)
+        doc_id = UUID(started["document_id"])
+
+        async def chunks() -> AsyncIterator[bytes]:
+            with path.open("rb") as source:
+                # LOOP(import spool): cap=size / chunk_bytes reads; exit=end of the spool file
+                while block := source.read(self.c.upload.chunk_bytes):
+                    yield block
+
+        try:
+            await self.blobs.write_stream(
+                quarantine_key(tenant_id, doc_id), chunks(), max_bytes=size
+            )
+        except PartTooLarge:
+            raise DocumentError("size_mismatch") from None
+        return await self.complete(tenant_id, doc_id)
 
     async def complete(self, tenant_id: UUID, document_id: UUID) -> dict[str, Any]:
         """Check what arrived (its size, from storage metadata: a large file is never read in

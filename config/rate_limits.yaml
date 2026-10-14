@@ -8,6 +8,7 @@ status: "proposal (limits unmeasured)"
 
 user_buckets:
   document_upload:     {capacity: 120, refill_per_second: 0.5}       # 120 at once, then 30 a minute
+  drive_list:          {capacity: 60,  refill_per_second: 0.5}       # Drive file list and search: 60 at once, then 30 a minute
   part_retry:          {capacity: 60,  refill_per_second: 0.2}       # 60 at once, then 12 a minute
   research_resume:     {capacity: 20,  refill_per_second: 0.05}      # 20 at once, then 3 a minute
   download_everything: {capacity: 10,  refill_per_second: 0.0028}    # 10 at once, then 10 an hour

@@ -449,6 +449,8 @@ routes:
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/collected: {probe: tenant, params: {run_id: account_runs.id}}
   POST /v1/documents/uploads: {probe: tenant, body: {name: synthetic-b.pdf, size_bytes: 10, account_id: accounts.id}}
+  GET /v1/documents/drive-files: {probe: tenant}
+  POST /v1/documents/from-drive: {probe: tenant, body: {file_id: matrix-drive-file-0000, account_id: accounts.id}}
   PUT /v1/documents/{document_id}/content:
     probe: tenant
     params: {document_id: documents.id}

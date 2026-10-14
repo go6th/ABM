@@ -75,3 +75,31 @@ test("a dropped file is uploaded, completed and followed to Ready; a refused one
   expect(apiMock.mock.calls.some((c) => c[0] === "PUT" && c[1] === "/v1/documents/d1/content?token=t")).toBe(true);
   expect(seen.at(-1)?.map((d) => d.stage)).toEqual(["indexed"]);
 });
+
+test("Google Drive: files are listed by the server and an added one is fetched into the same path", async () => {
+  apiMock.mockImplementation(async (method: string, path: string, body?: unknown) => {
+    if (method === "GET" && path.startsWith("/v1/documents/drive-files")) {
+      return { files: [{ id: "drive-file-0001", name: "Plan.docx", type: "docx", size_bytes: null, modified_at: "2026-10-14T00:00:00Z", google_native: true }] };
+    }
+    if (method === "POST" && path === "/v1/documents/from-drive") {
+      expect(body).toEqual({ file_id: "drive-file-0001", account_id: null });
+      return doc({ document_id: "d9", name: "Plan.docx", stage: "scanning", status: "quarantined", size_bytes: 42 });
+    }
+    return doc({ document_id: "d9", name: "Plan.docx", stage: "indexed" });
+  });
+  render(<DocumentDrop onChange={() => undefined} initialDrive />);
+  expect(await screen.findByText("Plan.docx")).toBeTruthy();
+  expect(screen.getByText(/Google file, added as DOCX/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("POST", "/v1/documents/from-drive", { file_id: "drive-file-0001", account_id: null }));
+  expect(await screen.findByRole("button", { name: "Added" })).toBeTruthy();
+});
+
+test("Google Drive not connected: a link to the Mail and drive page, no file list", async () => {
+  const { ApiError } = await import("@/lib/api");
+  apiMock.mockRejectedValue(new ApiError(409, "drive_not_connected", "Connect Google Drive on the Mail and drive page first."));
+  render(<DocumentDrop onChange={() => undefined} initialDrive />);
+  const link = await screen.findByRole("link", { name: "Connect Google Drive" });
+  expect(link.getAttribute("href")).toBe("/mail-and-drive");
+  expect(screen.queryByRole("search")).toBeNull();
+});

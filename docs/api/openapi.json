@@ -5515,6 +5515,78 @@
         "title": "DownloadPart",
         "type": "object"
       },
+      "DriveFile": {
+        "additionalProperties": false,
+        "description": "One file of the caller's Google Drive that a research can read (metadata only).",
+        "properties": {
+          "google_native": {
+            "title": "Google Native",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "modified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "size_bytes",
+          "modified_at",
+          "google_native"
+        ],
+        "title": "DriveFile",
+        "type": "object"
+      },
+      "DriveFileList": {
+        "additionalProperties": false,
+        "description": "Response body: the caller's newest readable Drive files.",
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DriveFile"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "DriveFileList",
+        "type": "object"
+      },
       "EmailBody": {
         "additionalProperties": false,
         "description": "Address used for an enumeration-resistant verification resend.",
@@ -6463,6 +6535,36 @@
           "flags"
         ],
         "title": "Flags",
+        "type": "object"
+      },
+      "FromDrive": {
+        "additionalProperties": false,
+        "description": "A file from the caller's own Google Drive. No tenant field.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "file_id": {
+            "maxLength": 200,
+            "minLength": 10,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "File Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id"
+        ],
+        "title": "FromDrive",
         "type": "object"
       },
       "FromLibrary": {
@@ -19904,6 +20006,67 @@
         ]
       }
     },
+    "/v1/documents/drive-files": {
+      "get": {
+        "description": "The caller's newest Drive files a research can read, optionally by name.",
+        "operationId": "drive_files_v1_documents_drive_files_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 100,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriveFileList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Drive Files",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/v1/documents/estimate": {
       "post": {
         "description": "What a file-mode run over these documents would cost (shown before it starts).",
@@ -19959,6 +20122,66 @@
           }
         },
         "summary": "Estimate",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/from-drive": {
+      "post": {
+        "description": "Fetch one of the caller's Drive files on the server into quarantine and enqueue its scan.",
+        "operationId": "import_from_drive_v1_documents_from_drive_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FromDrive"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import From Drive",
         "tags": [
           "documents"
         ]
