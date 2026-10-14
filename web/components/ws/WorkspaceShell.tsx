@@ -1,35 +1,80 @@
 "use client";
-// The client workspace frame: a 220px sidebar with the workspace name, New chat, Ask, Accounts,
-// New research and recent chats; the signed-in person at the foot. Nothing about caps or usage
-// limits. Below 760px the sidebar folds behind a Menu button.
+// The client workspace frame as designed: logo, workspace card, New chat, the nav (Ask,
+// Accounts, New research, Schedules, Mail and drive), recent chats, then "Accounts used N of M",
+// the signed-in person and Sign out. Below 760px the sidebar is an overlay menu: Escape or the
+// scrim closes it, focus stays inside while open and returns to the Menu button, and the page
+// behind is inert.
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { clearSession } from "@/lib/api";
-import { m } from "@/lib/messages";
-import { cellText } from "@/lib/render";
+import { Bar, Logo, NavIcon } from "@/ui/design";
 
 export interface RecentChat { id: string; title: string }
 
-const NAV = [
-  { href: "/", label: m.nav.ask },
-  { href: "/accounts", label: m.nav.accounts },
-  { href: "/research/new", label: m.nav.newResearch },
-] as const;
-
-export function isCurrent(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+export interface ShellUser {
+  clientName: string;
+  userName: string | null;
+  email: string | null;
+  accountsUsed: number;
+  accountCap: number;
+  mailDriveAllowed: boolean;
 }
 
-export function WorkspaceShell({ clientName, userName, email, recent, children }: {
-  clientName: string; userName: string | null; email: string | null; recent: RecentChat[]; children: React.ReactNode;
-}) {
+export const NEW_CHAT_EVENT = "ask:new-chat";
+
+export function isCurrent(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  if (href === "/research/new") return pathname === href || /^\/accounts\/[^/]+\/files/.test(pathname);
+  if (href === "/accounts") return pathname === "/accounts" || (pathname.startsWith("/accounts/") && !/^\/accounts\/[^/]+\/files/.test(pathname));
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function initial(name: string | null, email: string | null): string {
+  return ((name ?? email ?? "?").trim()[0] ?? "?").toUpperCase();
+}
+
+export function WorkspaceShell({ user, recent, children }: { user: ShellUser; recent: RecentChat[]; children: React.ReactNode }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const side = useRef<HTMLElement>(null);
   const thread = params.get("thread");
+
+  const nav = [
+    { href: "/", label: "Ask", icon: "ask" },
+    { href: "/accounts", label: "Accounts", icon: "accounts" },
+    { href: "/research/new", label: "New research", icon: "research" },
+    { href: "/schedules", label: "Schedules", icon: "schedules" },
+    ...(user.mailDriveAllowed ? [{ href: "/mail-and-drive", label: "Mail and drive", icon: "mail" }] : []),
+  ];
+
+  const close = useCallback(() => {
+    setOpen(false);
+    menuButton.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const first = side.current?.querySelector<HTMLElement>("a, button");
+    first?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); close(); return; }
+      if (event.key !== "Tab" || !side.current) return;
+      const focusable = Array.from(side.current.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"));
+      if (!focusable.length) return;
+      const firstEl = focusable[0]!;
+      const lastEl = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === firstEl) { event.preventDefault(); lastEl.focus(); }
+      else if (!event.shiftKey && document.activeElement === lastEl) { event.preventDefault(); firstEl.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, close]);
+
   const signOut = async () => {
     if (busy) return;
     setBusy(true);
@@ -38,42 +83,64 @@ export function WorkspaceShell({ clientName, userName, email, recent, children }
     router.push("/login");
     router.refresh();
   };
-  const sidebar = (
-    <aside className="sidebar" data-open={open} id="sidebar">
-      <Link href="/" className="brand">{m.product}<span className="small">{m.productBy}</span></Link>
-      <p className="workspace">Workspace<b title={clientName}>{cellText(clientName)}</b></p>
-      <Link className="btn primary" href="/" onClick={() => setOpen(false)}>{m.nav.newChat}</Link>
-      <nav className="nav" aria-label={m.nav.label}>
-        {NAV.map(({ href, label }) => (
-          <Link key={href} href={href} aria-current={isCurrent(pathname, href) && !(href === "/" && thread) ? "page" : undefined} onClick={() => setOpen(false)}>{label}</Link>
-        ))}
-        {recent.length ? (
-          <div className="recent">
-            <p className="nav-label">{m.nav.recent}</p>
-            {recent.map((t) => (
-              <Link key={t.id} href={`/?thread=${encodeURIComponent(t.id)}`} aria-current={thread === t.id ? "page" : undefined} className="truncate" onClick={() => setOpen(false)}>
-                {cellText(t.title, 60) || "Untitled chat"}
-              </Link>
-            ))}
-          </div>
-        ) : null}
-      </nav>
-      <div className="foot">
-        {userName ? <b>{cellText(userName)}</b> : null}
-        {email ? <span className="truncate">{cellText(email)}</span> : null}
-        <button type="button" className="link-btn small" onClick={() => void signOut()} disabled={busy}>{m.nav.signOut}</button>
-      </div>
-    </aside>
-  );
+
+  const newChat = () => {
+    setOpen(false);
+    window.dispatchEvent(new Event(NEW_CHAT_EVENT));
+    router.push("/");
+  };
+
   return (
     <div className="app">
       <a className="skip-link" href="#main">Skip to content</a>
-      <div className="topbar">
-        <b>{m.product}</b>
-        <button type="button" className="btn sm" aria-expanded={open} aria-controls="sidebar" onClick={() => setOpen((v) => !v)}>{m.nav.menu}</button>
+      <div className="topbar" inert={open || undefined}>
+        <Link href="/" aria-label="Account Intelligence home"><Logo /></Link>
+        <button ref={menuButton} type="button" className="btn sm" aria-expanded={open} aria-controls="sidebar" onClick={() => setOpen(true)}>Menu</button>
       </div>
-      {sidebar}
-      <main className="main" id="main" tabIndex={-1}>{children}</main>
+      <button type="button" className="scrim" data-open={open} aria-label="Close menu" tabIndex={-1} onClick={close} />
+      <aside ref={side} className="side" id="sidebar" data-open={open} aria-label="Workspace">
+        <Link href="/" prefetch={false} onClick={() => setOpen(false)}><Logo /></Link>
+        <div className="card wscard"><div className="k">Workspace</div><div className="v" title={user.clientName}>{user.clientName}</div></div>
+        <button type="button" className="btn primary block" onClick={newChat}>New chat</button>
+        <nav className="nav" aria-label="Main">
+          {nav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              prefetch={false}
+              aria-current={isCurrent(pathname, item.href) && !(item.href === "/" && thread) ? "page" : undefined}
+              onClick={() => setOpen(false)}
+            >
+              <NavIcon name={item.icon} />{item.label}
+            </Link>
+          ))}
+        </nav>
+        {recent.length ? (
+          <nav className="rec" aria-label="Recent chats">
+            <div className="lbl">Recent</div>
+            {recent.map((t) => (
+              <Link key={t.id} href={`/?thread=${encodeURIComponent(t.id)}`} prefetch={false} aria-current={thread === t.id ? "page" : undefined} onClick={() => setOpen(false)}>
+                {t.title || "Untitled chat"}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
+        <div className="side-foot">
+          <div className="used">
+            <div className="meter-row"><span>Accounts used</span><b>{user.accountsUsed} of {user.accountCap}</b></div>
+            <Bar value={user.accountsUsed} max={user.accountCap} label={`${user.accountsUsed} of ${user.accountCap} accounts used`} />
+          </div>
+          <div className="me">
+            <div className="avatar" aria-hidden="true">{initial(user.userName, user.email)}</div>
+            <div className="who">
+              {user.userName ? <div className="nm">{user.userName}</div> : null}
+              {user.email ? <div className="em" title={user.email}>{user.email}</div> : null}
+              <button type="button" className="out" onClick={() => void signOut()} disabled={busy}>Sign out</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+      <main className="main" id="main" tabIndex={-1} inert={open || undefined}>{children}</main>
     </div>
   );
 }

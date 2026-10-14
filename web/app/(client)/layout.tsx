@@ -17,10 +17,20 @@ export default async function ClientLayout({ children }: { children: React.React
   const recent = (threads?.threads ?? [])
     .slice()
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-    .slice(0, 8)
+    .slice(0, 6)
     .map((t) => ({ id: t.id, title: t.title }));
   return (
-    <WorkspaceShell clientName={me.tenant_name} userName={me.display_name} email={me.email} recent={recent}>
+    <WorkspaceShell
+      user={{
+        clientName: me.tenant_name,
+        userName: me.display_name,
+        email: me.email,
+        accountsUsed: me.accounts_used ?? 0,
+        accountCap: me.account_cap ?? 0,
+        mailDriveAllowed: me.mail_drive_allowed ?? true,
+      }}
+      recent={recent}
+    >
       {children}
     </WorkspaceShell>
   );
