@@ -1252,50 +1252,6 @@ export const FileAnalysisRun = z.object({
 }).strict();
 export type FileAnalysisRun = z.infer<typeof FileAnalysisRun>;
 
-export const FileAnalytics = z.object({
-  "analytics": z.record(z.string(), z.unknown()).nullable(),
-  "file_id": z.string(),
-  "status": z.string(),
-}).strict();
-export type FileAnalytics = z.infer<typeof FileAnalytics>;
-
-export const FileCitation = z.object({
-  "id": z.string(),
-  "location": z.record(z.string(), z.unknown()),
-  "seq": z.number().int(),
-}).strict();
-export type FileCitation = z.infer<typeof FileCitation>;
-
-export const FileAnswer = z.object({
-  "answer": z.string().nullable(),
-  "citations": z.array(FileCitation),
-  "error": z.string().nullable().optional(),
-  "estimate": z.record(z.string(), z.unknown()).nullable().optional(),
-  "needs_approval": z.boolean(),
-  "passages": z.array(z.record(z.string(), z.unknown())).nullable().optional(),
-  "served_from": z.string().nullable().optional(),
-  "source": z.string(),
-}).strict();
-export type FileAnswer = z.infer<typeof FileAnswer>;
-
-export const FileFinding = z.object({
-  "check": z.string(),
-  "fix": z.string().nullable(),
-  "location": z.record(z.string(), z.unknown()),
-  "message": z.string(),
-  "severity": z.string(),
-}).strict();
-export type FileFinding = z.infer<typeof FileFinding>;
-
-export const FileAudit = z.object({
-  "counts": z.record(z.string(), z.number().int()),
-  "file_id": z.string(),
-  "findings": z.array(FileFinding),
-  "limit": z.number().int(),
-  "offset": z.number().int(),
-}).strict();
-export type FileAudit = z.infer<typeof FileAudit>;
-
 export const FileInput = z.object({
   "account_id": z.string().nullable().optional(),
   "credit_cap": z.number().nullable().optional(),
@@ -1303,85 +1259,6 @@ export const FileInput = z.object({
   "enrich_public": z.boolean().optional(),
 }).strict();
 export type FileInput = z.infer<typeof FileInput>;
-
-export const FileSummary = z.object({
-  "created_at": z.string(),
-  "detected_type": z.string().nullable(),
-  "file_id": z.string(),
-  "name": z.string(),
-  "size_bytes": z.number().int(),
-  "status": z.string(),
-  "stop_reason": z.string().nullable(),
-  "units_done": z.number().int(),
-}).strict();
-export type FileSummary = z.infer<typeof FileSummary>;
-
-export const FileList = z.object({
-  "files": z.array(FileSummary),
-}).strict();
-export type FileList = z.infer<typeof FileList>;
-
-export const FileState = z.object({
-  "file_id": z.string(),
-  "status": z.string(),
-}).strict();
-export type FileState = z.infer<typeof FileState>;
-
-export const FileStatus = z.object({
-  "created_at": z.string(),
-  "detected_type": z.string().nullable(),
-  "estimate": z.record(z.string(), z.unknown()).nullable(),
-  "file_id": z.string(),
-  "findings": z.record(z.string(), z.number().int()),
-  "name": z.string(),
-  "sha256": z.string(),
-  "size_bytes": z.number().int(),
-  "spend": z.record(z.string(), z.unknown()),
-  "status": z.string(),
-  "stop_detail": z.string().nullable(),
-  "stop_reason": z.string().nullable(),
-  "units_done": z.number().int(),
-  "updated_at": z.string(),
-}).strict();
-export type FileStatus = z.infer<typeof FileStatus>;
-
-export const FileTask = z.object({
-  "file_id": z.string(),
-  "tenant_id": z.string(),
-}).strict();
-export type FileTask = z.infer<typeof FileTask>;
-
-export const FileUploadCompleted = z.object({
-  "deduplicated": z.boolean(),
-  "file_id": z.string(),
-  "status": z.string(),
-}).strict();
-export type FileUploadCompleted = z.infer<typeof FileUploadCompleted>;
-
-export const FileUploadPart = z.object({
-  "part": z.number().int(),
-  "sha256": z.string(),
-  "size": z.number().int(),
-}).strict();
-export type FileUploadPart = z.infer<typeof FileUploadPart>;
-
-export const FileUploadStarted = z.object({
-  "part_size": z.number().int(),
-  "parts_total": z.number().int(),
-  "upload_id": z.string(),
-}).strict();
-export type FileUploadStarted = z.infer<typeof FileUploadStarted>;
-
-export const FileUploadState = z.object({
-  "file_id": z.string().nullable(),
-  "missing": z.array(z.number().int()),
-  "part_size": z.number().int(),
-  "parts_total": z.number().int(),
-  "received": z.array(z.number().int()),
-  "status": z.string(),
-  "upload_id": z.string(),
-}).strict();
-export type FileUploadState = z.infer<typeof FileUploadState>;
 
 export const Filter = z.object({
   "column": z.string(),
@@ -1976,12 +1853,6 @@ export const QuerySpec = z.object({
   "sort": z.array(Sort).optional(),
 }).strict();
 export type QuerySpec = z.infer<typeof QuerySpec>;
-
-export const Question = z.object({
-  "approve": z.boolean().optional(),
-  "question": z.string(),
-}).strict();
-export type Question = z.infer<typeof Question>;
 
 export const QuotaBody = z.object({
   "dimension": z.string(),
@@ -2620,13 +2491,6 @@ export const TimeoutTask = z.object({
   "tenant_id": z.string(),
 }).strict();
 export type TimeoutTask = z.infer<typeof TimeoutTask>;
-
-export const UploadInit = z.object({
-  "mime": z.string().nullable().optional(),
-  "name": z.string(),
-  "size": z.number().int(),
-}).strict();
-export type UploadInit = z.infer<typeof UploadInit>;
 
 export const UploadTarget = z.object({
   "content_type": z.string(),
@@ -3294,18 +3158,6 @@ export const operations = {
   "GET /v1/exports/{package_id}/files/{index}": { method: "GET", path: "/v1/exports/{package_id}/files/{index}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/feedback": { method: "GET", path: "/v1/feedback", plane: "tenant", status: 200, request: null, requestRequired: false, response: FeedbackList },
   "POST /v1/feedback": { method: "POST", path: "/v1/feedback", plane: "tenant", status: 201, request: FeedbackBody, requestRequired: true, response: FeedbackCreated },
-  "GET /v1/files": { method: "GET", path: "/v1/files", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileList },
-  "POST /v1/files/uploads": { method: "POST", path: "/v1/files/uploads", plane: "tenant", status: 201, request: UploadInit, requestRequired: true, response: FileUploadStarted },
-  "GET /v1/files/uploads/{upload_id}": { method: "GET", path: "/v1/files/uploads/{upload_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileUploadState },
-  "POST /v1/files/uploads/{upload_id}/complete": { method: "POST", path: "/v1/files/uploads/{upload_id}/complete", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileUploadCompleted },
-  "PUT /v1/files/uploads/{upload_id}/parts/{part_no}": { method: "PUT", path: "/v1/files/uploads/{upload_id}/parts/{part_no}", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileUploadPart },
-  "DELETE /v1/files/{file_id}": { method: "DELETE", path: "/v1/files/{file_id}", plane: "tenant", status: 204, request: null, requestRequired: false, response: null },
-  "GET /v1/files/{file_id}": { method: "GET", path: "/v1/files/{file_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileStatus },
-  "GET /v1/files/{file_id}/analytics": { method: "GET", path: "/v1/files/{file_id}/analytics", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAnalytics },
-  "POST /v1/files/{file_id}/approve": { method: "POST", path: "/v1/files/{file_id}/approve", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileState },
-  "POST /v1/files/{file_id}/ask": { method: "POST", path: "/v1/files/{file_id}/ask", plane: "tenant", status: 200, request: Question, requestRequired: true, response: FileAnswer },
-  "GET /v1/files/{file_id}/audit": { method: "GET", path: "/v1/files/{file_id}/audit", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAudit },
-  "POST /v1/files/{file_id}/resume": { method: "POST", path: "/v1/files/{file_id}/resume", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileState },
   "GET /v1/library/available": { method: "GET", path: "/v1/library/available", plane: "tenant", status: 200, request: null, requestRequired: false, response: LibraryAvailable },
   "POST /v1/limits/requests": { method: "POST", path: "/v1/limits/requests", plane: "tenant", status: 201, request: MoreBody, requestRequired: true, response: LimitRequestSent },
   "GET /v1/mail-and-drive": { method: "GET", path: "/v1/mail-and-drive", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailAndDrive },
