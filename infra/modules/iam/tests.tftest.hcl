@@ -14,6 +14,7 @@ run "wif_is_scoped" {
   command = plan
   assert {
     condition = google_iam_workload_identity_pool_provider.github.attribute_condition == join(" && ", [
+      "assertion.sub == \"repo:owner/repo:environment:production\"",
       "assertion.repository == \"owner/repo\"",
       "assertion.ref == \"refs/heads/main\"",
       "assertion.environment == \"production\"",

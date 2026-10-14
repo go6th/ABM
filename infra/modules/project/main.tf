@@ -29,6 +29,7 @@ locals {
     "billingbudgets.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "iam.googleapis.com",
+    "storage.googleapis.com",
   ]
 }
 
@@ -37,6 +38,15 @@ resource "google_project_service" "enabled" {
   project            = var.project_id
   service            = each.value
   disable_on_destroy = false
+}
+
+# No workload runs as the default compute service account: every Cloud Run service and job names
+# its own account (modules/iam), so the default one is disabled once the Compute API is on.
+resource "google_project_default_service_accounts" "off" {
+  project        = var.project_id
+  action         = "DISABLE"
+  restore_policy = "REVERT_AND_IGNORE_FAILURE"
+  depends_on     = [google_project_service.enabled]
 }
 
 output "services" {
