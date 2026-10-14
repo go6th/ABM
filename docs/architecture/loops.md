@@ -104,7 +104,7 @@ unannotated (the generator's check fails otherwise).
 | renderer output drain | `src/exports/word/renderer.py:82` | the byte cap (max_output_bytes or max_stderr_bytes) in 64 KiB reads | end of stream, cap exceeded (the process is killed) |
 | renderer re-run | `src/exports/word/renderer.py:179` | 1 + reruns (1) attempts per document | converged (rendered), cap_reached (RenderError) |
 | research passes | `src/account_intelligence/workflow/parallel_phase.py:250` | 2 passes (a pass that paused but whose request policy declined at once runs again with paid work stopped) | converged or another exit, pause marker |
-| sandbox unit lines | `src/documents/sandbox.py:146` | units the child prints within timeout_s and max_text_bytes | end of output, timeout, text cap |
+| sandbox unit lines | `src/documents/sandbox.py:149` | units the child prints within timeout_s and max_text_bytes | end of output, timeout, text cap |
 | scheduler loop | `src/parallel/executor.py:250` | 10 iterations per unit plus 100 (each launches, blocks, awaits a completion or waits a bounded stall) | converged, deadline, budget, paused, cancelled, retryable, no_progress (SchedulerDeadlock) |
 | schema re-ask | `src/llm/port.py:126` | schema_reasks (1) | valid, SchemaInvalid |
 | section split | `src/research_files/parsers/documents.py:41` | len(text) / limit parts | text consumed |
