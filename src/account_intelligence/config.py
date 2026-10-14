@@ -289,6 +289,24 @@ class Settings(BaseSettings):
     anthropic_secret: str = var(
         "anthropic-api-key", purpose="Secret Manager secret id holding the model API key."
     )
+    moonshot_base_url: str = var(
+        "https://api.moonshot.ai/v1", purpose="Kimi K3 (Moonshot AI) API base URL (https)."
+    )
+    gmail_api_base: str = var(
+        "https://gmail.googleapis.com/gmail/v1",
+        purpose="Gmail API base URL for the per-user Mail and drive sync.",
+        component="worker",
+    )
+    google_drive_api_base: str = var(
+        "https://www.googleapis.com/drive/v3",
+        purpose="Google Drive API base URL for the per-user Mail and drive sync.",
+        component="worker",
+    )
+    microsoft_graph_api_base: str = var(
+        "https://graph.microsoft.com/v1.0",
+        purpose="Microsoft Graph API base URL (Outlook, OneDrive, SharePoint sync).",
+        component="worker",
+    )
     moonshot_secret: str | None = var(
         purpose="Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up."
     )
@@ -431,7 +449,14 @@ class Settings(BaseSettings):
                 problems.append(f"{idp_field.upper()} must be a real https identity provider")
         if self.app_env in CLOUD and self.llm_access == "vertex_ai" and not self.vertex_region:
             problems.append("VERTEX_REGION is required when LLM_ACCESS=vertex_ai")
-        for url_field in ("worker_url", "public_base_url"):
+        for url_field in (
+            "worker_url",
+            "public_base_url",
+            "moonshot_base_url",
+            "gmail_api_base",
+            "google_drive_api_base",
+            "microsoft_graph_api_base",
+        ):
             url = getattr(self, url_field)
             if self.app_env in CLOUD and url and not url.startswith("https://"):
                 problems.append(f"{url_field.upper()} must be https in {self.app_env}")

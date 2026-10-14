@@ -287,9 +287,9 @@ def with_model_choice(llm: Any, env: Mapping[str, str], key: str | None = None) 
             moonshot_key = None
     moonshot = None
     if moonshot_key:
-        from llm.adapters.moonshot_api import MoonshotClient
+        from llm.adapters.moonshot_api import BASE_URL, MoonshotClient
 
-        moonshot = MoonshotClient(moonshot_key)
+        moonshot = MoonshotClient(moonshot_key, base_url=env.get("MOONSHOT_BASE_URL") or BASE_URL)
     if isinstance(llm, AnthropicLlm):
         return ChoiceLlm(llm, moonshot)
     if moonshot is not None and isinstance(llm, UnconfiguredLlm):

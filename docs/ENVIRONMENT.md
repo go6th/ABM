@@ -78,6 +78,10 @@ or a value has the wrong type (errors name the variable, never the value).
 | `VERTEX_REGION` | Vertex AI region when LLM_ACCESS=vertex_ai. | no | - | - | api, worker |
 | `MODEL_ROUTER` | Route model calls through the recorded router (legacy switch). | no | - | - | api, worker |
 | `ANTHROPIC_SECRET` | Secret Manager secret id holding the model API key. | no | - | - | api, worker |
+| `MOONSHOT_BASE_URL` | Kimi K3 (Moonshot AI) API base URL (https). | no | - | - | api, worker |
+| `GMAIL_API_BASE` | Gmail API base URL for the per-user Mail and drive sync. | no | - | - | worker |
+| `GOOGLE_DRIVE_API_BASE` | Google Drive API base URL for the per-user Mail and drive sync. | no | - | - | worker |
+| `MICROSOFT_GRAPH_API_BASE` | Microsoft Graph API base URL (Outlook, OneDrive, SharePoint sync). | no | - | - | worker |
 | `MOONSHOT_SECRET` | Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up. | no | - | - | api, worker |
 | `CSRF_KEY_SECRET` | Secret Manager secret id of the CSRF signing key (32 or more random bytes). | no | - | - | api |
 | `BYOK_KMS_KEY` | Cloud KMS crypto-key resource for optional encrypted tenant model keys. | no | - | - | api, worker |

@@ -173,6 +173,17 @@ def test_cloud_urls_must_be_https() -> None:
         load_settings({**CLOUD_OK, "WORKER_URL": "http://worker.test"})
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["MOONSHOT_BASE_URL", "GMAIL_API_BASE", "GOOGLE_DRIVE_API_BASE", "MICROSOFT_GRAPH_API_BASE"],
+)
+def test_provider_api_bases_come_from_the_registry_and_are_https_in_the_cloud(name: str) -> None:
+    """Hard-coded API hosts moved into the registry (S4); the cloud refuses a plain-http one."""
+    assert load_settings(LOCAL_OK).model_dump()[name.lower()].startswith("https://")
+    with pytest.raises(EnvironmentInvalid, match=f"{name} must be https"):
+        load_settings({**CLOUD_OK, name: "http://proxy.test/v1"})
+
+
 def test_vertex_needs_a_region_in_the_cloud() -> None:
     with pytest.raises(EnvironmentInvalid, match="VERTEX_REGION"):
         load_settings({**CLOUD_OK, "LLM_ACCESS": "vertex_ai"})
