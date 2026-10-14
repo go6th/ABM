@@ -30,8 +30,10 @@ from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import sheets as SH
 from account_intelligence.replica import workspace as W
+from obs.logging import logger
 from tenancy.storage import PathRefused, require_owned
 
+log = logger(__name__)
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 register(
     "GET", "/v1/accounts/{domain}/workspace", tenant_route("read_public", "read", step_up=False)
@@ -217,7 +219,16 @@ async def account_sheet_xlsx(
             resource_type="account",
             resource_id=account_id,
         )
-    body = SH.workbook(out, name)
+    try:
+        body = SH.workbook(out, name)
+    except SH.ExportBlocked as err:
+        log.warning("sheet_export_blocked", extra={"checks": ",".join(err.checks)})
+        raise APIProblem(
+            422,
+            "export_blocked",
+            "Export held back",
+            "This table could not be exported because it failed a safety check. Try again later.",
+        ) from err
     stem = re.sub(r"[^A-Za-z0-9]+", "-", f"{name} {out['file'].rsplit('.', 1)[0]}").strip("-")
     return Response(
         body,

@@ -12,6 +12,7 @@ that sheet is labelled private.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
@@ -21,6 +22,7 @@ from sqlalchemy import text
 
 from account_intelligence.replica.answers import LANE_LABEL, day_month
 from account_intelligence.replica.workspace import relative
+from exports.policy import leak_hits
 
 GRADE_LABEL = {
     "confirmed": "Confirmed",
@@ -69,6 +71,8 @@ class Sheet:
     private: bool = False
     footnote: str = "Only Confirmed facts should be said to a prospect."
     tiebreak: str = "s._id"
+    # Rows that must never leave in a shareable workbook (internal facts from uploaded files).
+    export_where: str = "true"
 
 
 SORT_HINT = "Click a column heading to sort."
@@ -124,7 +128,9 @@ SHEETS: dict[str, Sheet] = {
             " r.account_id = s.account_id"
             "   AND r.status IN ('COMPLETED', 'PARTIAL') ORDER BY r.finished_at DESC OFFSET 1"
             " LIMIT 1),"
-            "   'infinity'::timestamptz)) AS is_new"
+            "   'infinity'::timestamptz)) AS is_new,"
+            " coalesce((SELECT f.visibility = 'private' FROM facts f WHERE f.id = s.fact_id),"
+            " false) AS _private"
             " FROM signal_events s WHERE s.account_id = :a"
         ),
         cols=(
@@ -143,6 +149,7 @@ SHEETS: dict[str, Sheet] = {
         ),
         default_sort="detected",
         default_dir="desc",
+        export_where="NOT s._private",
     ),
     "jobs": Sheet(
         key="jobs",
@@ -359,7 +366,7 @@ def display(col: Col, value: Any, now: datetime) -> str:
     if col.kind == "date" and isinstance(value, datetime | date):
         return f"{day_month(value)} {value.year}"
     if isinstance(value, list):
-        return ", ".join(LANE_LABEL.get(v, v) for v in value)
+        return ", ".join(str(LANE_LABEL.get(v, v)) for v in value)
     return str(value)
 
 
@@ -371,19 +378,17 @@ async def read(
     counts_sql = ", ".join(
         f"count(*) FILTER (WHERE {f.where}) AS c{i}" for i, f in enumerate(q.sheet.filters)
     )
-    counts = (
-        await session.execute(text(f"SELECT {counts_sql} FROM ({q.sheet.base}) s"), params)
-    ).one()  # noqa: S608
+    counts_query = f"SELECT {counts_sql} FROM ({q.sheet.base}) s"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+    counts = (await session.execute(text(counts_query), params)).one()
     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
     limit = MAX_EXPORT if export else q.limit
     offset = 0 if export else q.offset
+    where = f"({q.filter.where}) AND ({q.sheet.export_where})" if export else q.filter.where
+    page_query = f"SELECT * FROM ({q.sheet.base}) s WHERE {where} ORDER BY {order}"  # nosec B608 -- allow-listed sheet SQL; values are bound.
     rows = (
         (
             await session.execute(
-                text(
-                    f"SELECT * FROM ({q.sheet.base}) s WHERE {q.filter.where} ORDER BY {order}"  # noqa: S608
-                    " OFFSET :o LIMIT :l"
-                ),
+                text(page_query + " OFFSET :o LIMIT :l"),
                 {**params, "o": offset, "l": limit},
             )
         )
@@ -422,24 +427,87 @@ async def read(
     }
 
 
+class ExportBlocked(Exception):
+    """The finished workbook still failed a client-file check; nothing is sent."""
+
+    def __init__(self, checks: tuple[str, ...]) -> None:
+        super().__init__("export blocked: " + ", ".join(checks))
+        self.checks = checks
+
+
+WITHHELD = "Withheld for review"
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+_DASH = "\u2012\u2013\u2014\u2015"
+_SPACED_DASH = re.compile(f"(?<=\\S)\\s+(?:[{_DASH}]|-{{1,2}})\\s+(?=\\S)")
+_ANY_DASH = re.compile(f"[{_DASH}]")
+# The pre-delivery gate's rule for client files (documents.gate): dash characters, or a hyphen
+# used as punctuation between words.
+_GATE_DASHES = re.compile(f"[{_DASH}]|\\S\\s+-{{1,2}}\\s+\\S")
+
+
+def safe_cell(value: Any, *, shareable: bool) -> tuple[Any, bool]:
+    """One cell made safe for a client file. Returns (value, withheld).
+
+    Dashes used as punctuation become commas and dash characters become hyphens (the format
+    rule); in a shareable workbook a cell that names a data tool, a credit count, a provider code
+    or an internal reference is withheld; text that a spreadsheet would run as a formula (it
+    starts with ``=``, ``+``, ``-``, ``@``, a tab or a return) gets a leading apostrophe."""
+    if not isinstance(value, str):
+        return value, False
+    text_value = _ANY_DASH.sub("-", _SPACED_DASH.sub(", ", value))
+    if shareable and leak_hits(text_value):
+        return WITHHELD, True
+    if text_value.startswith(_FORMULA_START):
+        text_value = "'" + text_value
+    return text_value, False
+
+
 def workbook(sheet: dict[str, Any], account_name: str) -> bytes:
-    """The filtered sheet as a real Excel workbook: one sheet, a frozen header, links as text."""
+    """The filtered sheet as a real Excel workbook: one sheet, a frozen header, links as text.
+
+    It passes the same checks as every other client file before it leaves: no dash used as
+    punctuation, no data tool name, credit count or internal reference (those cells are withheld
+    and counted on the About sheet), and no cell a spreadsheet would run as a formula; every
+    text cell is stored as text. The finished file is scanned once more as a whole
+    (``exports.verify.scan_package``) and refused with ``ExportBlocked`` if anything is left.
+    The private sheet (the user's own mail and drive) is labelled private on both sheets and
+    is never scanned as shareable: it is exported only to the user it belongs to."""
     import io
 
     from openpyxl import Workbook
     from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    from exports.excel.common import text_cell
+    from exports.verify import scan_package
+
+    shareable = not sheet["private"]
+    withheld = 0
+
+    def put(ws: Any, row: int, values: list[Any]) -> None:
+        nonlocal withheld
+        for col, raw in enumerate(values, start=1):
+            value, held = safe_cell(raw, shareable=shareable)
+            withheld += held
+            cell = ws.cell(row=row, column=col)
+            if isinstance(value, str):
+                text_cell(cell, value)
+            else:
+                cell.value = value
 
     book = Workbook()
-    ws = book.active
-    ws.title = "Sheet 1"
+    ws = book.create_sheet("Private to you" if not shareable else "Sheet 1", 0)
+    book.remove(book.worksheets[1])
     cols = sheet["columns"]
-    ws.append(["#"] + [c["label"] for c in cols])
+    put(ws, 1, ["#"] + [c["label"] for c in cols])
     for cell in ws[1]:
         cell.font = Font(bold=True)
-    for row in sheet["rows"]:
-        ws.append(
+    for i, row in enumerate(sheet["rows"], start=2):
+        put(
+            ws,
+            i,
             [row["n"]]
-            + [row["link"] if c["kind"] == "link" else row["cells"][c["key"]] for c in cols]
+            + [row["link"] if c["kind"] == "link" else row["cells"][c["key"]] for c in cols],
         )
     ws.freeze_panes = "B2"
     for i, c in enumerate(cols, start=2):
@@ -447,20 +515,33 @@ def workbook(sheet: dict[str, Any], account_name: str) -> bytes:
             [len(c["label"])]
             + [len(str(r["cells"][c["key"]] or r["link"] or "")) for r in sheet["rows"]]
         )
-        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = min(
-            60, max(10, width + 2)
-        )
+        ws.column_dimensions[get_column_letter(i)].width = min(60, max(10, width + 2))
     ws.column_dimensions["A"].width = 6
     meta = book.create_sheet("About")
-    meta.append(["Account", account_name])
-    meta.append(["Table", sheet["title"]])
-    meta.append(
-        ["Filter", next(f["label"] for f in sheet["filters"] if f["key"] == sheet["filter"])]
-    )
-    meta.append(["Rows", sheet["total"]])
-    meta.append(["Exported", datetime.now(UTC).strftime("%d %b %Y %H:%M UTC")])
-    if sheet["private"]:
-        meta.append(["Note", "Private to you. Do not share."])
+    about: list[list[Any]] = [
+        ["Account", account_name],
+        ["Table", sheet["title"]],
+        ["Filter", next(f["label"] for f in sheet["filters"] if f["key"] == sheet["filter"])],
+        ["Rows", len(sheet["rows"])],
+        ["Exported", datetime.now(UTC).strftime("%d %b %Y %H:%M UTC")],
+    ]
+    if withheld:
+        about.append(["Withheld", f"{withheld} cells held back for review"])
+    if not shareable:
+        about.append(["Note", "Private to you. Do not share."])
+    for r, line in enumerate(about, start=1):
+        put(meta, r, line)
+    book.properties.creator = "6th agents"
+    book.properties.title = "Private to you" if not shareable else sheet["title"]
     out = io.BytesIO()
     book.save(out)
-    return out.getvalue()
+    data = out.getvalue()
+    if shareable:
+        from documents.gate import client_text
+
+        failed = tuple(f"client_terms:{h.split(': ')[-1]}" for h in scan_package(data, ()))
+        if _GATE_DASHES.search(client_text(data)):
+            failed += ("client_dashes",)
+        if failed:
+            raise ExportBlocked(failed)
+    return data
