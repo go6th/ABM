@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiOrigin } from "@/lib/api-origin";
 import { isSameOriginRouteRequest } from "@/lib/same-origin";
 
 export const runtime = "nodejs";
@@ -11,9 +12,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 403, headers: { "Cache-Control": "no-store" } },
     );
   }
-  const origin = process.env.API_ORIGIN ?? "http://127.0.0.1:8080";
+  const origin = apiOrigin();
   const cookie = request.headers.get("cookie") ?? "";
   try {
+    if (!origin) throw new Error("no API configured");
     const session = await fetch(new URL("/v1/sso/session", origin), {
       headers: { cookie, accept: "application/json" },
       cache: "no-store",

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { apiOrigin } from "@/lib/api-origin";
+import { bodyLimit, capBody, declaredLength } from "@/lib/proxy-body";
 import { isSameOriginRouteRequest } from "@/lib/same-origin";
 
 export const runtime = "nodejs";
@@ -18,7 +20,9 @@ const FORWARDED_HEADERS = [
   "x-csrf-token",
 ] as const;
 
-const AUTH_COOKIES = new Set(["__Host-ai_session", "__Host-ai_preauth"]);
+// __Host-ai_preauth_once is the "Keep me signed in = off" marker the API reads when it finishes an
+// SSO sign-in; without it the session would always get the persistent cookie.
+const AUTH_COOKIES = new Set(["__Host-ai_session", "__Host-ai_preauth", "__Host-ai_preauth_once"]);
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function tenantCookies(raw: string): string {
@@ -29,23 +33,21 @@ function tenantCookies(raw: string): string {
     .join("; ");
 }
 
-function getApiOrigin(): string {
-  if (process.env.API_ORIGIN) {
-    return process.env.API_ORIGIN.replace(/\/$/, "");
-  }
-  return process.env.NODE_ENV === "production" ? "http://api:8080" : "http://127.0.0.1:8080";
+function problem(status: number, title: string, detail: string): NextResponse {
+  return NextResponse.json(
+    { type: `urn:6th:problem:${status}`, title, status, detail },
+    { status, headers: { "Content-Type": "application/problem+json", "Cache-Control": "no-store" } },
+  );
 }
 
 async function handleProxy(request: NextRequest): Promise<NextResponse> {
   if (!SAFE_METHODS.has(request.method)) {
     if (!isSameOriginRouteRequest(request)) {
-      return NextResponse.json(
-        { type: "urn:6th:problem:403", title: "Request refused", status: 403, detail: "A same-origin request is required." },
-        { status: 403, headers: { "Content-Type": "application/problem+json", "Cache-Control": "no-store" } },
-      );
+      return problem(403, "Request refused", "A same-origin request is required.");
     }
   }
-  const origin = getApiOrigin();
+  const origin = apiOrigin();
+  if (!origin) return problem(503, "Service Unavailable", "The upstream API service is temporarily unavailable.");
   const targetUrl = new URL(request.nextUrl.pathname + request.nextUrl.search, origin);
 
   const forwardHeaders = new Headers();
@@ -57,23 +59,20 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
   const cookie = tenantCookies(request.headers.get("cookie") ?? "");
   if (cookie) forwardHeaders.set("cookie", cookie);
 
-  let body: ArrayBuffer | undefined = undefined;
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    try {
-      const buffer = await request.arrayBuffer();
-      if (buffer.byteLength > 0) {
-        body = buffer;
-      }
-    } catch {
-      // Body read error
-    }
-  }
+  // The body is streamed, never buffered, and cut off at the route's size limit.
+  const limit = bodyLimit(request.method, request.nextUrl.pathname);
+  const declared = declaredLength(request.headers.get("content-length"));
+  if (declared !== null && declared > limit) return problem(413, "Request too large", "The request body is too large.");
+  const capped = request.method !== "GET" && request.method !== "HEAD" && request.body && declared !== 0
+    ? capBody(request.body, limit)
+    : null;
 
   try {
     const upstream = await fetch(targetUrl.toString(), {
       method: request.method,
       headers: forwardHeaders,
-      body,
+      body: capped?.stream,
+      ...(capped ? { duplex: "half" } : {}),
       redirect: "manual",
       cache: "no-store",
     });
@@ -99,22 +98,10 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
       headers: responseHeaders,
     });
   } catch (err) {
-    console.error(`[API Proxy] Connection to ${targetUrl.toString()} failed:`, err);
-    return NextResponse.json(
-      {
-        type: "urn:6th:problem:503",
-        title: "Service Unavailable",
-        status: 503,
-        detail: "The upstream API service is temporarily unavailable.",
-      },
-      {
-        status: 503,
-        headers: {
-          "Content-Type": "application/problem+json",
-          "Cache-Control": "no-store",
-        },
-      },
-    );
+    if (capped?.exceeded()) return problem(413, "Request too large", "The request body is too large.");
+    // the path only: the query string can carry a one-time token
+    console.error(`[API Proxy] Connection to ${request.nextUrl.pathname} failed:`, err instanceof Error ? err.name : "error");
+    return problem(503, "Service Unavailable", "The upstream API service is temporarily unavailable.");
   }
 }
 

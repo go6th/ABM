@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { apiOrigin } from "@/lib/api-origin";
 
 export interface GoogleOperatorOidcConfig {
   clientId: string;
@@ -22,7 +23,8 @@ function setting(name: string): string | undefined {
 }
 
 export function operatorApiOrigin(): URL | null {
-  const value = process.env.API_ORIGIN ?? "http://127.0.0.1:8080";
+  const value = apiOrigin();
+  if (!value) return null;
   try {
     const origin = new URL(value);
     const localHttp = process.env.NODE_ENV !== "production" && origin.protocol === "http:" && ["localhost", "127.0.0.1"].includes(origin.hostname);

@@ -3,16 +3,13 @@
 // hands the cookie to client code. A 401 sends the user to sign in with a return path.
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { apiOrigin } from "@/lib/api-origin";
 import { operations } from "@/lib/gen/api.gen";
 
 export class ServerApiError extends Error {
   constructor(public readonly status: number, public readonly reference: string | null) {
     super(`API ${status}`);
   }
-}
-
-function origin(): string {
-  return process.env.API_ORIGIN ?? "http://127.0.0.1:8080";
 }
 
 function contractFor(path: string) {
@@ -32,9 +29,11 @@ export async function serverGet<T>(path: string, returnTo = "/", emptyOn: number
   const cookie = (await cookies()).toString();
   if (!cookie) redirect(`/login?next=${encodeURIComponent(returnTo)}`);
   const requestId = (await headers()).get("x-request-id") ?? crypto.randomUUID();
+  const origin = apiOrigin();
+  if (!origin) throw new ServerApiError(503, requestId.slice(0, 8));
   let reply: Response;
   try {
-    reply = await fetch(`${origin()}${path}`, {
+    reply = await fetch(`${origin}${path}`, {
       headers: { cookie, accept: "application/json", "x-request-id": requestId },
       cache: "no-store",
       redirect: "error",
