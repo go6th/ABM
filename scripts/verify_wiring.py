@@ -20,7 +20,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -81,28 +80,55 @@ def run(cmd: list[str], env: dict[str, str] | None = None, timeout: int = 900) -
 def pytest(*targets: str, db: bool = False) -> tuple[str, str]:
     """PASS when the selected tests pass; the evidence is pytest's summary line."""
     code, out = run(
-        ["uv", "run", "--frozen", "pytest", "-q", "-p", "no:cacheprovider", "--no-header", *targets],
+        [
+            "uv",
+            "run",
+            "--frozen",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "--no-header",
+            *targets,
+        ],
         env=TEST_ENV if db else None,
     )
     summary = next(
-        (ln.strip("= ") for ln in reversed(out.splitlines()) if re.search(r"\d+ (passed|failed|error)", ln)),
+        (
+            ln.strip("= ")
+            for ln in reversed(out.splitlines())
+            if re.search(r"\d+ (passed|failed|error)", ln)
+        ),
         out.strip().splitlines()[-1] if out.strip() else "no output",
     )
     if code == 0:
         return "PASS", summary
-    failed = [ln.split(" - ")[0].replace("FAILED ", "") for ln in out.splitlines() if ln.startswith(("FAILED", "ERROR"))]
+    failed = [
+        ln.split(" - ")[0].replace("FAILED ", "")
+        for ln in out.splitlines()
+        if ln.startswith(("FAILED", "ERROR"))
+    ]
     return "FAIL", f"{summary}; " + ", ".join(t.split("::")[-1] for t in failed[:4])
 
 
-def http(url: str, method: str = "GET", headers: dict[str, str] | None = None,
-         body: bytes | None = None) -> tuple[int, dict[str, str], str]:
+def http(
+    url: str, method: str = "GET", headers: dict[str, str] | None = None, body: bytes | None = None
+) -> tuple[int, dict[str, str], str]:
     """One HTTP call to the local stack; (status, lower-cased headers, body)."""
     request = urllib.request.Request(url, data=body, method=method, headers=headers or {})
     try:
         with urllib.request.urlopen(request, timeout=20) as reply:
-            return reply.status, {k.lower(): v for k, v in reply.headers.items()}, reply.read().decode("utf-8", "replace")
+            return (
+                reply.status,
+                {k.lower(): v for k, v in reply.headers.items()},
+                reply.read().decode("utf-8", "replace"),
+            )
     except urllib.error.HTTPError as error:
-        return error.code, {k.lower(): v for k, v in error.headers.items()}, error.read().decode("utf-8", "replace")
+        return (
+            error.code,
+            {k.lower(): v for k, v in error.headers.items()},
+            error.read().decode("utf-8", "replace"),
+        )
     except (urllib.error.URLError, OSError) as error:
         return 0, {}, type(error).__name__
 
@@ -133,13 +159,19 @@ def dotenv_values() -> dict[str, str]:
     path = ROOT / ".env"
     if not path.is_file():
         return {}
-    public = "".join((ROOT / f).read_text(encoding="utf-8") for f in PUBLIC_FIXTURES if (ROOT / f).is_file())
+    public = "".join(
+        (ROOT / f).read_text(encoding="utf-8") for f in PUBLIC_FIXTURES if (ROOT / f).is_file()
+    )
     values = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         match = re.match(r"^\s*([A-Z][A-Z0-9_]*)=(.*)$", line)
         if match:
             value = match.group(2).strip().strip("'\"")
-            if len(value) >= 12 and value not in public and not value.startswith(("http://localhost", "your-", "replace-with")):
+            if (
+                len(value) >= 12
+                and value not in public
+                and not value.startswith(("http://localhost", "your-", "replace-with"))
+            ):
                 values[match.group(1)] = value
     return values
 
@@ -175,7 +207,9 @@ def secret_scan() -> tuple[str, str]:
     commits, plus the literal ``.env`` values (names reported, never values)."""
     if shutil.which("gitleaks"):
         code, out = run(["gitleaks", "detect", "--no-banner", "--redact", "-v", "--log-opts=-200"])
-        return ("PASS" if code == 0 else "FAIL"), "gitleaks: " + (out.strip().splitlines() or ["clean"])[-1]
+        return ("PASS" if code == 0 else "FAIL"), "gitleaks: " + (
+            out.strip().splitlines() or ["clean"]
+        )[-1]
     _, files = run(["git", "ls-files", "-z"])
     hits: list[str] = []
     values = {n: v for n, v in dotenv_values().items() if re.search(r"KEY|TOKEN|SECRET", n)}
@@ -194,7 +228,10 @@ def secret_scan() -> tuple[str, str]:
     hits += [f"history: value of {n}" for n, v in values.items() if v in history]
     if hits:
         return "FAIL", "; ".join(sorted(set(hits))[:6])
-    return "PASS", f"pattern scan (gitleaks not installed): {len(files.split(chr(0)))} tracked files + 200 commits, .env values absent"
+    return (
+        "PASS",
+        f"pattern scan (gitleaks not installed): {len(files.split(chr(0)))} tracked files + 200 commits, .env values absent",  # noqa: E501
+    )
 
 
 # ---- DATABASE ------------------------------------------------------------------------------------
@@ -220,7 +257,10 @@ async def main():
         if not url:
             out.append(var + "=unset"); continue
         conn = await asyncpg.connect(url.replace("postgresql+asyncpg://", "postgresql://"))
-        row = await conn.fetchrow("select current_user, r.rolsuper, r.rolbypassrls from pg_roles r where r.rolname = current_user")
+        row = await conn.fetchrow(
+            "select current_user, r.rolsuper, r.rolbypassrls from pg_roles r"
+            " where r.rolname = current_user"
+        )
         out.append(f"{var}={row[0]},super={row[1]},bypassrls={row[2]}")
         await conn.close()
     print(";".join(out))
@@ -243,21 +283,30 @@ def forced_rls() -> tuple[str, str]:
     select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public' and c.relkind = 'r'
       and exists (select 1 from information_schema.columns k
-                  where k.table_schema = 'public' and k.table_name = c.relname and k.column_name = 'tenant_id')
+                  where k.table_schema = 'public' and k.table_name = c.relname
+                    and k.column_name = 'tenant_id')
       and (not c.relrowsecurity or not c.relforcerowsecurity
            or not exists (select 1 from pg_policies p where p.tablename = c.relname))
       -- a partition is reached through its parent's policy unless app_rw can touch it directly
-      and not (c.relispartition and not has_table_privilege('app_rw', c.oid, 'select,insert,update,delete'))
+      and not (c.relispartition
+               and not has_table_privilege('app_rw', c.oid, 'select,insert,update,delete'))
     """
     code, bad = psql(sql)
-    _, total = psql("select count(distinct table_name) from information_schema.columns where table_schema='public' and column_name='tenant_id'")
+    _, total = psql(
+        "select count(distinct table_name) from information_schema.columns where table_schema='public' and column_name='tenant_id'"  # noqa: E501
+    )
     if code == 0 and not bad.strip():
-        return "PASS", f"{total.strip()} tenant tables (partitions via parent): all FORCE RLS with a policy, no direct partition grant"
+        return (
+            "PASS",
+            f"{total.strip()} tenant tables (partitions via parent): all FORCE RLS with a policy, no direct partition grant",  # noqa: E501
+        )
     return "FAIL", f"without forced RLS or policy: {bad.split()[:8] or bad[:120]}"
 
 
 def checkpoint_prefix() -> tuple[str, str]:
-    code, out = psql("select tablename || ':' || coalesce(qual,'') from pg_policies where tablename like 'checkpoint%'")
+    code, out = psql(
+        "select tablename || ':' || coalesce(qual,'') from pg_policies where tablename like 'checkpoint%'"  # noqa: E501
+    )
     tables = [ln.split(":")[0] for ln in out.splitlines() if ln]
     if code == 0 and tables and all("thread_id" in ln for ln in out.splitlines() if ln):
         return "PASS", f"thread_id tenant prefix enforced on {sorted(set(tables))}"
@@ -269,7 +318,9 @@ def pgvector() -> tuple[str, str]:
     _, hnsw = psql("select indexname from pg_indexes where indexdef ilike '%using hnsw%'")
     v = version.strip()
     ok = bool(v) and tuple(int(x) for x in v.split(".")[:2]) >= (0, 8) and bool(hnsw.strip())
-    return ("PASS" if ok else "FAIL"), f"pgvector {v or 'absent'}; hnsw indexes {hnsw.split() or 'none'}"
+    return (
+        "PASS" if ok else "FAIL"
+    ), f"pgvector {v or 'absent'}; hnsw indexes {hnsw.split() or 'none'}"
 
 
 # ---- API -----------------------------------------------------------------------------------------
@@ -277,7 +328,9 @@ def pgvector() -> tuple[str, str]:
 
 def healthz() -> tuple[str, str]:
     status, _, body = http(f"{API}/healthz")
-    return ("PASS" if status == 200 and '"ok"' in body else "FAIL"), f"/healthz {status} {body[:60]}"
+    return (
+        "PASS" if status == 200 and '"ok"' in body else "FAIL"
+    ), f"/healthz {status} {body[:60]}"
 
 
 def readyz_components() -> tuple[str, str]:
@@ -292,24 +345,34 @@ def readyz_components() -> tuple[str, str]:
     leaks = leaked_names(body)
     if status == 200 and not missing and not leaks:
         return "PASS", "/readyz 200 " + ", ".join(f"{k}={v}" for k, v in sorted(components.items()))
-    return "FAIL", f"/readyz {status}; missing {missing}; leaked {leaks}; checks {doc.get('checks')}"
+    return (
+        "FAIL",
+        f"/readyz {status}; missing {missing}; leaked {leaks}; checks {doc.get('checks')}",
+    )
 
 
 def cors_denied() -> tuple[str, str]:
     status, headers, _ = http(
-        f"{API}/v1/accounts", "OPTIONS",
+        f"{API}/v1/accounts",
+        "OPTIONS",
         {"Origin": "https://attacker.invalid", "Access-Control-Request-Method": "POST"},
     )
     allow = headers.get("access-control-allow-origin")
-    return ("PASS" if not allow else "FAIL"), f"OPTIONS from foreign Origin -> {status}, allow-origin={allow or 'absent'}"
+    return (
+        "PASS" if not allow else "FAIL"
+    ), f"OPTIONS from foreign Origin -> {status}, allow-origin={allow or 'absent'}"
 
 
 def request_id_echo() -> tuple[str, str]:
     rid = str(uuid.uuid4())
     _, h1, _ = http(f"{API}/healthz", headers={"X-Request-ID": rid})
     _, h2, _ = http(f"{API}/healthz", headers={"X-Request-ID": "not a uuid; injected"})
-    ok = h1.get("x-request-id") == rid and re.fullmatch(r"[0-9a-f-]{36}", h2.get("x-request-id", ""))
-    return ("PASS" if ok else "FAIL"), f"supplied uuid echoed={h1.get('x-request-id') == rid}; junk replaced={bool(ok)}"
+    ok = h1.get("x-request-id") == rid and re.fullmatch(
+        r"[0-9a-f-]{36}", h2.get("x-request-id", "")
+    )
+    return (
+        "PASS" if ok else "FAIL"
+    ), f"supplied uuid echoed={h1.get('x-request-id') == rid}; junk replaced={bool(ok)}"
 
 
 def request_id_in_api_log() -> tuple[str, str]:
@@ -323,7 +386,10 @@ def request_id_in_api_log() -> tuple[str, str]:
     hits = [ln for ln in logs.splitlines() if rid in ln]
     if hits:
         return "PASS", f"{len(hits)} api log line(s) carry request_id {rid[:8]}"
-    return "FAIL", f"request_id {rid[:8]} absent from api logs ({len(logs.splitlines())} lines in window)"
+    return (
+        "FAIL",
+        f"request_id {rid[:8]} absent from api logs ({len(logs.splitlines())} lines in window)",
+    )
 
 
 def forged_tenant_header() -> tuple[str, str]:
@@ -331,59 +397,99 @@ def forged_tenant_header() -> tuple[str, str]:
         f"{API}/v1/accounts",
         headers={"X-Tenant-ID": str(uuid.uuid4()), "X-Tenant": "forged", "X-Tenant-Slug": "forged"},
     )
-    return ("PASS" if status == 401 else "FAIL"), f"unauthenticated + forged X-Tenant* -> {status} (tenant only from session)"
+    return (
+        "PASS" if status == 401 else "FAIL"
+    ), f"unauthenticated + forged X-Tenant* -> {status} (tenant only from session)"
 
 
 def body_limit() -> tuple[str, str]:
     big = b"{" + b" " * (2 * 1024 * 1024) + b"}"
     status, _, _ = http(f"{API}/v1/chat/threads", "POST", {"Content-Type": "application/json"}, big)
-    return ("PASS" if status == 413 else "FAIL"), f"2 MiB body to /v1/chat/threads -> {status} (want 413 before auth or parsing)"
+    return (
+        "PASS" if status == 413 else "FAIL"
+    ), f"2 MiB body to /v1/chat/threads -> {status} (want 413 before auth or parsing)"
 
 
 def no_stack_traces() -> tuple[str, str]:
     status, _, body = http(f"{API}/v1/accounts/%00/tables/x")
     bad = any(s in body for s in ("Traceback", 'File "/', "sqlalchemy", "asyncpg"))
-    return ("FAIL" if bad else "PASS"), f"malformed path -> {status}, problem body without internals={not bad}"
+    return (
+        "FAIL" if bad else "PASS"
+    ), f"malformed path -> {status}, problem body without internals={not bad}"
 
 
 def session_cookie_policy() -> tuple[str, str]:
     text = (ROOT / "config" / "session.yaml").read_text(encoding="utf-8")
     sso = (ROOT / "src/account_intelligence/api/routes/sso.py").read_text(encoding="utf-8")
-    ok = "__Host-ai_session" in text and "secure=True" in sso and "httponly=True" in sso and "domain=" not in sso
-    return ("PASS" if ok else "FAIL"), "__Host-ai_session: Secure, HttpOnly, SameSite=Lax, Path=/, no Domain"
+    ok = (
+        "__Host-ai_session" in text
+        and "secure=True" in sso
+        and "httponly=True" in sso
+        and "domain=" not in sso
+    )
+    return (
+        "PASS" if ok else "FAIL"
+    ), "__Host-ai_session: Secure, HttpOnly, SameSite=Lax, Path=/, no Domain"
 
 
 # ---- WEB -----------------------------------------------------------------------------------------
 
 
 def web_server_side_proxy() -> tuple[str, str]:
-    _, public = run(["git", "grep", "-n", "NEXT_PUBLIC_", "--", "web/app", "web/lib", "web/components", "web/next.config.ts", "web/proxy.ts"])
+    _, public = run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "NEXT_PUBLIC_",
+            "--",
+            "web/app",
+            "web/lib",
+            "web/components",
+            "web/next.config.ts",
+            "web/proxy.ts",
+        ]
+    )
     route = (ROOT / "web/app/v1/[[...path]]/route.ts").read_text(encoding="utf-8")
     ok = not public.strip() and "process.env.API_ORIGIN" in route
-    return ("PASS" if ok else "FAIL"), f"/v1/* proxied by a route handler to server-only API_ORIGIN; NEXT_PUBLIC_ vars: {public.count(chr(10)) or 'none'}"
+    return (
+        ("PASS" if ok else "FAIL"),
+        f"/v1/* proxied by a route handler to server-only API_ORIGIN; NEXT_PUBLIC_ vars: {public.count(chr(10)) or 'none'}",  # noqa: E501
+    )
 
 
 def web_csp() -> tuple[str, str]:
     status, headers, _ = http(f"{WEB}/login")
     csp = headers.get("content-security-policy", "")
-    ok = status == 200 and "connect-src 'self'" in csp and "'nonce-" in csp and "unsafe-inline" not in csp
-    return ("PASS" if ok else "FAIL"), f"/login {status}; connect-src 'self'={'connect-src' in csp}; nonce={'nonce-' in csp}"
+    ok = (
+        status == 200
+        and "connect-src 'self'" in csp
+        and "'nonce-" in csp
+        and "unsafe-inline" not in csp
+    )
+    return (
+        "PASS" if ok else "FAIL"
+    ), f"/login {status}; connect-src 'self'={'connect-src' in csp}; nonce={'nonce-' in csp}"
 
 
 def web_reaches_api() -> tuple[str, str]:
-    probe = "fetch(process.env.API_ORIGIN+'/readyz').then(r=>{console.log(r.status);process.exit(r.ok?0:1)}).catch(e=>{console.log(e.name);process.exit(1)})"
+    probe = "fetch(process.env.API_ORIGIN+'/readyz').then(r=>{console.log(r.status);process.exit(r.ok?0:1)}).catch(e=>{console.log(e.name);process.exit(1)})"  # noqa: E501
     code, out = exec_in("web", "node", "-e", probe)
     status, _, body = http(f"{WEB}/readyz")
     ok = code == 0 and status == 200
-    return ("PASS" if ok else "FAIL"), f"web container -> API_ORIGIN/readyz {out.strip()[-20:]}; browser /readyz via web {status}"
+    return (
+        "PASS" if ok else "FAIL"
+    ), f"web container -> API_ORIGIN/readyz {out.strip()[-20:]}; browser /readyz via web {status}"
 
 
 def bundle_scan() -> tuple[str, str]:
     static = ROOT / "web/.next/static"
     if not static.is_dir():
         return "FAIL", "web/.next/static missing: run `npm --prefix web run build` first"
-    rx = re.compile(r"postgres(ql)?(\+asyncpg)?://|P_(SEARCH|SCRAPE|SIGNALS|PEOPLE|ORG)_API|ANTHROPIC_API_KEY|sk-ant-[A-Za-z0-9_\-]{20,}|"
-                    r"parallel\.ai|firecrawl|predictleads|bitscale|sumble|-----BEGIN")
+    rx = re.compile(
+        r"postgres(ql)?(\+asyncpg)?://|P_(SEARCH|SCRAPE|SIGNALS|PEOPLE|ORG)_API|ANTHROPIC_API_KEY|sk-ant-[A-Za-z0-9_\-]{20,}|"
+        r"parallel\.ai|firecrawl|predictleads|bitscale|sumble|-----BEGIN"
+    )
     values = dotenv_values()
     hits: set[str] = set()
     count = 0
@@ -397,7 +503,10 @@ def bundle_scan() -> tuple[str, str]:
     maps = len(list(static.rglob("*.map")))
     if hits:
         return "FAIL", f"{count} files; found {sorted(hits)[:6]}"
-    return "PASS", f"{count} static files: no secret, provider name, key name or DB URL; source maps {maps}"
+    return (
+        "PASS",
+        f"{count} static files: no secret, provider name, key name or DB URL; source maps {maps}",
+    )
 
 
 # ---- STORE ---------------------------------------------------------------------------------------
@@ -406,17 +515,33 @@ def bundle_scan() -> tuple[str, str]:
 def payload_volume_shared() -> tuple[str, str]:
     name = f"_wiring/{uuid.uuid4()}"
     marker = str(uuid.uuid4())
-    w, _ = exec_in("api", "sh", "-c", f'mkdir -p "$PAYLOAD_DIR/_wiring" && printf {marker} > "$PAYLOAD_DIR/{name}"')
+    w, _ = exec_in(
+        "api",
+        "sh",
+        "-c",
+        f'mkdir -p "$PAYLOAD_DIR/_wiring" && printf {marker} > "$PAYLOAD_DIR/{name}"',
+    )
     r, out = exec_in("worker", "sh", "-c", f'cat "$PAYLOAD_DIR/{name}"')
     d, _ = exec_in("worker", "sh", "-c", f'rm -f "$PAYLOAD_DIR/{name}"')
     ok = w == 0 and r == 0 and out.strip() == marker and d == 0
-    return ("PASS" if ok else "FAIL"), f"api put -> worker get -> delete on PAYLOAD_DIR volume: write={w == 0} read={out.strip() == marker} delete={d == 0}"
+    return (
+        ("PASS" if ok else "FAIL"),
+        f"api put -> worker get -> delete on PAYLOAD_DIR volume: write={w == 0} read={out.strip() == marker} delete={d == 0}",  # noqa: E501
+    )
 
 
 def tenant_prefixed_keys() -> tuple[str, str]:
-    code, out = run(["uv", "run", "--frozen", "python", "-c",
-                     "from uuid import uuid4; from account_intelligence.connectors.payloads import payload_key as k; "
-                     "t=uuid4(); key=k(t,uuid4(),uuid4(),b'x'); print(key.startswith(str(t)), key.count('/'))"])
+    code, out = run(
+        [
+            "uv",
+            "run",
+            "--frozen",
+            "python",
+            "-c",
+            "from uuid import uuid4; from account_intelligence.connectors.payloads import payload_key as k; "  # noqa: E501
+            "t=uuid4(); key=k(t,uuid4(),uuid4(),b'x'); print(key.startswith(str(t)), key.count('/'))",  # noqa: E501
+        ]
+    )
     ok = code == 0 and out.strip().startswith("True")
     return ("PASS" if ok else "FAIL"), f"payload_key starts with the tenant id: {out.strip()}"
 
@@ -445,12 +570,16 @@ def llm_tiers() -> tuple[str, str]:
     ids_ok = all(re.fullmatch(r"anthropic/claude-[a-z0-9\-]+", v) for v in data["tiers"].values())
     table = ", ".join(f"{t}={m}" for t, m in data["tiers"].items())
     ok = ids_ok and data["allowlisted"] and {"extractor", "planner", "judge"} <= set(data["tiers"])
-    return ("PASS" if ok else "FAIL"), f"{table}; allowlisted={data['allowlisted']}; judge differs from extractor (D-48)={data['judge_differs']}"
+    return (
+        ("PASS" if ok else "FAIL"),
+        f"{table}; allowlisted={data['allowlisted']}; judge differs from extractor (D-48)={data['judge_differs']}",  # noqa: E501
+    )
 
 
 def live_skip(name: str) -> Check:
     def inner() -> tuple[str, str]:
         return "SKIP", f"live {name} call runs only in `make smoke-live` with keys set"
+
     return inner
 
 
@@ -463,7 +592,7 @@ def permission_matrix() -> tuple[str, str]:
         return "FAIL", out.strip().splitlines()[-1][:160] if out.strip() else "probe failed"
     data = json.loads(out.strip().splitlines()[-1])
     support_writes = data["support_writes"]
-    evidence = f"operator: read {data['operator_reads']}, write {data['operator_writes']}; support: read {data['support_reads']}, write {len(support_writes)}"
+    evidence = f"operator: read {data['operator_reads']}, write {data['operator_writes']}; support: read {data['support_reads']}, write {len(support_writes)}"  # noqa: E501
     if support_writes:
         return "FAIL", evidence + f" -> support can write {support_writes[:4]}"
     return "PASS", evidence
@@ -483,7 +612,8 @@ for (method, path), policy in sorted(ROUTE_POLICIES.items()):
     if "support" in roles:
         if write: sup_w.append(f"{method} {path}")
         else: sup_r += 1
-print(json.dumps({"operator_reads": op_r, "operator_writes": op_w, "support_reads": sup_r, "support_writes": sup_w}))
+print(json.dumps({"operator_reads": op_r, "operator_writes": op_w,
+                  "support_reads": sup_r, "support_writes": sup_w}))
 """
 
 
@@ -498,11 +628,18 @@ def compose_config() -> tuple[str, str]:
     local = []
     for name, svc in services.items():
         for key, value in (svc.get("environment") or {}).items():
-            if isinstance(value, str) and re.search(r"(URL|HOST|ORIGIN|ENDPOINT)$", key) and re.search(r"localhost|127\.0\.0\.1", value):
+            if (
+                isinstance(value, str)
+                and re.search(r"(URL|HOST|ORIGIN|ENDPOINT)$", key)
+                and re.search(r"localhost|127\.0\.0\.1", value)
+            ):
                 local.append(f"{name}.{key}")
     order = services["api"].get("depends_on", {}).get("migrate", {}).get("condition")
     ok = not local and order == "service_completed_successfully"
-    return ("PASS" if ok else "FAIL"), f"resolves; localhost hosts inside containers: {local or 'none'}; api waits for migrate: {order}"
+    return (
+        ("PASS" if ok else "FAIL"),
+        f"resolves; localhost hosts inside containers: {local or 'none'}; api waits for migrate: {order}",  # noqa: E501
+    )
 
 
 def api_refuses_behind_schema() -> tuple[str, str]:
@@ -515,18 +652,58 @@ def api_refuses_behind_schema() -> tuple[str, str]:
 def checks() -> list[tuple[str, str, Check]]:
     c = CONTRACT
     return [
-        ("CONFIG", "env-example-matches-code", lambda: pytest(f"{c}::test_env_example_lists_exactly_what_the_code_reads")),
-        ("CONFIG", "env-example-comments-above-keys", lambda: pytest(f"{c}::test_env_example_comments_sit_above_their_key")),
-        ("CONFIG", "env-example-hermetic-and-valid", lambda: pytest(f"{c}::test_env_example_is_hermetic_and_valid_by_default")),
+        (
+            "CONFIG",
+            "env-example-matches-code",
+            lambda: pytest(f"{c}::test_env_example_lists_exactly_what_the_code_reads"),
+        ),
+        (
+            "CONFIG",
+            "env-example-comments-above-keys",
+            lambda: pytest(f"{c}::test_env_example_comments_sit_above_their_key"),
+        ),
+        (
+            "CONFIG",
+            "env-example-hermetic-and-valid",
+            lambda: pytest(f"{c}::test_env_example_is_hermetic_and_valid_by_default"),
+        ),
         ("CONFIG", "every-env-read-registered", lambda: pytest("tests/unit/test_env_registry.py")),
         ("CONFIG", "dotenv-untracked", dotenv_untracked),
         ("CONFIG", "secret-scan", secret_scan),
-        ("CONFIG", "boot-fails-naming-variable", lambda: pytest("tests/unit/test_env_registry.py", "-k", "invalid or missing or required or names")),
-        ("CONFIG", "placeholder-and-unsigned-tokens-rejected", lambda: pytest("tests/phase3/test_ws2_tokens.py", "tests/unit/test_google_staff_claims.py", db=True)),
-        ("CONFIG", "dev-never-uses-secret-manager", lambda: pytest(f"{c}::test_dev_never_builds_a_secret_manager_client")),
-        ("CONFIG", "cloud-secret-fails-closed", lambda: pytest(f"{c}::test_cloud_secret_read_fails_closed_when_the_secret_is_absent")),
-        ("CONFIG", "superuser-not-in-request-path", lambda: pytest(f"{c}::test_migrator_url_is_read_only_by_migration_and_ops_code")),
-        ("CONFIG", "prod-migrator-non-superuser", lambda: pytest(f"{c}::test_production_template_uses_a_non_superuser_owner")),
+        (
+            "CONFIG",
+            "boot-fails-naming-variable",
+            lambda: pytest(
+                "tests/unit/test_env_registry.py", "-k", "invalid or missing or required or names"
+            ),
+        ),
+        (
+            "CONFIG",
+            "placeholder-and-unsigned-tokens-rejected",
+            lambda: pytest(
+                "tests/phase3/test_ws2_tokens.py", "tests/unit/test_google_staff_claims.py", db=True
+            ),
+        ),
+        (
+            "CONFIG",
+            "dev-never-uses-secret-manager",
+            lambda: pytest(f"{c}::test_dev_never_builds_a_secret_manager_client"),
+        ),
+        (
+            "CONFIG",
+            "cloud-secret-fails-closed",
+            lambda: pytest(f"{c}::test_cloud_secret_read_fails_closed_when_the_secret_is_absent"),
+        ),
+        (
+            "CONFIG",
+            "superuser-not-in-request-path",
+            lambda: pytest(f"{c}::test_migrator_url_is_read_only_by_migration_and_ops_code"),
+        ),
+        (
+            "CONFIG",
+            "prod-migrator-non-superuser",
+            lambda: pytest(f"{c}::test_production_template_uses_a_non_superuser_owner"),
+        ),
         ("DATABASE", "alembic-at-head", alembic_at_head),
         ("DATABASE", "runtime-roles-app_rw", runtime_roles),
         ("DATABASE", "forced-rls-every-tenant-table", forced_rls),
@@ -535,15 +712,41 @@ def checks() -> list[tuple[str, str, Check]]:
         ("DATABASE", "isolation-suite", lambda: pytest("tests/isolation", "-x", db=True)),
         ("API", "healthz-liveness", healthz),
         ("API", "readyz-reports-components", readyz_components),
-        ("API", "readyz-fails-closed", lambda: pytest("tests/system/test_wiring.py::test_readyz_fails_closed_w5", db=True)),
-        ("API", "openapi-and-client-current", lambda: (lambda r: ("PASS" if r[0] == 0 else "FAIL", r[1].strip().splitlines()[-1][:160] if r[1].strip() else "ok"))(run(["make", "contract"]))),
+        (
+            "API",
+            "readyz-fails-closed",
+            lambda: pytest("tests/system/test_wiring.py::test_readyz_fails_closed_w5", db=True),
+        ),
+        (
+            "API",
+            "openapi-and-client-current",
+            lambda: (
+                lambda r: (
+                    "PASS" if r[0] == 0 else "FAIL",
+                    r[1].strip().splitlines()[-1][:160] if r[1].strip() else "ok",
+                )
+            )(run(["make", "contract"])),
+        ),
         ("API", "cors-deny-by-default", cors_denied),
         ("API", "tenant-only-from-session", forged_tenant_header),
-        ("API", "tenant-never-from-body", lambda: pytest("tests/system/test_wiring.py::test_tenant_never_comes_from_a_body_w3", db=True)),
+        (
+            "API",
+            "tenant-never-from-body",
+            lambda: pytest(
+                "tests/system/test_wiring.py::test_tenant_never_comes_from_a_body_w3", db=True
+            ),
+        ),
         ("API", "session-cookie-flags", session_cookie_policy),
         ("API", "request-id-echo", request_id_echo),
         ("API", "request-id-in-api-log", request_id_in_api_log),
-        ("API", "request-id-hermetic", lambda: pytest(f"{c}::test_request_id_reaches_every_log_line", f"{c}::test_local_task_hop_forwards_the_request_id")),
+        (
+            "API",
+            "request-id-hermetic",
+            lambda: pytest(
+                f"{c}::test_request_id_reaches_every_log_line",
+                f"{c}::test_local_task_hop_forwards_the_request_id",
+            ),
+        ),
         ("API", "body-size-limit", body_limit),
         ("API", "client-safe-errors", no_stack_traces),
         ("WEB", "server-side-proxy-no-public-vars", web_server_side_proxy),
@@ -552,16 +755,55 @@ def checks() -> list[tuple[str, str, Check]]:
         ("WEB", "bundle-secret-scan", bundle_scan),
         ("STORE", "payload-volume-api-to-worker", payload_volume_shared),
         ("STORE", "keys-tenant-prefixed", tenant_prefixed_keys),
-        ("PROVIDERS", "configured-needs-every-credential", lambda: pytest(f"{c}::test_provider_is_configured_only_with_every_usable_credential", f"{c}::test_unconfigured_provider_sends_no_credential_at_all")),
-        ("PROVIDERS", "readyz-provider-status", lambda: pytest(f"{c}::test_readiness_reports_every_component_by_status_word_only", f"{c}::test_readiness_marks_providers_off_when_connectors_are_off")),
-        ("PROVIDERS", "hosts-only-in-broker", lambda: pytest(f"{c}::test_provider_hosts_are_reached_only_by_the_broker_and_adapters")),
-        ("PROVIDERS", "request-shape-cassettes", lambda: pytest("tests/connectors/test_contracts.py")),
-        ("PROVIDERS", "billing-429-refund", lambda: pytest("tests/connectors/test_service_scenarios.py", "tests/connectors/test_ledger_budget.py", "tests/connectors/test_transport_pacing.py", db=True)),
-        ("PROVIDERS", "outage-partial-and-budget-stop", lambda: pytest("tests/system/test_failure_injection.py", db=True)),
+        (
+            "PROVIDERS",
+            "configured-needs-every-credential",
+            lambda: pytest(
+                f"{c}::test_provider_is_configured_only_with_every_usable_credential",
+                f"{c}::test_unconfigured_provider_sends_no_credential_at_all",
+            ),
+        ),
+        (
+            "PROVIDERS",
+            "readyz-provider-status",
+            lambda: pytest(
+                f"{c}::test_readiness_reports_every_component_by_status_word_only",
+                f"{c}::test_readiness_marks_providers_off_when_connectors_are_off",
+            ),
+        ),
+        (
+            "PROVIDERS",
+            "hosts-only-in-broker",
+            lambda: pytest(f"{c}::test_provider_hosts_are_reached_only_by_the_broker_and_adapters"),
+        ),
+        (
+            "PROVIDERS",
+            "request-shape-cassettes",
+            lambda: pytest("tests/connectors/test_contracts.py"),
+        ),
+        (
+            "PROVIDERS",
+            "billing-429-refund",
+            lambda: pytest(
+                "tests/connectors/test_service_scenarios.py",
+                "tests/connectors/test_ledger_budget.py",
+                "tests/connectors/test_transport_pacing.py",
+                db=True,
+            ),
+        ),
+        (
+            "PROVIDERS",
+            "outage-partial-and-budget-stop",
+            lambda: pytest("tests/system/test_failure_injection.py", db=True),
+        ),
         ("PROVIDERS", "llm-tier-models", llm_tiers),
         *[("LIVE", f"provider-{p}", live_skip(p)) for p in PROVIDERS],
         ("LIVE", "llm-tiers", live_skip("LLM tier")),
-        ("AUTH", "client-sso-and-session", lambda: pytest("tests/phase3/test_ws2_sso_api.py", db=True)),
+        (
+            "AUTH",
+            "client-sso-and-session",
+            lambda: pytest("tests/phase3/test_ws2_sso_api.py", db=True),
+        ),
         ("AUTH", "operator-vs-support-permissions", permission_matrix),
         ("COMPOSE", "config-hosts-and-order", compose_config),
         ("COMPOSE", "api-refuses-schema-behind-head", api_refuses_behind_schema),
@@ -570,7 +812,10 @@ def checks() -> list[tuple[str, str, Check]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--only", help="run one layer (CONFIG, DATABASE, API, WEB, STORE, PROVIDERS, LIVE, AUTH, COMPOSE)")
+    parser.add_argument(
+        "--only",
+        help="run one layer (CONFIG, DATABASE, API, WEB, STORE, PROVIDERS, LIVE, AUTH, COMPOSE)",
+    )
     args = parser.parse_args()
     rows: list[Row] = []
     for layer, name, check in checks():
@@ -582,7 +827,10 @@ def main() -> int:
         except Exception as error:  # noqa: BLE001 - a crashing check is a FAIL row, not a crash
             result, evidence = "FAIL", f"check crashed: {type(error).__name__}: {str(error)[:100]}"
         rows.append(Row(layer, name, result, evidence))
-        print(f"{layer:<9} | {name:<42} | {result:<4} | {evidence}  ({time.monotonic() - started:.0f}s)", flush=True)
+        print(
+            f"{layer:<9} | {name:<42} | {result:<4} | {evidence}  ({time.monotonic() - started:.0f}s)",  # noqa: E501
+            flush=True,
+        )
     counts = {k: sum(r.result == k for r in rows) for k in ("PASS", "FAIL", "SKIP")}
     print(f"\nPASS {counts['PASS']}  FAIL {counts['FAIL']}  SKIP {counts['SKIP']}")
     return 1 if counts["FAIL"] else 0

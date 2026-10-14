@@ -1,5 +1,6 @@
 // Ask (home). ?thread opens a recent chat, ?account preselects an account (by domain) and ?q asks
 // that question on arrival (the account page's composer sends people here).
+import Link from "next/link";
 import type { Metadata } from "next";
 import type { AccountPage, ChatSuggestions, ChatThread } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
@@ -28,7 +29,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
   if (failed) {
     return (
       <div className="pg">
-        <StateCard title="Ask is unavailable right now" body="Your workspace could not be reached. Reload the page in a moment." action={<a className="btn" href="/">Reload</a>} />
+        <StateCard title="Ask is unavailable right now" body="Your workspace could not be reached. Reload the page in a moment." action={<Link className="btn" href="/" prefetch={false}>Reload</Link>} />
       </div>
     );
   }

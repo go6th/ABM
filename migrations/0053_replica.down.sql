@@ -25,6 +25,9 @@ ALTER TABLE chat_turns DROP COLUMN answer_json;
 
 DROP TABLE question_categories;
 
+-- reviewed: SECURITY DEFINER (owner identity_authenticator, NOLOGIN, NOBYPASSRLS, search_path
+-- pinned, EXECUTE for app_rw only, unchanged from 0047). Returns only the memberships of the one
+-- identity being signed in (matched by verified email), never another person's rows.
 CREATE OR REPLACE FUNCTION local_auth_memberships(p_user_id uuid)
    RETURNS TABLE (tenant_id uuid, user_id text, role text)
    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$

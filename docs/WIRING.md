@@ -11,10 +11,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 - Backend operations in OpenAPI: **167**.
 - Frontend literal call sites found: **80**.
-- Frontend call sites mapped to backend operations: **74**.
-- Backend operations without a direct frontend call site: **114**.
+- Frontend call sites mapped to backend operations: **75**.
+- Backend operations without a direct frontend call site: **113**.
 - Route-policy/catalog violations: **0**.
-- Unmapped frontend calls: **1**.
+- Unmapped frontend calls: **0**.
 
 Uncalled backend operations remain part of the documented OpenAPI surface and may support
 non-browser clients or later screens. This count is not treated as an orphan deletion list.
@@ -102,7 +102,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/progress` | — | RunProgress | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/ws/RunSteps.tsx` | tenant client | `GET /v1/runs/{run_id}/spend/live` | — | TenantLiveSpend | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `web/components/accounts/SchedulesView.tsx` | tenant client | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
-| `web/app/api/auth/logout/route.ts` | server API fetch | `GET /v1/sso/logout` | unmapped | unmapped | unverified |
+| `web/app/api/auth/logout/route.ts` | server API fetch | `POST /v1/sso/logout` | — | SignedOut | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/app/api/auth/logout/route.ts` | server API fetch | `GET /v1/sso/session` | — | Session | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/app/api/operator/callback/route.ts` | same-origin or external fetch | `POST https://oauth2.googleapis.com/token` | OAuth code exchange | OAuth token response | external identity provider; server-only |
 
@@ -300,6 +300,4 @@ Schema names come from the live application OpenAPI document. Policy values come
 
 ## Findings
 
-Static breaks found:
-
-- GET /v1/sso/logout from web/app/api/auth/logout/route.ts matched 0 backend operations
+- **No static frontend route breaks or route-policy gaps found.**

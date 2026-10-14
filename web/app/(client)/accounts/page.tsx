@@ -51,7 +51,7 @@ export default async function AccountsPage() {
         <Link className="btn primary" href="/accounts/add" prefetch={false}>Add account</Link>
       </div>
       {failed ? (
-        <StateCard title="Accounts could not be loaded" body="Your workspace could not be reached. Reload the page in a moment." action={<a className="btn" href="/accounts">Reload</a>} />
+        <StateCard title="Accounts could not be loaded" body="Your workspace could not be reached. Reload the page in a moment." action={<Link className="btn" href="/accounts" prefetch={false}>Reload</Link>} />
       ) : accounts.length === 0 ? (
         <StateCard
           title="No accounts yet"

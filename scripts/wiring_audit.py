@@ -112,7 +112,7 @@ def frontend_calls() -> list[FrontendCall]:
                         method, route = match.group("key").split(" ", 1)
                     else:
                         method = match.groupdict().get("method")
-                        if method is None and kind == "same-origin or external fetch":
+                        if method is None and kind.endswith("fetch"):
                             options = source[match.end() : match.end() + 240]
                             method_match = re.search(
                                 r'\bmethod\s*:\s*"(?P<method>' + METHODS + r')"', options

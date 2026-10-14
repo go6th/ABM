@@ -57,17 +57,23 @@ export function Ask({
   const asked = useRef(false);
   const busy = turns.some((t) => t.status === "searching");
 
-  // A different thread opened from Recent: load it (our own new thread is already shown).
-  useEffect(() => {
+  // A different thread opened from Recent: load it (our own new thread is already shown). The
+  // state follows the prop during render; the effect only stops the stream of the old thread.
+  const [shownThread, setShownThread] = useState<string | null>(initialThread);
+  const [switches, setSwitches] = useState(0);
+  if (initialThread !== shownThread) {
+    setShownThread(initialThread);
     if (initialThread && initialThread !== threadId) {
-      abort.current?.abort();
       setThreadId(initialThread);
       setTurns(initialTurns);
       setOpen(null);
       setActive(null);
+      setSwitches((n) => n + 1);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialThread]);
+  }
+  useEffect(() => {
+    if (switches) abort.current?.abort();
+  }, [switches]);
 
   useEffect(() => {
     const reset = () => {

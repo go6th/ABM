@@ -1,3 +1,4 @@
+-- Reverse 0056_topic_research: remove topic jobs and their credit entries, restore the scope check.
 DELETE FROM credit_entries WHERE job_id IN (SELECT id FROM research_jobs WHERE scope = 'topic');
 DELETE FROM research_jobs WHERE scope = 'topic';
 ALTER TABLE research_jobs DROP CONSTRAINT ck_research_jobs_topic;

@@ -31,6 +31,7 @@ from account_intelligence.api.routes.account_workspace import account_id_of
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica import jobs
+from account_intelligence.replica.notifications import mark_read
 from account_intelligence.replica.settings import client_settings
 
 router = APIRouter(tags=["credits"])
@@ -256,14 +257,7 @@ async def notification_read(
 ) -> dict[str, Any]:
     """Mark one of the caller's notifications read."""
     async with tenant_txn(ident.tenant_id) as s:
-        done = await s.scalar(
-            text(
-                "UPDATE notifications SET read_at = coalesce(read_at, now()) WHERE id = :n AND"
-                " user_id = :u"
-                " RETURNING id"
-            ),
-            {"n": notification_id, "u": ident.user_id},
-        )
-    if done is None:
+        done = await mark_read(s, notification_id, ident.user_id)
+    if not done:
         raise HTTPException(404, "not found")
     return {"read": True}

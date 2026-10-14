@@ -28,6 +28,7 @@ from sqlalchemy import text
 
 from account_intelligence.db.session import tenant_txn, untenanted_session
 from account_intelligence.replica import credits as CR
+from account_intelligence.replica.notifications import notify
 from account_intelligence.replica.settings import CADENCE_DAYS, CADENCE_ORDER, client_settings
 
 CADENCES = (*CADENCE_ORDER, "off")
@@ -186,12 +187,12 @@ async def tick(now: datetime, start: Start) -> dict[str, int]:
                 {"n": now + timedelta(days=CADENCE_DAYS[acct.refresh_cadence]), "a": account_id},
             )
             if job[1] == "waiting_credit_limit" and acct.added_by:
-                await s.execute(
-                    text(
-                        "INSERT INTO notifications (user_id, kind, account_id, job_id)"
-                        " VALUES (:u, 'waiting_credit_limit', :a, :j)"
-                    ),
-                    {"u": acct.added_by, "a": account_id, "j": job[0]},
+                await notify(
+                    s,
+                    user_id=acct.added_by,
+                    kind="waiting_credit_limit",
+                    account_id=account_id,
+                    job_id=job[0],
                 )
         if job is None:
             continue
@@ -201,7 +202,7 @@ async def tick(now: datetime, start: Start) -> dict[str, int]:
         else:
             waiting += 1
     async with untenanted_session() as plain:
-        tenants = (
+        tenants: list[Any] = list(
             (await plain.execute(text("SELECT tenant_id FROM tenants_with_waiting_jobs()")))
             .scalars()
             .all()

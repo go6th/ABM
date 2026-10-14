@@ -73,7 +73,7 @@ Read-only findings that the build in `BUILD_PROMPT.md` starts from. Line numbers
 | Sense-check pulls "once approved" | Checkpoints |
 | BitScale consent | Tenant acknowledgement (`config/skill/consent.yaml` holds the approved text) |
 | Pass 1 mail, calls, Drive | Off; in file mode the uploads are the internal history |
-| "Rajesh Only" file | Never built (`name_digests.yaml` proves it) |
+| The operator-only internal file | Never built (`name_digests.yaml` proves it) |
 | In-chat repackaging | Registry |
 | Pre-pulled broker files | Not offered |
 | Broker balance check | Not offered |

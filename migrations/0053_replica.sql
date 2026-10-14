@@ -175,6 +175,9 @@ ALTER TABLE memberships ADD CONSTRAINT ck_memberships_ended CHECK ((access_state
 -- Password sign-in only for members whose access is active (the definer's owner may read the
 -- new column and nothing else new).
 GRANT SELECT (access_state) ON memberships TO identity_authenticator;
+-- reviewed: SECURITY DEFINER (owner identity_authenticator, NOLOGIN, NOBYPASSRLS, search_path
+-- pinned, EXECUTE for app_rw only, unchanged from 0047). Returns only the memberships of the one
+-- identity being signed in (matched by verified email), never another person's rows.
 CREATE OR REPLACE FUNCTION local_auth_memberships(p_user_id uuid)
    RETURNS TABLE (tenant_id uuid, user_id text, role text)
    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$

@@ -198,6 +198,7 @@ class Acct:
     refreshes: int
 
     def refreshed_days(self, now: datetime) -> int | None:
+        """Days since the account was last researched; None when it never was."""
         return None if self.last_refresh is None else max(0, (now - self.last_refresh).days)
 
 
@@ -218,6 +219,7 @@ class Row:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def haystack(self) -> str:
+        """Every searchable field of the row, lower case and space padded for word matches."""
         extra = " ".join(map(str, self.extra.values()))
         return f" {self.text} {self.title} {self.meta} {self.lane or ''} {extra} ".lower()
 
@@ -616,6 +618,7 @@ class Draft:
         self.focus: Acct | None = None
 
     def cite(self, *rows: Row) -> str:
+        """Number the rows as citations (reusing a row's number) and return the markers."""
         out = []
         for r in rows:
             self.rows[r.key] = r
@@ -623,6 +626,7 @@ class Draft:
         return "".join(out)
 
     def para(self, value: str) -> None:
+        """Add one paragraph to the answer."""
         self.paragraphs.append(value)
 
 
@@ -700,6 +704,7 @@ def _first_call_fact(ws: Workspace, acct: Acct) -> Row | None:
 
 
 def compose_hiring(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
+    """Answer a hiring question from recent job postings matching the topics."""
     rows = [j for j in _recent(ws.jobs, now, q.window_days) if about(j, q.topics)]
     if q.accounts:
         rows = [j for j in rows if j.account in q.accounts]
@@ -783,6 +788,7 @@ def compose_hiring(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
 
 
 def compose_people(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
+    """Answer a people question from the people list of the scoped accounts."""
     targets = list(q.accounts) or ws.accounts
     label = _topic_label(q.topics)
     facts = [
@@ -838,6 +844,7 @@ def compose_people(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
 
 
 def compose_changes(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
+    """Answer "what changed" from the signals and findings inside the window."""
     targets = list(q.accounts) or ws.accounts
     window = max(q.window_days if q.window_days != 30 else 7, 7)
     moved: list[tuple[Acct, list[Row]]] = []
@@ -902,6 +909,7 @@ def first_call_questions(ws: Workspace, acct: Acct, topics: tuple[str, ...] = ()
 
 
 def compose_first_call(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
+    """Suggest a first call from the account's strongest recent findings and people."""
     if not q.accounts:
         best = max(
             ws.accounts,
@@ -936,6 +944,7 @@ def compose_first_call(q: Question, ws: Workspace, now: datetime, d: Draft) -> N
 
 
 def compose_technology(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
+    """Answer a technology question from the tech stack and graded findings."""
     targets = list(q.accounts) or ws.accounts
     rows = [t for t in ws.tech if t.account in targets and about(t, q.topics)]
     facts = [
@@ -968,6 +977,7 @@ def compose_technology(q: Question, ws: Workspace, now: datetime, d: Draft) -> N
 
 
 def compose_other(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
+    """Answer anything else by matching the question's words against stored rows."""
     words = [
         w
         for w in re.findall(r"[a-z0-9]{4,}", q.text.lower())
@@ -1084,6 +1094,7 @@ def plain_text(paragraphs: list[list[dict[str, str]]]) -> str:
 
 
 def source_out(n: int, r: Row) -> dict[str, Any]:
+    """One numbered source as the answer's SOURCES list shows it."""
     return {
         "n": n,
         "title": r.title,
@@ -1240,4 +1251,5 @@ def compose_local(
 
 
 def scope_account(ws: Workspace, account_id: UUID | None) -> Acct | None:
+    """The account the question is scoped to, if any (None means all accounts)."""
     return next((a for a in ws.accounts if a.id == account_id), None) if account_id else None

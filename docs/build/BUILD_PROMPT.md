@@ -171,7 +171,7 @@ D5. The skill is executed, not re-implemented. The backend runs the uploaded ABM
    - The skill's "agree a credit cap first" step is answered by the checkpoint mechanism (section 5). Intercept that question and respond from run state. The run proceeds to its first checkpoint without asking.
    - "Ask before spending unapproved credits" and "sense-check pulls once approved" are also answered by checkpoints, not separate approvals.
    - The BitScale people-pull consent step becomes a one-time tenant-level acknowledgement stored with timestamp and user, shown before the first people pull.
-   - The "Rajesh Only" internal file is never generated.
+   - The operator-only internal file is never generated.
    - Pass 1 internal history (mail, call notes, Drive) is disabled. In file mode, the uploaded files are the internal history.
    - Skill updates come from the skill registry, not in-chat repackaging.
 8. Lessons log and checklist are read from the active skill version. Corrections are made by publishing a new skill version. `config/lessons.yaml` and the hand-built `docs/abm/LESSONS.md` go.

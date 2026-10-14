@@ -1,6 +1,9 @@
 -- Add local password recovery without expanding direct app_rw access to credential tables.
 GRANT UPDATE (password_hash, password_changed_at) ON local_identities TO identity_authenticator;
 
+-- reviewed: SECURITY DEFINER (owner identity_authenticator, NOLOGIN, NOBYPASSRLS, search_path
+-- pinned, EXECUTE for app_rw only). Returns one active, verified identity's email for an unexpired,
+-- unconsumed reset token given as its SHA-256 hash; identities are platform rows, not tenant rows.
 CREATE FUNCTION local_auth_reset_email(p_token_hash text, p_now timestamptz)
    RETURNS text
    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -12,6 +15,9 @@ CREATE FUNCTION local_auth_reset_email(p_token_hash text, p_now timestamptz)
       AND u.status = 'active' AND u.email_verified_at IS NOT NULL
 $$;
 
+-- reviewed: SECURITY DEFINER (owner identity_authenticator, as above). Consumes the single-use
+-- reset token and sets that one identity's password hash in one transaction; refuses malformed
+-- hashes; writes no tenant row and reads no tenant data.
 CREATE FUNCTION local_auth_reset_password(
    p_token_hash text, p_password_hash text, p_now timestamptz)
    RETURNS uuid

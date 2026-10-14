@@ -226,6 +226,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         }
 
     def fact_row(r: Any, when_label: str) -> dict[str, Any]:
+        """One finding as the workspace table row shows it."""
         return {
             "grade": r.product_grade,
             "text": r.v,

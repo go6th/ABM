@@ -16,7 +16,8 @@ Usage::
     APP_ENV=dev MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_replica \\
     DEMO_PASSWORD=... uv run python scripts/seed_replica_demo.py [--reset]
 
-``DEMO_PASSWORD`` sets the password of every demo sign-in (placeholders in ``.env.example``).
+``DEMO_PASSWORD`` sets the password of every demo sign-in. Pass it in the shell environment for
+the one command; it is not a runtime setting, so it is not in ``.env.example`` and never committed.
 ``--reset`` removes the demo clients' rows first, so the seed can be run again.
 """
 

@@ -10,7 +10,6 @@ prose from the same rows and its citations are checked (``replica.model_answer``
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -28,12 +27,14 @@ from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.chat.service import ChatService, sse
+from account_intelligence.chat.store import record_ask_turn
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import answers as A
 from account_intelligence.replica.model_answer import compose_with_model
 from account_intelligence.replica.settings import touch_activity
+from obs.logging import logger
 
-log = logging.getLogger(__name__)
+log = logger(__name__)
 
 router = APIRouter(tags=["ask"])
 register("GET", "/v1/chat/suggestions", tenant_route("read_public", "read", step_up=False))
@@ -104,6 +105,7 @@ async def ask(
     )
 
     async def events() -> AsyncIterator[bytes]:
+        """Stream the answer: replay a repeated request, or search, compose, store and send."""
         if replay is not None:
             yield sse("thread", {"thread_id": str(body.thread_id), "created": False})
             yield sse("answer", replay["answer"] or {})
@@ -147,62 +149,20 @@ async def ask(
                 resource_type="chat_thread",
                 resource_id=body.thread_id,
             )(ident.tenant_id) as session:
-                thread_id = body.thread_id
-                created = False
-                if thread_id is None:
-                    thread_id = (
-                        await session.execute(
-                            text(
-                                "INSERT INTO chat_threads (owner_user_id, title) VALUES (:u, :t)"
-                                " RETURNING id"
-                            ),
-                            {"u": ident.user_id, "t": " ".join(body.question.split())[:80]},
-                        )
-                    ).scalar_one()
-                    created = True
-                number = (
-                    await session.execute(
-                        text(
-                            "UPDATE chat_threads SET turn_count = turn_count + 1, updated_at ="
-                            " now()"
-                            " WHERE id = :t AND owner_user_id = :u RETURNING turn_count"
-                        ),
-                        {"t": thread_id, "u": ident.user_id},
-                    )
-                ).scalar_one()
-                turn_id = (
-                    await session.execute(
-                        text(
-                            "INSERT INTO chat_turns (thread_id, turn_number, request_id, model_id,"
-                            " user_content,"
-                            " assistant_content, account_id, status, reserved_usd, input_tokens,"
-                            " output_tokens,"
-                            " completed_at, answer_json) VALUES (:t, :n, :r, :m, :q, :a, :acct,"
-                            " 'completed', 0,"
-                            " :it, :ot, now(), CAST(:j AS jsonb)) RETURNING id"
-                        ),
-                        {
-                            "t": thread_id,
-                            "n": number,
-                            "r": body.request_id,
-                            "m": model_id,
-                            "q": body.question,
-                            "a": plain,
-                            "acct": body.account_id,
-                            "it": usage.input_tokens if usage else 0,
-                            "ot": usage.output_tokens if usage else 0,
-                            "j": _json(answer),
-                        },
-                    )
-                ).scalar_one()
-                await session.execute(
-                    text(
-                        "INSERT INTO question_categories (week, category, questions) VALUES (:w,"
-                        " :c, 1)"
-                        " ON CONFLICT (tenant_id, week, category) DO UPDATE"
-                        " SET questions = question_categories.questions + 1"
-                    ),
-                    {"w": week_of(now), "c": A.classify(body.question)},
+                thread_id, turn_id, created = await record_ask_turn(
+                    session,
+                    user_id=ident.user_id,
+                    thread_id=body.thread_id,
+                    request_id=body.request_id,
+                    model_id=model_id,
+                    question=body.question,
+                    plain_answer=plain,
+                    account_id=body.account_id,
+                    input_tokens=usage.input_tokens if usage else 0,
+                    output_tokens=usage.output_tokens if usage else 0,
+                    answer_json=_json(answer),
+                    week=week_of(now),
+                    category=A.classify(body.question),
                 )
                 await touch_activity(session, ident.user_id, now)
             yield sse("thread", {"thread_id": str(thread_id), "created": created})

@@ -454,3 +454,81 @@ async def fail_turn(
 def _title(value: str) -> str:
     """Compact the first user turn for the sidebar without retaining control characters."""
     return re.sub(r"\s+", " ", value).strip()[:160]
+
+
+async def record_ask_turn(
+    session: Any,
+    *,
+    user_id: str,
+    thread_id: UUID | None,
+    request_id: UUID,
+    model_id: str,
+    question: str,
+    plain_answer: str,
+    account_id: UUID | None,
+    input_tokens: int,
+    output_tokens: int,
+    answer_json: str,
+    week: Any,
+    category: str,
+) -> tuple[UUID, UUID, bool]:
+    """Store one completed Ask turn in the caller's transaction: the thread (created on the first
+    question), the turn with its structured answer, and the weekly question count for its
+    category. Returns (thread id, turn id, whether the thread was created)."""
+    created = False
+    if thread_id is None:
+        thread_id = UUID(
+            str(
+                (
+                    await session.execute(
+                        text(
+                            "INSERT INTO chat_threads (owner_user_id, title) VALUES (:u, :t)"
+                            " RETURNING id"
+                        ),
+                        {"u": user_id, "t": " ".join(question.split())[:80]},
+                    )
+                ).scalar_one()
+            )
+        )
+        created = True
+    number = (
+        await session.execute(
+            text(
+                "UPDATE chat_threads SET turn_count = turn_count + 1, updated_at = now()"
+                " WHERE id = :t AND owner_user_id = :u RETURNING turn_count"
+            ),
+            {"t": thread_id, "u": user_id},
+        )
+    ).scalar_one()
+    turn_id = (
+        await session.execute(
+            text(
+                "INSERT INTO chat_turns (thread_id, turn_number, request_id, model_id,"
+                " user_content, assistant_content, account_id, status, reserved_usd,"
+                " input_tokens, output_tokens, completed_at, answer_json) VALUES (:t, :n, :r,"
+                " :m, :q, :a, :acct, 'completed', 0, :it, :ot, now(), CAST(:j AS jsonb))"
+                " RETURNING id"
+            ),
+            {
+                "t": thread_id,
+                "n": number,
+                "r": request_id,
+                "m": model_id,
+                "q": question,
+                "a": plain_answer,
+                "acct": account_id,
+                "it": input_tokens,
+                "ot": output_tokens,
+                "j": answer_json,
+            },
+        )
+    ).scalar_one()
+    await session.execute(
+        text(
+            "INSERT INTO question_categories (week, category, questions) VALUES (:w, :c, 1)"
+            " ON CONFLICT (tenant_id, week, category) DO UPDATE"
+            " SET questions = question_categories.questions + 1"
+        ),
+        {"w": week, "c": category},
+    )
+    return thread_id, UUID(str(turn_id)), created
