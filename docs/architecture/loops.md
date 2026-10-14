@@ -49,7 +49,7 @@ unannotated (the generator's check fails otherwise).
 | gate fix loop | `src/account_intelligence/workflow/stages/core.py:249` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
 | gcs compose hash read | `src/research_files/blobstore.py:278` | the object's size in COPY_BUFFER reads | end |
 | gcs compose rounds | `src/research_files/blobstore.py:265` | ceil(log32(parts)) rounds | one source left |
-| gmail message metadata | `src/connectors_client/maildrive.py:200` | MAX_ITEMS listed messages | end of the list |
+| gmail message metadata | `src/connectors_client/maildrive.py:201` | MAX_ITEMS listed messages | end of the list |
 | grading hand-off | `src/refresh/probe.py:201` | observations of this poll | end |
 | graph-neighbors | `src/account_intelligence/rag/graphrag.py:96` | entity_count | queue empty or max_hops. |
 | hash uploaded document | `src/documents/service.py:284` | size / 1 MiB reads | end of object |
