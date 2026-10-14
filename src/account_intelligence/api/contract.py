@@ -1672,6 +1672,31 @@ class ViewAsSettings(Out):
     reason: str | None = None
 
 
+class ViewAsAccountRow(Out):
+    """One account as View as a client shows it: names and counts, never file contents."""
+
+    name: str
+    domain: str
+    lanes: list[str]
+    schedule: str
+    last_researched_at: str | None
+    people: int
+    signals: int
+    sources: int
+
+
+class ViewAsWorkspace(Out):
+    """View as a client: the client's workspace, read-only, through an active support grant."""
+
+    support_grant: str
+    client: str
+    expires_at: str
+    users: int
+    credits_used: int
+    credit_pool: int
+    accounts: list[ViewAsAccountRow]
+
+
 class PilotTenant(Out):
     """Response body: pilot tenant."""
 

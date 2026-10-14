@@ -12098,6 +12098,66 @@
         "title": "ViewAsAccount",
         "type": "object"
       },
+      "ViewAsAccountRow": {
+        "additionalProperties": false,
+        "description": "One account as View as a client shows it: names and counts, never file contents.",
+        "properties": {
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "lanes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "last_researched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Researched At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "people": {
+            "title": "People",
+            "type": "integer"
+          },
+          "schedule": {
+            "title": "Schedule",
+            "type": "string"
+          },
+          "signals": {
+            "title": "Signals",
+            "type": "integer"
+          },
+          "sources": {
+            "title": "Sources",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "domain",
+          "lanes",
+          "schedule",
+          "last_researched_at",
+          "people",
+          "signals",
+          "sources"
+        ],
+        "title": "ViewAsAccountRow",
+        "type": "object"
+      },
       "ViewAsAccounts": {
         "additionalProperties": false,
         "description": "Response body: view as accounts.",
@@ -12170,6 +12230,54 @@
           "settings"
         ],
         "title": "ViewAsSettings",
+        "type": "object"
+      },
+      "ViewAsWorkspace": {
+        "additionalProperties": false,
+        "description": "View as a client: the client's workspace, read-only, through an active support grant.",
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/ViewAsAccountRow"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "credit_pool": {
+            "title": "Credit Pool",
+            "type": "integer"
+          },
+          "credits_used": {
+            "title": "Credits Used",
+            "type": "integer"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "support_grant": {
+            "title": "Support Grant",
+            "type": "string"
+          },
+          "users": {
+            "title": "Users",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "support_grant",
+          "client",
+          "expires_at",
+          "users",
+          "credits_used",
+          "credit_pool",
+          "accounts"
+        ],
+        "title": "ViewAsWorkspace",
         "type": "object"
       },
       "ViewBody": {
@@ -15129,6 +15237,72 @@
           }
         },
         "summary": "Tenant Settings",
+        "tags": [
+          "support"
+        ]
+      }
+    },
+    "/operator/v1/view/workspace": {
+      "get": {
+        "description": "View as a client: the workspace as the client sees its accounts (names and counts).",
+        "operationId": "workspace_operator_v1_view_workspace_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Support-Grant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Support-Grant"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewAsWorkspace"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace",
         "tags": [
           "support"
         ]

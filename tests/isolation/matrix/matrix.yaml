@@ -569,6 +569,7 @@ routes:
     params: {grant_id: support_grants.id}
   GET /operator/v1/view/accounts: {probe: operator}
   GET /operator/v1/view/settings: {probe: operator}
+  GET /operator/v1/view/workspace: {probe: operator}
   GET /operator/v1/tenants: {probe: staff, public: [owner]}
   POST /operator/v1/tenants: {probe: staff, body: {name: matrix-provisioned-synthetic}}
   POST /operator/v1/tenants/{tenant_id}/suspend:

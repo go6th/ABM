@@ -23,6 +23,8 @@ export interface ShellUser {
   mailDriveAllowed: boolean;
   /** False when the AI model is not set up (``/v1/me`` ``model_ready``). */
   modelReady?: boolean;
+  /** A client admin: may give 6th support read-only access. */
+  isAdmin?: boolean;
 }
 
 export const NEW_CHAT_EVENT = "ask:new-chat";
@@ -54,6 +56,7 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
     { href: "/research/new", label: "New research", icon: "research" },
     { href: "/schedules", label: "Schedules", icon: "schedules" },
     ...(user.mailDriveAllowed ? [{ href: "/mail-and-drive", label: "Mail and drive", icon: "mail" }] : []),
+    ...(user.isAdmin ? [{ href: "/support-access", label: "Support access", icon: "support" }] : []),
   ];
 
   const close = useCallback(() => {

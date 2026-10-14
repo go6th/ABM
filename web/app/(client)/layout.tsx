@@ -56,6 +56,7 @@ export default async function ClientLayout({ children }: { children: React.React
         accountCap: me.account_cap ?? 0,
         mailDriveAllowed: me.mail_drive_allowed ?? true,
         modelReady: me.model_ready ?? true,
+        isAdmin: me.role === "admin",
       }}
       recent={recent}
       notes={notes}

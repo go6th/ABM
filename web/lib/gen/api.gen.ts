@@ -2512,6 +2512,18 @@ export const ViewAsAccount = z.object({
 }).strict();
 export type ViewAsAccount = z.infer<typeof ViewAsAccount>;
 
+export const ViewAsAccountRow = z.object({
+  "domain": z.string(),
+  "lanes": z.array(z.string()),
+  "last_researched_at": z.string().nullable(),
+  "name": z.string(),
+  "people": z.number().int(),
+  "schedule": z.string(),
+  "signals": z.number().int(),
+  "sources": z.number().int(),
+}).strict();
+export type ViewAsAccountRow = z.infer<typeof ViewAsAccountRow>;
+
 export const ViewAsAccounts = z.object({
   "accounts": z.array(ViewAsAccount),
   "support_grant": z.string(),
@@ -2525,6 +2537,17 @@ export const ViewAsSettings = z.object({
   "version": z.number().int().nullable(),
 }).strict();
 export type ViewAsSettings = z.infer<typeof ViewAsSettings>;
+
+export const ViewAsWorkspace = z.object({
+  "accounts": z.array(ViewAsAccountRow),
+  "client": z.string(),
+  "credit_pool": z.number().int(),
+  "credits_used": z.number().int(),
+  "expires_at": z.string(),
+  "support_grant": z.string(),
+  "users": z.number().int(),
+}).strict();
+export type ViewAsWorkspace = z.infer<typeof ViewAsWorkspace>;
 
 export const ViewBody = z.object({
   "name": z.string(),
@@ -2936,6 +2959,7 @@ export const operations = {
   "POST /operator/v1/tenants/{tenant_id}/suspend": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/suspend", plane: "operator", status: 200, request: Reason, requestRequired: true, response: TenantLifecycle },
   "GET /operator/v1/view/accounts": { method: "GET", path: "/operator/v1/view/accounts", plane: "operator", status: 200, request: null, requestRequired: false, response: ViewAsAccounts },
   "GET /operator/v1/view/settings": { method: "GET", path: "/operator/v1/view/settings", plane: "operator", status: 200, request: null, requestRequired: false, response: ViewAsSettings },
+  "GET /operator/v1/view/workspace": { method: "GET", path: "/operator/v1/view/workspace", plane: "operator", status: 200, request: null, requestRequired: false, response: ViewAsWorkspace },
   "GET /readyz": { method: "GET", path: "/readyz", plane: "tenant", status: 200, request: null, requestRequired: false, response: Ready },
   "GET /v1/accounts": { method: "GET", path: "/v1/accounts", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountPage },
   "POST /v1/accounts": { method: "POST", path: "/v1/accounts", plane: "tenant", status: 201, request: AccountBody, requestRequired: true, response: AccountAdded },

@@ -346,3 +346,46 @@ async def test_flag_evaluation_is_deny_by_default_and_stable() -> None:
     assert flags.bucket("f", t) == flags.bucket("f", t)
     on = sum(flags.evaluate({"percent": 30}, "f", UUID(int=i), "x") for i in range(2000))
     assert 450 < on < 750
+
+
+async def test_view_as_a_client_shows_the_workspace_read_only_and_never_questions(
+    plane: Plane, browser: Browser
+) -> None:
+    """GUARANTEE(test_view_as_a_client_shows_the_workspace_read_only_and_never_questions)"""
+    t = await _admin(plane, browser, "ad-viewas")
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute(
+            "INSERT INTO accounts (tenant_id, domain, name, lanes) VALUES (%s, 'seen.example',"
+            " 'Seen Health', ARRAY['Salesforce'])",
+            (t,),
+        )
+        thread = c.execute(
+            "INSERT INTO chat_threads (tenant_id, owner_user_id, title) VALUES (%s, 'u',"
+            " 'private-thread-title') RETURNING id",
+            (t,),
+        ).fetchone()[0]
+        c.execute(
+            "INSERT INTO chat_turns (tenant_id, thread_id, turn_number, request_id, model_id,"
+            " user_content, assistant_content, status, reserved_usd, completed_at)"
+            " VALUES (%s, %s, 1, gen_random_uuid(), 'm', 'private-question-text',"
+            " 'private-answer-text', 'completed', 0, now())",
+            (t, thread),
+        )
+    gid = await _grant(browser, "sup-1")
+    async with _staff(plane) as staff:
+        none = await staff.get("/operator/v1/view/workspace", headers=_as("support:sup-1"))
+        assert none.status_code == 403  # never without the client's grant
+        view = await staff.get("/operator/v1/view/workspace", headers=_as("support:sup-1", gid))
+        assert view.status_code == 200 and view.headers["X-Support-View"] == "read-only"
+        body = view.json()
+        assert [(a["name"], a["lanes"]) for a in body["accounts"]] == [
+            ("Seen Health", ["Salesforce"])
+        ]
+        assert body["expires_at"] and body["client"]
+        assert "private-" not in view.text  # no question, answer or thread text
+    audit = _db(
+        "SELECT action, route FROM audit_events WHERE tenant_id = %s"
+        " AND support_grant_id IS NOT NULL",
+        t,
+    )
+    assert ("support.view", "/operator/v1/view/workspace") in {(a, r) for a, r in audit}

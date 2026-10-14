@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **193**.
-- Frontend literal call sites found: **82**.
-- Frontend call sites mapped to backend operations: **77**.
-- Backend operations without a direct frontend call site: **131**.
+- Backend operations in OpenAPI: **194**.
+- Frontend literal call sites found: **85**.
+- Frontend call sites mapped to backend operations: **80**.
+- Backend operations without a direct frontend call site: **129**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -49,6 +49,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/api/operator/callback/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
 | `web/app/api/operator/providers/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
 | `web/app/api/operator/session/route.ts` | server API fetch | `GET /operator/v1/session` | — | OperatorSession | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
+| `web/app/operator/(console)/view/page.tsx` | generated operator operation reference | `GET /operator/v1/view/workspace` | — | ViewAsWorkspace | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
 | `web/app/readyz/route.ts` | server API fetch | `GET /readyz` | — | Ready | public health probe |
 | `web/components/ws/AccountList.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ws/Ask.tsx` | tenant client | `POST /v1/accounts` | AccountBody (required) | AccountAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -106,6 +107,8 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/components/accounts/SchedulesView.tsx` | tenant client | `PUT /v1/schedules/{account_id}` | CadenceBody (required) | Schedules | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/app/api/auth/logout/route.ts` | server API fetch | `POST /v1/sso/logout` | — | SignedOut | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `web/app/api/auth/logout/route.ts` | server API fetch | `GET /v1/sso/session` | — | Session | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
+| `web/components/accounts/SupportAccess.tsx` | tenant client | `POST /v1/support/grants` | account_intelligence__api__routes__support__GrantBody (required) | GrantCreated | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
+| `web/components/accounts/SupportAccess.tsx` | tenant client | `POST /v1/support/grants/{grant_id}/revoke` | — | GrantRevoked | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `web/app/api/operator/callback/route.ts` | same-origin or external fetch | `POST https://oauth2.googleapis.com/token` | OAuth code exchange | OAuth token response | external identity provider; server-only |
 
 ## Backend route inventory
@@ -141,6 +144,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /operator/v1/tenants` | — | TenantsOverview (200) | operator; roles=operator, support; principal=operator_support; tenant=none; audit=read |
 | `GET /operator/v1/view/accounts` | — | ViewAsAccounts (200) | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
 | `GET /operator/v1/view/settings` | — | ViewAsSettings (200) | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
+| `GET /operator/v1/view/workspace` | — | ViewAsWorkspace (200) | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
 | `GET /readyz` | — | Ready (200) | public health probe |
 | `GET /v1/accounts` | — | AccountPage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}` | — | AccountDetail (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |

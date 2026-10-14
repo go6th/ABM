@@ -33,6 +33,7 @@ const ICON_PATHS: Record<string, ReactNode> = {
     </>
   ),
   research: <path d="M12 16V5M7 10l5-5 5 5M5 19h14" />,
+  support: <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z" />,
   schedules: (
     <>
       <circle cx="12" cy="12" r="8" />
