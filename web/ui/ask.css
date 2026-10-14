@@ -1,0 +1,77 @@
+/* Ask: the empty state, the thread, the composers and the "What this answer used" panel. */
+.ask { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.ask-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 48px; gap: 28px; }
+.ask-empty .hero { text-align: center; }
+.ask-empty h1 { font-size: 36px; }
+.ask-empty .lead { margin-top: 10px; font-size: 16px; color: var(--muted); }
+.starters { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: var(--chat); }
+
+.composer {
+  position: relative; width: 100%; max-width: var(--chat); background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-composer); padding: 16px 18px 12px; box-shadow: var(--sh-composer);
+  transition: border-color var(--ease);
+}
+.composer:has(input:focus-visible) { border-color: var(--accent-line); outline: 2px solid var(--accent); outline-offset: 2px; }
+.composer input { font-size: 17px; border: 0; outline: 0; min-height: 48px; width: 100%; background: transparent; color: var(--ink); }
+.composer input::placeholder { color: var(--muted); }
+.composer.follow { padding: 10px 16px; border-radius: var(--r-follow); box-shadow: var(--sh-follow); margin: 0 auto; }
+.composer.follow input { font-size: 16px; min-height: 44px; }
+.composer.account { max-width: none; padding: 14px 16px; border-radius: 18px; box-shadow: var(--sh-raised); }
+.composer.account input { font-size: 16px; min-height: 44px; }
+.composer .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.composer.follow .bar, .composer.account .bar { margin-top: 0; }
+.composer .hint { margin-top: 8px; font-size: 13px; color: var(--muted); }
+
+.menu-wrap { position: relative; display: inline-flex; }
+.menu {
+  position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 30; min-width: 240px; max-height: 320px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-btn); box-shadow: var(--sh-composer); padding: 6px;
+}
+.menu.down { top: calc(100% + 6px); bottom: auto; }
+.menu button { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 12px; border-radius: var(--r-seg); border: 0; background: none; font-size: 14px; color: var(--text-3); text-align: left; }
+.menu button:hover, .menu button:focus-visible { background: var(--hover-soft); }
+.menu button[aria-checked="true"] { color: var(--ink); font-weight: 600; }
+
+.ask-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 36px 48px 12px; scroll-behavior: smooth; }
+.ask-cols { display: flex; gap: 32px; justify-content: center; align-items: flex-start; }
+.ask-msgs { flex: 0 1 var(--chat); min-width: 0; display: flex; flex-direction: column; gap: 26px; }
+.ask-side { flex: 0 0 310px; position: sticky; top: 0; display: none; }
+.ask-dock { padding: 8px 48px 24px; }
+.ask-dock .ask-cols .composer { flex: 0 1 var(--chat); }
+.ask-dock .ask-side { visibility: hidden; height: 0; }
+@media (min-width: 1240px) { .ask-side { display: block; } .used-inline { display: none; } }
+
+.bubble { align-self: flex-end; max-width: 80%; background: var(--ink); color: #fff; padding: 14px 18px; border-radius: 18px 18px 4px 18px; font-size: 16px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reply { display: flex; flex-direction: column; gap: 14px; }
+.searching { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.searching .pdot { width: 8px; height: 8px; border-radius: 9px; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.answered { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.answered .mk { width: 22px; height: 22px; border-radius: 6px; background: var(--ink); flex: none; }
+.reply p { font-size: 16.5px; line-height: 1.7; color: var(--ink-2); }
+.items-card { padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
+.items-card .it { font-size: 15px; line-height: 1.5; }
+.src-card { padding: 12px 16px; display: flex; align-items: center; gap: 12px; font-size: 14px; }
+.src-card .grow { flex: 1; min-width: 0; }
+.src-card .acts { display: flex; gap: 14px; align-items: center; }
+.offer { padding: 16px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.offer .txt { flex: 1 1 260px; font-size: 14px; line-height: 1.5; }
+.follows { display: flex; flex-wrap: wrap; gap: 8px; }
+.turn-error { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+
+.used-card { padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.used-row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.used-row .ok { color: var(--ok-ink); font-weight: 600; }
+.used-row .no { color: var(--muted); }
+.used-src { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; line-height: 1.5; color: var(--text-3); }
+.used-src .cite { flex: none; }
+
+@media (max-width: 759px) {
+  .ask-empty { padding: 24px 16px; gap: 20px; justify-content: flex-start; padding-top: 48px; }
+  .ask-empty h1 { font-size: 28px; }
+  .ask-scroll { padding: 20px 16px 8px; }
+  .ask-dock { padding: 8px 16px 16px; }
+  .bubble { max-width: 92%; }
+}
+.main:has(> .ask) { height: 100vh; }
+@media (max-width: 759px) { .main:has(> .ask) { height: calc(100vh - 61px); } }

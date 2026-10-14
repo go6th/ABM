@@ -1,34 +1,57 @@
-// Ask (home): the conversation, scoped to all accounts or one account; ?thread opens a recent
-// chat and ?account preselects an account.
-import { Suspense } from "react";
-import type { AccountPage, ChatThread } from "@/lib/gen/api.gen";
+// Ask (home). ?thread opens a recent chat, ?account preselects an account (by domain) and ?q asks
+// that question on arrival (the account page's composer sends people here).
+import type { Metadata } from "next";
+import type { AccountPage, ChatSuggestions, ChatThread } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
-import { Ask, type Turn } from "@/components/ws/Ask";
-import { LoadError } from "@/ui/primitives";
+import { Ask, type AskTurn } from "@/components/ask/Ask";
+import { StateCard } from "@/ui/design";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Ask · Account Intelligence" };
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ thread?: string; account?: string }> }) {
-  const { thread, account } = await searchParams;
+export default async function Home({ searchParams }: { searchParams: Promise<{ thread?: string; account?: string; q?: string }> }) {
+  const { thread, account, q } = await searchParams;
   let accounts: AccountPage | null = null;
+  let suggestions: ChatSuggestions | null = null;
   let opened: ChatThread | null = null;
-  let reference: string | null | undefined;
+  let failed = false;
   try {
-    accounts = await serverGet<AccountPage>("/v1/accounts?limit=200");
-    if (thread) opened = await serverGet<ChatThread>(`/v1/chat/threads/${encodeURIComponent(thread)}`);
+    [accounts, suggestions, opened] = await Promise.all([
+      serverGet<AccountPage>("/v1/accounts?limit=200"),
+      serverGet<ChatSuggestions>("/v1/chat/suggestions"),
+      thread ? serverGet<ChatThread>(`/v1/chat/threads/${encodeURIComponent(thread)}`, "/") : Promise.resolve(null),
+    ]);
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
-    reference = e.reference;
+    failed = true;
   }
-  if (reference !== undefined) return <div className="page narrow"><LoadError reference={reference} retryHref="/" /></div>;
-  const list = (accounts?.accounts ?? []).map((a) => ({ domain: a.domain, name: a.name ?? a.domain }));
-  const turns: Turn[] = (opened?.turns ?? [])
-    .filter((t) => t.status !== "failed")
-    .map((t) => ({ id: t.id, question: t.user_content, answer: t.assistant_content ?? "", status: "done" as const, scope: null }));
-  const scope = account && list.some((a) => a.domain === account) ? account : null;
+  if (failed) {
+    return (
+      <div className="pg">
+        <StateCard title="Ask is unavailable right now" body="Your workspace could not be reached. Reload the page in a moment." action={<a className="btn" href="/">Reload</a>} />
+      </div>
+    );
+  }
+  const list = (accounts?.accounts ?? [])
+    .filter((a) => a.id)
+    .map((a) => ({ id: a.id as string, domain: a.domain, name: a.name ?? a.domain }))
+    .sort((x, y) => x.name.localeCompare(y.name));
+  const turns: AskTurn[] = (opened?.turns ?? []).map((t) => ({
+    key: t.request_id,
+    question: t.user_content,
+    status: t.answer ? "done" : "failed",
+    answer: t.answer ?? undefined,
+    error: t.answer ? undefined : "This answer was not kept. Ask it again.",
+  }));
+  const scope = account ? list.find((a) => a.domain === account) ?? null : null;
   return (
-    <Suspense>
-      <Ask key={opened?.id ?? "new"} accounts={list} threadId={opened?.id ?? null} initialTurns={turns} initialScope={scope} />
-    </Suspense>
+    <Ask
+      accounts={list}
+      suggestions={suggestions?.suggestions ?? []}
+      threadId={opened?.id ?? null}
+      initialTurns={turns}
+      initialScope={scope}
+      initialQuestion={q && q.trim() ? q.trim().slice(0, 4000) : null}
+    />
   );
 }
