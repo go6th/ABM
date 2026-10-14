@@ -73,6 +73,14 @@ async def test_file_upload_runs_through_scan_parse_and_index(
     assert admin(
         "SELECT task, model, cost_usd FROM research_file_model_calls WHERE file_id = %s", doc
     )[0] == ("embed_passages", "local-hash-v1", 0)
+    # S5: each logged embedding call belongs to the document's owner (the table's owner trigger
+    # looks for a research file, which a document never has)
+    owners = admin(
+        "SELECT DISTINCT c.owner_user_id = d.owner_user_id FROM research_file_model_calls c"
+        " JOIN documents d ON d.id = c.file_id WHERE c.file_id = %s",
+        doc,
+    )
+    assert owners == [(True,)]
     kinds = {p[0] for p in passages}
     assert kinds == ({"crm_row"} if name.endswith(".xlsx") else {"section"})
     events = admin("SELECT action, outcome FROM audit_events WHERE resource_id = %s", str(doc))

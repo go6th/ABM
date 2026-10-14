@@ -84,8 +84,14 @@ async def cleared(s: Any, connection_id: UUID) -> list[str]:
     return [str(r.resource_id) for r in rows]
 
 
-async def listing(s: Any, connection_id: UUID) -> list[dict[str, Any]]:
-    """Every surfaced item of a connection (identifiers and reasons only)."""
+async def listing(s: Any, connection_id: UUID) -> list[dict[str, Any]] | None:
+    """Every surfaced item of a connection (identifiers and reasons only); None when the
+    connection is not visible to the caller (another client's or another user's: not found)."""
+    visible = await s.scalar(
+        text("SELECT 1 FROM connector_connections WHERE id = :c"), {"c": connection_id}
+    )
+    if visible is None:
+        return None
     rows = (
         await s.execute(
             text(
