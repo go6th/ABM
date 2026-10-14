@@ -30,14 +30,3 @@ export function humanize(key: string): string {
   const text = key.replace(/[_-]+/g, " ").trim().toLowerCase();
   return text ? text[0]!.toUpperCase() + text.slice(1) : "";
 }
-
-export type RunState = "none" | "running" | "done" | "failed";
-
-/** The plain state of a run status string from the backend. */
-export function runState(status: string | null | undefined): RunState {
-  if (!status) return "none";
-  const s = status.toLowerCase();
-  if (["succeeded", "completed", "complete", "done", "delivered", "partial"].includes(s)) return "done";
-  if (["failed", "cancelled", "canceled", "rejected", "expired", "error", "budget_exceeded"].includes(s)) return "failed";
-  return "running";
-}
