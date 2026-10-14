@@ -108,13 +108,9 @@ gcloud secrets versions add p-org-api-key --data-file=<(printf "%s" "$P_ORG_API_
 
 ### Step 3: Container Build, Scan, Sign, and Rollout
 
-Executed automatically via GitHub Actions (`.github/workflows/deploy-staging.yml` or `deploy-prod.yml`), or manually:
+Executed only by GitHub Actions (`.github/workflows/deploy-staging.yml` or `deploy-prod.yml`), which deploy the built images by digest; there is no manual deploy script (see `docs/deploy/RUNBOOK.md`).
 
-```bash
-bash scripts/deploy_gcp.sh
-```
-
-The script:
+The workflow:
 1. Builds `api`, `worker`, and `web` containers.
 2. Runs Trivy vulnerability scans (fails on HIGH or CRITICAL).
 3. Generates and uploads CycloneDX SBOMs.
