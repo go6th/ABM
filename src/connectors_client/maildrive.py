@@ -391,6 +391,10 @@ async def sync_connection(
         ).first()
         if conn is None or conn.owner_user_id is None or conn.kind not in KINDS:
             return result
+        if not conn.token_ref:  # an active grant with no stored token cannot sync: fail closed
+            await consent.mark_broken(s, connection_id, "token_missing")
+            result.broken = "token_missing"
+            return result
         rows = (
             await s.execute(text("SELECT id, domain, coalesce(name, domain) AS name FROM accounts"))
         ).all()

@@ -173,3 +173,27 @@ async def test_mail_and_drive_keeps_only_matched_items_for_their_owner() -> None
     assert matches(by_mail, accounts) == [acme]
     assert matches(by_name, accounts) == [beta]
     assert matches(neither, accounts) == []
+
+
+async def test_one_broken_connection_never_stops_the_sync_of_the_others(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ALLOW_UNAUTHENTICATED_TASKS", "1")
+    from uuid import uuid4
+
+    bad = uuid4()
+    _db(
+        "INSERT INTO connector_connections (id, tenant_id, kind, provider, status,"
+        " owner_user_id, scopes, created_by, created_at) VALUES (%s, %s, 'gmail', 'google',"
+        " 'active', 'tokenless-test', ARRAY[%s], 'tokenless-test', now())",
+        bad,
+        world["b"],
+        SCOPE,
+    )
+    plane = _plane(world["b"], "tokenless-test", world["payloads"])
+    _wire(plane, FakeGoogle(), {"google": ("i", "s")})
+    tick = await _call(plane, "POST", "/tasks/maildrive-sync", json={})
+    assert tick.status_code == 200, tick.text
+    assert _db("SELECT status, broken_reason FROM connector_connections WHERE id = %s", bad) == [
+        ("broken", "token_missing")
+    ]

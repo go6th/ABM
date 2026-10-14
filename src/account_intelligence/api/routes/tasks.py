@@ -27,7 +27,9 @@ from sqlalchemy import text
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs import lifecycle
 from account_intelligence.workflow.runner import execute_slice
+from obs.logging import logger
 
+log = logger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
@@ -239,17 +241,26 @@ async def maildrive_sync(
         ).all()
     synced = matched = broken = 0
     # LOOP(mail and drive sync): cap=500 connections per tick (the lookup's limit); exit=end
+    failed = 0
     for tenant_id, connection_id in due:
-        result = await maildrive.sync_connection(
-            tenant_txn,
-            tenant_id,
-            connection_id,
-            oauth=oauth,
-            reader=reader,
-            store=plane_of(request).secrets,
-            now=now,
-        )
+        try:
+            result = await maildrive.sync_connection(
+                tenant_txn,
+                tenant_id,
+                connection_id,
+                oauth=oauth,
+                reader=reader,
+                store=plane_of(request).secrets,
+                now=now,
+            )
+        except Exception as error:  # one connection's failure never stops the others
+            failed += 1
+            log.warning(
+                "maildrive_sync_failed",
+                extra={"connection_id": str(connection_id), "error": type(error).__name__},
+            )
+            continue
         synced += 1
         matched += result.matched
         broken += result.broken is not None
-    return {"connections": synced, "matched": matched, "broken": broken}
+    return {"connections": synced, "matched": matched, "broken": broken, "failed": failed}
