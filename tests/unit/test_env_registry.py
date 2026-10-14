@@ -90,6 +90,15 @@ def test_cloud_profile_requires_its_variables(missing: str) -> None:
         ("ANTHROPIC_API_KEY", "sk-should-not-be-here"),
         ("ALLOW_UNAUTHENTICATED_TASKS", "1"),
         ("PAYLOAD_DIR", "/tmp/x"),
+        ("LLM_FAKE", "hermetic"),
+        ("CONNECTORS", "hermetic"),
+        ("MOONSHOT_API_KEY", "mk-should-not-be-here"),  # the cloud reads MOONSHOT_SECRET
+        ("DEVSTORE_ROOT", "/srv/devstore"),
+        ("DEVSTORE_SESSION_TTL_S", "172800"),  # even the default value: any DEVSTORE_* name
+        ("DEVSTORE_PUBLIC_URL", "http://devstore:9000"),
+        ("JWKS_URL", "http://fake-idp:9090/jwks"),  # the replica's fake IdP
+        ("JWT_ISSUER", "https://localhost:9090/"),
+        ("STAFF_JWKS_URL", "http://fake-idp:9090/staff/jwks"),
     ],
 )
 def test_cloud_profile_refuses_local_switches(switch: tuple[str, str]) -> None:
@@ -97,6 +106,49 @@ def test_cloud_profile_refuses_local_switches(switch: tuple[str, str]) -> None:
         with pytest.raises(EnvironmentInvalid, match=switch[0]) as info:
             load_settings({**CLOUD_OK, "APP_ENV": profile, switch[0]: switch[1]})
         assert switch[1] not in str(info.value)  # names, never values
+
+
+@pytest.mark.parametrize("platform", ["K_SERVICE", "CLOUD_RUN_JOB"])
+@pytest.mark.parametrize("profile", ["dev", "test"])
+def test_a_local_profile_is_refused_on_cloud_run(platform: str, profile: str) -> None:
+    """L13: a dev or test profile turns on the dev staff verifier and unsigned task calls; Cloud
+    Run sets K_SERVICE (services) or CLOUD_RUN_JOB (jobs), so either refuses the start, in the
+    registry and in the container."""
+    from account_intelligence.app.container import RuntimeMisconfigured, build_container
+
+    env = {**LOCAL_OK, "APP_ENV": profile, platform: "api"}
+    with pytest.raises(EnvironmentInvalid, match="refused on Cloud Run"):
+        load_settings(env)
+    with pytest.raises(RuntimeMisconfigured, match="refused on Cloud Run"):
+        build_container(env)
+    assert load_settings({**LOCAL_OK, "APP_ENV": profile}).app_env == profile  # locally fine
+
+
+@pytest.mark.parametrize("seed", ["seed_replica_demo", "seed_pilot"])
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"APP_ENV": "staging"},
+        {"APP_ENV": "production"},
+        {"APP_ENV": "dev", "K_SERVICE": "api"},
+        {"APP_ENV": "dev", "CLOUD_RUN_JOB": "migrate"},
+    ],
+)
+def test_the_demo_seeds_refuse_the_cloud(seed: str, env: dict[str, str]) -> None:
+    """No seed writes demo users or synthetic tenants in a cloud profile or on Cloud Run."""
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / f"{seed}.py")],
+        env={"PATH": "/usr/bin:/bin", **env, "DEMO_PASSWORD": "x" * 16},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=ROOT,
+    )
+    assert out.returncode == 2, (out.stdout, out.stderr)
+    assert "efus" in out.stderr  # "Refusing" / "refused"
 
 
 def test_errors_never_print_secret_values() -> None:

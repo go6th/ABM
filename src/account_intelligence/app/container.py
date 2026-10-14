@@ -411,6 +411,11 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
         raise RuntimeMisconfigured(
             f"CONNECTORS=hermetic is for development and tests and refused for APP_ENV={app_env}"
         )
+    from account_intelligence.config import deployment_refusals
+
+    refusals = deployment_refusals(env)  # L13: dev/test on Cloud Run, DEVSTORE_* in the cloud
+    if refusals:
+        raise RuntimeMisconfigured("; ".join(refusals))
     spec = load_spec()
     if app_env in CLOUD_ENVS:
         container = _cloud(env, app_env, spec)

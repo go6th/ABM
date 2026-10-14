@@ -94,6 +94,14 @@ class Settings(BaseSettings):
         "INFO", purpose="Minimum level of the structured JSON logs."
     )
     port: int = var(8080, purpose="HTTP port the API listens on (Cloud Run injects it).")
+    k_service: str | None = var(
+        purpose="Set by Cloud Run on services: a dev or test profile is refused when present.",
+        component="api, worker",
+    )
+    cloud_run_job: str | None = var(
+        purpose="Set by Cloud Run on jobs: a dev or test profile is refused when present.",
+        component="job, migrate",
+    )
     config_dir: str | None = var(purpose="Directory of the versioned YAML config (image default).")
 
     # database
@@ -412,6 +420,15 @@ class Settings(BaseSettings):
         staff = (self.staff_jwt_issuer, self.staff_jwt_audience, self.staff_jwks_url)
         if any(staff) and not all(staff):
             problems.append("STAFF_JWT_ISSUER, STAFF_JWT_AUDIENCE and STAFF_JWKS_URL go together")
+        if self.app_env in CLOUD and self.connectors == "hermetic":
+            problems.append(f"CONNECTORS: synthetic providers are refused for APP_ENV={self.app_env}")
+        for idp_field in ("jwks_url", "jwt_issuer", "staff_jwks_url", "staff_jwt_issuer"):
+            url = getattr(self, idp_field) or ""
+            host = url.split("://", 1)[-1].split("/", 1)[0].rsplit(":", 1)[0].lower()
+            local = not url.startswith("https://") or any(h in host for h in _LOCAL_HOSTS)
+            if self.app_env in CLOUD and url and local:
+                # the replica's fake IdP (or any local or plain-http one) signs nothing in the cloud
+                problems.append(f"{idp_field.upper()} must be a real https identity provider")
         if self.app_env in CLOUD and self.llm_access == "vertex_ai" and not self.vertex_region:
             problems.append("VERTEX_REGION is required when LLM_ACCESS=vertex_ai")
         for url_field in ("worker_url", "public_base_url"):
@@ -453,8 +470,36 @@ class _Explicit(Settings):
         return (init_settings,)
 
 
+# Local identity providers and hosts a cloud profile must never trust (the replica's fake IdP).
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "fake-idp", "host.docker.internal", "[::1]")
+
+
+def deployment_refusals(env: Mapping[str, str]) -> list[str]:
+    """Rules on the raw environment that the typed fields cannot see (names only):
+
+    * a dev or test profile on Cloud Run (``K_SERVICE`` for services, ``CLOUD_RUN_JOB`` for jobs,
+      both set by the platform): those profiles turn on the dev staff verifier and unsigned task
+      calls (security audit L13);
+    * any ``DEVSTORE_*`` variable in staging or production (the development object store is
+      local only), whatever its value, the defaults included.
+
+    GUARANTEE(test_cloud_profile_refuses_local_switches)"""
+    problems: list[str] = []
+    profile = env.get("APP_ENV", "dev")
+    if profile in LOCAL and (env.get("K_SERVICE") or env.get("CLOUD_RUN_JOB")):
+        problems.append(f"APP_ENV={profile} is refused on Cloud Run (K_SERVICE or CLOUD_RUN_JOB)")
+    if profile in CLOUD:
+        devstore = sorted(k.upper() for k in env if k.upper().startswith("DEVSTORE_"))
+        if devstore:
+            problems.append(f"{', '.join(devstore)} must not be set for APP_ENV={profile}")
+    return problems
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     """Validate ``env`` (default: the process environment); names, never values, on failure."""
+    refusals = deployment_refusals(os.environ if env is None else env)
+    if refusals:
+        raise EnvironmentInvalid("invalid environment: " + " | ".join(refusals))
     try:
         if env is None:
             return Settings()

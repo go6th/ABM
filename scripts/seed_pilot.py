@@ -74,7 +74,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     ap.add_argument("--accounts", default="3,5", help="accounts per tenant, e.g. 3,5")
     args = ap.parse_args(argv)
-    if os.environ.get("APP_ENV") not in ALLOWED_ENVS:
+    if os.environ.get("APP_ENV") not in ALLOWED_ENVS or any(
+        os.environ.get(name) for name in ("K_SERVICE", "CLOUD_RUN_JOB")  # never on Cloud Run
+    ):
         print("seed_pilot: refused (APP_ENV must be dev, local or test)", file=sys.stderr)
         return 2
     a, b = (int(x) for x in args.accounts.split(","))

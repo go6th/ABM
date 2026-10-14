@@ -24,6 +24,8 @@ or a value has the wrong type (errors name the variable, never the value).
 | `SERVICE_ROLE` | Which entry point this container serves (set by the deployment). | no | - | - | api, worker |
 | `LOG_LEVEL` | Minimum level of the structured JSON logs. | no | - | - | api, worker |
 | `PORT` | HTTP port the API listens on (Cloud Run injects it). | no | - | - | api, worker |
+| `K_SERVICE` | Set by Cloud Run on services: a dev or test profile is refused when present. | no | - | - | api, worker |
+| `CLOUD_RUN_JOB` | Set by Cloud Run on jobs: a dev or test profile is refused when present. | no | - | - | job, migrate |
 | `CONFIG_DIR` | Directory of the versioned YAML config (image default). | no | - | - | api, worker |
 | `DATABASE_URL` | Async SQLAlchemy URL of the NOBYPASSRLS runtime role (local profiles only). | **secret** | dev, test | - | api, worker |
 | `CHECKPOINT_DATABASE_URL` | psycopg URL for the run checkpointer, direct to the writer (no pooler). | **secret** | dev, staging, production | - | api, worker |
