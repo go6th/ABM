@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { googleOperatorOidcConfig, operatorApiOrigin, operatorOAuthCookieNames, safeOperatorReturnPath } from "@/lib/operator-oidc";
 
@@ -16,6 +19,23 @@ describe("operator Google Workspace configuration", () => {
     expect(config?.clientId).toBe("client-id");
     expect(config?.secureCookies).toBe(false);
     expect(googleOperatorOidcConfig()?.clientSecret).toBe("server-secret");
+  });
+
+  it("reads the client secret from a file path so the value is never in the environment", () => {
+    const dir = mkdtempSync(join(tmpdir(), "operator-oidc-"));
+    const file = join(dir, "secret");
+    writeFileSync(file, "file-secret\n");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("OPERATOR_GOOGLE_CLIENT_ID", "client-id");
+    vi.stubEnv("OPERATOR_GOOGLE_CLIENT_SECRET", "");
+    vi.stubEnv("OPERATOR_GOOGLE_CLIENT_SECRET_FILE", file);
+    vi.stubEnv("OPERATOR_GOOGLE_REDIRECT_URI", "http://localhost:3000/api/operator/callback");
+    vi.stubEnv("STAFF_WORKSPACE_DOMAIN", "example.com");
+    vi.stubEnv("API_ORIGIN", "http://127.0.0.1:8080");
+
+    expect(googleOperatorOidcConfig()?.clientSecret).toBe("file-secret");
+    vi.stubEnv("OPERATOR_GOOGLE_CLIENT_SECRET_FILE", join(dir, "missing"));
+    expect(googleOperatorOidcConfig()).toBeNull(); // no secret: operator sign-in stays off
   });
 
   it("rejects non-HTTPS production endpoints and non-local HTTP API origins", () => {

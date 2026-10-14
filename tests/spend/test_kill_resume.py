@@ -37,7 +37,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 async def _world_with_cap(cfg: SpendConfig) -> World:
     w = make_world()
-    admin("INSERT INTO wallets (tenant_id, balance) VALUES (%s, 100)", w.tenant)  # settlement
+    # the run's research job holds its credits on the pool (the one settlement point)
+    job = admin(
+        "INSERT INTO research_jobs (tenant_id, account_id, kind, scope, status, period,"
+        " credits_estimated, requested_by, run_id, started_at) VALUES (%s, %s, 'new_research',"
+        " 'full', 'running', to_char(now(), 'YYYY-MM'), 100, 'u', %s, now()) RETURNING id",
+        w.tenant,
+        w.account,
+        w.run,
+    )[0][0]
+    admin(
+        "INSERT INTO credit_entries (tenant_id, period, kind, credits, job_id, purpose, actor)"
+        " VALUES (%s, to_char(now(), 'YYYY-MM'), 'reserve', 100, %s, 'new_research', 'u')",
+        w.tenant,
+        job,
+    )
     async with txn(w) as tracker:
         await tracker.seed(w.run, w.tenant)
     p = await service.propose(
@@ -48,6 +62,15 @@ async def _world_with_cap(cfg: SpendConfig) -> World:
         tenant_txn, w.tenant, w.run, p.version, p.proposal.content_hash, human, cfg, NOW
     )
     return w
+
+
+def _settlements(w: World) -> list[tuple[int]]:
+    """How many times the run's job released its hold (the settlement, at most once)."""
+    return admin(
+        "SELECT count(*) FROM credit_entries e JOIN research_jobs j ON j.id = e.job_id"
+        " WHERE j.run_id = %s AND e.kind = 'release'",
+        w.run,
+    )
 
 
 def _kill(mode: str, w: World) -> int:
@@ -92,10 +115,7 @@ async def test_a_kill_while_the_report_is_written_leaves_nothing_half_done(
     assert _kill("finish", w) == 9
     assert admin("SELECT status FROM account_runs WHERE id = %s", w.run) == [("RUNNING",)]
     assert admin("SELECT count(*) FROM spend_reports WHERE run_id = %s", w.run) == [(0,)]
-    assert admin(
-        "SELECT count(*) FROM wallet_ledger WHERE run_id = %s AND entry IN ('commit', 'refund')",
-        w.run,
-    ) == [(0,)]
+    assert _settlements(w) == [(0,)]
     from tests.system.world import tracker
 
     for _ in range(2):  # the resumed finish, then a duplicate delivery
@@ -105,7 +125,4 @@ async def test_a_kill_while_the_report_is_written_leaves_nothing_half_done(
             )
     assert admin("SELECT status FROM account_runs WHERE id = %s", w.run) == [("CANCELED",)]
     assert admin("SELECT count(*) FROM spend_reports WHERE run_id = %s", w.run) == [(1,)]
-    assert admin(
-        "SELECT count(*) FROM wallet_ledger WHERE run_id = %s AND entry IN ('commit', 'refund')",
-        w.run,
-    ) == [(2,)]
+    assert _settlements(w) == [(1,)]

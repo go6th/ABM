@@ -1,5 +1,10 @@
 """Run lifecycle on real Postgres: creation in one transaction, transitions, finish, settlement.
 
+Credits live on the client's monthly pool and its ledger (``credit_entries``, migration 0057):
+each run carries out one research job that reserves when the run is created and settles once
+when it ends. The tests give the pool 100 credits and each run a 6-credit reservation, so the
+numbers read as before: 94 left while a run holds its credits.
+
 GUARANTEE(test_create_is_one_transaction_with_tracker_and_reservation)
 GUARANTEE(test_settlement_is_exactly_once_and_balances)
 """
@@ -15,6 +20,7 @@ import pytest
 
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs.lifecycle import (
+    CreditJob,
     IdempotencyConflict,
     InsufficientCredits,
     RunLimits,
@@ -34,9 +40,15 @@ LIMITS = RunLimits("test-graph", Decimal("5.00"), 60, Decimal("6.0"))
 
 
 def tenant(balance: str = "100") -> UUID:
+    """A synthetic client whose monthly pool holds ``balance`` credits."""
     with psycopg.connect(admin_dsn(), autocommit=True) as c:
         t = c.execute("INSERT INTO tenants (name) VALUES ('synthetic') RETURNING id").fetchone()[0]
-        c.execute("INSERT INTO wallets (tenant_id, balance) VALUES (%s, %s)", (t, balance))
+        c.execute(
+            "INSERT INTO client_settings (tenant_id, account_cap_per_user, idle_expiry_days,"
+            " monthly_credit_pool, fastest_schedule, updated_by) VALUES (%s, 34, 7, %s, '3d',"
+            " 'test')",
+            (t, int(balance)),
+        )
     return UUID(str(t))
 
 
@@ -44,13 +56,33 @@ def req(key: str | None = None, domain: str = "acme.example", **run_input: objec
     return RunRequest(domain, "standard", key or uuid4().hex, dict(run_input))
 
 
+RESERVE = CreditJob(kind="new_research", scope="full", actor="test", credits=6)
+
+
 async def _create(t: UUID, r: RunRequest):  # type: ignore[no-untyped-def]
     async with tenant_txn(t) as s:
-        return await create_run(s, t, r, LIMITS, tracker(s))
+        return await create_run(s, t, r, LIMITS, tracker(s), RESERVE)
 
 
 def balance(t: UUID) -> Decimal:
-    return Decimal(fetch("SELECT balance FROM wallets WHERE tenant_id = %s", t)[0][0])
+    """Credits left in the pool this month: the pool less settled and held credits."""
+    pool = fetch("SELECT monthly_credit_pool FROM client_settings WHERE tenant_id = %s", t)[0][0]
+    moved = fetch(
+        "SELECT coalesce(sum(credits) FILTER (WHERE kind IN ('reserve', 'settle')), 0)"
+        " - coalesce(sum(credits) FILTER (WHERE kind = 'release'), 0)"
+        " FROM credit_entries WHERE tenant_id = %s",
+        t,
+    )[0][0]
+    return Decimal(pool) - Decimal(moved)
+
+
+def entries(run: UUID) -> list[tuple[str, int]]:
+    """The credit entries of the run's job, in order."""
+    return fetch(
+        "SELECT e.kind, e.credits FROM credit_entries e JOIN research_jobs j ON j.id = e.job_id"
+        " WHERE j.run_id = %s ORDER BY e.id",
+        run,
+    )
 
 
 async def test_create_is_one_transaction_with_tracker_and_reservation() -> None:
@@ -60,8 +92,9 @@ async def test_create_is_one_transaction_with_tracker_and_reservation() -> None:
     assert created.status == "QUEUED" and not created.replayed
     assert fetch("SELECT status FROM runs WHERE id = %s", run) == [("queued",)]
     assert fetch("SELECT count(*) FROM coverage_rows WHERE run_id = %s", run) == [(33,)]
-    assert fetch("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s", run) == [
-        ("reserve", Decimal("-6.0000"))
+    assert entries(run) == [("reserve", 6)]
+    assert fetch("SELECT status, credits_estimated FROM research_jobs WHERE run_id = %s", run) == [
+        ("running", 6)
     ]
     assert balance(t) == Decimal("94")
     assert fetch("SELECT run_input FROM account_runs WHERE id = %s", run)[0][0] == {
@@ -84,6 +117,7 @@ async def test_insufficient_credits_leaves_nothing_behind() -> None:
         await _create(t, req("poor"))
     assert fetch("SELECT count(*) FROM account_runs WHERE tenant_id = %s", t) == [(0,)]
     assert fetch("SELECT count(*) FROM runs WHERE tenant_id = %s", t) == [(0,)]
+    assert fetch("SELECT count(*) FROM research_jobs WHERE tenant_id = %s", t) == [(0,)]
     assert balance(t) == Decimal("1")
 
 
@@ -113,35 +147,49 @@ async def test_finish_with_gaps_is_partial_swept_and_settled_proportionally() ->
     run = (await _create(t, req())).run_id
     await _to_verifying(t, run)
     with psycopg.connect(admin_dsn(), autocommit=True) as c:
-        c.execute("UPDATE account_runs SET spent_usd = 2.5 WHERE id = %s", (run,))
+        c.execute("UPDATE account_runs SET spent_usd = 0.15 WHERE id = %s", (run,))
     async with tenant_txn(t) as s:
         status, settlement = await finish(s, tracker(s), run, S.COMPLETED)
     assert status == "PARTIAL"
     assert fetch("SELECT count(*) FROM coverage_rows WHERE run_id = %s AND swept", run) == [(33,)]
-    assert (settlement.committed, settlement.refunded) == (Decimal("3.0000"), Decimal("3.0000"))
+    # the run's budget is its 6 credits in dollars (6 x 0.05); 0.15 spent is 3 credits
+    assert fetch("SELECT budget_usd FROM account_runs WHERE id = %s", run) == [(Decimal("0.30"),)]
+    assert (settlement.committed, settlement.refunded) == (Decimal(3), Decimal(3))
     assert balance(t) == Decimal("97")
 
 
-async def test_ledger_balance_after_replays_row_by_row() -> None:
-    """Replaying the ledger row by row reproduces every balance_after. The reserve moved the
-    money out, so a commit records its amount but moves nothing; the refund moves money back. The
-    commit row once carried the post-refund balance."""
+async def test_the_pool_ledger_replays_to_what_is_left() -> None:
+    """Replaying the run's entries gives the pool what is left: the reserve holds the credits,
+    the settle charges what was used and the release returns the hold."""
     t = tenant()
     run = (await _create(t, req())).run_id
     await _to_verifying(t, run)
     with psycopg.connect(admin_dsn(), autocommit=True) as c:
-        c.execute("UPDATE account_runs SET spent_usd = 2.5 WHERE id = %s", (run,))
+        c.execute("UPDATE account_runs SET spent_usd = 0.15 WHERE id = %s", (run,))
     async with tenant_txn(t) as s:
         await finish(s, tracker(s), run, S.COMPLETED)
-    rows = fetch(
-        "SELECT entry, amount, balance_after FROM wallet_ledger WHERE run_id = %s ORDER BY id", run
-    )
-    assert [e for e, _, _ in rows] == ["reserve", "commit", "refund"]
-    running = Decimal("100")
-    for entry, amount, after in rows:
-        running += 0 if entry == "commit" else amount
-        assert after == running, entry
-    assert running == balance(t) == Decimal("97")
+    assert entries(run) == [("reserve", 6), ("settle", 3), ("release", 6)]
+    held = used = 0
+    for kind, credits in entries(run):
+        held += credits if kind == "reserve" else -credits if kind == "release" else 0
+        used += credits if kind == "settle" else 0
+    assert (held, used) == (0, 3)
+    assert balance(t) == Decimal(100 - used) == Decimal("97")
+    assert fetch("SELECT status, credits_used FROM research_jobs WHERE run_id = %s", run) == [
+        ("done", 3)
+    ]
+
+
+async def test_runs_never_write_the_wallet_history() -> None:
+    """The wallet tables are read-only history: the application role cannot change them."""
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        rights = c.execute(
+            "SELECT has_table_privilege('app_rw', 'wallets', 'INSERT'),"
+            " has_table_privilege('app_rw', 'wallets', 'UPDATE'),"
+            " has_table_privilege('app_rw', 'wallet_ledger', 'INSERT'),"
+            " has_table_privilege('app_rw', 'wallets', 'SELECT')"
+        ).fetchone()
+    assert rights == (False, False, False, True)
 
 
 async def test_settlement_is_exactly_once_and_balances() -> None:
@@ -157,11 +205,12 @@ async def test_settlement_is_exactly_once_and_balances() -> None:
 
     results = await asyncio.gather(*(again() for _ in range(5)))
     assert all(r.replayed for r in results)  # type: ignore[attr-defined]
-    rows = fetch("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s ORDER BY id", run)
-    entries = {e: a for e, a in rows}
-    assert [e for e, _ in rows] == ["reserve", "commit", "refund"]
-    assert -entries["reserve"] == entries["commit"] + entries["refund"]  # reserved = c + r
-    assert entries["commit"] == 0  # a platform fault refunds everything
+    rows = entries(run)
+    assert [e for e, _ in rows] == ["reserve", "release"]  # a platform fault charges nothing
+    assert dict(rows)["reserve"] == dict(rows)["release"]  # reserved = used + released
+    assert fetch("SELECT status, credits_used FROM research_jobs WHERE run_id = %s", run) == [
+        ("failed", 0)
+    ]
     assert balance(t) == Decimal("100")
 
 
@@ -206,3 +255,51 @@ async def test_completed_when_every_row_is_reported() -> None:
         status, settlement = await finish(s, tracker(s), run, S.COMPLETED)
     assert status == "COMPLETED" and settlement.committed == 0  # nothing spent in this fixture
     assert fetch("SELECT status FROM runs WHERE id = %s", run) == [("completed",)]
+
+
+async def test_a_run_with_a_high_row_unset_never_ends_completed() -> None:
+    """The partial-on-incomplete rule (kept in the replica; MAIN's change to the ABM graph's
+    deliver step that always reported "completed" was not ported): asked to end COMPLETED with one
+    High coverage row never reported, the run ends PARTIAL and that row is swept with a reason."""
+    from account_intelligence.tracker.config import load_checklist
+    from account_intelligence.tracker.model import Actor
+    from account_intelligence.workflow.spec import load_spec
+    from tests.tracker.world import World
+
+    t = tenant()
+    run = (await _create(t, req())).run_id
+    account = fetch("SELECT account_id FROM account_runs WHERE id = %s", run)[0][0]
+    w = World(t, account, run, "acme.example")
+    owners = load_spec().coverage_owners
+    rows = load_checklist().rows
+    high = next(r.key for r in rows if r.priority == "high")
+    async with tenant_txn(t) as s:
+        svc = tracker(s)
+        for row in rows:
+            if row.key == high:
+                continue
+            ref = ledger_done(w, record_count=1, queries=(row.key,))
+            await svc.record_outcome(t, run, row.key, [ref], Actor.STAGE, stage=owners[row.key])
+    await _to_verifying(t, run)
+    async with tenant_txn(t) as s:
+        status, _ = await finish(s, tracker(s), run, S.COMPLETED)
+    assert status == "PARTIAL"
+    assert fetch(
+        "SELECT status IS NOT NULL, reason_code IS NOT NULL, swept FROM coverage_rows"
+        " WHERE run_id = %s AND row_key = %s",
+        run,
+        high,
+    ) == [(True, True, True)]
+
+
+async def test_the_abm_deliver_step_still_reports_partial_when_rows_are_open() -> None:
+    """A guard on the source: the ABM graph's deliver step decides "completed" only when every
+    coverage row is done or none (the replica keeps it; see FIX_LOG decision D1)."""
+    import inspect
+
+    from agents import graph
+
+    source = inspect.getsource(graph.build_abm_graph)
+    deliver = source[source.index("async def deliver(") : source.index("async def finish(")]
+    assert 'all(r.status in ("done", "none")' in deliver
+    assert '"completed" if complete else "partial"' in deliver

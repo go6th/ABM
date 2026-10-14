@@ -1,10 +1,10 @@
 """The usage reconcile job (MT1): the event stream must agree with the facts it summarises.
 
 For the context tenant, after a watermark: every created run has one ``run_started`` event; every
-run with a settlement in the wallet ledger (commit or refund) has one ``run_settled`` event and
-no other run does; every account has one ``account_added`` event; the counters equal what the
-events and tables recompute. Any difference is a drift row in the result (identifiers only). The
-pass is idempotent and bounded by ``batch``.
+settled run (its research job has ended, or a commit or refund in the wallet history) has one
+``run_settled`` event and no other run does; every account has one ``account_added`` event; the
+counters equal what the events and tables recompute. Any difference is a drift row in the result
+(identifiers only). The pass is idempotent and bounded by ``batch``.
 
 GUARANTEE(test_reconcile_catches_planted_drift)
 """
@@ -56,7 +56,12 @@ async def reconcile(s: Any, at: datetime, *, batch: int = 5000) -> Drift:
             )
         ).all()
     ]
-    settled = "SELECT DISTINCT l.run_id FROM wallet_ledger l WHERE l.entry IN ('commit', 'refund')"
+    # settled runs: the single credit ledger (a run's job has ended), and the wallet history
+    settled = (
+        "SELECT j.run_id FROM research_jobs j WHERE j.run_id IS NOT NULL"
+        " AND j.status IN ('done', 'failed', 'canceled')"
+        " UNION SELECT l.run_id FROM wallet_ledger l WHERE l.entry IN ('commit', 'refund')"
+    )
     d.missing_run_settled = [
         str(r[0])
         for r in (

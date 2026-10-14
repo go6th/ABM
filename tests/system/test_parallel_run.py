@@ -15,7 +15,7 @@ import pytest
 
 from account_intelligence.workflow.spec import load_spec
 from tests.connectors.conftest import Harness
-from tests.system.world import LEDGER_SUM, admin, start_run
+from tests.system.world import LEDGER_SUM, admin, settled_once, start_run
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
@@ -66,8 +66,7 @@ async def test_parallel_whole_run_completes_with_the_same_rows_as_sequential(
     first_finish = next(i for i, (_, e) in enumerate(events) if e == "finished")
     started_before = {k for k, e in events[:first_finish] if e == "started"}
     assert len(started_before) >= 2
-    entries = dict(admin("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s", par.run))
-    assert -entries["reserve"] == entries["commit"] + entries["refund"]  # one settlement
+    assert settled_once(par.run)  # one settlement
 
 
 async def test_parallel_rerun_slice_after_finish_is_a_noop(harness: Harness) -> None:

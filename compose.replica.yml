@@ -1,0 +1,119 @@
+# The replica stack (`make replica-up`): the whole application on hermetic stand-ins, as its own
+# compose project, so it never touches the main stack's containers, ports or database.
+#   db       Postgres 16 + pgvector              localhost:5433 (database ai)
+#   redis    rate limits and the cache index      localhost:6380
+#   migrate  one-shot `alembic upgrade head`
+#   api      FastAPI                              http://localhost:8090
+#   worker   run executor serving /tasks          http://localhost:8091
+#   web      Next.js                              http://localhost:3010
+#   fake-idp synthetic OIDC discovery and JWKS (the API's token settings need an issuer)
+# Defaults (dev only; the container refuses each of them outside dev and test):
+#   LLM_FAKE=hermetic      the deterministic fake model: Ask, research and files work end to end
+#   CONNECTORS=hermetic    synthetic provider replies: no outside call, no key
+#   RESEARCH_ENGINE=graph  confirmed research jobs run on the run lifecycle and the agent graph
+# For real keys, set ANTHROPIC_API_KEY and CONNECTORS=on in your shell and remove LLM_FAKE here.
+# Demo data: see scripts/seed_replica_demo.py (point MIGRATOR_DATABASE_URL at localhost:5433).
+name: abm-replica
+
+x-app-env: &app-env
+  APP_ENV: dev
+  LOG_LEVEL: INFO
+  DATABASE_URL: postgresql+asyncpg://app_rw:local-dev-only@db:5432/ai
+  CHECKPOINT_DATABASE_URL: postgresql://app_rw:local-dev-only@db:5432/ai
+  JWKS_URL: http://fake-idp:9090/jwks
+  JWT_ISSUER: http://fake-idp:9090/
+  JWT_AUDIENCE: account-intelligence-local
+  PAYLOAD_DIR: /tmp/payloads
+  PUBLIC_BASE_URL: http://localhost:3010
+  LLM_FAKE: hermetic
+  CONNECTORS: hermetic
+  RESEARCH_ENGINE: graph
+  REDIS_URL: redis://redis:6379/0
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment: { POSTGRES_PASSWORD: dev, POSTGRES_DB: ai }
+    ports: ["5433:5432"]
+    volumes: [replica_pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres -d ai"], interval: 5s, retries: 20 }
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6380:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10 }
+    restart: unless-stopped
+
+  migrate:
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    image: abm-replica-api:local
+    command: ["alembic", "upgrade", "head"]
+    volumes:
+      - ./migrations:/app/migrations:ro
+    environment:
+      SERVICE_ROLE: migrate
+      MIGRATOR_DATABASE_URL: postgresql://postgres:dev@db:5432/ai
+      APP_RW_PASSWORD: local-dev-only
+    depends_on: { db: { condition: service_healthy } }
+    restart: "no"
+
+  worker:
+    build: { context: ., dockerfile: docker/worker.Dockerfile }
+    image: abm-replica-worker:local
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - payloads:/tmp/payloads
+    entrypoint: ["uvicorn", "account_intelligence.api.main:app", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      <<: *app-env
+      PYTHONPATH: /app/src
+      SERVICE_ROLE: worker
+      ALLOW_UNAUTHENTICATED_TASKS: "1"
+      WORKER_URL: http://worker:8081
+    ports: ["8091:8081"]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+    restart: unless-stopped
+
+  fake-idp:
+    image: abm-replica-worker:local
+    entrypoint: ["python", "/dev-tools/fake_idp.py"]
+    environment:
+      APP_ENV: dev
+      FAKE_IDP_ISSUER: http://fake-idp:9090/
+      FAKE_IDP_AUDIENCE: account-intelligence-local
+    volumes: ["./ops/dev:/dev-tools:ro"]
+    depends_on: { worker: { condition: service_started } }
+    restart: unless-stopped
+
+  api:
+    image: abm-replica-api:local
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./migrations:/app/migrations:ro
+      - payloads:/tmp/payloads
+    environment:
+      <<: *app-env
+      PYTHONPATH: /app/src
+      SERVICE_ROLE: api
+      WORKER_URL: http://worker:8081
+    ports: ["8090:8080"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  web:
+    build: { context: ./web }
+    image: abm-replica-web:local
+    environment:
+      API_ORIGIN: http://api:8080
+    ports: ["3010:3000"]
+    depends_on: { api: { condition: service_healthy } }
+    restart: unless-stopped
+
+volumes:
+  replica_pgdata:
+  payloads:

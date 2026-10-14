@@ -2,12 +2,12 @@
 
 ``EXPORT_RENDERER`` chooses the Word renderer:
 
-* ``node`` (the default in staging and production, D-26): the ported Node docx library. Until the
-  legacy library is supplied and ported it is ``NotConfigured``: the builder has no renderer, every
-  build returns ``not_configured`` and the run ends PARTIAL ``builders_not_configured``. Nothing is
-  delivered with an unsourced look by default.
-* ``python-interim`` (the default in dev and test): the neutral python-docx renderer behind the same
-  contract and sandbox. Staging or production use it only when an operator sets it explicitly.
+* ``python-interim`` (the default everywhere since 2026-10-14, FIX_LOG D10): the neutral
+  python-docx renderer behind the same contract and sandbox. It works today, so cloud runs build
+  their Word files instead of ending PARTIAL ``builders_not_configured``.
+* ``node``: the ported Node docx library (D-26). It is ``NotConfigured`` until the legacy library
+  is supplied and ported; choosing it before then gives the builder no renderer and every build
+  ends ``builders_not_configured``. Switch back by setting ``EXPORT_RENDERER=node`` once ported.
 
 ``EXPORT_RENDER_CHECKS=on`` adds the LibreOffice PDF row-presence and recalculation checks to every
 build (the converter must be installed in the image; the full gate stays behind ``GatePort``).

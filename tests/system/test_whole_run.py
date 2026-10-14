@@ -16,7 +16,7 @@ from decimal import Decimal
 import pytest
 
 from tests.connectors.conftest import Harness
-from tests.system.world import LEDGER_SUM, Script, admin, start_run
+from tests.system.world import LEDGER_SUM, Script, admin, credit_entries, settled_once, start_run
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
@@ -46,8 +46,8 @@ async def test_golden_run_ends_partial_with_every_row_reported(harness: Harness)
     ledger = admin(LEDGER_SUM, run.run)
     spent = admin("SELECT spent_usd FROM account_runs WHERE id = %s", run.run)[0][0]
     assert Decimal(ledger[0][0]) == Decimal(spent)  # ledger sum equals the run's spend
-    entries = dict(admin("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s", run.run))
-    assert -entries["reserve"] == entries["commit"] + entries["refund"]
+    assert settled_once(run.run)  # the run's job settled once on the pool
+    assert credit_entries(run.run)["reserve"] == 400
     note_key = [k for k in harness.payloads.objects if k.endswith("delivery/note.json")]
     assert len(note_key) == 1
     note = json.loads(await harness.payloads.get(note_key[0]))
@@ -85,19 +85,16 @@ async def test_lying_generator_whole_run_persists_no_fabrication(harness: Harnes
     assert admin("SELECT status FROM account_runs WHERE id = %s", run.run)[0][0] == "PARTIAL"
 
 
-async def test_approval_gate_waits_then_resumes(harness: Harness) -> None:
+async def test_a_run_with_confirmed_credits_never_waits_for_an_approval(
+    harness: Harness,
+) -> None:
+    """The credits confirmed for the run are its cap (no "Continue?" checkpoint): even a tenant
+    whose policy would not approve a cap runs straight through and settles once."""
     run = await start_run(harness, auto_approve=False)
     await run.scheduler.drain()
-    assert admin("SELECT status FROM account_runs WHERE id = %s", run.run) == [
-        ("AWAITING_APPROVAL",)
-    ]
-    assert run.run in run.scheduler.timeouts  # the 24 hour timeout is armed
-    from account_intelligence.db.session import tenant_txn
-    from account_intelligence.runs.lifecycle import move
-    from account_intelligence.workflow.transitions import RunStatus
-
-    async with tenant_txn(run.tenant) as s:
-        await move(s, run.run, RunStatus.AWAITING_APPROVAL, RunStatus.RUNNING)
-    await run.scheduler.enqueue_slice(run.tenant, run.run, 1)
-    await run.scheduler.drain()
     assert admin("SELECT status FROM account_runs WHERE id = %s", run.run)[0][0] == "PARTIAL"
+    assert run.run not in run.scheduler.timeouts  # no approval timeout was ever armed
+    assert admin(
+        "SELECT count(*) FROM account_runs WHERE id = %s AND awaiting_kind IS NOT NULL", run.run
+    ) == [(0,)]
+    assert settled_once(run.run)

@@ -305,7 +305,7 @@ def test_readiness_reports_every_component_by_status_word_only() -> None:
     report = components(_Container(), env)
     assert report["provider.search"] == "configured"
     assert report["provider.signals"] == "unconfigured"
-    assert report["provider.people"] == "unconfigured"
+    assert report["provider.people"].startswith("disabled (needs the owner's people-search grid")
     assert report["llm"] == "present"
     assert {"payload_store", "rate_limit_store"} <= set(report)
     assert secret not in json.dumps(report)
@@ -322,7 +322,7 @@ def test_readiness_marks_providers_off_when_connectors_are_off() -> None:
 
     report = components(_Container(), {"P_SEARCH_API_KEY": "k" * 30})
     assert {v for k, v in report.items() if k.startswith("provider.")} == {"off"}
-    assert report["llm"] == "absent"
+    assert report["llm"] == "not configured (ANTHROPIC_API_KEY)"
 
 
 # ---- secrets profile ---------------------------------------------------------------------------
@@ -355,3 +355,23 @@ def test_cloud_secret_read_fails_closed_when_the_secret_is_absent() -> None:
         SecretManagerSecrets(_Missing(), "p").get("anthropic-api-key")
     assert type(caught.value).__name__ == "NotConfigured"
     assert "projects/" not in str(caught.value)
+
+
+def test_rate_limits_and_readiness_read_the_one_redis_setting() -> None:
+    """API readyz-redis: the shared limiter and readiness both follow ``REDIS_URL`` (compose and
+    Terraform set it); without it the limiter is in-process and readiness says so."""
+    from account_intelligence.api.routes.health import components
+
+    class _Container:
+        connectors = None
+        payloads = None
+        llm = None
+
+    assert components(_Container(), {"REDIS_URL": "redis://redis:6379/0"})["rate_limit_store"] == (
+        "redis"
+    )
+    assert components(_Container(), {})["rate_limit_store"] == "in_process"
+    compose = (ROOT / "compose.yml").read_text()
+    terraform = (ROOT / "infra" / "stack" / "main.tf").read_text()
+    assert "REDIS_URL" in compose and "REDIS_URL" in terraform
+    assert "REDIS_HOST" not in compose + terraform

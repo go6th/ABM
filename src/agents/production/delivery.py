@@ -3,9 +3,13 @@ note, and a wallet that leaves settlement to the runner.
 
 * ``ExportBuilderPort`` builds the standing client file set once per run with the export builder
   (which leak-scans every member itself, B9) and hands back each file's member texts for the
-  agent layer's own scan (G9: provider codes and the person-name digest as well). The Internal
-  Only file has no export builder yet: the internal audience returns no file (the Internal Only
-  view still serves private facts), stated in OI-ABM-4.
+  agent layer's own scan (G9: provider codes and the person-name digest as well). A run without a
+  wired builder gets the platform one (python-docx renderer), so no run ends
+  ``builders_not_configured``. The internal audience builds the run's Internal Only file
+  (``documents.internal_doc``: the cover and every page say "Internal Only", with the run's file
+  findings and its coverage tracker) into its own location ``tenants/<t>/internal/<run>/``,
+  recorded in ``internal_deliverables``; it is never a client deliverable and never scanned as
+  one. Its id is ``internal:<object key>``.
 * ``GateAdapter`` is the quality gate's ``check``.
 * ``NoteDelivery`` writes the leak-scanned delivery note through the existing ``deliver`` stage
   (one implementation). Nothing is sent to anyone.
@@ -53,18 +57,53 @@ class ExportBuilderPort:
     _built: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     async def build(self, ctx: RunContext, audience: str) -> tuple[str, ...]:
-        """The client file set (built once); the internal audience has no file builder yet."""
+        """The client file set (built once), or the run's Internal Only file."""
         if audience != "client":
-            return ()
-        if self.deps.builder is None:
-            from account_intelligence.platform.ports import NotConfigured
-
-            raise NotConfigured("builders_not_configured")
+            return (await self._internal(ctx),)
         key = str(ctx.run_id)
         if key not in self._built:
-            ids = await self.deps.builder.build(str(ctx.tenant_id), str(ctx.run_id))
+            builder = self.deps.builder or _platform_builder(self.deps)
+            ids = await builder.build(str(ctx.tenant_id), str(ctx.run_id))
             self._built[key] = tuple(str(i) for i in ids)
         return self._built[key]
+
+    async def _internal(self, ctx: RunContext) -> str:
+        """Build and store the Internal Only file once; its id."""
+        import hashlib
+        from datetime import date
+
+        from documents import repo
+        from documents.gate import INTERNAL_LABEL
+        from documents.graph import findings, tracker_lines
+        from documents.internal_doc import build
+
+        async with self.deps.txn(ctx.tenant_id) as s:
+            existing = await s.scalar(
+                text("SELECT object_key FROM internal_deliverables WHERE run_id = :r"),
+                {"r": ctx.run_id},
+            )
+            if existing is not None:
+                return f"internal:{existing}"
+            docs = await repo.run_documents(s, ctx.run_id)
+            found = await findings(s, ctx.run_id)
+            lines = await tracker_lines(s, ctx.run_id)
+        label = INTERNAL_LABEL if docs else COMPANY_INTERNAL_LABEL
+        data = build(
+            account=ctx.account_name,
+            as_of=date.fromisoformat(self.deps.clock.now().date().isoformat()),
+            documents=[(d.name, int(d.passages)) for d in docs],
+            findings=found,
+            tracker=lines,
+            label=label,
+        )
+        sha = hashlib.sha256(data).hexdigest()
+        key = f"tenants/{ctx.tenant_id}/internal/{ctx.run_id}/{sha}.docx"
+        await self.deps.payloads.put(key, data)
+        async with self.deps.txn(ctx.tenant_id) as s:
+            await repo.store_internal(
+                s, ctx.run_id, self.deps.account_id, label, key, sha, len(data)
+            )
+        return f"internal:{key}"
 
     async def texts(self, ctx: RunContext, file_id: str) -> tuple[str, ...]:
         """The stored file's member texts (refused for another tenant's file by RLS)."""
@@ -81,6 +120,19 @@ class ExportBuilderPort:
             return member_texts(data)
         except zipfile.BadZipFile:
             return (data.decode("utf-8", "ignore"),)
+
+
+# The label of a company research run's Internal Only file (no uploaded material behind it).
+COMPANY_INTERNAL_LABEL = "Internal: from this research run"
+
+
+def _platform_builder(deps: RunDeps) -> Any:
+    """The platform's export builder (python-docx renderer) for a run wired without one."""
+    import os
+
+    from exports.wiring import build_export_builder
+
+    return build_export_builder(deps.payloads, deps.clock, os.environ, "python-interim")
 
 
 @dataclass(frozen=True)

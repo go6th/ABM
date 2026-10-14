@@ -1,4 +1,6 @@
-"""``spend_invariants``: the nightly invariant pass (a Cloud Run job started by Cloud Scheduler).
+"""``spend_invariants``: the nightly paid-call ledger pass, one part of the worker's
+``spend-invariants`` command (``account_intelligence.worker.nightly``, a Cloud Run job started
+by Cloud Scheduler).
 
 For each run created in the window (identifiers from ``spend_runs_to_check``, a narrow definer
 function), under that run's own tenant context: reconcile the run (spent equals the ledger, the
@@ -11,7 +13,6 @@ GUARANTEE(test_nightly_pass_flags_a_mismatched_run): a broken run is reported, n
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
@@ -68,17 +69,3 @@ async def spend_invariants(
         if result.stale_attempts:
             out.stale_runs.append(row.run_id)
     return out
-
-
-def main() -> int:  # pragma: no cover - the job entry point (exercised by the job, not tests)
-    """Entry point: one pass with the application's engine; exit 1 when a run failed."""
-    from datetime import UTC
-
-    from account_intelligence.db.session import SessionLocal, tenant_txn
-
-    result = asyncio.run(spend_invariants(SessionLocal, tenant_txn, datetime.now(UTC)))
-    print(
-        f"checked={result.checked} failed={len(result.failed)} stale={len(result.stale_runs)}"
-        f" exit={result.exit_reason}"
-    )
-    return 1 if result.failed else 0

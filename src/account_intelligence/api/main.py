@@ -35,6 +35,7 @@ from account_intelligence.api.routes import (
 )
 from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 from account_intelligence.platform.ports import PayloadMissing
+from account_intelligence.replica.settings import AccountCapReached
 from obs.logging import logger
 
 _logger = logger(__name__)
@@ -69,7 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.container = container
     from account_intelligence.replica import jobs as research_jobs
 
-    research_jobs.configure(container.scheduler, research_jobs.engine_from_env(container.env))
+    research_jobs.configure(container.scheduler, research_jobs.engine_for(container))
     from account_intelligence.chat.registry import get_chat_registry
     from account_intelligence.chat.service import AnthropicChatProvider, ChatService
 
@@ -340,6 +341,23 @@ def create_app() -> FastAPI:
             status_code=error.status,
             media_type="application/problem+json",
             headers=error.headers or None,
+        )
+
+    @app.exception_handler(AccountCapReached)
+    async def account_cap(request: Request, error: AccountCapReached) -> JSONResponse:
+        """Every way of adding an account refuses past the user's cap with the design's words."""
+        request_id = getattr(request.state, "request_id", "unavailable")
+        return JSONResponse(
+            {
+                "type": "urn:6th:problem:account_cap_reached",
+                "title": "Account cap reached",
+                "status": 409,
+                "detail": error.message,
+                "request_id": request_id,
+                "context": {"cap": error.cap},
+            },
+            status_code=409,
+            media_type="application/problem+json",
         )
 
     @app.exception_handler(PlatformNotConfigured)

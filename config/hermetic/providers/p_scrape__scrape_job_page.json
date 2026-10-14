@@ -1,0 +1,23 @@
+{
+ "data": {
+  "html": "<!DOCTYPE html><html lang=\"en\" class=\"light\" style=\"color-scheme: light;\"><body class=\"__variable_36bd41 __variable_d7dc5d font-inter ...",
+  "markdown": "Launch Week I is here! [See our Day 2 Release \ud83d\ude80](https://www.firecrawl.dev/blog/launch-week-i-day-2-doubled-rate-limits)[\ud83d\udca5 Get 2 months free...",
+  "metadata": {
+   "contentType": "text/html",
+   "description": "Firecrawl crawls and converts any website into clean markdown.",
+   "keywords": "Firecrawl,Markdown,Data,Mendable,Langchain",
+   "language": "en",
+   "ogDescription": "Turn any website into LLM-ready data.",
+   "ogImage": "https://www.firecrawl.dev/og.png?123",
+   "ogLocaleAlternate": [],
+   "ogSiteName": "Firecrawl",
+   "ogTitle": "Firecrawl",
+   "ogUrl": "https://www.firecrawl.dev/",
+   "robots": "follow, index",
+   "sourceURL": "https://firecrawl.dev",
+   "statusCode": 200,
+   "title": "Home - Firecrawl"
+  }
+ },
+ "success": true
+}

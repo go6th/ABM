@@ -34,7 +34,7 @@ PROD_ENV = {
     "PAYLOAD_BUCKET": "synthetic-payloads",
     "CHECKPOINT_DATABASE_URL": "postgresql://app_rw@/ai?host=/cloudsql/x",
     "LLM_ACCESS": "vertex_ai",
-    "REDIS_HOST": "10.0.0.3",
+    "REDIS_URL": "rediss://10.0.0.3:6379/0",
 }
 
 

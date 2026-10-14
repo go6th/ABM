@@ -190,7 +190,7 @@ async def research_job(
     _authorise(request, authorization)
     from account_intelligence.replica import jobs
 
-    engine = jobs.engine_from_env(request.app.state.container.env)
+    engine = jobs.engine_for(request.app.state.container)
     return {"outcome": await jobs.run_job(task.tenant_id, task.job_id, engine)}
 
 

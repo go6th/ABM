@@ -161,6 +161,7 @@ class Me(Out):
     accounts_total: int = 0
     mail_drive_allowed: bool = True
     web_refresh_allowed: bool = True
+    model_ready: bool = True
 
 
 class IdpConnection(Out):
@@ -447,6 +448,90 @@ class RefreshStarted(Out):
     job_id: str
     status: str
     credits: int
+
+
+class ResearchEstimate(Out):
+    """What researching a new company costs, before anything is confirmed."""
+
+    credits: int
+    minutes: int
+    pool: Credits
+    enough: bool
+    accounts_used: int
+    account_cap: int
+
+
+class ResearchStarted(Out):
+    """Confirmed new research: its job, status, the credits reserved and the account."""
+
+    job_id: str
+    status: str
+    credits: int
+    domain: str
+
+
+class LibraryOffer(Out):
+    """One ready-made account published to this client."""
+
+    id: str
+    name: str
+    domain: str
+    files: int
+    in_workspace: bool
+
+
+class LibraryAvailable(Out):
+    """The ready-made research this client may add, and the caller's remaining places."""
+
+    accounts: list[LibraryOffer]
+    accounts_used: int
+    account_cap: int
+    left: int
+
+
+class LibraryAdded(Out):
+    """What adding from the library did."""
+
+    added: list[str]
+    already_in_workspace: int
+
+
+class LibraryAccountRow(Out):
+    """One library account as the operator sees it (no client content)."""
+
+    id: str
+    name: str
+    domain: str
+    deliverables_found: int
+    internal_left_out: bool
+    check_passed: bool
+    issues: list[str]
+    uploaded_at: str
+    filename: str
+    clients: int
+
+
+class LibraryList(Out):
+    """Every current library account."""
+
+    accounts: list[LibraryAccountRow]
+
+
+class LibraryUploaded(Out):
+    """What the upload held and whether it passed the client-ready check."""
+
+    id: str
+    name: str
+    deliverables_found: int
+    internal_left_out: bool
+    check_passed: bool
+    issues: list[str]
+
+
+class LibraryPublished(Out):
+    """How many clients newly have the account."""
+
+    published: int
 
 
 class Notification(Out):

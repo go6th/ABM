@@ -160,6 +160,11 @@ async def create_file_run(
                 RunRequest(domain, "standard", idem, run_input),
                 container.limits,
                 tracker,
+                # reading the client's own files costs no credits; public sources are the
+                # linked run below, which reserves its own credits
+                lifecycle.CreditJob(
+                    kind="file_analysis", scope="file", actor=ident.user_id, credits=0
+                ),
             )
             if not created.replayed:
                 plan = plan_run(
@@ -248,6 +253,7 @@ async def _enrichment(
         RunRequest(domain, "standard", f"{idem[:48]}:enrich", child_input),
         run_limits,
         tracker,
+        lifecycle.CreditJob(kind="file_analysis", scope="full", actor=ident.user_id),
     )
     if not child.replayed:
         now = container.clock.now()

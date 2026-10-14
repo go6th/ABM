@@ -68,12 +68,20 @@ def assert_legal(seen: list[tuple[str, str]], final: str) -> None:
     assert seen[-1][1] == final and RunStatus(final) in TERMINAL
 
 
-def assert_money_balances(run: str, tenant: Any, opening: Decimal) -> dict[str, Decimal]:
+def assert_money_balances(run: str, tenant: Any) -> dict[str, int]:
+    """The run's job settled once on the pool: its hold released in full, what it used charged
+    (never more than held), and the pool's 'used' for the month is what was charged."""
     entries = wallet(run)
-    assert set(entries) == {"reserve", "commit", "refund"}
-    assert -entries["reserve"] == entries["commit"] + entries["refund"]
-    (balance,) = admin("SELECT balance FROM wallets WHERE tenant_id = %s", tenant)[0]
-    assert balance == opening - entries["commit"]
+    assert {"reserve", "release"} <= set(entries) <= {"reserve", "settle", "release"}
+    assert entries["reserve"] == entries["release"]
+    assert entries.get("settle", 0) <= entries["reserve"]
+    (used,) = admin(
+        "SELECT coalesce(sum(e.credits), 0) FROM credit_entries e JOIN research_jobs j"
+        " ON j.id = e.job_id WHERE e.tenant_id = %s AND e.kind = 'settle' AND j.run_id = %s",
+        tenant,
+        run,
+    )[0]
+    assert used == entries.get("settle", 0)
     return entries
 
 
@@ -154,8 +162,8 @@ async def test_happy_path_ends_partial_with_its_blockers_named_and_every_invaria
         assert may_state == (grade == "confirmed")
         assert grade != "confirmed" or primary
 
-    entries = assert_money_balances(run, a.tenant, Decimal("100"))
-    assert entries["commit"] > 0 and entries["refund"] > 0
+    entries = assert_money_balances(run, a.tenant)
+    assert 0 < entries.get("settle", 0) < entries["reserve"]
     assert_billed_once(run)
 
     # the public table never carries a private row; the tenant's private store keeps it
@@ -277,8 +285,8 @@ async def test_an_exhausted_budget_ends_budget_exceeded_and_refunds_the_rest(
     run = await stack.start(a)
     state = run_row(run)
     assert state["status"] == "BUDGET_EXCEEDED"  # the repo's state for a hit cap (skill rule 7)
-    entries = assert_money_balances(run, a.tenant, Decimal("100"))
-    assert entries["refund"] > 0  # the unused reserve came back
+    entries = assert_money_balances(run, a.tenant)
+    assert entries.get("settle", 0) < entries["reserve"]  # the unused credits went back
     assert (
         admin("SELECT count(*) FROM tool_call_events WHERE run_id = %s AND event = 'done'", run)[0][
             0
@@ -320,7 +328,7 @@ async def test_a_429_is_retried_and_billed_once(harness: Harness) -> None:
     )
     assert charged_failures == [(0,)]  # a refused attempt is never billed
     assert_billed_once(run)
-    assert_money_balances(run, a.tenant, Decimal("100"))
+    assert_money_balances(run, a.tenant)
     await stack.close(a)
 
 
@@ -336,8 +344,8 @@ async def test_exhausted_5xx_retries_block_the_rows_and_refund_everything_uncomm
     assert RunStatus(state["status"]) in TERMINAL
     assert_legal(transitions, state["status"])
     assert state["spent"] == 0  # nothing succeeded, nothing was charged
-    entries = assert_money_balances(run, a.tenant, Decimal("100"))
-    assert entries["commit"] == 0 and entries["refund"] == -entries["reserve"]
+    entries = assert_money_balances(run, a.tenant)
+    assert "settle" not in entries and entries["release"] == entries["reserve"]
     blocked = {k: v[1] for k, v in coverage(run).items() if v[0] == "blocked"}
     assert blocked and all(re.fullmatch(r"[a-z_]+", r or "") for r in blocked.values())
     await stack.close(a)

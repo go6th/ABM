@@ -14,7 +14,7 @@ MIGRATION_ENV = MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
 	APP_RW_PASSWORD="$(APP_RW_PASSWORD)"
 
 .DEFAULT_GOAL := help
-.PHONY: help install up down reset emulators db-shell migrate migration run fmt lint types test check \
+.PHONY: help install up replica-up replica-down down reset emulators db-shell migrate migration run fmt lint types test check \
 	test-isolation static infra-fmt infra-validate image build smoke deploy-staging obs-verify \
 	seed e2e contract wiring scan verify doctor up-deps env-check load-smoke backup-restore fuzz \
 	infra-test logs clean verify-wiring smoke-live
@@ -34,6 +34,12 @@ up-deps: ## Start only the database, emulators and Redis (backend tests)
 
 emulators: ## Start only the Cloud Storage and Cloud Tasks emulators (port contract tests)
 	$(COMPOSE) up -d gcs tasks
+
+replica-up: ## Start the replica stack on hermetic fakes (web :3010, api :8090; compose.replica.yml)
+	$(COMPOSE) -f compose.replica.yml up -d --build --wait --remove-orphans
+
+replica-down: ## Stop the replica stack
+	$(COMPOSE) -f compose.replica.yml down
 
 down: ## Stop local services
 	$(COMPOSE) down

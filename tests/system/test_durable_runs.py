@@ -26,7 +26,16 @@ from exports.builder import BuildFailed
 from exports.models import BuildResult
 from llm.errors import ContextTooLong, ProviderCreditsExhausted
 from tests.connectors.conftest import Harness, context, make_run
-from tests.system.world import LEDGER_SUM, Script, admin, create_only, drive, start_run
+from tests.system.world import (
+    LEDGER_SUM,
+    Script,
+    admin,
+    create_only,
+    credit_entries,
+    drive,
+    settled_once,
+    start_run,
+)
 from tests.tracker.world import tracker
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
@@ -124,9 +133,8 @@ async def test_an_unexpected_error_ends_partial_when_anything_is_stored(harness:
     assert_ledger_consistent(run.run)
     await assert_other_tenant_sees_nothing(run.run)
     if expected == "PARTIAL":
-        # a PARTIAL run keeps its reservation share; only FAILED refunds everything
-        entries = dict(admin("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s", run.run))
-        assert -entries["reserve"] == entries["commit"] + entries["refund"]
+        # a PARTIAL run is charged what it used; only FAILED charges nothing
+        assert settled_once(run.run)
 
 
 async def test_a_run_with_nothing_stored_ends_failed_with_a_full_refund(harness: Harness) -> None:
@@ -136,8 +144,8 @@ async def test_a_run_with_nothing_stored_ends_failed_with_a_full_refund(harness:
     status, reason, _ = run_state(run.run)
     if paid_calls(run.run) == 0:
         assert (status, reason) == ("FAILED", "RuntimeError")
-        entries = dict(admin("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s", run.run))
-        assert entries["commit"] == 0 and entries["refund"] == -entries["reserve"]
+        entries = credit_entries(run.run)
+        assert "settle" not in entries and entries["release"] == entries["reserve"]
     else:  # a free setup pull happened first: then PARTIAL is the right answer
         assert (status, reason) == ("PARTIAL", "RuntimeError")
 

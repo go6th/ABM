@@ -31,7 +31,11 @@ OWNERS: dict[str, set[str]] = {
     "wallets": {"runs/lifecycle.py"},
     "wallet_ledger": {"runs/lifecycle.py"},
     "runs": {"runs/lifecycle.py", "tracker/guard.py"},
-    "accounts": {"runs/lifecycle.py", "datamodel/careers.py"},
+    "accounts": {
+        "runs/lifecycle.py",
+        "datamodel/careers.py",
+        "replica/schedules.py",  # refresh_cadence and next_refresh_at only
+    },
     "job_postings": {"jobs/repo.py"},
     "job_posting_platform_sentences": {"jobs/repo.py"},
     "job_posting_classifications": {"jobs/repo.py"},
@@ -52,7 +56,10 @@ OWNERS: dict[str, set[str]] = {
     "spend_reports": {"spend/repo.py"},
     "prepulled_files": {"spend/prepulled.py"},
     "spend_defects": {"connectors/ledger.py"},
-    "deliverables": {"exports/store.py"},
+    "deliverables": {
+        "exports/store.py",
+        "replica/library.py",  # the files of a 6th Library copy
+    },
     # parallel execution (migration 0017): unit definitions and events have one writer; the
     # governor tables are written only by the governor_* definer functions (SQL, not Python)
     "work_units": {"parallel/store.py"},
@@ -107,7 +114,10 @@ OWNERS: dict[str, set[str]] = {
     "canary_probe_results": {"obs/canary.py"},
     # Phase 3 tenant plane: identity (migration 0021) and tenancy (migration 0020)
     "users": {"identity/membership.py"},
-    "memberships": {"identity/membership.py"},
+    "memberships": {
+        "identity/membership.py",
+        "replica/settings.py",  # last_active_at only (idle expiry counts from it)
+    },
     "membership_events": {"identity/membership.py"},
     "auth_sessions": {"identity/sessions.py"},
     "auth_events": {"identity/sessions.py"},
@@ -119,6 +129,7 @@ OWNERS: dict[str, set[str]] = {
     "audit_events": {"audit/events.py"},
     "chat_threads": {"chat/store.py"},
     "chat_turns": {"chat/store.py"},
+    "question_categories": {"chat/store.py"},
     "tenant_model_credentials": {"chat/credentials.py"},
     "audit_chain_checks": {"audit/chain.py"},
     "view_rows": {"views/materialize.py"},
@@ -201,7 +212,18 @@ OWNERS: dict[str, set[str]] = {
     "people_data_consents": {"agents/adapters.py"},
     "abm_sense_checks": {"agents/adapters.py"},
     "abm_distill_outputs": {"agents/production/state.py"},
-    "report_sections": {"agents/production/state.py"},
+    # replica (migrations 0053 to 0056): client limits, the credit pool and its jobs, notices
+    "client_settings": {"replica/settings.py"},
+    "credit_entries": {"replica/credits.py"},
+    "research_jobs": {"replica/credits.py"},
+    "notifications": {"replica/notifications.py"},
+    "library_uploads": {"replica/library.py"},
+    "library_accounts": {"replica/library.py"},
+    "library_publications": {"replica/library.py"},
+    "report_sections": {
+        "agents/production/state.py",
+        "replica/library.py",  # the narrative of a 6th Library copy
+    },
 }
 IGNORED = {"statements", "or"}  # words matched in comments and docstrings, not tables
 

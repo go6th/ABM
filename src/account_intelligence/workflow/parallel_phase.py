@@ -15,11 +15,14 @@ the research stages as units on the dependency-aware scheduler instead of one af
   to ``cap_gate``, whose ``interrupt`` is the one owner of the wait (the runner moves the run to
   AWAITING_APPROVAL with ``awaiting_kind = 'cap'``). After the decision the graph comes back here
   and the ready set is re-derived from the unit events.
+* A run whose credits were confirmed on the client's pool has no approved cap version (the
+  credits are its cap), so the cap-stopped unit opens no request: the run continues without paid
+  work and ends BUDGET_EXCEEDED with what it found.
 * A retryable unit failure is re-raised for the node ``RetryPolicy`` (the only retry owner); a unit
   that will not run has its rows recorded through the tracker with the reason (never silent).
 
 GUARANTEE(test_parallel_whole_run_completes_with_the_same_rows_as_sequential): system test.
-GUARANTEE(test_cap_pause_interrupts_and_resumes_after_approval): system test.
+GUARANTEE(test_a_parallel_run_at_its_credits_stops_cleanly_and_never_pauses): system test.
 """
 
 from __future__ import annotations
@@ -244,6 +247,7 @@ def research_node(
         extra_refs = dict(extra.get("references") or {}) if extra else {}
         # LOOP(research passes): cap=2 passes (a pass that paused but whose request policy declined
         # at once runs again with paid work stopped); exit=converged or another exit, pause marker
+        capped = False
         for _ in range(2):
             hooks = WorkflowHooks(deps, {u.key: u for u in units})
             executor = Executor(
@@ -261,12 +265,18 @@ def research_node(
                 raise result.error  # the node RetryPolicy owns the retry (W6)
             if result.exit is not ExitReason.PAUSED:
                 break
+            capped = capped or bool(hooks.denied)
             if await hooks.open_request():
                 out: dict[str, Any] = {"counters": {"cap_pauses_seen": 1}}
                 if extra_refs:
                     out["references"] = extra_refs
                 return out
         update = dict(result.update)
+        if capped:
+            # the credits ran out and no approval exists to ask for: the run ends BUDGET_EXCEEDED
+            counters = dict(update.get("counters") or {})
+            counters["budget_exhausted"] = 1
+            update["counters"] = counters
         update["references"] = {**(update.get("references") or {}), **extra_refs}
         update["loop_exits"] = {**(update.get("loop_exits") or {}), "research": result.exit.value}
         return update

@@ -41,7 +41,13 @@ CTO_SENTENCE = "Jane Doe is the Chief Technology Officer of Acme."
 
 
 async def run(
-    proposals: list[Any], *, judge: Any = None, judge_ok: bool = True, w: Any = None, **kw: Any
+    proposals: list[Any],
+    *,
+    judge: Any = None,
+    judge_ok: bool = True,
+    w: Any = None,
+    cfg: Any = None,
+    **kw: Any,
 ) -> BatchResult:
     from account_intelligence.grading.config import load_grading_config
 
@@ -51,11 +57,25 @@ async def run(
         FakeLlm(proposals).propose(),
         RUN_INFO,
         inputs,
-        load_grading_config(),
+        cfg or load_grading_config(),
         NOW,
         judge=judge if judge is not None else ScriptedJudge([SUPPORTS]),
         judge_profile_ok=judge_ok,
         **kw,
+    )
+
+
+def feed_not_aggregator() -> Any:
+    """The grading config with the news feed registered as a non-aggregator T2 source: an
+    aggregator-only finding is a Lead (rule ``aggregator_only``), so tests of the Probable and
+    Hypothesis rules need a source that is not one."""
+    from account_intelligence.grading.config import load_grading_config
+
+    cfg = load_grading_config()
+    codes = dict(cfg.registry.provider_codes)
+    codes["p_signals"] = codes["p_signals"].model_copy(update={"is_aggregator": False})
+    return cfg.model_copy(
+        update={"registry": cfg.registry.model_copy(update={"provider_codes": codes})}
     )
 
 
@@ -334,9 +354,12 @@ async def test_g8_hypothesis_without_a_question_is_dropped_and_with_one_is_kept(
         "$40 million",
         (NEWS, "Acme raised $40 million in Series B funding led by Example Ventures."),
     )
-    dropped(await run([claim], w=w), "missing_confirming_question")
+    cfg = feed_not_aggregator()
+    dropped(await run([claim], w=w, cfg=cfg), "missing_confirming_question")
     c = only(
-        await run([{**claim, "confirming_question": "Is the $40 million figure current?"}], w=w)
+        await run(
+            [{**claim, "confirming_question": "Is the $40 million figure current?"}], w=w, cfg=cfg
+        )
     )
     assert (c.engine_grade, c.product_grade, c.evidence[0].date_kind) == (
         "C",
@@ -355,7 +378,8 @@ async def test_g8_probable_always_carries_reasoning() -> None:
                     "$40 million",
                     (NEWS, "Acme raised $40 million in Series B funding led by Example Ventures."),
                 )
-            ]
+            ],
+            cfg=feed_not_aggregator(),
         )
     )
     assert (
@@ -572,3 +596,21 @@ async def test_no_vendor_or_claim_text_in_logs(
     await run([sourced("j", *JOB, (CAREERS, JOB_SENTENCE))])
     text = "\n".join(r.getMessage() for r in caplog.records)
     assert caplog.records and "Salesforce" not in text and JOB_SENTENCE not in text
+
+
+async def test_an_aggregator_only_finding_is_a_lead_even_with_a_strong_engine_grade() -> None:
+    """Rule ``aggregator_only`` (FIX_LOG D13): support from aggregator feeds alone, not read at
+    the source, never makes a finding Probable; the builder's check B7 expects exactly this."""
+    c = only(
+        await run(
+            [
+                sourced(
+                    "f",
+                    "funding.series_b.amount",
+                    "$40 million",
+                    (NEWS, "Acme raised $40 million in Series B funding led by Example Ventures."),
+                )
+            ]
+        )
+    )
+    assert c.product_grade == "lead" and "aggregator" in c.flags

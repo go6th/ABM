@@ -214,7 +214,9 @@ async def confirm_company(
     from documents.service import DocumentError
 
     async with tenant_txn(ident.tenant_id) as s:
-        account_id, _ = await lifecycle.add_account(s, ident.tenant_id, body.domain)
+        account_id, _ = await lifecycle.add_account(
+            s, ident.tenant_id, body.domain, added_by=ident.user_id
+        )
         await lifecycle.name_account(s, account_id, body.company_name)
     try:
         bound = await _docs(request).confirm_company(ident.tenant_id, body.document_ids, account_id)

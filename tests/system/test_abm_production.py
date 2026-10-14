@@ -33,11 +33,13 @@ from agents.production.wiring import AbmGraphFactory, uses_abm
 from tests.connectors.conftest import Harness
 from tests.system.world import (
     CANARY,
+    CREDITS,
     DOMAIN,
     FAST_RETRY,
     SYNTHETIC_BALANCES,
     admin,
     install,
+    settled_once,
     tenant,
 )
 from tests.tracker.world import tracker
@@ -171,6 +173,7 @@ async def run_abm(
             ),
             RunLimits("v1", Decimal("20.00"), 400, Decimal("6.0")),
             tracker(s),
+            CREDITS,
         )
         await s.execute(
             text(
@@ -265,18 +268,6 @@ def rows(run: UUID) -> dict[str, tuple[str | None, str | None]]:
     }
 
 
-def settled_once(run: UUID) -> bool:
-    """The run settled, and no settlement entry is duplicated (commit and refund once each)."""
-    entries = [
-        e[0]
-        for e in admin(
-            "SELECT entry FROM wallet_ledger WHERE run_id = %s AND entry IN ('commit', 'refund')",
-            run,
-        )
-    ]
-    return bool(entries) and len(entries) == len(set(entries))
-
-
 # Full run --------------------------------------------------------------------------------------
 
 
@@ -309,7 +300,14 @@ async def test_full_abm_run_grades_through_the_engine_and_tracks_every_row(
     )
     run = await run_abm(harness, mode="full", tenant_id=t)
     st, reason = status(run.run)
-    assert st == "PARTIAL" and reason == "builders_not_configured"  # no builder in this world
+    # the files are built (the platform builder) but this world wires no quality gate, so the run
+    # fails closed at the gate and nothing is released
+    assert st == "PARTIAL" and reason == "gate_failed"
+    kinds = {k for (k,) in admin("SELECT kind FROM deliverables WHERE run_id = %s", run.run)}
+    assert {"summary", "evidence", "people", "jobs", "tech"} <= kinds, kinds
+    assert admin("SELECT label FROM internal_deliverables WHERE run_id = %s", run.run) == [
+        ("Internal: from this research run",)
+    ]
     graded = facts(run.run)
     drops = admin(
         "SELECT reason_code, count(*) FROM claim_drops WHERE run_id = %s GROUP BY reason_code",

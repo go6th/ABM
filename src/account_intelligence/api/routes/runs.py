@@ -139,7 +139,9 @@ async def create_run(
                 run_input["resume_from"] = str(await _resumable(s, body.resume_from, body.domain))
             req = RunRequest(body.domain, body.depth, idem, run_input)
             now = container.clock.now()
-            account_id, new_account = await lifecycle.add_account(s, ident.tenant_id, body.domain)
+            account_id, new_account = await lifecycle.add_account(
+                s, ident.tenant_id, body.domain, added_by=ident.user_id
+            )
             if body.company is not None:
                 await lifecycle.name_account(s, account_id, body.company.company_name)
             if new_account:
@@ -156,7 +158,14 @@ async def create_run(
                 req = RunRequest(
                     body.domain, body.depth, idem, {**run_input, "credit_cap": float(cap)}
                 )
-            created = await lifecycle.create_run(s, ident.tenant_id, req, run_limits, deps_tracker)
+            created = await lifecycle.create_run(
+                s,
+                ident.tenant_id,
+                req,
+                run_limits,
+                deps_tracker,
+                lifecycle.CreditJob(kind="new_research", scope="full", actor=ident.user_id),
+            )
             if not created.replayed:
                 await run_mode_columns(s, created.run_id, plan)
                 await settings.pin_run(s, created.run_id, version)

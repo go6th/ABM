@@ -56,6 +56,18 @@ async def test_usage_events_are_idempotent_and_settlement_emits_once() -> None:
             " 'COMPLETED', 'g', '{}', 1, %s, 5, now()) RETURNING id",
             (t, acc, uuid4().hex),
         ).fetchone()[0]
+        job = c.execute(  # the run's research job holds its credits (the single ledger)
+            "INSERT INTO research_jobs (tenant_id, account_id, kind, scope, status, period,"
+            " credits_estimated, requested_by, run_id, started_at) VALUES (%s, %s,"
+            " 'new_research', 'full', 'running', to_char(now(), 'YYYY-MM'), 1, 'u', %s, now())"
+            " RETURNING id",
+            (t, acc, run),
+        ).fetchone()[0]
+        c.execute(
+            "INSERT INTO credit_entries (tenant_id, period, kind, credits, job_id, purpose, actor)"
+            " VALUES (%s, to_char(now(), 'YYYY-MM'), 'reserve', 1, %s, 'new_research', 'u')",
+            (t, job),
+        )
     for _ in range(3):  # a settlement replayed after a crash, twice
         async with tenant_txn(t) as s:
             await lifecycle.settle_once(s, run)

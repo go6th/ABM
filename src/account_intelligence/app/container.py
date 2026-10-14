@@ -179,13 +179,14 @@ class Container:
 
 
 def build_connectors(
-    env: Mapping[str, str], payloads: PayloadStore, redis_host: str | None
+    env: Mapping[str, str], payloads: PayloadStore, redis_url: str | None
 ) -> tuple[Any, Any]:
     """The connector runtime and the node RetryPolicy (the single retry owner for provider 429
     and 5xx, W6). Provider credentials come from the environment (Cloud Run injects them from
-    Secret Manager). With ``redis_host`` the rate limiter shares its buckets and cooldowns across
-    instances (Memorystore). VERIFY(V-REDIS-1): Memorystore in-transit encryption needs the
-    instance's server CA; the TLS settings are checked against a real instance at bootstrap."""
+    Secret Manager). With ``redis_url`` (``REDIS_URL``, the one Redis setting) the rate limiter
+    shares its buckets and cooldowns across instances. VERIFY(V-REDIS-1): Memorystore in-transit
+    encryption needs the instance's server CA; the TLS settings are checked against a real
+    instance at bootstrap."""
     from account_intelligence.connectors.factory import build_runtime
     from account_intelligence.connectors.ratelimit import RedisRateStore
     from account_intelligence.connectors.service import retry_policy_for
@@ -193,10 +194,10 @@ def build_connectors(
 
     config = load_providers_config()
     rate_store = None
-    if redis_host:
+    if redis_url:
         import redis.asyncio as redis
 
-        rate_store = RedisRateStore(redis.Redis(host=redis_host, port=6379, ssl=True))
+        rate_store = RedisRateStore(redis.Redis.from_url(redis_url))
     runtime = build_runtime(
         config,
         txn=tenant_txn,
@@ -204,6 +205,28 @@ def build_connectors(
         rate_store=rate_store,
         env=env,
         cache=research_cache(env),
+    )
+    return with_governance(runtime), retry_policy_for(config)
+
+
+def hermetic_connectors(env: Mapping[str, str], payloads: PayloadStore) -> tuple[Any, Any]:
+    """The connector runtime on synthetic providers (``connectors.hermetic``): the real ledger,
+    routing and grading path, with no request leaving the process (dev and test only)."""
+    from account_intelligence.connectors import hermetic
+    from account_intelligence.connectors.factory import build_runtime
+    from account_intelligence.connectors.security import UrlPolicy
+    from account_intelligence.connectors.service import retry_policy_for
+    from account_intelligence.connectors.settings import load_providers_config
+
+    config = load_providers_config()
+    runtime = build_runtime(
+        config,
+        txn=tenant_txn,
+        payloads=payloads,
+        transports=hermetic.transports(),
+        env={**env, **hermetic.PLACEHOLDER_KEYS},
+        url_policy=UrlPolicy(resolver=hermetic.resolve),
+        cache=None,
     )
     return with_governance(runtime), retry_policy_for(config)
 
@@ -348,6 +371,10 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     if env.get("LLM_FAKE") and app_env not in ("dev", "test"):
         # the deterministic fake model is hermetic only: refuse before anything else is built
         raise RuntimeMisconfigured(f"LLM_FAKE is hermetic only and refused for APP_ENV={app_env}")
+    if env.get("CONNECTORS") == "hermetic" and app_env not in ("dev", "test"):
+        raise RuntimeMisconfigured(
+            f"CONNECTORS=hermetic is for development and tests and refused for APP_ENV={app_env}"
+        )
     spec = load_spec()
     if app_env in CLOUD_ENVS:
         container = _cloud(env, app_env, spec)
@@ -372,8 +399,10 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
             anthropic_api_client(env["ANTHROPIC_API_KEY"]), load_routes(), "anthropic_api"
         )
     connectors, retry = (None, None)
+    if env.get("CONNECTORS") == "hermetic":
+        connectors, retry = hermetic_connectors(env, payloads)
     if app_env == "dev" and env.get("CONNECTORS") == "on":
-        connectors, retry = build_connectors(env, payloads, env.get("REDIS_HOST"))
+        connectors, retry = build_connectors(env, payloads, env.get("REDIS_URL"))
         if dev_uncapped(env):
             from dataclasses import replace
 
@@ -544,7 +573,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         if env.get("MODEL_ROUTER") == "on" and client is not None
         else None
     )
-    connectors, retry = build_connectors(env, payloads, _require(env, "REDIS_HOST"))
+    connectors, retry = build_connectors(env, payloads, _require(env, "REDIS_URL"))
     clock = SystemClock()
     built = Container(
         env=app_env,
@@ -556,7 +585,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         llm=llm,
         clock=clock,
         # D-26: the Node renderer by default; NotConfigured until ported (runs end PARTIAL)
-        builder=build_export_builder(payloads, clock, env, default_renderer="node"),
+        builder=build_export_builder(payloads, clock, env, default_renderer="python-interim"),
         spec=spec,
         limits=_limits(spec, env),
         slices=_slices(spec),

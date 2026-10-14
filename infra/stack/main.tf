@@ -128,7 +128,9 @@ locals {
     CLOUD_SQL_INSTANCE    = module.cloud_sql.connection_name
     DB_NAME               = module.cloud_sql.database
     PAYLOAD_BUCKET        = module.gcs.bucket
-    REDIS_HOST            = module.cache.host
+    REDIS_URL             = "rediss://${module.cache.host}:6379/0"
+    # the python-docx renderer until the Node library is ported (FIX_LOG D10)
+    EXPORT_RENDERER       = "python-interim"
     PUBLIC_BASE_URL       = "https://${var.domain}"
     JWKS_URL              = module.identity_platform.jwks_url
     JWT_ISSUER            = module.identity_platform.issuer

@@ -42,7 +42,7 @@ CLOUD_OK = {
     "TASKS_SERVICE_ACCOUNT": "tasks@p.iam",
     "TASKS_AUDIENCE": "https://worker.test",
     "PAYLOAD_BUCKET": "bucket",
-    "REDIS_HOST": "10.0.0.3",
+    "REDIS_URL": "rediss://10.0.0.3:6379/0",
     "PUBLIC_BASE_URL": "https://app.test",
 }
 

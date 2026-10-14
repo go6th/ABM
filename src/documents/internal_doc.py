@@ -61,20 +61,23 @@ def build(
     findings: Sequence[FileFinding],
     tracker: Sequence[TrackerLine],
     public: Sequence[tuple[str, str, str]] = (),
+    label: str = INTERNAL_LABEL,
 ) -> bytes:
-    """The docx bytes (see the module docstring). ``public``: (finding, grade, link)."""
+    """The docx bytes (see the module docstring). ``public``: (finding, grade, link). ``label``
+    is the file's label (a company research run says it has no uploaded material)."""
     from docx import Document
 
     doc = Document()
     for section in doc.sections:
         header = section.header.paragraphs[0]
-        header.text = f"Internal Only. {INTERNAL_LABEL}"
+        header.text = f"Internal Only. {label}"
         footer = section.footer.paragraphs[0]
         footer.text = f"Internal Only. {account}. Not for the shared folder or the client."
     doc.add_heading("Internal Only", level=0)
-    doc.add_paragraph(INTERNAL_LABEL)
+    doc.add_paragraph(label)
     doc.add_paragraph(f"Account: {account}")
-    doc.add_paragraph(f"Prepared on {as_of.isoformat()} from {len(documents)} uploaded documents.")
+    source = f"{len(documents)} uploaded documents" if documents else "this research run"
+    doc.add_paragraph(f"Prepared on {as_of.isoformat()} from {source}.")
     doc.add_heading("Documents read", level=1)
     for name, passages in documents:
         doc.add_paragraph(f"{name}: {passages} passages", style="List Bullet")
@@ -109,7 +112,7 @@ def build(
     props = doc.core_properties
     props.title = f"Internal Only: {account}"
     props.author = "6th agents"
-    props.comments = INTERNAL_LABEL
+    props.comments = label
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()

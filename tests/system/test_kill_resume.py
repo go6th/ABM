@@ -24,7 +24,7 @@ import pytest
 from account_intelligence.connectors.base import ProviderCode
 from account_intelligence.platform.hermetic import LocalPayloadStore
 from tests.connectors.conftest import FakeClock, FakeProvider, FakeSleep, Harness
-from tests.system.world import LEDGER_SUM, Script, admin, create_only, drive
+from tests.system.world import LEDGER_SUM, Script, admin, create_only, drive, settled_once
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 ROOT = Path(__file__).resolve().parents[2]
@@ -70,8 +70,7 @@ def _assert_final(run: object) -> None:
     ledger = admin(LEDGER_SUM, run)
     spent = admin("SELECT spent_usd FROM account_runs WHERE id = %s", run)[0][0]
     assert Decimal(ledger[0][0]) == Decimal(spent)
-    entries = admin("SELECT entry FROM wallet_ledger WHERE run_id = %s ORDER BY id", run)
-    assert [e[0] for e in entries] == ["reserve", "commit", "refund"]
+    assert settled_once(run)
 
 
 @pytest.mark.parametrize("kill_at", [1, 3, 5, 8, 12])

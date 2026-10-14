@@ -1,0 +1,112 @@
+{
+ "credits_remaining": 98927,
+ "credits_used": 73,
+ "id": "019d06c6-9d55-75a4-bf7f-2bde9b85b772",
+ "matched_count": 1,
+ "organizations": [
+  {
+   "attributes": {
+    "employee_count": 120,
+    "headquarters_country": "US",
+    "id": 1726684,
+    "industry": "Information",
+    "jobs_count": 42,
+    "name": "Sumble",
+    "slug": "sumble",
+    "subsidiary_ids": [],
+    "sumble_score": 82.5,
+    "sumble_url": "https://sumble.com/l/org/TH2y9mGkRr1q",
+    "tags": [
+     "digital_native",
+     "b2b",
+     "is_ai_native",
+     "is_venture_backed"
+    ],
+    "teams_count": 8,
+    "teams_count_no_rollup": 8,
+    "teams_count_rollup": 8,
+    "url": "sumble.com"
+   },
+   "entities": [
+    {
+     "job_post_count": 3,
+     "job_post_count_growth_1y": 51.9,
+     "job_post_count_growth_1y_url": "https://sumble.com/l/org/TH2y9mGkRr1q/trends/technologies",
+     "job_post_count_no_rollup": 3,
+     "job_post_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/jobs",
+     "people_count": 2,
+     "people_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/people",
+     "term": "kubernetes",
+     "type": "technology"
+    },
+    {
+     "job_post_count": 1,
+     "job_post_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/jobs",
+     "people_concentration": 0.0,
+     "people_count": 0,
+     "people_count_growth_1y": 0.25,
+     "people_count_growth_1y_url": "https://sumble.com/l/org/TH2y9mGkRr1q/trends/job_functions_people",
+     "people_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/people",
+     "team_count": 1,
+     "team_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/teams",
+     "term": "Data Engineer",
+     "type": "job_function"
+    },
+    {
+     "job_post_concentration": 0.0476,
+     "job_post_count": 2,
+     "job_post_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/jobs",
+     "people_count": 1,
+     "people_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/people",
+     "team_count": 1,
+     "team_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/teams",
+     "term": "technology EQ 'react'",
+     "type": "advanced_query"
+    },
+    {
+     "granularity": "aggregate",
+     "job_post_count": 4,
+     "job_post_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/jobs",
+     "people_count": 3,
+     "people_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/people",
+     "team_count": 2,
+     "team_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/teams",
+     "term": "logging-observability-monitoring",
+     "type": "technology_category"
+    },
+    {
+     "components": [
+      {
+       "job_post_count": 3,
+       "job_post_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/jobs",
+       "term": "datadog",
+       "type": "technology"
+      },
+      {
+       "job_post_count": 1,
+       "job_post_count_url": "https://sumble.com/l/org/TH2y9mGkRr1q/jobs",
+       "term": "prometheus",
+       "type": "technology"
+      }
+     ],
+     "granularity": "exploded",
+     "term": "logging-observability-monitoring",
+     "type": "technology_category"
+    }
+   ],
+   "input": {
+    "name": "Sumble",
+    "url": "sumble.com"
+   }
+  },
+  {
+   "attributes": {},
+   "entities": [],
+   "input": {
+    "name": "Nonexistent",
+    "url": "nonexistent.example"
+   }
+  }
+ ],
+ "total": 2
+}

@@ -9,10 +9,14 @@ It never reads, summarises, grades or drops content.
 Outcomes per row (visible, never silently absent, G1):
 
 * a people row without valid consent: Blocked ``consent_required`` with no call made (G8);
-* the credit gate refuses a call: attended runs raise ``SpendPause`` (the graph pauses for
-  approval and re-runs the node; earlier calls replay free from the ledger); unattended runs, and
-  attended runs whose approval was declined (``record_refusals``), mark the row Blocked
-  ``spend_not_approved`` when nothing was stored for it; free calls continue (G7);
+* the run reached the credits confirmed for it (``cap_reached``): the row is Blocked
+  ``budget_cap`` when nothing was stored for it; the budget gate refuses every later paid call
+  without charging (free calls still run); the run never pauses for this, it ends
+  BUDGET_EXCEEDED with what it found (credit cap per pull);
+* the credit gate refuses a call for another reason: attended runs raise ``SpendPause`` (the
+  graph pauses for approval and re-runs the node; earlier calls replay free from the ledger);
+  unattended runs, and attended runs whose approval was declined (``record_refusals``), mark the
+  row Blocked ``spend_not_approved`` when nothing was stored for it; free calls continue (G7);
 * every call failed: Blocked with the provider's reason;
 * otherwise stored.
 
@@ -43,6 +47,9 @@ from agents.ports import (
     RunContext,
 )
 
+# The provider's reason when the run has used the credits confirmed for it.
+CREDIT_LIMIT = "cap_reached"
+
 
 class SpendPause(AgentError):
     """The credit gate refused a paid call in an attended run: pause for approval (G7)."""
@@ -55,9 +62,14 @@ class SpendPause(AgentError):
         super().__init__(f"{row_key}: {reason}")
 
 
-def phrasings_for(cfg: SkillConfig, row: PlanRow, ctx: RunContext, year: int) -> tuple[str, ...]:
-    """The row's queries from the configured phrasings (code-built, never model text)."""
-    topic = cfg.row_labels[row.row_key]
+def phrasings_for(
+    cfg: SkillConfig, row: PlanRow, ctx: RunContext, year: int, topic: str | None = None
+) -> tuple[str, ...]:
+    """The row's queries from the configured phrasings (code-built, never model text). A topic
+    refresh searches with the user's own topic words (whitespace collapsed, at most 200
+    characters) instead of the row's label."""
+    words = " ".join((topic or "").split())[:200]
+    topic = words or cfg.row_labels[row.row_key]
     return tuple(
         p.format(account=ctx.account_name, domain=ctx.domain, topic=topic, year=year)
         for p in cfg.phrasings
@@ -75,6 +87,11 @@ class PullAgent:
     clock: Clock
     internal: InternalSourcePort | None = None
     record_refusals: bool = field(default=False)
+    # set once the run has used its confirmed credits (every later paid call is refused by the
+    # budget gate without charging; free calls still run)
+    capped: bool = field(default=False)
+    # a topic refresh: the user's topic words replace the row label in the search phrasings
+    topic: str | None = field(default=None)
 
     async def pull_row(
         self,
@@ -94,11 +111,15 @@ class PullAgent:
         queries: list[QueryRecord] = []
         cost = 0
         failure: str | None = None
-        for query in phrasings_for(self.cfg, row, ctx, now.year):
+        for query in phrasings_for(self.cfg, row, ctx, now.year, self.topic):
             meter.charge_call()
             try:
                 result = await self.provider.call(ctx, row.need, query, row.row_key)
             except CapPause as pause:
+                if pause.reason == CREDIT_LIMIT:
+                    self.capped = True
+                    failure = "budget_cap"
+                    break
                 if ctx.attended and not self.record_refusals:
                     raise SpendPause(row.row_key, pause.reason) from pause
                 failure = "spend_not_approved"

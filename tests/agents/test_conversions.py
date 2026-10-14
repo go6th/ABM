@@ -54,10 +54,13 @@ async def test_conversion_cap_confirmation_is_setting_plus_approval(h: Harness) 
 
 
 @pytest.mark.asyncio
-async def test_conversion_ask_before_spend_is_a_pause(h: Harness) -> None:
+async def test_conversion_ask_before_spend_is_the_confirmed_credits(h: Harness) -> None:
+    """The skill's "ask before spending" is answered by the credits confirmed before the run
+    (REPLICA_PROMPT): reaching them stops paid work, it never pauses to ask again."""
     record = await h.start("r", attended=True, budget=60_000)
-    await h.service.execute(h.tenant, record.run_id)
-    assert (await h.service.pending(h.tenant, record.run_id))[0]["reason"] == "spend"
+    state = await h.service.execute(h.tenant, record.run_id)
+    assert not await h.service.pending(h.tenant, record.run_id)
+    assert state["counters"].get("budget_exhausted") == 1
 
 
 @pytest.mark.asyncio

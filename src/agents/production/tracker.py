@@ -34,12 +34,16 @@ REASONS: dict[str, ReasonCode] = {
     "consent_required": ReasonCode.CONSENT_REQUIRED,
     "spend_not_approved": ReasonCode.NO_CAP,
     "no_cap": ReasonCode.NO_CAP,
-    "cap_reached": ReasonCode.CAP_REACHED,
+    # the run used the credits confirmed for it (credit cap per pull)
+    "cap_reached": ReasonCode.BUDGET_CAP,
+    "budget_cap": ReasonCode.BUDGET_CAP,
     "credits_exhausted": ReasonCode.CREDITS_EXHAUSTED,
     "not_supported_yet": ReasonCode.NOT_AVAILABLE_YET,
     "needs_profile_urls": ReasonCode.DEPENDENCY_FAILED,
     "agent_budget_exceeded": ReasonCode.TOOL_CALL_CAP,
     "pull_not_approved": ReasonCode.PULL_NOT_APPROVED,
+    # outside a research job's scope (a jobs-only or people-only refresh)
+    "not_planned": ReasonCode.NOT_PLANNED,
 }
 
 

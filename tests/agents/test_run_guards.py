@@ -78,34 +78,31 @@ async def test_g7_unapproved_pull_in_an_attended_run_pauses(h: Harness) -> None:
     assert state["outcome"] in ("completed", "partial") and h.provider.paid_calls
 
 
-async def test_g7_cap_reached_mid_pull_pauses_then_resumes_once(h: Harness) -> None:
+async def test_g7_credits_reached_mid_pull_stop_paying_and_never_pause(h: Harness) -> None:
+    """The credits confirmed for the run are its cap: reaching them mid pull marks the rest of
+    the paid rows Blocked ``budget_cap`` with no further paid call and no pause; the run keeps
+    what it found and is counted as stopped at its credits."""
     record = await h.start("r", attended=True, budget=60_000)
-    await h.service.execute(h.tenant, record.run_id)
-    pending = await h.service.pending(h.tenant, record.run_id)
-    assert pending[0]["reason"] == "spend" and pending[0]["row"]
-    spent_at_pause = h.credit.spent[record.run_id]
-    h.credit.approve(record.run_id, 10_000_000)
-    state = await h.service.resume(h.tenant, record.run_id, True)
-    assert state.get("error_code") is None
-    assert h.credit.spent[record.run_id] > spent_at_pause
+    state = await h.service.execute(h.tenant, record.run_id)
+    assert not await h.service.pending(h.tenant, record.run_id)
+    assert h.credit.spent[record.run_id] <= 60_000
     rows = manifest(h, record.run_id)
-    assert all(
-        r.status == "stored"
-        for r in rows.values()
-        if r.row_key in h.cfg.plan and not h.cfg.plan[r.row_key].people
-    )
+    stored = [r for r in rows.values() if r.status == "stored"]
+    capped = [r for r in rows.values() if r.blocked_reason == "budget_cap"]
+    assert stored and capped  # it found something, then stopped at its credits
+    assert state["counters"].get("budget_exhausted") == 1
 
 
-async def test_g7_declined_spend_blocks_paid_rows_and_keeps_free_ones(h: Harness) -> None:
+async def test_g7_a_run_with_no_credits_blocks_paid_rows_and_keeps_free_ones(h: Harness) -> None:
     record = await h.start("r", attended=True, budget=0)
-    await h.service.execute(h.tenant, record.run_id)
-    state = await h.service.resume(h.tenant, record.run_id, False)
+    state = await h.service.execute(h.tenant, record.run_id)
+    assert not await h.service.pending(h.tenant, record.run_id)  # nobody is asked to approve
     rows = manifest(h, record.run_id)
     paid = [r for k, r in rows.items() if h.cfg.plan[k].need in PAID and not h.cfg.plan[k].people]
     free = [
         r for k, r in rows.items() if h.cfg.plan[k].need not in PAID and not h.cfg.plan[k].people
     ]
-    assert paid and all(r.blocked_reason == "spend_not_approved" for r in paid)
+    assert paid and all(r.blocked_reason == "budget_cap" for r in paid)
     assert free and all(r.status == "stored" for r in free)
     assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "partial"
 
@@ -125,6 +122,7 @@ async def test_unattended_sense_proposals_are_recorded_and_rows_stay_partial(mak
     assert (row.status, row.reason) in {
         ("partial", "pull_not_approved"),
         ("blocked", "spend_not_approved"),
+        ("blocked", "budget_cap"),  # no credits: stopped at the credit limit, never a pause
     }
     assert not h.credit.requests and state.get("counters", {}).get("targeted_pulls", 0) == 0
 

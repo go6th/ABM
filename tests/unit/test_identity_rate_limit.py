@@ -35,7 +35,7 @@ async def test_auth_rate_limit_is_per_ip_and_account_without_plaintext_identifie
     monkeypatch.setattr(
         rate_limit,
         "get_settings",
-        lambda: SimpleNamespace(redis_host=None),
+        lambda: SimpleNamespace(redis_url=None),
     )
     rate_limit._memory.clear()
     for _ in range(10):

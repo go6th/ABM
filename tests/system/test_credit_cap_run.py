@@ -1,14 +1,14 @@
-"""Credit cap through whole runs (spec 7.1, 9.7): setup fails closed and waits for a person with no
-paid call; a run inside its cap raises no second interrupt (K11); every terminal path, an approval
-timeout included, stores exactly one spend report and one settlement in the finishing transaction
-(K12); the tenant view passes the skill's client-output scanner (K13)."""
+"""Credit cap through whole runs (spec 7.1, 9.7, replica credit model): the credits confirmed on the
+client's pool are the run's cap, so a run never waits for a cap approval and never interrupts
+(K11); it pays only within its budget; every terminal path, a cancel included, stores exactly one
+spend report and one settlement in the finishing transaction (K12); the tenant view passes the
+skill's client-output scanner (K13)."""
 
 from __future__ import annotations
 
 import json
 import subprocess
 import sys
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -16,7 +16,7 @@ import pytest
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs import lifecycle
 from account_intelligence.workflow.transitions import RunStatus
-from tests.system.world import Harness, admin, start_run, tracker
+from tests.system.world import Harness, admin, create_only, settled_once, start_run, tracker
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,55 +25,43 @@ SCANNER = ROOT / ".claude/skills/account-intelligence-platform/scripts/scan_clie
 
 def _one_report_one_settlement(run: object) -> None:
     assert admin("SELECT count(*) FROM spend_reports WHERE run_id = %s", run) == [(1,)]
-    entries = admin(
-        "SELECT entry FROM wallet_ledger WHERE run_id = %s AND entry IN"
-        " ('commit', 'refund') ORDER BY entry",
-        run,
-    )
-    assert entries == [("commit",), ("refund",)]
+    assert settled_once(run)
 
 
-async def test_setup_without_policy_waits_and_makes_no_paid_call(harness: Harness) -> None:
+async def test_a_run_without_an_approval_policy_runs_within_its_credits(harness: Harness) -> None:
     run = await start_run(harness, auto_approve=False)
     await run.scheduler.drain()
-    assert admin("SELECT status FROM account_runs WHERE id = %s", run.run) == [
-        ("AWAITING_APPROVAL",)
-    ]
-    assert admin("SELECT count(*) FROM tool_call_events WHERE run_id = %s", run.run) == [(0,)]
-    assert admin("SELECT event FROM run_cap_events WHERE run_id = %s", run.run) == [("proposed",)]
-    assert admin("SELECT cap_version FROM account_runs WHERE id = %s", run.run) == [(None,)]
+    status, spent, budget = admin(
+        "SELECT status, spent_usd, budget_usd FROM account_runs WHERE id = %s", run.run
+    )[0]
+    assert status in ("COMPLETED", "PARTIAL") and spent <= budget
+    assert admin("SELECT count(*) FROM run_cap_events WHERE run_id = %s", run.run) == [(0,)]
+    _one_report_one_settlement(run.run)
 
 
-async def test_a_run_within_its_cap_has_one_approval_and_no_interrupt(harness: Harness) -> None:
+async def test_a_run_within_its_credits_has_no_interrupt(harness: Harness) -> None:
     run = await start_run(harness, auto_approve=True)
     await run.scheduler.drain()
     status = admin("SELECT status, spent_usd, budget_usd FROM account_runs WHERE id = %s", run.run)[
         0
     ]
     assert status[0] in ("COMPLETED", "PARTIAL") and status[1] <= status[2]
-    events = [
-        e
-        for (e,) in admin("SELECT event FROM run_cap_events WHERE run_id = %s ORDER BY id", run.run)
+    assert run.run not in run.scheduler.timeouts  # no approval was ever waited for
+    _one_report_one_settlement(run.run)
+
+
+async def test_a_cancel_settles_and_reports_once(harness: Harness) -> None:
+    t, run = await create_only(harness)
+    async with tenant_txn(t) as s:
+        await lifecycle.finish(s, tracker(s), run, RunStatus.CANCELED, reason="user_cancel")
+    assert admin("SELECT status FROM account_runs WHERE id = %s", run) == [("CANCELED",)]
+    _one_report_one_settlement(run)
+    assert admin("SELECT status, credits_used FROM research_jobs WHERE run_id = %s", run) == [
+        ("canceled", 0)
     ]
-    assert events == ["proposed", "approved"]  # one approval, never an extension request
-    _one_report_one_settlement(run.run)
-
-
-async def test_an_approval_timeout_cancels_settles_and_reports_once(harness: Harness) -> None:
-    run = await start_run(harness, auto_approve=False)
-    await run.scheduler.drain()
-    later = datetime.now(UTC) + timedelta(days=2)
-    async with tenant_txn(run.tenant) as s:
-        assert await lifecycle.expire_approval(s, tracker(s), run.run, later)
-    assert admin("SELECT status FROM account_runs WHERE id = %s", run.run) == [("CANCELED",)]
-    _one_report_one_settlement(run.run)
-    # the pending cap proposal is closed with the run (one decision, K3)
-    assert admin(
-        "SELECT event, reason FROM run_cap_events WHERE run_id = %s ORDER BY id", run.run
-    ) == [("proposed", None), ("expired", "run_ended")]
-    async with tenant_txn(run.tenant) as s:  # a duplicate delivery changes nothing
-        await lifecycle.finish(s, tracker(s), run.run, RunStatus.CANCELED, reason="again")
-    _one_report_one_settlement(run.run)
+    async with tenant_txn(t) as s:  # a duplicate delivery changes nothing
+        await lifecycle.finish(s, tracker(s), run, RunStatus.CANCELED, reason="again")
+    _one_report_one_settlement(run)
 
 
 async def test_the_tenant_view_passes_the_client_output_scanner(

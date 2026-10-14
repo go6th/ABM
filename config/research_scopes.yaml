@@ -1,0 +1,24 @@
+# Research job scopes (REPLICA_PROMPT: Refresh "jobs", "people", "full", "topic"; new research and
+# file analysis with public sources are "full"). Each scope lists the coverage rows its run pulls;
+# every other row is reported "not planned for this run" (never silently absent). A missing key
+# or an empty list means every row of the plan.
+version: 1
+scopes:
+  full: []
+  jobs:
+    - job_board_by_lane
+    - job_postings_12_months
+    - job_postings_read_classified
+  people:
+    - full_profiles_senior_people
+    - people_by_platform
+    - posts_priority_people
+    - key_contact_profiles_posts
+    - leadership_changes
+  # the user's topic words replace the row labels in these rows' search phrasings
+  topic:
+    - company_news
+    - competitor_moves
+    - technology_detections
+    - vendor_customer_stories
+    - executive_speaking

@@ -7,16 +7,21 @@ the caller's tenant transaction (ADR-0016).
 Guarantees (tests: ``tests/runs/test_lifecycle_db.py``):
 
 * ``create_run`` does everything in one transaction: account upsert, both run rows, the credit
-  reservation (no negative balance), the reserve ledger entry and the seeded tracker. A run without
-  a tracker or without a reservation cannot exist. Reusing an idempotency key with a different body
-  raises ``IdempotencyConflict`` (known defect 5); the same body returns the first run.
+  reservation on the client's monthly pool (``replica.credits``, the one credit truth: a run
+  either carries out a job confirmed earlier or reserves its own job here; the pool can never go
+  below zero), and the seeded tracker. A run without a tracker or without a reservation cannot
+  exist. The run's budget is its reserved credits in dollars (never above the configured run
+  budget), so a run stops when it reaches its credits. Reusing an idempotency key with a
+  different body raises ``IdempotencyConflict`` (known defect 5); the same body returns the
+  first run.
 * every transition is ``UPDATE ... WHERE status = :expected`` validated against the pure table in
   ``workflow.transitions``; losing a race raises ``RunStateConflict`` and changes nothing.
 * ``finish`` sweeps unset rows at any non-COMPLETED end (T12), moves the run through
   ``tracker.guard.finish_run`` (never COMPLETED with gaps), then settles exactly once and stores
   the spend report once (credit cap K12), all in the caller's transaction.
-* ``settle_once`` writes one commit and one refund entry per run (unique indexes, row lock);
-  ``reserved = committed + refunded``; a replay is a no-op.
+* ``settle_once`` settles the run's job once (``replica.credits.settle_run``): credits used from
+  the real spend, never more than reserved, the rest released; ``reserved = committed +
+  refunded``; a replay is a no-op. The wallet tables are read-only history (migration 0057).
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ import json
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -46,6 +51,9 @@ SWEEP_REASON = {
     RunStatus.CANCELED: ReasonCode.SWEPT_CANCELED,
     RunStatus.BUDGET_EXCEEDED: ReasonCode.SWEPT_BUDGET,
 }
+ZERO_BUDGET_USD = Decimal("0.0001")
+# Actors that are not a person: their accounts count against nobody's cap.
+SYSTEM_ACTORS = frozenset({"api", "scheduler", "system"})
 _RUNS_ACTIVE = {
     RunStatus.RUNNING: "running",
     RunStatus.DISTILLING: "running",
@@ -63,7 +71,7 @@ class IdempotencyConflict(LifecycleError):
 
 
 class InsufficientCredits(LifecycleError):
-    """The tenant's wallet cannot cover the reservation."""
+    """The client's monthly credit pool cannot cover the reservation."""
 
 
 class RunNotFound(LifecycleError):
@@ -98,9 +106,24 @@ class RunLimits:
     graph_version: str
     budget_usd: Decimal
     tool_call_cap: int
+    # Unused since the single credit ledger (0057): a run's reservation is its job's credits.
+    # Kept so RUN_RESERVE_CREDITS and positional construction keep working.
     reserved_credits: Decimal
     # False only on the local stack with DEV_UNCAPPED=1: no credit-cap gate, the budget above holds
     cap_required: bool = True
+
+
+@dataclass(frozen=True)
+class CreditJob:
+    """What the run's credits are for. ``job_id`` names a job confirmed (and reserved) earlier;
+    without it the run reserves its own job of ``kind`` for ``credits`` (the rate table's
+    estimate when None) on behalf of ``actor``."""
+
+    kind: str = "new_research"
+    scope: str = "full"
+    actor: str = "api"
+    credits: int | None = None
+    job_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -128,8 +151,13 @@ async def create_run(
     request: RunRequest,
     limits: RunLimits,
     tracker: TrackerService,
+    credit: CreditJob | None = None,
 ) -> CreatedRun:
     """Create both run rows, reserve credits and seed the tracker in the caller's transaction."""
+    from account_intelligence.replica import credits as CR
+
+    file_mode = request.run_input.get("input_mode") == "file"
+    credit = credit or (CreditJob(kind="file_analysis", scope="file") if file_mode else CreditJob())
     digest = request.request_hash()
     prior = (
         await session.execute(
@@ -141,16 +169,47 @@ async def create_run(
         if prior.request_hash != digest:
             raise IdempotencyConflict("idempotency key reused with a different request body")
         return CreatedRun(prior.id, prior.status, True)
-    account: UUID = (
-        await session.execute(
-            text(
-                "INSERT INTO accounts (tenant_id, domain) VALUES (:t, :d)"
-                " ON CONFLICT (tenant_id, domain) DO UPDATE SET domain = EXCLUDED.domain"
-                " RETURNING id"
-            ),
-            {"t": tenant_id, "d": request.domain},
+    person = None if credit.actor in SYSTEM_ACTORS else credit.actor
+    account, _ = await add_account(session, tenant_id, request.domain, added_by=person)
+    now: datetime = (await session.execute(text("SELECT now()"))).scalar_one()
+    if credit.job_id is not None:
+        job = (
+            await session.execute(
+                text("SELECT credits_estimated, status FROM research_jobs WHERE id = :j"),
+                {"j": credit.job_id},
+            )
+        ).first()
+        if job is None or job.status not in ("queued", "running"):
+            raise InsufficientCredits("the job has no credits reserved")
+        credits = int(job.credits_estimated)
+        job_id = credit.job_id
+    else:
+        rate_key = "file_public" if credit.kind == "file_analysis" else credit.kind
+        credits = (
+            credit.credits
+            if credit.credits is not None
+            else (await CR.estimate(session, account, rate_key)).credits
         )
-    ).scalar_one()
+        try:
+            job_id, _ = await CR.reserve(
+                session,
+                account_id=account,
+                kind=credit.kind,
+                scope=credit.scope,
+                credits=credits,
+                actor=credit.actor,
+                now=now,
+                one_open_per_account=False,
+            )
+        except CR.CreditsShort:
+            raise InsufficientCredits("insufficient credits") from None
+    # The run's budget is its credits in dollars (never above the configured run budget); a run
+    # that may spend nothing (reading the client's own files) keeps the smallest positive budget
+    # the column holds, so no paid call fits.
+    budget_usd = max(
+        ZERO_BUDGET_USD, min(limits.budget_usd, Decimal(credits) * CR.rates().credit_value_usd)
+    )
+    reserved = Decimal(credits)
     run_id = uuid4()
     inserted = (
         await session.execute(
@@ -167,16 +226,18 @@ async def create_run(
                 "t": tenant_id,
                 "a": account,
                 "gv": limits.graph_version,
-                "budget": json.dumps({"usd": str(limits.budget_usd), "depth": request.depth}),
-                "credits": limits.reserved_credits,
+                "budget": json.dumps({"usd": str(budget_usd), "depth": request.depth}),
+                "credits": reserved,
                 "k": request.idempotency_key,
                 "h": digest,
-                "usd": limits.budget_usd,
+                "usd": budget_usd,
                 "cap": limits.tool_call_cap,
                 "input": json.dumps(request.run_input, sort_keys=True),
                 "cl": pins.checklist_version(),
                 "mv": json.dumps(pins.model_versions(), sort_keys=True),
-                "capreq": limits.cap_required,
+                # the credits confirmed on the pool are the run's cap: no second approval, and
+                # reaching them stops paid work (BUDGET_EXCEEDED with what was found)
+                "capreq": False,
                 # input mode "file" researches uploaded documents; anything else is "company"
                 "mode": "file" if request.run_input.get("input_mode") == "file" else "company",
             },
@@ -194,29 +255,94 @@ async def create_run(
             "t": tenant_id,
             "a": account,
             "gv": limits.graph_version,
-            "cap": max(1, math.ceil(limits.reserved_credits)),
+            "cap": max(1, math.ceil(reserved)),
         },
     )
-    balance = (
-        await session.execute(
-            text(
-                "UPDATE wallets SET balance = balance - :e WHERE tenant_id = :t AND balance >= :e"
-                " RETURNING balance"
-            ),
-            {"e": limits.reserved_credits, "t": tenant_id},
-        )
-    ).first()
-    if balance is None:
-        raise InsufficientCredits("insufficient credits")  # the caller's transaction rolls back
-    await session.execute(
-        text(
-            "INSERT INTO wallet_ledger (tenant_id, run_id, entry, amount, balance_after)"
-            " VALUES (:t, :r, 'reserve', :amount, :bal)"
-        ),
-        {"t": tenant_id, "r": run_id, "amount": -limits.reserved_credits, "bal": balance.balance},
-    )
+    await CR.start_with_run(session, job_id, run_id, now)
     await tracker.seed(run_id, tenant_id)
     return CreatedRun(run_id, RunStatus.QUEUED.value, False)
+
+
+async def record_hermetic_run(
+    session: AsyncSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    *,
+    reserved_credits: int,
+    idempotency_key: str,
+    run_input: dict[str, Any],
+    grading_config_hash: str,
+    now: datetime,
+) -> UUID:
+    """Record an already finished run with no findings (development and tests only: the hermetic
+    research engine). It touches no wallet; the research job's own credits pay for it."""
+    run_id: Any = (
+        await session.execute(
+            text(
+                "INSERT INTO account_runs (tenant_id, account_id, status, grading_config_hash,"
+                " created_at, finished_at, finished_reason, input_mode, run_mode, cap_required,"
+                " graph_version, budget_json, reserved_credits, idempotency_key, run_input)"
+                " VALUES (:t, :a, 'COMPLETED', :g, :now, :now, 'completed', 'company', 'full',"
+                " false, 'hermetic-research', '{}', :c, :k, CAST(:inp AS jsonb)) RETURNING id"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "g": grading_config_hash,
+                "now": now,
+                "c": reserved_credits,
+                "k": idempotency_key,
+                "inp": json.dumps(run_input),
+            },
+        )
+    ).scalar_one()
+    return UUID(str(run_id))
+
+
+async def record_library_run(
+    session: AsyncSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    *,
+    library_account_id: UUID,
+    now: datetime,
+) -> UUID:
+    """Record a 6th Library copy as a finished run that used nothing: the copied files and
+    narrative hang off it, as any research's do. It touches no credits (the library add is a job
+    that used none) and makes no call."""
+    run_id: Any = (
+        await session.execute(
+            text(
+                "INSERT INTO account_runs (tenant_id, account_id, status, grading_config_hash,"
+                " created_at, finished_at, finished_reason, input_mode, run_mode, cap_required,"
+                " graph_version, budget_json, reserved_credits, idempotency_key, run_input)"
+                " VALUES (:t, :a, 'COMPLETED', :g, :now, :now, 'library_copy', 'company', 'full',"
+                " false, 'library-copy', '{}', 0, :k, CAST(:inp AS jsonb)) RETURNING id"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "g": "0" * 64,
+                "now": now,
+                "k": f"library-{account_id}",
+                "inp": json.dumps({"library_account_id": str(library_account_id)}),
+            },
+        )
+    ).scalar_one()
+    return UUID(str(run_id))
+
+
+async def mark_library_account(
+    session: AsyncSession, account_id: UUID, library_account_id: UUID
+) -> None:
+    """Record that a new account came from the 6th Library."""
+    await session.execute(
+        text(
+            "UPDATE accounts SET origin = 'library', library_account_id = :l, updated_at = now()"
+            " WHERE id = :a"
+        ),
+        {"a": account_id, "l": library_account_id},
+    )
 
 
 async def name_account(session: AsyncSession, account_id: UUID, name: str) -> None:
@@ -227,25 +353,38 @@ async def name_account(session: AsyncSession, account_id: UUID, name: str) -> No
     )
 
 
-async def add_account(session: AsyncSession, tenant_id: UUID, domain: str) -> tuple[UUID, bool]:
+async def add_account(
+    session: AsyncSession, tenant_id: UUID, domain: str, *, added_by: str | None = None
+) -> tuple[UUID, bool]:
     """Add an account to the tenant's list without starting a run (the client app's "add an
-    account"); returns (account id, created). The one writer of ``accounts`` besides
-    ``create_run`` (W1)."""
+    account"); returns (account id, created). A new account added by a person counts against
+    that person's account cap (``replica.settings.ensure_account_room``, ``AccountCapReached``)
+    whichever way it is added: research, a file, the library. The one writer of ``accounts``
+    besides ``create_run`` (W1)."""
+    existing: Any = (
+        await session.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+    ).scalar_one_or_none()
+    if existing is not None:
+        return UUID(str(existing)), False
+    if added_by is not None:
+        from account_intelligence.replica.settings import ensure_account_room
+
+        await ensure_account_room(session, added_by)
     created = (
         await session.execute(
             text(
-                "INSERT INTO accounts (tenant_id, domain) VALUES (:t, :d)"
+                "INSERT INTO accounts (tenant_id, domain, added_by) VALUES (:t, :d, :by)"
                 " ON CONFLICT (tenant_id, domain) DO NOTHING RETURNING id"
             ),
-            {"t": tenant_id, "d": domain},
+            {"t": tenant_id, "d": domain, "by": added_by},
         )
     ).scalar_one_or_none()
     if created is not None:
         return UUID(str(created)), True
-    existing: Any = (
+    raced: Any = (
         await session.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
     ).scalar_one()
-    return UUID(str(existing)), False
+    return UUID(str(raced)), False
 
 
 async def current_status(session: AsyncSession, run_id: UUID) -> RunStatus:
@@ -423,19 +562,20 @@ async def _tenant(session: AsyncSession, run_id: UUID) -> UUID:
     return tenant
 
 
-def _credits(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-
-
 async def settle_once(
     session: AsyncSession, run_id: UUID, *, refund_all: bool = False
 ) -> Settlement:
-    """Commit ``reserved * min(1, spent / budget)`` and refund the rest, exactly once (proposal
-    D-04, ADR-0016). A FAILED run (platform fault) or ``refund_all`` refunds everything."""
+    """Settle the run's job exactly once (``replica.credits.settle_run``): credits used from the
+    real spend (paid data calls and model calls), never more than reserved, the rest released.
+    A FAILED run (platform fault) or ``refund_all`` charges nothing. The person who asked is
+    told the job ended. A run from before the single ledger (no job) settles nothing."""
+    from account_intelligence.replica import credits as CR
+    from account_intelligence.replica.notifications import notify
+
     run = (
         await session.execute(
             text(
-                "SELECT tenant_id, status, reserved_credits, spent_usd, budget_usd"
+                "SELECT tenant_id, status, reserved_credits, spent_usd"
                 " FROM account_runs WHERE id = :r FOR UPDATE"
             ),
             {"r": run_id},
@@ -445,53 +585,48 @@ async def settle_once(
         raise RunNotFound(str(run_id))
     if RunStatus(run.status) not in TERMINAL:
         raise LifecycleError("only a terminal run is settled")
-    reserved = Decimal(run.reserved_credits)
-    done = (
-        await session.execute(
-            text(
-                "SELECT entry, amount FROM wallet_ledger WHERE run_id = :r"
-                " AND entry IN ('commit', 'refund')"
-            ),
-            {"r": run_id},
-        )
-    ).all()
-    if done:
-        by = {row.entry: Decimal(row.amount) for row in done}
-        await _usage_settled(session, run_id)
-        return Settlement(
-            reserved, by.get("commit", Decimal(0)), by.get("refund", Decimal(0)), True
-        )
-    used = Decimal(0)
-    if run.budget_usd and Decimal(run.budget_usd) > 0:
-        used = min(Decimal(1), Decimal(run.spent_usd) / Decimal(run.budget_usd))
+    now: datetime = (await session.execute(text("SELECT now()"))).scalar_one()
     platform_fault = refund_all or RunStatus(run.status) is RunStatus.FAILED
-    committed = Decimal(0) if platform_fault else _credits(reserved * used)
-    refunded = reserved - committed
-    balance: Decimal = (
-        await session.execute(
-            text(
-                "UPDATE wallets SET balance = balance + :refund WHERE tenant_id = :t"
-                " RETURNING balance"
-            ),
-            {"refund": refunded, "t": run.tenant_id},
-        )
-    ).scalar_one()
-    # The commit moves no money (the reserve already did); its balance_after is the balance
-    # before the refund, so replaying the ledger row by row reproduces every balance_after.
-    for entry, amount, after in (
-        ("commit", committed, balance - refunded),
-        ("refund", refunded, balance),
-    ):
-        await session.execute(
-            text(
-                "INSERT INTO wallet_ledger (tenant_id, run_id, entry, amount, balance_after)"
-                " VALUES (:t, :r, :e, :a, :b)"
-                " ON CONFLICT (run_id, entry) WHERE entry IN ('commit', 'refund') DO NOTHING"
-            ),
-            {"t": run.tenant_id, "r": run_id, "e": entry, "a": amount, "b": after},
-        )
+    # real spend: the paid data calls (spent_usd) and the model calls of this run (llm_calls)
+    model_usd = await session.scalar(
+        text("SELECT coalesce(sum(cost_usd), 0) FROM llm_calls WHERE run_id = :r"), {"r": run_id}
+    )
+    settled = await CR.settle_run(
+        session,
+        run_id,
+        run_status=run.status,
+        spent_usd=Decimal(run.spent_usd or 0) + Decimal(model_usd or 0),
+        platform_fault=platform_fault,
+        now=now,
+    )
+    if settled is None:
+        reserved = Decimal(run.reserved_credits)
+        return Settlement(reserved, Decimal(0), reserved, True)
     await _usage_settled(session, run_id)
-    return Settlement(reserved, committed, refunded, False)
+    if not settled.replayed and settled.requested_by not in ("scheduler", "api"):
+        await notify(
+            session,
+            user_id=settled.requested_by,
+            kind=_NOTE_KIND.get(settled.kind, "research_finished")
+            if settled.status == "done"
+            else "research_failed",
+            account_id=settled.account_id,
+            job_id=settled.job_id,
+        )
+    return Settlement(
+        Decimal(settled.reserved),
+        Decimal(settled.used),
+        Decimal(settled.released),
+        settled.replayed,
+    )
+
+
+_NOTE_KIND = {
+    "web_refresh": "refresh_finished",
+    "scheduled_refresh": "refresh_finished",
+    "new_research": "research_finished",
+    "file_analysis": "research_finished",
+}
 
 
 async def _usage_settled(session: AsyncSession, run_id: UUID) -> None:

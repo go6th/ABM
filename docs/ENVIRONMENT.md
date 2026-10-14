@@ -53,8 +53,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `TASKS_SERVICE_ACCOUNT` | Service account Cloud Tasks signs OIDC tokens as. | no | staging, production | - | api, worker |
 | `TASKS_AUDIENCE` | Audience the worker expects on task tokens. | no | staging, production | - | api, worker |
 | `PAYLOAD_BUCKET` | GCS bucket for raw payloads and exports (per-tenant prefixes). | no | staging, production | - | api, worker |
-| `REDIS_HOST` | Memorystore host for the shared rate limiter. | no | staging, production | - | api, worker |
-| `REDIS_URL` | Redis URL (redis:// or rediss://) for the research cache index: a fast key to reference lookup over finished provider calls. Optional; without it the cache reads Postgres only. | no | - | - | api, worker |
+| `REDIS_URL` | Redis URL (redis:// locally, rediss:// for Memorystore with TLS): the shared rate limiters (sign-in and providers) and the research cache index. Unset: in-process rate buckets and Postgres-only cache lookups. | no | staging, production | - | api, worker |
 | `DEV_ASSUME_PROVIDER_BALANCE` | Local stack only: treat every provider balance as funded (unattended runs). | no | - | staging, production | worker |
 | `DEV_AUTO_APPROVE_CAPS` | Local stack only: approve run caps as tenant policy without a person. | no | - | staging, production | worker |
 | `NEXT_DIST_DIR` | Web build: Next.js output directory override (parity builds). | no | - | - | web |
@@ -76,7 +75,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `BYOK_KMS_KEY` | Cloud KMS crypto-key resource for optional encrypted tenant model keys. | no | - | - | api, worker |
 | `ANTHROPIC_API_KEY` | Model API key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |
 | `PAYLOAD_DIR` | Local directory for raw payloads (memory store when unset). | no | - | staging, production | api, worker |
-| `CONNECTORS` | Enable live provider connectors in dev (cloud always wires them). | no | - | - | api, worker |
+| `CONNECTORS` | Provider connectors in dev: off, on (live providers, needs keys) or hermetic (synthetic replies, no outside call; dev and test only). Cloud always wires the live ones. | no | - | - | api, worker |
 | `ALLOW_UNAUTHENTICATED_TASKS` | Accept unsigned task calls (local stack only). | no | - | staging, production | api, worker |
 | `LLM_FAKE` | Select the deterministic fake model (hermetic dev and test only). | no | - | staging, production | api, worker |
 | `FAKE_MODEL_SCENARIO` | Fake model scenario file under config/hermetic/fake_model (default happy). | no | - | staging, production | api, worker |
@@ -86,7 +85,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `P_SIGNALS_API_TOKEN` | Signals provider token. | **secret** | - | - | api, worker |
 | `P_PEOPLE_API_KEY` | People provider key. | **secret** | - | - | api, worker |
 | `P_ORG_API_KEY` | Organisation provider key. | **secret** | - | - | api, worker |
-| `RESEARCH_ENGINE` | Research job engine: hermetic (dev and test default) or skill (cloud default). | no | - | - | api, worker |
+| `RESEARCH_ENGINE` | Research job engine: graph (the run lifecycle on the ABM agent graph; cloud default), hermetic (no outside call; dev and test default) or skill (the skill executor, refused until it is built). | no | - | - | api, worker |
 | `EXPORT_RENDERER` | Word renderer override (see exports.wiring). | no | - | - | api, worker |
 | `EXPORT_RENDER_CHECKS` | Run LibreOffice render checks on every export. | no | - | - | api, worker |
 

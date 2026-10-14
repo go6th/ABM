@@ -86,6 +86,29 @@ async def accounts_used(session: Any, user_id: str) -> int:
     return int(value or 0)
 
 
+class AccountCapReached(Exception):
+    """The user has added as many accounts as the client's cap allows."""
+
+    def __init__(self, cap: int) -> None:
+        super().__init__("account cap reached")
+        self.cap = cap
+
+    @property
+    def message(self) -> str:
+        """The design's words for it."""
+        return f"You have used all {self.cap} accounts. Ask your administrator to raise the cap."
+
+
+async def ensure_account_room(session: Any, user_id: str, adding: int = 1) -> None:
+    """Refuse with ``AccountCapReached`` when ``adding`` more accounts would take the user past
+    the client's cap. Locks the client's settings row, so two adds at once cannot both take the
+    last place."""
+    settings = await client_settings(session)
+    await session.execute(text("SELECT 1 FROM client_settings FOR UPDATE"))
+    if await accounts_used(session, user_id) + adding > settings.account_cap_per_user:
+        raise AccountCapReached(settings.account_cap_per_user)
+
+
 async def touch_activity(session: Any, user_id: str, now: Any) -> None:
     """Record that the user was active (idle expiry counts from here). At most once a minute."""
     await session.execute(

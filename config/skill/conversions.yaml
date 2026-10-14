@@ -18,7 +18,7 @@ conversions:
     skill: {value: "Ask before spending credits that were not already approved", source: "guide S17"}
     saas: {status: proposal, kind: approval, value: "Any pull not covered by the approved cap pauses for approval (attended) or is recorded as a recommendation (unattended)", decision: D-96}
     enforced_by: agents.guards.spend_route
-    test: test_conversion_ask_before_spend_is_a_pause
+    test: test_conversion_ask_before_spend_is_the_confirmed_credits
   - id: sense_check_pulls
     skill: {value: "The sense check recommends targeted pulls that run once approved", source: "guide S18"}
     saas: {status: proposal, kind: approval, value: "Typed, priced pull proposals; run only after approval", decision: D-96}

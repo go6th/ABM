@@ -84,7 +84,7 @@ from agents.ports import (
     TrackerPort,
     WalletPort,
 )
-from agents.pull.agent import PullAgent, SpendPause
+from agents.pull.agent import CREDIT_LIMIT, PullAgent, SpendPause
 from agents.schemas import ExtractionInput, PayloadView, SenseCheckInput, StoredFact
 from agents.sense_check.agent import sense_check
 from llm.errors import (
@@ -154,6 +154,10 @@ class AbmState(TypedDict, total=False):
     internal_files: list[str]
     outcome: str
     scope: str
+    # a research job's scope (refresh "jobs", "people", "topic"): the rows it pulls; None is every
+    # row. ``topic`` is the user's own words for a topic refresh (a search phrase, never an order)
+    scope_rows: list[str] | None
+    topic: str | None
     error_code: str | None
     missing_rows: list[str]
     careers_url: str | None
@@ -199,6 +203,12 @@ def model_failure_code(error: BaseException) -> str | None:
         if isinstance(error, cls):
             return code
     return None
+
+
+def _in_scope(state: AbmState, cfg: SkillConfig) -> set[str]:
+    """The rows this run pulls: its job's scope, or the whole plan."""
+    rows = state.get("scope_rows")
+    return set(cfg.plan) if not rows else set(rows) & set(cfg.plan)
 
 
 def _plan_order(cfg: SkillConfig) -> list[str]:
@@ -256,6 +266,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         settings = await deps.settings.get(ctx.tenant_id)
         internal = internal_history_allowed(settings.internal_history, cfg.internal_history_default)
         agent = PullAgent(reg["pull"], cfg, deps.provider, deps.payloads, deps.clock, deps.internal)
+        agent.topic = state.get("topic")
+        in_scope = _in_scope(state, cfg)
         agent.record_refusals = bool(
             state.get("cap_declined")
             or state.get("spend_declined")
@@ -264,6 +276,10 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         m = meter("pull")
         rows: list[ManifestRow] = []
         for key in _plan_order(cfg):
+            if key not in in_scope:
+                # outside this job's scope: reported "not planned for this run", never silent
+                rows.append(agent.blocked(cfg.plan[key], "not_planned"))
+                continue
             try:
                 rows.append(
                     await agent.pull_row(
@@ -284,10 +300,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         )
         await deps.manifests.save(manifest)
         stored = sum(r.status == "stored" for r in rows)
+        capped = agent.capped
         return {
             "pending_spend_row": None,
             "counters": {
                 "rows_stored": stored,
+                **({"budget_exhausted": 1} if capped else {}),
                 "rows_blocked": len(rows) - stored,
                 "pull_cost_micros": manifest.total_cost_micros(),
             },
@@ -494,7 +512,10 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         to_run: list[dict[str, str]] = []
         awaiting: list[dict[str, str]] = []
         cap = await deps.credit.cap_state(ctx)
+        in_scope = _in_scope(state, cfg)
         for p in res.proposals:
+            if p.row_key not in in_scope:
+                continue  # a follow-up outside the job's scope is not pulled (or paid for)
             need = cfg.plan[p.row_key].need
             estimate, known = await deps.credit.price(need)
             route, _ = spend_route(cap, need, estimate, known, deps.free_operations, ctx.attended)
@@ -557,12 +578,14 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         """Run approved or covered pulls, then interpret and grade what they returned."""
         ctx = context(state)
         views: list[PayloadView] = []
+        capped = False
         for item in state.get("to_run") or []:
             try:
                 result = await deps.provider.call(ctx, item["need"], item["query"], item["row_key"])
             except (CapPause, ProviderFailed) as error:
                 # the true reason (a failed source is not an unapproved pull)
                 await deps.tracker.mark_partial(ctx, item["row_key"], error.reason)
+                capped |= isinstance(error, CapPause) and error.reason == CREDIT_LIMIT
                 continue
             for source in result.items:
                 ref = await deps.payloads.put(ctx, item["row_key"], source, "public")
@@ -575,6 +598,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             "to_run": [],
             "counters": {
                 "targeted_pulls": len(state.get("to_run") or []),
+                **({"budget_exhausted": 1} if capped else {}),
                 **{f"drop_{k}": v for k, v in drops.items()},
             },
         }
@@ -609,8 +633,6 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         try:
             client = await deps.builder.build(ctx, "client")
             internal = await deps.builder.build(ctx, "internal")
-        except NotConfigured:
-            return {"outcome": "partial", "error_code": "builders_not_configured"}
         except BuildIncomplete as incomplete:
             # the builder refused the set (missing narrative, an unconfirmed statement in the
             # Summary): the research stands and the run ends partial with the builder's reason,
@@ -618,7 +640,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             reason = str(getattr(incomplete, "reason", "") or "build_failed")
             return {"outcome": "partial", "error_code": f"build_failed:{reason}"}
         try:
-            for file_id in (*client, *internal):
+            # client files only: the Internal Only file is never a client file (two outputs)
+            for file_id in client:
                 assert_client_clean(await deps.builder.texts(ctx, file_id))
         except GuardViolation as leak:
             return _fail(leak.code)

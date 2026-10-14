@@ -1,0 +1,15 @@
+{
+ "results": [
+  {
+   "excerpts": [
+    "Sample excerpt 1",
+    "Sample excerpt 2"
+   ],
+   "publish_date": "2024-01-15",
+   "title": "Sample webpage title",
+   "url": "https://www.example.com"
+  }
+ ],
+ "search_id": "search_fcb2b4f3c75e418687bccaa1a8381331",
+ "session_id": "session_fcb2b4f3c75e418687bccaa1a8381331"
+}

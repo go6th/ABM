@@ -21,6 +21,8 @@ export interface ShellUser {
   accountsUsed: number;
   accountCap: number;
   mailDriveAllowed: boolean;
+  /** False when the AI model is not set up (``/v1/me`` ``model_ready``). */
+  modelReady?: boolean;
 }
 
 export const NEW_CHAT_EVENT = "ask:new-chat";
@@ -161,7 +163,12 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
           </div>
         </div>
       </aside>
-      <main className="main" id="main" tabIndex={-1} inert={open || undefined}>{children}</main>
+      <main className="main" id="main" tabIndex={-1} inert={open || undefined}>
+        {user.modelReady === false ? (
+          <p className="model-missing" role="status">Answers need the AI model to be set up by your administrator.</p>
+        ) : null}
+        {children}
+      </main>
     </div>
   );
 }

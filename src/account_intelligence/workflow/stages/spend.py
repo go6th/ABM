@@ -2,14 +2,16 @@
 
 * ``propose_and_gate`` (setup): builds the run's cap proposal from the workflow plan and the
   provider cost table after the free balance preflight, stores it, and lets the tenant policy
-  auto-approve it only within the run's created budget (proposal D-28). A legacy run (no cap
-  requirement) passes unchanged.
+  auto-approve it only within the run's created budget (proposal D-28). A run with no cap
+  requirement passes unchanged: since the single credit ledger (migration 0057) every run is
+  one, because the credits confirmed on the client's pool are its cap.
 * ``after_approval`` (first stage after the approval gate): the careers lookup deferred by setup
   (conflict C12) runs once, now that a cap exists.
 * the end-of-run report is stored by ``runs.lifecycle.finish`` in the finishing transaction
   (every terminal path, K12), not here.
 
-GUARANTEE(test_setup_without_policy_waits_and_makes_no_paid_call): fail closed.
+GUARANTEE(test_a_run_without_an_approval_policy_runs_within_its_credits): the credits confirmed
+on the pool are the cap; a run never waits for a cap approval.
 """
 
 from __future__ import annotations

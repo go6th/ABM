@@ -27,7 +27,7 @@ from account_intelligence.runs.lifecycle import (
     settle_once,
 )
 from account_intelligence.workflow.transitions import RunStatus as S
-from tests.runs.test_lifecycle_db import LIMITS, _create, balance, req, tenant
+from tests.runs.test_lifecycle_db import LIMITS, RESERVE, _create, balance, entries, req, tenant
 from tests.tracker.world import admin_dsn, fetch, tracker
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
@@ -43,7 +43,7 @@ async def test_concurrent_create_with_one_key_reserves_once() -> None:
 
     async def first() -> object:
         async with tenant_txn(t) as s:
-            created = await create_run(s, t, request, LIMITS, tracker(s))
+            created = await create_run(s, t, request, LIMITS, tracker(s), RESERVE)
             first_ready.set()
             await release.wait()  # hold the uncommitted insert while the second one runs
             return created
@@ -51,7 +51,7 @@ async def test_concurrent_create_with_one_key_reserves_once() -> None:
     async def second() -> object:
         await first_ready.wait()
         async with tenant_txn(t) as s:
-            return await create_run(s, t, request, LIMITS, tracker(s))
+            return await create_run(s, t, request, LIMITS, tracker(s), RESERVE)
 
     a = asyncio.create_task(first())
     b = asyncio.create_task(second())
@@ -63,7 +63,8 @@ async def test_concurrent_create_with_one_key_reserves_once() -> None:
         await b
     runs = fetch("SELECT id FROM account_runs WHERE tenant_id = %s", t)
     assert [str(r[0]) for r in runs] == [str(created.run_id)]  # type: ignore[attr-defined]
-    assert fetch("SELECT count(*) FROM wallet_ledger WHERE tenant_id = %s", t) == [(1,)]
+    assert fetch("SELECT count(*) FROM credit_entries WHERE tenant_id = %s", t) == [(1,)]
+    assert fetch("SELECT count(*) FROM research_jobs WHERE tenant_id = %s", t) == [(1,)]
     assert balance(t) == Decimal("94")
     replay = await _create(t, request)  # the retry the error asks for reads the winner
     assert replay.replayed and replay.run_id == created.run_id  # type: ignore[attr-defined]
@@ -95,11 +96,12 @@ async def test_settlement_of_a_missing_or_live_run_is_refused() -> None:
     with pytest.raises(RunNotFound):  # another tenant's run is simply not there (RLS)
         async with tenant_txn(other) as s:
             await settle_once(s, run)
-    assert fetch("SELECT entry FROM wallet_ledger WHERE run_id = %s", run) == [("reserve",)]
+    assert [e for e, _ in entries(run)] == ["reserve"]
 
 
 async def test_a_run_without_a_budget_commits_nothing_and_refunds_the_reserve() -> None:
-    """``used`` is spent / budget; with no budget nothing was usable, so nothing is committed."""
+    """Credits used come from real spend; a run that spent nothing is charged nothing and its
+    whole reservation goes back to the pool, whatever its budget column says."""
     t = tenant()
     run = (await _create(t, req())).run_id
     with psycopg.connect(admin_dsn(), autocommit=True) as c:
@@ -109,7 +111,7 @@ async def test_a_run_without_a_budget_commits_nothing_and_refunds_the_reserve() 
         await move(s, run, S.RUNNING, S.DISTILLING)
         await move(s, run, S.DISTILLING, S.VERIFYING)
         _, settlement = await finish(s, tracker(s), run, S.PARTIAL, reason="test")
-    assert (settlement.committed, settlement.refunded) == (Decimal(0), Decimal("6.0000"))
+    assert (settlement.committed, settlement.refunded) == (Decimal(0), Decimal(6))
     assert balance(t) == Decimal("100")
 
 

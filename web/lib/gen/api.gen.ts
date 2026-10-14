@@ -1072,6 +1072,11 @@ export const Flags = z.object({
 }).strict();
 export type Flags = z.infer<typeof Flags>;
 
+export const FromLibrary = z.object({
+  "library_account_ids": z.array(z.string()),
+}).strict();
+export type FromLibrary = z.infer<typeof FromLibrary>;
+
 export const GateDefect = z.object({
   "check": z.string(),
   "item": z.string(),
@@ -1221,6 +1226,63 @@ export const KeyVersions = z.object({
 }).strict();
 export type KeyVersions = z.infer<typeof KeyVersions>;
 
+export const LibraryAccountRow = z.object({
+  "check_passed": z.boolean(),
+  "clients": z.number().int(),
+  "deliverables_found": z.number().int(),
+  "domain": z.string(),
+  "filename": z.string(),
+  "id": z.string(),
+  "internal_left_out": z.boolean(),
+  "issues": z.array(z.string()),
+  "name": z.string(),
+  "uploaded_at": z.string(),
+}).strict();
+export type LibraryAccountRow = z.infer<typeof LibraryAccountRow>;
+
+export const LibraryAdded = z.object({
+  "added": z.array(z.string()),
+  "already_in_workspace": z.number().int(),
+}).strict();
+export type LibraryAdded = z.infer<typeof LibraryAdded>;
+
+export const LibraryOffer = z.object({
+  "domain": z.string(),
+  "files": z.number().int(),
+  "id": z.string(),
+  "in_workspace": z.boolean(),
+  "name": z.string(),
+}).strict();
+export type LibraryOffer = z.infer<typeof LibraryOffer>;
+
+export const LibraryAvailable = z.object({
+  "account_cap": z.number().int(),
+  "accounts": z.array(LibraryOffer),
+  "accounts_used": z.number().int(),
+  "left": z.number().int(),
+}).strict();
+export type LibraryAvailable = z.infer<typeof LibraryAvailable>;
+
+export const LibraryList = z.object({
+  "accounts": z.array(LibraryAccountRow),
+}).strict();
+export type LibraryList = z.infer<typeof LibraryList>;
+
+export const LibraryPublished = z.object({
+  "published": z.number().int(),
+}).strict();
+export type LibraryPublished = z.infer<typeof LibraryPublished>;
+
+export const LibraryUploaded = z.object({
+  "check_passed": z.boolean(),
+  "deliverables_found": z.number().int(),
+  "id": z.string(),
+  "internal_left_out": z.boolean(),
+  "issues": z.array(z.string()),
+  "name": z.string(),
+}).strict();
+export type LibraryUploaded = z.infer<typeof LibraryUploaded>;
+
 export const LoginBody = z.object({
   "email": z.string(),
   "password": z.string(),
@@ -1261,6 +1323,7 @@ export const Me = z.object({
   "mfa_enabled": z.boolean(),
   "mfa_required": z.boolean(),
   "mfa_step_up_fresh": z.boolean(),
+  "model_ready": z.boolean().optional(),
   "plan": z.string(),
   "plan_limits": z.record(z.string(), z.number().int()),
   "role": z.string(),
@@ -1418,6 +1481,11 @@ export const PolicyBody = z.object({
 }).strict();
 export type PolicyBody = z.infer<typeof PolicyBody>;
 
+export const PublishBody = z.object({
+  "tenant_ids": z.array(z.string()),
+}).strict();
+export type PublishBody = z.infer<typeof PublishBody>;
+
 export const PullOption = z.object({
   "available": z.boolean(),
   "pull_run_id": z.string().nullable().optional(),
@@ -1566,11 +1634,37 @@ export const RejectBody = z.object({
 }).strict();
 export type RejectBody = z.infer<typeof RejectBody>;
 
+export const ResearchBody = z.object({
+  "company_name": z.string(),
+  "credits": z.number().int(),
+  "domain": z.string(),
+  "request_id": z.string(),
+}).strict();
+export type ResearchBody = z.infer<typeof ResearchBody>;
+
+export const ResearchEstimate = z.object({
+  "account_cap": z.number().int(),
+  "accounts_used": z.number().int(),
+  "credits": z.number().int(),
+  "enough": z.boolean(),
+  "minutes": z.number().int(),
+  "pool": Credits,
+}).strict();
+export type ResearchEstimate = z.infer<typeof ResearchEstimate>;
+
 export const ResearchJobTask = z.object({
   "job_id": z.string(),
   "tenant_id": z.string(),
 }).strict();
 export type ResearchJobTask = z.infer<typeof ResearchJobTask>;
+
+export const ResearchStarted = z.object({
+  "credits": z.number().int(),
+  "domain": z.string(),
+  "job_id": z.string(),
+  "status": z.string(),
+}).strict();
+export type ResearchStarted = z.infer<typeof ResearchStarted>;
 
 export const ResetPasswordBody = z.object({
   "password": z.string(),
@@ -2475,6 +2569,10 @@ export const operations = {
   "POST /operator/v1/flags": { method: "POST", path: "/operator/v1/flags", plane: "operator", status: 201, request: account_intelligence__api__routes__operator_admin__FlagBody, requestRequired: true, response: FlagSet },
   "GET /operator/v1/keys": { method: "GET", path: "/operator/v1/keys", plane: "operator", status: 200, request: null, requestRequired: false, response: KeyVersions },
   "POST /operator/v1/keys": { method: "POST", path: "/operator/v1/keys", plane: "operator", status: 201, request: KeyBody, requestRequired: true, response: KeyAdded },
+  "GET /operator/v1/library": { method: "GET", path: "/operator/v1/library", plane: "operator", status: 200, request: null, requestRequired: false, response: LibraryList },
+  "POST /operator/v1/library/uploads": { method: "POST", path: "/operator/v1/library/uploads", plane: "operator", status: 201, request: null, requestRequired: false, response: LibraryUploaded },
+  "POST /operator/v1/library/{library_account_id}/publish": { method: "POST", path: "/operator/v1/library/{library_account_id}/publish", plane: "operator", status: 200, request: PublishBody, requestRequired: true, response: LibraryPublished },
+  "POST /operator/v1/library/{library_account_id}/unpublish": { method: "POST", path: "/operator/v1/library/{library_account_id}/unpublish", plane: "operator", status: 200, request: PublishBody, requestRequired: true, response: LibraryPublished },
   "GET /operator/v1/ops/cost/{run_id}": { method: "GET", path: "/operator/v1/ops/cost/{run_id}", plane: "operator", status: 200, request: null, requestRequired: false, response: RunCost },
   "GET /operator/v1/ops/failures": { method: "GET", path: "/operator/v1/ops/failures", plane: "operator", status: 200, request: null, requestRequired: false, response: Failures },
   "GET /operator/v1/ops/stuck": { method: "GET", path: "/operator/v1/ops/stuck", plane: "operator", status: 200, request: null, requestRequired: false, response: Stuck },
@@ -2500,6 +2598,7 @@ export const operations = {
   "GET /readyz": { method: "GET", path: "/readyz", plane: "tenant", status: 200, request: null, requestRequired: false, response: Ready },
   "GET /v1/accounts": { method: "GET", path: "/v1/accounts", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountPage },
   "POST /v1/accounts": { method: "POST", path: "/v1/accounts", plane: "tenant", status: 201, request: AccountBody, requestRequired: true, response: AccountAdded },
+  "POST /v1/accounts/from-library": { method: "POST", path: "/v1/accounts/from-library", plane: "tenant", status: 201, request: FromLibrary, requestRequired: true, response: LibraryAdded },
   "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountDetail },
   "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
   "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
@@ -2577,11 +2676,14 @@ export const operations = {
   "POST /v1/files/{file_id}/ask": { method: "POST", path: "/v1/files/{file_id}/ask", plane: "tenant", status: 200, request: Question, requestRequired: true, response: FileAnswer },
   "GET /v1/files/{file_id}/audit": { method: "GET", path: "/v1/files/{file_id}/audit", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAudit },
   "POST /v1/files/{file_id}/resume": { method: "POST", path: "/v1/files/{file_id}/resume", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileState },
+  "GET /v1/library/available": { method: "GET", path: "/v1/library/available", plane: "tenant", status: 200, request: null, requestRequired: false, response: LibraryAvailable },
   "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
   "GET /v1/models": { method: "GET", path: "/v1/models", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatModels },
   "GET /v1/monitoring/budget": { method: "GET", path: "/v1/monitoring/budget", plane: "tenant", status: 200, request: null, requestRequired: false, response: MonitoringBudget },
   "GET /v1/notifications": { method: "GET", path: "/v1/notifications", plane: "tenant", status: 200, request: null, requestRequired: false, response: Notifications },
   "POST /v1/notifications/{notification_id}/read": { method: "POST", path: "/v1/notifications/{notification_id}/read", plane: "tenant", status: 200, request: null, requestRequired: false, response: NotificationRead },
+  "POST /v1/research": { method: "POST", path: "/v1/research", plane: "tenant", status: 201, request: ResearchBody, requestRequired: true, response: ResearchStarted },
+  "GET /v1/research/estimate": { method: "GET", path: "/v1/research/estimate", plane: "tenant", status: 200, request: null, requestRequired: false, response: ResearchEstimate },
   "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunPage },
   "POST /v1/runs": { method: "POST", path: "/v1/runs", plane: "tenant", status: 202, request: RunBody, requestRequired: true, response: RunCreated },
   "GET /v1/runs/pull-option": { method: "GET", path: "/v1/runs/pull-option", plane: "tenant", status: 200, request: null, requestRequired: false, response: PullOption },

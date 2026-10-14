@@ -107,7 +107,8 @@ EVENT_TYPES: dict[str, str] = {
 
 # Background jobs and the boundary each runs under.
 JOBS: dict[str, str] = {
-    "spend_invariants": "spend.jobs.spend_invariants: per tenant and run, inside tenant_txn",
+    "spend_invariants": "worker.nightly.spend_invariants: run identifiers from spend_runs_to_check"
+    " and tenant identifiers from tenants_with_credit_activity, then per tenant inside tenant_txn",
     "orphan_sweep": "runs.sweeper.sweep: identifiers from runs_orphaned, then per tenant and run,"
     " inside tenant_txn",
     "file_sweep": "research_files.pipeline.sweep_files: identifiers from research_files_orphaned,"

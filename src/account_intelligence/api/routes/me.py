@@ -11,6 +11,7 @@ from account_intelligence.api import contract as C
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.routes.health import LLM_MISSING, llm_state
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica.settings import accounts_used, client_settings
@@ -118,4 +119,7 @@ async def current_user(request: Request, ident: Identity = Depends(authorize)) -
         "accounts_total": total,
         "mail_drive_allowed": limits_now.mail_drive_allowed,
         "web_refresh_allowed": limits_now.web_refresh_allowed,
+        # the model is set up (a real or, in dev and test, the hermetic one); the client shows
+        # one plain message when it is not, instead of failing quietly
+        "model_ready": llm_state(getattr(request.app.state.container, "llm", None)) != LLM_MISSING,
     }

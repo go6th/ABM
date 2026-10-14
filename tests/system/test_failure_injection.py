@@ -7,13 +7,11 @@ GUARANTEE(test_budget_cap_ends_budget_exceeded_with_distill_run)
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import pytest
 
 from account_intelligence.connectors.base import ProviderCode
 from tests.connectors.conftest import Harness, Reply
-from tests.system.world import admin, start_run
+from tests.system.world import admin, settled_once, start_run
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
@@ -48,6 +46,7 @@ async def test_budget_cap_ends_budget_exceeded_with_distill_run(harness: Harness
     assert calls[0][0] <= calls[0][1]  # the cap is never exceeded
     rows = dict(admin("SELECT row_key, reason_code FROM coverage_rows WHERE run_id = %s", run.run))
     assert "budget_cap" in rows.values()
-    entries = dict(admin("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s", run.run))
-    assert -entries["reserve"] == entries["commit"] + entries["refund"]
-    assert Decimal(entries["commit"]) >= 0
+    assert settled_once(run.run)
+    assert admin("SELECT stop_reason FROM research_jobs WHERE run_id = %s", run.run) == [
+        ("credit_cap_reached",)
+    ]

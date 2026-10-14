@@ -112,11 +112,7 @@ async def internal_file(
             resource_type="run",
             resource_id=run_id,
         )
-    docs = getattr(request.app.state.container, "documents", None)
-    if docs is None:
-        raise HTTPException(503, "document storage is not configured")
-    with docs.blobs.open(str(key)) as reader:
-        data = reader.read()
+    data = await _internal_bytes(request, str(key))
     return Response(
         data,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -125,3 +121,23 @@ async def internal_file(
             "Cache-Control": "no-store",
         },
     )
+
+
+async def _internal_bytes(request: Request, key: str) -> bytes:
+    """The file from where its run stored it: a file-mode run in document storage, a company
+    research run in the payload store (both under the tenant's ``internal/`` prefix)."""
+    container = request.app.state.container
+    docs = getattr(container, "documents", None)
+    if docs is not None:
+        try:
+            with docs.blobs.open(key) as reader:
+                return bytes(reader.read())
+        except (FileNotFoundError, KeyError, LookupError):
+            pass
+    payloads = getattr(container, "payloads", None)
+    if payloads is None:
+        raise HTTPException(503, "document storage is not configured")
+    try:
+        return bytes(await payloads.get(key))
+    except Exception:
+        raise HTTPException(404, "no internal file for this run") from None

@@ -159,4 +159,11 @@ def coverage(run: str) -> dict[str, tuple[Any, ...]]:
 
 
 def wallet(run: str) -> dict[str, Any]:
-    return dict(admin("SELECT entry, amount FROM wallet_ledger WHERE run_id = %s", run))
+    """The run's credit entries on the client's pool by kind (reserve, settle, release)."""
+    return dict(
+        admin(
+            "SELECT e.kind, e.credits FROM credit_entries e JOIN research_jobs j"
+            " ON j.id = e.job_id WHERE j.run_id = %s",
+            run,
+        )
+    )

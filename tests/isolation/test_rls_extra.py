@@ -42,16 +42,38 @@ async def test_public_reader_has_no_grant_on_chunks(tenant_a: UUID):
 
 
 async def test_ledgers_are_insert_only(tenant_a: UUID):
+    """The credit ledger and the paid-call ledger take inserts only; the wallet ledger is
+    read-only history since the single credit ledger (migration 0057)."""
     async with tenant_txn(tenant_a) as s:
-        await s.execute(
+        account = await s.scalar(
             text(
-                "INSERT INTO wallet_ledger (tenant_id, entry, amount, balance_after) "
-                "VALUES ((SELECT app_tenant()), 'topup', 10, 110)"
+                "INSERT INTO accounts (tenant_id, domain) VALUES ((SELECT app_tenant()),"
+                " 'ledger.example') RETURNING id"
             )
         )
+        job = await s.scalar(
+            text(
+                "INSERT INTO research_jobs (account_id, kind, scope, status, period,"
+                " credits_estimated, requested_by) VALUES (:a, 'web_refresh', 'jobs', 'queued',"
+                " '2026-10', 5, 'u') RETURNING id"
+            ),
+            {"a": account},
+        )
+        await s.execute(
+            text(
+                "INSERT INTO credit_entries (period, kind, credits, job_id, purpose, actor)"
+                " VALUES ('2026-10', 'reserve', 5, :j, 'web_refresh', 'u')"
+            ),
+            {"j": job},
+        )
     for stmt in (
+        "INSERT INTO wallet_ledger (tenant_id, entry, amount, balance_after)"
+        " VALUES ((SELECT app_tenant()), 'topup', 10, 110)",
         "UPDATE wallet_ledger SET amount = 0",
         "DELETE FROM wallet_ledger",
+        "UPDATE wallets SET balance = 0",
+        "UPDATE credit_entries SET credits = 0",
+        "DELETE FROM credit_entries",
         "UPDATE tool_calls SET cost_usd = 0",
         "DELETE FROM tool_calls",
     ):

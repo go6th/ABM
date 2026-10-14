@@ -300,6 +300,8 @@ functions:
   documents_orphaned: {returns: (tenant_id, document_id) pairs only, proof: tests/documents/test_documents_db.py}
   due_scheduled_refreshes: {returns: (tenant_id, account_id) pairs only, proof: tests/replica/test_schedules.py}
   tenants_with_waiting_jobs: {returns: tenant_id identifiers only, proof: tests/replica/test_schedules.py}
+  tenants_with_credit_activity: {returns: tenant_id identifiers only, proof: tests/worker/test_nightly.py}
+  library_publication_counts: {returns: (library_account_id, count) pairs only, proof: tests/replica/test_library.py}
   erase_rows:
     returns: a row count; the caller's context tenant only, allow-listed tables, approved requests
     proof: tests/phase3/test_ws1_tenancy.py
@@ -372,6 +374,14 @@ routes:
     query: {ids: deliverables.id}
   GET /v1/chat/suggestions: {probe: tenant}
   GET /v1/credits: {probe: tenant}
+  GET /v1/research/estimate: {probe: tenant}
+  GET /v1/library/available: {probe: tenant}
+  POST /v1/accounts/from-library:
+    probe: tenant
+    body: {library_account_ids: ["00000000-0000-4000-8000-000000000009"]}
+  POST /v1/research:
+    probe: tenant
+    body: {request_id: "00000000-0000-4000-8000-000000000007", company_name: Probe Co, domain: probe-co.example, credits: 220}
   GET /v1/accounts/{domain}/refresh: {probe: tenant, params: {domain: accounts.domain}}
   POST /v1/accounts/{domain}/refresh:
     probe: tenant
@@ -576,6 +586,18 @@ routes:
   POST /operator/v1/tenants/{tenant_id}/deletion/{request_id}/execute:
     probe: staff
     params: {tenant_id: owner, request_id: 00000000-0000-4000-8000-000000000001}
+  GET /operator/v1/library: {probe: staff}
+  POST /operator/v1/library/uploads:
+    probe: staff
+    query: {filename: probe.docx, domain: probe-library.example, account_name: Probe Library}
+  POST /operator/v1/library/{library_account_id}/publish:
+    probe: staff
+    params: {library_account_id: "00000000-0000-4000-8000-00000000000a"}
+    body: {tenant_ids: ["00000000-0000-4000-8000-000000000001"]}
+  POST /operator/v1/library/{library_account_id}/unpublish:
+    probe: staff
+    params: {library_account_id: "00000000-0000-4000-8000-00000000000a"}
+    body: {tenant_ids: ["00000000-0000-4000-8000-000000000001"]}
   GET /operator/v1/flags: {probe: staff}
   POST /operator/v1/flags:
     probe: staff

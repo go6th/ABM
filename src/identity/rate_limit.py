@@ -68,16 +68,14 @@ def _memory_limiter(kind: str) -> TokenBucketLimiter:
 def _redis_store() -> RedisRateStore:
     global _redis_client
     settings = get_settings()
-    if not settings.redis_host:
+    if not settings.redis_url:
         raise DependencyUnavailable()
     try:
         if _redis_client is None:
             import redis.asyncio as redis
 
-            _redis_client = redis.Redis(
-                host=settings.redis_host,
-                port=6379,
-                ssl=True,
+            _redis_client = redis.Redis.from_url(
+                settings.redis_url,
                 socket_connect_timeout=2,
                 socket_timeout=2,
                 health_check_interval=30,
@@ -96,14 +94,14 @@ async def consume(request: Request, *, account: str, action: str) -> None:
     settings = get_settings()
     waits: list[float] = []
     for kind, value in (("ip", ip_key), ("account", account_key)):
-        if settings.redis_host and kind == "ip":
+        if settings.redis_url and kind == "ip":
             # The API is reached through the private web BFF, so its TCP peer is the web service,
             # not the browser. Cloud Armor applies the per-client IP auth bucket at the public
             # edge; Redis owns the account bucket across API instances.
             continue
         capacity, refill = limits[kind]
         key = f"{action}:{kind}:{value}"
-        if settings.redis_host:
+        if settings.redis_url:
             try:
                 wait = await _redis_store().take(
                     key, BucketLimit(rate_per_s=refill, burst=capacity), time.time()

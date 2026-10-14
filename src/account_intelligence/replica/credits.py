@@ -9,6 +9,12 @@ ledger (``credit_entries``, append-only).
   can never both spend the last credits), checks what is left, writes the job and its reserve.
 * Settle (when the job ends): credits used = ceil(real spend / credit value), never more than
   reserved; the reserve is released in the same transaction. A failed job settles what it used.
+* One credit truth: this pool and ``credit_entries`` carry every credit movement. Every research
+  run belongs to one job (``research_jobs.run_id``); the run lifecycle reserves through
+  ``reserve`` when a run is created without a confirmed job and settles through ``settle_run``
+  at the run's one settlement. A library add is a job that used nothing. The old wallet tables
+  are read-only history.
+* ``ledger_problems`` lists every broken ledger rule of the caller tenant (the nightly check).
 
 GUARANTEE(test_two_confirms_cannot_spend_the_same_credits)
 GUARANTEE(test_settle_never_charges_more_than_was_reserved)
@@ -37,6 +43,15 @@ PURPOSE = {
     "scheduled_refresh": "scheduled_refresh",
     "new_research": "new_research",
     "file_analysis": "file_analysis",
+    "library_add": "library_add",
+}
+# A run's end status as its job's end status.
+JOB_END = {
+    "COMPLETED": "done",
+    "PARTIAL": "done",
+    "BUDGET_EXCEEDED": "done",
+    "FAILED": "failed",
+    "CANCELED": "canceled",
 }
 
 
@@ -192,6 +207,7 @@ async def reserve(
     from_turn_id: UUID | None = None,
     wait_if_short: bool = False,
     topic: str | None = None,
+    one_open_per_account: bool = True,
 ) -> tuple[UUID, str]:
     """Create the job and reserve its credits in the caller's transaction.
 
@@ -210,7 +226,7 @@ async def reserve(
             return UUID(str(prior.id)), str(prior.status)
     await client_settings(session)
     await session.execute(text("SELECT 1 FROM client_settings FOR UPDATE"))
-    if await open_job(session, account_id) is not None:
+    if one_open_per_account and await open_job(session, account_id) is not None:
         raise JobOpen
     left = (await pool(session, now))["left"]
     status = "queued" if credits <= left else "waiting_credit_limit"
@@ -283,9 +299,11 @@ async def settle(
     now: datetime,
     status: str = "done",
     reason: str | None = None,
+    stop_reason: str | None = None,
 ) -> int:
     """End a job: charge what it really used (never more than reserved), release the reserve.
-    Returns the credits charged. Idempotent: a job already ended is left as it is."""
+    Returns the credits charged. Idempotent: a job already ended is left as it is.
+    ``stop_reason`` records why it stopped early (``credit_cap_reached``)."""
     job = (
         await session.execute(
             text(
@@ -307,9 +325,9 @@ async def settle(
     await session.execute(
         text(
             "UPDATE research_jobs SET status = :st, credits_used = :u, finished_at = :now,"
-            " failure_reason = :r WHERE id = :j"
+            " failure_reason = :r, stop_reason = :sr WHERE id = :j"
         ),
-        {"st": status, "u": used, "now": now, "r": reason, "j": job.id},
+        {"st": status, "u": used, "now": now, "r": reason, "sr": stop_reason, "j": job.id},
     )
     return used
 
@@ -349,3 +367,188 @@ async def promote_waiting(session: Any, now: datetime) -> list[UUID]:
         )
         queued.append(UUID(str(job.id)))
     return queued
+
+
+async def claim(session: Any, job_id: UUID, now: datetime) -> Any:
+    """Move a queued job to running; None when it is not queued (already taken or ended)."""
+    return (
+        await session.execute(
+            text(
+                "UPDATE research_jobs SET status = 'running', started_at = :now"
+                " WHERE id = :j AND status = 'queued'"
+                " RETURNING id, account_id, kind, scope, credits_estimated, requested_by, topic"
+            ),
+            {"j": job_id, "now": now},
+        )
+    ).first()
+
+
+async def link_run(session: Any, job_id: UUID, run_id: UUID) -> None:
+    """Record the research run that carried out the job."""
+    await session.execute(
+        text("UPDATE research_jobs SET run_id = :r WHERE id = :j"), {"r": run_id, "j": job_id}
+    )
+
+
+async def start_with_run(session: Any, job_id: UUID, run_id: UUID, now: datetime) -> None:
+    """The job is carried out by this run: link it and mark the job running."""
+    done = await session.scalar(
+        text(
+            "UPDATE research_jobs SET run_id = :r, status = 'running',"
+            " started_at = coalesce(started_at, :now)"
+            " WHERE id = :j AND status IN ('queued', 'running') RETURNING id"
+        ),
+        {"r": run_id, "j": job_id, "now": now},
+    )
+    if done is None:
+        raise JobOpen("the job is not waiting to run")
+
+
+@dataclass(frozen=True)
+class RunSettlement:
+    """A run's settlement on its job (credits)."""
+
+    job_id: UUID
+    kind: str
+    account_id: UUID
+    requested_by: str
+    status: str
+    reserved: int
+    used: int
+    replayed: bool
+
+    @property
+    def released(self) -> int:
+        """Reserved credits that go back to the pool."""
+        return self.reserved - self.used
+
+
+async def settle_run(
+    session: Any,
+    run_id: UUID,
+    *,
+    run_status: str,
+    spent_usd: Decimal,
+    platform_fault: bool,
+    now: datetime,
+) -> RunSettlement | None:
+    """Settle the job a run carried out, once: real spend through the credit value (nothing when
+    the platform was at fault), never more than reserved, the rest released. A run that stopped
+    at its credits is marked ``credit_cap_reached``. None for a run that has no job (history from
+    before the single ledger)."""
+    job = (
+        await session.execute(
+            text(
+                "SELECT id, kind, account_id, requested_by, status, credits_estimated, credits_used"
+                " FROM research_jobs WHERE run_id = :r"
+            ),
+            {"r": run_id},
+        )
+    ).first()
+    if job is None:
+        return None
+    if job.status in ("done", "failed", "canceled"):
+        return RunSettlement(
+            UUID(str(job.id)),
+            job.kind,
+            UUID(str(job.account_id)),
+            str(job.requested_by),
+            job.status,
+            int(job.credits_estimated),
+            int(job.credits_used),
+            True,
+        )
+    status = JOB_END[run_status]
+    used = await settle(
+        session,
+        UUID(str(job.id)),
+        spent_usd=Decimal(0) if platform_fault else spent_usd,
+        now=now,
+        status=status,
+        reason=None if status == "done" else "The research did not finish.",
+        stop_reason="credit_cap_reached" if run_status == "BUDGET_EXCEEDED" else None,
+    )
+    return RunSettlement(
+        UUID(str(job.id)),
+        job.kind,
+        UUID(str(job.account_id)),
+        str(job.requested_by),
+        status,
+        int(job.credits_estimated),
+        used,
+        False,
+    )
+
+
+async def record_library_add(session: Any, account_id: UUID, actor: str, now: datetime) -> UUID:
+    """A ready-made workspace copied in from the library: a job that used no credits."""
+    job_id = await session.scalar(
+        text(
+            "INSERT INTO research_jobs (account_id, kind, scope, status, period,"
+            " credits_estimated, credits_used, requested_by, created_at, started_at, finished_at)"
+            " VALUES (:a, 'library_add', 'library', 'done', :p, 0, 0, :by, :now, :now, :now)"
+            " RETURNING id"
+        ),
+        {"a": account_id, "p": period_of(now), "by": actor, "now": now},
+    )
+    return UUID(str(job_id))
+
+
+async def ledger_problems(session: Any) -> list[str]:
+    """Every broken ledger rule of the caller tenant, as ``rule:job id`` (identifiers only).
+
+    * an open job (queued or running) holds exactly its estimate and has not been settled;
+    * a job waiting for credits holds nothing;
+    * an ended job that held credits released exactly what it held, settled at most that, and
+      its ``credits_used`` equals what it settled (so the pool's "used" is the settled sum);
+    * a library add used nothing and moved nothing;
+    * no period holds a negative amount."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT j.id, j.kind, j.status, j.credits_estimated, j.credits_used,"
+                " coalesce(sum(e.credits) FILTER (WHERE e.kind = 'reserve'), -1) AS reserved,"
+                " coalesce(sum(e.credits) FILTER (WHERE e.kind = 'release'), -1) AS released,"
+                " coalesce(sum(e.credits) FILTER (WHERE e.kind = 'settle'), 0) AS settled"
+                " FROM research_jobs j LEFT JOIN credit_entries e ON e.job_id = j.id"
+                " GROUP BY j.id ORDER BY j.id"
+            )
+        )
+    ).all()
+    out: list[str] = []
+    for r in rows:
+        jid = str(r.id)
+        held = r.reserved >= 0
+        if r.kind == "library_add":
+            if held or r.released >= 0 or r.settled or r.credits_used:
+                out.append(f"library_add_moved_credits:{jid}")
+            continue
+        if r.status == "waiting_credit_limit":
+            if held or r.released >= 0 or r.settled:
+                out.append(f"waiting_job_holds_credits:{jid}")
+        elif r.status in ("queued", "running"):
+            if r.reserved != r.credits_estimated:
+                out.append(f"open_job_reserve_wrong:{jid}")
+            if r.released >= 0 or r.settled:
+                out.append(f"open_job_settled:{jid}")
+        else:
+            if held and r.released != r.reserved:
+                out.append(f"release_differs_from_reserve:{jid}")
+            if not held and (r.released >= 0 or r.settled):
+                out.append(f"settled_without_reserve:{jid}")
+            if r.settled > max(r.reserved, 0):
+                out.append(f"settled_more_than_reserved:{jid}")
+            if r.settled != r.credits_used:
+                out.append(f"used_differs_from_settled:{jid}")
+    periods = (
+        await session.execute(
+            text(
+                "SELECT period,"
+                " coalesce(sum(credits) FILTER (WHERE kind = 'reserve'), 0)"
+                " - coalesce(sum(credits) FILTER (WHERE kind = 'release'), 0) AS held"
+                " FROM credit_entries GROUP BY period"
+            )
+        )
+    ).all()
+    out.extend(f"negative_hold:{p.period}" for p in periods if p.held < 0)
+    return out

@@ -18,7 +18,7 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 
 | Code | Client text |
 | --- | --- |
-| `budget_cap` | Budget cap reached |
+| `budget_cap` | Stopped at the credits confirmed for this research |
 | `cap_reached` | Execution cap reached |
 | `claims_dropped` | Claims dropped by verification |
 | `consent_required` | People data consent is needed |

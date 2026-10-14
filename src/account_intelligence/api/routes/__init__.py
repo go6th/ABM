@@ -19,10 +19,12 @@ from account_intelligence.api.routes import (
     feedback,
     health,
     internal_view,
+    library,
     me,
     operator_admin,
     operator_view,
     ops,
+    research,
     research_files,
     runs,
     schedules,
@@ -45,6 +47,8 @@ v1_router.include_router(runs.router)
 v1_router.include_router(chat.router)
 v1_router.include_router(ask.router)
 v1_router.include_router(credits.router)
+v1_router.include_router(research.router)
+v1_router.include_router(library.router)
 v1_router.include_router(schedules.router)
 v1_router.include_router(me.router)
 v1_router.include_router(spend.router)
@@ -76,6 +80,7 @@ public_v1_router.include_router(auth.public_router)
 operator_router = APIRouter(dependencies=[Depends(route_guard)])
 operator_router.include_router(spend_v2.operator_router)
 operator_router.include_router(ops.router)
+operator_router.include_router(library.operator_router)
 operator_router.include_router(operator_admin.router)
 operator_router.include_router(operator_view.router)
 operator_router.include_router(feedback.operator_router)

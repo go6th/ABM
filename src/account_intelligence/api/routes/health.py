@@ -4,7 +4,8 @@ role, configuration loads, the runtime assertion holds, the process is not drain
 SIGTERM); any exception or failed check is a 503 that names the failed check, never a 200.
 ``components`` (informational, never a reason for 503) reports each external component by a
 status word only: each provider ``off``, ``configured`` or ``unconfigured`` (the request path's
-own rule), the model ``present`` or ``absent``, the payload, rate-limit and scanner adapters.
+own rule), the model ``present``, ``fake (LLM_FAKE)`` or ``not configured (ANTHROPIC_API_KEY)``
+(the missing key's name, never a value), the payload, rate-limit and scanner adapters.
 No variable's value ever appears.
 
 GUARANTEE(test_readiness_reports_every_component_by_status_word_only)
@@ -59,16 +60,43 @@ def components(container: Any, env: Mapping[str, str]) -> dict[str, str]:
         except (KeyError, LookupError):
             continue
         state = "configured" if provider_configured(cfg, env) else "unconfigured"
+        if env.get("CONNECTORS") == "hermetic":
+            state = "hermetic (synthetic replies, no outside call)"
+        elif code is ProviderCode.P_PEOPLE:
+            # no documented people-search API: it runs a grid the owner builds (FIX_LOG D11)
+            state = PEOPLE_DISABLED
         out[f"provider.{code.value.removeprefix('p_')}"] = state if on else "off"
-    llm = type(getattr(container, "llm", None)).__name__
-    out["llm"] = "absent" if llm in ("NoneType", "UnconfiguredLlm") else "present"
+    out["llm"] = llm_state(getattr(container, "llm", None))
     payloads = getattr(container, "payloads", None)
     out["payload_store"] = "absent" if payloads is None else _adapter(payloads, "PayloadStore")
-    out["rate_limit_store"] = "shared" if env.get("REDIS_HOST") else "in_process"
+    out["rate_limit_store"] = "redis" if env.get("REDIS_URL") else "in_process"
+    try:
+        from account_intelligence.replica.jobs import engine_state
+
+        out["research_engine"] = engine_state(str(getattr(container, "env", "dev")))
+    except RuntimeError:
+        out["research_engine"] = "misconfigured (RESEARCH_ENGINE)"
     documents = getattr(container, "documents", None)
     scanner = getattr(documents, "scanner", None) if documents is not None else None
     out["document_scanner"] = str(getattr(scanner, "engine", "none")) if scanner else "none"
     return out
+
+
+LLM_MISSING = "not configured (ANTHROPIC_API_KEY)"
+PEOPLE_DISABLED = (
+    "disabled (needs the owner's people-search grid; people rows use the org source and web search)"
+)
+
+
+def llm_state(llm: Any) -> str:
+    """The model in plain words: ``present`` (a real model), ``fake (LLM_FAKE)`` (the hermetic
+    model, dev and test only) or ``not configured (ANTHROPIC_API_KEY)`` (names the missing key)."""
+    name = type(llm).__name__
+    if name in ("NoneType", "UnconfiguredLlm"):
+        return LLM_MISSING
+    if name == "FakeModel":
+        return "fake (LLM_FAKE)"
+    return "present"
 
 
 def _adapter(value: Any, suffix: str) -> str:

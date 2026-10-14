@@ -5281,6 +5281,27 @@
         "title": "Flags",
         "type": "object"
       },
+      "FromLibrary": {
+        "additionalProperties": false,
+        "description": "Library accounts to add (ids only; the tenant comes from the session).",
+        "properties": {
+          "library_account_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Library Account Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "library_account_ids"
+        ],
+        "title": "FromLibrary",
+        "type": "object"
+      },
       "GateDefect": {
         "additionalProperties": false,
         "description": "Response body: one pre-delivery gate defect (a check name and an identifier, no text).",
@@ -5920,6 +5941,236 @@
         "title": "LatestRun",
         "type": "object"
       },
+      "LibraryAccountRow": {
+        "additionalProperties": false,
+        "description": "One library account as the operator sees it (no client content).",
+        "properties": {
+          "check_passed": {
+            "title": "Check Passed",
+            "type": "boolean"
+          },
+          "clients": {
+            "title": "Clients",
+            "type": "integer"
+          },
+          "deliverables_found": {
+            "title": "Deliverables Found",
+            "type": "integer"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "internal_left_out": {
+            "title": "Internal Left Out",
+            "type": "boolean"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "uploaded_at": {
+            "title": "Uploaded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "domain",
+          "deliverables_found",
+          "internal_left_out",
+          "check_passed",
+          "issues",
+          "uploaded_at",
+          "filename",
+          "clients"
+        ],
+        "title": "LibraryAccountRow",
+        "type": "object"
+      },
+      "LibraryAdded": {
+        "additionalProperties": false,
+        "description": "What adding from the library did.",
+        "properties": {
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added",
+            "type": "array"
+          },
+          "already_in_workspace": {
+            "title": "Already In Workspace",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "added",
+          "already_in_workspace"
+        ],
+        "title": "LibraryAdded",
+        "type": "object"
+      },
+      "LibraryAvailable": {
+        "additionalProperties": false,
+        "description": "The ready-made research this client may add, and the caller's remaining places.",
+        "properties": {
+          "account_cap": {
+            "title": "Account Cap",
+            "type": "integer"
+          },
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryOffer"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "accounts_used": {
+            "title": "Accounts Used",
+            "type": "integer"
+          },
+          "left": {
+            "title": "Left",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accounts",
+          "accounts_used",
+          "account_cap",
+          "left"
+        ],
+        "title": "LibraryAvailable",
+        "type": "object"
+      },
+      "LibraryList": {
+        "additionalProperties": false,
+        "description": "Every current library account.",
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryAccountRow"
+            },
+            "title": "Accounts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "title": "LibraryList",
+        "type": "object"
+      },
+      "LibraryOffer": {
+        "additionalProperties": false,
+        "description": "One ready-made account published to this client.",
+        "properties": {
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "in_workspace": {
+            "title": "In Workspace",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "domain",
+          "files",
+          "in_workspace"
+        ],
+        "title": "LibraryOffer",
+        "type": "object"
+      },
+      "LibraryPublished": {
+        "additionalProperties": false,
+        "description": "How many clients newly have the account.",
+        "properties": {
+          "published": {
+            "title": "Published",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "published"
+        ],
+        "title": "LibraryPublished",
+        "type": "object"
+      },
+      "LibraryUploaded": {
+        "additionalProperties": false,
+        "description": "What the upload held and whether it passed the client-ready check.",
+        "properties": {
+          "check_passed": {
+            "title": "Check Passed",
+            "type": "boolean"
+          },
+          "deliverables_found": {
+            "title": "Deliverables Found",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "internal_left_out": {
+            "title": "Internal Left Out",
+            "type": "boolean"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "deliverables_found",
+          "internal_left_out",
+          "check_passed",
+          "issues"
+        ],
+        "title": "LibraryUploaded",
+        "type": "object"
+      },
       "LoginBody": {
         "additionalProperties": false,
         "description": "Local login request. Tenant IDs are checked against verified membership.",
@@ -6112,6 +6363,11 @@
           },
           "mfa_step_up_fresh": {
             "title": "Mfa Step Up Fresh",
+            "type": "boolean"
+          },
+          "model_ready": {
+            "default": true,
+            "title": "Model Ready",
             "type": "boolean"
           },
           "plan": {
@@ -6956,6 +7212,27 @@
         "title": "PolicyBody",
         "type": "object"
       },
+      "PublishBody": {
+        "additionalProperties": false,
+        "description": "The clients to publish to (or stop publishing to).",
+        "properties": {
+          "tenant_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Tenant Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tenant_ids"
+        ],
+        "title": "PublishBody",
+        "type": "object"
+      },
       "PullOption": {
         "additionalProperties": false,
         "description": "Response body: pull option.",
@@ -7572,6 +7849,82 @@
         "title": "RejectBody",
         "type": "object"
       },
+      "ResearchBody": {
+        "additionalProperties": false,
+        "description": "Confirm new research. ``credits`` is the estimate the user saw and agreed to.",
+        "properties": {
+          "company_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Company Name",
+            "type": "string"
+          },
+          "credits": {
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Credits",
+            "type": "integer"
+          },
+          "domain": {
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9-]+)+$",
+            "title": "Domain",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "company_name",
+          "domain",
+          "credits"
+        ],
+        "title": "ResearchBody",
+        "type": "object"
+      },
+      "ResearchEstimate": {
+        "additionalProperties": false,
+        "description": "What researching a new company costs, before anything is confirmed.",
+        "properties": {
+          "account_cap": {
+            "title": "Account Cap",
+            "type": "integer"
+          },
+          "accounts_used": {
+            "title": "Accounts Used",
+            "type": "integer"
+          },
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "enough": {
+            "title": "Enough",
+            "type": "boolean"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "pool": {
+            "$ref": "#/components/schemas/Credits"
+          }
+        },
+        "required": [
+          "credits",
+          "minutes",
+          "pool",
+          "enough",
+          "accounts_used",
+          "account_cap"
+        ],
+        "title": "ResearchEstimate",
+        "type": "object"
+      },
       "ResearchJobTask": {
         "additionalProperties": false,
         "description": "A confirmed research job to run: ids only.",
@@ -7592,6 +7945,36 @@
           "job_id"
         ],
         "title": "ResearchJobTask",
+        "type": "object"
+      },
+      "ResearchStarted": {
+        "additionalProperties": false,
+        "description": "Confirmed new research: its job, status, the credits reserved and the account.",
+        "properties": {
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "credits",
+          "domain"
+        ],
+        "title": "ResearchStarted",
         "type": "object"
       },
       "ResetPasswordBody": {
@@ -10918,6 +11301,286 @@
         ]
       }
     },
+    "/operator/v1/library": {
+      "get": {
+        "description": "Every current library account (platform rows; counts only from the clients).",
+        "operationId": "library_list_operator_v1_library_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library List",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
+    "/operator/v1/library/uploads": {
+      "post": {
+        "description": "Inspect and store one library package (the request body is the file).",
+        "operationId": "library_upload_operator_v1_library_uploads_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[^/\\\\]+$",
+              "title": "Filename",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "maxLength": 253,
+              "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9-]+)+$",
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Name"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryUploaded"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Upload",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
+    "/operator/v1/library/{library_account_id}/publish": {
+      "post": {
+        "description": "Publish a passed library account to each chosen client.",
+        "operationId": "library_publish_operator_v1_library__library_account_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library_account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Library Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryPublished"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Publish",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
+    "/operator/v1/library/{library_account_id}/unpublish": {
+      "post": {
+        "description": "Stop offering a library account to each chosen client (accounts already added stay).",
+        "operationId": "library_unpublish_operator_v1_library__library_account_id__unpublish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library_account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Library Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryPublished"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Unpublish",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
     "/operator/v1/ops/cost/{run_id}": {
       "get": {
         "description": "The run's cost rollup (refreshed) and its reconciliation with the ledger.",
@@ -12629,6 +13292,66 @@
         "summary": "Add Account",
         "tags": [
           "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/from-library": {
+      "post": {
+        "description": "Copy the chosen library accounts into the workspace (no credits; counts toward the cap).",
+        "operationId": "from_library_v1_accounts_from_library_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FromLibrary"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryAdded"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "From Library",
+        "tags": [
+          "library"
         ]
       }
     },
@@ -17601,6 +18324,56 @@
         ]
       }
     },
+    "/v1/library/available": {
+      "get": {
+        "description": "The ready-made research this client may add, and the caller's remaining places.",
+        "operationId": "library_available_v1_library_available_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryAvailable"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Available",
+        "tags": [
+          "library"
+        ]
+      }
+    },
     "/v1/me": {
       "get": {
         "description": "Return only the active session's tenant and capability metadata.",
@@ -17858,6 +18631,116 @@
         "summary": "Notification Read",
         "tags": [
           "credits"
+        ]
+      }
+    },
+    "/v1/research": {
+      "post": {
+        "description": "Add the company for the caller, reserve the credits they saw and start the research.",
+        "operationId": "start_research_v1_research_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Research",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/estimate": {
+      "get": {
+        "description": "What researching a new company would cost, before anything is confirmed.",
+        "operationId": "research_estimate_v1_research_estimate_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchEstimate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Research Estimate",
+        "tags": [
+          "research"
         ]
       }
     },

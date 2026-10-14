@@ -13,7 +13,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from account_intelligence.platform.ports import NotConfigured
 from agents.config import load_skill_config
 from agents.ports import RunContext
 from agents.production.credit import CreditAdapter
@@ -87,15 +86,20 @@ class _Deps:
         return session()
 
 
-async def test_builder_needs_a_configured_builder_and_builds_once() -> None:
-    with pytest.raises(NotConfigured):
-        await ExportBuilderPort(_Deps()).build(ctx(), "client")  # type: ignore[arg-type]
+async def test_a_run_without_a_builder_gets_the_platform_one_and_builds_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agents.production import delivery
+
+    platform = _Builder()
+    monkeypatch.setattr(delivery, "_platform_builder", lambda deps: platform)
+    first = await ExportBuilderPort(_Deps()).build(ctx(), "client")  # type: ignore[arg-type]
+    assert platform.calls == 1 and first
     builder = _Builder()
     port = ExportBuilderPort(_Deps(builder=builder))  # type: ignore[arg-type]
     c = ctx()
     first = await port.build(c, "client")
     assert await port.build(c, "client") == first and builder.calls == 1
-    assert await port.build(c, "internal") == ()  # no Internal Only file builder yet
 
 
 async def test_builder_reads_stored_member_texts_and_refuses_unknown_files() -> None:

@@ -160,15 +160,13 @@ class Settings(BaseSettings):
         purpose="GCS bucket for raw payloads and exports (per-tenant prefixes).",
         required_in=CLOUD,
     )
-    redis_host: str | None = var(
-        purpose="Memorystore host for the shared rate limiter.", required_in=CLOUD
-    )
     redis_url: str | None = var(
         purpose=(
-            "Redis URL (redis:// or rediss://) for the research cache index: a fast key to"
-            " reference lookup over finished provider calls. Optional; without it the cache"
-            " reads Postgres only."
-        )
+            "Redis URL (redis:// locally, rediss:// for Memorystore with TLS): the shared rate"
+            " limiters (sign-in and providers) and the research cache index. Unset: in-process"
+            " rate buckets and Postgres-only cache lookups."
+        ),
+        required_in=CLOUD,
     )
     dev_assume_provider_balance: str | None = var(
         purpose="Local stack only: treat every provider balance as funded (unattended runs).",
@@ -252,8 +250,13 @@ class Settings(BaseSettings):
     payload_dir: str | None = var(
         purpose="Local directory for raw payloads (memory store when unset).", forbidden_in=CLOUD
     )
-    connectors: Literal["on", "off"] = var(
-        "off", purpose="Enable live provider connectors in dev (cloud always wires them)."
+    connectors: Literal["on", "off", "hermetic"] = var(
+        "off",
+        purpose=(
+            "Provider connectors in dev: off, on (live providers, needs keys) or hermetic"
+            " (synthetic replies, no outside call; dev and test only). Cloud always wires the"
+            " live ones."
+        ),
     )
     allow_unauthenticated_tasks: Literal["0", "1"] = var(
         "0", purpose="Accept unsigned task calls (local stack only).", forbidden_in=CLOUD
@@ -274,8 +277,12 @@ class Settings(BaseSettings):
     p_org_api_key: SecretStr | None = var(purpose="Organisation provider key.", secret=True)
 
     # exports
-    research_engine: Literal["hermetic", "skill"] | None = var(
-        purpose="Research job engine: hermetic (dev and test default) or skill (cloud default).",
+    research_engine: Literal["graph", "hermetic", "skill"] | None = var(
+        purpose=(
+            "Research job engine: graph (the run lifecycle on the ABM agent graph; cloud"
+            " default), hermetic (no outside call; dev and test default) or skill (the skill"
+            " executor, refused until it is built)."
+        ),
     )
     export_renderer: str | None = var(purpose="Word renderer override (see exports.wiring).")
     export_render_checks: Literal["on", "off"] = var(

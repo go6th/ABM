@@ -29,7 +29,7 @@ from account_intelligence.connectors.errors import RetryableProviderError
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.checkpoint import checkpointer_factory
 from account_intelligence.platform.hermetic import InProcessScheduler, ScriptedLlm
-from account_intelligence.runs.lifecycle import RunLimits, RunRequest, create_run
+from account_intelligence.runs.lifecycle import CreditJob, RunLimits, RunRequest, create_run
 from account_intelligence.workflow.deps import RunDeps
 from account_intelligence.workflow.runner import SliceSettings, execute_slice
 from account_intelligence.workflow.spec import load_spec
@@ -322,6 +322,8 @@ async def start_run(
             # auto-approve a cap within the created budget (spend, proposal D-28)
             RunLimits("v1", Decimal("20.00"), 60, Decimal("6.0")),
             tracker(s),
+            # 400 credits at the rate table's credit value are the same $20 budget
+            CREDITS,
         )
     runtime = harness.runtime()
     spec = spec or load_spec()
@@ -399,6 +401,35 @@ class _SyntheticBalances:
 
 
 SYNTHETIC_BALANCES = _SyntheticBalances()
+
+
+# A run's credits on the client's pool (the single ledger): 400 x 0.05 USD = the $20 budget.
+CREDITS = CreditJob(kind="new_research", scope="full", actor="test", credits=400)
+
+
+def credit_entries(run: object) -> dict[str, int]:
+    """The run's job's credit entries by kind (reserve, settle, release)."""
+    return dict(
+        admin(
+            "SELECT e.kind, e.credits FROM credit_entries e JOIN research_jobs j"
+            " ON j.id = e.job_id WHERE j.run_id = %s",
+            run,
+        )
+    )
+
+
+def settled_once(run: object) -> bool:
+    """The run's job ended once: its hold released in full, at most that charged, and the
+    credits it used equal to what was settled."""
+    entries = credit_entries(run)
+    job = admin("SELECT status, credits_used FROM research_jobs WHERE run_id = %s", run)
+    return (
+        len(job) == 1
+        and job[0][0] in ("done", "failed", "canceled")
+        and entries.get("reserve") == entries.get("release")
+        and entries.get("settle", 0) <= entries.get("reserve", 0)
+        and entries.get("settle", 0) == job[0][1]
+    )
 
 
 def admin(sql: str, *params: object) -> list[tuple[Any, ...]]:
@@ -504,5 +535,7 @@ async def create_only(harness: Harness, auto_approve: bool = True) -> tuple[UUID
             # auto-approve a cap within the created budget (spend, proposal D-28)
             RunLimits("v1", Decimal("20.00"), 60, Decimal("6.0")),
             tracker(s),
+            # 400 credits at the rate table's credit value are the same $20 budget
+            CREDITS,
         )
     return t, created.run_id

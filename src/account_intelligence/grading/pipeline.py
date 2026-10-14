@@ -159,6 +159,7 @@ class _Sourced:
     verified: list[VerifiedEvidence]
     secondary_only: bool
     flags: set[str]
+    aggregator_only: bool = True
 
 
 def _clean(p: ProposedSourced | ProposedSynthesis | ProposedAbsence, cfg: GradingConfig) -> None:
@@ -212,6 +213,8 @@ def _check_sourced(
             out.flags.add("date_unknown")
         if profile.tier == "T1" and not profile.is_aggregator:
             out.secondary_only = False
+        if not profile.is_aggregator:
+            out.aggregator_only = False
         out.engine.append(
             EngineEvidence(
                 profile.tier, profile.lineage_group, when, kind, norm_value, profile.lineage_known
@@ -387,6 +390,7 @@ async def grade_claims(
                     internal_authoritative=cfg.precedence.internal_authoritative_default,
                     secondary_only=s.secondary_only,
                     unread_match=p.match_origin is not None,
+                    aggregator_only=s.aggregator_only and bool(s.evidence),
                 )
                 grade, rule = product_grade(inputs_, cfg)
                 if not prim.value and any(e.origin == "full_page_read" for e in s.evidence):

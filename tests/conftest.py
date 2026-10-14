@@ -67,6 +67,11 @@ def database(request: pytest.FixtureRequest):
         cwd=MIGRATIONS.parent,
         env=env,
     )
+    # Runs reserve on the client's monthly pool (the single credit ledger, migration 0057); a
+    # scratch tenant starts from the platform default, so tests that are not about the pool get
+    # room for many runs. Pool tests set their own client settings.
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute("UPDATE platform_defaults SET monthly_credit_pool = 1000000 WHERE id = 1")
     yield
 
 

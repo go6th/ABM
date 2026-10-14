@@ -55,6 +55,7 @@ export default async function ClientLayout({ children }: { children: React.React
         accountsUsed: me.accounts_used ?? 0,
         accountCap: me.account_cap ?? 0,
         mailDriveAllowed: me.mail_drive_allowed ?? true,
+        modelReady: me.model_ready ?? true,
       }}
       recent={recent}
       notes={notes}

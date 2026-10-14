@@ -146,7 +146,9 @@ async def add_account(
                 "Excluded company",
                 "This company is on the tenant's exclusion list.",
             )
-        account_id, created = await lifecycle.add_account(s, ident.tenant_id, body.domain)
+        account_id, created = await lifecycle.add_account(
+            s, ident.tenant_id, body.domain, added_by=ident.user_id
+        )
         if created:
             now = plane_of(request).clock.now()
             try:

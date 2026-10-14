@@ -6,7 +6,10 @@
 * ``AbmGraphFactory`` is what ``workflow.runner.execute_slice`` runs instead of Workflow v1 for an
   ABM run: the compiled graph, its initial state from the run row, and the terminal mapping.
 * ``uses_abm`` decides per run: a ``pull`` or ``build`` run always (those modes exist only here);
-  a ``full`` run only when the tenant's ``abm_agents`` flag is on (deny by default, C34).
+  a run started by the research job engine (``run_input.job_id``) or the public-sources run
+  linked to a file analysis (``run_input.linked_file_run``) always, since a job's scope
+  (jobs, people, full, topic) is defined on the agent graph's rows; any other ``full`` run only
+  when the tenant's ``abm_agents`` flag is on (deny by default, C34).
 
 GUARANTEE(test_runner_executes_an_abm_run_end_to_end_on_postgres)
 GUARANTEE(test_full_runs_stay_on_workflow_v1_unless_the_flag_is_on)
@@ -156,6 +159,17 @@ async def uses_abm(deps: RunDeps) -> bool:
         ).scalar_one_or_none()
         if mode in ("pull", "build"):
             return True
+        job = (
+            await s.execute(
+                text(
+                    "SELECT 1 FROM account_runs WHERE id = :r AND input_mode = 'company'"
+                    " AND (run_input ? 'job_id' OR run_input ? 'linked_file_run')"
+                ),
+                {"r": deps.run_id},
+            )
+        ).first()
+        if job is not None:
+            return True  # a credit-confirmed research job runs the skill-shaped agent graph
         rule = await flags.current(s, FLAG)
         plan = (
             await s.execute(text("SELECT plan FROM tenants WHERE id = :t"), {"t": deps.tenant_id})
@@ -220,6 +234,8 @@ class AbmGraphFactory:
             "config_version": row.skill_config_version or cfg.config_version,
             "acknowledged_stale": list(run_input.get("acknowledged_stale_rows") or ()),
             "cap_request_micros": 0,
+            "scope_rows": list(run_input.get("scope_rows") or ()) or None,
+            "topic": run_input.get("topic") or None,
             "counters": {},
             "exits": {},
         }
@@ -229,12 +245,17 @@ class AbmGraphFactory:
         """``(terminal status, reason, refund_all)`` of a finished ABM graph."""
         outcome = values.get("outcome")
         code = values.get("error_code")
+        capped = bool((values.get("counters") or {}).get("budget_exhausted"))
+        if outcome == "failed" and code in PRE_SPEND_FAILURES:
+            return RunStatus.FAILED, str(code), True
+        if capped:
+            # the run used the credits confirmed for it: it stopped paying and kept what it
+            # found (its files were built from that); the job is marked credit_cap_reached
+            return RunStatus.BUDGET_EXCEEDED, "budget_cap", False
         if values.get("mode") == "pull" and outcome == "completed":
             return RunStatus.PARTIAL, "pull_only", False  # Phase 1 evaluates no rows (G15)
         if outcome == "completed":
             return RunStatus.COMPLETED, None, False
-        if outcome == "failed" and code in PRE_SPEND_FAILURES:
-            return RunStatus.FAILED, str(code), True
         return RunStatus.PARTIAL, str(code or "abm_partial"), False
 
 
