@@ -20,7 +20,7 @@ export default async function ClientLayout({ children }: { children: React.React
   } catch {
     notifications = null;
   }
-  const scope: Record<string, string> = { jobs: "job postings", people: "people and teams", full: "full refresh" };
+  const scope: Record<string, string> = { jobs: "job postings", people: "people and teams", full: "full refresh", topic: "topic" };
   const notes = (notifications?.notifications ?? [])
     .filter((n) => !n.read)
     .slice(0, 3)

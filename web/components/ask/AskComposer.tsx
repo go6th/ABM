@@ -1,7 +1,8 @@
 "use client";
-// The composer as designed: the question field (Enter sends), then "+ Upload a file", the scope
-// chip (all accounts or one), the "Web: off" chip and Ask. Answers never use the web; pressing
-// Web opens the Refresh confirmation for the scoped account, or asks for an account first.
+// The composer: the question field (Enter sends), then "+" (upload a file), the Accounts chip
+// (all accounts or one), the Search toggle and Ask. Answers come from the workspace. With Search
+// on, the question becomes a web research topic for the chosen account and opens its Refresh
+// screen, where the credits are shown and confirmed; nothing is searched from here.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -62,14 +63,28 @@ export function AskComposer({
     scopeButton.current?.focus();
   };
 
-  const web = () => {
-    if (scope) { router.push(refreshHref(scope.domain)); return; }
-    onWebHint(true);
-    if (onScope) setMenuOpen(true);
+  // Search on: the question becomes a web research topic for one account, confirmed with its
+  // credits on the Refresh screen. Nothing is searched from here.
+  const [searchOn, setSearchOn] = useState(false);
+  const toggleSearch = () => {
+    const next = !searchOn;
+    setSearchOn(next);
+    onWebHint(next && !scope);
+    if (next && !scope && onScope) setMenuOpen(true);
+  };
+  const send = () => {
+    const question = draft.trim();
+    if (!question) { document.getElementById(inputId)?.focus(); return; }
+    if (searchOn) {
+      if (!scope) { onWebHint(true); if (onScope) setMenuOpen(true); return; }
+      router.push(`${refreshHref(scope.domain)}?topic=${encodeURIComponent(question.slice(0, 300))}`);
+      return;
+    }
+    onSend();
   };
 
   const chip = variant === "account" ? "chipa quiet" : "chipa";
-  const scopeLabel = scope ? `${scope.name} only` : `All ${accounts.length} account${accounts.length === 1 ? "" : "s"}`;
+  const scopeLabel = scope ? scope.name : "Accounts";
   const label = variant === "follow" ? "Ask a follow up" : variant === "account" && scope ? `Ask about ${scope.name}` : "Ask a question";
 
   return (
@@ -82,10 +97,12 @@ export function AskComposer({
         autoComplete="off"
         maxLength={4000}
         onChange={(e) => onDraft(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); onSend(); } }}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
       />
       <div className="bar">
-        {variant !== "account" ? <Link className="chipa" href="/research/new?tab=file" prefetch={false}>+ Upload a file</Link> : null}
+        {variant !== "account" ? (
+          <Link className="chipa plus" href="/research/new?tab=file" prefetch={false} aria-label="Upload a file" title="Upload a file">+</Link>
+        ) : null}
         {onScope ? (
           <div className="menu-wrap" ref={wrap}>
             <button
@@ -93,6 +110,7 @@ export function AskComposer({
               type="button"
               className="chipa"
               aria-haspopup="menu"
+              aria-label={scope ? `Answer from ${scope.name}. Change accounts` : "Answer from all accounts. Change accounts"}
               aria-expanded={menuOpen}
               aria-controls={menuOpen ? menuId : undefined}
               onClick={() => setMenuOpen((v) => !v)}
@@ -111,22 +129,30 @@ export function AskComposer({
         ) : (
           <span className={chip}>{scopeLabel}</span>
         )}
-        <button type="button" className={chip} aria-pressed={false} aria-describedby={webHintOpen ? `${inputId}-web` : undefined} onClick={web}>
-          Web: off
+        <button
+          type="button"
+          className={chip}
+          aria-pressed={searchOn}
+          aria-describedby={searchOn || webHintOpen ? `${inputId}-web` : undefined}
+          onClick={toggleSearch}
+        >
+          Search: {searchOn ? "on" : "off"}
         </button>
         <span className="spacer" />
         <button
           type="button"
           className="btn primary"
           disabled={busy}
-          onClick={() => { if (draft.trim()) onSend(); else document.getElementById(inputId)?.focus(); }}
+          onClick={send}
         >
-          Ask
+          {searchOn ? "Search" : "Ask"}
         </button>
       </div>
-      {webHintOpen ? (
+      {searchOn || webHintOpen ? (
         <p className="hint" id={`${inputId}-web`} role="status">
-          Answers come from your workspace. To check the web, pick one account; you confirm the refresh and its credits first.
+          {searchOn && scope
+            ? `Search is on: your question is researched on the web for ${scope.name}. You see the credits and confirm first.`
+            : "Search the web for one account: pick it under Accounts. You see the credits and confirm first."}
         </p>
       ) : null}
     </div>

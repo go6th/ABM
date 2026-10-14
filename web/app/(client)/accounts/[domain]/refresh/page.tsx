@@ -10,7 +10,7 @@ import { RefreshForm } from "@/components/accounts/RefreshForm";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Refresh from web · Account Intelligence" };
 
-const SCOPE = { jobs: "Job postings only", people: "People and teams", full: "Full refresh", file: "File analysis" } as Record<string, string>;
+const SCOPE = { jobs: "Job postings only", people: "People and teams", full: "Full refresh", file: "File analysis", topic: "Research on a topic" } as Record<string, string>;
 
 function ago(days: number | null): string {
   if (days === null) return "has not been researched yet";
@@ -19,8 +19,9 @@ function ago(days: number | null): string {
   return `was last refreshed ${days} days ago`;
 }
 
-export default async function RefreshPage({ params }: { params: Promise<{ domain: string }> }) {
+export default async function RefreshPage({ params, searchParams }: { params: Promise<{ domain: string }>; searchParams: Promise<{ topic?: string }> }) {
   const domain = decodeURIComponent((await params).domain);
+  const initialTopic = ((await searchParams).topic ?? "").slice(0, 300);
   const back = `/accounts/${encodeURIComponent(domain)}`;
   let view: RefreshOptions | null = null;
   let failed = false;
@@ -64,7 +65,7 @@ export default async function RefreshPage({ params }: { params: Promise<{ domain
             action={<Link className="btn" href={back}>Back to {view.name}</Link>}
           />
         ) : (
-          <RefreshForm view={view} />
+          <RefreshForm view={view} initialTopic={initialTopic} />
         )}
       </div>
     </div>

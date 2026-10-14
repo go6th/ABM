@@ -393,3 +393,21 @@ table.xl th span.th { color: var(--text-3); }
   .sched-row .seg { width: 100%; flex-wrap: nowrap; }
   .sched-row .seg button { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 12px; }
 }
+
+/* Research on a topic: a radio card with its own text box */
+.opt.topic-card { padding: 0; }
+.opt.topic-card.on { border: 2px solid var(--accent); background: var(--accent-wash); }
+.topic-pick { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 0; border-radius: var(--r-card); }
+.opt.topic-card.on .topic-pick .in { padding: 17px 19px 10px; }
+.opt.topic-card .topic-pick .in { padding-bottom: 10px; }
+.topic-box { padding: 0 20px 16px 52px; display: flex; flex-direction: column; gap: 6px; }
+.opt.topic-card.on .topic-box { padding: 0 19px 15px 51px; }
+.topic-box textarea {
+  width: 100%; resize: vertical; min-height: 64px; max-height: 200px; padding: 12px 14px; font-size: 15px; line-height: 1.45;
+  border: 1px solid var(--line-input); border-radius: var(--r-btn); background: var(--surface); color: var(--ink);
+}
+.topic-box textarea:hover { border-color: var(--line-input-hover); }
+.topic-box textarea:focus-visible { border-color: var(--accent); outline-offset: 1px; }
+.topic-box textarea::placeholder { color: var(--muted); }
+.topic-hint { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+@media (max-width: 759px) { .topic-box, .opt.topic-card.on .topic-box { padding-left: 20px; } }

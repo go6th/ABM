@@ -24,7 +24,7 @@ function joinAnd(items: string[]): string {
   return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-const SCOPE_NAME: Record<string, string> = { jobs: "Job postings only", people: "People and teams", full: "Full refresh" };
+const SCOPE_NAME: Record<string, string> = { jobs: "Job postings only", people: "People and teams", full: "Full refresh", topic: "a specific topic" };
 
 export default async function AccountWorkspacePage({ params }: Params) {
   const domain = decodeURIComponent((await params).domain);

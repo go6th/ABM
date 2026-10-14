@@ -75,3 +75,5 @@
 }
 .main:has(> .ask) { height: 100vh; }
 @media (max-width: 759px) { .main:has(> .ask) { height: calc(100vh - 61px); } }
+.chipa.plus { justify-content: center; min-width: 32px; padding: 0; font-size: 18px; font-weight: 600; line-height: 1; }
+@media (pointer: coarse) { .chipa.plus { min-width: 40px; } }

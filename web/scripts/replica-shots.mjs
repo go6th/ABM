@@ -43,6 +43,20 @@ async function openRecent(title) {
   await page.getByText("Answered from your workspace").first().waitFor({ timeout: 30000 });
 }
 for (const w of [1360, 375]) {
+  if (want("search")) {
+    await shot("search-chips", "/", w);
+    await shot("search-to-topic", "/", w, {
+      act: async () => {
+        await page.getByRole("button", { name: /Change accounts/ }).first().click();
+        await page.getByRole("menuitemradio", { name: "Highmark" }).click();
+        await page.getByRole("button", { name: "Search: off" }).first().click();
+        await page.getByLabel("Ask a question").fill("Their plans for Salesforce Data Cloud next year");
+        await page.getByRole("button", { name: "Search", exact: true }).first().click();
+        await page.waitForURL(/\/accounts\/highmark\.example\/refresh\?topic=/);
+        await page.waitForLoadState("networkidle");
+      },
+    });
+  }
   if (want("schedules")) {
     await shot("schedules", "/schedules", w);
     if (w > 500) {
