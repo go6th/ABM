@@ -49,8 +49,8 @@ class RoutePolicy:
     operator_roles: frozenset[OperatorRole] = frozenset()
 
 
-def _tenant(roles: set[Role], audit: AuditClass) -> RoutePolicy:
-    return RoutePolicy(frozenset(roles), TENANT_PRINCIPALS, audit, "session")
+def _tenant(roles: set[Role], audit: AuditClass, *, action: str | None = None) -> RoutePolicy:
+    return RoutePolicy(frozenset(roles), TENANT_PRINCIPALS, audit, "session", action)
 
 
 def _operator(audit: AuditClass) -> RoutePolicy:
@@ -90,7 +90,8 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
     ("POST", "/v1/documents/estimate"): _tenant(_UPLOADERS, "read"),
     ("DELETE", "/v1/documents/{document_id}"): _tenant(_UPLOADERS, "run"),
     ("GET", "/v1/documents/policy"): _tenant(_UPLOADERS, "read"),
-    ("PUT", "/v1/documents/policy"): _tenant({"admin"}, "admin"),
+    # the document redaction policy is a manage_settings action: a fresh step-up (audit L9)
+    ("PUT", "/v1/documents/policy"): _tenant({"admin"}, "admin", action="manage_settings"),
     ("POST", "/v1/documents/{document_id}/authoritative"): _tenant({"admin"}, "admin"),
     # the Internal Only view: never for viewers; every access audited
     ("GET", "/v1/runs/{run_id}/internal"): _tenant(_INTERNAL, "read"),
@@ -101,9 +102,10 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
     # Cap decisions move spend, so only admins may take them (ADR-0010 precedence).
     # Every role may see the proposal; the hash it carries is what an admin approval binds to.
     ("GET", "/v1/runs/{run_id}/cap"): _tenant(_EVERYONE, "read"),
-    ("POST", "/v1/runs/{run_id}/cap/approve"): _tenant({"admin"}, "run"),
-    ("POST", "/v1/runs/{run_id}/cap/reject"): _tenant({"admin"}, "run"),
-    ("POST", "/v1/runs/{run_id}/cap/extend"): _tenant({"admin"}, "run"),
+    # until FIX_PROMPT Phase 6 removes them, the cap decisions need a fresh step-up (audit L9)
+    ("POST", "/v1/runs/{run_id}/cap/approve"): _tenant({"admin"}, "run", action="approve_cap"),
+    ("POST", "/v1/runs/{run_id}/cap/reject"): _tenant({"admin"}, "run", action="approve_cap"),
+    ("POST", "/v1/runs/{run_id}/cap/extend"): _tenant({"admin"}, "run", action="approve_cap"),
     ("GET", "/v1/runs/{run_id}/spend"): _tenant(_EVERYONE, "read"),
     # Credit manager v2: live spend for every tenant role; pause decisions move money, so admins
     # with a fresh step-up only (M5).

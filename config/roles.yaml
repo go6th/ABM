@@ -5,7 +5,7 @@
 # managing users, SSO, billing and redaction is admin only; reading the audit is admin only.
 # The 6th staff roles (operator, support) are a separate plane and never tenant roles.
 # `owner_only` actions are allowed to the listed roles only on resources the caller owns.
-version: "1.0.0"
+version: "1.1.0"
 status: proposal
 source: "D-61 (proposal); ARCH s9 access control table; Phase 3 prompt s2.2"
 roles: [admin, analyst, seller, viewer]
@@ -36,4 +36,4 @@ actions:
   request_deletion: [admin]
 owner_only: [save_own_view, revoke_own_session]
 step_up: [manage_users, manage_sso, manage_connectors, export_audit, grant_support,
-          request_deletion, approve_cap]
+          request_deletion, approve_cap, manage_settings]

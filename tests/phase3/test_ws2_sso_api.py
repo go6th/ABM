@@ -180,6 +180,12 @@ async def test_open_redirects_are_refused(plane: Plane, browser: Browser) -> Non
         ({"jit_enabled": True}, {"email_verified": False}, "email_unverified"),
         ({"jit_enabled": True}, {"groups": ["unmapped"]}, "no_group_mapping"),
         ({"jit_enabled": True}, {"groups": ["admins"], "amr": ["pwd"]}, "admin_requires_mfa"),
+        # L8: a connection that switched admin MFA off cannot override the platform policy
+        (
+            {"jit_enabled": True, "require_admin_mfa": False},
+            {"groups": ["admins"], "amr": ["pwd"]},
+            "admin_requires_mfa",
+        ),
         ({}, {"iss": "https://evil-idp.test"}, "wrong_issuer"),
     ],
 )
@@ -368,6 +374,37 @@ async def test_admin_actions_need_a_fresh_step_up(plane: Plane, browser: Browser
     assert (
         await browser.call("POST", "/v1/users", json={**body, "user_id": f"{slug}:n2"})
     ).status_code == 201
+
+
+async def test_settings_and_cap_decisions_need_a_fresh_step_up(
+    plane: Plane, browser: Browser
+) -> None:
+    """L9: changing settings (data policy, branding, model keys) needs the same fresh step-up as
+    managing users; so do the cap decisions until Phase 6 removes them."""
+    from account_intelligence.api.policy import ROUTE_POLICIES
+    from identity.roles import needs_step_up
+
+    for method, path in (
+        ("PUT", "/v1/settings"),
+        ("PUT", "/v1/settings/branding"),
+        ("POST", "/v1/settings/branding/logo"),
+        ("PUT", "/v1/chat/provider-key"),
+        ("DELETE", "/v1/chat/provider-key"),
+        ("PUT", "/v1/documents/policy"),
+        ("POST", "/v1/runs/{run_id}/cap/approve"),
+        ("POST", "/v1/runs/{run_id}/cap/reject"),
+        ("POST", "/v1/runs/{run_id}/cap/extend"),
+    ):
+        action = ROUTE_POLICIES[(method, path)].action
+        assert action is not None and needs_step_up(action), (method, path)
+    a = new_tenant("stepup-settings")
+    slug = f"acme-{uid()}"
+    add_oidc_connection(a, plane, slug)
+    add_member(a, f"{slug}:root", "admin")
+    await browser.oidc_sign_in(slug, "root", extra={"groups": ["admins"]})
+    plane.clock.advance(minutes=11)
+    stale = await browser.call("PUT", "/v1/documents/policy", json={"redaction_tier": "strict"})
+    assert stale.status_code == 403 and stale.json()["type"].endswith("step_up_required")
 
 
 async def test_last_admin_and_self_change_through_the_api(plane: Plane, browser: Browser) -> None:
