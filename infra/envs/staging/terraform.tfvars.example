@@ -23,6 +23,7 @@ staff = {
   operator_emails  = ""
   support_emails   = ""
   oauth_client_id  = "REPLACE.apps.googleusercontent.com"
+  # external_emails = "" # personal Google accounts (no Workspace) allowed as staff; each also needs a role above
 }
 # db_availability    = "ZONAL" # REGIONAL = high availability
 # db_max_connections = 200

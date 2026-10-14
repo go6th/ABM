@@ -98,6 +98,7 @@ variable "staff" {
     operator_emails  = string
     support_emails   = string
     oauth_client_id  = string
+    external_emails  = optional(string, "")
   })
 }
 

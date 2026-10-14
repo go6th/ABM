@@ -62,6 +62,7 @@ class JwtStaffVerifier:
         workspace_domain: str | None = None,
         operator_emails: frozenset[str] = frozenset(),
         support_emails: frozenset[str] = frozenset(),
+        external_emails: frozenset[str] = frozenset(),
     ) -> None:
         from jwt import PyJWKClient
 
@@ -69,6 +70,9 @@ class JwtStaffVerifier:
         self.workspace_domain = workspace_domain.lower().strip() if workspace_domain else None
         self.operator_emails = frozenset(email.lower().strip() for email in operator_emails)
         self.support_emails = frozenset(email.lower().strip() for email in support_emails)
+        # personal Google accounts (no Workspace) named one by one by the owner (decision
+        # 2026-10-15); they still need a verified email and a role from the lists above
+        self.external_emails = frozenset(email.lower().strip() for email in external_emails)
         self.jwks = PyJWKClient(jwks_url, cache_keys=True)
 
     def verify(self, token: str) -> StaffIdentity:
@@ -95,21 +99,29 @@ class JwtStaffVerifier:
         # Map only verified, workspace-domain identities from explicit server-side allowlists.
         hosted_domain = claims.get("hd")
         hosted_domain = hosted_domain.lower() if isinstance(hosted_domain, str) else ""
-        if role not in ("operator", "support") and self.workspace_domain:
-            email = claims.get("email")
-            if (
-                claims.get("email_verified") is True
-                and hosted_domain == self.workspace_domain
-                and isinstance(email, str)
-            ):
-                address = email.lower()
-                if address in self.operator_emails:
-                    role = "operator"
-                elif address in self.support_emails:
-                    role = "support"
+        email = claims.get("email")
+        address = email.lower() if isinstance(email, str) else ""
+        # a consumer Google account carries no hd claim; a named one counts as in the workspace
+        external = (
+            hosted_domain == ""
+            and claims.get("email_verified") is True
+            and address in self.external_emails
+        )
+        in_workspace = hosted_domain == self.workspace_domain or external
+        if (
+            role not in ("operator", "support")
+            and self.workspace_domain
+            and claims.get("email_verified") is True
+            and in_workspace
+            and address
+        ):
+            if address in self.operator_emails:
+                role = "operator"
+            elif address in self.support_emails:
+                role = "support"
         if role not in ("operator", "support"):
             raise PermissionError("invalid staff role")
-        if self.workspace_domain and hosted_domain != self.workspace_domain:
+        if self.workspace_domain and not in_workspace:
             raise PermissionError("invalid staff workspace")
         auth_time = claims.get("auth_time")
         mfa = "mfa" in (claims.get("amr") or [])
@@ -172,6 +184,7 @@ def staff_verifier_from_env() -> Any:
         workspace_domain=os.environ.get("STAFF_WORKSPACE_DOMAIN"),
         operator_emails=email_set("STAFF_OPERATOR_EMAILS"),
         support_emails=email_set("STAFF_SUPPORT_EMAILS"),
+        external_emails=email_set("STAFF_EXTERNAL_EMAILS"),
     )
 
 

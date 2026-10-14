@@ -127,6 +127,8 @@ variable "staff" {
     operator_emails  = string
     support_emails   = string
     oauth_client_id  = string
+    # personal Google accounts (no Workspace) allowed as staff; each still needs a role above
+    external_emails = optional(string, "")
   })
   description = "Google Workspace staff console settings (non-secret)."
 }
@@ -475,6 +477,7 @@ module "cloud_run" {
         STAFF_WORKSPACE_DOMAIN = var.staff.workspace_domain
         STAFF_OPERATOR_EMAILS  = var.staff.operator_emails
         STAFF_SUPPORT_EMAILS   = var.staff.support_emails
+        STAFF_EXTERNAL_EMAILS  = var.staff.external_emails
       })
       secret_env          = merge(local.db_secret, local.maildrive_secret)
       secret_files        = local.redis_ca_file
@@ -539,6 +542,7 @@ module "cloud_run" {
         API_ORIGIN                   = local.api_url
         UPLOAD_ORIGIN                = "https://storage.googleapis.com"
         STAFF_WORKSPACE_DOMAIN       = var.staff.workspace_domain
+        STAFF_EXTERNAL_EMAILS        = var.staff.external_emails
         OPERATOR_GOOGLE_CLIENT_ID    = var.staff.oauth_client_id
         OPERATOR_GOOGLE_REDIRECT_URI = "${local.web_origin}/api/operator/callback"
       }

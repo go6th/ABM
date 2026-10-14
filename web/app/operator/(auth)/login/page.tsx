@@ -51,7 +51,7 @@ export default async function OperatorLoginPage({ searchParams }: { searchParams
     >
       <div>
         <h1 id="auth-title">Admin sign in</h1>
-        <p className="sub">For 6th staff only. Sign in with your 6th Google account.</p>
+        <p className="sub">For 6th staff only. Sign in with your 6th Google account or an approved staff Google account.</p>
       </div>
       {message ? <div className="notice error" role="alert"><p>{message}</p></div> : null}
       {configured ? (

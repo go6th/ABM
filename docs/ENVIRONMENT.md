@@ -46,6 +46,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `STAFF_WORKSPACE_DOMAIN` | Workspace domain staff accounts must belong to. | no | - | - | api, web |
 | `STAFF_OPERATOR_EMAILS` | Comma-separated operator allowlist. | no | - | - | api, worker |
 | `STAFF_SUPPORT_EMAILS` | Comma-separated support allowlist. | no | - | - | api, worker |
+| `STAFF_EXTERNAL_EMAILS` | Personal Google accounts (no Workspace) allowed as staff; still need a role. | no | - | - | api, web |
 | `RUN_BUDGET_USD` | Per-run spend ceiling in USD (all phases). | no | - | - | api, worker |
 | `RUN_TOOL_CALL_CAP` | Per-run connector call ceiling. | no | - | - | api, worker |
 | `RUN_RESERVE_CREDITS` | Credits reserved when a run starts. | no | - | - | api, worker |

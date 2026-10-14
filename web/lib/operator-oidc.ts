@@ -6,6 +6,7 @@ export interface GoogleOperatorOidcConfig {
   clientSecret: string;
   redirectUri: URL;
   workspaceDomain: string;
+  externalAccounts: boolean; // STAFF_EXTERNAL_EMAILS names personal Google accounts
   secureCookies: boolean;
 }
 
@@ -55,6 +56,7 @@ export function googleOperatorOidcConfig(): GoogleOperatorOidcConfig | null {
       clientSecret,
       redirectUri,
       workspaceDomain,
+      externalAccounts: Boolean(process.env.STAFF_EXTERNAL_EMAILS?.trim()),
       secureCookies: redirectUri.protocol === "https:",
     };
   } catch {

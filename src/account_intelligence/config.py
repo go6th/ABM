@@ -177,6 +177,11 @@ class Settings(BaseSettings):
     )
     staff_operator_emails: str = var("", purpose="Comma-separated operator allowlist.")
     staff_support_emails: str = var("", purpose="Comma-separated support allowlist.")
+    staff_external_emails: str = var(
+        "",
+        purpose="Personal Google accounts (no Workspace) allowed as staff; still need a role.",
+        component="api, web",
+    )
 
     # run limits
     run_budget_usd: float = var(5.0, purpose="Per-run spend ceiling in USD (all phases).")

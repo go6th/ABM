@@ -24,7 +24,8 @@ def _verifier(monkeypatch: pytest.MonkeyPatch, claims: dict[str, object]) -> Jwt
         "https://www.googleapis.com/oauth2/v3/certs",
         workspace_domain="sixth.example",
         operator_emails=frozenset({"operator@sixth.example"}),
-        support_emails=frozenset({"support@sixth.example"}),
+        support_emails=frozenset({"support@sixth.example", "named.person@gmail.com"}),
+        external_emails=frozenset({"named.person@gmail.com"}),
     )
     verifier.jwks = _Jwks()  # type: ignore[assignment]
     monkeypatch.setattr(jwt, "decode", lambda *_args, **_kwargs: claims)
@@ -77,3 +78,26 @@ def test_google_claim_without_mfa_is_not_step_up_fresh(monkeypatch: pytest.Monke
     identity = _verifier(monkeypatch, _claims(amr=["pwd"])).verify("header.payload.signature")
     assert identity.role == "operator"
     assert identity.step_up_at is None
+
+
+def test_a_named_personal_google_account_signs_in_with_its_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claims = _claims(email="Named.Person@gmail.com", hd=None)
+    identity = _verifier(monkeypatch, claims).verify("header.payload.signature")
+    assert identity.role == "support"
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"email": "someone.else@gmail.com", "hd": None},  # personal, not named
+        {"email": "named.person@gmail.com", "hd": None, "email_verified": False},
+        {"email": "named.person@gmail.com", "hd": "attacker.example"},  # another Workspace
+    ],
+)
+def test_personal_accounts_need_the_name_a_verified_email_and_no_other_workspace(
+    monkeypatch: pytest.MonkeyPatch, updates: dict[str, object]
+) -> None:
+    with pytest.raises(PermissionError):
+        _verifier(monkeypatch, _claims(**updates)).verify("header.payload.signature")

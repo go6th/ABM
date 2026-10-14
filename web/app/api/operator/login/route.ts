@@ -36,7 +36,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   authorize.searchParams.set("code_challenge_method", "S256");
   authorize.searchParams.set("prompt", "select_account");
   authorize.searchParams.set("max_age", "600");
-  authorize.searchParams.set("hd", config.workspaceDomain);
+  // the hd hint narrows Google's account chooser to the Workspace; left off while personal accounts
+  // are allowed (STAFF_EXTERNAL_EMAILS). The API checks the domain or the named account either way.
+  if (!config.externalAccounts) authorize.searchParams.set("hd", config.workspaceDomain);
   authorize.searchParams.set("claims", JSON.stringify({
     id_token: {
       amr: { essential: true },
