@@ -14,6 +14,7 @@ estimates:
   jobs:          {credits: 20,  minutes: 3}     # Refresh: job postings only
   people:        {credits: 60,  minutes: 10}    # Refresh: people and teams
   full:          {credits: 220, minutes: 45}    # Refresh: news, jobs, technology, people, speaking
+  topic:         {credits: 40,  minutes: 8}     # Refresh: one topic the user types
   new_research:  {credits: 220, minutes: 480}   # A new company (about a working day)
   file_public:   {credits: 220, minutes: 45}    # File analysis that also checks public sources
 

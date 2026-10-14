@@ -31,7 +31,7 @@ from sqlalchemy import text
 from account_intelligence.replica.settings import client_settings
 
 CONFIG = Path(__file__).resolve().parents[3] / "config" / "credits.yaml"
-SCOPES = ("jobs", "people", "full")
+SCOPES = ("jobs", "people", "full", "topic")
 PURPOSE = {
     "web_refresh": "web_refresh",
     "scheduled_refresh": "scheduled_refresh",
@@ -169,7 +169,8 @@ async def open_job(session: Any, account_id: UUID) -> Any:
     return (
         await session.execute(
             text(
-                "SELECT id, kind, scope, status, credits_estimated, created_at FROM research_jobs"
+                "SELECT id, kind, scope, status, credits_estimated, created_at, topic FROM"
+                " research_jobs"
                 " WHERE account_id = :a AND status IN ('waiting_credit_limit', 'queued', 'running')"
                 " ORDER BY created_at DESC LIMIT 1"
             ),
@@ -190,6 +191,7 @@ async def reserve(
     request_id: UUID | None = None,
     from_turn_id: UUID | None = None,
     wait_if_short: bool = False,
+    topic: str | None = None,
 ) -> tuple[UUID, str]:
     """Create the job and reserve its credits in the caller's transaction.
 
@@ -220,9 +222,10 @@ async def reserve(
             text(
                 "INSERT INTO research_jobs (account_id, kind, scope, status, period,"
                 " credits_estimated,"
-                " requested_by, request_id, from_turn_id, created_at) VALUES (:a, :k, :s, :st, :p,"
+                " requested_by, request_id, from_turn_id, created_at, topic) VALUES (:a, :k, :s,"
+                " :st, :p,"
                 " :c, :by,"
-                " :r, :t, :now) RETURNING id"
+                " :r, :t, :now, :topic) RETURNING id"
             ),
             {
                 "a": account_id,
@@ -234,6 +237,7 @@ async def reserve(
                 "by": actor,
                 "r": request_id,
                 "t": from_turn_id,
+                "topic": topic,
                 "now": now,
             },
         )

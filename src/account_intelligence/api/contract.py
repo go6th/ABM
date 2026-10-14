@@ -416,6 +416,15 @@ class OpenJob(Out):
     kind: str
     scope: str
     status: str
+    topic: str | None = None
+
+
+class TopicOption(Out):
+    """Research on one topic the user types: its time and credit estimate."""
+
+    minutes: int
+    credits: int
+    affordable: bool
 
 
 class RefreshOptions(Out):
@@ -428,6 +437,7 @@ class RefreshOptions(Out):
     credits: Credits
     cap_per_pull: int
     options: list[RefreshOption]
+    topic: TopicOption
     open_job: OpenJob | None
 
 
@@ -449,6 +459,7 @@ class Notification(Out):
     account_domain: str | None
     account_name: str | None
     scope: str | None
+    topic: str | None = None
     credits_used: int | None
     reason: str | None
 

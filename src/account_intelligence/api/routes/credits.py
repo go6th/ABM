@@ -18,7 +18,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 
 from account_intelligence.api import contract as C
@@ -89,6 +89,7 @@ async def _refresh_view(s: Any, account_id: UUID, now: datetime) -> dict[str, An
                 "affordable": est.credits <= pool["left"],
             }
         )
+    topic_est = await CR.estimate(s, account_id, "topic")
     job = await CR.open_job(s, account_id)
     return {
         "domain": acct.domain,
@@ -98,9 +99,20 @@ async def _refresh_view(s: Any, account_id: UUID, now: datetime) -> dict[str, An
         "credits": pool,
         "cap_per_pull": await CR.credit_cap_per_pull(s),
         "options": options,
+        "topic": {
+            "minutes": topic_est.minutes,
+            "credits": topic_est.credits,
+            "affordable": topic_est.credits <= pool["left"],
+        },
         "open_job": None
         if job is None
-        else {"id": str(job.id), "kind": job.kind, "scope": job.scope, "status": job.status},
+        else {
+            "id": str(job.id),
+            "kind": job.kind,
+            "scope": job.scope,
+            "status": job.status,
+            "topic": job.topic,
+        },
     }
 
 
@@ -117,9 +129,21 @@ class RefreshBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
-    scope: Literal["jobs", "people", "full"]
+    scope: Literal["jobs", "people", "full", "topic"]
     credits: int = Field(ge=1, le=100_000)
+    topic: str | None = Field(default=None, max_length=300)
     from_turn_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _topic_matches_scope(self) -> RefreshBody:
+        """A topic refresh names its topic (3 to 300 characters); other scopes take none."""
+        text_ = " ".join((self.topic or "").split())
+        if self.scope == "topic" and not 3 <= len(text_) <= 300:
+            raise ValueError("describe the topic in 3 to 300 characters")
+        if self.scope != "topic" and self.topic:
+            raise ValueError("only a topic refresh takes a topic")
+        self.topic = text_ or None
+        return self
 
 
 @router.post("/accounts/{domain}/refresh", response_model=C.RefreshStarted, status_code=201)
@@ -157,6 +181,7 @@ async def confirm_refresh(
                 now=now,
                 request_id=body.request_id,
                 from_turn_id=body.from_turn_id,
+                topic=body.topic,
             )
         except CR.JobOpen:
             raise APIProblem(
@@ -196,7 +221,7 @@ async def notifications(ident: Identity = Depends(authorize)) -> dict[str, Any]:
                 text(
                     "SELECT n.id, n.kind, n.created_at, n.read_at, a.domain, coalesce(a.name,"
                     " a.domain) AS name,"
-                    " j.scope, j.credits_used, j.failure_reason"
+                    " j.scope, j.topic, j.credits_used, j.failure_reason"
                     " FROM notifications n LEFT JOIN accounts a ON a.id = n.account_id"
                     " LEFT JOIN research_jobs j ON j.id = n.job_id"
                     " WHERE n.user_id = :u ORDER BY (n.read_at IS NULL) DESC, n.created_at DESC"
@@ -215,6 +240,7 @@ async def notifications(ident: Identity = Depends(authorize)) -> dict[str, Any]:
                 "account_domain": r.domain,
                 "account_name": r.name,
                 "scope": r.scope,
+                "topic": r.topic,
                 "credits_used": r.credits_used,
                 "reason": r.failure_reason,
             }

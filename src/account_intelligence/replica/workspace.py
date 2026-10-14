@@ -315,7 +315,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
     job = (
         await session.execute(
             text(
-                "SELECT id, kind, scope, status FROM research_jobs WHERE account_id = :a"
+                "SELECT id, kind, scope, status, topic FROM research_jobs WHERE account_id = :a"
                 " AND status IN ('waiting_credit_limit', 'queued', 'running')"
                 " ORDER BY created_at DESC LIMIT 1"
             ),
@@ -345,7 +345,13 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         "files": files,
         "open_job": None
         if job is None
-        else {"id": str(job.id), "kind": job.kind, "scope": job.scope, "status": job.status},
+        else {
+            "id": str(job.id),
+            "kind": job.kind,
+            "scope": job.scope,
+            "status": job.status,
+            "topic": job.topic,
+        },
     }
 
 

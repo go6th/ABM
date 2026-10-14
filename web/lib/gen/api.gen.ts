@@ -115,6 +115,7 @@ export const OpenJob = z.object({
   "kind": z.string(),
   "scope": z.string(),
   "status": z.string(),
+  "topic": z.string().nullable().optional(),
 }).strict();
 export type OpenJob = z.infer<typeof OpenJob>;
 
@@ -1323,6 +1324,7 @@ export const Notification = z.object({
   "read": z.boolean(),
   "reason": z.string().nullable(),
   "scope": z.string().nullable(),
+  "topic": z.string().nullable().optional(),
 }).strict();
 export type Notification = z.infer<typeof Notification>;
 
@@ -1517,6 +1519,7 @@ export const RefreshBody = z.object({
   "from_turn_id": z.string().nullable().optional(),
   "request_id": z.string(),
   "scope": z.string(),
+  "topic": z.string().nullable().optional(),
 }).strict();
 export type RefreshBody = z.infer<typeof RefreshBody>;
 
@@ -1530,6 +1533,13 @@ export const RefreshOption = z.object({
 }).strict();
 export type RefreshOption = z.infer<typeof RefreshOption>;
 
+export const TopicOption = z.object({
+  "affordable": z.boolean(),
+  "credits": z.number().int(),
+  "minutes": z.number().int(),
+}).strict();
+export type TopicOption = z.infer<typeof TopicOption>;
+
 export const RefreshOptions = z.object({
   "allowed": z.boolean(),
   "cap_per_pull": z.number().int(),
@@ -1539,6 +1549,7 @@ export const RefreshOptions = z.object({
   "open_job": OpenJob.nullable(),
   "options": z.array(RefreshOption),
   "refreshed_days_ago": z.number().int().nullable(),
+  "topic": TopicOption,
 }).strict();
 export type RefreshOptions = z.infer<typeof RefreshOptions>;
 
@@ -2353,7 +2364,8 @@ export const KNOWN_VALUES = {
   "RefreshBody.scope": [
     "jobs",
     "people",
-    "full"
+    "full",
+    "topic"
   ],
   "RefreshOption.scope": [
     "jobs",

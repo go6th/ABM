@@ -15,6 +15,7 @@ GUARANTEE(test_a_redelivered_job_runs_and_charges_once)
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -43,6 +44,7 @@ class Job:
     scope: str
     credits_reserved: int
     requested_by: str
+    topic: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,7 +96,9 @@ class HermeticEngine:
                         "now": now,
                         "c": job.credits_reserved,
                         "k": f"job-{job.id}",
-                        "inp": f'{{"scope": "{job.scope}", "job_id": "{job.id}"}}',
+                        "inp": json.dumps(
+                            {"scope": job.scope, "job_id": str(job.id), "topic": job.topic}
+                        ),
                     },
                 )
             ).scalar_one()
@@ -137,7 +141,7 @@ async def claim(tenant_id: UUID, job_id: UUID, now: datetime) -> Job | None:
                 text(
                     "UPDATE research_jobs SET status = 'running', started_at = :now"
                     " WHERE id = :j AND status = 'queued'"
-                    " RETURNING id, account_id, kind, scope, credits_estimated, requested_by"
+                    " RETURNING id, account_id, kind, scope, credits_estimated, requested_by, topic"
                 ),
                 {"j": job_id, "now": now},
             )
@@ -152,6 +156,7 @@ async def claim(tenant_id: UUID, job_id: UUID, now: datetime) -> Job | None:
         row.scope,
         int(row.credits_estimated),
         str(row.requested_by),
+        row.topic,
     )
 
 
