@@ -32,7 +32,19 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 # Versioned YAML assets (grading weights, routing, checklist). The default resolves to the
 # repository's config/ directory; images that install the package non-editably set CONFIG_DIR.
-CONFIG_DIR = Path(os.getenv("CONFIG_DIR", Path(__file__).resolve().parents[2] / "config"))
+# Every file under config/ is found through CONFIG_DIR or config_dir(), never relative to a
+# module's own file (an installed package has no config/ beside it; guard test
+# test_no_module_finds_repository_files_relative_to_its_own_file).
+_SOURCE_CONFIG = Path(__file__).resolve().parents[2] / "config"
+CONFIG_DIR = Path(os.getenv("CONFIG_DIR", _SOURCE_CONFIG))
+# The research skill package (``replica.jobs`` readiness words, the console's "skill installed").
+SKILL_PACKAGE_DIR = CONFIG_DIR / "skills" / "abm-account-research"
+
+
+def config_dir() -> Path:
+    """CONFIG_DIR as the environment says now (tests point it elsewhere after import)."""
+    return Path(os.environ.get("CONFIG_DIR") or _SOURCE_CONFIG)
+
 
 Profile = Literal["dev", "test", "staging", "production"]
 LOCAL: tuple[Profile, ...] = ("dev", "test")
@@ -239,6 +251,11 @@ class Settings(BaseSettings):
     )
     moonshot_secret: str | None = var(
         purpose="Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up."
+    )
+    csrf_key_secret: str = var(
+        "csrf-signing-key",
+        purpose="Secret Manager secret id of the CSRF signing key (32 or more random bytes).",
+        component="api",
     )
     byok_kms_key: str | None = var(
         purpose="Cloud KMS crypto-key resource for optional encrypted tenant model keys."

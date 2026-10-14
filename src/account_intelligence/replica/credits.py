@@ -28,16 +28,16 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 import yaml
 from sqlalchemy import text
 
+from account_intelligence.config import CONFIG_DIR
 from account_intelligence.replica.settings import client_settings
 
-CONFIG = Path(__file__).resolve().parents[3] / "config" / "credits.yaml"
+CONFIG = CONFIG_DIR / "credits.yaml"
 SCOPES = ("jobs", "people", "full", "topic")
 PURPOSE = {
     "web_refresh": "web_refresh",

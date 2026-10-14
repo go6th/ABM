@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Literal
 
 import yaml
@@ -17,9 +16,9 @@ import yaml
 from account_intelligence.config import CONFIG_DIR
 from refresh.delta import GRADE_ORDER
 
-ASSET = Path(__file__).resolve().parents[2] / (
-    ".claude/skills/account-intelligence-platform/assets/alert_rules.yaml"
-)
+# A byte-for-byte copy of the skill's assets/alert_rules.yaml (the source of truth), so the
+# installed image has it (test_the_alert_rules_copy_matches_the_skill_asset keeps them equal).
+ASSET = CONFIG_DIR / "alert_rules.yaml"
 SOURCED_IDS = (
     "new_build_role",
     "leadership_change",

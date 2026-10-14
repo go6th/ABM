@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -24,6 +23,7 @@ from typing import Any
 
 import yaml
 
+from account_intelligence.config import config_dir as _config_dir
 from obs.errors import CatalogInvalid
 
 FORBIDDEN = frozenset(
@@ -156,10 +156,7 @@ def build(
 
 def config_dir() -> Path:
     """``config/telemetry``."""
-    return (
-        Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config")
-        / "telemetry"
-    )
+    return _config_dir() / "telemetry"
 
 
 @lru_cache(maxsize=4)

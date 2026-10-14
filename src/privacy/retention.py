@@ -20,7 +20,8 @@ from typing import Any, Literal
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
+from account_intelligence.config import CONFIG_DIR
+
 BATCH = 500
 
 
@@ -44,7 +45,7 @@ class Plan:
 
 def windows(path: Path | None = None) -> dict[str, dict[str, Any]]:
     """The sourced windows (validated: every class names an action)."""
-    doc = yaml.safe_load((path or ROOT / "config/retention.yaml").read_text())
+    doc = yaml.safe_load((path or CONFIG_DIR / "retention.yaml").read_text())
     classes = doc.get("classes") or {}
     if not classes:
         raise ValueError("retention.yaml: no classes")

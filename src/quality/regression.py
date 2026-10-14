@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
+from account_intelligence.config import CONFIG_DIR
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class Decision:
 
 def rules(path: Path | None = None) -> dict[str, Any]:
     """The watched-path rules (validated at call time; every value has a source)."""
-    doc = yaml.safe_load((path or ROOT / "config/regression.yaml").read_text())
+    doc = yaml.safe_load((path or CONFIG_DIR / "regression.yaml").read_text())
     if not isinstance(doc, dict):
         raise ValueError("regression.yaml: expected a mapping")
     watched_paths = doc.get("watched_paths")

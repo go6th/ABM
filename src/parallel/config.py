@@ -10,7 +10,6 @@ GUARANTEE(test_parallel_config_loads_and_every_entry_is_sourced): no unsourced v
 from __future__ import annotations
 
 import hashlib
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -19,6 +18,7 @@ from typing import Any
 
 import yaml
 
+from account_intelligence.config import config_dir as _config_dir
 from parallel.errors import ConfigInvalid
 
 FAN_OUT_KINDS = ("once", "lane", "lane_pass", "rows:")
@@ -240,7 +240,7 @@ def build(data: Mapping[str, Any], raw: bytes) -> ParallelConfig:
 
 def config_dir() -> Path:
     """The repository's ``config`` directory."""
-    return Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config")
+    return _config_dir()
 
 
 @lru_cache(maxsize=4)

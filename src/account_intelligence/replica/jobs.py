@@ -33,13 +33,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
 import yaml
 from sqlalchemy import text
 
+from account_intelligence.config import CONFIG_DIR, SKILL_PACKAGE_DIR
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica.notifications import notify
@@ -48,8 +48,8 @@ from obs.logging import logger
 
 log = logger(__name__)
 GRADING_PLACEHOLDER = "0" * 64
-SCOPES_FILE = Path(__file__).resolve().parents[3] / "config" / "research_scopes.yaml"
-SKILL_PACKAGE = Path(__file__).resolve().parents[3] / "skills" / "abm-account-research" / "SKILL.md"
+SCOPES_FILE = CONFIG_DIR / "research_scopes.yaml"
+SKILL_PACKAGE = SKILL_PACKAGE_DIR / "SKILL.md"
 
 
 @lru_cache(maxsize=1)

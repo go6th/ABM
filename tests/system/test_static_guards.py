@@ -2,10 +2,12 @@
 
 GUARANTEE(test_one_retry_owner_per_failure_class_w6)
 GUARANTEE(test_loop_inventory_is_generated_and_complete_w8)
+GUARANTEE(test_no_module_finds_repository_files_relative_to_its_own_file)
 """
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 import sys
@@ -79,3 +81,58 @@ def test_every_source_package_ships_in_the_wheel() -> None:
     )
     packages = {f"src/{p.name}" for p in SRC.iterdir() if (p / "__init__.py").exists()}
     assert packages - listed == set(), sorted(packages - listed)
+
+
+# Modules that may leave their package from ``__file__``: the one place that defines the source
+# tree's default CONFIG_DIR, and repository tools that write or read docs/ and tests/ and run from
+# a checkout only (generators and the conformance check; the images never call them).
+REPO_TOOLS = {
+    "src/account_intelligence/config.py": "defines CONFIG_DIR's source-tree default",
+    "src/account_intelligence/grading/docs.py": "writes docs/grading (generator)",
+    "src/exports/docs.py": "writes docs/exports (generator)",
+    "src/people/docs.py": "writes docs/people (generator)",
+    "src/crosscut/conformance.py": "reads tests/ and docs/ (scripts/check_conformance.py)",
+}
+REPO_DIRS = ("config", "docs", "skills", "scripts", "tests", "evals", "migrations", ".claude")
+
+
+def _leaves_package(node: ast.AST) -> bool:
+    """``Path(__file__)...parents[n >= 1]`` or ``...parent.parent``: a path outside the package."""
+    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
+        if node.value.attr == "parents":
+            index = node.slice
+            return not (isinstance(index, ast.Constant) and index.value == 0)
+    if isinstance(node, ast.Attribute) and node.attr == "parent":
+        inner = node.value
+        return isinstance(inner, ast.Attribute) and inner.attr == "parent"
+    return False
+
+
+def test_no_module_finds_repository_files_relative_to_its_own_file() -> None:
+    """An installed package has no config/ (or skills/, docs/) beside it: every config file is
+    found through CONFIG_DIR (the images set it), never from ``__file__`` or the working
+    directory (the class of the sandbox CONFIG_DIR bug, 8c38c12, and of POST /v1/runs failing in
+    the image on .../site-packages/../config/credits.yaml)."""
+    bad: list[str] = []
+    for rel, text in _source().items():
+        tree = ast.parse(text)
+        uses_file = "__file__" in text
+        for node in ast.walk(tree):
+            if uses_file and rel not in REPO_TOOLS and _leaves_package(node):
+                bad.append(f"{rel}:{node.lineno}: leaves the package from __file__")
+            if (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "id", getattr(node.func, "attr", None)) == "Path"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and node.args[0].value.split("/", 1)[0] in REPO_DIRS
+            ):
+                bad.append(f"{rel}:{node.lineno}: a path relative to the working directory")
+    assert not bad, bad
+
+
+def test_the_alert_rules_copy_matches_the_skill_asset() -> None:
+    """config/alert_rules.yaml ships in the image; the skill's asset stays the source of truth."""
+    asset = ROOT / ".claude/skills/account-intelligence-platform/assets/alert_rules.yaml"
+    assert (ROOT / "config/alert_rules.yaml").read_bytes() == asset.read_bytes()

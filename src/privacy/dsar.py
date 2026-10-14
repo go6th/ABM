@@ -14,7 +14,6 @@ GUARANTEE(test_a_dsar_runs_end_to_end)
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,6 +23,7 @@ from uuid import UUID
 import yaml
 from sqlalchemy import text
 
+from account_intelligence.config import config_dir
 from privacy import suppression, tombstones
 
 PERSONAL_FIELDS = (
@@ -62,9 +62,7 @@ def deadlines(path: Path | None = None) -> dict[str, int]:
 
 
 def _path(rel: str) -> Path:
-    return (
-        Path(os.environ.get("CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config") / rel
-    )
+    return config_dir() / rel
 
 
 @dataclass(frozen=True)
