@@ -156,24 +156,6 @@ async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
     )
 
 
-async def _sweep_files(app: FastAPI, settings: Any) -> None:
-    """Research files whose worker died end PARTIAL ``worker_lost`` (resume continues them)."""
-    from datetime import UTC, datetime
-
-    from account_intelligence.db.session import SessionLocal, tenant_txn
-    from research_files.config import load_config
-    from research_files.pipeline import sweep_files
-
-    if getattr(app.state.container, "files", None) is None:
-        return
-    await sweep_files(
-        SessionLocal,
-        tenant_txn,
-        datetime.now(UTC),
-        orphan_after_s=load_config().parsing.orphan_after_s,
-    )
-
-
 async def _sweep_documents(app: FastAPI) -> None:
     """Uploaded documents whose worker died mid-scan, mid-parse or mid-index are enqueued again."""
     from datetime import UTC, datetime
@@ -202,10 +184,6 @@ async def _sweep_loop(app: FastAPI, settings: Any) -> None:
     # LOOP(orphan sweep loop): cap=none, one pass per interval for the life of the worker;
     # exit=task cancelled at shutdown
     while True:
-        try:
-            await _sweep_files(app, settings)
-        except Exception as error:  # noqa: BLE001 - one bad pass never stops the sweeper
-            _logger.warning("files.sweep_failed", extra={"error_class": type(error).__name__})
         try:
             await _sweep_documents(app)
         except Exception as error:  # noqa: BLE001 - one bad pass never stops the sweeper

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -779,3 +780,28 @@ async def index_page(
         {"d": document_id, "hi": hi},
     )
     return True
+
+
+async def log_embedding_call(
+    s: AsyncSession,
+    *,
+    document_id: UUID,
+    model: str,
+    key: str,
+    input_tokens: int,
+    cost: Decimal,
+) -> None:
+    """One embedding batch in the file model call log (``research_file_model_calls``, the table
+    the earlier research-files path also wrote). The row's owner is the document's owner, read
+    here: the table's owner trigger looks for a ``research_files`` parent, which a document never
+    has, so without this the row would take whoever is acting (none for a system job)."""
+    await s.execute(
+        text(
+            "INSERT INTO research_file_model_calls (tenant_id, owner_user_id, file_id, task, model,"
+            " cache_key, served_from, input_tokens, output_tokens, cost_usd) VALUES"
+            " ((SELECT app_tenant()), coalesce((SELECT d.owner_user_id FROM documents d"
+            " WHERE d.id = :f), (SELECT app_user())), :f, 'embed_passages', :m, :k, 'model', :i,"
+            " 0, :c)"
+        ),
+        {"f": document_id, "m": model, "k": key, "i": input_tokens, "c": cost},
+    )

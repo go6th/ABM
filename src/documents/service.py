@@ -691,18 +691,14 @@ class DocumentService:
         """Every embedding batch is logged with its model and cost (the file model call log)."""
         from decimal import Decimal
 
-        from research_files import repo as files_repo
-
         tokens = sum(int(len(t) / self.c.chunking.chars_per_token) + 1 for t in texts)
         key = hashlib.sha256("\x1f".join(texts).encode("utf-8")).hexdigest()
         async with self.txn(tenant_id) as s:
-            await files_repo.log_call(
+            await repo.log_embedding_call(
                 s,
-                file_id=document_id,
-                task="embed_passages",
+                document_id=document_id,
                 model=self.embedder.model,
                 key=f"embed:{self.embedder.model}:{key}",
-                served_from="model",
                 input_tokens=tokens,
                 cost=Decimal(str(round(self.embedder.cost_usd(texts), 6))),
             )

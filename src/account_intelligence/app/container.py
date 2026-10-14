@@ -130,8 +130,6 @@ class Container:
     router: Any | None = None
     # research cache: model reply log and cross-run reuse (``llm.reply_cache``); None logs nothing
     reply_cache: Any | None = None
-    # research files (``research_files.service.FileServices``): uploads, processing, questions
-    files: Any | None = None
     # uploaded documents for input mode "file" (``documents.service.DocumentService``)
     documents: Any | None = None
     # Phase 3 tenant plane (identity broker, secret and object stores, mailer, scanner): the
@@ -494,7 +492,6 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
     )
     container.extras["maildrive_apps"] = maildrive_apps(env)
     blobs = local_blob_store(env.get("PAYLOAD_DIR"))
-    container.files = file_services(blobs, llm, container.scheduler)
     container.documents = document_service(blobs, container.scheduler, clock, env, app_env)
     # the pre-delivery gate for both input modes (``documents.gate``): without it no run could
     # ever complete (audit F1)
@@ -530,7 +527,7 @@ def delivery_gate(payloads: Any, documents: Any) -> Any:
 
 
 def local_blob_store(payload_dir: str | None) -> Any:
-    """Research file objects on the payloads volume (a temporary directory without one)."""
+    """Uploaded document objects on the payloads volume (a temporary directory without one)."""
     import tempfile
     from pathlib import Path
 
@@ -539,13 +536,6 @@ def local_blob_store(payload_dir: str | None) -> Any:
     root = Path(payload_dir) / "files" if payload_dir else Path(tempfile.mkdtemp(prefix="rf-"))
     root.mkdir(parents=True, exist_ok=True)
     return LocalBlobStore(root)
-
-
-def file_services(blobs: Any, llm: Any, scheduler: Any) -> Any:
-    """The research file services over a blob store, the LLM port and the task scheduler."""
-    from research_files.service import FileServices, usable_llm
-
-    return FileServices(blobs, tenant_txn, usable_llm(llm), scheduler)
 
 
 def hermetic_fake_model(env: Mapping[str, str]) -> FakeModel:
@@ -644,7 +634,6 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     from research_files.blobstore import GcsBlobStore
 
     blobs = GcsBlobStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
-    built.files = file_services(blobs, llm, scheduler)
     built.extras["maildrive_apps"] = maildrive_apps(env)
     built.documents = document_service(blobs, scheduler, clock, env, app_env)
     built.gate = delivery_gate(built.payloads, built.documents)

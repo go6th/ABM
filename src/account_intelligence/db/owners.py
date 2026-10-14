@@ -1,6 +1,6 @@
 """Act as the owner of one owned item (private workspaces, migration 0063).
 
-A worker task or command about one run, file, document or job reads the item's owner as a system
+A worker task or command about one run, document, job or download reads the item's owner as a system
 job, then acts as that user in user scope for the rest of its context, so the database confines
 the work to that user's rows.
 """
@@ -15,7 +15,6 @@ from account_intelligence.db.session import set_actor, set_user_scope, tenant_tx
 
 OWNED_ITEMS = {
     "run": "account_runs",
-    "file": "research_files",
     "document": "documents",
     "job": "research_jobs",
     "download": "download_jobs",

@@ -44,8 +44,6 @@ unannotated (the generator's check fails otherwise).
 | file extraction documents | `src/documents/graph.py:140` | the run's documents | last document |
 | file extraction pages | `src/documents/graph.py:143` | passages / PASSAGE_PAGE | a short page |
 | file extraction schema re-ask | `src/documents/extract.py:248` | 2 attempts | valid reply, dropped batch |
-| file model retry | `src/research_files/modelsvc.py:249` | 3 attempts | reply, terminal stop, retries spent |
-| file units | `src/research_files/pipeline.py:181` | the file's units | parser done, fatal unit |
 | findings extractor | `src/people/findings.py:103` | max_extractor_calls, one call per person | converged, cap_reached |
 | gap pass over the remainder | `src/jobs/pipeline.py:461` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
 | gate fix loop | `src/account_intelligence/workflow/stages/core.py:249` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
@@ -55,10 +53,9 @@ unannotated (the generator's check fails otherwise).
 | grading hand-off | `src/refresh/probe.py:201` | observations of this poll | end |
 | graph-neighbors | `src/account_intelligence/rag/graphrag.py:96` | entity_count | queue empty or max_hops. |
 | hash uploaded document | `src/documents/service.py:279` | size / 1 MiB reads | end of object |
-| hash verify read | `src/research_files/pipeline.py:148` | the object's size in COPY_BUFFER reads | end |
 | idle expiry | `src/account_intelligence/replica/access.py:89` | one pass over the clients | every client checked or failed |
 | in-flight wait | `src/account_intelligence/connectors/service.py:296` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
-| in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:150` | limit (1000) | queue empty, limit |
+| in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:145` | limit (1000) | queue empty, limit |
 | index pages | `src/documents/service.py:669` | passages / index_batch pages | no passage left, deleted |
 | isolation owner probe | `src/account_intelligence/replica/isolation.py:201` | every real client once | all probed |
 | isolation route probe | `src/account_intelligence/replica/isolation.py:247` | the read routes of the catalog | all probed |
@@ -70,7 +67,7 @@ unannotated (the generator's check fails otherwise).
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
 | lease heartbeat | `src/documents/service.py:362` | the step's duration / (lease_ttl_s / 3) renewals | step finished (cancelled), lease lost |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
-| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:292` | 500 connections per tick (the lookup's limit) | end |
+| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:267` | 500 connections per tick (the lookup's limit) | end |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
@@ -80,7 +77,7 @@ unannotated (the generator's check fails otherwise).
 | notification relay | `src/spend/notify.py:217` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:76` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:90` | max_pages * batch_size runs per pass | rows exhausted |
-| orphan sweep loop | `src/account_intelligence/api/main.py:204` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
+| orphan sweep loop | `src/account_intelligence/api/main.py:186` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
@@ -98,7 +95,6 @@ unannotated (the generator's check fails otherwise).
 | probe monitors | `src/refresh/probe.py:174` | 6 kinds | end |
 | profile batches | `src/people/profiles.py:139` | max_profiles_per_run, profile_batch_size per batch | converged, cap_reached, budget, deadline (one person's failure is isolated) |
 | progress stream | `src/account_intelligence/api/routes/runs.py:758` | sse_max_duration_s seconds, polled every sse_poll_s | finished run, max duration, client gone |
-| prompt split | `src/research_files/modelsvc.py:106` | len(text) / cap pieces | text consumed |
 | provider job poll | `src/account_intelligence/connectors/paginate.py:154` | max_polls with a bounded interval | succeeded, failed, ProviderJobTimeout |
 | relationship target prefix strip | `src/exports/ooxml.py:71` | the target's length (each pass removes at least one character) | no leading "../" or "/" left |
 | renderer output drain | `src/exports/word/renderer.py:82` | the byte cap (max_output_bytes or max_stderr_bytes) in 64 KiB reads | end of stream, cap exceeded (the process is killed) |

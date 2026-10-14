@@ -92,7 +92,6 @@ CACHE_PURPOSES: dict[str, str] = {
 # tenant id and identifiers only, never content (skill rule 8).
 EVENT_TYPES: dict[str, str] = {
     "task.run_slice": "Cloud Tasks payload {tenant_id, run_id, slice}",
-    "task.file_process": "Cloud Tasks payload {tenant_id, file_id}",
     "task.document_process": "Cloud Tasks payload {tenant_id, document_id}",
     "task.download_everything": "Cloud Tasks payload {tenant_id, job_id}",
     "task.research_job": "Cloud Tasks payload {tenant_id, job_id}",
@@ -112,8 +111,6 @@ JOBS: dict[str, str] = {
     " and tenant identifiers from tenants_with_credit_activity, then per tenant inside tenant_txn",
     "orphan_sweep": "runs.sweeper.sweep: identifiers from runs_orphaned, then per tenant and run,"
     " inside tenant_txn",
-    "file_sweep": "research_files.pipeline.sweep_files: identifiers from research_files_orphaned,"
-    " then per tenant and file, inside tenant_txn",
     "document_sweep": "documents.service.sweep_documents: identifiers from documents_orphaned,"
     " then the document task per tenant and document, inside tenant_txn",
     "part_sweep": "documents.service.sweep_documents: identifiers from document_parts_orphaned,"

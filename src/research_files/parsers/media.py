@@ -8,7 +8,7 @@
   takes text and images, not audio), so the file is stored with status PARTIAL
   ``transcription_unavailable``. The cost gate still applies the moment one is configured.
 
-GUARANTEE(test_every_type_is_stored_parsed_audited_and_analysed)
+GUARANTEE(test_every_supported_type_is_detected_and_parsed)
 """
 
 from __future__ import annotations
