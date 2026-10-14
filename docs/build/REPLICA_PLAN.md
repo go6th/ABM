@@ -221,7 +221,8 @@ the wallet. (Reversible: the pool can be moved onto the wallet later.)
 | --- | --- |
 | 1. Design system, shell, demo seed, Ask | Done; approved by the owner on 2026-10-14. |
 | 2. Accounts and Account workspace | Done; checked against PDF pages 2 and 3 and the HTML at 1360px and 375px. |
-| 3. Deep-dive tables | Done; People checked against the HTML (07) and PDF page 8 chip counts; the six other tables use the same view. |
+| 3. Deep-dive tables | Done; People checked against the HTML (07) and PDF page 8 chip counts; the six other tables use the same view. Frame fills the screen; phone hint for columns off to the right. |
+| 4. Credits, pool and Refresh from web | Done; Refresh checked against PDF page 5 and the HTML (04). Runs use the hermetic engine until the research skill exists. |
 
 Step 1 in detail:
 - Tokens, Hanken Grotesk (self-hosted latin woff2 with its OFL licence), components, user and admin shells, sign-in pages restyled.
@@ -263,3 +264,28 @@ Step 3 in detail:
 - One screen for all seven tables (`/accounts/{domain}/{sheet}`): chips with counts, Expand or
   Shrink, Open in Excel, the spreadsheet with sticky header, row numbers, sort arrows and
   `aria-sort`, and "Show more rows" past 200. The old per-table pages were removed.
+
+Step 4 in detail:
+- `config/credits.yaml`: placeholder estimates per scope and **`credit_value_usd`, the one setting**
+  that converts real spend into credits (owner sets it after real runs).
+- Migration 0054: research jobs carry the confirming request id (a repeated Confirm never reserves
+  twice).
+- `replica/credits.py`: monthly pool per client (resets on the 1st), estimates from the account's
+  own history (average of its last three finished jobs of that scope, else the rate table, never
+  above the credit cap per pull), reserve under a per-client row lock, settle (ceil(spend / credit
+  value), never above the reserve) and release, promotion of jobs waiting for credits.
+- `replica/jobs.py`: a confirmed job runs once on the worker (`POST /tasks/research-job`, a named
+  Cloud Tasks task in production); the hermetic engine (dev and test only) records a completed run
+  and spends 80% of the reserve; the skill engine refuses with a plain reason until the research
+  skill executor exists, so the job fails and its credits are released untouched. The user gets an
+  in-app notification either way.
+- Routes: `GET /v1/credits`, `GET` and `POST /v1/accounts/{domain}/refresh` (409
+  `estimate_changed`, `credits_short`, `refresh_in_progress`; 403 when web refresh is off),
+  `GET /v1/notifications`, `POST /v1/notifications/{id}/read`.
+- Screens: Refresh from web (radio cards with arrow keys, credits left, Confirm disabled with the
+  reason when short, the feature-off and already-running states), a progress line on the account,
+  and Updates above Recent in the sidebar.
+- Tests: 12 credit tests (pool, history estimate, confirm and settle, idempotent Confirm, moved
+  estimate, credits short, feature off, one open refresh, redelivered job charged once, settle
+  capped at the reserve, failed engine releases everything, two confirms racing for the last
+  credits); isolation probes for the five new routes and the research-job task.
