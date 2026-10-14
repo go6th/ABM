@@ -3,6 +3,7 @@
 // stable type. No token is ever put in a URL, local storage or a log.
 
 import { operations } from "@/lib/gen/api.gen";
+import { clearUploadSessions } from "@/lib/upload-store";
 
 export class ApiError extends Error {
   constructor(
@@ -29,6 +30,7 @@ let csrfToken: string | null = null;
 /** Clear session-bound client state after logout or an account/workspace change. */
 export function clearSession(): void {
   csrfToken = null;
+  clearUploadSessions();
 }
 
 export async function session(): Promise<Session | null> {

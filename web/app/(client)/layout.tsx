@@ -59,6 +59,7 @@ export default async function ClientLayout({ children }: { children: React.React
   return (
     <WorkspaceShell
       user={{
+        userId: me.user_id,
         clientName: me.tenant_name,
         userName: me.display_name,
         email: me.email,

@@ -9,6 +9,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, clearSession } from "@/lib/api";
+import { setUploadOwner } from "@/lib/upload-store";
 import { Logo, NavIcon } from "@/ui/design";
 
 export interface RecentChat { id: string; title: string }
@@ -16,6 +17,8 @@ export interface RecentChat { id: string; title: string }
 export interface ShellNote { id: string; text: string; meta: string; href: string; warn: boolean }
 
 export interface ShellUser {
+  /** The signed-in user's id: keeps this browser's paused uploads per person. */
+  userId?: string;
   clientName: string;
   userName: string | null;
   email: string | null;
@@ -57,6 +60,10 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
     ...(user.mailDriveAllowed ? [{ href: "/mail-and-drive", label: "Mail and drive", icon: "mail" }] : []),
     ...(user.isAdmin ? [{ href: "/support-access", label: "Support access", icon: "support" }] : []),
   ];
+
+  useEffect(() => {
+    setUploadOwner(user.userId ?? null);
+  }, [user.userId]);
 
   const close = useCallback(() => {
     setOpen(false);
