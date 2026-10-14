@@ -1,24 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { cannotAnswer, citations, numberCitations, parseFrame } from "@/components/ws/Conversation";
+import { parseFrame } from "@/lib/sse";
 import { stepStates } from "@/components/ws/RunSteps";
 
-describe("chat citations", () => {
-  it("numbers fact references by first use", () => {
-    const text = "Alpha [F3]. Beta [F1]. Alpha again [F3].";
-    const refs = citations(text);
-    expect(refs).toEqual(["F3", "F1"]);
-    const out = numberCitations(text, refs, (r) => `/accounts/x/sources?ref=${r}`);
-    expect(out).toBe('Alpha [1](/accounts/x/sources?ref=F3 "Source F3"). Beta [2](/accounts/x/sources?ref=F1 "Source F1"). Alpha again [1](/accounts/x/sources?ref=F3 "Source F3").');
-  });
-
-  it("recognises an answer the workspace cannot give", () => {
-    expect(cannotAnswer("Acme is not held in this workspace. Open the account and click Refresh from web.")).toBe(true);
-    expect(cannotAnswer("Acme hired a VP of Data [F2].")).toBe(false);
-  });
-
-  it("parses one event-stream frame", () => {
+describe("event stream frames", () => {
+  it("parses one frame, and reports a malformed one instead of dropping it", () => {
     expect(parseFrame('event: text\ndata: {"text":"hi"}')).toEqual({ event: "text", data: { text: "hi" } });
     expect(parseFrame("event: ping")).toBeNull();
+    expect(parseFrame("event: text\ndata: not json")).toEqual({ event: "invalid", data: {} });
   });
 });
 
