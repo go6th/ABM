@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import type { ChatThreads, Me } from "@/lib/gen/api.gen";
+import type { ChatThreads, Me, Notifications } from "@/lib/gen/api.gen";
 import { serverGet } from "@/lib/server-api";
 import { WorkspaceShell } from "@/components/ws/WorkspaceShell";
 
@@ -14,6 +14,33 @@ export default async function ClientLayout({ children }: { children: React.React
   } catch {
     threads = null;
   }
+  let notifications: Notifications | null = null;
+  try {
+    notifications = await serverGet<Notifications>("/v1/notifications");
+  } catch {
+    notifications = null;
+  }
+  const scope: Record<string, string> = { jobs: "job postings", people: "people and teams", full: "full refresh" };
+  const notes = (notifications?.notifications ?? [])
+    .filter((n) => !n.read)
+    .slice(0, 3)
+    .map((n) => {
+      const name = n.account_name ?? "An account";
+      const what = n.scope && scope[n.scope] ? ` (${scope[n.scope]})` : "";
+      const text = n.kind === "research_failed" ? `${name}: research did not finish`
+        : n.kind === "waiting_credit_limit" ? `${name}: waiting for credits`
+        : n.kind === "research_finished" ? `${name}: research finished`
+        : `${name}: refresh finished${what}`;
+      const meta = n.kind === "research_failed" ? (n.reason ?? "No extra credits were used.")
+        : n.credits_used ? `${n.credits_used} credits used` : "Open the account";
+      return {
+        id: n.id,
+        text,
+        meta,
+        href: n.account_domain ? `/accounts/${encodeURIComponent(n.account_domain)}` : "/accounts",
+        warn: n.kind === "research_failed" || n.kind === "waiting_credit_limit",
+      };
+    });
   const recent = (threads?.threads ?? [])
     .slice()
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
@@ -30,6 +57,7 @@ export default async function ClientLayout({ children }: { children: React.React
         mailDriveAllowed: me.mail_drive_allowed ?? true,
       }}
       recent={recent}
+      notes={notes}
     >
       {children}
     </WorkspaceShell>

@@ -24,6 +24,8 @@ function joinAnd(items: string[]): string {
   return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
+const SCOPE_NAME: Record<string, string> = { jobs: "Job postings only", people: "People and teams", full: "Full refresh" };
+
 export default async function AccountWorkspacePage({ params }: Params) {
   const domain = decodeURIComponent((await params).domain);
   const here = `/accounts/${encodeURIComponent(domain)}`;
@@ -68,6 +70,14 @@ export default async function AccountWorkspacePage({ params }: Params) {
           <Link className="btn" href={`/schedules#${d}`} prefetch={false}>Schedule</Link>
           <Link className="btn" href={`${here}/refresh`} prefetch={false}>Refresh from web</Link>
         </div>
+
+        {ws.open_job ? (
+          ws.open_job.status === "waiting_credit_limit" ? (
+            <div className="banner warn" role="status">Waiting: credit limit. The refresh starts when your credit pool can cover it.</div>
+          ) : (
+            <div className="banner" role="status"><span className="pdot" aria-hidden="true" />Refreshing from the web: {SCOPE_NAME[ws.open_job.scope] ?? "research"}. You will be notified when it finishes.</div>
+          )
+        ) : null}
 
         <section className="card pad-lg stack-10" aria-labelledby="omv">
           <div className="lbl" id="omv">The one minute version</div>

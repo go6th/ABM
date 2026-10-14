@@ -43,6 +43,20 @@ async function openRecent(title) {
   await page.getByText("Answered from your workspace").first().waitFor({ timeout: 30000 });
 }
 for (const w of [1360, 375]) {
+  if (want("refresh")) {
+    await shot("refresh", "/accounts/highmark.example/refresh", w);
+    if (w > 500) {
+      await shot("refresh-confirmed", "/accounts/cigna.example/refresh", w, {
+        act: async () => {
+          await page.getByRole("radio", { name: /Job postings only/ }).click();
+          await page.getByRole("button", { name: "Confirm refresh" }).click();
+          await page.waitForURL(/\/accounts\/cigna\.example$/);
+          await page.waitForTimeout(2500);
+          await page.reload({ waitUntil: "networkidle" });
+        },
+      });
+    }
+  }
   if (want("sheets")) {
     await shot("people", "/accounts/highmark.example/people", w);
     await shot("people-filtered", null, w, {

@@ -7,10 +7,12 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearSession } from "@/lib/api";
+import { api, clearSession } from "@/lib/api";
 import { Bar, Logo, NavIcon } from "@/ui/design";
 
 export interface RecentChat { id: string; title: string }
+
+export interface ShellNote { id: string; text: string; meta: string; href: string; warn: boolean }
 
 export interface ShellUser {
   clientName: string;
@@ -34,7 +36,7 @@ function initial(name: string | null, email: string | null): string {
   return ((name ?? email ?? "?").trim()[0] ?? "?").toUpperCase();
 }
 
-export function WorkspaceShell({ user, recent, children }: { user: ShellUser; recent: RecentChat[]; children: React.ReactNode }) {
+export function WorkspaceShell({ user, recent, notes = [], children }: { user: ShellUser; recent: RecentChat[]; notes?: ShellNote[]; children: React.ReactNode }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const router = useRouter();
@@ -115,6 +117,25 @@ export function WorkspaceShell({ user, recent, children }: { user: ShellUser; re
             </Link>
           ))}
         </nav>
+        {notes.length ? (
+          <section className="notes" aria-label="Notifications">
+            <div className="lbl">Updates</div>
+            {notes.map((n) => (
+              <Link
+                key={n.id}
+                href={n.href}
+                prefetch={false}
+                className={n.warn ? "note warn" : "note"}
+                onClick={() => {
+                  setOpen(false);
+                  void api("POST", `/v1/notifications/${encodeURIComponent(n.id)}/read`).then(() => router.refresh()).catch(() => undefined);
+                }}
+              >
+                {n.text}<span className="meta">{n.meta}</span>
+              </Link>
+            ))}
+          </section>
+        ) : null}
         {recent.length ? (
           <nav className="rec" aria-label="Recent chats">
             <div className="lbl">Recent</div>
