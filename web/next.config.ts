@@ -14,11 +14,18 @@ const config: NextConfig = {
   pageExtensions: process.env.NODE_ENV === "production" ? ["tsx", "ts"] : ["dev.tsx", "tsx", "ts"],
   reactStrictMode: true,
   poweredByHeader: false,
+  // No source maps reach the browser in production (explicit: the default could change).
+  productionBrowserSourceMaps: false,
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
+          // HTTPS only, for a year, including subdomains. Not sent in development, where the
+          // app is served over plain http on localhost and a browser must not remember otherwise.
+          ...(process.env.NODE_ENV === "production"
+            ? [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]
+            : []),
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "no-referrer" },
