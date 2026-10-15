@@ -135,7 +135,7 @@ async def test_the_metrics_task_counts_stuck_runs_without_recording_observations
     plane = _plane(world["a"], "priya-test", world["payloads"])
     got = await _call(plane, "POST", "/tasks/metrics", json={})
     assert got.status_code == 200, got.text
-    assert got.json()["clients"] >= 2 and got.json()["exported"] is False  # no exporter in tests
+    assert got.json()["clients"] >= 2
     names = [n for n, _, _ in recorded]
     assert names.count("heartbeat") == 1
     gauges = {(lb["state"], lb["age_bucket"]) for n, _, lb in recorded if n == "stuck_runs"}

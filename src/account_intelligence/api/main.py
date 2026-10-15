@@ -205,6 +205,55 @@ async def sweep_pass(app: FastAPI) -> None:
             _logger.warning("runs.stalled", extra={"count": len(stalled)})
     except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
         _logger.warning("runs.stall_failed", extra={"error_class": type(error).__name__})
+    try:
+        closed = await _close_ended_jobs()
+        if closed:
+            _logger.info("jobs.closed", extra={"count": closed})
+    except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
+        _logger.warning("jobs.close_failed", extra={"error_class": type(error).__name__})
+
+
+async def _close_ended_jobs(limit: int = 100) -> int:
+    """Jobs still marked queued or running whose run has already ended are settled (seen on
+    staging 2026-10-15: the account kept showing "Refreshing from the web" and the job held its
+    reserved credits). ``settle_once`` is idempotent, so a job its run settles meanwhile is
+    left as it is."""
+    from sqlalchemy import text
+
+    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from account_intelligence.runs.lifecycle import settle_once
+
+    ended = "('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED', 'FAILED', 'CANCELED')"
+    async with untenanted_session() as plain:
+        tenants = [
+            UUID(str(r.tenant_id))
+            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+        ]
+    closed = 0
+    # LOOP(close ended jobs): cap=every client once per pass, `limit` jobs each; exit=last client
+    for tenant in tenants:
+        async with tenant_txn(tenant) as s:
+            runs = [
+                UUID(str(r.run_id))
+                for r in await s.execute(
+                    text(
+                        "SELECT j.run_id FROM research_jobs j"
+                        " JOIN account_runs r ON r.id = j.run_id"
+                        " WHERE j.status IN ('queued', 'running') AND r.status IN "
+                        + ended
+                        + " LIMIT :n"
+                    ),
+                    {"n": limit},
+                )
+            ]
+        for run_id in runs:
+            try:
+                async with tenant_txn(tenant) as s:
+                    await settle_once(s, run_id)
+                closed += 1
+            except Exception as error:  # noqa: BLE001 - one job never stops the others
+                _logger.warning("jobs.close_failed", extra={"error_class": type(error).__name__})
+    return closed
 
 
 async def _sweep_loop(app: FastAPI, settings: Any) -> None:

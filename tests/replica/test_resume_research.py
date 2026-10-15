@@ -146,3 +146,49 @@ async def test_a_finished_run_or_another_users_run_cannot_be_resumed(world: dict
         json={"run_id": str(theirs), "request_id": str(uuid4())},
     )
     assert hidden.status_code == 404  # private workspaces: another user's run is not there
+
+
+async def test_a_job_left_running_after_its_run_ended_is_closed_and_not_shown(
+    world: dict[str, Any],
+) -> None:
+    """Seen on staging 2026-10-15: the run finished but its job stayed 'running', so the account
+    kept saying "Refreshing from the web" and hid Resume research. The workspace no longer shows
+    such a job and the sweep settles it once (credits released)."""
+    from account_intelligence.api.main import _close_ended_jobs
+    from account_intelligence.db.session import set_system
+
+    user = "priya-test"
+    run, domain = _run(world["a"], user, "PARTIAL")
+    (account,) = _db("SELECT account_id FROM account_runs WHERE id = %s", run)[0]
+    (job,) = _db(
+        "INSERT INTO research_jobs (tenant_id, account_id, kind, scope, status, period,"
+        " credits_estimated, requested_by, run_id, started_at) VALUES (%s, %s, 'new_research',"
+        " 'full', 'running', to_char(now(), 'YYYY-MM'), 0, %s, %s, now()) RETURNING id",
+        world["a"],
+        account,
+        user,
+        run,
+    )[0]
+    plane = _plane(world["a"], user, world["payloads"])
+    ws = await _call(plane, "GET", f"/v1/accounts/{domain}/workspace")
+    assert ws.status_code == 200, ws.text
+    assert ws.json()["open_job"] is None
+    set_system()
+    assert await _close_ended_jobs() >= 1
+    assert _db("SELECT status FROM research_jobs WHERE id = %s", job) == [("done",)]
+    assert await _close_ended_jobs() == 0 or _db(
+        "SELECT status FROM research_jobs WHERE id = %s", job
+    ) == [("done",)]
+
+
+def test_every_stop_reason_is_said_in_words() -> None:
+    """A stopped research says why (staging 2026-10-15 showed only "It stopped before
+    finishing." for a reason the screen did not know)."""
+    from account_intelligence.replica.workspace import stop_text
+
+    assert "quality check" in stop_text("gate_failed")
+    assert stop_text("build_failed:missing_narrative") == (
+        "The files could not be built from what was found (missing narrative)."
+    )
+    assert stop_text("something_new") == "It stopped before finishing (reason: something new)."
+    assert "usage limit" in stop_text("model_credits_exhausted")

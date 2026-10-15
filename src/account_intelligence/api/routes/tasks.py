@@ -440,13 +440,13 @@ async def metrics_tick(
     """The cluster-wide metrics (Cloud Scheduler, every 2 minutes): the heartbeat the
     telemetry-down alert watches, the stuck-run gauge by state and age (counted only, never
     recorded as observations), and this instance's dropped telemetry; then the points are
-    exported before the request ends (audit 2026-10-15)."""
+    sent by the periodic exporter (audit 2026-10-15)."""
     _authorise(request, authorization)
     import time
     from datetime import UTC, datetime
 
     from account_intelligence.db.session import untenanted_session
-    from obs import export, stuck
+    from obs import stuck
     from obs.setup import drops, record
 
     record("heartbeat", time.time(), {"service": os.environ.get("SERVICE_ROLE") or "api"})
@@ -482,8 +482,9 @@ async def metrics_tick(
         if dropped.get(signal, 0) > sent:
             record("telemetry_dropped_total", dropped[signal] - sent, {"signal": signal})
             _DROPS_SENT[signal] = dropped[signal]
-    exported = await export.flush()
-    return {"clients": len(tenants), "stuck": sum(counts.values()), "exported": exported}
+    # the worker's periodic reader exports these (a forced flush next to it was refused by
+    # Monitoring as points written too often)
+    return {"clients": len(tenants), "stuck": sum(counts.values())}
 
 
 _DROPS_SENT: dict[str, int] = {}  # this instance's drops already counted on the metric

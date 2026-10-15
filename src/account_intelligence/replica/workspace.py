@@ -340,6 +340,9 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 "   AND c.status IS NOT NULL) AS done"
                 " FROM research_jobs j WHERE j.account_id = :a"
                 " AND j.status IN ('waiting_credit_limit', 'queued', 'running')"
+                # a job whose run already ended is not running (the sweep settles it)
+                " AND NOT EXISTS (SELECT 1 FROM account_runs r WHERE r.id = j.run_id AND r.status"
+                "  IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED', 'FAILED', 'CANCELED'))"
                 " ORDER BY j.created_at DESC LIMIT 1"
             ),
             {"a": account_id},
@@ -401,7 +404,28 @@ STOP_TEXT = {
         "The AI model provider refused the request, often because its usage limit was reached."
         " Restore it, then resume."
     ),
+    "gate_failed": (
+        "Some steps could not be finished, so the quality check held the files back."
+        " Open Coverage to see which steps and why."
+    ),
+    "abm_partial": "Some steps could not be finished. Open Coverage to see which steps and why.",
+    "pull_only": "This run only collected data; nothing was written up yet.",
+    "slice_ceiling": "It ran longer than the platform allows for one research.",
+    "budget_cap": "It reached the credits confirmed for it.",
 }
+# "build_failed:<why>": the files could not be built from what was found (audit 2026-10-15)
+BUILD_FAILED_TEXT = "The files could not be built from what was found ({why})."
+
+
+def stop_text(reason: str) -> str:
+    """What the user is told about a research that stopped: a known reason in words, a build
+    failure with its cause, anything else with its code so it can be reported."""
+    if reason in STOP_TEXT:
+        return STOP_TEXT[reason]
+    if reason.startswith("build_failed"):
+        why = reason.partition(":")[2].replace("_", " ") or "no detail"
+        return BUILD_FAILED_TEXT.format(why=why)
+    return f"It stopped before finishing (reason: {reason.replace('_', ' ')})."
 
 
 async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
@@ -436,7 +460,7 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
     return {
         "run_id": str(row.id),
         "stalled": stalled,
-        "reason": STOP_TEXT.get(reason, "It stopped before finishing."),
+        "reason": stop_text(reason),
         "steps_done": int(row.done),
         "steps_total": int(row.total),
     }
