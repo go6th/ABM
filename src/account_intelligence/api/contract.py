@@ -320,6 +320,7 @@ class DeepDiveCounts(Out):
     news: int
     mail_drive: int
     sources: int
+    searches: int = 0
     coverage_done: int = 0
     coverage_total: int = 0
 

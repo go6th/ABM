@@ -4522,6 +4522,11 @@
             "title": "People",
             "type": "integer"
           },
+          "searches": {
+            "default": 0,
+            "title": "Searches",
+            "type": "integer"
+          },
           "signals": {
             "title": "Signals",
             "type": "integer"

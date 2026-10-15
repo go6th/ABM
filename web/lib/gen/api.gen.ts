@@ -94,6 +94,7 @@ export const DeepDiveCounts = z.object({
   "mail_drive": z.number().int(),
   "news": z.number().int(),
   "people": z.number().int(),
+  "searches": z.number().int().optional(),
   "signals": z.number().int(),
   "sources": z.number().int(),
   "tech": z.number().int(),

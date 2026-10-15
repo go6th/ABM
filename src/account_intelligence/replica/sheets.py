@@ -304,6 +304,47 @@ SHEETS: dict[str, Sheet] = {
         ),
         default_sort="code",
     ),
+    "searches": Sheet(
+        key="searches",
+        title="Web searches",
+        file="Web searches.xlsx",
+        scope=(
+            "Every web search the research made for this account: what it searched for, when,"
+            f" how many pages it returned and the sites they came from. {SORT_HINT}"
+        ),
+        base=(
+            "SELECT t.id AS _id,"
+            " coalesce((SELECT string_agg(q, ' | ') FROM jsonb_array_elements_text("
+            "   CASE WHEN jsonb_typeof(t.response->'args'->'queries') = 'array'"
+            "   THEN t.response->'args'->'queries' ELSE '[]'::jsonb END) q),"
+            "   t.response->'args'->>'objective', '') AS query,"
+            " t.created_at AS searched,"
+            " coalesce((t.response->>'record_count')::int, 0) AS results,"
+            " coalesce((SELECT string_agg(DISTINCT regexp_replace(p->>'url',"
+            "   '^https?://(www[.])?([^/:]+).*$', '\\2'), ', ') FROM jsonb_array_elements("
+            "   CASE WHEN jsonb_typeof(t.response->'pages') = 'array'"
+            "   THEN t.response->'pages' ELSE '[]'::jsonb END) p), '') AS sites,"
+            " (t.cost_source = 'cache') AS reused"
+            " FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
+            " WHERE r.account_id = :a AND t.tool = 'p_search:web_search'"
+        ),
+        cols=(
+            Col("query", "Searched for", "s.query", "strong"),
+            Col("searched", "When", "s.searched", "date"),
+            Col("results", "Pages returned", "s.results", "num"),
+            Col("sites", "Sites", "s.sites"),
+        ),
+        filters=(
+            Filter("all", "All", "true"),
+            Filter("month", "This month", f"s.searched >= {_MONTH}"),
+            Filter("reused", "Reused from earlier research", "s.reused"),
+        ),
+        default_sort="searched",
+        default_dir="desc",
+        footnote=(
+            "Sites are listed for searches from 15 October 2026 on; earlier searches show counts."
+        ),
+    ),
     "coverage": Sheet(
         key="coverage",
         title="Coverage",

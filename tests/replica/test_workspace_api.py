@@ -62,6 +62,7 @@ async def test_workspace_after_a_refresh_shows_what_changed_and_live_counts(
         "news": 12,
         "mail_drive": 3,
         "sources": 86,
+        "searches": 0,
         "coverage_done": 24,
         "coverage_total": 33,
     }
@@ -299,3 +300,49 @@ async def test_coverage_shows_every_tracker_item_with_its_status_and_reason(
     other = _plane(world["b"], "other-test", world["payloads"])
     gone = await _call(other, "GET", "/v1/accounts/highmark.example/sheets/coverage")
     assert gone.status_code == 404
+
+
+async def test_web_searches_sheet_lists_what_each_search_looked_for(world: dict[str, Any]) -> None:
+    """The account's Web searches table: the query text, when, pages returned and their sites,
+    from the research ledger (owner request 2026-10-15)."""
+    from tests.conftest import ADMIN_DSN
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        run = c.execute(
+            "SELECT r.id FROM account_runs r JOIN accounts a ON a.id = r.account_id"
+            " WHERE a.tenant_id = %s AND a.domain = 'highmark.example' LIMIT 1",
+            (world["a"],),
+        ).fetchone()[0]
+        response = {
+            "args": {
+                "objective": "Highmark leadership",
+                "queries": ["highmark cio", "highmark it"],
+            },
+            "record_count": 2,
+            "pages": [
+                {"url": "https://www.highmark.example/about", "title": "About"},
+                {"url": "https://news.example.org/story", "title": "Story"},
+            ],
+        }
+        c.execute(
+            "INSERT INTO tool_calls (tenant_id, run_id, tool, args_hash, response, provider_code,"
+            " operation, cost_source) VALUES (%s, %s, 'p_search:web_search', %s, %s,"
+            " 'p_search', 'web_search', 'documented')",
+            (world["a"], run, uuid4().hex, json.dumps(response)),
+        )
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    sheet = (await _call(plane, "GET", "/v1/accounts/highmark.example/sheets/searches")).json()
+    row = next(r["cells"] for r in sheet["rows"] if "highmark cio" in r["cells"]["query"])
+    assert row["query"] == "highmark cio | highmark it"
+    assert str(row["results"]) == "2" and set(row["sites"].split(", ")) == {
+        "highmark.example",
+        "news.example.org",
+    }
+    ws = (await _call(plane, "GET", "/v1/accounts/highmark.example/workspace")).json()
+    assert ws["counts"]["searches"] >= 1
+    # another client's account never shows them
+    other = _plane(world["b"], "other-test", world["payloads"])
+    got = await _call(other, "GET", "/v1/accounts/highmark.example/sheets/searches")
+    assert got.status_code == 404 or not any(
+        "highmark cio" in r["cells"]["query"] for r in got.json()["rows"]
+    )

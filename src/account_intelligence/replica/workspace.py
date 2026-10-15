@@ -307,6 +307,8 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 " :u"
                 "   AND state = 'matched') AS mail_drive,"
                 " (SELECT count(*) FROM sources WHERE account_id = :a) AS sources,"
+                " (SELECT count(*) FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
+                "   WHERE r.account_id = :a AND t.tool = 'p_search:web_search') AS searches,"
                 " (SELECT count(*) FILTER (WHERE c.status = 'done') FROM coverage_rows c WHERE"
                 "   c.run_id = (SELECT r.id FROM account_runs r WHERE r.account_id = :a"
                 "   AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"

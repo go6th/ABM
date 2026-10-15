@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 const TITLES: Record<string, string> = {
   people: "People", signals: "Signals", jobs: "Job postings", technology: "Tech stack and teams",
-  news: "News", "mail-and-drive": "From your mail and drive", sources: "Sources", coverage: "Coverage",
+  news: "News", "mail-and-drive": "From your mail and drive", sources: "Sources", searches: "Web searches", coverage: "Coverage",
 };
 
 type Props = { params: Promise<{ domain: string; sheet: string }>; searchParams: Promise<Record<string, string | undefined>> };

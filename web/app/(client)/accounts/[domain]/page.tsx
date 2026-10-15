@@ -69,6 +69,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
     ["News", `${here}/news`, ws.counts.news],
     ["From your mail and drive", `${here}/mail-and-drive`, ws.counts.mail_drive],
     ["Sources", `${here}/sources`, ws.counts.sources],
+    ["Web searches", `${here}/searches`, ws.counts.searches ?? 0],
     ["Coverage", `${here}/coverage`, coverage],
   ];
   return (
