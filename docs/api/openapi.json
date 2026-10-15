@@ -23384,7 +23384,7 @@
     },
     "/v1/runs/{run_id}/spend": {
       "get": {
-        "description": "The tenant spend view of the latest report (categories and call counts only).",
+        "description": "The tenant spend view of the latest report (categories and call counts only); the caller's\nown runs only (the run is checked under the owner policy before the reader role, whose\npolicy on spend_reports is tenant-wide).",
         "operationId": "tenant_spend_v1_runs__run_id__spend_get",
         "parameters": [
           {

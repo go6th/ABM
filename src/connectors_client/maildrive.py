@@ -405,8 +405,16 @@ async def sync_connection(
             await consent.mark_broken(s, connection_id, "token_missing")
             result.broken = "token_missing"
             return result
+        # the connection owner's own accounts only: the sync runs in system scope, where every
+        # colleague's private accounts are visible (audit 2026-10-15)
         rows = (
-            await s.execute(text("SELECT id, domain, coalesce(name, domain) AS name FROM accounts"))
+            await s.execute(
+                text(
+                    "SELECT id, domain, coalesce(name, domain) AS name FROM accounts"
+                    " WHERE owner_user_id = :u"
+                ),
+                {"u": str(conn.owner_user_id)},
+            )
         ).all()
     accounts = [Account(UUID(str(r.id)), str(r.domain), str(r.name)) for r in rows]
     try:

@@ -346,3 +346,19 @@ async def test_web_searches_sheet_lists_what_each_search_looked_for(world: dict[
     assert got.status_code == 404 or not any(
         "highmark cio" in r["cells"]["query"] for r in got.json()["rows"]
     )
+
+
+async def test_a_colleague_cannot_read_a_runs_spend_view(world: dict[str, Any]) -> None:
+    """GET /v1/runs/{id}/spend answers only the run's owner (audit 2026-10-15): spend_reports'
+    reader policy is tenant-wide, so the run is checked under the owner policy first."""
+    from tests.conftest import ADMIN_DSN
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        run = c.execute(
+            "SELECT r.id FROM account_runs r JOIN accounts a ON a.id = r.account_id"
+            " WHERE a.tenant_id = %s AND a.owner_user_id = 'priya-test' LIMIT 1",
+            (world["a"],),
+        ).fetchone()[0]
+    other = _plane(world["a"], "someone-else", world["payloads"])
+    got = await _call(other, "GET", f"/v1/runs/{run}/spend")
+    assert got.status_code == 404

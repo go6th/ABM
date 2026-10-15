@@ -112,6 +112,13 @@ async def test_mail_and_drive_connects_syncs_and_disconnects_per_user(
     )
     assert done.status_code == 303 and done.headers["location"] == "/mail-and-drive"
 
+    # mail matches the connection owner's OWN accounts only: maya tracks highmark herself
+    # (priya's highmark account is private to priya and is never matched; audit 2026-10-15)
+    _db(
+        "INSERT INTO accounts (tenant_id, domain, added_by, owner_user_id) VALUES"
+        " (%s, 'highmark.example', 'maya-test', 'maya-test') ON CONFLICT DO NOTHING",
+        world["a"],
+    )
     synced = await _call(maya, "POST", "/tasks/maildrive-sync", json={})
     assert synced.status_code == 200, synced.text
     rows = _db(
@@ -201,3 +208,51 @@ async def test_one_broken_connection_never_stops_the_sync_of_the_others(
     assert _db("SELECT status, broken_reason FROM connector_connections WHERE id = %s", bad) == [
         ("broken", "token_missing")
     ]
+
+
+async def test_sync_never_matches_a_colleagues_accounts(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sync runs in system scope, where every colleague's private accounts are visible; it
+    must match the connection owner's own accounts only (audit 2026-10-15)."""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from account_intelligence.db.session import set_system, set_user_scope, tenant_txn
+    from connectors_client import maildrive
+    from connectors_client import oauth as consent
+    from connectors_client.ports import TokenSet
+
+    tenant, me, colleague = world["b"], f"me-{uuid4().hex[:6]}", f"col-{uuid4().hex[:6]}"
+    conn, theirs = uuid4(), uuid4()
+    _db(
+        "INSERT INTO accounts (id, tenant_id, domain, added_by, owner_user_id)"
+        " VALUES (%s, %s, 'privateco.example', %s, %s)",
+        theirs, tenant, colleague, colleague,
+    )  # fmt: skip
+    _db(
+        "INSERT INTO connector_connections (id, tenant_id, kind, provider, status, owner_user_id,"
+        " scopes, token_ref, created_by, created_at) VALUES (%s, %s, 'gmail', 'google', 'active',"
+        " %s, ARRAY[%s], 'ref-test', %s, now())",
+        conn, tenant, me, SCOPE, me,
+    )  # fmt: skip
+
+    async def token(*_a: Any, **_k: Any) -> TokenSet:
+        return TokenSet("access", None, (SCOPE,), 3600)
+
+    class Reader:
+        async def recent(self, *_a: Any) -> list[Item]:
+            return [Item("t1", "thread", "Hello", "", None, ("ceo@privateco.example",))]
+
+    monkeypatch.setattr(consent, "access_token", token)
+    marker = set_system()
+    try:
+        result = await maildrive.sync_connection(
+            tenant_txn, tenant, conn, oauth=None, reader=Reader(), store=None,
+            now=datetime.now(UTC),
+        )  # fmt: skip
+    finally:
+        set_user_scope()
+        del marker
+    assert result.listed == 1 and result.matched == 0  # the colleague's account is not mine
+    assert _db("SELECT count(*) FROM connector_items WHERE account_id = %s", theirs) == [(0,)]

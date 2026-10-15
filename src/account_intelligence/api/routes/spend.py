@@ -211,8 +211,15 @@ async def extend_cap(
 async def tenant_spend(
     run_id: UUID, ident: Identity = Depends(require_role("admin", "seller", "viewer"))
 ) -> dict[str, Any]:
-    """The tenant spend view of the latest report (categories and call counts only)."""
+    """The tenant spend view of the latest report (categories and call counts only); the caller's
+    own runs only (the run is checked under the owner policy before the reader role, whose
+    policy on spend_reports is tenant-wide)."""
     async with tenant_txn(ident.tenant_id) as s:
+        mine = (
+            await s.execute(text("SELECT 1 FROM account_runs WHERE id = :r"), {"r": run_id})
+        ).first()
+        if mine is None:
+            raise HTTPException(404, "no spend view for this run yet")
         await s.execute(text("SET LOCAL ROLE public_reader"))
         row = (
             await s.execute(

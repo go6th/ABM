@@ -46,7 +46,13 @@ locals {
     1000 = ["sqli-v33-stable", "xss-v33-stable"]
     1010 = ["lfi-v33-stable", "rfi-v33-stable", "rce-v33-stable"]
     1020 = ["protocolattack-v33-stable", "sessionfixation-v33-stable", "scannerdetection-v33-stable"]
-    1030 = ["methodenforcement-v33-stable"]
+    # no methodenforcement set: CRS 911100 refuses PUT and DELETE, which the API uses for saving
+    # client settings and defaults, deleting documents and signing out (staging 2026-10-15)
+  }
+  # signatures that refused legitimate traffic: 921150 (protocol attack) on the operator library
+  # zip upload, whose filename travels in the query string
+  waf_opt_out = {
+    "protocolattack-v33-stable" = ["owasp-crs-v030301-id921150-protocolattack"]
   }
 }
 
@@ -70,7 +76,11 @@ resource "google_compute_security_policy" "web" {
       description = "OWASP CRS: ${join(", ", rule.value)}"
       match {
         expr {
-          expression = join(" || ", [for r in rule.value : "evaluatePreconfiguredWaf('${r}', {'sensitivity': 1})"])
+          expression = join(" || ", [for r in rule.value : (
+            contains(keys(local.waf_opt_out), r)
+            ? "evaluatePreconfiguredWaf('${r}', {'sensitivity': 1, 'opt_out_rule_ids': [${join(", ", [for id in local.waf_opt_out[r] : "'${id}'"])}]})"
+            : "evaluatePreconfiguredWaf('${r}', {'sensitivity': 1})"
+          )])
         }
       }
     }
