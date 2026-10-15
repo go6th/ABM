@@ -217,10 +217,12 @@ locals {
     documents = {
       max_dispatches_per_second = 2
       max_concurrent_dispatches = var.scaling.worker.max
-      max_attempts              = 10 # "busy" (503) is a normal answer while a client's parts run
-      min_backoff               = "30s"
-      max_backoff               = "600s"
-      max_doublings             = 4
+      max_attempts              = 20 # "busy" (503) is a normal answer while a client's parts run
+      # a task that woke a cold worker and failed is tried again soon, not in ten minutes: the
+      # handler is idempotent (lease and parts), so a quick retry costs nothing (2026-10-15)
+      min_backoff   = "10s"
+      max_backoff   = "60s"
+      max_doublings = 3
     }
     jobs = {
       max_dispatches_per_second = 5

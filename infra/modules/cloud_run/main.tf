@@ -178,9 +178,12 @@ resource "google_cloud_run_v2_service" "svc" {
           path = each.value.startup_probe_path
         }
         initial_delay_seconds = 0
-        failure_threshold     = 24
-        period_seconds        = 5
-        timeout_seconds       = 3
+        # a cold start waits for the scanner sidecar (signature load, up to ~3 minutes under
+        # load) and then the app; 24 x 5 s killed starting instances and failed the document
+        # tasks that woke them (staging 2026-10-15)
+        failure_threshold = 72
+        period_seconds    = 5
+        timeout_seconds   = 3
       }
       liveness_probe {
         http_get {
