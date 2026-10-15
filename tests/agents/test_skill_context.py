@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from account_intelligence.connectors.registry_internal import vendor_names
+from account_intelligence.connectors.settings import load_providers_config
 from agents.naming import client_hits
 from agents.skill_context import (
     ARCHIVE_DIR,
@@ -35,8 +37,9 @@ def test_every_task_kind_gets_its_context_without_tool_names(task: str) -> None:
     assert text and len(text) <= MAX_CHARS
     assert "Rules that matter most" in text
     assert client_hits(text) == (), [text[max(0, o - 30) : o + 30] for _, o in client_hits(text)]
-    for name in ("BitScale", "Sumble", "Firecrawl", "PredictLeads"):
-        assert name.lower() not in text.lower()
+    for name in vendor_names(load_providers_config()).values():
+        if name != "Parallel":  # an English word; its provider term is what the scan catches
+            assert name.lower() not in text.lower(), name
 
 
 def test_each_step_reads_what_it_needs() -> None:
@@ -60,7 +63,8 @@ def test_sections_and_stripping_are_exact() -> None:
     assert section(md, "Two") == "## Two\nb"
     assert section(md, "Three") == ""
     assert section(md, None) == md.strip()
+    first, second, *_ = sorted(vendor_names(load_providers_config()).values())
     assert (
-        strip_tool_names("Use Firecrawl and BitScale, Sumble.") == "Use 6th agents and 6th agents."
+        strip_tool_names(f"Use {first} and {second}, {first}.") == "Use 6th agents and 6th agents."
     )
-    assert strip_tool_names("firecrawled") == "firecrawled"  # whole words only
+    assert strip_tool_names(f"{first}ed") == f"{first}ed"  # whole words only

@@ -11,7 +11,8 @@ owner's concept and not only from the short agent prompt:
 * the sense check: the lessons log and the phase 2 sense-check step;
 * distill: the output spec (writing rules, grades, section order) and the lessons log.
 
-Data and enrichment tool names are replaced by "6th agents", credit language by budget language
+Data and enrichment tool names (the provider configuration's vendor names) are replaced by
+"6th agents", credit language by budget language
 and guarded person names by "the owner" before the text is used (G9: a client-bound output that
 carries any of them is rejected whole, and a model repeats what it reads);
 the text is bounded (``MAX_CHARS``) and loaded once per process. The system block is what the
@@ -29,9 +30,8 @@ from account_intelligence.config import CONFIG_DIR
 
 ARCHIVE_DIR = CONFIG_DIR / "skill" / "archive"
 MAX_CHARS = 48_000
-# the data and enrichment tools the skill names (its own assets/strip_tool_names.py list) and
-# the platform's provider terms; every one becomes "6th agents"
-TOOL_NAMES = ("BitScale", "PredictLeads", "Sumble", "Firecrawl", "Parallel Search", "Parallel")
+# every data and enrichment tool the skill names becomes "6th agents": the vendor names come
+# from the provider configuration (the one place they may live), never from code
 REPLACEMENT = "6th agents"
 
 # which parts each task kind reads: (file, section heading or None for the whole file)
@@ -64,9 +64,24 @@ SECTIONS: dict[str, tuple[tuple[str, str | None], ...]] = {
 }
 
 
+@lru_cache(maxsize=1)
+def tool_names() -> tuple[str, ...]:
+    """The vendor names of the configured providers, longest first ("Parallel Search" before
+    "Parallel"), plus each name followed by "Search"; "" when no provider config is readable."""
+    from account_intelligence.connectors.registry_internal import vendor_names
+    from account_intelligence.connectors.settings import load_providers_config
+
+    try:
+        names = {n.strip() for n in vendor_names(load_providers_config()).values() if n.strip()}
+    except Exception:  # noqa: BLE001 - no provider config: the provider terms still apply
+        return ()
+    names |= {f"{n} Search" for n in names}
+    return tuple(sorted(names, key=len, reverse=True))
+
+
 def strip_tool_names(text: str, extra: tuple[str, ...] = ()) -> str:
     """The text with every data or enrichment tool name replaced by "6th agents"."""
-    for name in (*TOOL_NAMES, *extra):
+    for name in (*tool_names(), *extra):
         if name.strip():
             text = re.sub(
                 r"(?<!\w)" + re.escape(name.strip()) + r"(?!\w)", REPLACEMENT, text, flags=re.I
