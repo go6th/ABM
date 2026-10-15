@@ -4,11 +4,12 @@
 // live counts and FILES. Another client's account and a missing one look the same: not found.
 import type { Metadata } from "next";
 import Link from "next/link";
-import type { AccountWorkspace } from "@/lib/gen/api.gen";
+import type { AccountWorkspace, DocumentList } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { LINK_REL, safeLink } from "@/lib/render";
 import { Grade, Pill, StateCard } from "@/ui/design";
 import { FilesCard } from "@/components/accounts/FilesCard";
+import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
 import { LiveRefresh, ResumeResearch } from "@/components/accounts/ResumeResearch";
 
@@ -47,6 +48,15 @@ export default async function AccountWorkspacePage({ params }: Params) {
           : <StateCard title="Account not found" body="It is not in your workspace." action={<Link className="btn" href="/accounts">Back to accounts</Link>} />}
       </div>
     );
+  }
+  // the client's own uploads for this account (viewers may not list documents: none shown)
+  let uploads: DocumentList["documents"] | null = null;
+  if (ws.id) {
+    try {
+      uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(ws.id)}`, here))?.documents ?? null;
+    } catch (e) {
+      if (!(e instanceof ServerApiError)) throw e;
+    }
   }
   const name = ws.name ?? ws.domain;
   const d = encodeURIComponent(ws.domain);
@@ -155,6 +165,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
           ))}
         </nav>
         <FilesCard domain={ws.domain} files={ws.files} />
+        {uploads ? <UploadedFilesCard docs={uploads} /> : null}
       </div>
     </div>
   );
