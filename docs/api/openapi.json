@@ -2278,11 +2278,16 @@
       },
       "ClientInvite": {
         "additionalProperties": false,
-        "description": "A new client's (or a renewed) invite link, to copy; nothing is sent.",
+        "description": "A new client's (or a renewed) invite link: emailed when a mailer is set up (``emailed``)\nand always returned to copy.",
         "properties": {
           "email": {
             "title": "Email",
             "type": "string"
+          },
+          "emailed": {
+            "default": false,
+            "title": "Emailed",
+            "type": "boolean"
           },
           "expires_at": {
             "title": "Expires At",
@@ -13202,7 +13207,7 @@
         ]
       },
       "post": {
-        "description": "A2 Add client: the client, its settings (invited) and its first user; an invite link to\ncopy is returned and nothing is sent.",
+        "description": "A2 Add client: the client, its settings (invited) and its first user; the invite link is\nemailed when a mailer is set up and always returned to copy.",
         "operationId": "add_client_operator_v1_console_clients_post",
         "parameters": [
           {

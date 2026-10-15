@@ -176,14 +176,15 @@ routing:
 # (planning, pulling, extraction and classification: tiers planner, extractor, classifier) and an
 # analysis model (Ask, file analysis, the sense check, distilling, synthesis, narrative and the
 # judge: tiers synthesis, narrative, judge). The defaults are the owner's split. The admin enables
-# models for the platform and allows them per client (Kimi K3 is off for a client until allowed:
-# its data would go to Moonshot AI). `features` says what the model has here; nothing assumes a
-# feature a model does not list.
+# models for the platform and may narrow them per client. Every enabled model is allowed for every
+# client by default (owner decision 2026-10-15, was: Kimi K3 off until allowed per client); an
+# admin can still remove one on the client's page. `features` says what the model has here;
+# nothing assumes a feature a model does not list.
 choices:
   research_tiers: [planner, extractor, classifier]
   analysis_tiers: [synthesis, narrative, judge]
   defaults: {research: claude-opus-5-5, analysis: claude-fable-5-1}
-  needs_client_permission: [kimi-k3]
+  needs_client_permission: []
   models:
     - id: claude-opus-5-5
       label: "Opus 5.5"

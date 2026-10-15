@@ -155,10 +155,24 @@ def claude_default(role: str, cat: Catalogue | None = None) -> str:
     return cat.default_research if role == "research" else cat.default_analysis
 
 
+# provider keys this process loaded from the secret store (the cloud reads ANTHROPIC_SECRET and
+# MOONSHOT_SECRET from Secret Manager, never ANTHROPIC_API_KEY / MOONSHOT_API_KEY), by key_env
+_LOADED_KEYS: set[str] = set()
+
+
+def mark_set_up(key_env: str) -> None:
+    """Record that the process holds the provider key a model's ``key_env`` names (the container
+    calls this after it loaded the key from Secret Manager, or for Vertex AI, which needs none)."""
+    _LOADED_KEYS.add(key_env)
+
+
 def set_up(model: ModelChoice, env: Mapping[str, str] | None = None) -> bool:
-    """Whether this process can call the model: its provider key, or the hermetic fake model."""
+    """Whether this process can call the model: its provider key (in the environment, a file, or
+    loaded from the secret store), or the hermetic fake model."""
     env = os.environ if env is None else env
     if env.get("LLM_FAKE") == "hermetic":
+        return True
+    if model.key_env in _LOADED_KEYS:
         return True
     return bool(env.get(model.key_env) or env.get(f"{model.key_env}_FILE"))
 

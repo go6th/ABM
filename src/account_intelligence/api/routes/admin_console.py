@@ -95,7 +95,16 @@ async def _client_ids() -> list[UUID]:
             text("SELECT tenant_id FROM operator_tenant_overview() ORDER BY created_at")
         )
         skip = await isolation.check_clients(plain)
-        return [UUID(str(r.tenant_id)) for r in rows if UUID(str(r.tenant_id)) not in skip]
+        ids = [UUID(str(r.tenant_id)) for r in rows if UUID(str(r.tenant_id)) not in skip]
+    # a check pass that failed before recording its pair left its clients unrecorded (the canary
+    # account had no owner until 2026-10-15): they are still the check's, never real clients
+    out = []
+    for tid in ids:
+        async with tenant_txn(tid) as s:
+            name = await s.scalar(text("SELECT name FROM tenants WHERE id = :t"), {"t": tid})
+        if name not in isolation.CHECK_CLIENT_NAMES:
+            out.append(tid)
+    return out
 
 
 async def _isolation() -> dict[str, Any]:
@@ -241,12 +250,33 @@ async def _invite(request: Request, email: str) -> tuple[UUID, str, str]:
     return UUID(str(identity_id)), f"{base.rstrip('/')}/invite#{token}", expires.isoformat()
 
 
+async def _email_invite(request: Request, email: str, client: str, url: str, expires: str) -> bool:
+    """Email the invite link when a mailer is set up (best effort: the link is still returned to
+    copy, and a mail failure never undoes the invite). True when the mail was handed over."""
+    import logging
+
+    from account_intelligence.platform.ports import NotConfigured
+
+    try:
+        await plane_of(request).mailer.send(
+            email,
+            "client_invite",
+            {"client_name": client, "invite_url": url, "expires": expires[:10]},
+        )
+    except NotConfigured:
+        return False
+    except Exception as error:  # noqa: BLE001 - the copyable link stays the fallback
+        logging.getLogger(__name__).warning("invite email not sent: %s", type(error).__name__)
+        return False
+    return True
+
+
 @router.post("/clients", response_model=C.ClientInvite, status_code=201)
 async def add_client(
     body: NewClient, request: Request, who: StaffIdentity = Depends(require_staff)
 ) -> dict[str, Any]:
-    """A2 Add client: the client, its settings (invited) and its first user; an invite link to
-    copy is returned and nothing is sent."""
+    """A2 Add client: the client, its settings (invited) and its first user; the invite link is
+    emailed when a mailer is set up and always returned to copy."""
     now = plane_of(request).clock.now()
     email = body.admin_email.strip().lower()
     identity_id, url, expires = await _invite(request, email)
@@ -267,7 +297,14 @@ async def add_client(
         )
         await _client_audit(s, request, who, "client.create")
     await _op_audit(request, who, "client.create", str(tid))
-    return {"tenant_id": str(tid), "email": email, "invite_url": url, "expires_at": expires}
+    emailed = await _email_invite(request, email, body.name.strip(), url, expires)
+    return {
+        "tenant_id": str(tid),
+        "email": email,
+        "invite_url": url,
+        "expires_at": expires,
+        "emailed": emailed,
+    }
 
 
 async def _pending(s: Any) -> list[str]:
@@ -306,11 +343,15 @@ async def renew_invite(
         raise APIProblem(409, "no_pending_invite", "Nothing to renew", "Everyone invited joined.")
     _, url, expires = await _invite(request, pending[0])
     await _op_audit(request, who, "client.invite", str(tenant_id))
+    async with tenant_txn(tenant_id) as s:
+        name = await s.scalar(text("SELECT name FROM tenants WHERE id = :t"), {"t": tenant_id})
+    emailed = await _email_invite(request, pending[0], str(name or "your company"), url, expires)
     return {
         "tenant_id": str(tenant_id),
         "email": pending[0],
         "invite_url": url,
         "expires_at": expires,
+        "emailed": emailed,
     }
 
 

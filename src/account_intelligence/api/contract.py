@@ -2228,12 +2228,14 @@ class ConsoleClients(Out):
 
 
 class ClientInvite(Out):
-    """A new client's (or a renewed) invite link, to copy; nothing is sent."""
+    """A new client's (or a renewed) invite link: emailed when a mailer is set up (``emailed``)
+    and always returned to copy."""
 
     tenant_id: str
     email: str
     invite_url: str
     expires_at: str
+    emailed: bool = False
 
 
 class ConsoleClientSettings(Out):

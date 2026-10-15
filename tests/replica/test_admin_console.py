@@ -226,7 +226,7 @@ async def test_platform_defaults_and_the_model_choice(staff_env: None) -> None:
     assert before["skill_version"] and before["model_router_on"] is False
     assert (before["default_research_model"], before["default_analysis_model"]) == (opus, fable)
     assert [m["id"] for m in before["models"]] == [opus, fable, kimi]
-    assert [m["needs_client_permission"] for m in before["models"]] == [False, False, True]
+    assert [m["needs_client_permission"] for m in before["models"]] == [False, False, False]
     try:
         r = await _staff(
             plane,
@@ -260,3 +260,35 @@ def test_single_model_moves_extraction_to_the_analysis_tier_and_keeps_the_judge(
     assert single.routing_version != cfg.routing_version  # no reply reuse across modes
     with pytest.raises(ValueError):
         with_model_split(cfg, "mixed")
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_with_a_mailer_the_invite_link_is_emailed_too(staff_env: None) -> None:
+    from tests.fakes.phase3 import FakeMailer
+
+    plane = make_app()
+    mailer = FakeMailer()
+    plane.app.state.container.tenant_plane.mailer = mailer
+    email = f"lead-{uuid4().hex[:8]}@harbor.example"
+    made = await _staff(
+        plane,
+        "POST",
+        "/operator/v1/console/clients",
+        json={"name": "Harbor Digital", "admin_email": email},
+    )
+    assert made.status_code == 201, made.text
+    invite = made.json()
+    assert invite["emailed"] is True
+    to, template, params = mailer.sent[0]
+    assert (to, template) == (email, "client_invite")
+    assert (
+        params["invite_url"] == invite["invite_url"] and params["client_name"] == "Harbor Digital"
+    )
+    renew = await _staff(
+        plane, "POST", f"/operator/v1/console/clients/{invite['tenant_id']}/invite"
+    )
+    assert renew.status_code == 200 and renew.json()["emailed"] is True
+    assert (
+        mailer.sent[1][0] == email and mailer.sent[1][2]["invite_url"] == renew.json()["invite_url"]
+    )

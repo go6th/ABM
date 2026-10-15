@@ -213,6 +213,17 @@ def build_connectors(
     return with_governance(runtime), retry_policy_for(config)
 
 
+def _with_mailer(plane: Any, env: Mapping[str, str]) -> Any:
+    """The tenant plane with the SMTP mailer when ``SMTP_HOST`` is set (invites, email
+    verification, password reset and alert email); without it mail stays fail closed."""
+    from tenancy.smtp_mailer import mailer_from_env
+
+    mailer = mailer_from_env(env)
+    if mailer is not None:
+        plane.mailer = mailer
+    return plane
+
+
 def maildrive_apps(env: Mapping[str, str]) -> dict[str, tuple[str, str]]:
     """The Mail and drive OAuth apps registered in the environment (empty until the owner
     registers them: every source then says "Not available yet")."""
@@ -471,6 +482,7 @@ def build_container(env: Mapping[str, str] | None = None) -> Container:
 
     tenant_plane = unconfigured_plane(clock, env.get("PUBLIC_BASE_URL"))
     tenant_plane.secrets = DevelopmentSecretStore()
+    tenant_plane = _with_mailer(tenant_plane, env)
     container = Container(
         env=app_env,
         connectors=connectors,
@@ -618,10 +630,17 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         )
     else:
         raise RuntimeMisconfigured("LLM_ACCESS must be vertex_ai or anthropic_api (D-19)")
+    from llm.choice import mark_set_up
+
+    # the Claude client above holds its key (or Vertex AI's identity), so Opus and Fable are set up
+    mark_set_up("ANTHROPIC_API_KEY")
     # Kimi K3 (owner decision 2026-10-14): the key from the secret store when MOONSHOT_SECRET
     # names one; without it Kimi K3 is shown "Not set up" and cannot be chosen
     moonshot_secret = env.get("MOONSHOT_SECRET")
-    llm = with_model_choice(llm, env, secrets.get(moonshot_secret) if moonshot_secret else None)
+    moonshot_key = secrets.get(moonshot_secret) if moonshot_secret else None
+    if moonshot_key:
+        mark_set_up("MOONSHOT_API_KEY")
+    llm = with_model_choice(llm, env, moonshot_key)
     # D-48: the router is switched on with MODEL_ROUTER=on once config/model_routing.yaml names
     # candidates for this access path (V-LLM-2: the Vertex model id format is unverified)
     client = getattr(llm, "client", None)
@@ -651,7 +670,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         task_audience=_require(env, "TASKS_AUDIENCE"),
         task_service_account=_require(env, "TASKS_SERVICE_ACCOUNT"),
         verify_task_token=verify_task_token,
-        tenant_plane=cloud_plane(secrets, clock, env.get("PUBLIC_BASE_URL")),
+        tenant_plane=_with_mailer(cloud_plane(secrets, clock, env.get("PUBLIC_BASE_URL")), env),
         reply_cache=reply_cache(env),
     )
     from research_files.blobstore import GcsBlobStore

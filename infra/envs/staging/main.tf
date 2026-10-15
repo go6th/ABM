@@ -92,6 +92,16 @@ variable "alert_channels" {
 variable "raw_retention_days" {
   type = number
 }
+variable "mail" {
+  type = object({
+    host      = string
+    port      = optional(number, 587)
+    username  = optional(string, "")
+    from      = optional(string, "")
+    from_name = optional(string, "")
+  })
+  default = { host = "" }
+}
 variable "staff" {
   type = object({
     workspace_domain = string
@@ -122,6 +132,7 @@ module "stack" {
   moonshot_enabled        = var.moonshot_enabled
   moonshot_api            = var.moonshot_api
   maildrive               = var.maildrive
+  mail                    = var.mail
   archive_lock            = var.archive_lock
   workload_alerts_enabled = var.workload_alerts_enabled
   monthly_budget_usd      = var.monthly_budget_usd

@@ -399,6 +399,18 @@ class Settings(BaseSettings):
     p_people_api_key: SecretStr | None = var(purpose="People provider key.", secret=True)
     p_org_api_key: SecretStr | None = var(purpose="Organisation provider key.", secret=True)
 
+    # transactional email (invites, email verification, password reset, alert email) over SMTP;
+    # unset SMTP_HOST keeps mail fail closed (owner decision 2026-10-15)
+    smtp_host: str | None = var(purpose="SMTP server, e.g. smtp.gmail.com (unset: no email).")
+    smtp_port: int = var(587, purpose="SMTP port: 587 STARTTLS or 465 implicit TLS.")
+    smtp_username: str | None = var(purpose="SMTP login, e.g. the sending Gmail address.")
+    smtp_password: SecretStr | None = var(
+        purpose="SMTP password or app password (cloud: injected from Secret Manager).",
+        secret=True,
+    )
+    mail_from: str | None = var(purpose="From address of outgoing email (default: SMTP login).")
+    mail_from_name: str | None = var(purpose="From name of outgoing email.")
+
     # exports
     # Mail and drive (per-user, read-only): the OAuth apps the owner registers. Until both the
     # id and the secret of a provider are set, its sources say "Not available yet".

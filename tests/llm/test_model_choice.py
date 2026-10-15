@@ -47,7 +47,8 @@ def test_the_judge_never_equals_the_research_model() -> None:
 def test_a_model_is_greyed_out_with_the_reason() -> None:
     enabled = [OPUS, FABLE, KIMI]
     assert availability(OPUS, enabled=enabled, allowed=None, env=KEYS) is None
-    assert availability(KIMI, enabled=enabled, allowed=None, env=KEYS) == NOT_ENABLED
+    # every enabled model is allowed by default (owner decision 2026-10-15)
+    assert availability(KIMI, enabled=enabled, allowed=None, env=KEYS) is None
     assert availability(KIMI, enabled=enabled, allowed=[OPUS, FABLE, KIMI], env=KEYS) is None
     assert availability(KIMI, enabled=[OPUS, FABLE], allowed=[KIMI], env=KEYS) == NOT_ENABLED
     assert availability(KIMI, enabled=enabled, allowed=[KIMI], env={}) == NOT_SET_UP
@@ -60,3 +61,18 @@ def test_the_record_round_trips_with_its_fallbacks() -> None:
     again = RunModels.from_json(models.as_json())
     assert again == models
     assert RunModels.from_json(None) == RunModels(OPUS, FABLE)
+
+
+def test_a_key_loaded_from_the_secret_store_counts_as_set_up(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # the cloud reads the keys from Secret Manager (ANTHROPIC_SECRET, MOONSHOT_SECRET), so no
+    # *_API_KEY variable exists; every model was shown "Not set up" until this (2026-10-15)
+    from llm import choice
+
+    monkeypatch.setattr(choice, "_LOADED_KEYS", set())
+    enabled = [m.id for m in catalogue().models]
+    assert availability(OPUS, enabled=enabled, allowed=None, env={}) == NOT_SET_UP
+    choice.mark_set_up("ANTHROPIC_API_KEY")
+    assert availability(OPUS, enabled=enabled, allowed=None, env={}) is None
+    assert availability(KIMI, enabled=enabled, allowed=[KIMI], env={}) == NOT_SET_UP
+    choice.mark_set_up("MOONSHOT_API_KEY")
+    assert availability(KIMI, enabled=enabled, allowed=[KIMI], env={}) is None

@@ -42,6 +42,8 @@ from obs.logging import logger
 
 log = logger(__name__)
 PROBE_USER = "system:isolation-check"
+CANARY_OWNER = "system:isolation-canary"
+CHECK_CLIENT_NAMES = ("6th isolation check (probe)", "6th isolation check (canary)")
 # Read routes a probe never calls: event streams (they stay open) and file downloads (bodies are
 # files, not text to scan); they are proven by the isolation suite on every change.
 NOT_PROBED = frozenset(
@@ -141,12 +143,14 @@ async def ensure_pair(plain_factory: Any, txn: Any, now: datetime) -> tuple[UUID
         if row is not None:
             return UUID(str(row.probe_client)), UUID(str(row.canary_client)), str(row.canary)
         canary = f"isolation-canary-{secrets.token_hex(6)}"
-        probe = await tenants.create(plain, name="6th isolation check (probe)")
-        target = await tenants.create(plain, name="6th isolation check (canary)")
+        probe = await tenants.create(plain, name=CHECK_CLIENT_NAMES[0])
+        target = await tenants.create(plain, name=CHECK_CLIENT_NAMES[1])
     async with txn(probe) as s:
         await membership.add(s, user_id=PROBE_USER, role="analyst", actor="system", now=now)
     async with txn(target) as s:
-        await lifecycle.add_account(s, target, f"{canary}.example")
+        # accounts are one person's since private workspaces (0063); a system pass has no acting
+        # user, so the canary account names its own owner (the nightly check failed without it)
+        await lifecycle.add_account(s, target, f"{canary}.example", added_by=CANARY_OWNER)
     async with plain_factory() as plain:
         await plain.execute(
             text(

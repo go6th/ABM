@@ -34,3 +34,4 @@ staff = {
 # maildrive = { google_client_id = "", microsoft_client_id = "" } # an id here needs its secret
 # archive_lock       = false # true locks the audit archive for 7 years (irreversible)
 # workload_alerts_enabled = false # true once the OTLP exporter ships metrics (V-OBS-1)
+# mail = { host = "smtp.gmail.com", port = 587, username = "sender@example.com", from = "sender@example.com", from_name = "Account Intelligence by 6th" } # set once smtp-password has a version

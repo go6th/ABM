@@ -111,6 +111,17 @@ variable "maildrive" {
   description = "Mail and drive OAuth client ids; a non-empty id wires its client secret (which must then have a version)."
   default     = { google_client_id = "", microsoft_client_id = "" }
 }
+variable "mail" {
+  type = object({
+    host      = string
+    port      = optional(number, 587)
+    username  = optional(string, "")
+    from      = optional(string, "")
+    from_name = optional(string, "")
+  })
+  description = "SMTP for invites, email verification, password reset and alert email; host \"\" keeps mail off. The smtp-password secret always exists; set host only once it has a version."
+  default     = { host = "" }
+}
 variable "monthly_budget_usd" {
   type = number
 }
@@ -237,6 +248,7 @@ locals {
       "p-signals-api-token"           = ["worker"]
       "p-people-api-key"              = ["worker"]
       "p-org-api-key"                 = ["worker"]
+      "smtp-password"                 = ["api", "worker"] # SMTP password or app password (mail)
     },
     var.maildrive.google_client_id != "" ? { "maildrive-google-client-secret" = ["api", "worker"] } : {},
     var.maildrive.microsoft_client_id != "" ? { "maildrive-microsoft-client-secret" = ["api", "worker"] } : {},
@@ -279,11 +291,19 @@ locals {
     var.moonshot_enabled && var.moonshot_api.model != "" ? { MOONSHOT_MODEL = var.moonshot_api.model } : {},
     var.maildrive.google_client_id != "" ? { MAILDRIVE_GOOGLE_CLIENT_ID = var.maildrive.google_client_id } : {},
     var.maildrive.microsoft_client_id != "" ? { MAILDRIVE_MICROSOFT_CLIENT_ID = var.maildrive.microsoft_client_id } : {},
+    var.mail.host != "" ? {
+      SMTP_HOST      = var.mail.host
+      SMTP_PORT      = tostring(var.mail.port)
+      SMTP_USERNAME  = var.mail.username
+      MAIL_FROM      = var.mail.from
+      MAIL_FROM_NAME = var.mail.from_name
+    } : {},
   )
   db_secret = { CHECKPOINT_DATABASE_URL = "checkpoint-database-url" }
   maildrive_secret = merge(
     var.maildrive.google_client_id != "" ? { MAILDRIVE_GOOGLE_CLIENT_SECRET = "maildrive-google-client-secret" } : {},
     var.maildrive.microsoft_client_id != "" ? { MAILDRIVE_MICROSOFT_CLIENT_SECRET = "maildrive-microsoft-client-secret" } : {},
+    var.mail.host != "" ? { SMTP_PASSWORD = "smtp-password" } : {},
   )
   providers_secret = {
     P_SEARCH_API_KEY    = "p-search-api-key"

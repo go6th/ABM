@@ -106,6 +106,12 @@ or a value has the wrong type (errors name the variable, never the value).
 | `P_SIGNALS_API_TOKEN` | Signals provider token. | **secret** | - | - | api, worker |
 | `P_PEOPLE_API_KEY` | People provider key. | **secret** | - | - | api, worker |
 | `P_ORG_API_KEY` | Organisation provider key. | **secret** | - | - | api, worker |
+| `SMTP_HOST` | SMTP server, e.g. smtp.gmail.com (unset: no email). | no | - | - | api, worker |
+| `SMTP_PORT` | SMTP port: 587 STARTTLS or 465 implicit TLS. | no | - | - | api, worker |
+| `SMTP_USERNAME` | SMTP login, e.g. the sending Gmail address. | no | - | - | api, worker |
+| `SMTP_PASSWORD` | SMTP password or app password (cloud: injected from Secret Manager). | **secret** | - | - | api, worker |
+| `MAIL_FROM` | From address of outgoing email (default: SMTP login). | no | - | - | api, worker |
+| `MAIL_FROM_NAME` | From name of outgoing email. | no | - | - | api, worker |
 | `MAILDRIVE_GOOGLE_CLIENT_ID` | Google OAuth app client id for Gmail and Google Drive (Mail and drive). | no | - | - | api, worker |
 | `MAILDRIVE_GOOGLE_CLIENT_SECRET` | Google OAuth app client secret (cloud: injected from Secret Manager). | **secret** | - | - | api, worker |
 | `MAILDRIVE_GOOGLE_CLIENT_SECRET_FILE` | Path to a file holding the Google client secret (instead of the variable). | no | - | - | api, worker |
