@@ -741,10 +741,20 @@ async def index_page(
     rows: Sequence[Any],
     vectors: Sequence[Sequence[float]],
     model: str,
+    semantic: Sequence[Sequence[float]] | None = None,
+    semantic_model: str | None = None,
 ) -> bool:
     """Index one page of passages (their range is replaced, so a page indexed twice is written
-    once) and remember how far indexing got. False: the document was deleted meanwhile."""
-    if not await alive(s, document_id):
+    once) and remember how far indexing got. False: the document was deleted meanwhile.
+    ``semantic`` are the retrieval vectors (on-server transformer), one per row, or None.
+
+    The document row is locked FOR NO KEY UPDATE first, not FOR SHARE: two workers indexing the
+    same document both took the share lock and then both updated the row, a deadlock seen on
+    staging 2026-10-15. Now the second waits and rewrites the same page (idempotent)."""
+    locked = await s.execute(
+        text("SELECT 1 FROM documents WHERE id = :d FOR NO KEY UPDATE"), {"d": document_id}
+    )
+    if locked.first() is None:
         return False
     lo, hi = int(rows[0].seq), int(rows[-1].seq)
     await s.execute(
@@ -757,9 +767,10 @@ async def index_page(
     await s.execute(
         text(
             "INSERT INTO chunks (tenant_id, account_id, doc_id, visibility, content,"
-            " embedding, passage_seq, location, heading_path, embedding_model) VALUES"
+            " embedding, passage_seq, location, heading_path, embedding_model,"
+            " semantic_embedding, semantic_model) VALUES"
             " ((SELECT app_tenant()), :a, :d, 'private', :c, CAST(:v AS halfvec), :seq,"
-            " CAST(:loc AS jsonb), :h, :m)"
+            " CAST(:loc AS jsonb), :h, :m, CAST(:sv AS halfvec), :sm)"
         ),
         [
             {
@@ -771,8 +782,12 @@ async def index_page(
                 "loc": _j(row.location),
                 "h": row.heading_path,
                 "m": model,
+                "sv": literal(sem) if sem is not None else None,
+                "sm": semantic_model if sem is not None else None,
             }
-            for row, vec in zip(rows, vectors, strict=True)
+            for row, vec, sem in zip(
+                rows, vectors, semantic if semantic is not None else [None] * len(rows), strict=True
+            )
         ],
     )
     await s.execute(

@@ -139,6 +139,8 @@ class DocumentService:
     # parts one call of ``read_parts`` reads before it hands the rest to a new task (None: all).
     # The cloud sets 1, so one Cloud Tasks request never runs past the 30-minute maximum.
     parts_per_request: int | None = None
+    # retrieval vectors (documents.embed.FastEmbedder, on-server); None indexes without them
+    semantic: Any | None = None
 
     def __post_init__(self) -> None:
         self.cfg = self.cfg or load_config()
@@ -724,14 +726,24 @@ class DocumentService:
             if not rows:
                 break
             vectors: list[list[float]] = []
+            semantic: list[list[float]] | None = [] if self.semantic is not None else None
             batch = cfg.embedding.batch
             for i in range(0, len(rows), batch):
                 texts = [r.content for r in rows[i : i + batch]]
                 vectors.extend(await self.embedder.embed(texts))
+                if semantic is not None:
+                    semantic.extend(await self.semantic.embed(texts))
                 await self._meter(tenant_id, row.id, texts)
             async with self.txn(tenant_id) as s:
                 if not await repo.index_page(
-                    s, row.id, row.account_id, rows, vectors, self.embedder.model
+                    s,
+                    row.id,
+                    row.account_id,
+                    rows,
+                    vectors,
+                    self.embedder.model,
+                    semantic,
+                    self.semantic.model if self.semantic is not None else None,
                 ):
                     return "noop"  # deleted while it was being embedded
             after = int(rows[-1].seq)

@@ -30,7 +30,9 @@ from account_intelligence.replica.answers import (
     first_call_questions,
 )
 
-MAX_ROWS = 30
+MAX_ROWS = 40
+# retrieved document passages always get places (they were never read before, audit 2026-10-15)
+MAX_PASSAGES = 10
 MAX_OUTPUT_TOKENS = 900
 
 SYSTEM = (
@@ -59,6 +61,11 @@ class ModelReply:
 def pick_rows(q: Question, ws: Workspace, local: Draft) -> list[Row]:
     """The rows the model may cite: what the local composer cited, then the most relevant rest."""
     rows: dict[str, Row] = dict(local.rows)
+    # the passages retrieved for this question come first after what the local answer cited:
+    # they are ranked by relevance to the question already
+    passages = [r for r in ws.passages if not q.accounts or r.account in q.accounts]
+    for r in passages[:MAX_PASSAGES]:
+        rows.setdefault(r.key, r)
     pool = ws.facts + ws.jobs + ws.people + ws.signals + ws.tech + ws.mail + ws.files + ws.reports
     if q.accounts:
         pool = [r for r in pool if r.account in q.accounts]

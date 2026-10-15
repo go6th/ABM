@@ -35,6 +35,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
@@ -376,6 +377,44 @@ async def retry_part(
             resource_id=document_id,
         )
     return dict(out)
+
+
+@router.get("/{document_id}/passages", response_model=C.DocumentPassages)
+async def passages(
+    document_id: UUID,
+    request: Request,
+    after: int = Query(default=-1, ge=-1),
+    limit: int = Query(default=50, ge=1, le=200),
+    ident: Identity = Depends(require_role(*UPLOADERS)),
+) -> dict[str, Any]:
+    """What was read from one document: its passages in order, each with where it came from
+    (page, slide, row), a page at a time (audit 2026-10-15: the user could not see what a file
+    contributed). The caller's own documents only (row level security)."""
+    from documents import repo
+    from documents.chunking import cite
+
+    async with tenant_txn(ident.tenant_id) as s:
+        found = (
+            await s.execute(text("SELECT 1 FROM documents WHERE id = :d"), {"d": document_id})
+        ).first()
+        if found is None:
+            raise APIProblem(404, "not_found", "Not found", "The document was not found.")
+        rows = await repo.document_passages_page(s, document_id, after, limit)
+    out = [
+        {
+            "seq": int(r.seq),
+            "kind": str(r.kind),
+            "where": cite(r.location) if isinstance(r.location, dict) else None,
+            "heading": r.heading_path,
+            "content": str(r.content),
+        }
+        for r in rows
+    ]
+    return {
+        "document_id": str(document_id),
+        "passages": out,
+        "next_after": out[-1]["seq"] if len(out) == limit else None,
+    }
 
 
 @router.get("", response_model=C.DocumentList)

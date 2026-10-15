@@ -2000,6 +2000,24 @@ class DocumentStatus(Out):
     parts_failed: list[DocumentPartFailure]
 
 
+class DocumentPassage(Out):
+    """One passage read from a document, with where it came from."""
+
+    seq: int
+    kind: str
+    where: str | None
+    heading: str | None
+    content: str
+
+
+class DocumentPassages(Out):
+    """Response body: a page of what was read from one document."""
+
+    document_id: str
+    passages: list[DocumentPassage]
+    next_after: int | None
+
+
 class DriveFile(Out):
     """One file of the caller's Google Drive that a research can read (metadata only)."""
 
@@ -2135,6 +2153,9 @@ class FileAnalysisRun(Out):
     finished_at: str | None
     files: int
     public_run_id: str | None
+    # the AI model could not read the files' prose (provider refused or ran out): the page says
+    # so instead of "your files do not state anything" (audit 2026-10-15)
+    model_unread: bool = False
 
 
 class InternalView(Out):

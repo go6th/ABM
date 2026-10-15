@@ -167,3 +167,85 @@ async def test_local_blob_store_streams_and_composes_without_holding_the_file(tm
     with pytest.raises(ValueError):
         store.path("../escape")
     assert await store.delete_prefix("t/") >= 3
+
+
+def _deck_with_notes_in_reverse_order() -> bytes:
+    """Two slides whose deck order (presentation.xml) is the reverse of their file names, the
+    first with speaker notes."""
+    import zipfile
+
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    rel = "http://schemas.openxmlformats.org/package/2006/relationships"
+    out = io.BytesIO()
+
+    def slide(text: str) -> str:
+        return (
+            f'<p:sld xmlns:p="{p}" xmlns:a="{a}"><p:cSld><p:spTree><p:sp><p:txBody>'
+            f"<a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"
+        )
+
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("ppt/slides/slide1.xml", slide("Appendix"))
+        z.writestr("ppt/slides/slide2.xml", slide("Opening"))
+        z.writestr(
+            "ppt/presentation.xml",
+            f'<p:presentation xmlns:p="{p}" xmlns:r="{r}"><p:sldIdLst>'
+            f'<p:sldId id="256" r:id="rId2"/><p:sldId id="257" r:id="rId1"/></p:sldIdLst>'
+            f"</p:presentation>",
+        )
+        z.writestr(
+            "ppt/_rels/presentation.xml.rels",
+            f'<Relationships xmlns="{rel}"><Relationship Id="rId1" Target="slides/slide1.xml"/>'
+            f'<Relationship Id="rId2" Target="slides/slide2.xml"/></Relationships>',
+        )
+        z.writestr(
+            "ppt/slides/_rels/slide2.xml.rels",
+            f'<Relationships xmlns="{rel}"><Relationship Id="rId9"'
+            f' Target="../notesSlides/notesSlide1.xml"/></Relationships>',
+        )
+        z.writestr(
+            "ppt/notesSlides/notesSlide1.xml",
+            f'<p:notes xmlns:p="{p}" xmlns:a="{a}"><p:cSld><p:spTree>'
+            f'<p:sp><p:nvSpPr><p:nvPr><p:ph type="sldImg"/></p:nvPr></p:nvSpPr></p:sp>'
+            f'<p:sp><p:nvSpPr><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:txBody>'
+            f"<a:p><a:r><a:t>Mention the budget cycle in March.</a:t></a:r></a:p>"
+            f"</p:txBody></p:sp></p:spTree></p:cSld></p:notes>",
+        )
+    return out.getvalue()
+
+
+def test_pptx_follows_the_deck_order_and_reads_speaker_notes() -> None:
+    units = [u for u in run("pptx", _deck_with_notes_in_reverse_order(), "deck.pptx") if u.text]
+    assert [u.heading for u in units] == ["Opening", "Appendix"]
+    assert "Speaker notes: Mention the budget cycle in March." in units[0].text
+    assert "Speaker notes" not in units[1].text
+
+
+def test_docx_reads_headers_footnotes_and_comments() -> None:
+    import zipfile
+
+    from docx import Document
+
+    doc = Document()
+    doc.sections[0].header.paragraphs[0].text = "Confidential: Northwind account plan"
+    doc.add_paragraph("Body text about the renewal.")
+    raw = io.BytesIO()
+    doc.save(raw)
+    w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    patched = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(raw.getvalue())) as src, zipfile.ZipFile(patched, "w") as z:
+        for item in src.infolist():
+            z.writestr(item, src.read(item.filename))
+        z.writestr(
+            "word/comments.xml",
+            f'<w:comments xmlns:w="{w}"><w:comment w:id="0"><w:p><w:r>'
+            f"<w:t>Ask about the March budget freeze.</w:t></w:r></w:p></w:comment></w:comments>",
+        )
+    units = run("docx", patched.getvalue(), "plan.docx")
+    by_heading = {u.heading: u.text for u in units if u.heading}
+    assert "Confidential: Northwind account plan" in by_heading["Headers and footers"]
+    assert "Ask about the March budget freeze." in by_heading["Comments"]
+    assert any("renewal" in u.text for u in units)

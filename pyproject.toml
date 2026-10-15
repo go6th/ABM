@@ -38,6 +38,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pypdf>=5.0",
     "pyarrow>=17.0",
+    "fastembed==0.8.0",
 ]
 
 [build-system]

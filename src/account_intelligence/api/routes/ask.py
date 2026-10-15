@@ -130,6 +130,17 @@ async def ask(
         try:
             async with tenant_txn(ident.tenant_id) as session:
                 ws = await A.load_workspace(session, ident.user_id, body.account_id)
+                # the passages of the caller's own documents that best answer this question
+                # (hybrid search; Ask never read the files before, audit 2026-10-15)
+                docs = getattr(request.app.state.container, "documents", None)
+                searched = {body.account_id} if body.account_id else {a.id for a in ws.accounts}
+                try:
+                    async with session.begin_nested():  # a failure rolls back only this
+                        ws.passages = await A.passage_rows(
+                            session, ws, body.question, searched, getattr(docs, "semantic", None)
+                        )
+                except Exception:  # noqa: BLE001 - an answer without passages still stands
+                    log.warning("ask_passages_failed", extra={"request_id": str(body.request_id)})
             scope = A.scope_account(ws, body.account_id)
             q, draft = A.draft_local(body.question, ws, now, scope)
             model_id = LOCAL_MODEL

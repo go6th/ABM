@@ -268,3 +268,32 @@ def test_hiring_question_that_asks_who_to_call_gets_first_call_questions():
     assert text_of(out).startswith("Two of your accounts posted Salesforce build roles")
     assert out["items"] is not None and out["items"]["title"] == "FIRST CALL QUESTIONS"
     assert A.classify("Who is hiring Salesforce developers?") == "hiring"
+
+
+def test_retrieved_document_passages_get_places_in_the_model_rows():
+    """Passages retrieved for the question come right after what the local answer cited, even
+    when they are graded internal and older than every research fact (audit 2026-10-15)."""
+    from account_intelligence.replica.model_answer import MAX_PASSAGES, pick_rows
+
+    ws, by = workspace()
+    first = next(iter(by.values()))
+    ws.passages = [
+        A.Row(
+            key=f"passage:doc:{i}",
+            kind="file",
+            account=first,
+            text=f"Passage {i} about the renewal budget.",
+            title="From your files: plan.docx",
+            meta="Internal · page 1",
+            when=None,
+            url=None,
+            grade="internal",
+            extra={"passage": True},
+        )
+        for i in range(MAX_PASSAGES + 3)
+    ]
+    q = A.understand("What does the plan say about the renewal budget?", ws, None)
+    picked = pick_rows(q, ws, A.Draft())
+    keys = [r.key for r in picked]
+    assert keys[:MAX_PASSAGES] == [f"passage:doc:{i}" for i in range(MAX_PASSAGES)]
+    assert f"passage:doc:{MAX_PASSAGES}" not in keys  # a bounded number of places

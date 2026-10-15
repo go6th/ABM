@@ -539,6 +539,13 @@ def document_service(
         int(env.get("CLAMD_PORT", "3310")),
     )
     embedder = HashingEmbedder(cfg.embedding.dimensions, cfg.embedding.model)
+    # retrieval vectors from an on-server transformer (owner decision 2026-10-15) when
+    # DOCUMENT_SEMANTIC_EMBEDDER=fastembed; the hashing vectors above stay for the leak gate
+    semantic = None
+    if env.get("DOCUMENT_SEMANTIC_EMBEDDER") == "fastembed":
+        from documents.embed import FastEmbedder
+
+        semantic = FastEmbedder(cache_dir=env.get("FASTEMBED_CACHE_PATH") or None)
     return DocumentService(
         tenant_txn,
         blobs,
@@ -549,6 +556,7 @@ def document_service(
         cfg,
         # one part per Cloud Tasks request in the cloud (the 30-minute dispatch maximum)
         parts_per_request=1 if app_env in CLOUD_ENVS else None,
+        semantic=semantic,
     )
 
 

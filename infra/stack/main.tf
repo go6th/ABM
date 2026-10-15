@@ -256,15 +256,17 @@ locals {
   redis_ca_dir = "/etc/redis-ca"
   common_env = merge(
     {
-      APP_ENV            = local.app_env
-      LOG_LEVEL          = "INFO"
-      GCP_PROJECT        = var.project_id
-      GCP_REGION         = var.region
-      CLOUD_SQL_INSTANCE = module.cloud_sql.connection_name
-      DB_NAME            = module.cloud_sql.database
-      DB_POOL_SIZE       = tostring(local.pool.size)
-      DB_MAX_OVERFLOW    = tostring(local.pool.overflow)
-      PAYLOAD_BUCKET     = module.gcs.bucket
+      APP_ENV = local.app_env
+      # documents are indexed and searched by meaning with an on-server model (no per-use cost)
+      DOCUMENT_SEMANTIC_EMBEDDER = "fastembed"
+      LOG_LEVEL                  = "INFO"
+      GCP_PROJECT                = var.project_id
+      GCP_REGION                 = var.region
+      CLOUD_SQL_INSTANCE         = module.cloud_sql.connection_name
+      DB_NAME                    = module.cloud_sql.database
+      DB_POOL_SIZE               = tostring(local.pool.size)
+      DB_MAX_OVERFLOW            = tostring(local.pool.overflow)
+      PAYLOAD_BUCKET             = module.gcs.bucket
       # TLS to Memorystore against its own CA (mounted file); VERIFY(V-REDIS-1) hostname check
       REDIS_URL = "rediss://${module.cache.host}:${module.cache.port}/0?ssl_ca_certs=${local.redis_ca_dir}/ca.pem&ssl_check_hostname=false"
       # the python-docx renderer until the Node library is ported (FIX_LOG D10)

@@ -23,6 +23,15 @@ from research_files.parsers.base import ParseContext, Unit, detect_encoding, fat
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+PML = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+ODR = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+PKG_REL = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+# Word parts outside the body that people write in (read after the body, 2026-10-15)
+DOCX_EXTRAS: tuple[tuple[str, str], ...] = (
+    ("Headers and footers", r"word/(header|footer)\d*\.xml$"),
+    ("Footnotes and endnotes", r"word/(footnotes|endnotes)\.xml$"),
+    ("Comments", r"word/comments\.xml$"),
+)
 
 
 def _size(stream: IO[bytes]) -> int:
@@ -204,7 +213,41 @@ class DocxParser:
             return
         if heading is not None or lines:
             yield from self._section(heading, lines, section_start, block, limit, skip_parts)
+        yield from self._extras(archive, block, int(cursor.get("extra", 0)), limit)
         yield Unit("note", {}, "", {"done": True})
+
+    @staticmethod
+    def _extras(archive: zipfile.ZipFile, block: int, done: int, limit: int) -> Iterator[Unit]:
+        """Headers, footers, footnotes, endnotes and comments, one section each (they were
+        dropped before, audit 2026-10-15); boilerplate repeated across headers is kept once."""
+        from lxml import etree
+
+        names = archive.namelist()
+        for index, (title, pattern) in enumerate(DOCX_EXTRAS, start=1):
+            if index <= done:
+                continue
+            seen: list[str] = []
+            for name in sorted(n for n in names if re.match(pattern, n)):
+                try:
+                    root = etree.fromstring(archive.read(name))
+                except (etree.XMLSyntaxError, KeyError, zipfile.BadZipFile):
+                    continue
+                for para in root.iter(f"{W}p"):
+                    text = _docx_text(para).strip()
+                    if text and text not in seen:
+                        seen.append(text)
+            text = "\n".join(seen)
+            if not text:
+                continue
+            for i, part in enumerate(_split(text, limit)):
+                yield Unit(
+                    "section",
+                    {"section": title, "blocks": [block, block], "part": i + 1},
+                    part,
+                    {"block": block, "extra": index},
+                    heading=title if i == 0 else None,
+                    stats={"words": len(part.split()), "empty": False, "part": i + 1},
+                )
 
     @staticmethod
     def _section(
@@ -249,7 +292,7 @@ class PptxParser:
                 "Open and save the presentation again, then upload it.",
             )
             return
-        names.sort(key=lambda n: int(re.findall(r"\d+", n)[-1]))
+        names = _slide_order(archive, names)
         start = int(cursor.get("slide", 0))
         for index in range(start, len(names)):
             slide = index + 1
@@ -278,7 +321,8 @@ class PptxParser:
                 if text:
                     paragraphs.append(text)
             title = paragraphs[0][:200] if paragraphs else None
-            body = "\n".join(paragraphs)
+            notes = _slide_notes(archive, names[index])
+            body = "\n".join(paragraphs + ([f"Speaker notes: {notes}"] if notes else []))
             yield Unit(
                 "slide",
                 {"slide": slide},
@@ -288,6 +332,77 @@ class PptxParser:
                 stats={"words": len(body.split()), "empty": not body.strip()},
             )
         yield Unit("note", {}, "", {"done": True}, stats={"slides": len(names)})
+
+
+def _rels(archive: zipfile.ZipFile, part: str) -> dict[str, str]:
+    """A part's relationships: id -> target path inside the package."""
+    from lxml import etree
+
+    folder, name = part.rsplit("/", 1)
+    try:
+        root = etree.fromstring(archive.read(f"{folder}/_rels/{name}.rels"))
+    except (KeyError, etree.XMLSyntaxError, zipfile.BadZipFile):
+        return {}
+    out = {}
+    for rel in root.iter(f"{PKG_REL}Relationship"):
+        target = str(rel.get("Target") or "")
+        path = target.lstrip("/") if target.startswith("/") else _join(folder, target)
+        out[str(rel.get("Id"))] = path
+    return out
+
+
+def _join(folder: str, target: str) -> str:
+    parts = folder.split("/")
+    for piece in target.split("/"):
+        if piece == "..":
+            parts.pop()
+        elif piece and piece != ".":
+            parts.append(piece)
+    return "/".join(parts)
+
+
+def _slide_order(archive: zipfile.ZipFile, names: list[str]) -> list[str]:
+    """Slides in the deck's own order (presentation.xml sldIdLst), not by file name; slides the
+    list does not name follow in file order. Falls back to file order."""
+    from lxml import etree
+
+    by_number = sorted(names, key=lambda n: int(re.findall(r"\d+", n)[-1]))
+    try:
+        root = etree.fromstring(archive.read("ppt/presentation.xml"))
+    except (KeyError, etree.XMLSyntaxError, zipfile.BadZipFile):
+        return by_number
+    rels = _rels(archive, "ppt/presentation.xml")
+    ordered = [
+        rels[str(s.get(f"{ODR}id"))]
+        for s in root.iter(f"{PML}sldId")
+        if rels.get(str(s.get(f"{ODR}id"))) in names
+    ]
+    return ordered + [n for n in by_number if n not in ordered]
+
+
+def _slide_notes(archive: zipfile.ZipFile, slide: str) -> str:
+    """The speaker notes of one slide (the notes page's text boxes, without the slide image or
+    number placeholders), or "" when it has none."""
+    from lxml import etree
+
+    note = next((t for t in _rels(archive, slide).values() if "notesSlide" in t), None)
+    if note is None:
+        return ""
+    try:
+        root = etree.fromstring(archive.read(note))
+    except (KeyError, etree.XMLSyntaxError, zipfile.BadZipFile):
+        return ""
+    out = []
+    for shape in root.iter(f"{PML}sp"):
+        kind = shape.find(f".//{PML}ph")
+        if kind is not None and kind.get("type") in ("sldImg", "sldNum", "hdr", "ftr", "dt"):
+            continue
+        text = " ".join(
+            "".join(t.text or "" for t in p.iter(f"{A}t")).strip() for p in shape.iter(f"{A}p")
+        ).strip()
+        if text:
+            out.append(text)
+    return " ".join(out)
 
 
 _MD_HEADING = re.compile(r"^(#{1,6})\s+(.*\S)\s*#*\s*$")

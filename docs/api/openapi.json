@@ -5146,6 +5146,90 @@
         "title": "DocumentPartFailure",
         "type": "object"
       },
+      "DocumentPassage": {
+        "additionalProperties": false,
+        "description": "One passage read from a document, with where it came from.",
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Where"
+          }
+        },
+        "required": [
+          "seq",
+          "kind",
+          "where",
+          "heading",
+          "content"
+        ],
+        "title": "DocumentPassage",
+        "type": "object"
+      },
+      "DocumentPassages": {
+        "additionalProperties": false,
+        "description": "Response body: a page of what was read from one document.",
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After"
+          },
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentPassage"
+            },
+            "title": "Passages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_id",
+          "passages",
+          "next_after"
+        ],
+        "title": "DocumentPassages",
+        "type": "object"
+      },
       "DocumentPolicy": {
         "additionalProperties": false,
         "description": "Response body: the tenant's redaction tier.",
@@ -6291,6 +6375,11 @@
               }
             ],
             "title": "Finished At"
+          },
+          "model_unread": {
+            "default": false,
+            "title": "Model Unread",
+            "type": "boolean"
           },
           "public_run_id": {
             "anyOf": [
@@ -20690,6 +20779,89 @@
           }
         },
         "summary": "Retry Part",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}/passages": {
+      "get": {
+        "description": "What was read from one document: its passages in order, each with where it came from\n(page, slide, row), a page at a time (audit 2026-10-15: the user could not see what a file\ncontributed). The caller's own documents only (row level security).",
+        "operationId": "passages_v1_documents__document_id__passages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": -1,
+              "minimum": -1,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPassages"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Passages",
         "tags": [
           "documents"
         ]

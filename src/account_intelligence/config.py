@@ -399,6 +399,16 @@ class Settings(BaseSettings):
     p_people_api_key: SecretStr | None = var(purpose="People provider key.", secret=True)
     p_org_api_key: SecretStr | None = var(purpose="Organisation provider key.", secret=True)
 
+    # document retrieval vectors from an on-server transformer (owner decision 2026-10-15)
+    document_semantic_embedder: Literal["fastembed"] | None = var(
+        purpose="Set to fastembed to index and search documents by meaning (on-server model).",
+        component="api, worker",
+    )
+    fastembed_cache_path: str | None = var(
+        purpose="Directory holding the baked-in embedding model files (no run-time download).",
+        component="api, worker",
+    )
+
     # transactional email (invites, email verification, password reset, alert email) over SMTP;
     # unset SMTP_HOST keeps mail fail closed (owner decision 2026-10-15)
     smtp_host: str | None = var(purpose="SMTP server, e.g. smtp.gmail.com (unset: no email).")

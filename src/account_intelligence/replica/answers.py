@@ -240,6 +240,9 @@ class Workspace:
     # Internal facts from the client's uploaded files (labelled "From your files"), the research
     # tracker of each account's latest run, and the text of previous deliverables
     files: list[Row] = field(default_factory=list)
+    # passages of the client's own documents retrieved for THIS question (hybrid search,
+    # documents.retrieve; filled by the Ask route once the question is known)
+    passages: list[Row] = field(default_factory=list)
     tracker: list[Row] = field(default_factory=list)
     reports: list[Row] = field(default_factory=list)
 
@@ -537,8 +540,10 @@ async def _file_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) ->
                 "   AND x.evidence_kind = 'document' LIMIT 1) e ON true"
                 " LEFT JOIN documents d ON d.id = e.document_id"
                 " WHERE f.status = 'current' AND f.superseded_at IS NULL"
-                " AND f.visibility = 'private' ORDER BY f.created_at DESC LIMIT 1000"
-            )
+                " AND f.visibility = 'private' AND f.account_id = ANY(:scope)"
+                " ORDER BY f.created_at DESC LIMIT 1000"
+            ),
+            {"scope": list(scope)},
         )
     ).all():
         acct = by_id.get(r.account_id)
@@ -558,6 +563,36 @@ async def _file_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) ->
                 url=None,
                 grade="internal",
                 extra={"quote": r.supporting_sentence or ""},
+            )
+        )
+    return out
+
+
+async def passage_rows(
+    session: Any, ws: Workspace, question: str, scope: set[UUID], embedder: Any | None = None
+) -> list[Row]:
+    """The passages of the caller's uploaded documents that best answer ``question`` (hybrid
+    keyword and vector search), as citable "From your files" rows."""
+    from documents.retrieve import retrieve
+
+    by_id = {a.id: a for a in ws.accounts}
+    out = []
+    for p in await retrieve(session, question, sorted(scope & set(by_id)), embedder):
+        acct = by_id.get(p.account_id)
+        if acct is None:
+            continue
+        out.append(
+            Row(
+                key=f"passage:{p.key}",
+                kind="file",
+                account=acct,
+                text=p.content,
+                title=f"From your files: {p.document}",
+                meta=f"Internal · {p.cite}" if p.cite else "Internal · from your files",
+                when=None,
+                url=None,
+                grade="internal",
+                extra={"quote": p.content[:300], "passage": True},
             )
         )
     return out

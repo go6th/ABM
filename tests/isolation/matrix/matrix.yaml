@@ -457,6 +457,7 @@ routes:
     query: {token: matrix-token-aaaaaaaaaaaaaaaa}
   POST /v1/documents/{document_id}/complete: {probe: tenant, params: {document_id: documents.id}}
   GET /v1/documents/{document_id}/status: {probe: tenant, params: {document_id: documents.id}}
+  GET /v1/documents/{document_id}/passages: {probe: tenant, params: {document_id: documents.id}}
   GET /v1/documents: {probe: tenant, query: {account_id: accounts.id}}
   POST /v1/documents/confirm-company:
     probe: tenant

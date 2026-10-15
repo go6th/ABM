@@ -88,6 +88,7 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
     ("POST", "/v1/documents/{document_id}/complete"): _tenant(_UPLOADERS, "run"),
     ("POST", "/v1/documents/{document_id}/parts/{part}/retry"): _tenant(_UPLOADERS, "run"),
     ("GET", "/v1/documents/{document_id}/status"): _tenant(_UPLOADERS, "read"),
+    ("GET", "/v1/documents/{document_id}/passages"): _tenant(_UPLOADERS, "read"),
     ("GET", "/v1/documents"): _tenant(_UPLOADERS, "read"),
     ("POST", "/v1/documents/confirm-company"): _tenant(_UPLOADERS, "run"),
     ("POST", "/v1/documents/estimate"): _tenant(_UPLOADERS, "read"),

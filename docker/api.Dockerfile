@@ -13,6 +13,11 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
+# The document retrieval model (bge-small-en-v1.5, ONNX, about 130 MB), downloaded once at build
+# time so the running service never fetches anything (owner decision 2026-10-15).
+RUN FASTEMBED_CACHE_PATH=/app/models /app/.venv/bin/python -c \
+    "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/app/models')" \
+ && chmod -R a+rX /app/models
 
 FROM python:3.12-slim AS runtime
 # Current Debian security updates on top of the base image (the Trivy gate fails on fixable HIGH).
@@ -22,10 +27,11 @@ RUN apt-get update && apt-get -y upgrade && apt-get clean && rm -rf /var/lib/apt
 RUN mkdir -p /tmp/payloads && chown 10001:10001 /tmp/payloads
 WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
+COPY --from=build /app/models /app/models
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY config ./config
-ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 CONFIG_DIR=/app/config PORT=8080 \
+ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 CONFIG_DIR=/app/config FASTEMBED_CACHE_PATH=/app/models HF_HUB_OFFLINE=1 PORT=8080 \
     SERVICE_ROLE=api
 USER 10001
 EXPOSE 8080

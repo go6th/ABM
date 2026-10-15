@@ -36,7 +36,10 @@ function when(at: string): string {
 }
 
 /** A plain summary built from what the files said (no model involved). */
-function summary(groups: Map<string, number>): string {
+function summary(groups: Map<string, number>, modelUnread = false): string {
+  if (modelUnread) {
+    return "The AI model could not read the text of your files (its provider refused or ran out of credit), so this analysis is incomplete. Spreadsheet rows were still read. Restore model access, then analyze the files again.";
+  }
   if (!groups.size) return "Your files do not state anything in the areas this analysis looks at.";
   const parts = ORDER.filter((g) => groups.has(g)).map((g) => `${g.toLowerCase()} (${groups.get(g)})`);
   const listed = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
@@ -112,7 +115,7 @@ export function FileAnalysis({ domain, run }: { domain: string; run: FileAnalysi
         {head}
         <section className="card pad-lg stack-10">
           <div className="lbl">What your files say</div>
-          <p className="lead-text">{summary(counts)}</p>
+          <p className="lead-text">{summary(counts, run.model_unread ?? false)}</p>
         </section>
         {sections.length ? (
           <section className="card clip">

@@ -111,7 +111,9 @@ async def file_analysis(
                     "SELECT r.id, r.status, r.created_at, r.finished_at,"
                     " (SELECT count(*) FROM run_documents d WHERE d.run_id = r.id) AS files,"
                     " (SELECT c.id FROM account_runs c"
-                    "   WHERE c.run_input->>'linked_file_run' = r.id::text LIMIT 1) AS public_run"
+                    "   WHERE c.run_input->>'linked_file_run' = r.id::text LIMIT 1) AS public_run,"
+                    " EXISTS (SELECT 1 FROM coverage_rows v WHERE v.run_id = r.id"
+                    "   AND v.reason_code = 'source_unavailable') AS model_unread"
                     " FROM account_runs r WHERE r.account_id = :a AND r.input_mode = 'file'"
                     " AND (CAST(:run AS uuid) IS NULL OR r.id = CAST(:run AS uuid))"
                     " ORDER BY r.created_at DESC LIMIT 1"
@@ -131,6 +133,7 @@ async def file_analysis(
         "finished_at": row.finished_at.isoformat() if row.finished_at else None,
         "files": int(row.files or 0),
         "public_run_id": str(row.public_run) if row.public_run else None,
+        "model_unread": bool(row.model_unread),
     }
 
 

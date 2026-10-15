@@ -6,6 +6,7 @@ import type { DocumentStatus } from "@/lib/gen/api.gen";
 import { STAGE_TEXT, fileSize, stageOf, stageTone } from "@/lib/documents";
 import { cellText } from "@/lib/render";
 import { Status } from "@/ui/primitives";
+import { WhatWasRead } from "./WhatWasRead";
 
 export function UploadedFilesCard({ docs }: { docs: DocumentStatus[] }) {
   return (
@@ -19,9 +20,10 @@ export function UploadedFilesCard({ docs }: { docs: DocumentStatus[] }) {
             const stage = stageOf(d);
             return (
               <li key={d.document_id}>
-                <div>
+                <div className="stack-8">
                   <p>{cellText(d.name)}</p>
                   <span className="sub">{fileSize(d.size_bytes)}{d.passages ? `. ${d.passages.toLocaleString()} passages` : ""}</span>
+                  {d.passages ? <WhatWasRead documentId={d.document_id} name={d.name} /> : null}
                 </div>
                 <Status tone={stageTone(stage)}>{STAGE_TEXT[stage]}</Status>
               </li>

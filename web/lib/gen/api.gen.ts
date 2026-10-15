@@ -1049,6 +1049,22 @@ export const DocumentList = z.object({
 }).strict();
 export type DocumentList = z.infer<typeof DocumentList>;
 
+export const DocumentPassage = z.object({
+  "content": z.string(),
+  "heading": z.string().nullable(),
+  "kind": z.string(),
+  "seq": z.number().int(),
+  "where": z.string().nullable(),
+}).strict();
+export type DocumentPassage = z.infer<typeof DocumentPassage>;
+
+export const DocumentPassages = z.object({
+  "document_id": z.string(),
+  "next_after": z.number().int().nullable(),
+  "passages": z.array(DocumentPassage),
+}).strict();
+export type DocumentPassages = z.infer<typeof DocumentPassages>;
+
 export const DocumentPolicy = z.object({
   "redaction_tier": z.string(),
 }).strict();
@@ -1263,6 +1279,7 @@ export const FileAnalysisRun = z.object({
   "done": z.boolean(),
   "files": z.number().int(),
   "finished_at": z.string().nullable(),
+  "model_unread": z.boolean().optional(),
   "public_run_id": z.string().nullable(),
   "run_id": z.string(),
   "status": z.string(),
@@ -3174,6 +3191,7 @@ export const operations = {
   "POST /v1/documents/{document_id}/complete": { method: "POST", path: "/v1/documents/{document_id}/complete", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
   "PUT /v1/documents/{document_id}/content": { method: "PUT", path: "/v1/documents/{document_id}/content", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentReceived },
   "POST /v1/documents/{document_id}/parts/{part}/retry": { method: "POST", path: "/v1/documents/{document_id}/parts/{part}/retry", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
+  "GET /v1/documents/{document_id}/passages": { method: "GET", path: "/v1/documents/{document_id}/passages", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentPassages },
   "GET /v1/documents/{document_id}/status": { method: "GET", path: "/v1/documents/{document_id}/status", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
   "GET /v1/downloads/{job_id}": { method: "GET", path: "/v1/downloads/{job_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: DownloadJob },
   "GET /v1/downloads/{job_id}/parts/{n}": { method: "GET", path: "/v1/downloads/{job_id}/parts/{n}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },

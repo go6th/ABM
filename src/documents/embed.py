@@ -17,7 +17,7 @@ import hashlib
 import math
 import re
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Any, Protocol
 
 _WORD = re.compile(r"[a-z0-9]+(?:['.-][a-z0-9]+)*")
 
@@ -96,3 +96,56 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb) if na and nb else 0.0
+
+
+SEMANTIC_DIMENSIONS = 384
+
+
+class FastEmbedder:
+    """Meaning-based vectors from a small transformer run on the server's CPU (owner decision
+    2026-10-15: on-server, no per-use cost, no private text leaves the system): BAAI
+    bge-small-en-v1.5 through fastembed (ONNX), 384 dimensions, unit length. Passages and
+    questions are embedded with the model's own passage and query prompts.
+
+    It is used for retrieval only (``chunks.semantic_embedding``); the leak gate keeps the
+    hashing vectors its threshold was tuned for. The model files are baked into the image
+    (``FASTEMBED_CACHE_PATH``), so nothing is downloaded at run time."""
+
+    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", cache_dir: str | None = None):
+        import os
+
+        self.model_name = model_name
+        self.model = model_name.split("/")[-1]
+        self.dimensions = SEMANTIC_DIMENSIONS
+        self.cache_dir = cache_dir or os.environ.get("FASTEMBED_CACHE_PATH") or None
+        self._engine: Any = None
+
+    def _load(self) -> Any:
+        if self._engine is None:
+            from fastembed import TextEmbedding
+
+            self._engine = TextEmbedding(self.model_name, cache_dir=self.cache_dir, threads=2)
+        return self._engine
+
+    def _passages(self, texts: list[str]) -> list[list[float]]:
+        return [[float(x) for x in v] for v in self._load().passage_embed(texts, batch_size=32)]
+
+    def _queries(self, texts: list[str]) -> list[list[float]]:
+        return [[float(x) for x in v] for v in self._load().query_embed(texts)]
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Passage vectors, in order (CPU work runs off the event loop)."""
+        import asyncio
+
+        return await asyncio.to_thread(self._passages, list(texts))
+
+    async def embed_query(self, texts: Sequence[str]) -> list[list[float]]:
+        """Question vectors, in order."""
+        import asyncio
+
+        return await asyncio.to_thread(self._queries, list(texts))
+
+    def cost_usd(self, texts: Sequence[str]) -> float:
+        """Nothing per call: it runs in process."""
+        del texts
+        return 0.0
