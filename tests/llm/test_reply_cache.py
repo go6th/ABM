@@ -69,7 +69,8 @@ async def test_a_reply_is_reused_across_runs_with_the_run_id_rewritten() -> None
     assert served == ["started", "model", "cache"]  # write-ahead row before the paid call
     assert cache.rows[0]["reply_text"] is None and cache.rows[0]["usage"].input_tokens == 0
     assert cache.rows[1]["reply_text"] and RUN_PLACEHOLDER in cache.rows[1]["reply_text"]
-    assert cache.rows[2]["reply_text"] is None
+    # the reuse row keeps the (normalised) text, so a resume of run2 can reuse it too
+    assert cache.rows[2]["reply_text"] == cache.rows[1]["reply_text"]
 
 
 @pytest.mark.asyncio
@@ -166,3 +167,21 @@ async def test_a_call_that_dies_leaves_its_started_row_and_is_never_reused() -> 
     llm = ScriptedLlm(lambda *a: '{"ok": true}')
     await _deps(llm, cache, tenant).model("abm_pass1_extract", "sys", "same")
     assert len(llm.calls) == 1  # the started row was not a hit
+
+
+@pytest.mark.asyncio
+async def test_a_resume_of_a_resume_reuses_what_the_resumed_run_reused() -> None:
+    """Run C resumes run B, which itself resumed run A: B's replies were all reused from A, and
+    C must reuse them from B instead of paying again (audit 2026-10-15)."""
+    tenant = uuid4()
+    cache = InMemoryReplyCache(ttl_days=0)  # no time-based reuse: only the resumed run counts
+    llm = ScriptedLlm(lambda *a: '{"ok": true}')
+    run_a, run_b, run_c = uuid4(), uuid4(), uuid4()
+    await _deps(llm, cache, tenant, run_a).model("abm_pass1_extract", "sys", "same")
+    b = _deps(llm, cache, tenant, run_b)
+    b.run_input = {"resume_from": str(run_a), "fresh": True}
+    await b.model("abm_pass1_extract", "sys", "same")
+    c = _deps(llm, cache, tenant, run_c)
+    c.run_input = {"resume_from": str(run_b), "fresh": True}
+    third = await c.model("abm_pass1_extract", "sys", "same")
+    assert len(llm.calls) == 1 and third.extra.get("cached") is True

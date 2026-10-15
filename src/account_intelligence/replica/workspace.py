@@ -306,7 +306,13 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 " (SELECT count(*) FROM connector_items WHERE account_id = :a AND owner_user_id ="
                 " :u"
                 "   AND state = 'matched') AS mail_drive,"
-                " (SELECT count(*) FROM sources WHERE account_id = :a) AS sources,"
+                " ((SELECT count(*) FROM sources WHERE account_id = :a)"
+                "  + (SELECT count(DISTINCT t.response->'args'->>'url') FROM tool_calls t"
+                "   JOIN account_runs r ON r.id = t.run_id WHERE r.account_id = :a"
+                "   AND t.tool IN ('p_search:read_page', 'p_scrape:scrape_job_page')"
+                "   AND t.response->'args'->>'url' IS NOT NULL AND NOT EXISTS (SELECT 1 FROM"
+                "   sources x WHERE x.account_id = :a AND x.url = t.response->'args'->>'url')))"
+                " AS sources,"
                 " (SELECT count(*) FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
                 "   WHERE r.account_id = :a AND t.tool = 'p_search:web_search') AS searches,"
                 " (SELECT count(*) FILTER (WHERE c.status = 'done') FROM coverage_rows c WHERE"
@@ -382,6 +388,19 @@ STOP_TEXT = {
     "worker_lost": "It was interrupted.",
     "stalled": "It stopped making progress.",
     "credit_cap_reached": "It reached its spending limit.",
+    # the AI model provider refused (audit 2026-10-15): say so, so the user restores access
+    # before resuming instead of paying for a resume that stops again
+    "model_credits_exhausted": (
+        "The AI model provider refused: its usage limit or credit ran out. Restore it, then resume."
+    ),
+    "model_auth_failed": "The AI model provider refused the key. Check the key, then resume.",
+    "model_unavailable": "The AI model provider was unavailable. Resume in a little while.",
+    "model_not_configured": "No AI model is set up for this workspace.",
+    "model_refused": "The AI model declined part of the work.",
+    "BadRequestError": (
+        "The AI model provider refused the request, often because its usage limit was reached."
+        " Restore it, then resume."
+    ),
 }
 
 

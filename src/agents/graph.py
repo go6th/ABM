@@ -32,6 +32,7 @@ GUARANTEE(test_sense_check_always_precedes_build)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -371,7 +372,29 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
     ) -> Counter[str]:
         drops: Counter[str] = Counter()
         candidates: list[GradingCandidate] = []
-        people = []
+        people: list[Any] = []
+        try:
+            await _extract_steps(ctx, views, consent_ok, drops, candidates, people)
+        except Exception:
+            # a model failure part-way (credits, usage limit, outage): grade and keep what the
+            # earlier steps found before the run stops, so a stopped run shows its findings
+            # instead of nothing (audit 2026-10-15); a cancelled slice is not this
+            if candidates:
+                # the original failure is what the run reports; a grading error must not hide it
+                with contextlib.suppress(Exception):
+                    await _grade_and_record(ctx, candidates, people, drops)
+            raise
+        await _grade_and_record(ctx, candidates, people, drops)
+        return drops
+
+    async def _extract_steps(
+        ctx: RunContext,
+        views: list[PayloadView],
+        consent_ok: bool,
+        drops: Counter[str],
+        candidates: list[GradingCandidate],
+        people: list[Any],
+    ) -> None:
         for step in STEPS:
             if step == "people" and not consent_ok:
                 continue
@@ -405,6 +428,13 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 candidates += res.candidates
                 people += res.people
                 drops.update(res.drops)
+
+    async def _grade_and_record(
+        ctx: RunContext,
+        candidates: list[GradingCandidate],
+        people: list[Any],
+        drops: Counter[str],
+    ) -> None:
         batch = await deps.grading.grade(ctx, candidates)
         reads = batch.read_in_primary or tuple(
             candidates[i].read_this_run for i in batch.item_index
@@ -417,7 +447,6 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 await deps.grading.record_people(ctx, people)
             except NotConfigured:
                 drops["people_not_recorded"] += len(people)
-        return drops
 
     def model_guarded(fn: Any) -> Any:
         """A model node whose terminal model failure ends the run partial (see MODEL_FAILURES)."""
@@ -443,9 +472,11 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
         consent_ok = consent_decision(consent, cfg.consent_scope, cfg.consent_text_version) is None
         stored = [r for r in manifest.rows if r.status == "stored"]
-        drops = await _interpret(ctx, await _views(ctx, stored), consent_ok)
+        # report every row first: the tracker needs only the pull's call refs, so a run that
+        # stops during extraction still shows the steps it pulled (audit 2026-10-15)
         for row in manifest.rows:
             await deps.tracker.report(ctx, row.row_key, row.call_refs, row.blocked_reason)
+        drops = await _interpret(ctx, await _views(ctx, stored), consent_ok)
         careers = await _careers(ctx, stored)
         return {
             "counters": {f"drop_{k}": v for k, v in drops.items()},

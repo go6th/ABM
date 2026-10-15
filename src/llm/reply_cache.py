@@ -117,7 +117,8 @@ class InMemoryReplyCache:
             for r in self.rows
             if r["tenant_id"] == tenant_id
             and r["key"] == key
-            and r["served_from"] == "model"
+            # a reused reply of the run this one resumes counts too (resume of a resume)
+            and (r["served_from"] == "model" or r["run_id"] == source_run)
             and r["reply_text"]
         ]
         candidates.sort(key=lambda r: (r["run_id"] == source_run, r["created_at"]))
@@ -183,7 +184,10 @@ class PgReplyCache:
                 await s.execute(
                     text(
                         "SELECT reply_text, reply_model, input_tokens, output_tokens, created_at"
-                        " FROM model_reply_log WHERE cache_key = :k AND served_from = 'model'"
+                        " FROM model_reply_log WHERE cache_key = :k"
+                        # a reply the resumed run itself reused counts too, so a resume of a
+                        # resume never pays for it again (audit 2026-10-15)
+                        " AND (served_from = 'model' OR run_id = :src)"
                         " AND reply_text IS NOT NULL"
                         " AND (created_at >= :cutoff OR run_id = :src)"
                         " ORDER BY (run_id = :src) DESC, created_at DESC LIMIT 1"

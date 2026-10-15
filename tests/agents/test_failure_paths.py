@@ -87,3 +87,18 @@ async def test_a_narrative_dropped_whole_is_asked_for_once_more(h: Harness) -> N
     assert [c.text for c in client.narrative] == [
         "Recent activity points to a platform investment."
     ]
+
+
+async def test_a_model_failure_part_way_keeps_earlier_findings_and_progress(h: Harness) -> None:
+    """The model refuses at the second extraction step (credits, usage limit): what the first
+    step found is graded and kept, and every pulled row is reported to the tracker, so a stopped
+    run shows its findings and progress instead of nothing (audit 2026-10-15)."""
+
+    def broke(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        raise ProviderCreditsExhausted("usage limit reached")
+
+    script(h, "abm_pass2_extract", broke)
+    record, state = await h.run("r")
+    assert state["outcome"] == "failed" and state["error_code"] == "model_credits_exhausted"
+    assert h.grading.facts_by_run[record.run_id]  # pass1 findings were graded and kept
+    assert h.tracker.rows_by_run[record.run_id]  # pulled rows reported before extraction

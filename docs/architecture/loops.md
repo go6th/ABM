@@ -59,8 +59,8 @@ unannotated (the generator's check fails otherwise).
 | in-flight wait | `src/account_intelligence/connectors/service.py:296` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:146` | limit (1000) | queue empty, limit |
 | index pages | `src/documents/service.py:721` | passages / index_batch pages | no passage left, deleted |
-| isolation owner probe | `src/account_intelligence/replica/isolation.py:201` | every real client once | all probed |
-| isolation route probe | `src/account_intelligence/replica/isolation.py:247` | the read routes of the catalog | all probed |
+| isolation owner probe | `src/account_intelligence/replica/isolation.py:205` | every real client once | all probed |
+| isolation route probe | `src/account_intelligence/replica/isolation.py:251` | the read routes of the catalog | all probed |
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
 | jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
 | json array items | `src/research_files/parsers/tabular.py:653` | the array's items | closing bracket, corrupt item |

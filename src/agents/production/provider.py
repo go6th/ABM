@@ -196,7 +196,13 @@ class ConnectorProvider:
         if route == "news_tech_job_feeds":
             feed = Operation(self.routes.feed_by_row.get(row, str(spec["operation"])))
             # job postings are a 12-month row: an unbounded feed pages the whole history
-            since = window_start(date.today()) if feed is Operation.JOB_OPENINGS else None
+            # anchored to the month, not the day: the call key (and so its reuse on resume or
+            # a re-run) stays the same all month instead of changing daily (audit 2026-10-15)
+            since = (
+                window_start(date.today().replace(day=1))
+                if feed is Operation.JOB_OPENINGS
+                else None
+            )
             return [
                 await call_need(
                     route, FeedArgs(domain=ctx.domain, since=since), cc, self.rt, operation=feed

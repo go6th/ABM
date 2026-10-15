@@ -155,7 +155,8 @@ def index_key(tenant_id: UUID, args_hash: str) -> str:
 _LOOKUP = text(
     "SELECT run_id, response, response_ref, created_at, tool, provider_code, operation, route"
     " FROM tool_calls WHERE args_hash = :h AND response_ref IS NOT NULL"
-    " AND cost_source IS DISTINCT FROM :cache"
+    # a call the resumed run itself adopted counts too (resume of a resume, audit 2026-10-15)
+    " AND (cost_source IS DISTINCT FROM :cache OR run_id = :src)"
     " AND (created_at >= :cutoff OR run_id = :src)"
     " AND response->>'error_class' IS NULL"
     " ORDER BY (run_id = :src) DESC, created_at DESC LIMIT 1"

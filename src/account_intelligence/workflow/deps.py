@@ -243,7 +243,8 @@ class RunDeps:
                     LlmUsage(0, 0),
                     extra={"cached": True, "saved_tokens": hit.input_tokens + hit.output_tokens},
                 )
-                await self._log_reply(task_kind, tier, result, "cache", shared_key, None)
+                # keep the text on the reuse row too, so a later resume of THIS run reuses it
+                await self._log_reply(task_kind, tier, result, "cache", shared_key, hit.text)
                 return result
         await self._spend_check()
         await self._log_started(task_kind, tier, shared_key, model)

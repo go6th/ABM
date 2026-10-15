@@ -283,12 +283,24 @@ SHEETS: dict[str, Sheet] = {
         title="Sources",
         file="Sources.xlsx",
         scope=f"Every page the research read for this account. {SORT_HINT}",
+        # graded sources, plus pages a run read that were not graded yet (a run that stopped
+        # before grading still shows what it read; audit 2026-10-15)
         base=(
-            "SELECT s0.id AS _id, s0.source_code AS code, coalesce(s0.title, '') AS title,"
+            "SELECT s0.id::text AS _id, s0.source_code AS code, coalesce(s0.title, '') AS title,"
             " coalesce(s0.publisher, '') AS publisher, s0.published_at AS published, s0.url AS"
-            " link,"
+            " link, false AS ungraded,"
             " EXISTS (SELECT 1 FROM fact_evidence e WHERE e.source_id = s0.id) AS cited"
             " FROM sources s0 WHERE s0.account_id = :a"
+            " UNION ALL"
+            " SELECT DISTINCT ON (t.response->'args'->>'url') t.id::text AS _id, 'Read' AS code,"
+            " '' AS title, '' AS publisher, NULL::timestamptz AS published,"
+            " t.response->'args'->>'url' AS link, true AS ungraded, false AS cited"
+            " FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
+            " WHERE r.account_id = :a"
+            " AND t.tool IN ('p_search:read_page', 'p_scrape:scrape_job_page')"
+            " AND t.response->'args'->>'url' IS NOT NULL"
+            " AND NOT EXISTS (SELECT 1 FROM sources x WHERE x.account_id = :a"
+            "   AND x.url = t.response->'args'->>'url')"
         ),
         cols=(
             Col("code", "Code", "s.code"),
@@ -300,6 +312,7 @@ SHEETS: dict[str, Sheet] = {
         filters=(
             Filter("all", "All", "true"),
             Filter("cited", "Cited in findings", "s.cited"),
+            Filter("ungraded", "Read, not graded yet", "s.ungraded"),
             Filter("month", "Published this month", f"s.published >= {_MONTH}"),
         ),
         default_sort="code",
