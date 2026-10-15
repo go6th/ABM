@@ -72,9 +72,11 @@ export async function operatorRequest<K extends OperatorOperation>(
   if (options.file !== undefined) {
     headers["Content-Type"] = "application/octet-stream";
     body = options.file;
-  } else if (options.body !== undefined) {
+  } else if (options.body !== undefined || operation.method !== "GET") {
+    // the console proxy accepts only JSON on writes, so an action with no fields (New invite
+    // link, approve, re-enable) sends an empty object rather than no body (it was a 415)
     headers["Content-Type"] = "application/json";
-    body = JSON.stringify(options.body);
+    body = JSON.stringify(options.body ?? {});
   }
   const response = await fetch(`/api${path}${queryFor(options.query)}`, {
     method: operation.method,

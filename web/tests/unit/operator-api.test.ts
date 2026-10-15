@@ -31,4 +31,16 @@ describe("operator API contract client", () => {
 
     expect(fetch).toHaveBeenCalledWith("/api/operator/v1/runs/a%2Fb/timeline", expect.any(Object));
   });
+
+  it("sends an empty JSON body on a write with no fields (New invite link was refused as 415)", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ tenant_id: "t1", email: "a@b.co", invite_url: "https://x/invite#t", expires_at: "2026-10-22T00:00:00Z" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await operatorRequest("POST /operator/v1/console/clients/{tenant_id}/invite", { params: { tenant_id: "t1" } }).catch(() => undefined);
+
+    const init = fetch.mock.calls[0]![1] as RequestInit & { headers: Record<string, string> };
+    expect(init.method).toBe("POST");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(init.body).toBe("{}");
+  });
 });
