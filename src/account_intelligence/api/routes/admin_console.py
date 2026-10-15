@@ -253,7 +253,6 @@ async def _invite(request: Request, email: str) -> tuple[UUID, str, str]:
 async def _email_invite(request: Request, email: str, client: str, url: str, expires: str) -> bool:
     """Email the invite link when a mailer is set up (best effort: the link is still returned to
     copy, and a mail failure never undoes the invite). True when the mail was handed over."""
-    import logging
 
     from account_intelligence.platform.ports import NotConfigured
 
@@ -266,7 +265,11 @@ async def _email_invite(request: Request, email: str, client: str, url: str, exp
     except NotConfigured:
         return False
     except Exception as error:  # noqa: BLE001 - the copyable link stays the fallback
-        logging.getLogger(__name__).warning("invite email not sent: %s", type(error).__name__)
+        from obs.logging import logger
+
+        logger(__name__).warning(
+            "invite_email_not_sent", extra={"error_class": type(error).__name__}
+        )
         return False
     return True
 

@@ -193,6 +193,161 @@ class ReadOnlySecretStore:
         raise NotConfigured("secret store destroy adapter is not configured")
 
 
+class GcsObjectStore:
+    """Tenant objects (export packages, logos, connector quarantine) in the payload bucket under
+    ``tenancy.storage`` keys (audit 2026-10-15: exports and logo uploads failed with 503 in the
+    cloud). Storage never overwrites: an existing key with identical bytes is a no-op, different
+    bytes are an error (``ifGenerationMatch=0`` makes the write atomic)."""
+
+    def __init__(self, client: Any, bucket: str) -> None:
+        self._bucket = client.bucket(bucket)
+
+    def _put(self, key: str, body: bytes, content_type: str) -> bool:
+        import hashlib
+
+        blob = self._bucket.blob(key)
+        try:
+            blob.upload_from_string(body, content_type=content_type, if_generation_match=0)
+            return True
+        except Exception as error:  # noqa: BLE001 - 412: the key exists; compare the bytes
+            if "412" not in str(error) and "precondition" not in str(error).lower():
+                raise
+        existing = blob.download_as_bytes()
+        if hashlib.sha256(existing).digest() != hashlib.sha256(body).digest():
+            raise FileExistsError("a different object already exists at this key")
+        return False
+
+    async def put_if_absent(self, key: str, body: bytes, content_type: str) -> bool:
+        """See ``ObjectStore.put_if_absent``."""
+        import asyncio
+
+        return await asyncio.to_thread(self._put, key, body, content_type)
+
+    async def get(self, key: str) -> bytes:
+        """See ``ObjectStore.get``."""
+        import asyncio
+
+        return bytes(await asyncio.to_thread(self._bucket.blob(key).download_as_bytes))
+
+    async def list_prefix(self, prefix: str, limit: int) -> list[str]:
+        """See ``ObjectStore.list_prefix``."""
+        import asyncio
+
+        def names() -> list[str]:
+            return sorted(b.name for b in self._bucket.list_blobs(prefix=prefix, max_results=limit))
+
+        return await asyncio.to_thread(names)
+
+
+class ObjectScanner:
+    """The tenant plane's scanner (``spend.upload.ScanPort``: scan an object by key) over the
+    document scanner (clamd in the cloud): the object is read from the store and scanned as a
+    stream. An unavailable scanner is NotConfigured, so the upload is refused (fail closed)."""
+
+    def __init__(self, objects: Any, scanner: Any) -> None:
+        self._objects = objects
+        self._scanner = scanner
+
+    async def scan(self, key: str) -> bool:
+        """True when clean, False when infected."""
+        import io
+
+        verdict = await self._scanner.scan(io.BytesIO(await self._objects.get(key)))
+        if verdict.result == "unavailable":
+            raise NotConfigured("scanner is not available")
+        return bool(verdict.result == "clean")
+
+
+TENANT_SECRET_PREFIX = "tenant-"
+
+
+class SecretManagerStore(ReadOnlySecretStore):
+    """Tenant secrets (connector refresh tokens, IdP client secrets) written to Secret Manager
+    (audit 2026-10-15: the cloud could only read, so connecting Drive or adding an SSO connection
+    failed). Each logical name becomes its own secret ``tenant-<sha256 of the name>`` (opaque: no
+    tenant or vendor name in the id); ``put`` adds a version and returns its full version path,
+    which is the only thing stored in the database. The runtime's IAM is limited to secrets
+    whose id starts with ``tenant-``. Values never reach logs or exceptions."""
+
+    def __init__(self, source: Any, client: Any, project: str) -> None:
+        super().__init__(source)
+        self._client = client
+        self._project = project
+
+    def _secret_id(self, name: str) -> str:
+        import hashlib
+
+        return TENANT_SECRET_PREFIX + hashlib.sha256(name.encode("utf-8")).hexdigest()[:48]
+
+    def _put(self, name: str, value: bytes) -> str:
+        secret_id = self._secret_id(name)
+        parent = f"projects/{self._project}"
+        path = f"{parent}/secrets/{secret_id}"
+        try:
+            self._client.create_secret(
+                request={
+                    "parent": parent,
+                    "secret_id": secret_id,
+                    "secret": {
+                        "replication": {"automatic": {}},
+                        "labels": {"kind": "tenant-secret"},
+                    },
+                }
+            )
+        except Exception as error:  # noqa: BLE001 - an existing secret gets a new version
+            if "already exists" not in str(error).lower() and "409" not in str(error):
+                raise NotConfigured("the secret could not be created") from None
+        try:
+            version = self._client.add_secret_version(
+                request={"parent": path, "payload": {"data": value}}
+            )
+        except Exception:  # noqa: BLE001 - never echo the SDK message (it may name paths)
+            raise NotConfigured("the secret could not be stored") from None
+        return str(version.name)
+
+    def _read(self, ref: str) -> bytes:
+        try:
+            response = self._client.access_secret_version(name=ref)
+        except Exception:  # noqa: BLE001 - see _put
+            raise NotConfigured("the secret is not readable") from None
+        return bytes(response.payload.data)
+
+    def _destroy(self, ref: str) -> None:
+        try:
+            self._client.destroy_secret_version(name=ref)
+        except Exception as error:  # noqa: BLE001 - destroyed already: idempotent
+            text_ = str(error).lower()
+            if "destroyed" not in text_ and "not found" not in text_ and "404" not in text_:
+                raise NotConfigured("the secret could not be destroyed") from None
+
+    def _owned(self, ref: str) -> bool:
+        # this project's tenant secrets only (Secret Manager returns the project NUMBER in
+        # version paths, so both the id and the number are accepted)
+        return ref.startswith("projects/") and f"/secrets/{TENANT_SECRET_PREFIX}" in ref
+
+    async def put(self, name: str, value: bytes) -> str:
+        """Store ``value`` as a new version of the tenant secret for ``name``."""
+        import asyncio
+
+        return await asyncio.to_thread(self._put, name, value)
+
+    async def read(self, ref: str) -> bytes:
+        """A tenant secret version by its path; any other ref is a platform secret name."""
+        import asyncio
+
+        if self._owned(ref):
+            return await asyncio.to_thread(self._read, ref)
+        return await super().read(ref)
+
+    async def destroy(self, ref: str) -> None:
+        """Destroy one tenant secret version (idempotent); platform secrets are never touched."""
+        import asyncio
+
+        if not self._owned(ref):
+            raise NotConfigured("only tenant secrets can be destroyed")
+        await asyncio.to_thread(self._destroy, ref)
+
+
 def cloud_plane(secret_source: Any, clock: Clock, base_url: str | None) -> TenantPlane:
     """The staging and production tenant plane: the HTTPS identity provider adapter (SSRF
     guarded), signing keys read from Secret Manager, everything else fail closed."""
@@ -200,7 +355,13 @@ def cloud_plane(secret_source: Any, clock: Clock, base_url: str | None) -> Tenan
 
     plane = unconfigured_plane(clock, base_url)
     plane.idp = HttpIdentityProvider(pinned_client())
-    plane.secrets = ReadOnlySecretStore(secret_source)
+    client = getattr(secret_source, "client", None)
+    project = getattr(secret_source, "project", None)
+    plane.secrets = (
+        SecretManagerStore(secret_source, client, str(project))
+        if client is not None and project
+        else ReadOnlySecretStore(secret_source)
+    )
     return plane
 
 

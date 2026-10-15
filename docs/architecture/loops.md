@@ -12,6 +12,7 @@ unannotated (the generator's check fails otherwise).
 | archive copy | `src/account_intelligence/replica/downloads.py:364` | the file's size / 1 MiB | end of file |
 | archive part upload | `src/account_intelligence/replica/downloads.py:380` | part size / 1 MiB | end of part |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
+| audit verify tenants | `src/account_intelligence/api/routes/tasks.py:359` | every client once per pass | last client |
 | blob compose copy | `src/research_files/blobstore.py:143` | the part's size in COPY_BUFFER reads | end of part |
 | cache-eviction | `src/account_intelligence/rag/cache.py:103` | max_entries excess | capacity reached. |
 | cancel watch | `src/account_intelligence/workflow/runner.py:233` | the slice timeout around it | graph done, canceled, timeout |
@@ -72,14 +73,16 @@ unannotated (the generator's check fails otherwise).
 | mail and drive sync | `src/account_intelligence/api/routes/tasks.py:267` | 500 connections per tick (the lookup's limit) | end |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
+| metrics stuck count clients | `src/account_intelligence/api/routes/tasks.py:461` | every client once per pass | last client |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
 | month normalisation | `src/jobs/window.py:15` | one iteration (month - 12 >= -11) | month in 1..12 |
 | moonshot stream | `src/llm/adapters/moonshot_api.py:237` | the server's chunks until [DONE] | [DONE], end |
 | narrative reread | `src/verify/narrative.py:74` | one verdict per sentence | all sentences decided |
-| notification relay | `src/spend/notify.py:217` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
+| notification relay | `src/spend/notify.py:224` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
+| notification relay clients | `src/account_intelligence/api/routes/tasks.py:407` | every client once per pass | last client |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:76` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:90` | max_pages * batch_size runs per pass | rows exhausted |
-| orphan sweep loop | `src/account_intelligence/api/main.py:214` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
+| orphan sweep loop | `src/account_intelligence/api/main.py:218` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
@@ -113,7 +116,7 @@ unannotated (the generator's check fails otherwise).
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
 | stall marking | `src/account_intelligence/runs/sweeper.py:157` | batch_size runs per pass | rows exhausted |
 | streamed answer pieces | `src/account_intelligence/replica/model_answer.py:205` | the pieces in the text received so far | no complete piece left, a refused piece |
-| stuck scan | `src/obs/stuck.py:73` | keyset pages of `page` runs until none remain | all scanned |
+| stuck scan | `src/obs/stuck.py:79` | keyset pages of `page` runs until none remain | all scanned |
 | table export pages | `src/account_intelligence/replica/table_export.py:49` | the table's rows / page pages | a short page |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
 | topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |

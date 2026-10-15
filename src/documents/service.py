@@ -731,7 +731,7 @@ class DocumentService:
             for i in range(0, len(rows), batch):
                 texts = [r.content for r in rows[i : i + batch]]
                 vectors.extend(await self.embedder.embed(texts))
-                if semantic is not None:
+                if semantic is not None and self.semantic is not None:
                     semantic.extend(await self.semantic.embed(texts))
                 await self._meter(tenant_id, row.id, texts)
             async with self.txn(tenant_id) as s:

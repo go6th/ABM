@@ -408,6 +408,11 @@ class Settings(BaseSettings):
         purpose="Directory holding the baked-in embedding model files (no run-time download).",
         component="api, worker",
     )
+    # application metrics for the dashboards and alerts (audit 2026-10-15)
+    metrics_export: Literal["cloud_monitoring"] | None = var(
+        purpose="Set to cloud_monitoring to send app metrics to Cloud Monitoring (unset: none).",
+        component="api, worker",
+    )
 
     # transactional email (invites, email verification, password reset, alert email) over SMTP;
     # unset SMTP_HOST keeps mail fail closed (owner decision 2026-10-15)

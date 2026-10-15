@@ -259,14 +259,16 @@ locals {
       APP_ENV = local.app_env
       # documents are indexed and searched by meaning with an on-server model (no per-use cost)
       DOCUMENT_SEMANTIC_EMBEDDER = "fastembed"
-      LOG_LEVEL                  = "INFO"
-      GCP_PROJECT                = var.project_id
-      GCP_REGION                 = var.region
-      CLOUD_SQL_INSTANCE         = module.cloud_sql.connection_name
-      DB_NAME                    = module.cloud_sql.database
-      DB_POOL_SIZE               = tostring(local.pool.size)
-      DB_MAX_OVERFLOW            = tostring(local.pool.overflow)
-      PAYLOAD_BUCKET             = module.gcs.bucket
+      # app metrics to Cloud Monitoring (workload.googleapis.com/*) for the dashboards and alerts
+      METRICS_EXPORT     = "cloud_monitoring"
+      LOG_LEVEL          = "INFO"
+      GCP_PROJECT        = var.project_id
+      GCP_REGION         = var.region
+      CLOUD_SQL_INSTANCE = module.cloud_sql.connection_name
+      DB_NAME            = module.cloud_sql.database
+      DB_POOL_SIZE       = tostring(local.pool.size)
+      DB_MAX_OVERFLOW    = tostring(local.pool.overflow)
+      PAYLOAD_BUCKET     = module.gcs.bucket
       # TLS to Memorystore against its own CA (mounted file); VERIFY(V-REDIS-1) hostname check
       REDIS_URL = "rediss://${module.cache.host}:${module.cache.port}/0?ssl_ca_certs=${local.redis_ca_dir}/ca.pem&ssl_check_hostname=false"
       # the python-docx renderer until the Node library is ported (FIX_LOG D10)
@@ -439,6 +441,21 @@ resource "google_secret_manager_secret" "redis_ca" {
 resource "google_secret_manager_secret_version" "redis_ca" {
   secret      = google_secret_manager_secret.redis_ca.id
   secret_data = module.cache.server_ca_pem
+}
+
+# Tenant secrets (connector refresh tokens, SSO client secrets) are created by the api and the
+# worker at run time (tenant_plane.SecretManagerStore). The grant is conditioned to secrets whose
+# id starts with "tenant-", so the runtime can never read or change the platform's own secrets
+# through it (audit 2026-10-15).
+resource "google_project_iam_member" "tenant_secrets" {
+  for_each = toset(["api", "worker"])
+  project  = var.project_id
+  role     = "roles/secretmanager.admin"
+  member   = "serviceAccount:${local.sa[each.key]}"
+  condition {
+    title      = "tenant-secrets-only"
+    expression = "resource.name.startsWith(\"projects/${data.google_project.this.number}/secrets/tenant-\")"
+  }
 }
 
 resource "google_secret_manager_secret_iam_member" "redis_ca" {
@@ -655,10 +672,12 @@ module "scheduler" {
     isolation-check = { schedule = "0 2 * * *", path = "/tasks/isolation-check", deadline = "1800s", paused = false }
     access-expiry   = { schedule = "30 3 * * *", path = "/tasks/access-expiry", deadline = "900s", paused = false }
     maildrive-sync  = { schedule = "5 * * * *", path = "/tasks/maildrive-sync", deadline = "900s", paused = false }
-    sweep           = { schedule = "*/5 * * * *", path = "/tasks/sweep", deadline = "300s", paused = true }
+    sweep           = { schedule = "*/5 * * * *", path = "/tasks/sweep", deadline = "300s", paused = false }
     retention       = { schedule = "45 3 * * *", path = "/tasks/retention", deadline = "1800s", paused = true }
     alert-digest    = { schedule = "0 7 * * *", path = "/tasks/alert-digest", deadline = "900s", paused = true }
-    audit-verify    = { schedule = "15 4 * * *", path = "/tasks/audit-verify", deadline = "1800s", paused = true }
+    audit-verify    = { schedule = "15 4 * * *", path = "/tasks/audit-verify", deadline = "1800s", paused = false }
+    notify-relay    = { schedule = "*/5 * * * *", path = "/tasks/notify-relay", deadline = "300s", paused = false }
+    metrics         = { schedule = "*/2 * * * *", path = "/tasks/metrics", deadline = "120s", paused = false }
   }
   depends_on = [module.cloud_run]
 }

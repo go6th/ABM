@@ -228,6 +228,11 @@ async def reserve(
     short and ``wait_if_short`` (the scheduler) asked to wait; otherwise ``CreditsShort``. A
     repeated ``request_id`` returns the first job. ``JobOpen`` when the account already has one
     open."""
+    await client_settings(session)
+    await session.execute(text("SELECT 1 FROM client_settings FOR UPDATE"))
+    # the repeated-request check comes AFTER the client lock: two identical requests at the same
+    # moment used to both pass it and the second failed on the unique key with a 500 (audit
+    # 2026-10-15); now the second waits for the first and returns its job
     if request_id is not None:
         prior = (
             await session.execute(
@@ -237,8 +242,6 @@ async def reserve(
         ).first()
         if prior is not None:
             return UUID(str(prior.id)), str(prior.status)
-    await client_settings(session)
-    await session.execute(text("SELECT 1 FROM client_settings FOR UPDATE"))
     if one_open_per_account and await open_job(session, account_id) is not None:
         raise JobOpen
     left = (await pool(session, now))["left"]

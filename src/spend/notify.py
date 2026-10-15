@@ -101,6 +101,13 @@ TEMPLATES: dict[str, Template] = {
         "Provider {provider_code} reported an empty balance during run {run_id}. The affected "
         "rows are Blocked. Upload a pre-pulled file for intent {intent_id} to fill them.",
     ),
+    "run_needs_attention": Template(
+        "operator",
+        frozenset({"run_id", "kind", "version"}),
+        "Run {run_id} needs attention: {kind}",
+        "Run {run_id} is waiting ({kind}, version {version}). Open the run in the operator"
+        " console after signing in.",
+    ),
     "upload_result": Template(
         "operator",
         frozenset({"run_id", "intent_id", "outcome", "reason_code"}),
@@ -236,3 +243,43 @@ async def relay(
         failed += outcome == "failed"
         gave_up += outcome == "gave_up"
     return RelayResult(delivered, failed, gave_up)
+
+
+class OutboxNotifier:
+    """``spend.ports.Notifier`` for a run: each prompt (cap approval waiting, credits exhausted)
+    becomes one deduplicated outbox row in its own transaction, delivered by the relay task
+    (audit 2026-10-15: runs had no notifier, so they waited silently)."""
+
+    def __init__(self, txn: Any, tenant_id: UUID, clock: Any) -> None:
+        self.txn, self.tenant_id, self.clock = txn, tenant_id, clock
+
+    async def prompt(self, run_id: str, kind: str, version: int) -> None:
+        """Queue one operator prompt (identifiers only)."""
+        safe_kind = kind if SAFE.match(kind) else "attention"
+        async with self.txn(self.tenant_id) as s:
+            await enqueue(
+                s,
+                UUID(run_id),
+                f"prompt:{run_id}:{safe_kind}:{version}",
+                "operator",
+                "run_needs_attention",
+                {"run_id": run_id, "kind": safe_kind, "version": version},
+                self.clock.now(),
+            )
+
+
+class MailNotificationSender:
+    """``NotificationSender`` over the transactional mailer: operator messages go to the staff
+    operator list, tenant messages to the client's admins (resolved per relay pass, never
+    stored). Messages are already rendered from allow-listed templates."""
+
+    def __init__(self, mailer: Any, operators: list[str], admins: list[str]) -> None:
+        self.mailer, self.operators, self.admins = mailer, operators, admins
+
+    async def send(self, audience: str, subject: str, body: str, dedupe_key: str) -> None:
+        """Deliver to every recipient of the audience; raise when there is none."""
+        recipients = self.operators if audience == "operator" else self.admins
+        if not recipients:
+            raise LookupError(f"no {audience} recipient")
+        for to in recipients:
+            await self.mailer.send(to, "notification", {"subject": subject, "body": body})

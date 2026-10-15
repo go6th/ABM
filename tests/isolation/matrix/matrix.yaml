@@ -820,6 +820,10 @@ routes:
   POST /tasks/maildrive-sync: {probe: machine, body: {}}
   POST /tasks/access-expiry: {probe: machine, body: {}}
   POST /tasks/isolation-check: {probe: machine, body: {}}
+  POST /tasks/sweep: {probe: machine, body: {}}
+  POST /tasks/audit-verify: {probe: machine, body: {}}
+  POST /tasks/notify-relay: {probe: machine, body: {}}
+  POST /tasks/metrics: {probe: machine, body: {}}
 # Storage layouts (tenancy.catalog.STORAGE_LAYOUTS): a sample key of tenant A must resolve to A,
 # never to B, and a download token for it must be refused in B's session.
 storage:

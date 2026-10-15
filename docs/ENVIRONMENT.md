@@ -108,6 +108,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `P_ORG_API_KEY` | Organisation provider key. | **secret** | - | - | api, worker |
 | `DOCUMENT_SEMANTIC_EMBEDDER` | Set to fastembed to index and search documents by meaning (on-server model). | no | - | - | api, worker |
 | `FASTEMBED_CACHE_PATH` | Directory holding the baked-in embedding model files (no run-time download). | no | - | - | api, worker |
+| `METRICS_EXPORT` | Set to cloud_monitoring to send app metrics to Cloud Monitoring (unset: none). | no | - | - | api, worker |
 | `SMTP_HOST` | SMTP server, e.g. smtp.gmail.com (unset: no email). | no | - | - | api, worker |
 | `SMTP_PORT` | SMTP port: 587 STARTTLS or 465 implicit TLS. | no | - | - | api, worker |
 | `SMTP_USERNAME` | SMTP login, e.g. the sending Gmail address. | no | - | - | api, worker |

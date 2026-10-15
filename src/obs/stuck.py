@@ -63,10 +63,16 @@ def classify(run: RunView, now: datetime, running_quiet_s: float) -> str | None:
 
 
 async def scan(
-    txn: TxnFactory, tenant_id: UUID, now: datetime, running_quiet_s: float, page: int = 500
+    txn: TxnFactory,
+    tenant_id: UUID,
+    now: datetime,
+    running_quiet_s: float,
+    page: int = 500,
+    *,
+    observe: bool = True,
 ) -> list[tuple[str, str, str]]:
-    """One bounded pass over the tenant's live runs; returns (run, reason, age bucket) and
-    records each observation."""
+    """One bounded pass over the tenant's live runs; returns (run, reason, age bucket) and,
+    with ``observe``, records each observation (the metrics task only counts)."""
     found: list[tuple[str, str, str]] = []
     after = "00000000-0000-0000-0000-000000000000"
     # LOOP(stuck scan): cap=keyset pages of `page` runs until none remain; exit=all scanned
@@ -92,6 +98,8 @@ async def scan(
                     continue
                 bucket = age_bucket((now - r.created_at).total_seconds())
                 found.append((str(r.id), reason, bucket))
+                if not observe:
+                    continue
                 await s.execute(
                     text(
                         "INSERT INTO stuck_run_observations (run_id, state, reason, age_bucket, at)"
@@ -102,6 +110,14 @@ async def scan(
         if len(rows) < page:
             return found
         after = str(rows[-1].id)
+
+
+# the run state each reason is reported under on the stuck_runs gauge
+REASON_STATE = {
+    "queued_too_long": "QUEUED",
+    "no_activity": "RUNNING",
+    "approval_past_deadline": "AWAITING_APPROVAL",
+}
 
 
 def quiet_seconds(slice_s: float, multiple: float) -> float:

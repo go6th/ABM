@@ -67,6 +67,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from obs.logging import configure_logging
 
     configure_logging(settings.log_level, service=settings.service_role)
+    if settings.metrics_export == "cloud_monitoring" and settings.gcp_project:
+        from obs import export
+
+        export.install(settings.gcp_project, f"ai-{settings.service_role}")
     app.state.draining = False
     container = build_container()
     app.state.container = container

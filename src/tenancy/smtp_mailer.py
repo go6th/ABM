@@ -46,6 +46,8 @@ TEMPLATES: dict[str, tuple[str, str]] = {
         "stays the same.\n",
     ),
     "signal_alert": ("{subject}", "{body}\n\nReference: {event_id}\n"),
+    # an outbox notification, already rendered from its allow-listed template (spend.notify)
+    "notification": ("{subject}", "{body}\n"),
 }
 _ADDRESS = re.compile(r"^[^@\s<>,;\"]+@[^@\s<>,;\"]+\.[^@\s<>,;\"]+$")
 _PLACEHOLDER = re.compile(r"{([a-z_]+)}")

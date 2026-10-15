@@ -28,6 +28,7 @@ from obs.slo import Window, multiwindow_page
 
 KINDS = frozenset({"burn", "any", "rate_above", "ratio_below", "threshold", "absent"})
 WINDOW_S = {"5m": 300, "30m": 1800, "1h": 3600, "6h": 21600}
+AVAILABILITY_TARGET = Fraction("0.999")  # slos.yaml api_availability (ARCH 99.9%)
 
 
 @dataclass(frozen=True)
@@ -107,7 +108,7 @@ def fires(alert: Alert, samples: Sequence[Sample], at: float) -> bool:
         return multiwindow_page(
             window(long_s),
             window(short_s),
-            Fraction("0.999"),
+            AVAILABILITY_TARGET,
             Fraction(str(s["factor"])),
             int(s.get("min_events", 100)),
         )
@@ -135,32 +136,73 @@ def fires(alert: Alert, samples: Sequence[Sample], at: float) -> bool:
     return last is None or at - last > float(s["for_s"])
 
 
+SELECTOR_KEYS = ("state", "degraded", "failure_class", "outcome")
+
+
+def promql_name(metric: str) -> str:
+    """A ``workload.googleapis.com`` metric as Cloud Monitoring's PromQL names it."""
+    return f"workload_googleapis_com:{metric}"
+
+
+def _selector(spec: Mapping[str, Any], extra: str = "") -> str:
+    parts = [f'{k}="{spec[k]}"' for k in SELECTOR_KEYS if k in spec]
+    if "outcome_not" in spec:
+        parts.append(f'outcome!~"{"|".join(str(v) for v in spec["outcome_not"])}"')
+    if extra:
+        parts.append(extra)
+    return "{" + ",".join(parts) + "}" if parts else ""
+
+
+def promql(alert: Alert) -> str:
+    """The alert's condition as PromQL, the same semantics as ``fires`` (counters by their
+    increase over the window, never their running total)."""
+    s = alert.spec
+    if alert.kind == "burn":
+        m = promql_name("api_requests_total")
+        bar = float(Fraction(str(s["factor"])) * (1 - AVAILABILITY_TARGET))
+
+        def ratio(w: str) -> str:
+            bad = f'sum(rate({m}{{code_class=~"5xx|timeout"}}[{w}]))'
+            return f"({bad} / sum(rate({m}[{w}]))) > {bar:g}"
+
+        volume = f"sum(increase({m}[{s['window']}])) >= {int(s.get('min_events', 100))}"
+        return f"{ratio(str(s['window']))} and {ratio(str(s['short']))} and {volume}"
+    m = promql_name(str(s["metric"]))
+    if alert.kind == "any":
+        return f"sum(increase({m}{_selector(s)}[10m])) > 0"
+    if alert.kind == "rate_above":
+        return f"sum(increase({m}{_selector(s)}[{int(s['window_s'])}s])) > {float(s['above']):g}"
+    if alert.kind == "ratio_below":
+        return (
+            f"avg(avg_over_time({m}{_selector(s)}[{int(s['window_s'])}s])) < {float(s['below']):g}"
+        )
+    if alert.kind == "threshold":
+        if str(s["metric"]).endswith("_ms"):  # a latency histogram: its p99
+            return (
+                f"histogram_quantile(0.99, sum by (le) (rate({m}_bucket{_selector(s)}[5m])))"
+                f" > {float(s['above']):g}"
+            )
+        return f"max({m}{_selector(s)}) > {float(s['above']):g}"
+    return f"absent_over_time({m}[{int(s['for_s'])}s])"  # absent
+
+
 def terraform(alerts: Mapping[str, Alert]) -> dict[str, Any]:
-    """Terraform JSON: one ``google_monitoring_alert_policy`` per alert (channels and project are
-    variables; nothing is applied)."""
+    """Terraform JSON: one ``google_monitoring_alert_policy`` per alert with a PromQL condition
+    (channels and project are variables; nothing is applied). An alert with ``paused`` (its
+    metric's emitter is not deployed) is left out so it cannot page on silence."""
     resources: dict[str, Any] = {}
     for name in sorted(alerts):
         a = alerts[name]
-        metric = a.spec.get("metric") or "api_requests_total"
-        condition: dict[str, Any]
-        if a.kind == "absent":
-            condition = {
-                "condition_absent": {
-                    "filter": f'metric.type="workload.googleapis.com/{metric}"',
-                    "duration": f"{int(a.spec['for_s'])}s",
-                }
+        if a.spec.get("paused"):
+            continue
+        hold = int(a.spec["for_s"]) if a.kind == "threshold" else 0
+        condition = {
+            "condition_prometheus_query_language": {
+                "query": promql(a),
+                "duration": f"{hold}s",
+                "evaluation_interval": "60s",
             }
-        else:
-            condition = {
-                "condition_threshold": {
-                    "filter": f'metric.type="workload.googleapis.com/{metric}"',
-                    "comparison": "COMPARISON_LT" if a.kind == "ratio_below" else "COMPARISON_GT",
-                    "threshold_value": float(
-                        a.spec.get("above", a.spec.get("below", a.spec.get("factor", 0)))
-                    ),
-                    "duration": f"{int(a.spec.get('for_s', 0))}s",
-                }
-            }
+        }
         resources[name] = {
             "project": "${var.project_id}",
             "display_name": name,

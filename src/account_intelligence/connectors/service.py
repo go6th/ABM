@@ -818,7 +818,10 @@ async def _finalize_done(
                 # the pages a web search returned (address and title, no page text), so the
                 # account's Web searches table can show what each search found (2026-10-15)
                 "pages": [
-                    {"url": str(r.url), "title": str(getattr(r, "title_text", "") or "")[:200]}
+                    {
+                        "url": str(getattr(r, "url", "")),
+                        "title": str(getattr(r, "title_text", "") or "")[:200],
+                    }
                     for r in parsed.records[:10]
                     if getattr(r, "url", None)
                 ]

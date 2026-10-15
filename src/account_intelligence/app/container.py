@@ -171,6 +171,9 @@ class Container:
             builder=self.builder,
             gate=self.gate,
             balances=self.balances,
+            # prompts (cap approval waiting, credits exhausted) become outbox rows the relay
+            # task delivers (audit 2026-10-15)
+            notifier=_outbox_notifier(tenant_id, self.clock),
             dev_auto_approve=self.dev_auto_approve,
             extra_allowed_hosts=frozenset(h for h in hosts if h),
             run_input=dict(row.run_input or {}),
@@ -211,6 +214,24 @@ def build_connectors(
         cache=research_cache(env),
     )
     return with_governance(runtime), retry_policy_for(config)
+
+
+def _outbox_notifier(tenant_id: UUID, clock: Any) -> Any:
+    """The run's notifier: prompts go to the notification outbox (spend.notify)."""
+    from spend.notify import OutboxNotifier
+
+    return OutboxNotifier(tenant_txn, tenant_id, clock)
+
+
+def _with_cloud_objects(plane: Any, client: Any, bucket: str, documents: Any) -> Any:
+    """The cloud tenant plane's object store (the payload bucket) and its scanner (the document
+    scanner over stored objects); exports, logos and connector quarantine need them."""
+    from account_intelligence.api.tenant_plane import GcsObjectStore, ObjectScanner
+
+    plane.objects = GcsObjectStore(client, bucket)
+    if documents is not None:
+        plane.scanner = ObjectScanner(plane.objects, documents.scanner)
+    return plane
 
 
 def _with_mailer(plane: Any, env: Mapping[str, str]) -> Any:
@@ -693,6 +714,12 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     built.extras["maildrive_apps"] = maildrive_apps(env)
     built.documents = document_service(blobs, scheduler, clock, env, app_env)
     built.gate = delivery_gate(built.payloads, built.documents)
+    built.tenant_plane = _with_cloud_objects(
+        built.tenant_plane,
+        gcs.Client(project=project),
+        _require(env, "PAYLOAD_BUCKET"),
+        built.documents,
+    )
     return built
 
 

@@ -321,6 +321,174 @@ async def access_expiry(
     }
 
 
+@router.post("/sweep")
+async def sweep(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    """One sweeper pass on a schedule (Cloud Scheduler, every 5 minutes): documents left mid-way,
+    orphaned and stalled runs. The worker also sweeps in the background while it is warm, but it
+    scales to zero, so stuck work waited for the next request (audit 2026-10-15)."""
+    _authorise(request, authorization)
+    from account_intelligence.api.main import sweep_pass
+
+    set_system()  # a system job: it sees every user's orphans (this request's context only)
+    await sweep_pass(request.app)
+    return {"swept": True}
+
+
+@router.post("/audit-verify")
+async def audit_verify(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    """The nightly audit chain check (Cloud Scheduler, 04:15): each client's tamper-evident audit
+    chain is re-hashed in bounded batches; a break is logged (and alerts) with its position."""
+    _authorise(request, authorization)
+    from datetime import UTC, datetime
+
+    from account_intelligence.db.session import untenanted_session
+    from audit import chain
+
+    now = datetime.now(UTC)
+    async with untenanted_session() as plain:
+        tenants = [
+            UUID(str(r.tenant_id))
+            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+        ]
+    broken = 0
+    # LOOP(audit verify tenants): cap=every client once per pass; exit=last client
+    for tenant in tenants:
+        try:
+            async with tenant_txn(tenant) as s:
+                check = await chain.verify(s, now, batch=1000, max_batches=50)
+        except Exception as error:  # noqa: BLE001 - one client never stops the others
+            log.warning("audit_verify_failed", extra={"error_class": type(error).__name__})
+            continue
+        if not check.ok:
+            broken += 1
+            log.warning("audit.chain_broken", extra={"tenant_id": str(tenant)})
+    return {"clients": len(tenants), "broken": broken}
+
+
+@router.post("/notify-relay")
+async def notify_relay(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    """Deliver waiting notifications (Cloud Scheduler, every 5 minutes): each client's outbox is
+    relayed by email, operator messages to the staff operator list and client messages to the
+    client's admins. While no mailer is set up nothing is attempted, so messages wait instead
+    of being given up (audit 2026-10-15)."""
+    _authorise(request, authorization)
+    import os
+    from datetime import UTC, datetime
+
+    from account_intelligence.api.tenant_plane import plane_of
+    from account_intelligence.db.session import untenanted_session
+    from spend.config import load_v2_config
+    from spend.notify import MailNotificationSender, relay
+    from tenancy.ports import UnconfiguredMailer
+
+    mailer = plane_of(request).mailer
+    if isinstance(mailer, UnconfiguredMailer):
+        return {"relayed": False, "reason": "no_mailer"}
+    operators = [
+        e.strip().lower()
+        for e in os.environ.get("STAFF_OPERATOR_EMAILS", "").split(",")
+        if e.strip()
+    ]
+    attempts = int(load_v2_config().notify_max_attempts)
+    now = datetime.now(UTC)
+    async with untenanted_session() as plain:
+        tenants = [
+            UUID(str(r.tenant_id))
+            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+        ]
+    delivered = failed = gave_up = 0
+    set_system()  # admin emails of each client are read in system scope (this request only)
+    # LOOP(notification relay clients): cap=every client once per pass; exit=last client
+    for tenant in tenants:
+        try:
+            async with tenant_txn(tenant) as s:
+                admins = [
+                    str(r.email)
+                    for r in await s.execute(
+                        text(
+                            "SELECT DISTINCT u.email FROM memberships m"
+                            " JOIN users u ON u.subject = m.user_id"
+                            " WHERE m.status = 'active' AND m.role = 'admin'"
+                            " AND u.email IS NOT NULL"
+                        )
+                    )
+                ]
+            done = await relay(
+                tenant_txn, tenant, MailNotificationSender(mailer, operators, admins), now, attempts
+            )
+        except Exception as error:  # noqa: BLE001 - one client never stops the others
+            log.warning("notify_relay_failed", extra={"error_class": type(error).__name__})
+            continue
+        delivered, failed, gave_up = (
+            delivered + done.delivered,
+            failed + done.failed,
+            gave_up + done.gave_up,
+        )
+    return {"relayed": True, "delivered": delivered, "failed": failed, "gave_up": gave_up}
+
+
+@router.post("/metrics")
+async def metrics_tick(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    """The cluster-wide metrics (Cloud Scheduler, every 2 minutes): the heartbeat the
+    telemetry-down alert watches, the stuck-run gauge by state and age (counted only, never
+    recorded as observations), and this instance's dropped telemetry; then the points are
+    exported before the request ends (audit 2026-10-15)."""
+    _authorise(request, authorization)
+    import time
+    from datetime import UTC, datetime
+
+    from account_intelligence.db.session import untenanted_session
+    from obs import export, stuck
+    from obs.setup import drops, record
+
+    record("heartbeat", time.time(), {"service": os.environ.get("SERVICE_ROLE") or "api"})
+    now = datetime.now(UTC)
+    async with untenanted_session() as plain:
+        tenants = [
+            UUID(str(r.tenant_id))
+            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+        ]
+    counts: dict[tuple[str, str], int] = {}
+    set_system()  # every user's runs are counted (this request's context only)
+    # LOOP(metrics stuck count clients): cap=every client once per pass; exit=last client
+    for tenant in tenants:
+        try:
+            found = await stuck.scan(
+                tenant_txn, tenant, now, stuck.quiet_seconds(240, 4), observe=False
+            )
+        except Exception as error:  # noqa: BLE001 - one client never stops the others
+            log.warning("metrics_stuck_failed", extra={"error_class": type(error).__name__})
+            continue
+        for _run, reason, bucket in found:
+            key = (stuck.REASON_STATE[reason], bucket)
+            counts[key] = counts.get(key, 0) + 1
+    # every series is written each pass, so a cleared run returns its series to zero
+    for state in sorted(set(stuck.REASON_STATE.values())):
+        for bucket in ("lt_5m", "5m_1h", "1h_24h", "gt_24h"):
+            record(
+                "stuck_runs", counts.get((state, bucket), 0), {"state": state, "age_bucket": bucket}
+            )
+    dropped = drops().counts
+    for signal in ("traces", "metrics", "logs"):
+        sent = _DROPS_SENT.get(signal, 0)
+        if dropped.get(signal, 0) > sent:
+            record("telemetry_dropped_total", dropped[signal] - sent, {"signal": signal})
+            _DROPS_SENT[signal] = dropped[signal]
+    exported = await export.flush()
+    return {"clients": len(tenants), "stuck": sum(counts.values()), "exported": exported}
+
+
+_DROPS_SENT: dict[str, int] = {}  # this instance's drops already counted on the metric
+
+
 @router.post("/isolation-check")
 async def isolation_check(
     request: Request, authorization: str | None = Header(default=None)

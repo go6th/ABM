@@ -433,9 +433,30 @@ async def confirm_company(
 ) -> dict[str, Any]:
     """Bind the documents to the confirmed company's account and index them."""
     from account_intelligence.runs import lifecycle
+    from documents import repo
     from documents.service import DocumentError
 
     async with tenant_txn(ident.tenant_id) as s:
+        # check the documents BEFORE making the account: a refused bind used to leave an empty
+        # account in the user's list (audit 2026-10-15; the runtime may not delete accounts)
+        rows = await repo.many(s, list(body.document_ids))
+        if len(rows) != len(set(body.document_ids)):
+            raise APIProblem(404, "not_found", "Document refused", "A document was not found.")
+        bound_to = {r.account_id for r in rows if r.account_id is not None}
+        if bound_to:
+            same: int = (
+                await s.execute(
+                    text("SELECT count(*) FROM accounts WHERE id = ANY(:ids) AND domain = :d"),
+                    {"ids": list(bound_to), "d": body.domain},
+                )
+            ).scalar_one()
+            if same != len(bound_to):
+                raise APIProblem(
+                    409,
+                    "already_bound",
+                    "Document refused",
+                    "A document belongs to another company.",
+                )
         account_id, _ = await lifecycle.add_account(
             s, ident.tenant_id, body.domain, added_by=ident.user_id
         )
