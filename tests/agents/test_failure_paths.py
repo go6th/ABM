@@ -31,7 +31,7 @@ async def test_a_refused_build_ends_the_run_partial_with_the_builders_reason(h: 
     h.builder.build = refusing  # type: ignore[method-assign]
     _, state = await h.run("r")
     assert state["outcome"] == "partial"
-    assert state["error_code"] == "build_failed:build_failed"
+    assert state["error_code"] == "build_failed:missing_narrative"  # says why
     assert state["settled"] is True  # the run reached its single settlement, no exception
 
 
@@ -65,7 +65,8 @@ async def test_a_narrative_dropped_whole_is_asked_for_once_more(h: Harness) -> N
 
     def grade_first_then_clean(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         calls.append(payload)
-        fact_ids = [f["fact_id"] for f in payload["facts"][:1]]
+        # a statement may rest only on a fact the policy lets a client file state
+        fact_ids = list(payload["statable_fact_ids"][:1]) or [payload["facts"][0]["fact_id"]]
         text = (
             "Recent activity points to a platform investment."
             if payload.get("notes")
@@ -102,3 +103,35 @@ async def test_a_model_failure_part_way_keeps_earlier_findings_and_progress(h: H
     assert state["outcome"] == "failed" and state["error_code"] == "model_credits_exhausted"
     assert h.grading.facts_by_run[record.run_id]  # pass1 findings were graded and kept
     assert h.tracker.rows_by_run[record.run_id]  # pulled rows reported before extraction
+
+
+async def test_a_narrative_that_states_an_unconfirmed_fact_becomes_a_question(h: Harness) -> None:
+    """Only a Confirmed fact may be stated to a prospect. A narrative sentence that states any
+    other fact is dropped here (not withheld silently later), the model is asked once more, and
+    a narrative still empty after that is made of the first-call questions, so the Summary
+    always has an honest opening (audit 2026-10-15: every such run failed its build)."""
+    calls: list[Mapping[str, Any]] = []
+
+    def states_probable(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        calls.append(payload)
+        statable = set(payload["statable_fact_ids"])
+        other = next(f["fact_id"] for f in payload["facts"] if f["fact_id"] not in statable)
+        return {
+            "hypotheses": [],
+            "questions": [
+                {"text": "Is the platform work the current priority?", "fact_ids": [other]}
+            ],
+            "narrative": [{"text": "The account is investing in a platform.", "fact_ids": [other]}],
+        }
+
+    script(h, "abm_distill", states_probable)
+    record, state = await h.run("r")
+    counters = state["counters"]
+    assert counters["distill_client_drop_unconfirmed_stated"] == 2  # both attempts stated it
+    assert counters["distill_client_drop_narrative_reasked"] == 1
+    assert "statable_fact_ids" in str(calls[1].get("notes"))
+    assert counters["distill_client_drop_narrative_from_questions"] == 1
+    client = h.records.distilled[(record.run_id, "client")]
+    assert [c.text for c in client.narrative] == ["Is the platform work the current priority?"]
+    assert all(f in client.narrative[0].fact_ids for f in client.questions[0].fact_ids)
+    assert "internal" not in {a for (_, a) in h.records.distilled}  # one distill call per run

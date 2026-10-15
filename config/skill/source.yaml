@@ -1,19 +1,21 @@
 # The manual skill this agent layer encodes (D-101). INTERNAL.
 #
-# The skill archive itself (16 files) is NOT in the repository: only the reader's guide was
-# available when this package was built (2026-10-08). Every value below that the guide states is
-# cited by its source id (S1 to S21), which the guide maps to a file and line of the archive.
-# Everything the guide does not state is `status: TODO` and the system runs at the conservative
-# setting until the archive arrives (docs/abm/SOURCE_MAP.md, conflict C31).
-version: "1.0.0"
+# The skill archive (version 1.11, operator supplied 2026-10-16) is in the repository: its text
+# files (SKILL.md and references/) under config/skill/archive/, shipped in every image and read
+# at run time by agents.skill_context (the owner's rules, lessons and output spec travel with
+# every model call, tool names stripped). The .skill bundle and the reader's guide stay in
+# docs/sources/ (not committed); the guide's text is docs/abm/skill-readers-guide-v2.md. Values
+# the guide states are cited by its source id (S1 to S21).
+version: "1.1.0"
 skill:
   name: {value: abm-account-research, source: "guide S1 (archive folder name)"}
-  version: {value: "1.8", source: "guide title; S7 (change log line 158, version 1.8)"}
+  version: {value: "1.11", source: "config/skill/archive/references/checklist.md change log (2026-10-07, version 1.11)"}
   file_count: {value: 16, source: "guide S1 (archive manifest)"}
 archive:
-  status: absent
-  expected_path: docs/sources/abm-skill/
-  note: "Place the .skill file or its extracted folder here, then run scripts/abm_source_check.py"
+  status: present
+  path: config/skill/archive/
+  text_files: [SKILL.md, references/checklist.md, references/lessons.md, references/output-spec.md, references/phase1-pull.md, references/phase2-build.md, references/signals.md, references/tools.md]
+  note: "Replace these files from the next .skill bundle; assets/ and scripts/ are the manual tooling and are not shipped"
 guide:
   path: {value: docs/sources/ABM_Skill_Readers_Guide_v2.docx, source: "operator supplied 2026-10-08"}
   sources:

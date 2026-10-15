@@ -38,6 +38,13 @@ def file_outcome(kind: str, outcome: str) -> None:
 def build_outcome(run_id: str, outcome: str, codes: tuple[str, ...], rows: dict[str, int]) -> None:
     """Count the build and log one line: run id, outcome, error codes and row counts only."""
     _builds.add(1, {"outcome": outcome})
+    if codes:
+        # the codes as a structured field: the JSON message below is reduced to a hash in the
+        # cloud logs, so a failed build was otherwise invisible there (staging 2026-10-15)
+        _logger.warning(
+            "exports.build_failed",
+            extra={"outcome": outcome, "error_code": ",".join(sorted(set(codes)))[:200]},
+        )
     _logger.info(
         json.dumps(
             {

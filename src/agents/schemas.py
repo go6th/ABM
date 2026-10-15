@@ -201,6 +201,9 @@ class DistillInput(_Strict):
     account_name: str
     audience: Literal["client", "internal"]
     facts: tuple[StoredFact, ...]
+    # the facts a narrative sentence may state (the grading policy: Confirmed only); a sentence
+    # resting on any other fact must be a question, or it is withheld (audit 2026-10-15)
+    statable_fact_ids: tuple[str, ...] = ()
     # code-written feedback for the one bounded re-ask after a narrative was dropped whole
     notes: str | None = Field(default=None, max_length=600)
 

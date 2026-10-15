@@ -234,6 +234,7 @@ class GcsObjectStore:
         import asyncio
 
         def names() -> list[str]:
+            """The object names under the prefix (one page at a time)."""
             return sorted(b.name for b in self._bucket.list_blobs(prefix=prefix, max_results=limit))
 
         return await asyncio.to_thread(names)

@@ -31,7 +31,16 @@ async def test_audit_verify_checks_every_clients_chain(
     checked = await _call(plane, "POST", "/tasks/audit-verify", json={})
     assert checked.status_code == 200, checked.text
     body = checked.json()
-    assert body["clients"] >= 2 and body["broken"] == 0  # world a and b at least, both intact
+    assert body["clients"] >= 2  # world a and b at least
+    # other suites deliberately break chains of their own tenants; the world's are intact
+    from datetime import UTC, datetime
+
+    from account_intelligence.db.session import tenant_txn
+    from audit import chain
+
+    for tenant in (world["a"], world["b"]):
+        async with tenant_txn(tenant) as s:
+            assert (await chain.verify(s, datetime.now(UTC), batch=1000, max_batches=50)).ok
 
 
 async def test_task_routes_refuse_without_the_scheduler_token(world: dict[str, Any]) -> None:

@@ -125,6 +125,9 @@ class BuildFailed(ExportError, BuildIncomplete):
     def __init__(self, result: BuildResult) -> None:
         self.result = result
         self.reason = result.reason or "build_failed"
+        # why, by error code (missing_narrative, leak...): the research run records these
+        # instead of the bare "build_failed" that told the user nothing (staging 2026-10-15)
+        self.codes = ",".join(sorted(error_codes(result.errors)))[:120]
         ExportError.__init__(self, self.reason, result.errors)
 
 

@@ -308,6 +308,22 @@ async def index_passages(
     return True
 
 
+async def set_semantic_vectors(
+    s: AsyncSession, rows: Sequence[tuple[Any, Any, str]], model: str
+) -> None:
+    """Give chunks their retrieval vector (``(tenant_id, chunk id, vector literal)`` each): the
+    backfill for chunks indexed before the retrieval vectors existed (``documents.retrieve``)."""
+    if not rows:
+        return
+    await s.execute(
+        text(
+            "UPDATE chunks SET semantic_embedding = CAST(:v AS halfvec), semantic_model = :m"
+            " WHERE tenant_id = :t AND id = :i"
+        ),
+        [{"v": v, "m": model, "t": t, "i": i} for t, i, v in rows],
+    )
+
+
 async def link_run(s: AsyncSession, run_id: UUID, account_id: UUID, ids: Sequence[UUID]) -> None:
     """The documents a file-mode run researches."""
     for doc in ids:
@@ -748,7 +764,8 @@ async def index_page(
     once) and remember how far indexing got. False: the document was deleted meanwhile.
     ``semantic`` are the retrieval vectors (on-server transformer), one per row, or None.
 
-    The document row is locked FOR NO KEY UPDATE first, not FOR SHARE: two workers indexing the
+    The document row is locked (FOR NO KEY UPDATE, not FOR SHARE) before the page is written:
+    two workers indexing the
     same document both took the share lock and then both updated the row, a deadlock seen on
     staging 2026-10-15. Now the second waits and rewrites the same page (idempotent)."""
     locked = await s.execute(

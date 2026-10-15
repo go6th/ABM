@@ -274,6 +274,7 @@ class DocumentService:
         doc_id = UUID(started["document_id"])
 
         async def chunks() -> AsyncIterator[bytes]:
+            """The file read in bounded pieces."""
             with path.open("rb") as source:
                 # LOOP(import spool): cap=size / chunk_bytes reads; exit=end of the spool file
                 while block := source.read(self.c.upload.chunk_bytes):

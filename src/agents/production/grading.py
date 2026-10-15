@@ -311,6 +311,10 @@ class EngineGrading:
             ),
         )
 
+    # the graph skips the people extraction call while this is False: the call was paid for and
+    # its result thrown away (OI-ABM-4; audit 2026-10-15)
+    records_people = False
+
     async def record_people(
         self, ctx: RunContext, people: Sequence[PersonCandidate]
     ) -> tuple[str, ...]:

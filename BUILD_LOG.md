@@ -659,3 +659,43 @@ committed; no live paid run; no outbound message.
 * Dev stack: api, worker and web rebuilt and restarted; `/readyz` ready with components. The
   dev worker has no model key, so a file run there reads spreadsheet rows only and ends PARTIAL
   `model_not_configured` (prose needs a model).
+
+## A research that finishes and builds its files (2026-10-15, evening)
+
+Staging runs of the ABM graph ended PARTIAL `build_failed` with an empty "one minute version"
+and every deep-dive category at 0; the account page then said "stopped before finishing".
+
+### Causes
+
+* The Summary needs a narrative; a narrative sentence may only state Confirmed facts, and nearly
+  every fact is Probable (Confirmed needs a full page read of a primary source this run). The
+  projection into `report_sections` withheld such sentences silently, so the Summary refused
+  (`missing_narrative`) and the whole build failed.
+* `deliver` ended PARTIAL with no reason whenever a coverage row was not done (people rows need
+  consent; Phase B rows wait on the owner), which the page read as a stop.
+* Category counts and sheets read tables only Workflow v1 or the seed wrote; the ABM graph records
+  what it finds as graded facts keyed `<class>.<row>.<attribute>`.
+* Spend: agent token budgets were checked after a paid call (the output was discarded); the
+  people extraction was paid for and never recorded (OI-ABM-4); the internal-audience distill
+  call fed nothing.
+
+### Built
+
+* Distill: `DistillInput.statable_fact_ids`; a stating sentence on any other fact is dropped and
+  counted (`unconfirmed_stated`) and the one re-ask names the rule; a narrative still empty after
+  that is the first-call questions (question form, same facts). The projection counts what it
+  withholds, applies the same question fallback, and logs `distill.projected`/`distill.withheld`.
+  One distill call per run (client audience; the Internal Only file is built from facts).
+* `restates_grade` no longer drops a capitalised grade word that starts a title or a name.
+* Run end: a delivered run with unfinished steps ends PARTIAL `steps_waiting` (not "stopped");
+  the page shows "Research finished · n of 33 done" with each gap's reason (`gaps`), and the
+  stopped card names any other reason (quality check, build codes, model limits).
+* Categories: People, Job postings, Tech stack and News count and list the public facts of
+  their class as well as the dedicated tables (`FACT_CLASS`).
+* Spend: `BudgetMeter.reserve_tokens` refuses an oversized call before it is paid; a paid call's
+  output is always kept; budgets in `config/agents.yaml` sized so a standard run is not cut
+  short; the people extraction is skipped while nothing can record people.
+* Logs: `run.finished` (state, stop_reason, graph_version), `distill.done`, `exports.build_failed`
+  (error codes), and `BuildFailed.codes` in the run's reason (`build_failed:<codes>`).
+* Metrics: app metrics to Cloud Monitoring (`obs.export`), PromQL alerts, the metrics task;
+  run notifications relayed by email; jobs left open after their run ended are closed.

@@ -12,6 +12,7 @@ GUARANTEE(test_full_abm_run_grades_through_the_engine_and_tracks_every_row)
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -24,8 +25,12 @@ from account_intelligence.grading.product import statement_policy
 from account_intelligence.grading.repo import TxnFactory
 from agents.adapters import PgSenseChecks
 from agents.config import SkillConfig
+from agents.distill.agent import NARRATIVE_FROM_QUESTIONS
 from agents.ports import InternalHistorySettings, RunContext, TenantAgentSettings
+from obs.logging import logger
 from tenancy import settings as tenant_settings
+
+_log = logger(__name__)
 
 
 class PgRunRecords(PgSenseChecks):
@@ -102,6 +107,8 @@ class PgRunRecords(PgSenseChecks):
                     codes_by_fact.setdefault(row.fact_id, set()).add(row.source_code)
                     grade_by_fact[row.fact_id] = str(row.product_grade)
 
+            withheld: Counter[str] = Counter()
+
             async def project(
                 kind: str,
                 position: int,
@@ -109,21 +116,25 @@ class PgRunRecords(PgSenseChecks):
                 *,
                 question: str | None = None,
                 require_citation: bool = False,
-            ) -> None:
+            ) -> bool:
                 """Persist one checked section; uncited narrative is withheld from the renderer, and
                 so is narrative that states a fact the grading policy does not let a client file
-                state (a Lead or Probable is asked about, never asserted)."""
+                state (a Lead or Probable is asked about, never asserted). Returns whether the
+                section was kept; what was withheld is counted and logged (audit 2026-10-15: the
+                Summary failed its build with no trace of why its narrative was empty)."""
                 ids = sorted(set(claim.fact_ids))
                 codes = sorted({code for fid in ids for code in codes_by_fact.get(fid, set())})
                 if require_citation and not codes:
-                    return
+                    withheld[f"{kind}_uncited"] += 1
+                    return False
                 states = kind == "narrative" and not claim.text.rstrip().endswith("?")
                 if states and any(
                     not statement_policy(grade_by_fact[fid], grading)
                     for fid in ids
                     if fid in grade_by_fact
                 ):
-                    return
+                    withheld[f"{kind}_unconfirmed_stated"] += 1
+                    return False
                 # A run's client report is immutable. Conflicts are safe replays of the same
                 # graph node, not edits or replacement of previously rendered prose.
                 await s.execute(
@@ -146,9 +157,19 @@ class PgRunRecords(PgSenseChecks):
                         "question": question,
                     },
                 )
+                return True
 
+            kept = 0
             for position, claim in enumerate(output.narrative):
-                await project("narrative", position, claim, require_citation=True)
+                kept += await project("narrative", position, claim, require_citation=True)
+            if not kept and output.questions:
+                # no narrative sentence survived: the Summary opens with the first-call questions
+                # (question-form, the same facts, cited), never with nothing (audit 2026-10-15)
+                for position, claim in enumerate(output.questions[:NARRATIVE_FROM_QUESTIONS]):
+                    kept += await project(
+                        "narrative", len(output.narrative) + position, claim, require_citation=True
+                    )
+                withheld["narrative_from_questions"] += 1 if kept else 0
             for position, claim in enumerate(output.questions):
                 # A question is a prompt for the account owner, not an asserted fact.
                 await project("first_call_question", position, claim)
@@ -164,6 +185,19 @@ class PgRunRecords(PgSenseChecks):
                         hypothesis,
                         question=confirmation.text,
                     )
+            _log.info(
+                "distill.projected",
+                extra={"count": kept, "dropped": sum(withheld.values()), "kind": "narrative"},
+            )
+            if withheld:
+                _log.info(
+                    "distill.withheld",
+                    extra={
+                        "error_code": ",".join(f"{k}={v}" for k, v in sorted(withheld.items()))[
+                            :200
+                        ]
+                    },
+                )
 
     async def distill(self, ctx: RunContext, audience: str) -> dict[str, Any] | None:
         """The stored output for an audience."""

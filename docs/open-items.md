@@ -179,3 +179,15 @@ below are what the code does until then.
 | OI-IM-11 | Facts derived from a deleted document are marked `needs_reevaluation` and listed in `fact_reevaluations`; their evidence text stays (facts are append-only, rule 9). Re-evaluation itself (re-grading on the remaining documents) is not automated | partial |
 | OI-IM-12 | Company mode still cannot complete on the hermetic stack: Workflow v1 writes no Summary narrative (`build_failed: missing_narrative`, audit F2), so the newly wired gate never runs for it. File mode completes | open (F2) |
 | OI-IM-13 | One full-suite run aborted natively (exit 134) inside the research-files parser, which runs in process (the document path parses in a sandbox subprocess); three reruns passed. Running research-file parsing in the same sandbox would contain such aborts | open (flaky) |
+
+## Skill archive version 1.11 (2026-10-16)
+
+The archive is in the repository (`config/skill/archive/`, operator supplied) and its text is
+part of every ABM model call (`agents.skill_context`). OI-ABM-2 and OI-ABM-3 are unblocked.
+Features the change log adds after 1.8 that the platform does not build yet:
+
+| Item | Description | Status |
+|---|---|---|
+| OI-SK-1 | Version 1.9: Platform Ranking sheet in the Tech Stack and Teams workbook (platforms named in 12-month postings ranked A, B, C by share; `assets/platform_ranking.py`) | not built |
+| OI-SK-2 | Version 1.10: phase 1 people searches send titles and domain only; lane vendor partnership search, every careers board, connections and subsidiary pulls mandatory; completeness gate before packaging | partly (plan rows exist; the people step is off until OI-ABM-4) |
+| OI-SK-3 | Version 1.11: gap-check people merged before profiles and posts (step 6a); spend priority (people, then feeds and stack, then media); Teams call at 6 attributes with Team technologies and Team locations columns | not built |

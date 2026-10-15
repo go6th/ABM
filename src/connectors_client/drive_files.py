@@ -76,10 +76,12 @@ class DriveFile:
 
     @property
     def extension(self) -> str:
+        """The file extension the stored copy gets."""
         return IMPORTABLE[self.mime][0]
 
     @property
     def export_mime(self) -> str | None:
+        """The export format a Google Docs file is fetched as, or None."""
         return IMPORTABLE[self.mime][1]
 
     @property
@@ -204,7 +206,7 @@ class HttpDriveFiles:
                                 "too_large", "The file is larger than your workspace allows."
                             )
                         out.write(chunk)
-        except BaseException:
+        except BaseException:  # a cancelled or failed download leaves no partial spool file
             spool.unlink(missing_ok=True)
             raise
         if written == 0:

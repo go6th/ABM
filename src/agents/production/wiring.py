@@ -71,10 +71,14 @@ class RunDepsModel:
         it is asked once more; a second failure is ``SchemaInvalid`` (never kept)."""
         import json
 
+        from agents.skill_context import with_skill_context
+
         schema = json.dumps(output.model_json_schema(), separators=(",", ":"))
+        # the owner's skill travels with every call (operator request 2026-10-16); it sits in
+        # the cached system block, so it is paid for once per cache window
         system = (
-            f"{prompt_text}\n\nAnswer with one JSON object, no prose and no code fence, that"
-            f" validates against this JSON Schema:\n{schema}"
+            f"{with_skill_context(prompt_text, task_kind)}\n\nAnswer with one JSON object, no"
+            f" prose and no code fence, that validates against this JSON Schema:\n{schema}"
         )
         user = json.dumps(dict(payload))
         tokens = 0
@@ -286,7 +290,9 @@ class AbmGraphFactory:
             return RunStatus.PARTIAL, "pull_only", False  # Phase 1 evaluates no rows (G15)
         if outcome == "completed":
             return RunStatus.COMPLETED, None, False
-        return RunStatus.PARTIAL, str(code or "abm_partial"), False
+        # delivered, with steps that could not be finished (blocked, waiting on the owner, not
+        # approved): finished with gaps, never "stopped" (audit 2026-10-15)
+        return RunStatus.PARTIAL, str(code or "steps_waiting"), False
 
 
 def run_context(values: Mapping[str, Any]) -> RunContext:

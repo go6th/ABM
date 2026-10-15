@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -179,9 +180,53 @@ def test_budget_breach_is_a_typed_end() -> None:
         meter.charge_call()
     assert meter.exit_reason == "budget_tool_calls"
     tokens = BudgetMeter(REG["distill"], T0)
-    with pytest.raises(BudgetExceeded):
-        tokens.charge_tokens(REG["distill"].budgets.tokens + 1)
+    with pytest.raises(BudgetExceeded):  # a call that would exceed the budget is refused unpaid
+        tokens.reserve_tokens(REG["distill"].budgets.tokens + 1)
+    assert tokens.exit_reason == "budget_tokens"
+    paid = BudgetMeter(REG["distill"], T0)
+    paid.reserve_tokens(10)
+    paid.charge_tokens(REG["distill"].budgets.tokens + 1)  # paid work is kept, never discarded
+    assert paid.exit_reason == "budget_tokens"
+    with pytest.raises(BudgetExceeded):  # ...and the agent makes no further call
+        paid.reserve_tokens(1)
     clock = BudgetMeter(REG["distill"], T0)
     clock.check_time(T0 + timedelta(seconds=REG["distill"].budgets.seconds))
     with pytest.raises(BudgetExceeded):
         clock.check_time(T0 + timedelta(seconds=REG["distill"].budgets.seconds + 1))
+
+
+@pytest.mark.asyncio
+async def test_a_call_is_refused_before_payment_when_its_size_exceeds_the_budget() -> None:
+    """The budget check runs on the call's estimated size before the model is called: an
+    oversized call is never paid for (audit 2026-10-15: calls were paid, then discarded)."""
+    from uuid import uuid4
+
+    from agents.contracts import Budgets
+    from agents.ports import RunContext
+    from agents.runtime import call_agent, estimate_tokens
+    from agents.schemas import DistillInput, StoredFact
+
+    calls: list[str] = []
+
+    class Model:
+        async def call(self, task_kind, *args, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(task_kind)
+            raise AssertionError("never reached")
+
+    small = dataclasses.replace(REG["distill"], budgets=Budgets(50, 10, 300))
+    facts = tuple(
+        StoredFact(
+            fact_id=f"f{i}",
+            row_key="company_news",
+            attribute="a",
+            value="v" * 400,
+            grade="probable",
+        )
+        for i in range(10)
+    )
+    payload = DistillInput(account_name="Acme", audience="client", facts=facts)
+    assert estimate_tokens("prompt", payload.model_dump(mode="json")) > 50
+    ctx = RunContext(uuid4(), uuid4(), "acme", "Acme", "acme.example", False, "sk-1")
+    with pytest.raises(BudgetExceeded):
+        await call_agent(small, Model(), BudgetMeter(small, T0), ctx, payload, client_bound=True)  # type: ignore[arg-type]
+    assert calls == []

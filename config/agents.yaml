@@ -6,7 +6,7 @@
 # on a tool outside the list, an output field outside the schema, or an agent with no guard.
 # Budgets are proposals (status) until measured on golden accounts.
 version: "1.0.0"
-status: "proposal (D-95; budgets unmeasured)"
+status: "proposal (D-95; token budgets sized 2026-10-15 so a standard run is not cut short: a call is refused before it is paid for when it would exceed them)"
 
 agents:
   setup:
@@ -17,7 +17,7 @@ agents:
     tools: [settings.read, payloads.read]
     input_schema: SetupInput
     output_schema: SetupProposal
-    budgets: {tokens: 4000, tool_calls: 4, seconds: 60}
+    budgets: {tokens: 20000, tool_calls: 4, seconds: 60}
     stop: [validated, invalid_input, budget]
     guards: [G7, G13]
   pull:
@@ -39,7 +39,7 @@ agents:
     tools: [payloads.read]
     input_schema: ExtractionInput
     output_schema: ExtractionOutput
-    budgets: {tokens: 30000, tool_calls: 40, seconds: 300}
+    budgets: {tokens: 400000, tool_calls: 40, seconds: 300}
     stop: [extracted, budget]
     guards: [G2, G4, G9, G10, G13]
   pass2:
@@ -50,7 +50,7 @@ agents:
     tools: [payloads.read]
     input_schema: ExtractionInput
     output_schema: ExtractionOutput
-    budgets: {tokens: 60000, tool_calls: 80, seconds: 600}
+    budgets: {tokens: 1200000, tool_calls: 80, seconds: 600}
     stop: [extracted, budget]
     guards: [G2, G3, G4, G9, G13]
   people:
@@ -61,7 +61,7 @@ agents:
     tools: [payloads.read]
     input_schema: ExtractionInput
     output_schema: PeopleOutput
-    budgets: {tokens: 30000, tool_calls: 40, seconds: 300}
+    budgets: {tokens: 300000, tool_calls: 40, seconds: 300}
     stop: [extracted, consent_required, budget]
     guards: [G4, G8, G9, G13]
   sense_check:
@@ -72,7 +72,7 @@ agents:
     tools: [facts.read, credit.price]
     input_schema: SenseCheckInput
     output_schema: SenseCheckOutput
-    budgets: {tokens: 30000, tool_calls: 10, seconds: 300}
+    budgets: {tokens: 200000, tool_calls: 10, seconds: 300}
     stop: [checked, budget]
     guards: [G6, G7, G13]
   distill:
@@ -83,7 +83,7 @@ agents:
     tools: [facts.read]
     input_schema: DistillInput
     output_schema: DistillOutput
-    budgets: {tokens: 30000, tool_calls: 10, seconds: 300}
+    budgets: {tokens: 120000, tool_calls: 10, seconds: 300}
     stop: [distilled, budget]
     guards: [G4, G9, G10, G13]
 

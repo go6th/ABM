@@ -58,7 +58,7 @@ async def test_workspace_after_a_refresh_shows_what_changed_and_live_counts(
         "signals": 9,
         "people": 41,
         "jobs": 27,
-        "tech": 14,
+        "tech": 15,  # 14 detections and one tech fact the research found
         "news": 12,
         "mail_drive": 3,
         "sources": 86,
@@ -269,7 +269,7 @@ async def test_another_clients_sheets_are_not_found(world: dict[str, Any]) -> No
         await _call(b, "GET", "/v1/accounts/highmark.example/sheets/people/xlsx")
     ).status_code == 404
     own = (await _call(b, "GET", "/v1/accounts/cigna.example/sheets/people")).json()
-    assert own["total"] == 3
+    assert own["total"] == 5  # 3 people rows and 2 people facts the research found
 
 
 async def test_coverage_shows_every_tracker_item_with_its_status_and_reason(
@@ -362,3 +362,68 @@ async def test_a_colleague_cannot_read_a_runs_spend_view(world: dict[str, Any]) 
     other = _plane(world["a"], "someone-else", world["payloads"])
     got = await _call(other, "GET", f"/v1/runs/{run}/spend")
     assert got.status_code == 404
+
+
+async def test_categories_count_and_list_what_the_research_graph_found(
+    world: dict[str, Any],
+) -> None:
+    """The research graph records findings as graded facts keyed by class; the deep-dive
+    categories count and list them (audit 2026-10-15: every category showed 0 after a
+    finished research)."""
+    import hashlib
+    from uuid import uuid4
+
+    import psycopg
+
+    from tests.conftest import ADMIN_DSN, _make_account
+
+    domain = f"graph-{uuid4().hex[:8]}.example"
+    account = _make_account(world["a"], domain)
+    with psycopg.connect(ADMIN_DSN) as c:  # a fact needs its evidence row at commit
+        c.execute(
+            "UPDATE accounts SET owner_user_id = %s, added_by = %s WHERE id = %s",
+            ("priya-test", "priya-test", account),
+        )
+        for key, value in (
+            ("tech.technology_detections.platform", "Salesforce"),
+            ("jobs.job_postings_read_classified.role", "Data Engineer"),
+            ("people.key_contact_profiles_posts.name", "A. Person"),
+            ("company.company_news.headline", "Opened a new office"),
+        ):
+            fid = uuid4()
+            c.execute(
+                "INSERT INTO facts (id, tenant_id, account_id, attribute_key, value_json,"
+                " fingerprint, engine_grade, product_grade, read_in_primary_this_run,"
+                " may_state_to_prospect, status, visibility, claim_kind, value_text) VALUES"
+                " (%s, %s, %s, %s, to_jsonb(%s::text), %s, 'B', 'probable', false, false,"
+                " 'current', 'public', 'sourced', %s)",
+                (fid, world["a"], account, key, value, uuid4().hex, value),
+            )
+            c.execute(
+                "INSERT INTO fact_evidence (tenant_id, fact_id, evidence_kind, url,"
+                " supporting_sentence, span_sha256, source_tier, origin, provider_code,"
+                " evidence_date) VALUES"
+                " (%s, %s, 'source', %s, %s, %s, 'T1', 'search_snippet', 'p_search', now())",
+                (
+                    world["a"],
+                    fid,
+                    f"https://{domain}/x",
+                    f"{value}.",
+                    hashlib.sha256(value.encode()).hexdigest(),
+                ),
+            )
+        c.commit()
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    ws = await _call(plane, "GET", f"/v1/accounts/{domain}/workspace")
+    assert ws.status_code == 200, ws.text
+    counts = ws.json()["counts"]
+    assert (counts["tech"], counts["jobs"], counts["people"], counts["news"]) == (1, 1, 1, 1)
+    for sheet, cell in (
+        ("technology", "Salesforce"),
+        ("jobs", "Data Engineer"),
+        ("people", "A. Person"),
+        ("news", "Opened a new office"),
+    ):
+        page = await _call(plane, "GET", f"/v1/accounts/{domain}/sheets/{sheet}")
+        assert page.status_code == 200, (sheet, page.text)
+        assert any(cell in json.dumps(r["cells"]) for r in page.json()["rows"]), sheet

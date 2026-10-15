@@ -3,7 +3,9 @@
 ``call_agent``:
 
 1. refuses an agent with no model (the pull agent, build, gate and delivery are code only);
-2. charges one call against the agent's budget before the call and its tokens after it;
+2. charges one call against the agent's budget before the call, refuses a call whose estimated
+   size would exceed the token budget (nothing is paid for only to be discarded), and records
+   the tokens after it;
 3. routes by the agent's task kind (split mode is routing, G11): the model port picks the tier;
 4. treats a schema failure as a typed rejection (nothing from the output is kept);
 5. rejects an output that echoes a canary or an instruction marker (injection echo, G14 of the
@@ -36,6 +38,20 @@ from llm.prompts import prompt_hash
 
 M = TypeVar("M", bound=BaseModel)
 AGENTS_DIR = Path(__file__).parent
+
+
+# a conservative size estimate for the budget check before a call: about four characters per
+# token for prompt and payload, plus a fixed allowance for the reply
+CHARS_PER_TOKEN = 4
+REPLY_ALLOWANCE_TOKENS = 4000
+
+
+def estimate_tokens(prompt: str, payload: Mapping[str, Any]) -> int:
+    """The tokens a call is expected to take, from its text size (never the model's count)."""
+    import json
+
+    size = len(prompt) + len(json.dumps(payload, separators=(",", ":"), default=str))
+    return size // CHARS_PER_TOKEN + REPLY_ALLOWANCE_TOKENS
 
 
 @lru_cache(maxsize=16)
@@ -85,12 +101,14 @@ async def call_agent(
         raise GuardViolation("G13", "wrong_input_schema", contract.name)
     text, digest = load_prompt(contract.name)
     meter.charge_call()
+    payload_json = payload.model_dump(mode="json")
+    meter.reserve_tokens(estimate_tokens(text, payload_json))
     try:
         output, tokens = await model.call(
             contract.task_kind,
             text,
             digest,
-            payload.model_dump(mode="json"),
+            payload_json,
             contract.output_schema,
             ctx,
         )

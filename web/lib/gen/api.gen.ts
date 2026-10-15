@@ -87,6 +87,12 @@ export const Changes = z.object({
 }).strict();
 export type Changes = z.infer<typeof Changes>;
 
+export const CoverageGap = z.object({
+  "count": z.number().int(),
+  "reason": z.string(),
+}).strict();
+export type CoverageGap = z.infer<typeof CoverageGap>;
+
 export const DeepDiveCounts = z.object({
   "coverage_done": z.number().int().optional(),
   "coverage_total": z.number().int().optional(),
@@ -153,6 +159,7 @@ export const AccountWorkspace = z.object({
   "files": z.array(DeliverableFile),
   "findings": z.array(FindingRow),
   "first_scan": z.boolean(),
+  "gaps": z.array(CoverageGap).optional(),
   "id": z.string().nullable().optional(),
   "lanes": z.array(z.string()).optional(),
   "last_researched_at": z.string().nullable().optional(),

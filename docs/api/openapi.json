@@ -353,6 +353,14 @@
             "title": "First Scan",
             "type": "boolean"
           },
+          "gaps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CoverageGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
           "id": {
             "anyOf": [
               {
@@ -4165,6 +4173,26 @@
           "unknown_cost_calls"
         ],
         "title": "CostLine",
+        "type": "object"
+      },
+      "CoverageGap": {
+        "additionalProperties": false,
+        "description": "Steps of the latest research that could not be finished, with the reason in words.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ],
+        "title": "CoverageGap",
         "type": "object"
       },
       "CoverageRow": {

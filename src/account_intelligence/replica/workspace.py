@@ -295,14 +295,15 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
             text(
                 "SELECT"
                 " (SELECT count(*) FROM signal_events WHERE account_id = :a) AS signals,"
-                " (SELECT count(*) FROM people WHERE account_id = :a AND NOT excluded AND"
+                " ((SELECT count(*) FROM people WHERE account_id = :a AND NOT excluded AND"
                 " merged_into IS NULL"
-                "   AND erased_at IS NULL AND NOT coalesce(internal_only, false)) AS people,"
-                " (SELECT count(*) FROM job_postings WHERE account_id = :a AND status <> 'closed')"
-                " AS jobs,"
-                " (SELECT count(*) FROM tech_detections WHERE account_id = :a) AS tech,"
-                " (SELECT count(*) FROM facts WHERE account_id = :a AND attribute_key LIKE 'news.%'"
-                "   AND status = 'current' AND visibility = 'public') AS news,"
+                "   AND erased_at IS NULL AND NOT coalesce(internal_only, false))"
+                f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['people']})) AS people,"
+                " ((SELECT count(*) FROM job_postings WHERE account_id = :a AND status <> 'closed')"
+                f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['jobs']})) AS jobs,"
+                " ((SELECT count(*) FROM tech_detections WHERE account_id = :a)"
+                f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['tech']})) AS tech,"
+                f" (SELECT count(*) FROM facts f WHERE {FACT_CLASS['news']}) AS news,"
                 " (SELECT count(*) FROM connector_items WHERE account_id = :a AND owner_user_id ="
                 " :u"
                 "   AND state = 'matched') AS mail_drive,"
@@ -370,6 +371,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         "changes": changes,
         "counts": dict(counts._mapping),
         "files": files,
+        "gaps": await coverage_gaps(session, account_id) if job is None else [],
         "open_job": None
         if job is None
         else {
@@ -383,6 +385,66 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         },
         "stopped_run": stopped,
     }
+
+
+# The research graph records what it finds as graded facts keyed ``<class>.<step>.<attribute>``
+# (it does not fill the people, job_postings and tech_detections tables of the older workflow),
+# so each deep-dive category also counts and lists the public facts of its class (audit
+# 2026-10-15: every category showed 0 after a finished research).
+_FACT_PUBLIC = "f.account_id = :a AND f.status = 'current' AND f.visibility = 'public'"
+FACT_CLASS = {
+    "people": f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'people.%'",
+    "jobs": f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'jobs.%'",
+    "tech": f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'tech.%'",
+    "news": (
+        f"{_FACT_PUBLIC} AND (f.attribute_key LIKE 'news.%' OR split_part(f.attribute_key, '.', 2)"
+        " IN ('company_news', 'leadership_changes', 'competitor_moves',"
+        " 'regulatory_quality_events', 'events_sponsored'))"
+    ),
+}
+
+# What a step that could not finish says on the account page (tracker reason codes).
+GAP_TEXT = {
+    "consent_required": "needs your consent for people data",
+    "waiting_on_account_owner": "waits on information only you hold",
+    "pull_not_approved": "a follow-up search was not approved within the credit limit",
+    "not_planned": "outside this research's scope",
+    "lane_not_in_scope": "outside the lanes you chose",
+    "source_unavailable": "the source could not be reached",
+    "source_failed": "the source failed",
+    "source_rate_limited": "the source limited our requests",
+    "budget_cap": "the credit limit was reached",
+    "credits_exhausted": "the credits ran out",
+    "no_cap": "no credit limit was confirmed",
+    "cap_reached": "the credit limit was reached",
+    "not_available_yet": "not available yet",
+    "fewer_than_expected": "fewer results than expected",
+    "claims_dropped": "what was found did not pass checking",
+}
+
+
+def gap_text(code: str) -> str:
+    """One readable reason for a step that could not finish."""
+    return GAP_TEXT.get(code, code.replace("_", " "))
+
+
+async def coverage_gaps(session: Any, account_id: UUID) -> list[dict[str, Any]]:
+    """The steps of the latest finished research that could not be finished, by reason."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT coalesce(c.reason_code, 'unknown') AS code, count(*) AS n"
+                " FROM coverage_rows c WHERE c.run_id = (SELECT r.id FROM account_runs r"
+                "   WHERE r.account_id = :a AND r.status IN ('COMPLETED', 'PARTIAL',"
+                "   'BUDGET_EXCEEDED') AND EXISTS (SELECT 1 FROM coverage_rows x WHERE"
+                "   x.run_id = r.id) ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
+                " AND c.status IS DISTINCT FROM 'done' AND c.status IS DISTINCT FROM 'none'"
+                " GROUP BY 1 ORDER BY 2 DESC, 1"
+            ),
+            {"a": account_id},
+        )
+    ).all()
+    return [{"reason": gap_text(str(r.code)), "count": int(r.n)} for r in rows]
 
 
 STOP_TEXT = {
@@ -408,7 +470,7 @@ STOP_TEXT = {
         "Some steps could not be finished, so the quality check held the files back."
         " Open Coverage to see which steps and why."
     ),
-    "abm_partial": "Some steps could not be finished. Open Coverage to see which steps and why.",
+    "steps_waiting": "Some steps could not be finished. Open Coverage to see which steps and why.",
     "pull_only": "This run only collected data; nothing was written up yet.",
     "slice_ceiling": "It ran longer than the platform allows for one research.",
     "budget_cap": "It reached the credits confirmed for it.",
@@ -423,7 +485,7 @@ def stop_text(reason: str) -> str:
     if reason in STOP_TEXT:
         return STOP_TEXT[reason]
     if reason.startswith("build_failed"):
-        why = reason.partition(":")[2].replace("_", " ") or "no detail"
+        why = reason.partition(":")[2].replace("_", " ").replace(",", ", ") or "no detail"
         return BUILD_FAILED_TEXT.format(why=why)
     return f"It stopped before finishing (reason: {reason.replace('_', ' ')})."
 
@@ -451,8 +513,10 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
         "COMPLETED", "PARTIAL", "FAILED", "CANCELED", "BUDGET_EXCEEDED"
     )  # fmt: skip
     ended_early = row.status in ("PARTIAL", "FAILED", "BUDGET_EXCEEDED")
+    # a research that delivered its files with steps it could not finish (consent, waiting on
+    # the owner, not approved) is finished, not stopped: Coverage says which steps and why
     stopped = ended_early and row.finished_reason not in (
-        None, "completed", "canceled", "user_canceled"
+        None, "completed", "canceled", "user_canceled", "steps_waiting"
     )  # fmt: skip
     if not (stalled or stopped):
         return None

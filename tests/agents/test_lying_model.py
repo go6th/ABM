@@ -318,12 +318,19 @@ async def test_honest_setup_picks_a_visited_careers_page(h: Harness) -> None:
 
 
 async def test_budget_breach_ends_in_a_typed_result_not_a_retry(h: Harness) -> None:
+    """A call that would take an agent past its token budget is refused before it is paid for;
+    a paid call's output is kept (audit 2026-10-15: calls were paid for, then discarded)."""
     assert h.llm is not None
-    h.llm.tokens = 10**9
+    h.llm.tokens = 10**9  # every paid call exhausts its agent's budget
     record, state = await h.run("r")
-    assert state["outcome"] == "failed" and state["error_code"] == "sense_check_budget_exceeded"
-    assert state["counters"]["drop_pass1_budget_exceeded"] == 1
-    assert h.llm.calls["abm_sense_check"] == 1 and not h.delivery.released
+    counters = state["counters"]
+    # the first pass1 call was paid and kept (its facts exist); every later call of an exhausted
+    # agent was refused unpaid, and the run ended in a typed budget result, never a retry
+    assert h.llm.calls["abm_pass1_extract"] == 1
+    assert h.grading.facts_by_run[record.run_id]
+    assert any(k.endswith("_budget_exceeded") for k in counters) or str(
+        state.get("error_code") or ""
+    ).endswith("_budget_exceeded")
     assert h.wallet.settlements[record.run_id] == 1
 
 

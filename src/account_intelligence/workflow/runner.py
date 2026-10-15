@@ -48,6 +48,9 @@ from account_intelligence.workflow.deps import RunDeps
 from account_intelligence.workflow.engine import build_graph
 from account_intelligence.workflow.handlers import build_handlers
 from account_intelligence.workflow.transitions import TERMINAL, RunStatus
+from obs.logging import logger
+
+_log = logger(__name__)
 
 DepsFactory = Callable[[UUID, UUID], Awaitable[RunDeps]]
 Checkpointer = Callable[[UUID], AbstractAsyncContextManager[Any]]
@@ -111,6 +114,17 @@ async def _finish(deps: RunDeps, target: RunStatus, reason: str | None, refund_a
             )
         ).scalar_one()
     _emit_root(deps, created, status)
+    # the one readable line per run end in the cloud logs (messages are reduced to hashes there;
+    # audit 2026-10-15): the state it ended in, why, and which graph ran
+    _log.info(
+        "run.finished",
+        extra={
+            "state": status,
+            "stop_reason": (reason or "completed")[:120],
+            "graph_version": str(deps.spec.version)[:40],
+            "outcome": "refunded" if refund_all else "settled",
+        },
+    )
     return status
 
 

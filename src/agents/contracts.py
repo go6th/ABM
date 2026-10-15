@@ -139,11 +139,21 @@ class BudgetMeter:
             raise self._breach("tool_calls")
         self.tool_calls += 1
 
+    def reserve_tokens(self, estimate: int) -> None:
+        """Refuse a call whose estimated size would take the agent past its token budget, before
+        it is paid for. Until 2026-10-15 the budget was checked only after a call: the call was
+        paid for and its output thrown away (``<step>_budget_exceeded``)."""
+        if self.exit_reason == "budget_tokens" or (
+            self.tokens + max(0, estimate) > self.contract.budgets.tokens
+        ):
+            raise self._breach("tokens")
+
     def charge_tokens(self, used: int) -> None:
-        """Add tokens a finished call used; a breach ends the agent (the output is discarded)."""
+        """Add tokens a finished call used. Paid work is never thrown away: a breach found here
+        marks the agent exhausted, so its next call is refused by ``reserve_tokens``."""
         self.tokens += max(0, used)
         if self.tokens > self.contract.budgets.tokens:
-            raise self._breach("tokens")
+            self.exit_reason = "budget_tokens"
 
     def check_time(self, now: datetime) -> None:
         """Refuse further work after the time budget."""

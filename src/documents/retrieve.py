@@ -24,6 +24,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from account_intelligence.rag.retrieval import reciprocal_rank_fusion
+from documents import repo
 
 LEXICAL_LIMIT = 30
 BACKFILL_LIMIT = 200
@@ -94,15 +95,10 @@ async def backfill(session: Any, scope: list[UUID], embedder: Any) -> int:
     if not missing:
         return 0
     vectors = await embedder.embed([str(r.content) for r in missing])
-    await session.execute(
-        text(
-            "UPDATE chunks SET semantic_embedding = CAST(:v AS halfvec), semantic_model = :m"
-            " WHERE tenant_id = :t AND id = :i"
-        ),
-        [
-            {"v": literal(v), "m": str(embedder.model), "t": r.tenant_id, "i": r.id}
-            for r, v in zip(missing, vectors, strict=True)
-        ],
+    await repo.set_semantic_vectors(
+        session,
+        [(r.tenant_id, r.id, literal(v)) for r, v in zip(missing, vectors, strict=True)],
+        str(embedder.model),
     )
     return len(missing)
 

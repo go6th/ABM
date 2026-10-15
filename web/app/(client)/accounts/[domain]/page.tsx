@@ -95,7 +95,17 @@ export default async function AccountWorkspacePage({ params }: Params) {
               <LiveRefresh />
             </div>
           )
-        ) : ws.stopped_run ? <ResumeResearch stopped={ws.stopped_run} /> : null}
+        ) : ws.stopped_run ? <ResumeResearch stopped={ws.stopped_run} /> : (ws.gaps ?? []).length ? (
+          <section className="card pad stack-10" aria-labelledby="gaps-title">
+            <div className="strong" id="gaps-title">Research finished · {coverage}</div>
+            <ul className="mut sm-text stack-4">
+              {(ws.gaps ?? []).map((g) => (
+                <li key={g.reason}>{g.count} {g.count === 1 ? "step" : "steps"}: {g.reason}</li>
+              ))}
+            </ul>
+            <Link className="btn align-start" href={`${here}/coverage`} prefetch={false}>See each step in Coverage</Link>
+          </section>
+        ) : null}
 
         <section className="card pad-lg stack-10" aria-labelledby="omv">
           <div className="lbl" id="omv">The one minute version</div>

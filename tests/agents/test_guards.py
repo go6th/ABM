@@ -289,4 +289,8 @@ def test_distilled_claims_may_not_restate_grades() -> None:
     assert not restates_grade("The company confirmed a new CIO in March.")
     assert not restates_grade("Sales lead generation is a stated priority.")
     assert not restates_grade("They lead the market in diagnostics.")
+    # a capitalised grade word that starts a title or a name is not a grade label
+    assert not restates_grade("The account hired a Lead Data Engineer in March.")
+    assert not restates_grade("The CEO spoke on the Probable Cause podcast.")
+    assert restates_grade("The migration is Confirmed.")
     assert not restates_grade("Confirmed revenue grew 12 percent.")

@@ -287,9 +287,11 @@ _GRADE_LABEL = re.compile(
     re.I,
 )
 # A capitalised grade word inside a sentence ("This is Confirmed by filings") names the engine's
-# grade; the lower-case verb ("the company confirmed a new office") is ordinary English and stays.
+# grade; the lower-case verb ("the company confirmed a new office") is ordinary English and stays,
+# and so does a capitalised word that starts a name or a title ("a Lead Data Engineer",
+# "the Probable Cause podcast"): a grade label is never followed by another capitalised word.
 _GRADE_CAPITALISED = re.compile(
-    r"(?<![.!?]\s)(?<!^)\b(Confirmed|Probable|Hypothesis|Lead|Conflicting)\b"
+    r"(?<![.!?]\s)(?<!^)\b(Confirmed|Probable|Hypothesis|Lead|Conflicting)\b(?!\s+[A-Z])"
 )
 
 

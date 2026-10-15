@@ -101,14 +101,14 @@ def test_config_version_changes_iff_content_changes(tmp_path: Path) -> None:
     base = copy_config(tmp_path)
     first = load_skill_config(base).config_version
     assert load_skill_config(base).config_version == first
-    edit(base / "agents.yaml", "tokens: 4000", "tokens: 4001")
+    edit(base / "agents.yaml", "tokens: 20000", "tokens: 20001")
     assert load_skill_config(base).config_version != first
     assert content_hash({"a": 1, "b": 2}) == content_hash({"b": 2, "a": 1})
 
 
 def test_skill_facts_from_the_guide() -> None:
     cfg = load_skill_config()
-    assert cfg.skill_version == "1.8" and cfg.archive_status == "absent"
+    assert cfg.skill_version == "1.11" and cfg.archive_status == "present"
     assert cfg.steps == (
         "setup",
         "pass1",

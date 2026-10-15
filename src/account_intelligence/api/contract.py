@@ -352,6 +352,13 @@ class StoppedRun(Out):
     steps_total: int
 
 
+class CoverageGap(Out):
+    """Steps of the latest research that could not be finished, with the reason in words."""
+
+    reason: str
+    count: int
+
+
 class AccountWorkspace(AccountItem):
     """The Account workspace screen."""
 
@@ -364,6 +371,7 @@ class AccountWorkspace(AccountItem):
     files: list[DeliverableFile]
     open_job: OpenJob | None = None
     stopped_run: StoppedRun | None = None
+    gaps: list[CoverageGap] = []
 
 
 class SheetColumn(Out):

@@ -96,7 +96,9 @@ from llm.errors import (
     ModelUnavailable,
     ProviderCreditsExhausted,
 )
+from obs.logging import logger
 
+_log = logger(__name__)
 MAX_SPEND_PAUSES = 3
 STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "people")
 # extraction calls in flight at once per step (each call is independent; see _interpret)
@@ -182,6 +184,14 @@ def context(state: AbmState) -> RunContext:
 
 def _fail(code: str, **extra: Any) -> dict[str, Any]:
     return {"outcome": "failed", "error_code": code, **extra}
+
+
+def may_state(grade: str) -> bool:
+    """Whether a client file may state a fact of this product grade (the grading policy:
+    Confirmed only; an unknown grade is never stated)."""
+    from account_intelligence.grading.config import load_grading_config
+
+    return bool(load_grading_config().may_state.get(str(grade).lower(), False))  # type: ignore[call-overload]
 
 
 # Model failures the node RetryPolicy must not retry and no fallback can serve. The run keeps
@@ -397,6 +407,11 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
     ) -> None:
         for step in STEPS:
             if step == "people" and not consent_ok:
+                continue
+            if step == "people" and not getattr(deps.grading, "records_people", True):
+                # nothing can record people yet: the extraction call is not paid for only to be
+                # thrown away (OI-ABM-4; audit 2026-10-15)
+                drops["people_extraction_skipped"] += 1
                 continue
             m = meter(step)
             gate = asyncio.Semaphore(EXTRACT_CONCURRENCY)
@@ -635,17 +650,30 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         }
 
     async def distill_node(state: AbmState) -> dict[str, Any]:
-        """Step 5: distill for the client and the Internal Only audiences."""
+        """Step 5: distill for the client audience. The Internal Only file is built from the
+        graded facts and the tracker (``documents.internal_doc``), so the second, internal
+        distill call that nothing read is no longer made (audit 2026-10-15: one planner call
+        over every fact, per run, for nothing)."""
         ctx = context(state)
         facts = await deps.grading.facts(ctx)
         counters: dict[str, int] = {}
-        for role, audience in (("public", "client"), ("internal", "internal")):
-            try:
-                res = await distill(reg["distill"], deps.model, meter("distill"), ctx, facts, role)  # type: ignore[arg-type]
-            except BudgetExceeded:
-                return _fail("distill_budget_exceeded")
-            await deps.records.save_distill(ctx, audience, res.output)
-            counters.update({f"distill_{audience}_drop_{k}": v for k, v in res.drops.items()})
+        statable = frozenset(f.fact_id for f in facts if may_state(f.grade))
+        try:
+            res = await distill(
+                reg["distill"], deps.model, meter("distill"), ctx, facts, "public", statable
+            )
+        except BudgetExceeded:
+            return _fail("distill_budget_exceeded")
+        await deps.records.save_distill(ctx, "client", res.output)
+        counters.update({f"distill_client_drop_{k}": v for k, v in res.drops.items()})
+        _log.info(
+            "distill.done",
+            extra={
+                "count": len(res.output.narrative),
+                "dropped": sum(res.drops.values()),
+                "rows": len(facts),
+            },
+        )
         return {"counters": counters, "exits": {"distill": "distilled"}}
 
     # Steps 6 to 8: code only -------------------------------------------------------------------
@@ -668,7 +696,11 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             # the builder refused the set (missing narrative, an unconfirmed statement in the
             # Summary): the research stands and the run ends partial with the builder's reason,
             # never FAILED (observed 2026-10-12 as four runs that lost their pulls this way)
-            reason = str(getattr(incomplete, "reason", "") or "build_failed")
+            reason = str(
+                getattr(incomplete, "codes", "")
+                or getattr(incomplete, "reason", "")
+                or "build_failed"
+            )
             return {"outcome": "partial", "error_code": f"build_failed:{reason}"}
         try:
             # client files only: the Internal Only file is never a client file (two outputs)

@@ -24,7 +24,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from account_intelligence.replica.answers import LANE_LABEL, day_month
-from account_intelligence.replica.workspace import relative
+from account_intelligence.replica.workspace import FACT_CLASS, relative
 from exports.policy import leak_hits
 
 GRADE_LABEL = {
@@ -81,6 +81,17 @@ class Sheet:
 SORT_HINT = "Click a column heading to sort."
 _MONTH = "date_trunc('month', CAST(:now AS timestamptz))"
 
+
+def _fact_rows(category: str, columns: str) -> str:
+    """The public facts of a category as rows of its sheet (the research graph records what it
+    finds as graded facts; see ``workspace.FACT_CLASS``), with each fact's latest evidence."""
+    return (
+        f"SELECT f.id AS _id, {columns} FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date"
+        " FROM fact_evidence x WHERE x.fact_id = f.id ORDER BY evidence_date DESC NULLS LAST"
+        f" LIMIT 1) e ON true WHERE {FACT_CLASS[category]}"
+    )
+
+
 SHEETS: dict[str, Sheet] = {
     "people": Sheet(
         key="people",
@@ -99,6 +110,14 @@ SHEETS: dict[str, Sheet] = {
             " later_run"
             " FROM people p WHERE p.account_id = :a AND NOT p.excluded AND p.merged_into IS NULL"
             " AND p.erased_at IS NULL AND NOT coalesce(p.internal_only, false)"
+            " UNION ALL "
+            + _fact_rows(
+                "people",
+                "coalesce(f.value_text, f.value_json->>'text') AS name,"
+                " replace(split_part(f.attribute_key, '.', 3), '_', ' ') AS title, '' AS area,"
+                " '' AS priority, f.product_grade AS grade, f.created_at AS seen, e.url AS link,"
+                " false AS later_run",
+            )
         ),
         cols=(
             Col("name", "Name", "s.name", "strong"),
@@ -165,6 +184,13 @@ SHEETS: dict[str, Sheet] = {
             " coalesce(j.posted_at, j.first_seen) AS posted, initcap(j.status) AS status, j.url AS"
             " link"
             " FROM job_postings j WHERE j.account_id = :a"
+            " UNION ALL "
+            + _fact_rows(
+                "jobs",
+                "coalesce(f.value_text, f.value_json->>'text') AS title, '' AS lanes,"
+                " '' AS location, coalesce(CAST(e.evidence_date AS timestamptz), f.created_at)"
+                " AS posted, 'Found' AS status, e.url AS link",
+            )
         ),
         cols=(
             Col("title", "Role", "s.title", "strong"),
@@ -199,6 +225,14 @@ SHEETS: dict[str, Sheet] = {
             " (SELECT s.url FROM sources s WHERE s.account_id = t.account_id AND s.source_code ="
             " t.source_ref) AS link"
             " FROM tech_detections t WHERE t.account_id = :a"
+            " UNION ALL "
+            + _fact_rows(
+                "tech",
+                "coalesce(f.value_text, f.value_json->>'text') AS technology,"
+                " (SELECT count(*) FROM fact_evidence x WHERE x.fact_id = f.id) AS sources,"
+                " '' AS check, coalesce(CAST(e.evidence_date AS text), '') AS first_seen,"
+                " coalesce(CAST(e.evidence_date AS text), '') AS last_seen, e.url AS link",
+            )
         ),
         cols=(
             Col("technology", "Technology", "s.technology", "strong"),
@@ -227,8 +261,7 @@ SHEETS: dict[str, Sheet] = {
             " FROM facts f LEFT JOIN LATERAL (SELECT url, evidence_date FROM fact_evidence x WHERE"
             " x.fact_id = f.id"
             "   ORDER BY evidence_date DESC NULLS LAST LIMIT 1) e ON true"
-            " WHERE f.account_id = :a AND f.attribute_key LIKE 'news.%' AND f.status = 'current'"
-            " AND f.visibility = 'public'"
+            f" WHERE {FACT_CLASS['news']}"
         ),
         cols=(
             Col("headline", "Headline", "s.headline", "strong"),
