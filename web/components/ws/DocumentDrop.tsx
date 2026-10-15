@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { m } from "@/lib/messages";
-import { ACCEPT, STAGE_TEXT, fileSize, isWorking, partsLine, refuseReason, stageTone, type Stage } from "@/lib/documents";
+import { ACCEPT, STAGE_TEXT, fileSize, isWorking, partsLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
 import { uploadDocument } from "@/lib/upload";
 import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
 import { Status } from "@/ui/primitives";
@@ -58,7 +58,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
       void Promise.all(working.map(async (it) => {
         try {
           const doc = await api<DocumentStatus>("GET", `/v1/documents/${it.doc!.document_id}/status`);
-          update(it.key, { doc, stage: doc.stage as Stage, message: doc.message ?? null });
+          update(it.key, { doc, stage: stageOf(doc), message: doc.message ?? null });
         } catch { /* the next poll tries again */ }
       }));
     }, POLL_MS);
@@ -73,7 +73,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     void Promise.all(known.map(async (it) => {
       try {
         const doc = await api<DocumentStatus>("GET", `/v1/documents/${it.doc!.document_id}/status`);
-        update(it.key, { doc, stage: doc.stage as Stage, message: doc.message ?? null });
+        update(it.key, { doc, stage: stageOf(doc), message: doc.message ?? null });
       } catch { /* the next refresh or poll tries again */ }
     }));
   }, [refresh, update]);
@@ -91,7 +91,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
       try {
         const id = await uploadDocument(file, accountId, (sent) => update(key, { sent }), controller.signal);
         const doc = await api<DocumentStatus>("GET", `/v1/documents/${id}/status`);
-        update(key, { doc, stage: doc.stage as Stage, message: doc.message ?? null });
+        update(key, { doc, stage: stageOf(doc), message: doc.message ?? null });
       } catch (error) {
         const message = controller.signal.aborted
           ? "Upload paused. Choose the same file again to continue where it stopped."
@@ -111,7 +111,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     setItems((prev) => [...prev, { key, name: file.name, size: file.size_bytes ?? 0, stage: "uploading", message: null, doc: null, sent: 0, driveId: file.id }]);
     try {
       const doc = await api<DocumentStatus>("POST", "/v1/documents/from-drive", { file_id: file.id, account_id: accountId });
-      update(key, { doc, size: doc.size_bytes, stage: doc.stage as Stage, message: doc.message ?? null });
+      update(key, { doc, size: doc.size_bytes, stage: stageOf(doc), message: doc.message ?? null });
     } catch (error) {
       update(key, { stage: "failed", message: error instanceof ApiError ? error.detail : m.research.driveError });
     }
@@ -129,7 +129,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     if (!it.doc) return;
     try {
       const doc = await api<DocumentStatus>("POST", `/v1/documents/${it.doc.document_id}/parts/${part}/retry`);
-      update(it.key, { doc, stage: doc.stage as Stage, message: doc.message ?? null });
+      update(it.key, { doc, stage: stageOf(doc), message: doc.message ?? null });
     } catch (error) {
       update(it.key, { message: error instanceof ApiError ? error.detail : "The part could not be queued. Try again." });
     }

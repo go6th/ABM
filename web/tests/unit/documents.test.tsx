@@ -123,3 +123,22 @@ test("after the company is confirmed the files are read again, so they reach Rea
   expect(await screen.findByText("Ready")).toBeTruthy();
   expect(seen.at(-1)?.[0]?.stage).toBe("indexed");
 });
+
+test("a file bound to its company but still at parsed keeps being followed to Ready", async () => {
+  const { stageOf } = await import("@/lib/documents");
+  expect(stageOf({ stage: "parsed", needs_company: true })).toBe("parsed");
+  expect(stageOf({ stage: "parsed", needs_company: false })).toBe("indexing");
+  let polls = 0;
+  apiMock.mockImplementation(async (method: string, path: string) => {
+    if (method === "GET" && path.startsWith("/v1/documents/drive-files")) {
+      return { files: [{ id: "drive-file-0003", name: "Tech.xlsx", type: "xlsx", size_bytes: 9, modified_at: null, google_native: false }] };
+    }
+    if (method === "POST" && path === "/v1/documents/from-drive") return doc({ document_id: "d8", name: "Tech.xlsx", stage: "parsed", needs_company: false });
+    if (path === "/v1/documents/d8/status") { polls += 1; return doc({ document_id: "d8", name: "Tech.xlsx", stage: "indexed", needs_company: false }); }
+    return doc({});
+  });
+  render(<DocumentDrop onChange={() => undefined} initialDrive />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add" }));
+  expect(await screen.findByText("Ready", {}, { timeout: 5000 })).toBeTruthy();
+  expect(polls).toBeGreaterThan(0);
+});

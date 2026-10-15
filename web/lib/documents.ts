@@ -62,6 +62,12 @@ export function isWorking(stage: Stage): boolean {
   return stage === "uploading" || stage === "scanning" || stage === "parsing" || stage === "indexing";
 }
 
+/** The stage to show and poll: a file bound to its company but not yet picked up for indexing
+ * still reports "parsed" for a moment; it is on its way to Ready, not waiting (2026-10-15). */
+export function stageOf(doc: Pick<DocumentStatus, "stage" | "needs_company">): Stage {
+  return doc.stage === "parsed" && !doc.needs_company ? "indexing" : (doc.stage as Stage);
+}
+
 /** Every document is indexed: the research may start. */
 export function allIndexed(docs: Pick<DocumentStatus, "stage">[]): boolean {
   return docs.length > 0 && docs.every((d) => d.stage === "indexed");
