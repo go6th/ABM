@@ -226,7 +226,10 @@ class Chunker:
                 parts.append(f"{column}: {self.redactor.cell(column, str(cell))}")
             if not parts:
                 continue
-            p = self._next("crm_row", {"table": table, "row": row_no}, table, "; ".join(parts))
+            row_at: dict[str, Any] = {"table": table, "row": row_no}
+            if unit.location.get("member"):  # a sheet inside a zip keeps the file it came from
+                row_at["member"] = unit.location["member"]
+            p = self._next("crm_row", row_at, table, "; ".join(parts))
             if p is None:
                 return
             yield p
@@ -258,7 +261,7 @@ class Chunker:
         ]
         end = next_start if next_start is not None else window[-1][0]
         location = {
-            **{k: v for k, v in unit.location.items() if k in ("section", "page")},
+            **{k: v for k, v in unit.location.items() if k in ("section", "page", "member")},
             "start_s": window[0][0],
             "end_s": end,
             "lines": [window[0][3], window[-1][3]],
@@ -267,8 +270,19 @@ class Chunker:
 
 
 def cite(location: dict[str, Any]) -> str:
-    """A person-readable location: page 3, slide 2, row 14 of Contacts, 00:01:00 to 00:02:30."""
+    """A person-readable location: page 3, slide 2, row 14 of Contacts, 00:01:00 to 00:02:30;
+    inside a zip, the member file first ("plans/renewal.docx, page 3")."""
     loc = location.get("from", location)
+    member = loc.get("member") or location.get("member")
+    if member:
+        inner = {k: v for k, v in loc.items() if k != "member"}
+        rest = cite(
+            {
+                **{k: v for k, v in location.items() if k not in ("member", "from")},
+                **({"from": inner} if "from" in location else inner),
+            }
+        )
+        return str(member) if rest == "the document" else f"{member}, {rest}"
     if "start_s" in location:
         return f"{_clock(location['start_s'])} to {_clock(location['end_s'])}"
     if "row" in loc:

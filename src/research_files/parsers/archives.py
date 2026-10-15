@@ -27,8 +27,10 @@ from dataclasses import replace
 from typing import IO, Any, cast
 
 from research_files.checks import Finding
-from research_files.detect import detect
+from research_files.detect import by_name, detect
 from research_files.parsers.base import ParseContext, Parser, Unit, fatal
+
+OFFICE = frozenset({"docx", "xlsx", "pptx"})
 
 
 class ArchiveLimit(RuntimeError):
@@ -200,6 +202,11 @@ class ArchiveParser:
                 head = handle.read(8192)
                 handle.close()
                 kind = detect(io.BytesIO(head), name)
+                # an Office file is a zip whose part list sits at its end, past the 8 KiB head:
+                # trust the member's extension for docx/xlsx/pptx (their parsers still validate
+                # the package); before 2026-10-15 a docx inside a zip was unpacked as XML parts
+                if kind == "zip" and by_name(name) in OFFICE:
+                    kind = str(by_name(name))
                 parser = self.parser_for(kind)
                 member_ctx = replace(ctx, name=name, depth=ctx.depth + 1)
                 if parser is None:

@@ -118,3 +118,32 @@ async def test_two_workers_indexing_one_document_never_deadlock(
 
     assert await asyncio.gather(index(), index()) == [True, True]
     assert admin("SELECT count(*) FROM chunks WHERE doc_id = %s", doc) == [(len(rows),)]
+
+
+async def test_a_zip_is_read_member_by_member_with_each_file_cited(
+    tenant_a: UUID, tmp_path: Path
+) -> None:
+    """A zip of documents is one upload: scanned, then every member is read and each passage
+    names the file inside the zip it came from (owner request 2026-10-15)."""
+    import io
+    import zipfile
+
+    from documents.chunking import cite
+
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("meetings/notes.docx", fixtures.notes_docx())
+        z.writestr("crm/contacts.xlsx", fixtures.crm_xlsx())
+    account = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
+    svc = service(tmp_path)
+    done = await upload(svc, tenant_a, "account-pack.zip", raw.getvalue(), account)
+    doc = UUID(done["document_id"])
+    assert await svc.process(tenant_a, doc) == "indexed"
+    locations = [
+        r[0] for r in admin("SELECT location FROM document_passages WHERE document_id = %s", doc)
+    ]
+    members = {(loc.get("from", loc)).get("member") for loc in locations}
+    assert members == {"meetings/notes.docx", "crm/contacts.xlsx"}
+    cites = {cite(loc) for loc in locations}
+    assert any(c.startswith("meetings/notes.docx") for c in cites)
+    assert any(c.startswith("crm/contacts.xlsx, row") for c in cites)

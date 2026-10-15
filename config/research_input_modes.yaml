@@ -13,7 +13,9 @@ upload:
   chunk_bytes: 33554432              # 32 MiB per browser chunk (a multiple of 256 KiB, as GCS needs)
   upload_ttl_minutes: 2880           # a resumable session lives two days
   # accepted document types (detected from content, the name only confirms)
-  document_types: [pdf, docx, xlsx, csv, pptx, txt, md]
+  # zip: a zip of these, read member by member by the archive parser (zip bomb, path traversal and
+  # depth guards in config/research_files.yaml archives); owner request 2026-10-15
+  document_types: [pdf, docx, xlsx, csv, pptx, txt, md, zip]
   # audio is accepted only when a transcription vendor is configured (decision pending)
   audio_types: [mp3, wav, m4a]
 

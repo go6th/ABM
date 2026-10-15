@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { m } from "@/lib/messages";
-import { ACCEPT, STAGE_TEXT, fileSize, isWorking, partsLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
+import { ACCEPT, STAGE_TEXT, fileSize, folderFiles, isWorking, partsLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
 import { uploadDocument } from "@/lib/upload";
 import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
 import { Status } from "@/ui/primitives";
@@ -34,6 +34,8 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
   const [over, setOver] = useState(false);
   const [drive, setDrive] = useState(initialDrive);
   const input = useRef<HTMLInputElement | null>(null);
+  const folder = useRef<HTMLInputElement | null>(null);
+  const [skipped, setSkipped] = useState<string[]>([]);
   const counter = useRef(0);
   const aborts = useRef(new Map<string, AbortController>());
 
@@ -154,10 +156,32 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
         <p className="small">{m.research.fileTypes}</p>
         <div className="actions">
           <button type="button" className="btn" disabled={disabled} onClick={() => input.current?.click()}>{m.research.chooseFiles}</button>
+          <button type="button" className="btn" disabled={disabled} onClick={() => folder.current?.click()}>{m.research.chooseFolder}</button>
           <button type="button" className="btn" disabled={disabled} aria-expanded={drive} onClick={() => setDrive((v) => !v)}>{m.research.connectDrive}</button>
         </div>
         <input ref={input} type="file" multiple accept={ACCEPT.join(",")} aria-label={m.research.chooseFiles} onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = ""; }} />
+        {/* a whole folder, subfolders included; unsupported files are listed, not uploaded */}
+        <input
+          ref={folder}
+          type="file"
+          multiple
+          aria-label={m.research.chooseFolder}
+          {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+          onChange={(e) => {
+            if (e.target.files) {
+              const { send, skipped: left } = folderFiles(e.target.files);
+              setSkipped(left);
+              if (send.length) void add(send);
+            }
+            e.target.value = "";
+          }}
+        />
       </div>
+      {skipped.length ? (
+        <p className="small muted" role="status">
+          {skipped.length} file{skipped.length === 1 ? " was" : "s were"} left out of the folder because their type is not supported: {skipped.slice(0, 5).join(", ")}{skipped.length > 5 ? ` and ${skipped.length - 5} more` : ""}.
+        </p>
+      ) : null}
       {drive ? (
         <DriveChooser
           onPick={(f) => void addFromDrive(f)}

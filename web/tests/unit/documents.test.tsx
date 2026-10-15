@@ -142,3 +142,28 @@ test("a file bound to its company but still at parsed keeps being followed to Re
   expect(await screen.findByText("Ready", {}, { timeout: 5000 })).toBeTruthy();
   expect(polls).toBeGreaterThan(0);
 });
+
+test("a picked folder sends the supported files, ignores hidden ones and lists the rest", async () => {
+  const { folderFiles } = await import("@/lib/documents");
+  const file = (path: string, size = 10) => Object.assign(new File(["x".repeat(size)], path.split("/").pop()!), { webkitRelativePath: path });
+  const { send, skipped } = folderFiles([
+    file("Workday/plan.docx"),
+    file("Workday/data/contacts.xlsx"),
+    file("Workday/pack.zip"),
+    file("Workday/.DS_Store"),
+    file("Workday/__MACOSX/._plan.docx"),
+    file("Workday/logo.png"),
+    file("Workday/empty.txt", 0),
+  ]);
+  expect(send.map((f) => f.name)).toEqual(["plan.docx", "contacts.xlsx", "pack.zip"]);
+  expect(skipped).toEqual(["Workday/logo.png", "Workday/empty.txt"]);
+});
+
+test("the drop zone offers a folder button and accepts zip files", () => {
+  render(<DocumentDrop onChange={() => undefined} />);
+  expect(screen.getByRole("button", { name: "Add a folder" })).toBeTruthy();
+  const files = screen.getByLabelText("Add files") as HTMLInputElement;
+  expect(files.accept.split(",")).toContain(".zip");
+  const folder = screen.getByLabelText("Add a folder") as HTMLInputElement;
+  expect(folder.hasAttribute("webkitdirectory")).toBe(true);
+});

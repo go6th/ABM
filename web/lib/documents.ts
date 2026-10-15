@@ -5,7 +5,8 @@ import type { DocumentStatus } from "@/lib/gen/api.gen";
 import type { StatusTone } from "@/ui/primitives";
 
 // accepted extensions (the server checks the content again; this only avoids a wasted upload)
-export const ACCEPT = [".pdf", ".docx", ".xlsx", ".csv", ".pptx", ".txt", ".md"];
+// .zip: a zip of these, read member by member on the server (owner request 2026-10-15)
+export const ACCEPT = [".pdf", ".docx", ".xlsx", ".csv", ".pptx", ".txt", ".md", ".zip"];
 export const AUDIO = [".mp3", ".wav", ".m4a"];
 // no size or count limit here: the server checks each file against the admin's per-file limit
 // (owner decision 2026-10-14: files of any size, 20 GB by default)
@@ -46,9 +47,24 @@ export function fileSize(bytes: number): string {
 export function refuseReason(name: string, size: number): string | null {
   const ext = extension(name);
   if (AUDIO.includes(ext)) return "Audio transcription is not set up yet. Upload a transcript instead.";
-  if (!ACCEPT.includes(ext)) return "This file type is not supported. Use PDF, Word, Excel, CSV, PowerPoint, text or Markdown.";
+  if (!ACCEPT.includes(ext)) return "This file type is not supported. Use PDF, Word, Excel, CSV, PowerPoint, text, Markdown or a zip of them.";
   if (size <= 0) return "The file is empty.";
   return null;
+}
+
+/** Files picked from a folder: the ones to upload and the ones left out with why (hidden and
+ * system files are left out silently; a folder upload never lists every .DS_Store). */
+export function folderFiles(files: ArrayLike<File>): { send: File[]; skipped: string[] } {
+  const send: File[] = [];
+  const skipped: string[] = [];
+  for (const file of Array.from(files)) {
+    const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+    const parts = path.split("/");
+    if (parts.some((p) => p.startsWith(".") || p === "__MACOSX" || p === "Thumbs.db" || p === "desktop.ini")) continue;
+    if (refuseReason(file.name, file.size)) skipped.push(path);
+    else send.push(file);
+  }
+  return { send, skipped };
 }
 
 /** "Reading part 3 of 12" while a large file is read in parts (null for a one-part file). */
