@@ -55,7 +55,9 @@ function AddClient({ onAdded }: { onAdded: () => void }) {
           <Dialog.Title>{invite ? "Client added" : "Add client"}</Dialog.Title>
           {invite ? (
             <>
-              <Dialog.Description>Copy this invite link and send it to {invite.email}. Nothing was sent automatically. The link works once and expires in 24 hours; you can make a new one from the client&apos;s page.</Dialog.Description>
+              <Dialog.Description>{invite.emailed
+                ? `The invite was emailed to ${invite.email}. You can also copy the link below and send it yourself.`
+                : `Copy this invite link and send it to ${invite.email}. No email was sent.`} The link works once and expires in 24 hours; you can make a new one from the client&apos;s page.</Dialog.Description>
               <div className="invite-link">{invite.invite_url}</div>
               <div className="row-12 wrap">
                 <button type="button" className="btn primary" onClick={() => void copy()}>{copied ? "Copied" : "Copy invite link"}</button>

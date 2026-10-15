@@ -103,3 +103,23 @@ test("Google Drive not connected: a link to the Mail and drive page, no file lis
   expect(link.getAttribute("href")).toBe("/mail-and-drive");
   expect(screen.queryByRole("search")).toBeNull();
 });
+
+test("after the company is confirmed the files are read again, so they reach Ready", async () => {
+  let indexed = false;
+  apiMock.mockImplementation(async (method: string, path: string) => {
+    if (method === "GET" && path.startsWith("/v1/documents/drive-files")) {
+      return { files: [{ id: "drive-file-0002", name: "Deck.pdf", type: "pdf", size_bytes: 9, modified_at: null, google_native: false }] };
+    }
+    if (method === "POST" && path === "/v1/documents/from-drive") return doc({ document_id: "d7", name: "Deck.pdf", stage: "parsed" });
+    if (path === "/v1/documents/d7/status") return doc({ document_id: "d7", name: "Deck.pdf", stage: indexed ? "indexed" : "parsed", needs_company: !indexed });
+    return doc({});
+  });
+  const seen: DocumentStatus[][] = [];
+  const { rerender } = render(<DocumentDrop onChange={(d) => seen.push(d)} initialDrive refresh={0} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add" }));
+  expect(await screen.findByText("Read, waiting for the company")).toBeTruthy();
+  indexed = true; // the company was confirmed: the server indexes the file
+  rerender(<DocumentDrop onChange={(d) => seen.push(d)} initialDrive refresh={1} />);
+  expect(await screen.findByText("Ready")).toBeTruthy();
+  expect(seen.at(-1)?.[0]?.stage).toBe("indexed");
+});

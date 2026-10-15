@@ -38,7 +38,11 @@
 .ask-msgs { flex: 0 1 var(--chat); min-width: 0; display: flex; flex-direction: column; gap: 26px; }
 .ask-side { flex: 0 0 310px; position: sticky; top: 0; display: none; }
 .ask-dock { padding: 8px 48px 24px; }
-.ask-dock .ask-cols .composer { flex: 0 1 var(--chat); }
+/* the dock's column (the composer and the limit line) takes the chat width; the composer keeps its
+   own height (a flex basis on it inside the column stack made it var(--chat) tall and hid the
+   thread above, 2026-10-15) */
+.ask-dock .ask-cols > .stack-8 { flex: 0 1 var(--chat); min-width: 0; }
+.ask-dock .composer { max-width: none; }
 .ask-dock .ask-side { visibility: hidden; height: 0; }
 @media (min-width: 1240px) { .ask-side { display: block; } .used-inline { display: none; } }
 

@@ -496,6 +496,7 @@ export type ClientChange = z.infer<typeof ClientChange>;
 
 export const ClientInvite = z.object({
   "email": z.string(),
+  "emailed": z.boolean().optional(),
   "expires_at": z.string(),
   "invite_url": z.string(),
   "tenant_id": z.string(),

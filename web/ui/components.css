@@ -482,7 +482,7 @@ table.xl th span.th { color: var(--text-3); }
 .uploads > li { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 .uploads > li:last-child { border-bottom: 0; }
 .uploads .sub { display: block; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
-.uploads > li.file-row { flex-direction: column; align-items: stretch; }
+.uploads > li.file-row { flex-direction: column; align-items: stretch; flex-wrap: nowrap; } /* a wrapping column sized some rows as if wrapped (blank gaps) */
 .file-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .file-head > div:first-child { min-width: 0; flex: 1 1 200px; }
 .upload-bar { display: block; width: 100%; height: 6px; border: 0; border-radius: 3px; background: var(--line-soft); overflow: hidden; appearance: none; }

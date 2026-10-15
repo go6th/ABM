@@ -20,11 +20,14 @@ export interface DropItem { key: string; name: string; size: number; stage: Stag
 
 const POLL_MS = 2000;
 
-export function DocumentDrop({ accountId = null, onChange, disabled = false, initialDrive = false }: {
+export function DocumentDrop({ accountId = null, onChange, disabled = false, initialDrive = false, refresh = 0 }: {
   accountId?: string | null;
   onChange: (docs: DocumentStatus[]) => void;
   disabled?: boolean;
   initialDrive?: boolean;
+  // bump to read every file's status again (after the company is confirmed the server indexes
+  // files that sat at "parsed", which the poll below had stopped watching)
+  refresh?: number;
 }) {
   const [items, setItems] = useState<DropItem[]>([]);
   const [paused, setPaused] = useState<Saved[]>([]);
@@ -61,6 +64,19 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     }, POLL_MS);
     return () => clearTimeout(timer);
   }, [items, update]);
+
+  const itemsRef = useRef(items);
+  useEffect(() => { itemsRef.current = items; }, [items]); // runs before the refresh effect below
+  useEffect(() => {
+    if (!refresh) return;
+    const known = itemsRef.current.filter((i) => i.doc);
+    void Promise.all(known.map(async (it) => {
+      try {
+        const doc = await api<DocumentStatus>("GET", `/v1/documents/${it.doc!.document_id}/status`);
+        update(it.key, { doc, stage: doc.stage as Stage, message: doc.message ?? null });
+      } catch { /* the next refresh or poll tries again */ }
+    }));
+  }, [refresh, update]);
 
   const add = useCallback(async (files: FileList | File[]) => {
     for (const file of Array.from(files)) {

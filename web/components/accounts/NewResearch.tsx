@@ -24,7 +24,7 @@ function startError(error: unknown): string {
   return error.detail || "The analysis could not be started. Try again.";
 }
 
-function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfirmed: (accountId: string) => void }) {
+function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfirmed: (accountId: string, company: Company) => void }) {
   const detected = detectedCompany(docs);
   const options: CompanyCandidate[] = detected.candidates.length ? detected.candidates : detected.company ? [detected.company] : [];
   const [pick, setPick] = useState<number>(0);
@@ -43,7 +43,7 @@ function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfir
     setError(null);
     try {
       const done = await api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: docs.map((d) => d.document_id), company_name: name.trim(), domain });
-      onConfirmed(done.account_id);
+      onConfirmed(done.account_id, { name: name.trim(), domain });
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : "The company could not be confirmed. Try again.");
       setBusy(false);
@@ -86,7 +86,24 @@ function CompanyChoice({ docs, onConfirmed }: { docs: DocumentStatus[]; onConfir
 }
 
 /** Attach the files to the one company they name (creating its account when needed). */
-function useAutoAttach(waiting: DocumentStatus[], settled: boolean, onAttached: (accountId: string, name: string) => void) {
+interface Company { name: string; domain: string }
+
+/** Files that finish reading after the company was confirmed join the same company, so no file
+ * is left at "waiting for the company" once the choice has closed (2026-10-15). */
+export function useAttachLate(waiting: DocumentStatus[], company: Company | null, accountId: string | null, onDone: () => void) {
+  const sent = useRef(new Set<string>());
+  useEffect(() => {
+    if (!company || !accountId) return;
+    const late = waiting.filter((d) => (d.stage === "parsed" || d.stage === "indexed") && !sent.current.has(d.document_id));
+    if (!late.length) return;
+    late.forEach((d) => sent.current.add(d.document_id));
+    api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: late.map((d) => d.document_id), company_name: company.name, domain: company.domain })
+      .then(onDone)
+      .catch(() => late.forEach((d) => sent.current.delete(d.document_id)));
+  }, [waiting, company, accountId, onDone]);
+}
+
+function useAutoAttach(waiting: DocumentStatus[], settled: boolean, onAttached: (accountId: string, name: string, domain: string) => void) {
   const tried = useRef(new Set<string>());
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -97,7 +114,7 @@ function useAutoAttach(waiting: DocumentStatus[], settled: boolean, onAttached: 
     tried.current.add(key);
     const name = found.company.name ?? found.company.domain;
     api<CompanyConfirmed>("POST", "/v1/documents/confirm-company", { document_ids: waiting.map((d) => d.document_id), company_name: name, domain: found.company.domain })
-      .then((done) => onAttached(done.account_id, name))
+      .then((done) => onAttached(done.account_id, name, found.company!.domain!))
       .catch(() => setFailed(true));
   }, [waiting, settled, onAttached]);
   return failed;
@@ -108,6 +125,7 @@ function FileTab({ initialDrive }: { initialDrive: boolean }) {
   const [docs, setDocs] = useState<DocumentStatus[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [attached, setAttached] = useState<string | null>(null);
+  const [company, setCompany] = useState<Company | null>(null);
   const [changing, setChanging] = useState(false);
   const [enrich, setEnrich] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -116,15 +134,19 @@ function FileTab({ initialDrive }: { initialDrive: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const key = useRef<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
   const onChange = useCallback((next: DocumentStatus[]) => setDocs(next), []);
   const waiting = needingCompany(docs);
   const ready = allIndexed(docs);
   const bound = accountId ?? docs.find((d) => d.account_id)?.account_id ?? null;
   const settled = waiting.length > 0 && docs.every((d) => d.stage === "parsed" || d.stage === "indexed" || d.stage === "failed");
-  const onAttached = useCallback((id: string, name: string) => { setAccountId(id); setAttached(name); }, []);
+  const onAttached = useCallback((id: string, name: string, domain: string) => { setAccountId(id); setAttached(name); setCompany({ name, domain }); setRefresh((n) => n + 1); }, []);
   const autoFailed = useAutoAttach(waiting, settled, onAttached);
+  const reread = useCallback(() => setRefresh((n) => n + 1), []);
+  useAttachLate(waiting, company, accountId, reread);
   const resolved = detectedCompany(waiting).status === "resolved";
-  const needsChoice = (settled && (!resolved || autoFailed)) || changing;
+  // once a company is confirmed the choice closes, even before the files report "indexed"
+  const needsChoice = (!accountId && settled && (!resolved || autoFailed)) || changing;
 
   const uses = enrich ? "One chat and one research" : "One chat";
 
@@ -160,7 +182,7 @@ function FileTab({ initialDrive }: { initialDrive: boolean }) {
 
   return (
     <div className="stack-20">
-      <DocumentDrop onChange={onChange} disabled={busy} initialDrive={initialDrive} />
+      <DocumentDrop onChange={onChange} disabled={busy} initialDrive={initialDrive} refresh={refresh} />
       {attached && !changing ? (
         <div className="card pad-sm row-space wrap" role="status">
           <span>These files are about <b>{attached}</b>.</span>
@@ -170,7 +192,7 @@ function FileTab({ initialDrive }: { initialDrive: boolean }) {
       {needsChoice ? (
         <CompanyChoice
           docs={changing ? docs.filter((d) => d.stage === "parsed" || d.stage === "indexed") : waiting}
-          onConfirmed={(id) => { setAccountId(id); setAttached(null); setChanging(false); }}
+          onConfirmed={(id, chosen) => { setAccountId(id); setCompany(chosen); setAttached(null); setChanging(false); setRefresh((n) => n + 1); }}
         />
       ) : null}
       {docs.length ? (

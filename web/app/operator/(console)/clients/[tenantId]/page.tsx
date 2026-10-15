@@ -76,7 +76,7 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
         {detail.pending_invites.length ? (
           <div className="notice info" role="status">
             <p>Invite not accepted yet: {detail.pending_invites.join(", ")}.</p>
-            {invite ? <><div className="invite-link">{invite.invite_url}</div><p className="xs-text mut">Copy it and send it yourself. It works once and expires in 24 hours.</p></> : (
+            {invite ? <><div className="invite-link">{invite.invite_url}</div><p className="xs-text mut">{invite.emailed ? `Emailed to ${invite.email}. You can also copy it and send it yourself.` : "Copy it and send it yourself (no email was sent)."} It works once and expires in 24 hours.</p></> : (
               <button type="button" className="btn sm align-start" disabled={busy} onClick={() => void renew()}>New invite link</button>
             )}
           </div>
@@ -136,7 +136,7 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
         </section>
         <section className="card pad stack-14" aria-labelledby="models-title">
           <h2 id="models-title" className="card-title">Allowed models</h2>
-          <p className="mut sm-text">The models this client&apos;s users may choose. Kimi K3 sends the client&apos;s data to Moonshot AI, so it is off until you allow it here.</p>
+          <p className="mut sm-text">The models this client&apos;s users may choose. All are on by default; Kimi K3 sends the client&apos;s data to the Kimi provider (Ollama Cloud on staging), so turn it off here if this client must keep data with Claude only.</p>
           {detail.models.map((m) => (
             <label key={m.id} className="check line-top">
               <input
