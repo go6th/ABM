@@ -190,3 +190,22 @@ async def test_build_option_shows_date_and_coverage(h: Harness) -> None:
     assert option is not None and option.pull_run_id == pull.run_id
     assert option.rows_stored + option.rows_blocked == len(h.cfg.plan)
     assert option.pulled_at == h.clock.now()
+
+
+async def test_every_plan_row_ends_with_proof_before_the_files_are_judged(h: Harness) -> None:
+    """G1 at the gate: a row no step reported ends Not done "not available yet" with a reason, so
+    the coverage verdict judges proof, never a missing row (staging 2026-10-16: two unreported
+    rows held every file back)."""
+    from agents.guards import TERMINAL, coverage_verdict
+
+    h.grant_consent()
+    record, state = await h.run("rows-closed")
+    assert state.get("error_code") is None, state.get("error_code")
+    rows = h.tracker.rows_by_run[record.run_id]
+    plan = list(h.cfg.plan)
+    assert set(plan) <= set(rows), sorted(set(plan) - set(rows))
+    assert all(rows[k].status in TERMINAL for k in plan)
+    assert all(rows[k].queries > 0 or rows[k].reason for k in plan)
+    assert coverage_verdict(plan, rows).deliverable
+    closed = [k for k in plan if rows[k].reason == "not_available_yet"]
+    assert state["counters"].get("rows_closed_at_gate", 0) == len(closed)

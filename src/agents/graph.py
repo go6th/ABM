@@ -61,6 +61,9 @@ from agents.guards import (
     require_sense_check,
     spend_route,
 )
+from agents.guards import (
+    TERMINAL as ROW_TERMINAL,
+)
 from agents.manifest import ManifestRow, PullManifest, check_build_precondition
 from agents.naming import assert_client_clean
 from agents.ports import (
@@ -734,15 +737,29 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         """Step 7 (code): the quality gate and the coverage verdict (G1)."""
         ctx = context(state)
         failing = await deps.gate.check(ctx)
-        verdict = coverage_verdict(cfg.plan, await deps.tracker.rows(ctx))
+        rows = await deps.tracker.rows(ctx)
+        # G1: every row ends with a status and proof. A row no step reported (nothing pulls it
+        # yet, or the research never reached it) ends Not done "not available yet" here, so one
+        # unreported row no longer holds every file back (staging 2026-10-16: two rows did)
+        unreported = sorted(
+            key for key in cfg.plan if rows.get(key) is None or rows[key].status not in ROW_TERMINAL
+        )
+        for key in unreported:
+            await deps.tracker.report(ctx, key, [], "not_available_yet")
+        if unreported:
+            rows = await deps.tracker.rows(ctx)
+        verdict = coverage_verdict(cfg.plan, rows)
         if failing or not verdict.deliverable:
             # which checks held the files back (the account card reads the stored verdict; the
-            # log said only "gate_failed" before 2026-10-16)
-            names = sorted(failing) + (["coverage_verdict"] if not verdict.deliverable else [])
+            # log said only "gate_failed" before 2026-10-16); row keys are config names
+            names = sorted(failing)
+            if not verdict.deliverable:
+                stuck = [*verdict.missing, *verdict.unproven][:6]
+                names.append("coverage_verdict:" + ",".join(stuck))
             _log.warning(
                 "gate.failed",
                 extra={
-                    "error_code": ",".join(names)[:200],
+                    "error_code": ";".join(names)[:200],
                     "count": sum(len(v) for v in failing.values()),
                     "rows": len(verdict.missing) + len(verdict.unproven),
                 },
@@ -752,7 +769,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 "error_code": "gate_failed",
                 "missing_rows": [*verdict.missing, *verdict.unproven],
             }
-        return {}
+        return {"counters": {"rows_closed_at_gate": len(unreported)}} if unreported else {}
 
     def after_build(state: AbmState) -> str:
         return "finish" if state.get("outcome") in ("failed", "partial") else "gate"

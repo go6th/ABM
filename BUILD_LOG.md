@@ -846,3 +846,9 @@ and pages about the account's environment (competitors, the sector) never name i
 extractor is told the account (`ExtractionInput.account_name`, `domain`; the pass 1, pass 2 and
 people prompts say a payload about another company yields nothing), a short name counts when it
 appears twice, environment rows are exempt, and the log carries the totals (`count`, `rows`).
+
+Third pass: the plausible resume built its files (no leak) and the gate's own checks passed
+(`gate.failed coverage_verdict count=0 rows=2`): two plan rows no step had reported were
+"missing" to the coverage verdict, which held every file back. The gate now ends every
+unreported row Not done "not available yet" before the verdict (G1: every row with a status and
+proof), counts them (`rows_closed_at_gate`) and logs the stuck row keys.
