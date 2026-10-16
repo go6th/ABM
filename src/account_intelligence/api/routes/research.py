@@ -184,7 +184,6 @@ async def start_research(
 
 
 register("POST", "/v1/research/resume", tenant_route("start_run", "run", step_up=False))
-ACTIVE = ("QUEUED", "RUNNING", "DISTILLING", "VERIFYING", "AWAITING_APPROVAL")
 
 
 class ResumeBody(BaseModel):
@@ -206,87 +205,31 @@ async def resume_research(
     already counted: it uses none of the user's researches. 409 when the run is still moving or
     finished whole."""
     await limit_user(ident, "research_resume")
-    from account_intelligence.runs.stop import has_usable_output
-    from account_intelligence.runs.transitions import RunStatus
+    from account_intelligence.replica import auto_resume
 
     now = datetime.now(UTC)
+    owners = request.app.state.container.spec.coverage_owners
     async with tenant_txn(ident.tenant_id) as s:
-        run = (
-            await s.execute(
-                text(
-                    "SELECT r.id, r.account_id, r.status, r.stalled_at, a.domain FROM account_runs"
-                    " r JOIN accounts a ON a.id = r.account_id WHERE r.id = :r"
-                ),
-                {"r": body.run_id},
-            )
-        ).first()
-        if run is None:
+        domain = await s.scalar(
+            text(
+                "SELECT a.domain FROM account_runs r JOIN accounts a ON a.id = r.account_id"
+                " WHERE r.id = :r"
+            ),
+            {"r": body.run_id},
+        )
+        if domain is None:
             raise APIProblem(404, "not_found", "Not found", "This research was not found.")
-        if await CR.has_request(s, body.request_id):  # a retried click: the first resume
-            prior = await s.scalar(
-                text("SELECT id FROM research_jobs WHERE request_id = :q"), {"q": body.request_id}
-            )
-            return await _resumed(s, prior, body.run_id, str(run.domain))
-        if run.status == "COMPLETED":
-            raise APIProblem(
-                409, "nothing_to_resume", "Nothing to resume", "This research finished whole."
-            )
-        if run.status in ACTIVE and run.stalled_at is None:
-            raise APIProblem(
-                409,
-                "still_running",
-                "Still running",
-                "This research is still running. You will be told when it finishes.",
-            )
-        if run.status in ACTIVE:  # stalled: end it with everything it holds, then continue
-            from account_intelligence.grading.config import load_grading_config
-            from account_intelligence.tracker.adapters import LedgerCallAdapter, RunInputAdapter
-            from account_intelligence.tracker.repo import CoverageRepo
-            from account_intelligence.tracker.service import TrackerService
-
-            usable = await has_usable_output(s, body.run_id)
-            tracker = TrackerService(
-                CoverageRepo(s),
-                LedgerCallAdapter(s, load_grading_config().category_by_operation),
-                RunInputAdapter(s),
-                owners=request.app.state.container.spec.coverage_owners,
-            )
-            await lifecycle.end_from_active(
-                s,
-                tracker,
-                body.run_id,
-                RunStatus.PARTIAL if usable else RunStatus.FAILED,
-                reason="stalled",
-                detail="stalled: no progress for the platform's stall time; resumed by its owner",
-                refund_all=not usable,
-            )
-        job = (
-            await s.execute(
-                text(
-                    "SELECT kind, scope, topic, models FROM research_jobs WHERE run_id = :r"
-                    " ORDER BY created_at DESC LIMIT 1"
-                ),
-                {"r": body.run_id},
-            )
-        ).first()
-        kind = str(job.kind) if job is not None else "new_research"
-        scope = str(job.scope) if job is not None else "full"
-        est = await CR.estimate(s, run.account_id, scope if scope in CR.SCOPES else kind)
         try:
-            job_id, status = await CR.reserve(
+            out = await auto_resume.continue_run(
                 s,
-                account_id=run.account_id,
-                kind=kind,
-                scope=scope,
-                credits=est.credits,
+                run_id=body.run_id,
                 actor=ident.user_id,
-                now=now,
                 request_id=body.request_id,
-                topic=job.topic if job is not None else None,
-                models=dict(job.models) if job is not None and job.models else None,
-                enforce_pool=False,
-                resume_from=body.run_id,
+                coverage_owners=owners,
+                now=now,
             )
+        except auto_resume.NothingToContinue as why:
+            raise APIProblem(409, why.code, why.title, why.text) from None
         except CR.JobOpen:
             raise APIProblem(
                 409,
@@ -294,18 +237,19 @@ async def resume_research(
                 "Research is already running",
                 "This account is already being researched. You will be notified when it finishes.",
             ) from None
-        await audit_action(
-            s,
-            request,
-            audit_class="run",
-            action="resume_research",
-            resource_type="research_job",
-            resource_id=job_id,
-        )
-        out = await _resumed(s, job_id, body.run_id, str(run.domain))
-    if status == "queued":
-        await jobs.run_or_enqueue(ident.tenant_id, job_id)
-    return out
+        if out.created:
+            await audit_action(
+                s,
+                request,
+                audit_class="run",
+                action="resume_research",
+                resource_type="research_job",
+                resource_id=out.job_id,
+            )
+        answer = await _resumed(s, out.job_id, body.run_id, str(domain))
+    if out.created and out.status == "queued":
+        await jobs.run_or_enqueue(ident.tenant_id, out.job_id)
+    return answer
 
 
 async def _resumed(s: Any, job_id: Any, run_id: UUID, domain: str) -> dict[str, Any]:

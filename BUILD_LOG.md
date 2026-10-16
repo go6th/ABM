@@ -699,3 +699,64 @@ and every deep-dive category at 0; the account page then said "stopped before fi
   (error codes), and `BuildFailed.codes` in the run's reason (`build_failed:<codes>`).
 * Metrics: app metrics to Cloud Monitoring (`obs.export`), PromQL alerts, the metrics task;
   run notifications relayed by email; jobs left open after their run ended are closed.
+
+## End-to-end automation: a research continues itself, files index in slices (2026-10-16)
+
+Owner prompt: "build a graph automation very strong … multiple users … research also and store
+the data also properly … use the logs, every error, then start building." Evidence first: every
+warning and error logged by the staging api and worker since 13 October, every failed request,
+the queues, the scheduler and the build log were read before anything was changed.
+
+### Found (staging logs, 13 to 16 October)
+
+* **Files:** `/tasks/document-process` ran one request into the hour-long Cloud Run limit six
+  times (504 at exactly 3600 s) while indexing a 37,000-passage archive; every Cloud Tasks retry
+  started a fresh hour, and a deploy in between cancelled the request mid-page (`CancelledError:
+  timeout graceful shutdown exceeded`), after which 57 retries got 503 "busy" until the lease
+  expired. The pipeline logged no structured event at all. The embedder used two of four cores.
+* **api:** out of memory five times in 25 minutes (`Memory limit of 1024 MiB exceeded`) while
+  answering Ask: retrieval loads the on-server embedding model inside the api process.
+* **Research:** no `run.finished` event since the new graph code was released (no research has
+  run end to end on it; the hermetic suite is the evidence). By design a run whose worker died or
+  that made no progress was ended and its owner told; it continued only when a person pressed
+  Resume. Three runs ended on the model provider's usage limit (a person must restore it).
+* **Nightly 02:00:** the isolation check's route probe hits `/v1/sso/session`, which answers 503
+  `NotConfigured` while SSO is off (logged as an error; the check itself passed), and one
+  unrouted 500 two minutes later. Left as a note.
+* **Metrics:** five `FailedPrecondition` answers from Cloud Monitoring, the last after the forced
+  flush was removed; telemetry only, left as a note.
+* One deadlock between two deliveries of one document task (already prevented in
+  `repo.index_page`; the task now answers 503 so the queue retries instead of recording a 500).
+
+### Built
+
+* **A research continues itself** (`replica/auto_resume.py`, migration 0075): the scheduled
+  sweep continues a stalled run or a run its worker lost the way Resume does (one shared path,
+  `continue_run`, now also behind `POST /v1/research/resume`): the stopped run is ended with what
+  it holds, a continuation job with `resume_from` is reserved for the same requester, scope,
+  topic and models (every finished pull and reply reused at no cost), the worker is handed it.
+  Bounded: at most two automatic continuations per chain; only for `worker_lost`, `stalled` and
+  `model_unavailable` (a refused key, an exhausted model credit, a spending cap or a repeated
+  paid call waits for a person); only within 24 hours of the stop; never while a worker holds the
+  lease; idempotent (the continuation's request id derives from the stopped run). The owner is
+  told (`research_resumed`), the audit trail records `run.auto_resume_research`, the sweep logs
+  `runs.auto_resumed`.
+* **Files index in slices** (`documents/service.py`): one task embeds for at most ten minutes in
+  the cloud, then queues the next task and releases the lease; the next continues after the last
+  page written, no passage twice. Every page logs `documents.indexed_page` (pages, passages
+  indexed, total, elapsed), every task `documents.processed` (state, latency), the end
+  `documents.indexed`. The embedder uses one thread per core (up to four).
+* **api memory** 1 GiB to 2 GiB (`infra/stack/main.tf`; the retrieval model lives in the api).
+* Runbook `stuck-runs.md` and `PROJECT_STRUCTURE.md` describe the automatic continuation.
+
+### Checked
+
+* Tests: `tests/replica/test_auto_resume.py` (stalled run continued once and only once; the
+  chain bound; stops a person must fix, old stops and jobless runs left alone; a worker-lost run
+  continued; a live lease respected, then continued) and the sliced-indexing test in
+  `tests/documents/test_documents_db.py`; the targeted set (resume, scheduled tasks, documents,
+  api hardening, wiring contract, single writers, static guards, durable runs, runs, obs,
+  config files) 155 passed. ruff, mypy strict (653 files), import layers (18 contracts),
+  docstrings 100%, headers, guarantees (434), loops, vulture, bandit: clean. Web typecheck,
+  lint and 132 unit tests: clean (the typecheck needed the stale `.next/types` of an old build
+  removed).

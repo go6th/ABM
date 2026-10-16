@@ -146,7 +146,16 @@ async def document_process(
     if docs is None:
         raise HTTPException(503, "document processing is not configured")
     await _act_as_owner_of("document", task.tenant_id, task.document_id)
-    outcome = await docs.process(task.tenant_id, task.document_id)
+    from sqlalchemy.exc import DBAPIError
+
+    try:
+        outcome = await docs.process(task.tenant_id, task.document_id)
+    except DBAPIError as error:
+        # two deliveries of one document met on a row (seen once on staging, 2026-10-15): the
+        # step is idempotent, so the queue retries it soon instead of recording a failure
+        if "deadlock" not in str(getattr(error, "orig", error)).lower():
+            raise
+        raise HTTPException(503, "the document's rows were busy; retry") from None
     if outcome == "busy":
         raise HTTPException(503, "the document is being processed by another worker")
     return {"outcome": outcome}

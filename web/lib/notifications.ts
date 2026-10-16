@@ -20,6 +20,7 @@ function text(n: Notification): string {
     case "research_limit_reached": return `${name}: scheduled refresh skipped, no researches left`;
     case "research_failed": return `${name}: research did not finish`;
     case "research_stalled": return `${name}: research stalled`;
+    case "research_resumed": return `${name}: research continued automatically`;
     case "waiting_credit_limit": return `${name}: waiting to start`;
     case "research_finished": return `${name}: research finished`;
     case "library_added": return `${name}: added from the 6th Library`;
@@ -35,6 +36,7 @@ function meta(n: Notification): string {
     case "research_limit_reached": return "Request more from your admin on New research.";
     case "research_failed": return n.reason ?? "Everything found so far is kept.";
     case "research_stalled": return "Everything found so far is kept. Open the account to resume it.";
+    case "research_resumed": return "It stopped making progress and was continued from where it stopped. You will be notified when it finishes.";
     default: return "Open the account";
   }
 }

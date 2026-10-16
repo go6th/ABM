@@ -575,8 +575,11 @@ def document_service(
         scheduler,
         clock,
         cfg,
-        # one part per Cloud Tasks request in the cloud (the 30-minute dispatch maximum)
+        # one part per Cloud Tasks request in the cloud (the 30-minute dispatch maximum), and
+        # at most ten minutes of indexing per request (audit 2026-10-16: one request indexed a
+        # 37,000-passage file into the hour-long Cloud Run limit six times)
         parts_per_request=1 if app_env in CLOUD_ENVS else None,
+        index_seconds_per_request=600.0 if app_env in CLOUD_ENVS else None,
         semantic=semantic,
     )
 

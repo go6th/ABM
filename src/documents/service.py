@@ -61,9 +61,11 @@ from documents.embed import EmbeddingPort
 from documents.redact import Redactor
 from documents.sandbox import ParsedUnit, SandboxFailed, parse_in_sandbox, plan_in_sandbox
 from documents.scan import ScanPort
+from obs.logging import logger
 from research_files.blobstore import BlobMissing, BlobStore, PartTooLarge
 from research_files.detect import by_name, detect
 
+_log = logger(__name__)
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
 _NAME = re.compile(r"[^\w .()\-]+")
 ACTIVE = ("quarantined", "scanning", "parsing", "indexing")
@@ -139,6 +141,9 @@ class DocumentService:
     # parts one call of ``read_parts`` reads before it hands the rest to a new task (None: all).
     # The cloud sets 1, so one Cloud Tasks request never runs past the 30-minute maximum.
     parts_per_request: int | None = None
+    # seconds one call of ``_index`` embeds before it hands the rest to a new task (None: all).
+    # The cloud sets 600: one request never runs into the Cloud Tasks or Cloud Run limits.
+    index_seconds_per_request: float | None = None
     # retrieval vectors (documents.embed.FastEmbedder, on-server); None indexes without them
     semantic: Any | None = None
 
@@ -331,8 +336,25 @@ class DocumentService:
     async def process(self, tenant_id: UUID, document_id: UUID) -> str:
         """Scan, plan, read and index one document (see the module docstring). Returns the
         status, ``busy`` when another worker holds the step (or every part slot of the client is
-        taken), ``noop`` when there is nothing to do. Any number of workers may run this for one
-        document at once: they share its parts."""
+        taken), ``noop`` when there is nothing to do, ``parsing`` or ``indexing`` when this
+        request's share is done and the next task continues. Any number of workers may run this
+        for one document at once: they share its parts. Every call logs ``documents.processed``
+        with the status it reached (audit 2026-10-16: the pipeline had no structured events)."""
+        import time
+
+        started = time.monotonic()
+        status = await self._process(tenant_id, document_id)
+        _log.info(
+            "documents.processed",
+            extra={
+                "tenant_id": str(tenant_id),
+                "state": status,
+                "latency_ms": int((time.monotonic() - started) * 1000),
+            },
+        )
+        return status
+
+    async def _process(self, tenant_id: UUID, document_id: UUID) -> str:
         async with self.txn(tenant_id) as s:
             row = await repo.get(s, document_id)
         if row is None:
@@ -715,12 +737,22 @@ class DocumentService:
         return path()
 
     async def _index(self, tenant_id: UUID, row: Any) -> str:
-        """Embed and index the passages page by page, continuing after the last page indexed."""
+        """Embed and index the passages page by page, continuing after the last page indexed.
+        One call embeds for at most ``index_seconds_per_request`` (when set) and then queues the
+        next task, which continues from the last page written (audit 2026-10-16: a
+        37,000-passage file ran one request into the hour-long Cloud Run limit six times, and
+        every retry started a fresh hour). Each page logs ``documents.indexed_page``."""
+        import time
+
         cfg = self.c
+        started = time.monotonic()
         async with self.txn(tenant_id) as s:
             await repo.set_status(s, row.id, "indexing")
         after = int(row.indexed_through) if row.indexed_through is not None else -1
-        # LOOP(index pages): cap=passages / index_batch pages; exit=no passage left, deleted
+        total = int(row.passages or 0)
+        pages = 0
+        # LOOP(index pages): cap=passages / index_batch pages, or the request's time budget;
+        # exit=no passage left, deleted, budget spent (the next task continues)
         while True:
             async with self.txn(tenant_id) as s:
                 rows = await repo.passages_after(s, row.id, after, cfg.parsing.index_batch)
@@ -748,8 +780,40 @@ class DocumentService:
                 ):
                     return "noop"  # deleted while it was being embedded
             after = int(rows[-1].seq)
+            pages += 1
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            _log.info(
+                "documents.indexed_page",
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "account_id": str(row.account_id),
+                    "pages": pages,
+                    "count": after + 1,
+                    "rows": total,
+                    "latency_ms": elapsed_ms,
+                },
+            )
+            budget = self.index_seconds_per_request
+            if (
+                budget is not None
+                and elapsed_ms >= budget * 1000
+                and len(rows) >= cfg.parsing.index_batch
+            ):
+                # the request's share is done; the next task continues after this page
+                await self.scheduler.enqueue_document(tenant_id, row.id)
+                return "indexing"
         async with self.txn(tenant_id) as s:
             await repo.set_status(s, row.id, "indexed")
+        _log.info(
+            "documents.indexed",
+            extra={
+                "tenant_id": str(tenant_id),
+                "account_id": str(row.account_id),
+                "pages": pages,
+                "count": after + 1,
+                "latency_ms": int((time.monotonic() - started) * 1000),
+            },
+        )
         return "indexed"
 
     async def _meter(self, tenant_id: UUID, document_id: UUID, texts: list[str]) -> None:

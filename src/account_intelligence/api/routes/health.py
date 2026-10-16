@@ -36,7 +36,7 @@ async def healthz() -> dict[str, str]:
 # The schema revision this code needs (the newest migration it was written with). Readiness
 # fails while the database is older: a revision rolled out before its migration job finished
 # never takes traffic. GUARANTEE(test_readiness_needs_the_schema_revision_of_the_code)
-EXPECTED_REVISION = "0074"
+EXPECTED_REVISION = "0075"
 
 
 async def _database() -> None:

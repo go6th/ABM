@@ -13,7 +13,12 @@ Run `queries/stuck_runs.sql` (read only; never read tenant content, never bypass
 script). Open the run timeline and traces by run id when one is named.
 
 ## Mitigation
-Check the reconciler's last pass and the task queue; never edit a run's status by hand.
+The scheduled sweep (`/tasks/sweep`, every 5 minutes) ends a run whose worker died (`worker_lost`),
+marks a run with no progress as stalled, and continues both by itself the way Resume does
+(`replica.auto_resume`: at most two automatic continuations per research, never for a stop the owner
+must fix such as a refused model key, never while a worker holds the lease; log event
+`runs.auto_resumed`). Check that the sweep ran (`jsonPayload.event="runs.auto_resumed"` or
+`runs.auto_resume_failed`) and the task queue; never edit a run's status by hand.
 
 ## Escalation
 Page or ticket per docs/oncall/severity.md; escalate to the owner above.

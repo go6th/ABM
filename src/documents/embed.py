@@ -122,9 +122,14 @@ class FastEmbedder:
 
     def _load(self) -> Any:
         if self._engine is None:
+            import os
+
             from fastembed import TextEmbedding
 
-            self._engine = TextEmbedding(self.model_name, cache_dir=self.cache_dir, threads=2)
+            # one thread per core up to four (the worker has four; audit 2026-10-16: two threads
+            # indexed a 37,000-passage file at half the speed the instance could give)
+            threads = max(1, min(os.cpu_count() or 2, 4))
+            self._engine = TextEmbedding(self.model_name, cache_dir=self.cache_dir, threads=threads)
         return self._engine
 
     def _passages(self, texts: list[str]) -> list[list[float]]:

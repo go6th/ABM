@@ -305,3 +305,36 @@ async def test_page_limit_stops_the_parse_with_its_reason(tenant_a: UUID, tmp_pa
         {"part": 1, "reason": "This part has more pages than one part may."}
     ]
     assert admin("SELECT count(*) FROM document_passages WHERE document_id = %s", doc) == [(0,)]
+
+
+async def test_indexing_pauses_at_its_time_budget_and_the_next_task_continues(
+    tenant_a: UUID, tmp_path: Path
+) -> None:
+    """One task indexes for its time budget, hands the rest to a new task and releases the lease
+    (audit 2026-10-16: one request indexed a 37,000-passage file into the hour-long request
+    limit); the next task continues after the last page written and no passage is indexed twice."""
+    account = _make_account(tenant_a, f"paged-{uuid4().hex[:6]}.example")
+    svc = service(tmp_path)
+    cfg = svc.c
+    svc.cfg = cfg.model_copy(update={"parsing": cfg.parsing.model_copy(update={"index_batch": 1})})
+    svc.index_seconds_per_request = 0.0  # every page spends the budget: one page per task
+    done = await upload(svc, tenant_a, "notes.docx", fixtures.notes_docx(), account)
+    doc = UUID(done["document_id"])
+    svc.scheduler.documents.clear()
+    assert await svc.process(tenant_a, doc) == "indexing"
+    assert svc.scheduler.documents == [(tenant_a, doc)]  # the next task is queued
+    # indexed through the first passage (parts number their passages from 1)
+    assert admin("SELECT indexed_through FROM documents WHERE id = %s", doc) == admin(
+        "SELECT min(seq) FROM document_passages WHERE document_id = %s", doc
+    )
+    assert admin("SELECT lease_owner FROM documents WHERE id = %s", doc) == [(None,)]
+    total = int(doc_row(doc)["passages"])
+    assert total >= 2
+    # LOOP(test index tasks): cap=total tasks; exit=indexed
+    for _ in range(total + 1):
+        if await svc.process(tenant_a, doc) == "indexed":
+            break
+    else:
+        pytest.fail("indexing never finished")
+    assert doc_row(doc)["status"] == "indexed"
+    assert admin("SELECT count(*) FROM chunks WHERE doc_id = %s", doc) == [(total,)]

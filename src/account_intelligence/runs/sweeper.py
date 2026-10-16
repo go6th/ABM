@@ -138,9 +138,16 @@ async def _end_one(
 
 
 async def mark_stalled(
-    sessions: SessionFactory, txn: TxnFactory, now: datetime, *, batch_size: int = 200
+    sessions: SessionFactory,
+    txn: TxnFactory,
+    now: datetime,
+    *,
+    batch_size: int = 200,
+    notify_owner: bool = True,
 ) -> list[UUID]:
-    """Mark stalled runs and tell their owners (see the module docstring); their ids."""
+    """Mark stalled runs and tell their owners (see the module docstring); their ids. The
+    scheduled sweep continues a stalled research by itself right after this
+    (``replica.auto_resume``); the owner is still told it stalled, then that it was continued."""
     from account_intelligence.connectors.spend_guard import limits
     from account_intelligence.replica.notifications import notify
 
@@ -163,7 +170,11 @@ async def mark_stalled(
             job = await s.scalar(
                 text("SELECT id FROM research_jobs WHERE run_id = :r"), {"r": run_id}
             )
-            if hit.owner_user_id and not str(hit.owner_user_id).startswith("system:"):
+            if (
+                notify_owner
+                and hit.owner_user_id
+                and not str(hit.owner_user_id).startswith("system:")
+            ):
                 await notify(
                     s,
                     user_id=str(hit.owner_user_id),

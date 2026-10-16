@@ -196,7 +196,7 @@ locals {
   # Per-instance shape (docs/deploy/ARCHITECTURE.md). The worker serves run slices (240 s each),
   # document parts (sandbox children of up to 1536 MiB, 1800 s) and short job tasks.
   size = {
-    api    = { cpu = "1", memory = "1Gi", concurrency = 40, timeout = "300s" }
+    api    = { cpu = "1", memory = "2Gi", concurrency = 40, timeout = "300s" } # 2Gi: Ask loads the retrieval model in process (OOM at 1Gi, 2026-10-15)
     web    = { cpu = "1", memory = "512Mi", concurrency = 40, timeout = "300s" }
     worker = { cpu = "4", memory = "8Gi", concurrency = 4, timeout = "3600s" }
   }

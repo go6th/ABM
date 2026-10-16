@@ -206,6 +206,12 @@ async def sweep_pass(app: FastAPI) -> None:
     except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
         _logger.warning("runs.stall_failed", extra={"error_class": type(error).__name__})
     try:
+        resumed = await _auto_resume(app)
+        if resumed["continued"]:
+            _logger.info("runs.auto_resumed", extra={"count": resumed["continued"]})
+    except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
+        _logger.warning("runs.auto_resume_failed", extra={"error_class": type(error).__name__})
+    try:
         closed = await _close_ended_jobs()
         if closed:
             _logger.info("jobs.closed", extra={"count": closed})
@@ -267,6 +273,17 @@ async def _sweep_loop(app: FastAPI, settings: Any) -> None:
     while True:
         await sweep_pass(app)
         await asyncio.sleep(max(1, int(settings.sweep_interval_s)))
+
+
+async def _auto_resume(app: FastAPI) -> dict[str, int]:
+    """Continue the research that stalled or lost its worker, the way Resume does, within the
+    platform's bounds (``replica.auto_resume``; end-to-end automation, 2026-10-16)."""
+    from datetime import UTC, datetime
+
+    from account_intelligence.replica.auto_resume import auto_resume_pass
+
+    owners = app.state.container.spec.coverage_owners
+    return await auto_resume_pass(owners, datetime.now(UTC))
 
 
 async def _mark_stalled() -> list[Any]:
