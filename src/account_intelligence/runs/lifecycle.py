@@ -350,25 +350,35 @@ async def record_file_import_run(
     ).scalar_one_or_none()
     if existing is not None:
         return UUID(str(existing))
-    run_id: Any = (
-        await session.execute(
-            text(
-                "INSERT INTO account_runs (tenant_id, account_id, status, grading_config_hash,"
-                " created_at, finished_at, finished_reason, input_mode, run_mode, cap_required,"
-                " graph_version, budget_json, reserved_credits, idempotency_key, run_input)"
-                " VALUES (:t, :a, 'COMPLETED', :g, :now, :now, 'file_import', 'file', 'full',"
-                " false, 'file-import', '{}', 0, :k, CAST(:inp AS jsonb)) RETURNING id"
-            ),
-            {
-                "t": tenant_id,
-                "a": account_id,
-                "g": "0" * 64,
-                "now": now,
-                "k": key,
-                "inp": json.dumps({"document_id": str(document_id), "mode": "file_import"}),
-            },
-        )
-    ).scalar_one()
+    from sqlalchemy.exc import IntegrityError
+
+    insert = text(
+        "INSERT INTO account_runs (tenant_id, account_id, status, grading_config_hash,"
+        " created_at, finished_at, finished_reason, input_mode, run_mode, cap_required,"
+        " graph_version, budget_json, reserved_credits, idempotency_key, run_input)"
+        " VALUES (:t, :a, 'COMPLETED', :g, :now, :now, 'file_import', 'file', 'full',"
+        " false, 'file-import', '{}', 0, :k, CAST(:inp AS jsonb)) RETURNING id"
+    )
+    params = {
+        "t": tenant_id,
+        "a": account_id,
+        "g": "0" * 64,
+        "now": now,
+        "k": key,
+        "inp": json.dumps({"document_id": str(document_id), "mode": "file_import"}),
+    }
+    try:
+        # two sweeps importing one document at the same moment: the second takes the first's run
+        # (the unique idempotency key refuses a second row; seen on staging 2026-10-16)
+        async with session.begin_nested():
+            run_id: Any = (await session.execute(insert, params)).scalar_one()
+    except IntegrityError:
+        run_id = (
+            await session.execute(
+                text("SELECT id FROM account_runs WHERE account_id = :a AND idempotency_key = :k"),
+                {"a": account_id, "k": key},
+            )
+        ).scalar_one()
     return UUID(str(run_id))
 
 

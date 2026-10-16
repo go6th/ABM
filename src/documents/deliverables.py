@@ -392,10 +392,21 @@ async def import_document(txn: Any, tenant_id: UUID, doc: Any, *, now: datetime)
     return counts
 
 
+def error_code(error: BaseException) -> str:
+    """The database constraint or SQL state behind a failure, else the class name (for the log)."""
+    orig = getattr(error, "orig", None)
+    for name in ("constraint_name", "sqlstate", "pgcode"):
+        value = getattr(orig, name, None) or getattr(error, name, None)
+        if value:
+            return str(value)
+    return type(error).__name__
+
+
 async def backfill_imports(now: datetime, *, limit: int = 10) -> dict[str, int]:
     """Import the documents indexed before the import existed (or whose import failed): per
-    client, up to ``limit`` indexed documents bound to an account and not yet marked, each read
-    as its owner. Every document read is marked, rows found or not. Returns the counts of
+    client, up to ``limit`` indexed documents bound to an account and not yet marked are claimed
+    (marked first, so two sweeps never read one document twice) and read as their owner; a
+    document whose import fails is given back for the next pass. Returns the counts of
     documents read and facts written."""
     from account_intelligence.db.session import tenant_txn, untenanted_session
     from obs.logging import logger
@@ -411,16 +422,7 @@ async def backfill_imports(now: datetime, *, limit: int = 10) -> dict[str, int]:
     # exit=last client
     for tenant in tenants:
         async with tenant_txn(tenant, system=True) as s:
-            rows = (
-                await s.execute(
-                    text(
-                        "SELECT id, owner_user_id FROM documents WHERE status = 'indexed'"
-                        " AND account_id IS NOT NULL AND imported_at IS NULL"
-                        " ORDER BY created_at LIMIT :n"
-                    ),
-                    {"n": limit},
-                )
-            ).all()
+            rows = await repo.claim_imports(s, now, limit)
         # LOOP(import backfill documents): cap=`limit` per client per pass; exit=rows exhausted
         for row in rows:
             owner = str(row.owner_user_id)
@@ -434,13 +436,17 @@ async def backfill_imports(now: datetime, *, limit: int = 10) -> dict[str, int]:
                 if doc is None:
                     continue
                 counts = await import_document(as_owner, tenant, doc, now=now)
-                async with as_owner(tenant) as s:
-                    await repo.mark_imported(s, UUID(str(doc.id)), now)
             except Exception as error:  # noqa: BLE001 - one document never stops the pass
                 log.warning(
                     "documents.import_failed",
-                    extra={"tenant_id": str(tenant), "error_class": type(error).__name__},
+                    extra={
+                        "tenant_id": str(tenant),
+                        "error_class": type(error).__name__,
+                        "error_code": error_code(error)[:80],
+                    },
                 )
+                async with tenant_txn(tenant, system=True) as s:
+                    await repo.unmark_imported(s, UUID(str(row.id)))
                 continue
             documents += 1
             facts += sum(v for k, v in counts.items() if k.endswith("_written"))

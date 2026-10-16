@@ -845,3 +845,25 @@ async def mark_imported(s: AsyncSession, document_id: UUID, at: datetime) -> Non
     await s.execute(
         text("UPDATE documents SET imported_at = :at WHERE id = :d"), {"at": at, "d": document_id}
     )
+
+
+async def claim_imports(s: AsyncSession, now: datetime, limit: int) -> list[Any]:
+    """Claim up to ``limit`` indexed documents bound to an account whose rows were never read
+    for the deliverable workbooks, by marking them now (``FOR UPDATE SKIP LOCKED``: two sweeps
+    running at once never read the same document); their ids and owners."""
+    rows = await s.execute(
+        text(
+            "UPDATE documents SET imported_at = :at WHERE id IN (SELECT id FROM documents"
+            " WHERE status = 'indexed' AND account_id IS NOT NULL AND imported_at IS NULL"
+            " ORDER BY created_at LIMIT :n FOR UPDATE SKIP LOCKED) RETURNING id, owner_user_id"
+        ),
+        {"at": now, "n": limit},
+    )
+    return list(rows.all())
+
+
+async def unmark_imported(s: AsyncSession, document_id: UUID) -> None:
+    """Give a claimed document back (its import failed): the next sweep reads it again."""
+    await s.execute(
+        text("UPDATE documents SET imported_at = NULL WHERE id = :d"), {"d": document_id}
+    )

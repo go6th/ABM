@@ -300,3 +300,40 @@ async def test_documents_indexed_before_the_import_are_backfilled_by_the_sweep(
         "SELECT count(*) FROM facts WHERE account_id = %s AND attribute_key LIKE 'jobs.%%'", account
     ) == [(2,)]
     assert again["facts"] == 0 or (await _counts(tenant_a, account))["jobs"] == 2
+
+
+async def test_two_sweeps_never_read_one_document_twice_and_a_failed_import_is_given_back(
+    tenant_a: UUID, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from documents import deliverables, repo
+
+    account = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
+    svc = service(tmp_path)
+    jobs = await _upload_and_index(
+        svc, tenant_a, account, "Northwind_Job_Postings.xlsx", jobs_book()
+    )
+    admin("UPDATE documents SET imported_at = NULL WHERE id = %s", jobs)
+    now = datetime.now(UTC)
+    with acting_as(USER):
+        async with tenant_txn(tenant_a) as s:
+            first = await repo.claim_imports(s, now, 10)
+        async with tenant_txn(tenant_a) as s:
+            second = await repo.claim_imports(s, now, 10)
+    assert [str(r.id) for r in first] == [str(jobs)] and second == []  # claimed once
+    # a failing import gives the document back for the next pass, with the cause logged
+    admin("UPDATE documents SET imported_at = NULL WHERE id = %s", jobs)
+
+    async def boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("storage away")
+
+    monkeypatch.setattr(deliverables, "import_document", boom)
+    done = await deliverables.backfill_imports(now, limit=10)
+    assert done["documents"] == 0
+    assert admin("SELECT imported_at FROM documents WHERE id = %s", jobs) == [(None,)]
+    monkeypatch.undo()
+    done = await deliverables.backfill_imports(datetime.now(UTC), limit=10)
+    assert done["documents"] >= 1
+    assert admin("SELECT count(*) FROM documents WHERE id = %s AND imported_at IS NULL", jobs) == [
+        (0,)
+    ]
+    assert deliverables.error_code(RuntimeError("x")) == "RuntimeError"

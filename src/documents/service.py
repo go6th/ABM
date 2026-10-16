@@ -829,9 +829,15 @@ class DocumentService:
             async with self.txn(tenant_id) as s:
                 await repo.mark_imported(s, row.id, now)
         except Exception as error:  # noqa: BLE001 - the import never fails the document
+            from documents.deliverables import error_code
+
             _log.warning(
                 "documents.import_failed",
-                extra={"tenant_id": str(tenant_id), "error_class": type(error).__name__},
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "error_class": type(error).__name__,
+                    "error_code": error_code(error)[:80],
+                },
             )
             return  # not marked: the sweep's backfill reads it again
         written = sum(v for k, v in counts.items() if k.endswith("_written"))
