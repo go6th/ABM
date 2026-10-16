@@ -1,11 +1,13 @@
 "use client";
-// One workspace answer as designed: paragraphs with numbered citation chips, an item card when
-// the answer has a list, the source card under the answer when a citation is opened, the offer
-// to refresh from the web (only on confirmation, never silently) and two follow-up questions.
-// UsedPanel is the "What this answer used" card from PDF page 4.
+// One workspace answer as designed: paragraphs with numbered citation chips (the text rendered
+// from the Markdown the model wrote: tables, lists, bold, code), an item card when the answer
+// has a list, the source card under the answer when a citation is opened, the offer to refresh
+// from the web (only on confirmation, never silently) and two follow-up questions. UsedPanel is
+// the "What this answer used" card from PDF page 4.
 import Link from "next/link";
 import type { ChatAnswer } from "@/lib/gen/api.gen";
 import { LINK_REL, safeLink } from "@/lib/render";
+import { AnswerMarkdown } from "./AnswerMarkdown";
 
 type Source = ChatAnswer["sources"][number];
 
@@ -37,37 +39,32 @@ export function AnswerView({
   const source: Source | undefined = answer.sources.find((s) => s.n === openSource);
   const href = source ? safeLink(source.url ?? "") : null;
   const offer = answer.offer;
+  // citation n as a chip that opens its source
+  const cite = (v: string) => {
+    const n = Number(v);
+    const s = answer.sources.find((x) => x.n === n);
+    return (
+      <button
+        type="button"
+        className="cite"
+        aria-expanded={openSource === n}
+        aria-label={`Source ${n}${s ? `: ${s.title}` : ""}`}
+        onClick={() => onOpenSource(openSource === n ? null : n)}
+      >
+        {n}
+      </button>
+    );
+  };
   return (
     <div className="reply">
       <div className="answered"><span className="mk" aria-hidden="true" />{answer.answered ? "Answered from your workspace" : "Searched your workspace"}</div>
-      {answer.paragraphs.map((para, i) => (
-        <p key={i}>
-          {para.map((part, j) => {
-            if (part.t === "bold") return <b key={j}>{part.v}</b>;
-            if (part.t === "cite") {
-              const n = Number(part.v);
-              const s = answer.sources.find((x) => x.n === n);
-              return (
-                <button
-                  key={j}
-                  type="button"
-                  className="cite"
-                  aria-expanded={openSource === n}
-                  aria-label={`Source ${n}${s ? `: ${s.title}` : ""}`}
-                  onClick={() => onOpenSource(openSource === n ? null : n)}
-                >
-                  {n}
-                </button>
-              );
-            }
-            return <span key={j}>{part.v}</span>;
-          })}
-        </p>
-      ))}
+      {answer.paragraphs.map((para, i) => <AnswerMarkdown key={i} parts={para} cite={cite} />)}
       {answer.items ? (
         <div className="card items-card">
           <div className="lbl">{answer.items.title}</div>
-          {answer.items.items.map((it, i) => <div key={i} className="it">{it}</div>)}
+          {answer.items.items.map((it, i) => (
+            <div key={i} className="it"><AnswerMarkdown parts={[{ t: "text", v: it }]} cite={cite} inline /></div>
+          ))}
         </div>
       ) : null}
       {source ? (
@@ -121,13 +118,7 @@ export function StreamingAnswer({ paragraphs }: { paragraphs: { t: string; v: st
     <div className="reply" aria-busy="true">
       <div className="answered"><span className="pdot" aria-hidden="true" />Writing the answer</div>
       {paragraphs.map((para, i) => (
-        <p key={i}>
-          {para.map((part, j) => {
-            if (part.t === "bold") return <b key={j}>{part.v}</b>;
-            if (part.t === "cite") return <span key={j} className="cite static" aria-label={`Source ${part.v}`}>{part.v}</span>;
-            return <span key={j}>{part.v}</span>;
-          })}
-        </p>
+        <AnswerMarkdown key={i} parts={para} cite={(v) => <span className="cite static" aria-label={`Source ${v}`}>{v}</span>} />
       ))}
     </div>
   );

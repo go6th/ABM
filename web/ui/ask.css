@@ -53,6 +53,33 @@
 .answered { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
 .answered .mk { width: 22px; height: 22px; border-radius: 6px; background: var(--ink); flex: none; }
 .reply p { font-size: 16.5px; line-height: 1.7; color: var(--ink-2); }
+
+/* The answer body, rendered from the Markdown the model writes (2026-10-16): the same type as
+   a paragraph, with tables, lists, code and quotes in the design's lines and fills. Every look
+   is a class: the CSP forbids inline styles (a column's alignment is .md-c / .md-r). */
+.md { display: flex; flex-direction: column; gap: 10px; min-width: 0; font-size: 16.5px; line-height: 1.7; color: var(--ink-2); overflow-wrap: anywhere; }
+.md.inline { display: inline; font-size: inherit; line-height: inherit; color: inherit; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 16.5px; line-height: 1.4; font-weight: 700; letter-spacing: 0; color: var(--ink); margin-top: 4px; }
+.md ul, .md ol { padding-left: 26px; display: flex; flex-direction: column; gap: 4px; }
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md li::marker { color: var(--muted); }
+.md li > ul, .md li > ol { margin-top: 4px; }
+.md code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; background: var(--hover-soft); border: 1px solid var(--line-soft); border-radius: var(--r-cite); padding: 1px 6px; }
+.md pre { background: var(--quiet-card); border: 1px solid var(--line); border-radius: var(--r-field); padding: 12px 14px; overflow-x: auto; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+.md pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+.md blockquote { border-left: 3px solid var(--accent-line); padding: 2px 0 2px 14px; color: var(--text-3); }
+.md hr { border: 0; border-top: 1px solid var(--line-soft); }
+.md .md-link { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.md-table { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-field); background: var(--surface); }
+.md-table table { width: 100%; font-size: 14.5px; line-height: 1.5; }
+.md-table th, .md-table td { padding: 9px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+.md-table th + th, .md-table td + td { border-left: 1px solid var(--line-soft); }
+.md-table th { font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em; color: var(--text-3); background: var(--hover-soft); border-bottom: 1px solid var(--xl-head-line); white-space: nowrap; }
+.md-table tbody tr:nth-child(even) { background: var(--row-hover); }
+.md-table tbody tr:last-child td { border-bottom: 0; }
+.md-table .md-c { text-align: center; }
+.md-table .md-r { text-align: right; }
 .items-card { padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
 .items-card .it { font-size: 15px; line-height: 1.5; }
 .src-card { padding: 12px 16px; display: flex; align-items: center; gap: 12px; font-size: 14px; }
