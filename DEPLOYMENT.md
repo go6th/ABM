@@ -1,100 +1,76 @@
-# Production Deployment & Operation Guide
+# Deployment
 
-This guide details the deployment procedures, configuration parameters, container setup, and verification routines for the Account Intelligence & ABM Platform.
+Two ways to run the application: the local Docker Compose stack, and Google Cloud Run built by
+Terraform. Both run the same three images (`docker/README.md`).
 
----
+## 1. Local (Docker Compose)
 
-## 1. Local & Staging Deployment (Docker Compose)
+`make up` builds and starts everything in `compose.yml`:
 
-The entire application stack is containerized and managed via Docker Compose.
+| Service | Port | Image | Purpose | Health |
+| --- | --- | --- | --- | --- |
+| `web` | 3000 | `account-intelligence-web:local` | the Next.js app | `GET /healthz` |
+| `api` | 8080 | `account-intelligence-api:local` | FastAPI, `SERVICE_ROLE=api` | `GET /healthz`, `GET /readyz` |
+| `worker` | 8081 | `account-intelligence-worker:local` | the same app serving `/tasks/*`, `SERVICE_ROLE=worker` | `GET /healthz` |
+| `migrate` | | api image | one-shot `alembic upgrade head` before the api starts | exits 0 |
+| `db` | 5432 | `pgvector/pgvector:pg16` | PostgreSQL 16 with pgvector and forced RLS | `pg_isready` |
+| `redis` | 6379 | `redis:7-alpine` | rate limits, research-cache index | `redis-cli ping` |
+| `tasks` | 8123 | cloud-tasks-emulator | Cloud Tasks stand-in | |
+| `gcs` | 4443 | fake-gcs-server | Cloud Storage stand-in | |
+| `fake-idp` | 9090 | worker image + `ops/dev/fake_idp.py` | synthetic OIDC issuer | |
 
-### Service Matrix
+Hermetic by default (no container reads `.env`). Real keys, deliberately:
+`docker compose -f compose.yml -f compose.live.yml up -d`. Stop with `make down`; wipe the
+volumes with `make reset`. Logs: `make logs`. Database shell: `make db-shell`.
 
-| Service | Port | Image | Purpose | Health Check |
-| :--- | :--- | :--- | :--- | :--- |
-| **`web`** | 3000 | `account-intelligence-web:local` | Next.js 16 Claude Workspace & Operator UI | `GET /` -> 200 OK |
-| **`api`** | 8080 | `account-intelligence-api:local` | FastAPI Backend & Multi-Tenant Core | `GET /v1/health` -> 200 OK |
-| **`worker`**| 8081 | `account-intelligence-worker:local` | Research Graph & Background Agent Engine | Uvicorn live |
-| **`db`** | 5432 | `pgvector/pgvector:pg16` | PostgreSQL 16 with pgvector & RLS | `pg_isready -U postgres` |
-| **`redis`** | 6379 | `redis:7-alpine` | Concurrency, Caching & Token Buckets | `redis-cli ping` |
-| **`tasks`** | 8123 | `cloud-tasks-emulator:latest` | Cloud Tasks queue emulation | Emulated queue |
-| **`fake-idp`**| 9090 | `account-intelligence-worker:local` | Local OIDC/JWKS Identity Provider | `GET /.well-known/jwks.json` |
-| **`gcs`** | 4443 | `fake-gcs-server:latest` | Cloud Storage Emulator for raw artifacts | Storage ready |
+## 2. Google Cloud (staging today, production prepared)
 
-### Quick Start Commands
+What exists: project `abmgenerator`, region `us-central1`, Cloud Run services `ai-staging-api`,
+`ai-staging-worker` (with the clamd scan sidecar), `ai-staging-web`, the Cloud Run Jobs
+`ai-staging-migrate` and `spend-invariants`, Cloud SQL, Memorystore, the data bucket, the
+Cloud Tasks queues `runs`, `documents`, `jobs`, the Cloud Scheduler ticks, Secret Manager
+containers, the HTTPS load balancer with Cloud Armor, and the Artifact Registry
+`ai-staging-images`. All of it is declared in `infra/stack/main.tf` and instantiated by
+`infra/envs/staging` (`infra/README.md`).
+
+Two release paths exist. Pushing to `main` with a green CI run triggers `deploy-staging.yml`
+(the reusable `_deploy.yml` pushes the images CI built, signs them, runs the migration job,
+deploys by digest, smoke tests and rolls back on failure). The hand release used so far is:
 
 ```bash
-# 1. Build and start all services in background
-docker compose up -d --build
-
-# 2. Verify all container statuses and health
-docker compose ps
-
-# 3. View live logs for web or api
-docker compose logs -f web
-docker compose logs -f api
-
-# 4. Stop containers
-docker compose down
+TAG=$(git rev-parse --short HEAD)            # build from a committed state
+REG=us-central1-docker.pkg.dev/abmgenerator/ai-staging-images
+docker build -f docker/api.Dockerfile    -t $REG/api:$TAG .      && docker push $REG/api:$TAG
+docker build -f docker/worker.Dockerfile -t $REG/worker:$TAG .   && docker push $REG/worker:$TAG
+docker build -t $REG/web:$TAG web                                && docker push $REG/web:$TAG
+# take the pushed digests (docker inspect --format '{{index .RepoDigests 0}}' $REG/api:$TAG) and
+gcloud run jobs update  ai-staging-migrate --region us-central1 --image $REG/api@sha256:…
+gcloud run jobs execute ai-staging-migrate --region us-central1 --wait
+gcloud run services update ai-staging-api    --region us-central1 --image $REG/api@sha256:…
+gcloud run services update ai-staging-worker --region us-central1 --image $REG/worker@sha256:…
+gcloud run services update ai-staging-web    --region us-central1 --image $REG/web@sha256:…
 ```
 
----
+Then write the three digests into `infra/envs/staging/terraform.tfvars` (`images = {...}`), so
+the next Terraform plan keeps them. Infrastructure changes (sizes, queues, ticks, variables) go
+through `terraform plan -out` and `apply` of that plan file in `infra/envs/staging`.
 
-## 2. Cloud Deployment (Google Cloud Platform)
+Secrets are added to their Secret Manager containers by the owner, never through Terraform,
+images or the repository (`docs/deploy/RUNBOOK.md`).
 
-There is one deploy path: Terraform for the infrastructure and the GitHub Actions workflows for
-releases. CI builds the images once, checks and runs them hermetically, and the deploy workflow
-pushes those exact images, runs the migration job, deploys by digest, smoke tests and rolls back
-on failure. Production needs the owner's approval in the `production` environment. Nothing is
-deployed until the owner says so.
+## 3. Database migrations
 
-- Architecture, sizes and estimated cost: `docs/deploy/ARCHITECTURE.md`
-- One-time setup, deploy, rollback, secret rotation, restore and post-deploy checks:
-  `docs/deploy/RUNBOOK.md`
-- Workflows: `.github/workflows/ci.yml`, `_deploy.yml`, `deploy-staging.yml`, `deploy-prod.yml`
-  (variables and environments: `docs/deploy/agents/ci-and-images.md` and `docs/deploy/REPORT.md`)
+`migrations/README.md`. Locally the `migrate` service runs them; in the cloud the
+`ai-staging-migrate` job runs them from the new api image before the services are updated.
+`/readyz` refuses to serve when the schema revision is not the one the code expects.
 
-The manual scripts this section used to describe (`scripts/deploy_to_cloud_run.sh`,
-`scripts/deploy_gcp.sh`, `docker/cloudbuild.yaml`) were removed in Phase 4C.
+## 4. After a release
 
----
-
-## 3. Database Administration & Migrations
-
-### Applying Migrations
-Alembic migrations are executed automatically during container startup or via:
 ```bash
-# Run migrations using alembic
-alembic upgrade head
+curl -s https://<web host>/readyz          # 200 with the expected revision
+curl -s https://<web host>/healthz
 ```
 
-### Seeding Development Credits & Initial Tenant
-In development or demo mode, ensure the tenant wallet has credits:
-```sql
-INSERT INTO wallets (tenant_id, balance) 
-VALUES ('00000000-0000-4000-8000-00000000d0c7', 1000.0000) 
-ON CONFLICT (tenant_id) DO UPDATE SET balance = 1000.0000;
-```
-
----
-
-## 4. Verification Checkpoints
-
-1. **Web App Check**:
-   ```bash
-   curl -s -I http://localhost:3000/
-   # Expect: HTTP/1.1 200 OK
-   ```
-
-2. **Backend Health Check**:
-   ```bash
-   curl -s http://localhost:8080/v1/health
-   # Expect: {"status":"healthy"}
-   ```
-
-3. **Authentication Token Verification**:
-   ```bash
-   TOKEN=$(curl -s http://localhost:9090/token -H "Content-Type: application/json" -d '{"sub":"doctor","tenant_id":"00000000-0000-4000-8000-00000000d0c7","role":"admin","mfa":true}' | jq -r .access_token)
-   curl -s http://localhost:8080/v1/sso/session -H "Authorization: Bearer $TOKEN"
-   # Expect: {"user_id":"doctor","role":"admin","credential":"jwt", ...}
-   ```
+Then sign in, open an account, and check the Cloud Logging event `run.finished` for the first
+research that completes. Alerts and dashboards are generated from `config/telemetry/`
+(`docs/observability/README.md`).
