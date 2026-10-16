@@ -337,3 +337,31 @@ async def test_two_sweeps_never_read_one_document_twice_and_a_failed_import_is_g
         (0,)
     ]
     assert deliverables.error_code(RuntimeError("x")) == "RuntimeError"
+
+
+async def test_a_row_split_into_parts_is_read_whole_by_the_import() -> None:
+    """The chunker splits a long row at field boundaries (part n of k); the import joins the parts
+    back before reading the row, so no field is lost and the row is counted once."""
+    from types import SimpleNamespace
+
+    from documents.deliverables import SheetReader
+
+    reader = SheetReader()
+    at = {"table": "Job Postings", "member": "x/Jobs.xlsx"}
+    long = "Senior data engineer " * 40
+    first = SimpleNamespace(
+        content=f"Requisition: JR1; Title: {long.strip()}",
+        location={**at, "row": 2, "part": 1, "parts": 2},
+        seq=2,
+    )
+    second = SimpleNamespace(
+        content="Status: Open; Location: Dallas",
+        location={**at, "row": 2, "part": 2, "parts": 2},
+        seq=3,
+    )
+    assert reader.read(first) == []  # held until the last part arrives
+    found = reader.read(second)
+    assert len(found) == 1
+    assert found[0].fields.get("status") == "Open" and found[0].fields.get("location") == "Dallas"
+    assert found[0].value.startswith("JR1") or "JR1" in found[0].quote
+    assert reader.parts == {}

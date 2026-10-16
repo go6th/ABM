@@ -11,6 +11,11 @@ part's units are the units a whole-file parse yields for that range, and no unit
 * Text and Markdown: byte ranges that end where the text parser ends a unit (before a Markdown
   heading, or at its unit size); the cursor carries the line number and the heading in force.
 * PDF: ranges of ``pages_per_part`` pages.
+* Zip: ranges of whole members whose declared sizes add up to about ``part_bytes`` (the cursor is
+  the member index, ``end_member`` the first member of the next part), so a workspace zip of
+  hundreds of files is read by several workers at once and no part outlives the sandbox clock
+  (2026-10-16). Member indexes count the archive's files in order, folders left out, exactly
+  as the archive parser numbers them.
 * Everything else (Word, PowerPoint, Excel): one part, read with the parser's own streaming.
 
 UTF-16 text cannot be split on a byte search for a line end, so it is one part. The planner reads
@@ -63,7 +68,31 @@ def plan(
         return _text(stream, kind == "md", part_bytes, unit_text_bytes)
     if kind == "pdf":
         return _pdf(stream, pages_per_part)
+    if kind == "zip":
+        return _zip(stream, part_bytes)
     return [PartPlan({})]
+
+
+def _zip(stream: IO[bytes], part_bytes: int) -> list[PartPlan]:
+    import zipfile
+
+    stream.seek(0)
+    try:
+        infos = [i for i in zipfile.ZipFile(stream).infolist() if not i.is_dir()]
+    except (zipfile.BadZipFile, OSError, EOFError):
+        return [PartPlan({})]  # the parser reports a corrupt archive
+    if len(infos) < 2 or sum(i.file_size for i in infos) <= part_bytes:
+        return [PartPlan({})]
+    plans: list[PartPlan] = []
+    start, size = 0, 0
+    # LOOP(zip parts): cap=members; exit=members exhausted
+    for index, info in enumerate(infos):
+        if index > start and size + info.file_size > part_bytes:
+            plans.append(PartPlan({"member": start, "end_member": index}))
+            start, size = index, 0
+        size += info.file_size
+    plans.append(PartPlan({"member": start}))
+    return plans
 
 
 def _lines(stream: IO[bytes]) -> Any:

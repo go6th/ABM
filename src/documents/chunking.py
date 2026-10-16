@@ -1,15 +1,27 @@
 """Parsed units to passages: the chunk is the unit of retrieval, embedding and citation.
 
 * Documents (PDF pages, Word sections, slides, text sections): structure aware, 400 to 800
-  tokens, about 12% overlap, never across a heading; the heading path (document name, then the
+  tokens, about 12% overlap; the heading path (document name, the member inside a zip, then the
   section, page or slide) is kept with each passage. Small consecutive units under one heading
-  merge until the minimum.
+  merge until the minimum. A section shorter than ``MERGE_BELOW`` of the minimum (a title line,
+  a page footer, a one-line heading) merges forward with the sections after it, each merged
+  section keeping its heading as its first line, so a transcript with a running header does not
+  become hundreds of one-line passages (McKesson workspace, 2026-10-16); a short tail merges
+  back into the passage before it. A section that reaches that floor is never split across a
+  heading.
 * Call transcripts (text whose lines are mostly timestamped speaker turns): windows of whole
   speaker turns of 60 to 90 seconds, speaker labels kept.
-* CRM exports and spreadsheets (rows with a header): one row per passage, ``column: value``.
+* CRM exports and spreadsheets (rows with a header): one row per passage, ``column: value``. A
+  row longer than a passage (a JSON record with a nested list) is split at its ``; `` field
+  boundaries into exact parts (``part`` and ``parts`` in the location); joining the parts with
+  ``; `` gives the row back.
 
 Every passage carries its location (page, slide, section and character span, sheet and row,
-or the transcript's time range), which is what a fact cites.
+or the transcript's time range), which is what a fact cites. The text is the file's own text:
+every non-empty line of a member is in some passage (overlap repeats, nothing is dropped or
+rewritten beyond redaction).
+
+GUARANTEE(test_every_line_of_a_file_is_in_a_passage_and_short_sections_merge)
 
 GUARANTEE(test_chunking_follows_the_three_shapes)
 """
@@ -19,7 +31,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,6 +48,7 @@ _TURN_AFTER = re.compile(
     r"(?P<text>.*)$"
 )
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n{2,}")
+MERGE_BELOW = 0.25  # of document_min_tokens: a shorter section merges with its neighbours
 
 
 @dataclass
@@ -132,6 +145,10 @@ class Chunker:
         self.seq = first_seq
         self.headers: dict[str, list[str]] = {}
         self.truncated = False
+        # carried between calls: the service hands units one at a time, and short sections
+        # merge across those calls; ``finish`` (or ``final=True``) closes the file
+        self._pending: list[ParsedUnit] = []
+        self._held: Passage | None = None  # the last section passage, open for a short tail
 
     def _next(
         self, kind: str, location: dict[str, Any], heading: str | None, text: str
@@ -140,37 +157,102 @@ class Chunker:
             self.truncated = True
             return None
         self.seq += 1
-        path = f"{self.name} > {heading}" if heading else self.name
+        member = _member(location)
+        path = self.name
+        if member and member != heading:
+            path = f"{path} > {member}"
+        if heading:
+            path = f"{path} > {heading}"
         return Passage(self.seq, kind, location, path[:500], text, tokens(text, self.cfg))
 
-    def passages(self, units: Iterable[ParsedUnit]) -> Iterator[Passage]:
-        """Every passage of the document."""
-        pending: list[ParsedUnit] = []
+    @property
+    def _floor(self) -> int:
+        return max(1, int(self.cfg.document_min_tokens * MERGE_BELOW))
+
+    def passages(self, units: Iterable[ParsedUnit], *, final: bool = True) -> Iterator[Passage]:
+        """The passages these units complete, in order. With ``final`` (the default) the file
+        ends here and everything pending comes out; the service passes ``final=False`` unit by
+        unit and calls ``finish`` once, so short sections merge across its calls."""
         for unit in units:
             if unit.fatal:
                 continue
             if unit.rows is not None:
-                yield from self._flush(pending)
-                pending = []
+                yield from self.finish()
                 yield from self._rows(unit)
                 continue
             if not unit.text.strip():
                 continue
             turns = _turns(unit.text)
             if turns is not None:
-                yield from self._flush(pending)
-                pending = []
+                yield from self.finish()
                 yield from self._transcript(unit, turns)
                 continue
-            if pending and self._heading(unit) not in (None, self._heading(pending[0])):
-                yield from self._flush(pending)
-                pending = []
+            pending = self._pending
+            if pending and _member(unit.location) != _member(pending[-1].location):
+                yield from self.finish()  # another file in the zip: nothing merges across
+                pending = self._pending
+            if (
+                pending
+                and self._heading(unit) not in (None, self._heading(pending[-1]))
+                and sum(tokens(u.text, self.cfg) for u in pending) >= self._floor
+            ):
+                # a new heading after a section of real size: the section stands on its own;
+                # a shorter one (a title line, a footer) merges forward instead
+                self._held = yield from self._settle(self._held, self._flush(pending))
+                self._pending = pending = []
             pending.append(unit)
             size = sum(tokens(u.text, self.cfg) for u in pending)
             if size >= self.cfg.document_min_tokens:
-                yield from self._flush(pending)
-                pending = []
-        yield from self._flush(pending)
+                self._held = yield from self._settle(self._held, self._flush(pending))
+                self._pending = []
+        if final:
+            yield from self.finish()
+
+    def finish(self) -> Iterator[Passage]:
+        """Close the open section: what is pending joins or follows the held passage, and the
+        held passage comes out."""
+        self._held = yield from self._settle(self._held, self._flush(self._pending))
+        self._pending = []
+        if self._held is not None:
+            yield self._held
+            self._held = None
+
+    def _settle(
+        self, held: Passage | None, new: Iterable[Passage]
+    ) -> Generator[Passage, None, Passage | None]:
+        """Yield section passages one behind, so a short tail can join the passage before it."""
+        for p in new:
+            if held is None:
+                held = p
+            elif self._joins(held, p):
+                held = self._joined(held, p)
+            else:
+                yield held
+                held = p
+        return held
+
+    def _joins(self, held: Passage, tail: Passage) -> bool:
+        return (
+            tail.kind == "section"
+            and held.kind == "section"
+            and tail.tokens < self._floor
+            and held.tokens + tail.tokens <= self.cfg.document_max_tokens
+            and _member(held.location) == _member(tail.location)
+        )
+
+    def _joined(self, held: Passage, tail: Passage) -> Passage:
+        self.seq -= 1  # the tail's number is given back: the passage keeps the held one's
+        heading = tail.heading_path.rsplit(" > ", 1)[-1] if tail.heading_path else ""
+        before = held.location.get("to", held.location).get("section")
+        lead = f"{heading}\n" if heading and heading != before else ""
+        text = f"{held.text}\n\n{lead}{tail.text}"
+        start = held.location.get("from", held.location)
+        end = tail.location.get("to", tail.location)
+        at = {k: v for k, v in start.items() if k != "chars"}
+        location = at if start == end else {"from": at, "to": {k: v for k, v in end.items()}}
+        return Passage(
+            held.seq, "section", location, held.heading_path, text, tokens(text, self.cfg)
+        )
 
     @staticmethod
     def _heading(unit: ParsedUnit) -> str | None:
@@ -184,15 +266,23 @@ class Chunker:
     def _flush(self, units: list[ParsedUnit]) -> Iterator[Passage]:
         if not units:
             return
-        heading = self._heading(units[0])
+        heading = next((h for h in (self._heading(u) for u in units) if h), None)
         if heading is None:
             first = units[0].location
             if "page" in first:
                 heading = f"Page {first['page']}"
             elif "slide" in first:
                 heading = f"Slide {first['slide']}"
-        text = "\n\n".join(self.redactor.text(u.text.strip()) for u in units)
-        base = (
+        # merged sections keep their own heading as a first line (the file's text, in order)
+        blocks: list[str] = []
+        last: str | None = self._heading(units[0])
+        for i, u in enumerate(units):
+            own = self._heading(u)
+            lead = f"{own}\n" if i and own and own != last else ""
+            blocks.append(lead + self.redactor.text(u.text.strip()))
+            last = own or last
+        text = "\n\n".join(blocks)
+        base: dict[str, Any] = (
             units[0].location
             if len(units) == 1
             else {
@@ -203,11 +293,19 @@ class Chunker:
         max_chars = int(self.cfg.document_max_tokens * self.cfg.chars_per_token)
         min_chars = int(self.cfg.document_min_tokens * self.cfg.chars_per_token)
         overlap = int(max_chars * self.cfg.overlap_fraction)
+        span = base.get("lines") if len(units) == 1 else None
         for start, end in _split(text, max_chars, min_chars, overlap):
             body = text[start:end].strip()
             if not body:
                 continue
-            p = self._next("section", {**base, "chars": [start, end]}, heading, body)
+            at: dict[str, Any] = {**base, "chars": [start, end]}
+            if span:  # the window's own lines, not the whole section's
+                line_one = int(span[0])
+                at["lines"] = [
+                    line_one + text.count("\n", 0, start),
+                    line_one + text.count("\n", 0, end),
+                ]
+            p = self._next("section", at, heading, body)
             if p is None:
                 return
             yield p
@@ -229,10 +327,14 @@ class Chunker:
             row_at: dict[str, Any] = {"table": table, "row": row_no}
             if unit.location.get("member"):  # a sheet inside a zip keeps the file it came from
                 row_at["member"] = unit.location["member"]
-            p = self._next("crm_row", row_at, table, "; ".join(parts))
-            if p is None:
-                return
-            yield p
+            max_chars = int(self.cfg.document_max_tokens * self.cfg.chars_per_token)
+            pieces = _row_parts(parts, max_chars)
+            for i, piece in enumerate(pieces, 1):
+                at = {**row_at, "part": i, "parts": len(pieces)} if len(pieces) > 1 else row_at
+                p = self._next("crm_row", at, table, piece)
+                if p is None:
+                    return
+                yield p
 
     def _transcript(
         self, unit: ParsedUnit, turns: list[tuple[float, str, str, int]]
@@ -269,6 +371,30 @@ class Chunker:
         return self._next("transcript_window", location, "Call transcript", "\n".join(lines))
 
 
+def _member(location: dict[str, Any]) -> str | None:
+    start = location.get("from", location)
+    value = start.get("member") or location.get("member")
+    return str(value) if value else None
+
+
+def _row_parts(fields: list[str], max_chars: int) -> list[str]:
+    """``column: value`` fields joined with ``; `` into pieces of at most ``max_chars`` where the
+    fields allow; a single field longer than that stays whole (never cut inside a field, so
+    ``"; ".join(parts)`` is exactly the row)."""
+    pieces: list[str] = []
+    current: list[str] = []
+    size = 0
+    for f in fields:
+        if current and size + 2 + len(f) > max_chars:
+            pieces.append("; ".join(current))
+            current, size = [], 0
+        current.append(f)
+        size += len(f) + (2 if size else 0)
+    if current:
+        pieces.append("; ".join(current))
+    return pieces
+
+
 def cite(location: dict[str, Any]) -> str:
     """A person-readable location: page 3, slide 2, row 14 of Contacts, 00:01:00 to 00:02:30;
     inside a zip, the member file first ("plans/renewal.docx, page 3")."""
@@ -286,7 +412,10 @@ def cite(location: dict[str, Any]) -> str:
     if "start_s" in location:
         return f"{_clock(location['start_s'])} to {_clock(location['end_s'])}"
     if "row" in loc:
-        return f"row {loc['row']} of {loc.get('table') or loc.get('sheet') or 'the sheet'}"
+        where = f"row {loc['row']} of {loc.get('table') or loc.get('sheet') or 'the sheet'}"
+        if loc.get("parts", 1) > 1:
+            where += f" (part {loc['part']} of {loc['parts']})"
+        return where
     if "page" in loc:
         last = location.get("to", {}).get("page")
         return f"page {loc['page']}" + (f" to {last}" if last and last != loc["page"] else "")

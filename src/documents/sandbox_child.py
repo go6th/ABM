@@ -184,14 +184,20 @@ def main(argv: list[str]) -> int:
     raw = open(path, "rb")  # noqa: SIM115 - held for the parse; opened before the hook
     stream = parts.bounded(raw, part.get("end_offset"))
     end_page = part.get("end_page")
+    cursor = dict(part.get("cursor") or {})
+    end_member = cursor.pop("end_member", None)  # a zip part: the next part's first member
     deny_network_and_processes()
     sys.addaudithook(_audit)
     ctx = base.ParseContext(cfg, name)
-    for unit in parser.units(stream, dict(part.get("cursor") or {}), ctx):
+    last = False
+    for unit in parser.units(stream, cursor, ctx):
         if end_page is not None and int(unit.location.get("page", 0)) > int(end_page):
             break  # the next part's first page
-        if end_page is not None and unit.cursor.get("done"):
-            continue  # the whole-document note (pages) belongs to no single part
+        if (end_page is not None or end_member is not None) and unit.cursor.get("done"):
+            continue  # the whole-document note (pages, members) belongs to no single part
+        if end_member is not None and "inner" not in unit.cursor:
+            # the unit that closes a member carries the next member's index
+            last = int(unit.cursor.get("member", 0)) >= int(end_member)
         record: dict[str, Any] = {
             "kind": unit.kind,
             "location": unit.location,
@@ -209,6 +215,8 @@ def main(argv: list[str]) -> int:
         if unit.table is not None:
             record["table"] = unit.table
         out.write(json.dumps(record, default=str) + "\n")
+        if last:
+            break  # this part's last member is read; the next part starts at end_member
         out.flush()
     return 0
 

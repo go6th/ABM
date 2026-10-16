@@ -5347,6 +5347,21 @@
             "title": "Document Id",
             "type": "string"
           },
+          "indexed_passages": {
+            "title": "Indexed Passages",
+            "type": "integer"
+          },
+          "members_read": {
+            "title": "Members Read",
+            "type": "integer"
+          },
+          "members_skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedMember"
+            },
+            "title": "Members Skipped",
+            "type": "array"
+          },
           "message": {
             "anyOf": [
               {
@@ -5444,7 +5459,10 @@
           "created_at",
           "parts_total",
           "parts_done",
-          "parts_failed"
+          "parts_failed",
+          "indexed_passages",
+          "members_read",
+          "members_skipped"
         ],
         "title": "DocumentStatus",
         "type": "object"
@@ -11428,6 +11446,26 @@
           "signed_out"
         ],
         "title": "SignedOut",
+        "type": "object"
+      },
+      "SkippedMember": {
+        "additionalProperties": false,
+        "description": "A file inside an uploaded zip that was listed but not read, and why.",
+        "properties": {
+          "member": {
+            "title": "Member",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member",
+          "reason"
+        ],
+        "title": "SkippedMember",
         "type": "object"
       },
       "SliceTask": {

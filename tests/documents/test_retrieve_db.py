@@ -134,6 +134,7 @@ async def test_a_zip_is_read_member_by_member_with_each_file_cited(
     with zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("meetings/notes.docx", fixtures.notes_docx())
         z.writestr("crm/contacts.xlsx", fixtures.crm_xlsx())
+        z.writestr("model.bin", bytes(range(256)) * 2)  # listed, not a document type
     account = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
     svc = service(tmp_path)
     done = await upload(svc, tenant_a, "account-pack.zip", raw.getvalue(), account)
@@ -147,3 +148,7 @@ async def test_a_zip_is_read_member_by_member_with_each_file_cited(
     cites = {cite(loc) for loc in locations}
     assert any(c.startswith("meetings/notes.docx") for c in cites)
     assert any(c.startswith("crm/contacts.xlsx, row") for c in cites)
+    # the file list says how many members were read and names the one that was not
+    view = await svc.status(tenant_a, doc)
+    assert view["members_read"] == 2
+    assert view["members_skipped"] == [{"member": "model.bin", "reason": "not a document type"}]

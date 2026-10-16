@@ -31,6 +31,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -226,9 +227,32 @@ class SheetReader:
 
     tables: dict[str, _Table] = field(default_factory=dict)
     skipped: Counter[str] = field(default_factory=Counter)
+    parts: dict[tuple[str, Any], list[Any]] = field(default_factory=dict)
 
     def read(self, passage: Any) -> list[Found]:
         """The structured rows one ``crm_row`` passage yields (none, one, or the rows a table
+        held back). A row the chunker split into parts (``part`` of ``parts`` in the location) is
+        read once its last part arrives, joined back with ``; `` into the whole row."""
+        location = dict(passage.location or {})
+        if int(location.get("parts") or 1) > 1:
+            key = (
+                f"{location.get('member') or ''}/{location.get('table') or 'table'}",
+                location.get("row"),
+            )
+            have = self.parts.setdefault(key, [])
+            have.append(passage)
+            if len(have) < int(location["parts"]):
+                return []
+            del self.parts[key]
+            have.sort(key=lambda p: int(dict(p.location)["part"]))
+            whole = {k: v for k, v in location.items() if k not in ("part", "parts")}
+            passage = SimpleNamespace(
+                content="; ".join(p.content for p in have), location=whole, seq=have[0].seq
+            )
+        return self._read(passage)
+
+    def _read(self, passage: Any) -> list[Found]:
+        """The structured rows one whole ``crm_row`` passage yields (none, one, or the rows a table
         held back while its header was still unknown)."""
         location = dict(passage.location or {})
         name = f"{location.get('member') or ''}/{location.get('table') or 'table'}"

@@ -318,7 +318,9 @@ async def test_indexing_pauses_at_its_time_budget_and_the_next_task_continues(
     cfg = svc.c
     svc.cfg = cfg.model_copy(update={"parsing": cfg.parsing.model_copy(update={"index_batch": 1})})
     svc.index_seconds_per_request = 0.0  # every page spends the budget: one page per task
-    done = await upload(svc, tenant_a, "notes.docx", fixtures.notes_docx(), account)
+    # long enough for several passages (short sections merge into one since 2026-10-16)
+    long = " ".join(f"Sentence {i} of the meeting notes describes the rollout." for i in range(300))
+    done = await upload(svc, tenant_a, "notes.docx", fixtures.notes_docx(long), account)
     doc = UUID(done["document_id"])
     svc.scheduler.documents.clear()
     assert await svc.process(tenant_a, doc) == "indexing"
@@ -328,6 +330,8 @@ async def test_indexing_pauses_at_its_time_budget_and_the_next_task_continues(
         "SELECT min(seq) FROM document_passages WHERE document_id = %s", doc
     )
     assert admin("SELECT lease_owner FROM documents WHERE id = %s", doc) == [(None,)]
+    # the status view counts the passages indexed so far (the file list's progress line)
+    assert (await svc.status(tenant_a, doc))["indexed_passages"] == 1
     total = int(doc_row(doc)["passages"])
     assert total >= 2
     # LOOP(test index tasks): cap=total tasks; exit=indexed

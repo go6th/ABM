@@ -349,3 +349,111 @@ def test_file_mode_gaps_with_reasons_may_complete() -> None:
     # any other gap on a High row still blocks completion
     rows.append(RowState("d", "high", Status.NOT_DONE, ReasonCode.SOURCE_FAILED, "h", False))
     assert not evaluate(rows, policy, 4).can_complete
+
+
+def test_every_line_of_a_file_is_in_a_passage_and_short_sections_merge() -> None:
+    """A Markdown transcript with a running header (a one-line section every page) becomes a few
+    passages, not hundreds of one-liners: a section under a quarter of the minimum merges forward,
+    keeping its heading as a line; a short tail merges back; every sentence of every source line
+    is in a passage; a zip member is in the heading path and a window cites its own lines."""
+    import re
+
+    chunker = Chunker(CFG.chunking, "pack.zip", Redactor("standard"), 1000)
+    member = "data/releases/transcript.md"
+    body = " ".join(f"Sentence {i} of the prepared remarks about the plan." for i in range(60))
+    at = lambda section, a, b: {"section": section, "lines": [a, b], "member": member}  # noqa: E731
+    units = [
+        ParsedUnit("section", at("(no heading)", 1, 2), "https://example.com/transcript.pdf"),
+        ParsedUnit(
+            "section",
+            at("Corrected Transcript", 5, 8),
+            "1-877-FACTSET www.callstreet.com",
+            heading="Corrected Transcript",
+        ),
+        ParsedUnit(
+            "section",
+            at("McKesson Corp. (MCK)", 17, 20),
+            "Investor Day",
+            heading="McKesson Corp. (MCK)",
+        ),
+        ParsedUnit("section", at("Remarks", 21, 90), body, heading="Remarks"),
+        ParsedUnit(
+            "section",
+            at("Corrected Transcript", 91, 92),
+            "23-Sep-2025",
+            heading="Corrected Transcript",
+        ),
+    ]
+    passages = list(chunker.passages(units))
+    assert len(passages) <= 2, [p.text[:40] for p in passages]
+    joined = "\n".join(p.text for p in passages)
+    for u in units:
+        for line in u.text.splitlines():
+            for sentence in re.split(r"(?<=\.)\s+", line):
+                assert sentence.strip() in joined, sentence
+    # the merged sections keep their headings as lines, in order
+    assert (
+        joined.index("Corrected Transcript\n1-877")
+        < joined.index("McKesson Corp. (MCK)\nInvestor Day")
+        < joined.index("Sentence 0")
+    )
+    assert (
+        "Corrected Transcript\n23-Sep-2025" in joined
+    )  # the short tail joined the passage before it
+    assert all(p.heading_path.startswith(f"pack.zip > {member}") for p in passages)
+    assert passages[0].location["from"]["member"] == member
+    # a long plain-text file without headings cites each window's own lines
+    plain = Chunker(CFG.chunking, "urls.txt", Redactor("standard"), 1000)
+    lines = "\n".join(
+        f"https://example.com/news/{i:04d}-a-press-release-about-the-plan" for i in range(300)
+    )
+    windows = list(
+        plain.passages(
+            [ParsedUnit("section", {"section": "(no heading)", "lines": [1, 300]}, lines)]
+        )
+    )
+    assert len(windows) > 2
+    assert windows[0].location["lines"][0] == 1 and windows[-1].location["lines"][1] == 300
+    assert windows[1].location["lines"][0] > 1
+    for w in windows:
+        assert w.location["lines"][1] - w.location["lines"][0] < 300
+    assert cite(windows[1].location).startswith("lines ")
+
+
+def test_a_long_row_is_split_into_exact_parts_that_join_back() -> None:
+    """A record longer than a passage becomes parts cut at field boundaries, never inside a
+    field; joining them with '; ' gives the row back; each part cites its row and part; a short
+    row stays one passage."""
+    from documents.chunking import _row_parts
+
+    c = Chunker(CFG.chunking, "pack.zip", Redactor("standard"), 1000)
+    cells = [
+        f"Tool {i} is used by the {i}th team for its daily reporting and planning"
+        for i in range(120)
+    ]
+    header = ["team_id", "name", *[f"tool_{i}" for i in range(120)], "note"]
+    row1 = ["13816026", "FSS", *cells, "end"]
+    unit = ParsedUnit(
+        "rows",
+        {"table": "data/teams.json", "member": "data/teams.json"},
+        "",
+        header=header,
+        rows=[(1, row1), (2, ["2", "Small", *[""] * 120, "y"])],
+    )
+    out = list(c.passages([unit]))
+    parts = [p for p in out if p.location.get("row") == 1]
+    assert len(parts) > 1 and all(p.tokens <= CFG.chunking.document_max_tokens for p in parts)
+    whole = "; ".join(f"{h}: {v}" for h, v in zip(header, row1, strict=True))
+    assert "; ".join(p.text for p in parts) == whole
+    assert [p.location["part"] for p in parts] == list(range(1, len(parts) + 1))
+    assert all(p.location["parts"] == len(parts) for p in parts)
+    assert (
+        cite(parts[1].location)
+        == f"data/teams.json, row 1 of data/teams.json (part 2 of {len(parts)})"
+    )
+    assert parts[0].heading_path == "pack.zip > data/teams.json"
+    small = [p for p in out if p.location.get("row") == 2]
+    assert len(small) == 1 and "part" not in small[0].location
+    assert _row_parts(["a: 1", "b: 2"], 100) == ["a: 1; b: 2"]
+    long_field = "a: " + "x" * 90  # longer than a piece: stays whole, never cut inside a field
+    assert _row_parts([long_field, "b: 2", "c: 3"], 60) == [long_field, "b: 2; c: 3"]

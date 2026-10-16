@@ -716,7 +716,10 @@ async def part_counts(s: AsyncSession, document_ids: Sequence[UUID]) -> dict[UUI
             " count(*) FILTER (WHERE status = 'running') AS running,"
             " coalesce(sum(passages), 0) AS passages,"
             " coalesce(jsonb_agg(jsonb_build_object('part', part_no, 'failure', failure)"
-            " ORDER BY part_no) FILTER (WHERE status = 'failed'), '[]') AS failed"
+            " ORDER BY part_no) FILTER (WHERE status = 'failed'), '[]') AS failed,"
+            " coalesce(sum((evidence->>'members_read')::int), 0) AS members_read,"
+            " coalesce(jsonb_agg(evidence->'skipped' ORDER BY part_no)"
+            " FILTER (WHERE evidence ? 'skipped'), '[]') AS skipped"
             " FROM document_parts WHERE document_id = ANY(:ids) GROUP BY document_id"
         ),
         {"ids": list(document_ids)},
@@ -727,6 +730,8 @@ async def part_counts(s: AsyncSession, document_ids: Sequence[UUID]) -> dict[UUI
             "running": int(r.running),
             "passages": int(r.passages),
             "failed": list(r.failed),
+            "members_read": int(r.members_read or 0),
+            "skipped": [m for part in (r.skipped or []) for m in (part or [])],
         }
         for r in rows
     }

@@ -85,6 +85,17 @@ MESSAGES = {
     "empty": "The file has no readable content.",
     "parts_failed": "Some parts of the file could not be read. Try those parts again.",
 }
+# archive members the parser listed but did not read (the file list says so, by name)
+SKIP_CHECKS = {
+    "unsupported_member": "not a document type",
+    "zip_bomb_blocked": "expands far beyond its declared size",
+    "path_traversal_blocked": "unsafe file name",
+    "corrupt_member": "cannot be read",
+    "link_or_device_skipped": "a link or device, not a file",
+    "archive_too_many_members": "past the member limit",
+    "archive_too_deep": "an archive nested too deep",
+    "archive_too_large": "past the uncompressed size limit",
+}
 PART_MESSAGES = {
     "parse:parse_timeout": "This part took too long to read.",
     "parse:text_limit": "This part holds more text than one part may.",
@@ -585,6 +596,8 @@ class DocumentService:
         pages: set[tuple[str, Any]] = set()
         batch: list[Passage] = []
         written = 0
+        members_read: set[str] = set()  # zip members the parser read (skipped ones apart)
+        skipped: list[dict[str, str]] = []  # zip members the parser listed but did not read
 
         async def renew() -> bool:
             async with self.txn(tenant_id) as s:
@@ -626,10 +639,23 @@ class DocumentService:
                             pages.add((key, unit.location[key]))
                     if len(pages) > cfg.parsing.max_pages:
                         raise SandboxFailed("page_limit")
+                    member = unit.location.get("member")
+                    if member:
+                        # a member the parser listed but did not read is skipped, by name; every
+                        # other member counts as read (an image without text included), so read
+                        # plus skipped is the archive's file count
+                        checks = {str((f or {}).get("check") or "") for f in unit.findings}
+                        hit = sorted(checks & SKIP_CHECKS.keys())
+                        if hit:
+                            if len(skipped) < 200:
+                                skipped.append({"member": str(member), "check": hit[0]})
+                        else:
+                            members_read.add(str(member))
                     resolver.feed(unit)
-                    batch.extend(chunker.passages([unit]))
+                    batch.extend(chunker.passages([unit], final=False))
                     if len(batch) >= cfg.parsing.write_batch and not await flush(beat):
                         return  # the lease was lost, or the document deleted
+                batch.extend(chunker.finish())  # the part's last short section, merged
                 if batch and not await flush(beat):
                     return
                 if beat.lost:
@@ -642,6 +668,8 @@ class DocumentService:
             "company": resolver.state(),
             "redactions": len(redactor.entries()),
             "truncated": chunker.truncated,
+            "members_read": len(members_read),
+            "skipped": skipped,
         }
         async with self.txn(tenant_id) as s:
             await repo.finish_part(s, doc.id, part_no, self.worker, written, evidence)
@@ -968,6 +996,20 @@ class DocumentService:
             "passages": row.passages or (parts or {}).get("passages", 0),
             "parts_total": int(row.parts_total or 0),
             "parts_done": int((parts or {}).get("done", 0)),
+            # passages indexed so far (parts number their passages from 1, so the sequence
+            # indexed through is the count): the file list says "Indexing 3,200 of 22,380"
+            "indexed_passages": int(row.indexed_through or 0)
+            if row.status in ("indexing", "indexed")
+            else 0,
+            # a zip: how many of its files were read, and the ones that were not, by name
+            "members_read": int((parts or {}).get("members_read", 0)),
+            "members_skipped": [
+                {
+                    "member": str(m.get("member") or ""),
+                    "reason": SKIP_CHECKS.get(str(m.get("check")), str(m.get("check") or "")),
+                }
+                for m in (parts or {}).get("skipped", [])
+            ][:100],
             "parts_failed": [
                 {"part": int(f["part"]) + 1, "reason": part_message(f.get("failure"))}
                 for f in (parts or {}).get("failed", [])

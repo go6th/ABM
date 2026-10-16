@@ -3,7 +3,7 @@
 // lost. Names, sizes and status only; a file never opens from here (it is read into passages).
 import Link from "next/link";
 import type { DocumentStatus } from "@/lib/gen/api.gen";
-import { STAGE_TEXT, fileSize, stageOf, stageTone } from "@/lib/documents";
+import { STAGE_TEXT, fileSize, filesLine, progressLine, stageOf, stageTone } from "@/lib/documents";
 import { cellText } from "@/lib/render";
 import { Status } from "@/ui/primitives";
 import { WhatWasRead } from "./WhatWasRead";
@@ -23,6 +23,14 @@ export function UploadedFilesCard({ docs }: { docs: DocumentStatus[] }) {
                 <div className="stack-8">
                   <p>{cellText(d.name)}</p>
                   <span className="sub">{fileSize(d.size_bytes)}{d.passages ? `. ${d.passages.toLocaleString()} passages` : ""}</span>
+                  {progressLine(d) ? <span className="sub" aria-live="polite">{progressLine(d)}</span> : null}
+                  {filesLine(d) ? <span className="sub">{filesLine(d)}</span> : null}
+                  {d.members_skipped?.length ? (
+                    <details className="sub">
+                      <summary>Skipped files</summary>
+                      <ul>{d.members_skipped.map((m) => <li key={m.member}>{cellText(m.member)}: {m.reason}</li>)}</ul>
+                    </details>
+                  ) : null}
                   {d.passages ? <WhatWasRead documentId={d.document_id} name={d.name} /> : null}
                 </div>
                 <Status tone={stageTone(stage)}>{STAGE_TEXT[stage]}</Status>

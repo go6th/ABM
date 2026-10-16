@@ -149,7 +149,7 @@ Inputs from the code and config:
 | --- | --- | --- | --- | --- | --- | --- |
 | web | 1 | 512 MiB | 40 | 300 s | throttled | Next.js server; 300 s so Ask streams through the proxy are not cut |
 | api | 1 | 1 GiB | 40 | 300 s | throttled | I/O bound; chat streams; Argon2id hashes are 64 MiB each (audit L7) |
-| worker | 4 | 8 GiB | 4 | 3600 s | always on | 4 sandbox children x 1536 MiB = 6 GiB, plus the app (about 0.6 GiB) and headroom = 8 GiB; one core per parser so the 1800 s CPU budget is not stretched by sharing; 3600 s because one document request reads parts in a loop |
+| worker | 6 (+ 1 NVIDIA L4 when `worker_gpu` is set; staging awaits the quota) | 16 GiB | 4 | 3600 s | always on | 4 sandbox children x 1536 MiB = 6 GiB, plus the app (about 0.6 GiB) and headroom; one core per parser so the 1800 s CPU budget is not stretched by sharing; passages embed on the L4 (bge-small through onnxruntime CUDA; on 4 CPU threads a 37,000-passage file took an hour, 2026-10-16); an instance holds 8 vCPU at most across its containers, a container gets 1, 2, 4, 6 or 8, and clamd takes one; 16 GiB is the floor Cloud Run asks for next to an L4; zonal redundancy off (the worker scales to zero); 3600 s because one document request reads parts in a loop |
 | worker clamd sidecar | 1 | 4 GiB | n/a | n/a | always on | ClamAV keeps signatures in memory (about 1.5 GiB) and doubles during a reload; the signature files also live in memory |
 | job spend-invariants | 1 | 1 GiB | n/a | 1800 s | n/a | one pass over the ledger |
 | job migrate | 1 | 1 GiB | n/a | 1800 s | n/a | `alembic upgrade head`; retries 0 |
@@ -165,8 +165,11 @@ queue's tasks created with `dispatch_deadline = 1800s`.
 
 | Environment | api min/max | web min/max | worker min/max |
 | --- | --- | --- | --- |
-| staging | 0 / 3 | 0 / 3 | 0 / 2 |
+| staging | 0 / 3 | 0 / 3 | 0 / 3 |
 | production | 1 / 10 | 1 / 10 | 1 / 8 |
+
+The worker's maximum cannot exceed the project's regional GPU quota (3 L4 without zonal
+redundancy by default; production needs a quota increase before 8).
 
 Queues never dispatch more than the worker can hold at its maximum: worker max x concurrency 4 =
 runs 2 + documents 1 + jobs 1 per instance.
@@ -188,10 +191,10 @@ plus one checkpointer connection per in-flight run slice (worker concurrency 4 a
 | | staging | production |
 | --- | --- | --- |
 | api: max x 10 | 3 x 10 = 30 | 10 x 10 = 100 |
-| worker: max x (10 + 4) | 2 x 14 = 28 | 8 x 14 = 112 |
+| worker: max x (10 + 4) | 3 x 14 = 42 | 8 x 14 = 112 |
 | jobs (migrate, nightly) | 2 x 5 = 10 | 2 x 5 = 10 |
 | operators, Query Insights, maintenance | 15 | 15 |
-| **total** | **83** | **237** |
+| **total** | **97** | **237** |
 | `max_connections` (variable) | 200 | 400 |
 | alert at 80 percent | 160 | 320 |
 
@@ -252,7 +255,7 @@ are usage based and capped in the application per run and per tenant.
 | Item | Staging | Production, HA on | Production, HA off |
 | --- | --- | --- | --- |
 | Cloud Run web + api (production: 1 warm instance each, idle rate) | 5 | 45 | 45 |
-| Cloud Run worker (4 vCPU 8 GiB + clamd 1 vCPU 4 GiB, CPU always on) | 16 | 300 | 300 |
+| Cloud Run worker (6 vCPU 16 GiB + L4 GPU + clamd 1 vCPU 4 GiB, CPU always on; about 1.30 an hour while active, 0.67 of it the GPU) | 40 | 1000 | 1000 |
 | Cloud SQL (1 vCPU 3.75 GB / 2 vCPU 7.5 GB, SSD, backups) | 54 | 210 | 107 |
 | Memorystore 1 GB (Basic / Standard HA) | 36 | 47 | 36 |
 | Load balancer (2 forwarding rules) and data | 19 | 20 | 20 |

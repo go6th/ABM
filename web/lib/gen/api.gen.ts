@@ -1027,6 +1027,12 @@ export const DocumentPartFailure = z.object({
 }).strict();
 export type DocumentPartFailure = z.infer<typeof DocumentPartFailure>;
 
+export const SkippedMember = z.object({
+  "member": z.string(),
+  "reason": z.string(),
+}).strict();
+export type SkippedMember = z.infer<typeof SkippedMember>;
+
 export const DocumentStatus = z.object({
   "account_id": z.string().nullable(),
   "authoritative": z.boolean(),
@@ -1035,6 +1041,9 @@ export const DocumentStatus = z.object({
   "declared_type": z.string(),
   "detected_type": z.string().nullable(),
   "document_id": z.string(),
+  "indexed_passages": z.number().int(),
+  "members_read": z.number().int(),
+  "members_skipped": z.array(SkippedMember),
   "message": z.string().nullable(),
   "name": z.string(),
   "needs_company": z.boolean(),

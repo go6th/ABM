@@ -19,7 +19,7 @@ export const STAGE_TEXT: Record<Stage, string> = {
   scanning: "Scanning",
   parsing: "Reading",
   parsed: "Read, waiting for the company",
-  indexing: "Reading",
+  indexing: "Indexing",
   indexed: "Ready",
   failed: "Failed",
 };
@@ -71,6 +71,27 @@ export function folderFiles(files: ArrayLike<File>): { send: File[]; skipped: st
 export function partsLine(doc: Pick<DocumentStatus, "stage" | "parts_total" | "parts_done">): string | null {
   if (doc.parts_total <= 1 || doc.stage !== "parsing") return null;
   return `Reading part ${Math.min(doc.parts_total, doc.parts_done + 1)} of ${doc.parts_total}`;
+}
+
+/** "Indexing 3,200 of 22,380 passages" while a read file is embedded and indexed (null otherwise). */
+export function indexingLine(doc: Pick<DocumentStatus, "stage" | "passages" | "indexed_passages">): string | null {
+  if (doc.stage !== "indexing" || !doc.passages) return null;
+  const done = Math.min(doc.passages, doc.indexed_passages ?? 0);
+  return `Indexing ${done.toLocaleString()} of ${doc.passages.toLocaleString()} passages`;
+}
+
+/** "269 files read, 6 skipped" for a zip (null for a single file or before anything was read). */
+export function filesLine(doc: Pick<DocumentStatus, "members_read" | "members_skipped">): string | null {
+  const read = doc.members_read ?? 0;
+  const skipped = doc.members_skipped?.length ?? 0;
+  if (read + skipped === 0) return null;
+  const files = `${read.toLocaleString()} file${read === 1 ? "" : "s"} read`;
+  return skipped ? `${files}, ${skipped.toLocaleString()} skipped` : files;
+}
+
+/** The progress line of a file still being read or indexed (null when there is none). */
+export function progressLine(doc: Pick<DocumentStatus, "stage" | "passages" | "indexed_passages" | "parts_total" | "parts_done">): string | null {
+  return indexingLine(doc) ?? partsLine(doc);
 }
 
 /** A stage still moving on the server (keep polling). */

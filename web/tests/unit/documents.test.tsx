@@ -17,7 +17,7 @@ function doc(over: Partial<DocumentStatus>): DocumentStatus {
     document_id: "d1", account_id: null, name: "a.pdf", status: "parsed", stage: "parsed", declared_type: "pdf",
     detected_type: "pdf", size_bytes: 10, reason: null, message: null, passages: 3, redactions: 0,
     redaction_tier: "standard", authoritative: false, company: null, needs_company: true, created_at: "2026-10-13T00:00:00Z",
-    parts_total: 1, parts_done: 0, parts_failed: [],
+    parts_total: 1, parts_done: 0, parts_failed: [], indexed_passages: 0, members_read: 0, members_skipped: [],
     ...over,
   };
 }

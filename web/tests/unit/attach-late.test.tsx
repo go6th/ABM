@@ -14,7 +14,7 @@ afterEach(() => apiMock.mockReset());
 const doc = (id: string, stage: string): DocumentStatus => ({
   document_id: id, account_id: null, name: `${id}.xlsx`, status: stage, stage, declared_type: "xlsx", detected_type: "xlsx",
   size_bytes: 10, reason: null, message: null, passages: 3, redactions: 0, redaction_tier: "standard", authoritative: false,
-  company: null, needs_company: true, created_at: "2026-10-15T00:00:00Z", parts_total: 1, parts_done: 1, parts_failed: [],
+  company: null, needs_company: true, created_at: "2026-10-15T00:00:00Z", parts_total: 1, parts_done: 1, parts_failed: [], indexed_passages: 0, members_read: 0, members_skipped: [],
 });
 
 test("late files are attached to the confirmed company once, still-reading ones when they finish", async () => {

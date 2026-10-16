@@ -1983,6 +1983,13 @@ class DocumentPartFailure(Out):
     reason: str
 
 
+class SkippedMember(Out):
+    """A file inside an uploaded zip that was listed but not read, and why."""
+
+    member: str
+    reason: str
+
+
 class DocumentStatus(Out):
     """Response body: one document's processing status (scanning, parsing, indexed, failed)."""
 
@@ -2006,6 +2013,9 @@ class DocumentStatus(Out):
     parts_total: int
     parts_done: int
     parts_failed: list[DocumentPartFailure]
+    indexed_passages: int
+    members_read: int
+    members_skipped: list[SkippedMember]
 
 
 class DocumentPassage(Out):

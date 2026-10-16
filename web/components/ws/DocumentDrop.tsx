@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { m } from "@/lib/messages";
-import { ACCEPT, STAGE_TEXT, fileSize, folderFiles, isWorking, partsLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
+import { ACCEPT, STAGE_TEXT, fileSize, folderFiles, isWorking, progressLine, refuseReason, stageOf, stageTone, type Stage } from "@/lib/documents";
 import { uploadDocument } from "@/lib/upload";
 import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
 import { Status } from "@/ui/primitives";
@@ -205,7 +205,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
       {items.length ? (
         <ul className="rows uploads" aria-label={m.research.filesLabel}>
           {items.map((it) => {
-            const reading = it.doc ? partsLine(it.doc) : null;
+            const reading = it.doc ? progressLine(it.doc) : null;
             return (
               <li key={it.key} className="file-row">
                 <div className="file-head">

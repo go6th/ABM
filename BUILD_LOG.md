@@ -902,3 +902,63 @@ no results), a status it gives no reason code, and G1 demanded a reason for ever
 Done. G1 now reads: Done needs queries; Partial, Not done and Blocked need a reason; None needs
 either (the searches that found nothing, or a reason such as out of scope). Agents and resume
 suites: 255 passed. Deployed as the worker and api images from d0288e1.
+
+GPU indexing (2026-10-16 evening): the worker can carry one NVIDIA L4 (Cloud Run GPU, `worker_gpu`
+in the stack; zonal redundancy off, scale to zero). The staging instance is now 6 vCPU (8 is the
+instance maximum across containers, a container gets 1, 2, 4, 6 or 8, and clamd takes one) and
+16 GiB, max 3 (revision 00033). The GPU itself is not attached yet: the project's L4 quota is 0 in
+both pools and the Cloud Quotas requests (3 and 1 without zonal redundancy, 3 with) were denied
+automatically within a minute; the owner must ask through the console quota page or support. The
+worker image carries the CUDA build of the embedder runtime (`fastembed-gpu`, `onnxruntime-gpu` with the CUDA 13
+and cuDNN 9 wheels; the two runtimes are conflicting uv groups, `cpu` by default and `gpu` for the
+worker image only). `FastEmbedder` picks CUDA when the provider is compiled in and comes up, batches
+of 256 there, and logs `documents.embedder.loaded` with the device; a CUDA start that fails falls
+back to the CPU path. Worker max is 3, the project's L4 quota. Cloud Run module test covers the GPU
+shape; stack plan test, both roots validate.
+
+## Files are read whole and chunked exactly; indexing is faster and shows its progress (2026-10-16, evening)
+
+The owner uploads account workspaces as zips (a 68 MB McKesson zip of 275 files, mostly JSON and
+Markdown) and asked for fast indexing, full reading and accurate chunking, with the file list
+showing what is happening. Running that zip through the pipeline locally (22,380 passages from
+269 members, nothing truncated) showed where the chunker fell short.
+
+### What was wrong
+
+* A Markdown file was cut at every heading and never merged across one: a transcript with a
+  running header made 291 passages, dozens of them one line long ("Investor Day",
+  "Advertisement"), useless to search and paid for in embedding time.
+* A JSON record was one passage however long: rows of 6,600 characters on average and up to
+  41,000, far past the embedding window, so only the start of a row was searchable by meaning.
+* A zip member's name was in the citation but not in the heading path; a long text file cited
+  the whole file's line range for every window.
+* While a big file indexed, the list said only "Reading" for the best part of an hour.
+* Indexing embeds on the worker's own CPU at about 10 passages a second on 4 threads.
+
+### What changed
+
+* `documents/chunking.py`: a section shorter than a quarter of the minimum merges forward with
+  the sections after it, each keeping its heading as its first line; a short tail merges back
+  into the passage before it; a section of real size is still never split across a heading.
+  A long row is split at its `; ` field boundaries into exact parts (`part` of `parts` in the
+  location; joining the parts with `; ` is the row; never cut inside a field). The heading path
+  carries the zip member; a text window cites its own lines. Guarantee: every sentence of every
+  source line is in a passage (`test_every_line_of_a_file_is_in_a_passage_and_short_sections_merge`,
+  `test_a_long_row_is_split_into_exact_parts_that_join_back`).
+* `documents/deliverables.py`: the workbook import joins a split row back before reading it.
+* A zip is read in parts of whole members (`documents/parts.py`, `_zip`: declared sizes add up
+  to about `part_bytes`; the cursor carries `end_member` and the sandbox stops at it), so a
+  workspace zip of hundreds of files is read by several workers at once instead of one
+  sandbox run against its 1,500 s clock; parts give the same passages as a whole-file read
+  (`test_parts_read_the_same_passages_as_the_whole_file[pack.zip]`). The chunker closes a
+  section at a member change, so nothing merges across files.
+* Every member is accounted for: a part records the members it read and the ones the parser
+  listed but did not (`SKIP_CHECKS`: not a document type, zip bomb, unsafe name, corrupt);
+  `DocumentStatus.members_read` and `members_skipped` carry them and the file list says
+  "269 files read, 6 skipped" with the skipped names and reasons.
+* `DocumentStatus.indexed_passages` (from `documents.indexed_through`); the web file lists say
+  "Indexing 3,200 of 22,380 passages" (`progressLine`), and the stage reads "Indexing".
+* Worker sizing: the embedder's thread cap follows the instance's cores (commit 44e0413). The
+  instance shape itself (vCPU, and an NVIDIA L4 for the embedder) is being changed in a parallel
+  session on the same tree; that session owns `infra/`, `docker/worker.Dockerfile`,
+  `pyproject.toml` and `documents/embed.py` for it, and the owner applies the Terraform plan.

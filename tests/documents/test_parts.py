@@ -41,6 +41,21 @@ def _notes_md(sections: int) -> bytes:
     return "".join(body).encode()
 
 
+def _pack_zip(members: int) -> bytes:
+    """A workspace zip: Markdown notes and CSV exports in folders, each member past a small part."""
+    import io
+    import zipfile
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for i in range(members):
+            if i % 2:
+                z.writestr(f"data/crm_{i}.csv", _crm_csv(120))
+            else:
+                z.writestr(f"notes/meeting_{i}.md", _notes_md(6))
+    return out.getvalue()
+
+
 def _small_parts(svc: Any, part_bytes: int) -> None:
     svc.cfg = svc.c.model_copy(
         update={"parsing": svc.c.parsing.model_copy(update={"part_bytes": part_bytes})}
@@ -128,7 +143,12 @@ async def test_one_part_per_request_hands_the_rest_to_new_tasks(
 @pytest.mark.asyncio
 @pytest.mark.requires_postgres
 @pytest.mark.parametrize(
-    ("name", "make"), [("crm.csv", lambda: _crm_csv(400)), ("notes.md", lambda: _notes_md(40))]
+    ("name", "make"),
+    [
+        ("crm.csv", lambda: _crm_csv(400)),
+        ("notes.md", lambda: _notes_md(40)),
+        ("pack.zip", lambda: _pack_zip(8)),  # a zip is read in parts of whole members
+    ],
 )
 async def test_parts_read_the_same_passages_as_the_whole_file(
     name: str, make: Any, tenant_a: UUID, tmp_path: Path
