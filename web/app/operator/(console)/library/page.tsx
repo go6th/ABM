@@ -54,7 +54,7 @@ function Upload({ onDone }: { onDone: () => void }) {
       </div>
       <div className="row-12 wrap align-top">
         <div className="field grow-240"><label htmlFor="lib-file">File</label><input id="lib-file" className="input" type="file" accept=".zip,.docx,.xlsx" required onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>
-        <div className="field grow-220"><label htmlFor="lib-name">Account name</label><input id="lib-name" className="input" maxLength={200} value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" /></div>
+        <div className="field grow-220"><label htmlFor="lib-name">Account name</label><input id="lib-name" className="input" maxLength={200} value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional, read from the file names" /></div>
         <div className="field grow-220"><label htmlFor="lib-domain">Account website</label><input id="lib-domain" className="input" required value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.com" aria-invalid={domain !== "" && !DOMAIN.test(site)} /></div>
       </div>
       {message ? <p className={`sm-text ${message.ok ? "mut" : "bad-text"}`} role={message.ok ? "status" : "alert"}>{message.text}</p> : null}

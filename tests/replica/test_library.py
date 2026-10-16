@@ -31,10 +31,14 @@ NARRATIVE = (
 )
 
 
-def _docx(*paragraphs: str) -> bytes:
+def _docx(*paragraphs: str, link: str | None = None) -> bytes:
     doc = Document()
     for p in paragraphs:
         doc.add_paragraph(p)
+    if link:  # an external hyperlink relationship, as Word writes one
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        doc.part.relate_to(link, RT.HYPERLINK, is_external=True)
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
@@ -51,9 +55,17 @@ def _xlsx(*rows: list[str]) -> bytes:
     return out.getvalue()
 
 
-def package(summary: str = NARRATIVE) -> bytes:
+def package(
+    summary: str = NARRATIVE,
+    *,
+    manifest: bool = True,
+    without: str | None = None,
+    link: str | None = None,
+) -> bytes:
     files = {
-        "deliverables/Northwind_Account_Summary.docx": _docx("Northwind Traders", summary),
+        "deliverables/Northwind_Account_Summary.docx": _docx(
+            "Northwind Traders", summary, link=link
+        ),
         "deliverables/Northwind_Sources_and_Evidence.docx": _docx("Sources and evidence"),
         "deliverables/Northwind_People_List.xlsx": _xlsx(["Name", "Role"], ["[Name]", "CIO"]),
         "deliverables/Northwind_Job_Postings.xlsx": _xlsx(["Role"], ["Data engineer"]),
@@ -61,6 +73,10 @@ def package(summary: str = NARRATIVE) -> bytes:
         "Northwind_Internal_Only.docx": _docx("Call notes that name the account team."),
         "MANIFEST.json": b'{"account": "Northwind Traders"}',
     }
+    if not manifest:
+        del files["MANIFEST.json"]
+    if without:
+        files = {k: v for k, v in files.items() if without not in k}
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         for name, body in files.items():
@@ -100,10 +116,10 @@ async def test_a_library_account_is_checked_published_and_added_without_credits(
         priya,
         "POST",
         "/operator/v1/library/uploads?filename=bad.zip&domain=badco.example",
-        content=package("Northwind — a dash used as punctuation, which the check refuses."),
+        content=package(without="Job_Postings"),
     )
     assert bad.status_code == 201, bad.text
-    assert bad.json()["check_passed"] is False and "summary:banned_dashes" in bad.json()["issues"]
+    assert bad.json()["check_passed"] is False and bad.json()["issues"] == ["jobs:missing"]
     refused = await _staff(
         priya,
         "POST",
@@ -184,3 +200,27 @@ async def test_a_library_account_is_checked_published_and_added_without_credits(
     assert again.json() == {"added": [], "already_in_workspace": 1}
     one = await _call(priya, "GET", "/v1/accounts/northwind.example/deliverables/download?ids=all")
     assert one.status_code == 200 and one.headers["content-type"] == "application/zip"
+
+
+async def test_the_library_mends_links_and_dashes_and_names_the_account_from_its_files() -> None:
+    """A workspace built outside the platform (no MANIFEST.json, a plain-http link in the Summary,
+    an em dash in a quoted line) is named by its file names and made client ready: the stored
+    Summary keeps every word with a plain hyphen, and its link target is https."""
+    from account_intelligence.replica import library as L
+
+    data = package(
+        "Northwind — a dash in a quoted line.", manifest=False, link="http://northwind.example/news"
+    )
+    with pytest.raises(L.LibraryError):  # a lone file with no account in its name
+        L.inspect_package("summary.docx", _docx("x"), None, "n.example")
+    found = L.inspect_package("workspace.zip", data, None, "northwind.example")
+    assert (found.name, found.issues, found.check_passed) == ("Northwind", [], True)
+    stored = found.files["summary"][1]
+    text = "\n".join(p.text for p in Document(io.BytesIO(stored)).paragraphs)
+    assert "Northwind - a dash in a quoted line." in text and "—" not in text
+    rels = [b for n, b in L._members("s.zip", stored) if n.endswith(".rels")]
+    assert any(b"https://northwind.example/news" in b for b in rels)
+    assert not any(b'Target="http://' in b for b in rels)
+    # a file that needs no mending is stored byte for byte
+    plain = _docx("Northwind Traders", NARRATIVE)
+    assert L.client_ready(plain) == plain

@@ -4,10 +4,16 @@ client adds as ready-made research (no credits, available at once).
 * ``inspect_package``: an upload (a workspace zip, or standing Word and Excel files) is read
   without trusting it: the five client deliverables are found by their standing names
   (``config/output_spec.yaml``); an internal-only file is left out and never stored; the
-  client-ready check runs the pre-delivery gate's file checks on each deliverable (no dash used
-  as punctuation, no data tool name, credit count or internal reference, no data provider host,
-  no plain-http link) and reports a missing deliverable. The account name comes from the
-  package's ``MANIFEST.json`` or the upload form, the domain from the form.
+  client-ready check runs the pre-delivery gate's file checks on each deliverable (no typographic
+  dash, the gate's own rule; no data tool name, credit count or internal reference; no data
+  provider host; no plain-http link) and reports a missing deliverable. Two defects are mended
+  before the check instead of refused, because the fix is mechanical and keeps every word: a
+  plain-http link target becomes https, and a typographic dash becomes a plain spaced hyphen
+  (verbatim quotes keep their words; ``config/export_rules.yaml`` keeps quotes verbatim). A
+  workspace built outside the platform therefore passes unless it names a tool, a credit count,
+  an internal reference or a data provider host, or lacks a deliverable. The account name comes
+  from the upload form, else the package's ``MANIFEST.json``, else the deliverables' own file
+  names (``<Account>_Account_Summary.docx`` names the account); the domain from the form.
 * ``store_upload``: the files go to the platform's own library prefix (``library/<upload>/``,
   never a tenant prefix) and the upload and its account are recorded (platform rows, written only
   without a tenant context, ``library_write`` policy).
@@ -46,7 +52,9 @@ KINDS: dict[str, str] = {
 }
 FORMATS = {"summary": "docx", "evidence": "docx", "people": "xlsx", "jobs": "xlsx", "tech": "xlsx"}
 _INTERNAL = re.compile(r"(^|[/_. -])(internal|operator)[_ -]?only([/_. -]|$)", re.IGNORECASE)
-_DASHES = re.compile("[‒–—―]|\\S\\s+-{1,2}\\s+\\S")
+# the pre-delivery gate's rule (documents/gate.py): typographic dashes only; a spaced hyphen is
+# ordinary punctuation that the platform's own deliverables use
+_DASHES = re.compile("[‒–—―]")
 _RELATIONSHIP = re.compile(r"<Relationship\b[^>]*>", re.IGNORECASE)
 MAX_MEMBERS = 200
 MAX_MEMBER_BYTES = 50 * 1024 * 1024
@@ -117,6 +125,70 @@ def _manifest_name(members: list[tuple[str, bytes]]) -> str | None:
     return None
 
 
+def _file_name(members: list[tuple[str, bytes]]) -> str | None:
+    """The account named by a deliverable's file name: ``Basic_Fit_Account_Summary.docx`` names
+    Basic Fit (the standing names in ``config/output_spec.yaml`` are ``{account}_<deliverable>``).
+    """
+    for member, _ in members:
+        base = member.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        for part in KINDS.values():
+            hit = re.search(r"^(.+?)[_ -]" + part + "$", base, re.IGNORECASE)
+            if hit:
+                stem = re.sub(r"[_-]+", " ", hit.group(1)).strip()
+                if stem:
+                    return stem
+    return None
+
+
+def _secure_rels(rels: bytes) -> bytes:
+    """The same relationships with every plain-http external link target made https."""
+
+    def fix(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        if 'TargetMode="External"' in tag:
+            return tag.replace('Target="http://', 'Target="https://')
+        return tag
+
+    return _RELATIONSHIP.sub(fix, rels.decode("utf-8", "ignore")).encode("utf-8")
+
+
+_DASH_ENTITIES = re.compile(r"&#(?:8210|8211|8212|8213|x201[2-5]);", re.IGNORECASE)
+
+
+def _plain_dashes(xml: bytes) -> bytes:
+    """The same XML text with every typographic dash (a character or its numeric entity) a plain
+    spaced hyphen; markup never holds one, so only text changes."""
+    text = _DASH_ENTITIES.sub(" - ", _DASHES.sub(" - ", xml.decode("utf-8", "ignore")))
+    return re.sub(r" {2,}- {1,}| {1,}- {2,}", " - ", text).encode("utf-8")
+
+
+def client_ready(data: bytes) -> bytes:
+    """The Office file mended as the module docstring says (links secure, dashes plain); a file
+    that needs neither, or that is unreadable, is returned as it is (the check reports the
+    latter)."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as src:
+            infos = src.infolist()
+            bodies = {i.filename: src.read(i) for i in infos}
+    except zipfile.BadZipFile:
+        return data
+    mended: dict[str, bytes] = {}
+    for name, body in bodies.items():
+        if name.endswith(".rels") and b'Target="http://' in body:
+            mended[name] = _secure_rels(body)
+        elif name.endswith(".xml"):
+            text = body.decode("utf-8", "ignore")
+            if _DASHES.search(text) or _DASH_ENTITIES.search(text):
+                mended[name] = _plain_dashes(body)
+    if not mended:
+        return data
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+        for info in infos:
+            dst.writestr(info, mended.get(info.filename, bodies[info.filename]))
+    return out.getvalue()
+
+
 def _plain_link(rels: bytes) -> bool:
     """A hyperlink in the file that is not https (an external relationship target)."""
     for tag in _RELATIONSHIP.findall(rels.decode("utf-8", "ignore")):
@@ -167,9 +239,11 @@ def _narrative(summary: bytes) -> list[str]:
 def inspect_package(filename: str, data: bytes, name: str | None, domain: str) -> Inspected:
     """See the module docstring."""
     members = _members(filename, data)
-    account = (name or _manifest_name(members) or "").strip()[:200]
+    account = (name or _manifest_name(members) or _file_name(members) or "").strip()[:200]
     if not account:
-        raise LibraryError("name the account (the package has no MANIFEST.json name)")
+        raise LibraryError(
+            "name the account (no MANIFEST.json name and no <Account>_Account_Summary file)"
+        )
     out = Inspected(account, domain)
     for member, body in members:
         if _INTERNAL.search(member):
@@ -177,7 +251,7 @@ def inspect_package(filename: str, data: bytes, name: str | None, domain: str) -
             continue
         kind = _kind_of(member)
         if kind is not None and kind not in out.files:
-            out.files[kind] = (member.rsplit("/", 1)[-1], body)
+            out.files[kind] = (member.rsplit("/", 1)[-1], client_ready(body))
     for kind in KINDS:
         if kind not in out.files:
             out.issues.append(f"{kind}:missing")
