@@ -859,3 +859,38 @@ with the reason `pull_not_approved` before any pull (a sense-check follow-up the
 not cover), and G1 demanded recorded queries for Partial. A Partial row now proves itself by its
 reason; Done still needs queries. The 6th.ai runs end with no facts because there is nothing
 public to find about that test account (the earlier Basic-Fit facts came from off-target pages).
+
+## The 6th Library takes a real workspace (2026-10-16, 13:50 UTC)
+
+The owner asked whether the library page (`/operator/library`) works. The page and its list
+route answered, the suites passed, and no upload had ever been made on staging, because the
+check refused every real workspace: the Workday workspace built outside the platform and the
+platform's own 6th export (`6th-files.zip`).
+
+### Why they were refused
+
+* No `MANIFEST.json` name and no typed name: `inspect_package` raised "name the account" while
+  the form called the name optional.
+* `summary:insecure_link`, `evidence:insecure_link`: the Word files link to sec.gov and newsroom
+  pages with `http://` targets.
+* `jobs:banned_dashes`: the library's own rule also flagged a spaced hyphen (which the gate
+  allows), and a quoted posting line held an em dash as an XML numeric entity (`&#8212;`).
+
+### What changed (`replica/library.py`)
+
+* The account name comes from the form, else `MANIFEST.json`, else the deliverables' own file
+  names (`Workday_Account_Summary.docx` names Workday; `Basic_Fit_…` names Basic Fit).
+* The dash rule is the gate's: typographic dashes only.
+* `client_ready(data)` mends what is mechanical and keeps every word before the check: an
+  external `http://` link target becomes `https://` in the `.rels` parts; a typographic dash
+  (character or entity) in any XML part becomes a plain spaced hyphen. A file needing neither is
+  stored byte for byte. Tool names, credits, provider hosts and a missing deliverable still fail.
+* The form's name field says "Optional, read from the file names".
+
+### Checked
+
+The Workday zip (whole workspace, 8.9 MB zipped) and `6th-files.zip`: five deliverables, no
+issues, the mended Summary opens (103 paragraphs) and the Job Postings workbook reopens with both
+sheets. `tests/replica/test_library.py` (the end-to-end library test, now refusing a package with
+a missing deliverable, and a new mend-and-name test), exports policy and single-write-path tests,
+web unit tests (132) and the web type check pass. Deployed as api/web images from 4f79304.
