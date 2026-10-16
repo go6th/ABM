@@ -67,14 +67,25 @@ def coverage_verdict(
 
 # G1b: a pulled page is about the account --------------------------------------------------------
 
-MIN_NAME_CHARS = 4  # a shorter name ("6th") matches too much text to count on its own
+MIN_NAME_CHARS = 4  # a shorter name ("6th") is in too much text: it must appear twice to count
+# rows about the account's environment, whose pages do not name it (competitors, the sector)
+OFF_TARGET_EXEMPT_ROWS = frozenset(
+    {
+        "competitor_moves",
+        "regulatory_quality_events",
+        "financial_position_peers",
+        "research_papers",
+        "events_sponsored",
+    }
+)
 
 
 def on_target(domain: str, account_name: str, url: str, text: str) -> bool:
     """Whether a pulled page is about the account: its URL is on the account's domain, or the
-    page names the domain, or it names the account (a whole word, when the name is long enough
-    to mean something). A page a search returned about another company fails this and is
-    never read for facts."""
+    page names the domain, or it names the account as a whole word (twice when the name is
+    shorter than ``MIN_NAME_CHARS``, since "6th" is in too much text). A page a search returned
+    about another company fails this and is never read for facts; the rows in
+    ``OFF_TARGET_EXEMPT_ROWS`` are not checked (their pages are about other companies by design)."""
     host = (domain or "").strip().lower().removeprefix("www.")
     if not host:
         return True
@@ -83,10 +94,11 @@ def on_target(domain: str, account_name: str, url: str, text: str) -> bool:
     page_host = page_host.lower().removeprefix("www.")
     if page_host == host or page_host.endswith("." + host) or host in body:
         return True
-    name = " ".join((account_name or "").split())
-    if len(name) < MIN_NAME_CHARS:
+    name = " ".join((account_name or "").split()).lower()
+    if not name:
         return False
-    return re.search(r"(?<!\w)" + re.escape(name.lower()) + r"(?!\w)", body) is not None
+    mentions = len(re.findall(r"(?<!\w)" + re.escape(name) + r"(?!\w)", body))
+    return mentions >= (1 if len(name) >= MIN_NAME_CHARS else 2)
 
 
 # G2 ----------------------------------------------------------------------------------------------

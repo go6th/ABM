@@ -80,6 +80,7 @@ async def extract(
     result = ExtractionResult()
     if not inp.payloads:
         return result
+    inp = inp.model_copy(update={"account_name": ctx.account_name, "domain": ctx.domain})
     try:
         out = await call_agent(contract, model, meter, ctx, inp, client_bound=False)
     except OutputRejected as rejected:

@@ -839,3 +839,10 @@ both ended at the final safety checks, not in the graph:
 
 Agent, graph, export, gate, workspace, resume and guard suites: 376 passed; mypy, ruff,
 docstrings, headers, guarantees, loops, import layers, vulture clean.
+
+Same morning, second pass: the first resume after the on-target check ended with no facts
+(`interpret.off_target 599`): a short name ("6th") could only be vouched for by its domain text,
+and pages about the account's environment (competitors, the sector) never name it. Now the
+extractor is told the account (`ExtractionInput.account_name`, `domain`; the pass 1, pass 2 and
+people prompts say a payload about another company yields nothing), a short name counts when it
+appears twice, environment rows are exempt, and the log carries the totals (`count`, `rows`).

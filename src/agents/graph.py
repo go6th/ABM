@@ -51,6 +51,7 @@ from agents.distill.agent import distill
 from agents.errors import BudgetExceeded, GuardViolation, NoPulledData, StalePullsNeedDecision
 from agents.extraction import ExtractionResult, extract, groups
 from agents.guards import (
+    OFF_TARGET_EXEMPT_ROWS,
     consent_decision,
     coverage_verdict,
     facts_digest,
@@ -389,12 +390,18 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         kept = [
             v
             for v in views
-            # the client's own material (internal history) is about the account by construction
-            if v.visibility != "public" or on_target(ctx.domain, ctx.account_name, v.url, v.text)
+            # the client's own material (internal history) is about the account by construction;
+            # environment rows (competitors, the sector) are about other companies by design
+            if v.visibility != "public"
+            or v.row_key in OFF_TARGET_EXEMPT_ROWS
+            or on_target(ctx.domain, ctx.account_name, v.url, v.text)
         ]
         if len(kept) < len(views):
             drops["off_target"] += len(views) - len(kept)
-            _log.info("interpret.off_target", extra={"count": len(views) - len(kept)})
+            _log.info(
+                "interpret.off_target",
+                extra={"count": len(views) - len(kept), "rows": len(views)},
+            )
         views = kept
         try:
             await _extract_steps(ctx, views, consent_ok, drops, candidates, people)

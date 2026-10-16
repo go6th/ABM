@@ -299,11 +299,14 @@ def test_distilled_claims_may_not_restate_grades() -> None:
 def test_a_page_about_another_company_is_not_read() -> None:
     from agents.guards import on_target
 
-    page = "Basic-Fit is led by René Moos as Chief Executive Officer and operates 1,500 clubs."
-    # a short name ("6th") cannot vouch for a page: only the domain can
+    page = "Basic-Fit is led by René Moos as Chief Executive Officer; its 6th club opened in Ghent."
+    # a short name ("6th") is in too much text: one mention cannot vouch for a page, two can
     assert not on_target("6th.ai", "6th", "https://news.example/basic-fit-results", page)
     assert on_target("6th.ai", "6th", "https://www.6th.ai/about", page)
     assert on_target("6th.ai", "6th", "https://news.example/x", "Read more at 6th.ai today.")
+    assert on_target(
+        "6th.ai", "6th", "https://linkedin.example/company/6th", "6th | 6th is an AI firm"
+    )
     # a name long enough to mean something counts as a whole word, any case
     assert on_target("plausible.io", "Plausible", "https://blog.example/a", "PLAUSIBLE raised ARR.")
     assert not on_target(
@@ -311,3 +314,15 @@ def test_a_page_about_another_company_is_not_read() -> None:
     )
     assert on_target("acme.example", "Acme Corp", "https://x.example", "...at Acme Corp since 2020")
     assert on_target("", "Anything", "https://x.example", "no domain known: nothing is refused")
+
+
+def test_environment_rows_are_plan_rows_and_exempt_from_the_target_check() -> None:
+    from agents.config import skill_config
+    from agents.guards import OFF_TARGET_EXEMPT_ROWS
+
+    plan = set(skill_config().plan)
+    assert plan >= OFF_TARGET_EXEMPT_ROWS, OFF_TARGET_EXEMPT_ROWS - plan
+    assert (
+        "company_news" not in OFF_TARGET_EXEMPT_ROWS
+        and "people_by_platform" not in OFF_TARGET_EXEMPT_ROWS
+    )

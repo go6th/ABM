@@ -88,12 +88,16 @@ class PayloadView(_Strict):
 
 
 class ExtractionInput(_Strict):
-    """What one extraction call sees: one step and source group (and lane) of stored payloads."""
+    """What one extraction call sees: one step and source group (and lane) of stored payloads,
+    and which account they are about (a payload a search returned about another company yields
+    nothing; staging 2026-10-16)."""
 
     step: Literal["pass1", "pass2", "people"]
     group: str = Field(pattern=_KEY)
     lane: str | None = None
     payloads: tuple[PayloadView, ...]
+    account_name: str | None = None
+    domain: str | None = None
 
 
 class EvidenceRef(_Strict):
