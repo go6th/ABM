@@ -35,11 +35,16 @@ from spend.gate import RunCapState, decide
 # G1 ----------------------------------------------------------------------------------------------
 
 TERMINAL = frozenset({"done", "partial", "not_done", "blocked", "none"})
-NEEDS_REASON = frozenset({"blocked", "not_done", "partial", "none"})
+NEEDS_REASON = frozenset({"blocked", "not_done", "partial"})
 # Done needs recorded queries. A Partial row needs its reason: a row downgraded before any pull
 # (a follow-up the credit limit did not approve) has a reason and no query, and that is proof
-# of why it is partial (staging 2026-10-16: two such job rows held every file back)
+# of why it is partial (staging 2026-10-16: two such job rows held every file back). A None row
+# is proven either way: by the searches that found nothing (the tracker derives None from
+# successful calls with no results and gives it no reason code) or by a reason (out of scope);
+# staging 2026-10-16, 13:50 UTC: the two job rows of an account with no postings were None with
+# proof calls and no reason, and were judged unproven
 NEEDS_QUERIES = frozenset({"done"})
+EITHER = frozenset({"none"})
 
 
 @dataclass(frozen=True)
@@ -55,14 +60,16 @@ def coverage_verdict(
     required_rows: Iterable[str], rows: Mapping[str, RowOutcome]
 ) -> CoverageVerdict:
     """G1: every row ends Done, Partial, Not done, Blocked or None with proof. Done needs
-    recorded queries; every status other than Done needs a reason."""
+    recorded queries; Partial, Not done and Blocked need a reason; None needs either."""
     missing, unproven = [], []
     for key in sorted(set(required_rows)):
         row = rows.get(key)
         if row is None or row.status not in TERMINAL:
             missing.append(key)
-        elif (row.status in NEEDS_QUERIES and row.queries <= 0) or (
-            row.status in NEEDS_REASON and not row.reason
+        elif (
+            (row.status in NEEDS_QUERIES and row.queries <= 0)
+            or (row.status in NEEDS_REASON and not row.reason)
+            or (row.status in EITHER and row.queries <= 0 and not row.reason)
         ):
             unproven.append(key)
     return CoverageVerdict(not missing and not unproven, tuple(missing), tuple(unproven))
