@@ -40,7 +40,6 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pypdf>=5.0",
     "pyarrow>=17.0",
-    "fastembed==0.8.0",
 ]
 
 [build-system]
@@ -50,7 +49,14 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/parallel", "src/llm", "src/verify", "src/evalgate", "src/obs", "src/tenancy", "src/identity", "src/audit", "src/views", "src/connectors_client", "src/metering", "src/admin", "src/pilot", "src/refresh", "src/signals", "src/alerts", "src/governance", "src/crm_writeback", "src/opendoor", "src/crosscut", "src/datamodel", "src/contracts", "src/quality", "src/privacy", "src/security", "src/unitcost", "src/metrics", "src/registers", "src/agents", "src/documents", "src/research_files", "src/devstore"]
 
+# The passage embedder (documents.embed.FastEmbedder) runs bge-small through onnxruntime. The two
+# runtimes cannot share a virtualenv (both install the ``fastembed`` and ``onnxruntime`` modules),
+# so they are conflicting groups: ``cpu`` is a default group (CI, the api image, local work);
+# the worker image syncs ``--no-group cpu --group gpu`` and embeds on its NVIDIA L4 (Cloud Run
+# mounts the driver, CUDA 13; the ``[cuda,cudnn]`` extras ship the runtime libraries as wheels).
 [dependency-groups]
+cpu = ["fastembed==0.8.0"]
+gpu = ["fastembed-gpu==0.8.0", "onnxruntime-gpu[cuda,cudnn]==1.31.0"]
 dev = [
     "bandit>=1.7",
     "hypothesis>=6.100",
@@ -337,3 +343,7 @@ pytest_add_cli_args_test_selection = [
     "tests/exports/test_workspace.py", "tests/exports/test_mapping_edges.py",
     "tests/exports/test_mutation_kills.py",
 ]
+
+[tool.uv]
+default-groups = ["dev", "cpu"]
+conflicts = [[{ group = "cpu" }, { group = "gpu" }]]

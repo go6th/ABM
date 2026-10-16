@@ -24,6 +24,7 @@ variables {
       gcs_mounts          = { "/mnt/blobs" = "ai-staging-data" }
       secret_files        = { "/etc/redis-ca" = { secret = "redis-server-ca", file = "ca.pem" } }
       sidecars            = { clamd = { image = "r/clamav@sha256:0", cpu = "1", memory = "4Gi", probe_port = 3310 } }
+      gpu                 = { accelerator = "nvidia-l4" }
     }
   }
   public_invoker = ["api"]
@@ -63,6 +64,14 @@ run "worker_shape" {
   assert {
     condition     = google_cloud_run_v2_service.svc["worker"].template[0].execution_environment == "EXECUTION_ENVIRONMENT_GEN2"
     error_message = "gen2 for the Cloud Storage mount"
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.svc["worker"].template[0].node_selector[0].accelerator == "nvidia-l4" && google_cloud_run_v2_service.svc["worker"].template[0].containers[0].resources[0].limits["nvidia.com/gpu"] == "1" && google_cloud_run_v2_service.svc["worker"].template[0].gpu_zonal_redundancy_disabled == true
+    error_message = "the GPU goes on the worker container alone, without zonal redundancy"
+  }
+  assert {
+    condition     = !contains(keys(google_cloud_run_v2_service.svc["worker"].template[0].containers[1].resources[0].limits), "nvidia.com/gpu") && length(google_cloud_run_v2_service.svc["api"].template[0].node_selector) == 0
+    error_message = "no GPU on the sidecar or on a service that did not ask for one"
   }
   assert {
     condition     = alltrue([for v in google_cloud_run_v2_service.svc["worker"].template[0].volumes : v.gcs[0].read_only if length(v.gcs) > 0])

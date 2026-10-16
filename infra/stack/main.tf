@@ -151,6 +151,11 @@ variable "scaling" {
   })
   description = "Cloud Run instance bounds per service (max x pool size feeds the database arithmetic)."
 }
+variable "worker_gpu" {
+  type        = string
+  description = "GPU on the worker instance (\"nvidia-l4\") or \"\" for none: document indexing embeds passages on it (bge-small through onnxruntime CUDA) instead of the vCPUs."
+  default     = ""
+}
 variable "archive_lock" {
   type        = bool
   description = "Lock the audit archive's 7-year retention policy (irreversible)."
@@ -198,10 +203,13 @@ locals {
   size = {
     api = { cpu = "1", memory = "2Gi", concurrency = 40, timeout = "300s" } # 2Gi: Ask loads the retrieval model in process (OOM at 1Gi, 2026-10-15)
     web = { cpu = "1", memory = "512Mi", concurrency = 40, timeout = "300s" }
-    # 8 vCPU: document indexing embeds on the worker's own CPU (one thread per vCPU, measured at
-    # about 10 passages a second on 4 threads, 2026-10-16); the worker scales to zero, so the
-    # larger instance costs only while a run or an indexing part is active
-    worker = { cpu = "8", memory = "16Gi", concurrency = 4, timeout = "3600s" }
+    # 6 vCPU: an instance holds 8 at most across its containers, a container gets 1, 2, 4, 6 or 8,
+    # and the clamd sidecar takes one (Cloud Run refused 8 + 1 and 7 + 1 on 2026-10-16). Document
+    # indexing embeds passages on the GPU when
+    # worker_gpu is set (Cloud Run asks for at least 4 vCPU and 16 GiB next to an L4) and on the
+    # vCPUs otherwise (one thread each; about 10 passages a second on 4 threads). The worker
+    # scales to zero, so the larger instance costs only while a run or an indexing part is active.
+    worker = { cpu = "6", memory = "16Gi", concurrency = 4, timeout = "3600s" }
   }
   # database pool per process the arithmetic assumes (Agent 4 sets the code side; handoff)
   pool = { size = 5, overflow = 5 }
@@ -564,6 +572,7 @@ module "cloud_run" {
       # CPU stays on between requests: the orphan and stall sweeper runs in the background
       cpu_idle            = false
       gen2                = true
+      gpu                 = var.worker_gpu != "" ? { accelerator = var.worker_gpu } : null
       timeout             = local.size.worker.timeout
       startup_probe_path  = "/readyz"
       liveness_probe_path = "/healthz"

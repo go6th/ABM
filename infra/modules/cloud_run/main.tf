@@ -48,6 +48,11 @@ variable "services" {
     startup_probe_path  = string
     liveness_probe_path = string
     audiences           = list(string)
+    # one GPU on the main container: { accelerator = "nvidia-l4" }; the sidecars stay on CPU.
+    # Cloud Run asks for at least 4 vCPU and 16 GiB with an L4, CPU always allocated (cpu_idle
+    # false) and a max_instances within the project's regional GPU quota. Zonal redundancy is
+    # off (best-effort failover at about two thirds of the GPU price): the worker scales to zero.
+    gpu = optional(object({ accelerator = string }))
     # mount path -> bucket, read only (Cloud Storage FUSE; needs gen2)
     gcs_mounts = optional(map(string), {})
     # mount directory -> { secret id, file name } (the latest version as a file)
@@ -90,6 +95,13 @@ resource "google_cloud_run_v2_service" "svc" {
     max_instance_request_concurrency = each.value.concurrency
     execution_environment            = each.value.gen2 ? "EXECUTION_ENVIRONMENT_GEN2" : "EXECUTION_ENVIRONMENT_GEN1"
     labels                           = merge(var.labels, { service = each.key })
+    gpu_zonal_redundancy_disabled    = each.value.gpu != null ? true : null
+    dynamic "node_selector" {
+      for_each = each.value.gpu != null ? [each.value.gpu] : []
+      content {
+        accelerator = node_selector.value.accelerator
+      }
+    }
     scaling {
       min_instance_count = each.value.min_instances
       max_instance_count = each.value.max_instances
@@ -133,10 +145,10 @@ resource "google_cloud_run_v2_service" "svc" {
         container_port = each.value.port
       }
       resources {
-        limits = {
+        limits = merge({
           cpu    = each.value.cpu
           memory = each.value.memory
-        }
+        }, each.value.gpu != null ? { "nvidia.com/gpu" = "1" } : {})
         cpu_idle          = each.value.cpu_idle
         startup_cpu_boost = true
       }

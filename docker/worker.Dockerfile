@@ -9,14 +9,20 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PIP_NO_CACHE_DIR=1 UV_HTTP_TIMEOUT=3
 COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /uvx /bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# The GPU embedder runtime (fastembed-gpu, onnxruntime-gpu with the CUDA 13 and cuDNN 9 wheels)
+# in place of the CPU one: Cloud Run attaches an NVIDIA L4 to the worker and mounts its driver
+# (2026-10-16). The api image keeps the cpu group. ``uv.lock`` records both; they conflict.
+RUN uv sync --frozen --no-dev --no-group cpu --group gpu --no-install-project
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-editable
+RUN uv sync --frozen --no-dev --no-group cpu --group gpu --no-editable
 # The document retrieval model (bge-small-en-v1.5, ONNX, about 130 MB), downloaded once at build
-# time so the running service never fetches anything (owner decision 2026-10-15).
+# time so the running service never fetches anything (owner decision 2026-10-15). The build host
+# has no GPU, so the download opens the model on the CPU provider; the runtime check only proves
+# the CUDA provider is compiled in and its libraries resolve.
 RUN FASTEMBED_CACHE_PATH=/app/models /app/.venv/bin/python -c \
-    "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/app/models')" \
- && chmod -R a+rX /app/models
+    "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/app/models', cuda=False)" \
+ && chmod -R a+rX /app/models \
+ && /app/.venv/bin/python -c "import onnxruntime as o; assert 'CUDAExecutionProvider' in o.get_available_providers(), o.get_available_providers()"
 
 FROM python:3.12-slim AS runtime
 # Current Debian security updates on top of the base image (the Trivy gate fails on fixable HIGH).
@@ -29,5 +35,8 @@ COPY --from=build /app/.venv /app/.venv
 COPY --from=build /app/models /app/models
 COPY config ./config
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 CONFIG_DIR=/app/config FASTEMBED_CACHE_PATH=/app/models HF_HUB_OFFLINE=1 SERVICE_ROLE=job
+# onnxruntime finds the CUDA and cuDNN libraries that came as wheels through the loader path;
+# Cloud Run appends the driver's own directory (/usr/local/nvidia/lib64) to it at run time
+ENV LD_LIBRARY_PATH=/app/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:/app/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib
 USER 10001
 ENTRYPOINT ["python", "-m", "account_intelligence.worker"]

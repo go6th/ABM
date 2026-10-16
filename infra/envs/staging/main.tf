@@ -53,6 +53,11 @@ variable "scaling" {
   })
   default = { api = { min = 0, max = 3 }, web = { min = 0, max = 3 }, worker = { min = 0, max = 2 } }
 }
+variable "worker_gpu" {
+  type        = string
+  description = "GPU on the worker (\"nvidia-l4\") or \"\" for none; scaling.worker.max must stay within the project's regional GPU quota (3 L4 by default)."
+  default     = ""
+}
 variable "llm_access" {
   type = string
 }
@@ -128,6 +133,7 @@ module "stack" {
   db_max_connections      = var.db_max_connections
   redis_tier              = var.redis_tier
   scaling                 = var.scaling
+  worker_gpu              = var.worker_gpu
   llm_access              = var.llm_access
   moonshot_enabled        = var.moonshot_enabled
   moonshot_api            = var.moonshot_api
