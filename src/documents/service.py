@@ -804,6 +804,7 @@ class DocumentService:
                 return "indexing"
         async with self.txn(tenant_id) as s:
             await repo.set_status(s, row.id, "indexed")
+        await self._import_deliverables(tenant_id, row)
         _log.info(
             "documents.indexed",
             extra={
@@ -815,6 +816,32 @@ class DocumentService:
             },
         )
         return "indexed"
+
+    async def _import_deliverables(self, tenant_id: UUID, row: Any) -> None:
+        """The rows of an uploaded deliverable workbook as job postings, people and technologies
+        of the account (``documents.deliverables``); a failure is logged and never stops
+        indexing (the passages are indexed either way)."""
+        from documents.deliverables import import_document
+
+        try:
+            counts = await import_document(self.txn, tenant_id, row, now=self.clock.now())
+        except Exception as error:  # noqa: BLE001 - the import never fails the document
+            _log.warning(
+                "documents.import_failed",
+                extra={"tenant_id": str(tenant_id), "error_class": type(error).__name__},
+            )
+            return
+        written = sum(v for k, v in counts.items() if k.endswith("_written"))
+        if counts:
+            _log.info(
+                "documents.imported",
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "account_id": str(row.account_id),
+                    "count": written,
+                    "rows": sum(v for k, v in counts.items() if k.endswith("_rows")),
+                },
+            )
 
     async def _meter(self, tenant_id: UUID, document_id: UUID, texts: list[str]) -> None:
         """Every embedding batch is logged with its model and cost (the file model call log)."""

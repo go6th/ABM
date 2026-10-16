@@ -42,7 +42,7 @@ meets them:
 | Package | What it is | Used by |
 | --- | --- | --- |
 | `exports/` | The standing file set from one snapshot: Word (summary, sources and evidence), Excel (people, jobs, tech and teams), the workspace zip; rules from `config/export_rules.yaml`, theme from `config/export_theme.yaml`; the safety gate. | graph `build` step, downloads, views |
-| `documents/` | Uploaded documents as research input: upload sessions, quarantine, parsing in a sandbox, redaction, chunking, embedding, indexing, the file research graph. | api `documents` routes, worker task `document-process` |
+| `documents/` | Uploaded documents as research input: upload sessions, quarantine, parsing in a sandbox, redaction, chunking, embedding, indexing, the file research graph, and `deliverables.py` (an uploaded Job Postings, People List or Tech Stack workbook becomes the account's job postings, people and technologies). | api `documents` routes, worker task `document-process` |
 | `research_files/` | The parsers, blob store and limits the documents pipeline uses (`config/research_files.yaml`). | `documents/` |
 | `devstore/` | The development object store (resumable uploads on a directory). Dev and test only; the cloud uses GCS. | compose.replica.yml `objectstore` |
 | `jobs/` | Job postings pipeline: classify, dedupe, gap passes, counts. | agents, exports, people |

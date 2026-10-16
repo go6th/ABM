@@ -760,3 +760,39 @@ the queues, the scheduler and the build log were read before anything was change
   docstrings 100%, headers, guarantees (434), loops, vulture, bandit: clean. Web typecheck,
   lint and 132 unit tests: clean (the typecheck needed the stale `.next/types` of an old build
   removed).
+
+## Uploaded workbooks show as job postings, people and technologies (2026-10-16, later)
+
+Owner: "when I push something like McKesson, the data is stored but not shown in the UI: how
+many job postings, from which sources." Evidence: the uploaded workspace zip holds the skill's
+standing workbooks (Job Postings, People List, Tech Stack and Teams); the file pipeline indexed
+their rows for Ask and read them for "fit" facts only (`file.*`, private), which the deep-dive
+rail never counted, so an account with 1,000 imported postings showed 0.
+
+### Built
+
+* `documents/deliverables.py`: when indexing finishes, the row passages of a document bound to
+  an account are read once more, without a model. A sheet is recognised by its header row, by
+  column names (Jobs, People) or, for a sheet that opens with a title block (the Tech Stack
+  workbook), by the first row whose values are a header; the sheet's title is learned as the
+  first column's name. Each data row becomes a private Internal fact keyed as the graph keys its
+  own findings (`jobs.job_postings_read_classified.<requisition-title>`,
+  `people.full_profiles_senior_people.<name>`, `tech.technology_detections.<function-technology>`,
+  teams under tech), citing the file and the row, with the row's columns kept in `value_json`
+  (lanes, location, posted, status, priority, LinkedIn link, rank, postings count). A work
+  email, phone or address column is never stored. Idempotent per document and row; the facts
+  hang off one `file_import` run per document (`lifecycle.record_file_import_run`), made only
+  when a row was recognised, so a plain PDF leaves the account as it was.
+* Workspace and sheets: the deep-dive counts and the People, Job postings and Tech stack sheets
+  count and list the client's own imported rows (`FACT_CLASS` admits `from_uploaded_file`
+  facts) with their structured columns; the Sources count and sheet list the uploaded files
+  those facts cite ("File", "Uploaded by you").
+* `record_document_fact` takes the structured ``fields``.
+
+### Checked
+
+`tests/documents/test_deliverables_import.py` (the three workbooks end to end: counts 2 jobs, 2
+people, 2 files, 4 technologies; sheet columns; private Internal grade; the row cited; no email
+stored; idempotent; title-block header found; header matching exact before prefix). Document,
+workspace, sheet, file-run, grading and guard suites: 287 passed. ruff, mypy, docstrings,
+headers, guarantees (436), loops, vulture clean; bandit unchanged from the committed tree.

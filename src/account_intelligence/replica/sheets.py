@@ -114,8 +114,11 @@ SHEETS: dict[str, Sheet] = {
             + _fact_rows(
                 "people",
                 "coalesce(f.value_text, f.value_json->>'text') AS name,"
-                " replace(split_part(f.attribute_key, '.', 3), '_', ' ') AS title, '' AS area,"
-                " '' AS priority, f.product_grade AS grade, f.created_at AS seen, e.url AS link,"
+                " coalesce(nullif(f.value_json->>'title', ''),"
+                "   replace(split_part(f.attribute_key, '.', 3), '_', ' ')) AS title,"
+                " coalesce(f.value_json->>'lane', '') AS area,"
+                " coalesce(f.value_json->>'priority', '') AS priority, f.product_grade AS grade,"
+                " f.created_at AS seen, coalesce(e.url, f.value_json->>'link') AS link,"
                 " false AS later_run",
             )
         ),
@@ -187,9 +190,14 @@ SHEETS: dict[str, Sheet] = {
             " UNION ALL "
             + _fact_rows(
                 "jobs",
-                "coalesce(f.value_text, f.value_json->>'text') AS title, '' AS lanes,"
-                " '' AS location, coalesce(CAST(e.evidence_date AS timestamptz), f.created_at)"
-                " AS posted, 'Found' AS status, e.url AS link",
+                "coalesce(f.value_text, f.value_json->>'text') AS title,"
+                " coalesce(f.value_json->>'lanes', '') AS lanes,"
+                " coalesce(f.value_json->>'location', '') AS location,"
+                " coalesce(CASE WHEN f.value_json->>'posted' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'"
+                "   THEN CAST(left(f.value_json->>'posted', 10) AS timestamptz) END,"
+                "   CAST(e.evidence_date AS timestamptz), f.created_at) AS posted,"
+                " coalesce(nullif(f.value_json->>'status', ''), 'Found') AS status,"
+                " coalesce(e.url, f.value_json->>'url') AS link",
             )
         ),
         cols=(
@@ -229,9 +237,13 @@ SHEETS: dict[str, Sheet] = {
             + _fact_rows(
                 "tech",
                 "coalesce(f.value_text, f.value_json->>'text') AS technology,"
-                " (SELECT count(*) FROM fact_evidence x WHERE x.fact_id = f.id) AS sources,"
-                " '' AS check, coalesce(CAST(e.evidence_date AS text), '') AS first_seen,"
-                " coalesce(CAST(e.evidence_date AS text), '') AS last_seen, e.url AS link",
+                " coalesce(CASE WHEN f.value_json->>'sources' ~ '^[0-9]+$'"
+                "   THEN CAST(f.value_json->>'sources' AS int) END,"
+                "   (SELECT count(*) FROM fact_evidence x WHERE x.fact_id = f.id)) AS sources,"
+                " coalesce(f.value_json->>'rank', '') AS check,"
+                " coalesce(CAST(e.evidence_date AS text), '') AS first_seen,"
+                " coalesce(f.value_json->>'last_seen', CAST(e.evidence_date AS text), '')"
+                " AS last_seen, e.url AS link",
             )
         ),
         cols=(
@@ -334,6 +346,13 @@ SHEETS: dict[str, Sheet] = {
             " AND t.response->'args'->>'url' IS NOT NULL"
             " AND NOT EXISTS (SELECT 1 FROM sources x WHERE x.account_id = :a"
             "   AND x.url = t.response->'args'->>'url')"
+            # the client's own uploaded files that facts cite (documents.deliverables)
+            " UNION ALL"
+            " SELECT d.id::text AS _id, 'File' AS code, d.name AS title,"
+            " 'Uploaded by you' AS publisher, d.created_at AS published, NULL::text AS link,"
+            " false AS ungraded, true AS cited FROM documents d WHERE d.account_id = :a"
+            " AND EXISTS (SELECT 1 FROM fact_evidence e JOIN facts f ON f.id = e.fact_id"
+            "   WHERE e.document_id = d.id AND f.account_id = :a AND f.status = 'current')"
         ),
         cols=(
             Col("code", "Code", "s.code"),

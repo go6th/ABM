@@ -141,7 +141,10 @@ browser ──resumable upload──▶ object storage directly   web/lib/upload
 POST /v1/documents/*                                    api/routes/documents.py → documents/service.py
   → quarantine scan (clamd sidecar)      → Cloud Tasks queue "documents"
   → worker POST /tasks/document-process  → parse in a sandbox (research_files/parsers), redact,
-                                           chunk, embed (fastembed), index for Ask and file research
+                                           chunk, embed (fastembed) in ten-minute slices, index for
+                                           Ask and file research; a Job Postings, People List or Tech
+                                           Stack workbook also becomes the account's rows
+                                           (documents/deliverables.py: the deep-dive counts and sheets)
 ```
 
 ### Scheduled and background work (Cloud Scheduler → worker)

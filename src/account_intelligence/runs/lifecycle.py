@@ -335,6 +335,43 @@ async def record_library_run(
     return UUID(str(run_id))
 
 
+async def record_file_import_run(
+    session: AsyncSession, tenant_id: UUID, account_id: UUID, document_id: UUID, *, now: datetime
+) -> UUID:
+    """The run an uploaded deliverable workbook's rows hang off (``documents.deliverables``,
+    2026-10-16): finished the moment it is made, no credits, no call, one per document (a
+    second import of the same document reuses it)."""
+    key = f"file-import-{document_id}"
+    existing: Any = (
+        await session.execute(
+            text("SELECT id FROM account_runs WHERE account_id = :a AND idempotency_key = :k"),
+            {"a": account_id, "k": key},
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return UUID(str(existing))
+    run_id: Any = (
+        await session.execute(
+            text(
+                "INSERT INTO account_runs (tenant_id, account_id, status, grading_config_hash,"
+                " created_at, finished_at, finished_reason, input_mode, run_mode, cap_required,"
+                " graph_version, budget_json, reserved_credits, idempotency_key, run_input)"
+                " VALUES (:t, :a, 'COMPLETED', :g, :now, :now, 'file_import', 'file', 'full',"
+                " false, 'file-import', '{}', 0, :k, CAST(:inp AS jsonb)) RETURNING id"
+            ),
+            {
+                "t": tenant_id,
+                "a": account_id,
+                "g": "0" * 64,
+                "now": now,
+                "k": key,
+                "inp": json.dumps({"document_id": str(document_id), "mode": "file_import"}),
+            },
+        )
+    ).scalar_one()
+    return UUID(str(run_id))
+
+
 async def mark_library_account(
     session: AsyncSession, account_id: UUID, library_account_id: UUID
 ) -> None:

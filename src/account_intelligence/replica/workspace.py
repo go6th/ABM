@@ -312,7 +312,11 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 "   JOIN account_runs r ON r.id = t.run_id WHERE r.account_id = :a"
                 "   AND t.tool IN ('p_search:read_page', 'p_scrape:scrape_job_page')"
                 "   AND t.response->'args'->>'url' IS NOT NULL AND NOT EXISTS (SELECT 1 FROM"
-                "   sources x WHERE x.account_id = :a AND x.url = t.response->'args'->>'url')))"
+                "   sources x WHERE x.account_id = :a AND x.url = t.response->'args'->>'url'))"
+                # the client's uploaded files that facts cite (documents.deliverables)
+                "  + (SELECT count(*) FROM documents d WHERE d.account_id = :a AND EXISTS ("
+                "   SELECT 1 FROM fact_evidence e JOIN facts f ON f.id = e.fact_id"
+                "   WHERE e.document_id = d.id AND f.account_id = :a AND f.status = 'current')))"
                 " AS sources,"
                 " (SELECT count(*) FROM tool_calls t JOIN account_runs r ON r.id = t.run_id"
                 "   WHERE r.account_id = :a AND t.tool = 'p_search:web_search') AS searches,"
@@ -391,7 +395,12 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
 # (it does not fill the people, job_postings and tech_detections tables of the older workflow),
 # so each deep-dive category also counts and lists the public facts of its class (audit
 # 2026-10-15: every category showed 0 after a finished research).
-_FACT_PUBLIC = "f.account_id = :a AND f.status = 'current' AND f.visibility = 'public'"
+# public facts, and the client's own rows imported from an uploaded deliverable workbook
+# (private, Internal; documents.deliverables, 2026-10-16): the client sees its own material
+_FACT_PUBLIC = (
+    "f.account_id = :a AND f.status = 'current' AND (f.visibility = 'public'"
+    " OR f.flags @> CAST('[\"from_uploaded_file\"]' AS jsonb))"
+)
 FACT_CLASS = {
     "people": f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'people.%'",
     "jobs": f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'jobs.%'",

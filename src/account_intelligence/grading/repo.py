@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from functools import partial
@@ -373,6 +373,7 @@ async def record_document_fact(
     authoritative: bool,
     flags: Sequence[str],
     config_hash: str,
+    fields: Mapping[str, Any] | None = None,
 ) -> tuple[UUID, bool]:
     """A fact read in an uploaded document, in the caller's transaction (two-output rule).
 
@@ -380,7 +381,9 @@ async def record_document_fact(
     authoritative (rule 4: nothing is Confirmed from a file alone otherwise), and even then it
     stays private: file-derived facts never reach a client file. The one evidence row cites the
     document and the passage location (``evidence_kind = 'document'``). Idempotent per run and
-    content (``write_key``)."""
+    content (``write_key``). ``fields`` are the structured columns of a deliverable row
+    (``documents.deliverables``: lanes, location, status, priority...), kept in ``value_json``
+    for the deep-dive sheets."""
     grade = "confirmed" if authoritative else "internal"
     normalised = " ".join(value.lower().split())
     key = hashlib.sha256(
@@ -408,7 +411,9 @@ async def record_document_fact(
             {
                 "account": run.account_id,
                 "key": attribute_key,
-                "vj": json.dumps({"value": value, "normalised": normalised}),
+                "vj": json.dumps(
+                    {**dict(fields or {}), "value": value, "normalised": normalised}, default=str
+                ),
                 "fp": fingerprint(run.account_id, attribute_key, normalised),
                 "pg": grade,
                 "prim": authoritative,
