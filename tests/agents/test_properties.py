@@ -63,7 +63,7 @@ def test_coverage_is_deliverable_exactly_when_every_row_is_proven(rows, required
         o = outcomes.get(key)
         if o is None or o.status not in ("done", "partial", "not_done", "blocked", "none"):
             return False
-        if o.status in ("done", "partial") and o.queries <= 0:
+        if o.status == "done" and o.queries <= 0:  # a Partial row proves itself by its reason
             return False
         return not (o.status != "done" and not o.reason)
 
