@@ -894,3 +894,11 @@ issues, the mended Summary opens (103 paragraphs) and the Job Postings workbook 
 sheets. `tests/replica/test_library.py` (the end-to-end library test, now refusing a package with
 a missing deliverable, and a new mend-and-name test), exports policy and single-write-path tests,
 web unit tests (132) and the web type check pass. Deployed as api/web images from 4f79304.
+
+Fifth pass (13:50 UTC run on plausible.io, the first after the fourth pass was deployed): the
+files were built and every row reported, and the verdict still named the two job rows. The
+account has no postings in twelve months, so the tracker derived None for both (successful calls,
+no results), a status it gives no reason code, and G1 demanded a reason for every status but
+Done. G1 now reads: Done needs queries; Partial, Not done and Blocked need a reason; None needs
+either (the searches that found nothing, or a reason such as out of scope). Agents and resume
+suites: 255 passed. Deployed as the worker and api images from d0288e1.
