@@ -43,6 +43,8 @@ def test_g1_every_row_needs_a_terminal_status_with_proof() -> None:
         "c": RowOutcome("none", "searched_nothing_found", 3),
         "d": RowOutcome("partial", "pull_not_approved", 2),
         "e": RowOutcome("not_done", "no_calls", 0),
+        # a follow-up the credit limit did not approve: partial before any pull, with its reason
+        "f": RowOutcome("partial", "pull_not_approved", 0),
     }
     assert coverage_verdict(rows, rows).deliverable
 
@@ -55,7 +57,7 @@ def test_g1_every_row_needs_a_terminal_status_with_proof() -> None:
         (RowOutcome("in_progress", None, 1), "missing"),
         (RowOutcome("done", None, 0), "unproven"),  # Done without queries
         (RowOutcome("blocked", None, 0), "unproven"),  # Blocked without a reason
-        (RowOutcome("partial", "x", 0), "unproven"),  # Partial without queries
+        (RowOutcome("partial", None, 0), "unproven"),  # Partial without a reason
         (RowOutcome("none", None, 1), "unproven"),
     ],
 )

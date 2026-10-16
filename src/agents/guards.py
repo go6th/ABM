@@ -36,7 +36,10 @@ from spend.gate import RunCapState, decide
 
 TERMINAL = frozenset({"done", "partial", "not_done", "blocked", "none"})
 NEEDS_REASON = frozenset({"blocked", "not_done", "partial", "none"})
-NEEDS_QUERIES = frozenset({"done", "partial"})
+# Done needs recorded queries. A Partial row needs its reason: a row downgraded before any pull
+# (a follow-up the credit limit did not approve) has a reason and no query, and that is proof
+# of why it is partial (staging 2026-10-16: two such job rows held every file back)
+NEEDS_QUERIES = frozenset({"done"})
 
 
 @dataclass(frozen=True)
@@ -51,8 +54,8 @@ class CoverageVerdict:
 def coverage_verdict(
     required_rows: Iterable[str], rows: Mapping[str, RowOutcome]
 ) -> CoverageVerdict:
-    """G1: every row ends Done, Partial, Not done, Blocked or None with proof. Done and Partial
-    need recorded queries; every status other than Done needs a reason."""
+    """G1: every row ends Done, Partial, Not done, Blocked or None with proof. Done needs
+    recorded queries; every status other than Done needs a reason."""
     missing, unproven = [], []
     for key in sorted(set(required_rows)):
         row = rows.get(key)

@@ -852,3 +852,10 @@ Third pass: the plausible resume built its files (no leak) and the gate's own ch
 "missing" to the coverage verdict, which held every file back. The gate now ends every
 unreported row Not done "not available yet" before the verdict (G1: every row with a status and
 proof), counts them (`rows_closed_at_gate`) and logs the stuck row keys.
+
+Fourth pass (10:05 UTC run on plausible.io): the gate's checks passed and every row was
+reported, yet the coverage verdict named two job rows "unproven": they had been marked Partial
+with the reason `pull_not_approved` before any pull (a sense-check follow-up the credit limit did
+not cover), and G1 demanded recorded queries for Partial. A Partial row now proves itself by its
+reason; Done still needs queries. The 6th.ai runs end with no facts because there is nothing
+public to find about that test account (the earlier Basic-Fit facts came from off-target pages).
