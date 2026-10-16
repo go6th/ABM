@@ -126,9 +126,9 @@ class FastEmbedder:
 
             from fastembed import TextEmbedding
 
-            # one thread per core up to four (the worker has four; audit 2026-10-16: two threads
-            # indexed a 37,000-passage file at half the speed the instance could give)
-            threads = max(1, min(os.cpu_count() or 2, 4))
+            # one thread per core up to eight (the worker has eight since 2026-10-16; before, two
+            # threads indexed a 37,000-passage file at half the speed the instance could give)
+            threads = max(1, min(os.cpu_count() or 2, 8))
             self._engine = TextEmbedding(self.model_name, cache_dir=self.cache_dir, threads=threads)
         return self._engine
 

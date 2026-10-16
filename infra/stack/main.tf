@@ -196,9 +196,12 @@ locals {
   # Per-instance shape (docs/deploy/ARCHITECTURE.md). The worker serves run slices (240 s each),
   # document parts (sandbox children of up to 1536 MiB, 1800 s) and short job tasks.
   size = {
-    api    = { cpu = "1", memory = "2Gi", concurrency = 40, timeout = "300s" } # 2Gi: Ask loads the retrieval model in process (OOM at 1Gi, 2026-10-15)
-    web    = { cpu = "1", memory = "512Mi", concurrency = 40, timeout = "300s" }
-    worker = { cpu = "4", memory = "8Gi", concurrency = 4, timeout = "3600s" }
+    api = { cpu = "1", memory = "2Gi", concurrency = 40, timeout = "300s" } # 2Gi: Ask loads the retrieval model in process (OOM at 1Gi, 2026-10-15)
+    web = { cpu = "1", memory = "512Mi", concurrency = 40, timeout = "300s" }
+    # 8 vCPU: document indexing embeds on the worker's own CPU (one thread per vCPU, measured at
+    # about 10 passages a second on 4 threads, 2026-10-16); the worker scales to zero, so the
+    # larger instance costs only while a run or an indexing part is active
+    worker = { cpu = "8", memory = "16Gi", concurrency = 4, timeout = "3600s" }
   }
   # database pool per process the arithmetic assumes (Agent 4 sets the code side; handoff)
   pool = { size = 5, overflow = 5 }
