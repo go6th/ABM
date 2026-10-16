@@ -56,6 +56,7 @@ from agents.guards import (
     facts_digest,
     internal_history_allowed,
     lead_check,
+    on_target,
     require_sense_check,
     spend_route,
 )
@@ -383,6 +384,18 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         drops: Counter[str] = Counter()
         candidates: list[GradingCandidate] = []
         people: list[Any] = []
+        # a page that is not about the account is never read for facts (staging 2026-10-16: a
+        # run on one company summarised another whose page a search had returned)
+        kept = [
+            v
+            for v in views
+            # the client's own material (internal history) is about the account by construction
+            if v.visibility != "public" or on_target(ctx.domain, ctx.account_name, v.url, v.text)
+        ]
+        if len(kept) < len(views):
+            drops["off_target"] += len(views) - len(kept)
+            _log.info("interpret.off_target", extra={"count": len(views) - len(kept)})
+        views = kept
         try:
             await _extract_steps(ctx, views, consent_ok, drops, candidates, people)
         except Exception:
@@ -716,6 +729,17 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         failing = await deps.gate.check(ctx)
         verdict = coverage_verdict(cfg.plan, await deps.tracker.rows(ctx))
         if failing or not verdict.deliverable:
+            # which checks held the files back (the account card reads the stored verdict; the
+            # log said only "gate_failed" before 2026-10-16)
+            names = sorted(failing) + (["coverage_verdict"] if not verdict.deliverable else [])
+            _log.warning(
+                "gate.failed",
+                extra={
+                    "error_code": ",".join(names)[:200],
+                    "count": sum(len(v) for v in failing.values()),
+                    "rows": len(verdict.missing) + len(verdict.unproven),
+                },
+            )
             return {
                 "outcome": "partial",
                 "error_code": "gate_failed",

@@ -294,3 +294,20 @@ def test_distilled_claims_may_not_restate_grades() -> None:
     assert not restates_grade("The CEO spoke on the Probable Cause podcast.")
     assert restates_grade("The migration is Confirmed.")
     assert not restates_grade("Confirmed revenue grew 12 percent.")
+
+
+def test_a_page_about_another_company_is_not_read() -> None:
+    from agents.guards import on_target
+
+    page = "Basic-Fit is led by René Moos as Chief Executive Officer and operates 1,500 clubs."
+    # a short name ("6th") cannot vouch for a page: only the domain can
+    assert not on_target("6th.ai", "6th", "https://news.example/basic-fit-results", page)
+    assert on_target("6th.ai", "6th", "https://www.6th.ai/about", page)
+    assert on_target("6th.ai", "6th", "https://news.example/x", "Read more at 6th.ai today.")
+    # a name long enough to mean something counts as a whole word, any case
+    assert on_target("plausible.io", "Plausible", "https://blog.example/a", "PLAUSIBLE raised ARR.")
+    assert not on_target(
+        "plausible.io", "Plausible", "https://blog.example/a", "implausible claims"
+    )
+    assert on_target("acme.example", "Acme Corp", "https://x.example", "...at Acme Corp since 2020")
+    assert on_target("", "Anything", "https://x.example", "no domain known: nothing is refused")

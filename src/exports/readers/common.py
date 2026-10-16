@@ -27,6 +27,7 @@ from exports.policy import (
     guarded_names,
     leak_hits,
     quote_withheld,
+    restricted_terms,
     sanitise,
 )
 
@@ -63,12 +64,9 @@ class MapContext:
 
     def __post_init__(self) -> None:
         self.index = SourceIndex(self.content.sources)
-        self.restricted: tuple[str, ...] = tuple(
-            sorted(
-                {t for t in self.content.forbidden_terms if t.strip()}
-                | set(guarded_names(self.content.people_names)),
-                key=lambda t: (t.casefold(), t),
-            )
+        self.restricted: tuple[str, ...] = restricted_terms(
+            [*self.content.forbidden_terms, *guarded_names(self.content.people_names)],
+            self.rules.attribution.name,
         )
 
     @property

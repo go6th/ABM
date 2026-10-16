@@ -24,6 +24,7 @@ import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlparse
 
 from agents.errors import GuardViolation
 from agents.manifest import QueryRecord
@@ -62,6 +63,30 @@ def coverage_verdict(
         ):
             unproven.append(key)
     return CoverageVerdict(not missing and not unproven, tuple(missing), tuple(unproven))
+
+
+# G1b: a pulled page is about the account --------------------------------------------------------
+
+MIN_NAME_CHARS = 4  # a shorter name ("6th") matches too much text to count on its own
+
+
+def on_target(domain: str, account_name: str, url: str, text: str) -> bool:
+    """Whether a pulled page is about the account: its URL is on the account's domain, or the
+    page names the domain, or it names the account (a whole word, when the name is long enough
+    to mean something). A page a search returned about another company fails this and is
+    never read for facts."""
+    host = (domain or "").strip().lower().removeprefix("www.")
+    if not host:
+        return True
+    body = (text or "").lower()
+    page_host = urlparse(url if "://" in (url or "") else f"https://{url or ''}").hostname or ""
+    page_host = page_host.lower().removeprefix("www.")
+    if page_host == host or page_host.endswith("." + host) or host in body:
+        return True
+    name = " ".join((account_name or "").split())
+    if len(name) < MIN_NAME_CHARS:
+        return False
+    return re.search(r"(?<!\w)" + re.escape(name.lower()) + r"(?!\w)", body) is not None
 
 
 # G2 ----------------------------------------------------------------------------------------------

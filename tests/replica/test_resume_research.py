@@ -192,3 +192,49 @@ def test_every_stop_reason_is_said_in_words() -> None:
     )
     assert stop_text("something_new") == "It stopped before finishing (reason: something new)."
     assert "usage limit" in stop_text("model_credits_exhausted")
+
+
+def test_the_quality_checks_reasons_are_said_in_words() -> None:
+    from account_intelligence.replica.workspace import GATE_CHECK_TEXT, gate_text, stop_text
+
+    defects = [
+        {"check": "fact_citations", "item": "f1:no_citation"},
+        {"check": "fact_citations", "item": "f2:no_citation"},
+        {"check": "client_dashes", "item": "summary:1"},
+    ]
+    said = gate_text(defects)
+    assert said.startswith("The quality check held the files back: 2 x a finding without a source")
+    assert "a dash used as punctuation in a client file" in said and said.endswith("each step.")
+    assert stop_text("gate_failed", defects) == said
+    assert "quality check" in stop_text("gate_failed", [])  # no stored verdict: the generic text
+    assert gate_text([{"check": "new_check", "item": "x"}]).startswith(
+        "The quality check held the files back: new check"
+    )
+    assert set(GATE_CHECK_TEXT) >= {"tracker_rows", "client_terms", "leak_check", "deliverable_set"}
+
+
+async def test_the_account_card_names_the_quality_checks_that_held_the_files(
+    world: dict[str, Any],
+) -> None:
+    from account_intelligence.db.session import set_system, tenant_txn
+    from account_intelligence.replica.workspace import stopped_run
+
+    user = f"gate-{uuid4().hex[:6]}"
+    run, _ = _run(world["a"], user, "PARTIAL")
+    _db("UPDATE account_runs SET finished_reason = 'gate_failed' WHERE id = %s", run)
+    (account,) = _db("SELECT account_id FROM account_runs WHERE id = %s", run)[0]
+    _db(
+        "INSERT INTO run_gate_results (tenant_id, account_id, run_id, verdict, defects)"
+        " VALUES (%s, %s, %s, 'fail', %s)",
+        world["a"],
+        account,
+        run,
+        '[{"check": "third_party_domains", "item": "evidence:1"},'
+        ' {"check": "tracker_rows", "item": "people:no_reason"}]',
+    )
+    set_system()
+    async with tenant_txn(world["a"]) as s:
+        card = await stopped_run(s, account)
+    assert card is not None and not card["stalled"]
+    assert "a data provider named in a client file" in card["reason"]
+    assert "a step without a status or a reason" in card["reason"]

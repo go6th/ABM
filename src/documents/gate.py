@@ -52,7 +52,10 @@ from documents.leakcheck import LeakChecker
 
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
 INTERNAL_LABEL = "Internal: from your uploaded material"
-_DASHES = re.compile("[‒–—―]|\\S\\s+-{1,2}\\s+\\S")
+# typographic dashes only: a spaced hyphen inside a verbatim title or quote ("Engineer - Data")
+# is the source's, not punctuation the file authored (the builder's D-24 rules lint authored
+# prose for both; staging 2026-10-16: every finished run failed this check)
+_DASHES = re.compile("[‒–—―]")
 _XML_TAG = re.compile(r"<[^>]+>")
 
 

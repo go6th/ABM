@@ -153,3 +153,18 @@ def guarded_names(names: Sequence[tuple[str, bool]]) -> tuple[str, ...]:
         if not on_list and n.strip() and n.strip().casefold() not in listed
     }
     return tuple(sorted(guarded, key=lambda n: (n.casefold(), n)))
+
+
+def restricted_terms(terms: Iterable[str], attribution: str) -> tuple[str, ...]:
+    """The literal terms a client file may not carry, cleaned (B9): blank terms go; a term of
+    three characters or fewer goes (it matches too much text to mean another account); a term
+    that is the attribution or one of its words goes (a client whose own name is the platform's,
+    "6th", would otherwise refuse every file for every other account, as on staging
+    2026-10-16). Sorted, distinct."""
+    own = {attribution.strip().casefold(), *attribution.casefold().split()}
+    kept = {
+        t.strip()
+        for t in terms
+        if t and t.strip() and len(t.strip()) > 3 and t.strip().casefold() not in own
+    }
+    return tuple(sorted(kept, key=lambda t: (t.casefold(), t)))

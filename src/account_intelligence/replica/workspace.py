@@ -15,6 +15,8 @@ client's account is simply not found.
 from __future__ import annotations
 
 import re
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -271,6 +273,15 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
             and not str(f.attribute_key).startswith("news.")
         ]
         moved.sort(key=lambda f: f.evidence_date or f.created_at, reverse=True)
+        # one line per statement: the same finding from two sources is not two changes
+        seen_text: set[str] = set()
+        distinct = []
+        for f in moved:
+            key = " ".join(str(f.v or "").split()).casefold()
+            if key not in seen_text:
+                seen_text.add(key)
+                distinct.append(f)
+        moved = distinct
         changed_lanes = {f.lane for f in moved if f.lane}
         all_lanes = (
             (await session.execute(text("SELECT DISTINCT unnest(lanes) AS lane FROM accounts")))
@@ -488,9 +499,41 @@ STOP_TEXT = {
 BUILD_FAILED_TEXT = "The files could not be built from what was found ({why})."
 
 
-def stop_text(reason: str) -> str:
+# what each quality-gate check means to the person reading the card (documents.gate)
+GATE_CHECK_TEXT = {
+    "tracker_rows": "a step without a status or a reason",
+    "fact_citations": "a finding without a source",
+    "client_dashes": "a dash used as punctuation in a client file",
+    "client_terms": "a term a client file may never carry",
+    "third_party_domains": "a data provider named in a client file",
+    "rows_dropped": "a row lost between the data and a file",
+    "leak_check": "text too close to your uploaded files",
+    "deliverable_set": "a client file missing",
+    "internal_label": "the internal file's label",
+    "gate_not_configured": "no quality gate configured",
+}
+GATE_FAILED_TEXT = "The quality check held the files back: {why}. Open Coverage to see each step."
+
+
+def gate_text(defects: Sequence[Mapping[str, Any]]) -> str:
+    """The quality check's failing checks in words, with counts ("3 findings without a
+    source, 1 dash ..."), from the stored verdict's defects; the generic text without them."""
+    counts = Counter(str(d.get("check") or "") for d in defects if d.get("check"))
+    if not counts:
+        return STOP_TEXT["gate_failed"]
+    parts = []
+    for check, n in counts.most_common():
+        words = GATE_CHECK_TEXT.get(check, check.replace("_", " "))
+        parts.append(f"{n} x {words}" if n > 1 else words)
+    return GATE_FAILED_TEXT.format(why="; ".join(parts))
+
+
+def stop_text(reason: str, defects: Sequence[Mapping[str, Any]] = ()) -> str:
     """What the user is told about a research that stopped: a known reason in words, a build
-    failure with its cause, anything else with its code so it can be reported."""
+    failure with its cause, the quality check's failing checks, anything else with its code so
+    it can be reported."""
+    if reason == "gate_failed" and defects:
+        return gate_text(defects)
     if reason in STOP_TEXT:
         return STOP_TEXT[reason]
     if reason.startswith("build_failed"):
@@ -530,10 +573,20 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
     if not (stalled or stopped):
         return None
     reason = "stalled" if stalled else str(row.finished_reason)
+    defects: list[Any] = []
+    if reason == "gate_failed":  # the stored verdict says which checks held the files back
+        found = await session.scalar(
+            text(
+                "SELECT defects FROM run_gate_results WHERE run_id = :r"
+                " ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"r": row.id},
+        )
+        defects = list(found or [])
     return {
         "run_id": str(row.id),
         "stalled": stalled,
-        "reason": stop_text(reason),
+        "reason": stop_text(reason, defects),
         "steps_done": int(row.done),
         "steps_total": int(row.total),
     }

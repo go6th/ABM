@@ -801,3 +801,41 @@ Follow-up the same day: documents indexed before the import existed are read by 
 (`documents.imported_at`, migration 0076; up to ten documents per client per pass, as their
 owner). On staging the first pass (worker revision 00027, 08:10 UTC) read 10 documents and wrote
 3,152 facts (`documents.import_backfilled count=3152 rows=10`).
+
+## The first live runs on the repaired graph (2026-10-16, 08:33 UTC): what they showed, what changed
+
+The owner resumed two researches. Both ran end to end on cached pulls in about six minutes and
+both ended at the final safety checks, not in the graph:
+
+* plausible.io ended `build_failed:leak`: the builder's forbidden-term scan refused every client
+  file. The tenant has a test account named "6th" (6th.ai), and other accounts' names are
+  forbidden terms in a client file; every client file carries the attribution "6th agents". So
+  every file of every other account failed on the platform's own name.
+* 6th.ai ended `gate_failed` (and so did the third run): the pre-delivery gate's failing checks
+  were stored in `run_gate_results` and shown nowhere, so neither the owner nor the log could say
+  which. Its one-minute version asked about another company (Basic-Fit): a search had returned a
+  page about the wrong company and the extractor read it for facts about the account.
+* Two "What changed" lines said the same thing (one finding from two sources).
+
+### Built
+
+* `exports.policy.restricted_terms`: the attribution's words and terms of three characters or
+  fewer are never forbidden terms (test: "6th", "6th agents", "ab" dropped; "plausible",
+  "Workday", "mckesson.ca" kept).
+* `agents.guards.on_target` and `graph._interpret`: a pulled public page is read for facts only
+  when its URL is on the account's domain, or it names the domain, or it names the account as a
+  whole word and the name is at least four characters ("6th" cannot vouch for a page). The
+  client's own material (internal history) is exempt. Dropped pages are counted
+  (`drop_off_target`) and logged (`interpret.off_target`).
+* The gate: `gate.failed` is logged with the failing check names and counts, and the account card
+  names them in words from the stored verdict ("The quality check held the files back: 2 x a
+  finding without a source; a dash used as punctuation in a client file. Open Coverage to see
+  each step."). The gate's dash check now flags typographic dashes only; a spaced hyphen inside a
+  verbatim title or quote is the source's, and authored prose is linted by the builder's D-24
+  rules already.
+* "What changed" shows one line per statement.
+
+### Checked
+
+Agent, graph, export, gate, workspace, resume and guard suites: 376 passed; mypy, ruff,
+docstrings, headers, guarantees, loops, import layers, vulture clean.
