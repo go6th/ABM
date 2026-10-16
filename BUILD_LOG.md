@@ -796,3 +796,8 @@ people, 2 files, 4 technologies; sheet columns; private Internal grade; the row 
 stored; idempotent; title-block header found; header matching exact before prefix). Document,
 workspace, sheet, file-run, grading and guard suites: 287 passed. ruff, mypy, docstrings,
 headers, guarantees (436), loops, vulture clean; bandit unchanged from the committed tree.
+
+Follow-up the same day: documents indexed before the import existed are read by the sweep
+(`documents.imported_at`, migration 0076; up to ten documents per client per pass, as their
+owner). On staging the first pass (worker revision 00027, 08:10 UTC) read 10 documents and wrote
+3,152 facts (`documents.import_backfilled count=3152 rows=10`).
