@@ -156,7 +156,10 @@ class FastEmbedder:
                     if "CUDAExecutionProvider" not in _providers(engine):
                         engine = None  # the runtime loaded but CUDA did not come up (warning above)
                 except Exception as exc:  # no driver or CUDA libraries on this instance
-                    log.warning("documents.embedder.cuda_unavailable: %s", exc)
+                    log.warning(
+                        "documents.embedder.cuda_unavailable",
+                        extra={"error_class": type(exc).__name__},
+                    )
                     engine = None
             if engine is None:
                 engine = TextEmbedding(
@@ -166,12 +169,11 @@ class FastEmbedder:
             else:
                 self.device, self.batch_size = "cuda", self.GPU_BATCH
             self._engine = engine
+            # the message is the event name and the fields are catalogued (config/telemetry/
+            # logs.yaml): kind is the device, count the CPU threads
             log.info(
-                "documents.embedder.loaded model=%s device=%s threads=%d batch=%d",
-                self.model,
-                self.device,
-                threads,
-                self.batch_size,
+                "documents.embedder.loaded",
+                extra={"model": self.model, "kind": self.device, "count": threads},
             )
         return self._engine
 
