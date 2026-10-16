@@ -253,3 +253,50 @@ async def test_header_matching_is_exact_before_prefix() -> None:
         ("Source", "confirmed"),
         ("column 2", "x"),
     ]
+
+
+async def test_documents_indexed_before_the_import_are_backfilled_by_the_sweep(
+    tenant_a: UUID, tmp_path: Path
+) -> None:
+    from documents.deliverables import backfill_imports
+    from tests.documents import fixtures
+
+    account = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
+    svc = service(tmp_path)
+    jobs = await _upload_and_index(
+        svc, tenant_a, account, "Northwind_Job_Postings.xlsx", jobs_book()
+    )
+    pdf = await _upload_and_index(svc, tenant_a, account, "call.pdf", fixtures.meeting_pdf())
+    # both were read at indexing time: marked, and only the workbook made an import run
+    assert admin(
+        "SELECT count(*) FROM documents WHERE id IN (%s, %s) AND imported_at IS NOT NULL", jobs, pdf
+    ) == [(2,)]
+    assert admin(
+        "SELECT count(*) FROM account_runs WHERE account_id = %s"
+        " AND finished_reason = 'file_import'",
+        account,
+    ) == [(1,)]
+    # a document from before the import: indexed, bound, unmarked, with none of its rows recorded
+    admin(
+        "DELETE FROM grade_events WHERE fact_id IN (SELECT id FROM facts WHERE account_id = %s)",
+        account,
+    )
+    admin(
+        "DELETE FROM fact_evidence WHERE fact_id IN (SELECT id FROM facts WHERE account_id = %s)",
+        account,
+    )
+    admin("DELETE FROM facts WHERE account_id = %s", account)
+    admin("UPDATE documents SET imported_at = NULL WHERE id IN (%s, %s)", jobs, pdf)
+    assert (await _counts(tenant_a, account))["jobs"] == 0
+    done = await backfill_imports(datetime.now(UTC), limit=10)
+    assert done["documents"] >= 2 and done["facts"] >= 2
+    assert (await _counts(tenant_a, account))["jobs"] == 2
+    assert admin(
+        "SELECT count(*) FROM documents WHERE id IN (%s, %s) AND imported_at IS NULL", jobs, pdf
+    ) == [(0,)]
+    # the next pass has nothing left for this client's two documents
+    again = await backfill_imports(datetime.now(UTC), limit=10)
+    assert admin(
+        "SELECT count(*) FROM facts WHERE account_id = %s AND attribute_key LIKE 'jobs.%%'", account
+    ) == [(2,)]
+    assert again["facts"] == 0 or (await _counts(tenant_a, account))["jobs"] == 2

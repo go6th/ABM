@@ -21,7 +21,7 @@ unannotated (the generator's check fails otherwise).
 | catch-up selection | `src/refresh/schedule.py:66` | len(missed) | per_tick reached or end |
 | cause chain | `src/account_intelligence/workflow/runner.py:333` | the chain length (each exception visited once) | end of chain |
 | clamd stream chunks | `src/documents/scan.py:137` | file size / 1 MiB chunks | end of stream |
-| close ended jobs | `src/account_intelligence/api/main.py:240` | every client once per pass, `limit` jobs each | last client |
+| close ended jobs | `src/account_intelligence/api/main.py:250` | every client once per pass, `limit` jobs each | last client |
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
 | common prefix | `src/documents/deliverables.py:191` | the shorter first part | first differing character |
 | connector token refresh | `src/connectors_client/oauth.py:228` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
@@ -62,6 +62,8 @@ unannotated (the generator's check fails otherwise).
 | guarded name span | `src/agents/skill_context.py:103` | the word's length | the first non-letter |
 | hash uploaded document | `src/documents/service.py:329` | size / 1 MiB reads | end of object |
 | idle expiry | `src/account_intelligence/replica/access.py:89` | one pass over the clients | every client checked or failed |
+| import backfill clients | `src/documents/deliverables.py:412` | every client once per pass, `limit` documents each | last client |
+| import backfill documents | `src/documents/deliverables.py:425` | `limit` per client per pass | rows exhausted |
 | import pages | `src/documents/deliverables.py:358` | passages / PAGE pages | a short page |
 | import spool | `src/documents/service.py:285` | size / chunk_bytes reads | end of the spool file |
 | in-flight wait | `src/account_intelligence/connectors/service.py:296` | in_flight_wait_s (polls every in_flight_poll_s) | claimed, replayed, CallInFlight |
@@ -89,7 +91,7 @@ unannotated (the generator's check fails otherwise).
 | notification relay clients | `src/account_intelligence/api/routes/tasks.py:417` | every client once per pass | last client |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:76` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:90` | max_pages * batch_size runs per pass | rows exhausted |
-| orphan sweep loop | `src/account_intelligence/api/main.py:273` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
+| orphan sweep loop | `src/account_intelligence/api/main.py:283` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |

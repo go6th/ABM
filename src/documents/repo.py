@@ -837,3 +837,11 @@ async def log_embedding_call(
         ),
         {"f": document_id, "m": model, "k": key, "i": input_tokens, "c": cost},
     )
+
+
+async def mark_imported(s: AsyncSession, document_id: UUID, at: datetime) -> None:
+    """Record that the document's rows were read for the deliverable workbooks
+    (``documents.deliverables``), rows found or not; the sweep's backfill skips it from then on."""
+    await s.execute(
+        text("UPDATE documents SET imported_at = :at WHERE id = :d"), {"at": at, "d": document_id}
+    )

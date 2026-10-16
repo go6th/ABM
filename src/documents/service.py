@@ -823,14 +823,17 @@ class DocumentService:
         indexing (the passages are indexed either way)."""
         from documents.deliverables import import_document
 
+        now = self.clock.now()
         try:
-            counts = await import_document(self.txn, tenant_id, row, now=self.clock.now())
+            counts = await import_document(self.txn, tenant_id, row, now=now)
+            async with self.txn(tenant_id) as s:
+                await repo.mark_imported(s, row.id, now)
         except Exception as error:  # noqa: BLE001 - the import never fails the document
             _log.warning(
                 "documents.import_failed",
                 extra={"tenant_id": str(tenant_id), "error_class": type(error).__name__},
             )
-            return
+            return  # not marked: the sweep's backfill reads it again
         written = sum(v for k, v in counts.items() if k.endswith("_written"))
         if counts:
             _log.info(

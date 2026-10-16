@@ -176,6 +176,16 @@ async def _sweep_documents(app: FastAPI) -> None:
         datetime.now(UTC),
         orphan_after_s=load_documents_config().parsing.orphan_after_s,
     )
+    # documents indexed before the deliverable import existed get their rows read, a few per
+    # pass (documents.deliverables, 2026-10-16)
+    from documents.deliverables import backfill_imports
+
+    done = await backfill_imports(datetime.now(UTC))
+    if done["documents"]:
+        _logger.info(
+            "documents.import_backfilled",
+            extra={"count": done["facts"], "rows": done["documents"]},
+        )
 
 
 async def sweep_pass(app: FastAPI) -> None:

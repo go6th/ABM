@@ -390,3 +390,58 @@ async def import_document(txn: Any, tenant_id: UUID, doc: Any, *, now: datetime)
             break
     counts.update(reader.skipped)
     return counts
+
+
+async def backfill_imports(now: datetime, *, limit: int = 10) -> dict[str, int]:
+    """Import the documents indexed before the import existed (or whose import failed): per
+    client, up to ``limit`` indexed documents bound to an account and not yet marked, each read
+    as its owner. Every document read is marked, rows found or not. Returns the counts of
+    documents read and facts written."""
+    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from obs.logging import logger
+
+    log = logger(__name__)
+    async with untenanted_session() as plain:
+        tenants = [
+            UUID(str(r.tenant_id))
+            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+        ]
+    documents = facts = 0
+    # LOOP(import backfill clients): cap=every client once per pass, `limit` documents each;
+    # exit=last client
+    for tenant in tenants:
+        async with tenant_txn(tenant, system=True) as s:
+            rows = (
+                await s.execute(
+                    text(
+                        "SELECT id, owner_user_id FROM documents WHERE status = 'indexed'"
+                        " AND account_id IS NOT NULL AND imported_at IS NULL"
+                        " ORDER BY created_at LIMIT :n"
+                    ),
+                    {"n": limit},
+                )
+            ).all()
+        # LOOP(import backfill documents): cap=`limit` per client per pass; exit=rows exhausted
+        for row in rows:
+            owner = str(row.owner_user_id)
+
+            def as_owner(tenant_id: UUID, owner: str = owner) -> Any:
+                return tenant_txn(tenant_id, user=owner, system=True)
+
+            try:
+                async with as_owner(tenant) as s:
+                    doc = await repo.get(s, UUID(str(row.id)))
+                if doc is None:
+                    continue
+                counts = await import_document(as_owner, tenant, doc, now=now)
+                async with as_owner(tenant) as s:
+                    await repo.mark_imported(s, UUID(str(doc.id)), now)
+            except Exception as error:  # noqa: BLE001 - one document never stops the pass
+                log.warning(
+                    "documents.import_failed",
+                    extra={"tenant_id": str(tenant), "error_class": type(error).__name__},
+                )
+                continue
+            documents += 1
+            facts += sum(v for k, v in counts.items() if k.endswith("_written"))
+    return {"documents": documents, "facts": facts}
