@@ -186,6 +186,15 @@ class Settings(BaseSettings):
     # run limits
     run_budget_usd: float = var(5.0, purpose="Per-run spend ceiling in USD (all phases).")
     run_tool_call_cap: int = var(60, purpose="Per-run connector call ceiling.")
+    ask_whole_file_max_chars: int = var(
+        300_000,
+        purpose=(
+            "Ask: the uploaded file a question is about goes to the model whole when it has at"
+            " most this many characters (about 75k tokens); a larger file answers through"
+            " retrieved passages only."
+        ),
+        component="api",
+    )
     run_reserve_credits: float = var(6.0, purpose="Credits reserved when a run starts.")
 
     # Google Cloud runtime

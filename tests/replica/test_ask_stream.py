@@ -88,11 +88,23 @@ async def test_a_streamed_answer_only_sends_checked_citations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_invented_citation_or_a_list_stops_the_stream() -> None:
+async def test_an_invented_citation_stops_the_stream_but_a_list_or_table_streams() -> None:
     invented = await _collect(["Acme is hiring [R1]. ", "Also [R9] says more. ", "End."])
     assert [k for k, _ in invented] == ["piece", "reset"]  # nothing after the bad sentence
-    listed = await _collect(["- Acme is hiring [R1].\n\nMore [R2]."])
-    assert [k for k, _ in listed] == ["reset"]
+    # Markdown structure is kept line for line (owner decision 2026-10-17)
+    listed = await _collect(["- Acme is hiring [R1].\n- It builds [R2].\n\nMore [R2]."])
+    # each list line is its own checked piece (a sentence end), in the same paragraph
+    assert [k for k, _ in listed] == ["piece", "piece", "piece", "done"]
+    assert [p for p, _ in listed[:3] if True] and [v[0] for k, v in listed[:3]] == [0, 0, 1]
+    kind, reply = listed[-1]
+    assert kind == "done"
+    assert reply.draft.paragraphs[0].startswith("- Acme is hiring")
+    assert "\n- It builds" in reply.draft.paragraphs[0]
+    table = await _collect(
+        ["| Role | Seen |\n|---|---|\n| Architect | Jun [R1] |\n| Lead | Jul [R2] |"]
+    )
+    assert [k for k, _ in table] == ["piece", "done"]
+    assert table[-1][1].draft.paragraphs[0].count("\n") == 3
 
 
 def test_pieces_wait_for_the_citations_after_a_sentence() -> None:

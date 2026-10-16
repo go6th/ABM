@@ -243,6 +243,8 @@ class Workspace:
     # passages of the client's own documents retrieved for THIS question (hybrid search,
     # documents.retrieve; filled by the Ask route once the question is known)
     passages: list[Row] = field(default_factory=list)
+    # the best-matching uploaded file, whole, when it fits the budget (take_whole_file)
+    whole_files: list[Row] = field(default_factory=list)
     tracker: list[Row] = field(default_factory=list)
     reports: list[Row] = field(default_factory=list)
 
@@ -257,8 +259,24 @@ def _as_dt(value: Any) -> datetime | None:
     return None
 
 
-async def load_workspace(session: Any, user_id: str, account_id: UUID | None = None) -> Workspace:
-    """Read the rows an answer may cite (tenant scoped by RLS; mail and drive by owner)."""
+_CLOSED_WORDS = re.compile(
+    r"\b(closed|history|historical|past|previous|former|ever|expired|no longer|were|over time"
+    r"|all (?:the |of the )?(?:postings|roles|jobs)|since \d{4}|last year|earlier)\b",
+    re.IGNORECASE,
+)
+
+
+def wants_closed(question: str) -> bool:
+    """Whether a question asks about postings that are no longer open (history, closed, past):
+    only then do closed postings join the rows, so a plain question still shows what is open."""
+    return bool(_CLOSED_WORDS.search(question))
+
+
+async def load_workspace(
+    session: Any, user_id: str, account_id: UUID | None = None, *, include_closed: bool = False
+) -> Workspace:
+    """Read the rows an answer may cite (tenant scoped by RLS; mail and drive by owner).
+    Closed postings are read only when the question asks about them (``include_closed``)."""
     acct_rows = (
         await session.execute(
             text(
@@ -340,8 +358,9 @@ async def load_workspace(session: Any, user_id: str, account_id: UUID | None = N
             text(
                 "SELECT id, account_id, title, url, posted_at, first_seen, lanes, status,"
                 " location, created_at"
-                " FROM job_postings WHERE status <> 'closed' ORDER BY coalesce(posted_at,"
-                " first_seen) DESC NULLS LAST"
+                " FROM job_postings"
+                + ("" if include_closed else " WHERE status <> 'closed'")
+                + " ORDER BY coalesce(posted_at, first_seen) DESC NULLS LAST"
                 " LIMIT 3000"
             )
         )
@@ -350,17 +369,22 @@ async def load_workspace(session: Any, user_id: str, account_id: UUID | None = N
         if acct is None or r.account_id not in scope or not r.title:
             continue
         when = _as_dt(r.posted_at) or _as_dt(r.first_seen) or _as_dt(r.created_at)
+        closed = r.status == "closed"
         jobs.append(
             Row(
                 key=f"job:{r.id}",
                 kind="job",
                 account=acct,
-                text=str(r.title),
+                text=f"{r.title} (closed)" if closed else str(r.title),
                 title=f"{acct.name} careers posting",
-                meta=f"{r.title} · {day_month(when)}",
+                meta=f"{r.title} · {day_month(when)}" + (" · closed" if closed else ""),
                 when=when,
                 url=r.url,
-                extra={"lanes": " ".join(r.lanes or []), "location": r.location or ""},
+                extra={
+                    "lanes": " ".join(r.lanes or []),
+                    "location": r.location or "",
+                    "status": r.status or "",
+                },
             )
         )
 
@@ -596,6 +620,67 @@ async def passage_rows(
             )
         )
     return out
+
+
+async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
+    """Give the model the whole of the file the question is about (owner decision 2026-10-17:
+    an answer over a spreadsheet must count every row, as a file attached to a chat does).
+
+    The file is the one the best-ranked retrieved passage came from. Its passages, in order,
+    become one ``whole_file`` row (cited as one source) and leave ``ws.passages``; a file above
+    ``max_chars`` stays as retrieved passages only, so a question never ships more than the
+    budget to the model. Same tenant scope as retrieval (row level security)."""
+    if not ws.passages or max_chars <= 0:
+        return
+    best = ws.passages[0].key  # passage:<document id>:<seq>
+    parts = best.split(":")
+    if len(parts) != 3:
+        return
+    try:
+        doc_id = UUID(parts[1])
+    except ValueError:
+        return
+    head = (
+        await session.execute(
+            text(
+                "SELECT d.name, d.account_id, count(p.id) AS n, coalesce(sum(length(p.content)), 0)"
+                " AS chars FROM documents d JOIN document_passages p ON p.document_id = d.id"
+                " WHERE d.id = :d GROUP BY d.id, d.name, d.account_id"
+            ),
+            {"d": doc_id},
+        )
+    ).first()
+    if head is None or not head.n or int(head.chars) > max_chars:
+        return
+    acct = next((a for a in ws.accounts if a.id == head.account_id), None)
+    if acct is None:
+        return
+    contents = (
+        await session.execute(
+            text("SELECT content FROM document_passages WHERE document_id = :d ORDER BY seq"),
+            {"d": doc_id},
+        )
+    ).scalars()
+    body = "\n".join(str(c).strip() for c in contents if c)
+    if not body.strip():
+        return
+    name = str(head.name or "an uploaded file")
+    ws.whole_files = [
+        Row(
+            key=f"whole:{doc_id}",
+            kind="file",
+            account=acct,
+            text=body,
+            title=f"From your files: {name} (the whole file)",
+            meta=f"Internal · {int(head.n)} passages, read whole",
+            when=None,
+            url=None,
+            grade="internal",
+            extra={"whole_file": True, "document": name, "lines": body.count("\n") + 1},
+        )
+    ]
+    prefix = f"passage:{doc_id}:"
+    ws.passages = [r for r in ws.passages if not r.key.startswith(prefix)]
 
 
 async def _tracker_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) -> list[Row]:

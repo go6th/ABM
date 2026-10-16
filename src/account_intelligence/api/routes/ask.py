@@ -34,6 +34,7 @@ from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.chat.service import ChatService, sse
 from account_intelligence.chat.store import record_ask_turn
+from account_intelligence.config import get_settings
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import answers as A
 from account_intelligence.replica import limits as LIM
@@ -129,7 +130,12 @@ async def ask(
         yield sse("status", {"state": "searching"})
         try:
             async with tenant_txn(ident.tenant_id) as session:
-                ws = await A.load_workspace(session, ident.user_id, body.account_id)
+                ws = await A.load_workspace(
+                    session,
+                    ident.user_id,
+                    body.account_id,
+                    include_closed=A.wants_closed(body.question),
+                )
                 # the passages of the caller's own documents that best answer this question
                 # (hybrid search; Ask never read the files before, audit 2026-10-15)
                 docs = getattr(request.app.state.container, "documents", None)
@@ -138,6 +144,10 @@ async def ask(
                     async with session.begin_nested():  # a failure rolls back only this
                         ws.passages = await A.passage_rows(
                             session, ws, body.question, searched, getattr(docs, "semantic", None)
+                        )
+                        # the file the question is about goes to the model whole (2026-10-17)
+                        await A.take_whole_file(
+                            session, ws, get_settings().ask_whole_file_max_chars
                         )
                 except Exception:  # noqa: BLE001 - an answer without passages still stands
                     log.warning("ask_passages_failed", extra={"request_id": str(body.request_id)})

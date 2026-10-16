@@ -216,8 +216,12 @@ class ChatProvider(Protocol):
         request_id: str | None = None,
         fresh_output: bool = True,
         context: str = "",
+        system: str | None = None,
+        cached: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
-        """Yield bounded text deltas followed by exactly one final usage event."""
+        """Yield bounded text deltas followed by exactly one final usage event. ``system``
+        replaces the grounded rules; ``cached`` is large data (a whole file) appended to the
+        system prompt in a block the provider may cache across turns."""
         ...
 
 
@@ -269,17 +273,26 @@ class AnthropicChatProvider:
         fresh_output: bool = True,
         context: str = "",
         system: str | None = None,
+        cached: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Stream text and final token counts; provider exceptions retain no user text.
-        ``system`` replaces the default grounded rules (the Ask answer format supplies its own)."""
+        ``system`` replaces the default grounded rules (the Ask answer format supplies its own);
+        ``cached`` (a whole file) is a second system block with a cache breakpoint, so the same
+        file is billed in full once per cache life and at the cached rate after."""
         request_messages = [
             {"role": message.role, "content": message.content} for message in messages
         ]
         system_instruction = system or grounded_system_prompt(context, max_output_tokens)
+        system_blocks: Any = system_instruction
+        if cached:
+            system_blocks = [
+                {"type": "text", "text": system_instruction},
+                {"type": "text", "text": cached, "cache_control": {"type": "ephemeral"}},
+            ]
         async with self._client.messages.stream(
             model=model.id,
             max_tokens=max_output_tokens,
-            system=system_instruction,
+            system=system_blocks,
             messages=request_messages,
         ) as stream:
             async for delta in stream.text_stream:
@@ -316,12 +329,15 @@ class MoonshotChatProvider:
         fresh_output: bool = True,
         context: str = "",
         system: str | None = None,
+        cached: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
-        """Stream text and final token counts; provider exceptions retain no user text."""
+        """Stream text and final token counts; provider exceptions retain no user text. The
+        whole file (``cached``) rides in the system prompt; Moonshot caches nothing."""
         del user_id, request_id, fresh_output
         async for kind, value in self._client.stream(
             model.id,
-            system or grounded_system_prompt(context, max_output_tokens),
+            (system or grounded_system_prompt(context, max_output_tokens))
+            + (f"\n\n{cached}" if cached else ""),
             [{"role": m.role, "content": m.content} for m in messages],
             max_tokens=max_output_tokens,
             effort="low",

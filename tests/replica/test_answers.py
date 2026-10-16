@@ -215,7 +215,53 @@ def test_model_reply_is_used_only_with_real_citations():
     assert good is not None and len(good.rows) == 2
     assert parse("**Highmark** named a leader [R9].", ids) is None
     assert parse("No citation at all.", ids) is None
-    assert parse("# Heading\n\n- bullet [R1]", ids) is None
+    # headings, lists and tables are kept line for line (owner decision 2026-10-17)
+    shaped = parse("# Heading\n\n- bullet [R1]\n- second [R2]", ids)
+    assert shaped is not None and shaped.paragraphs[0] == "# Heading"
+    assert (
+        shaped.paragraphs[1].startswith("- bullet [[") and "\n- second [[" in shaped.paragraphs[1]
+    )
+    table = parse("| Role | Grade |\n|---|---|\n| Leader | Confirmed [R1] |   ", ids)
+    assert table is not None
+    key = next(iter(table.rows))
+    assert table.paragraphs[0].split("\n") == [
+        "| Role | Grade |",
+        "|---|---|",
+        f"| Leader | Confirmed [[{key}]] |",
+    ]
+
+
+def test_closed_postings_join_only_when_the_question_asks_about_them():
+    assert A.wants_closed("Which Salesforce roles were open in the past and are now closed?")
+    assert A.wants_closed("Show all the postings since 2025")
+    assert not A.wants_closed("What is Highmark hiring for?")
+    assert not A.wants_closed("Who owns ServiceNow at Cigna?")
+
+
+def test_a_whole_file_is_announced_as_a_row_and_given_in_its_own_block():
+    from account_intelligence.replica.model_answer import file_blocks
+
+    ws, _ = workspace()
+    acct = ws.accounts[0]
+    sheet = A.Row(
+        key="whole:doc-1",
+        kind="file",
+        account=acct,
+        text="Req | Title | Status\n1 | Architect | Closed\n2 | Lead | Open",
+        title="From your files: GSK_Job_Postings.xlsx (the whole file)",
+        meta="Internal · 2 passages, read whole",
+        when=None,
+        url=None,
+        grade="internal",
+        extra={"whole_file": True, "document": 'GSK <b>"x"</b>.xlsx', "lines": 3},
+    )
+    block, ids = context_block([ws.facts[0], sheet])
+    assert "[R2] account:" in block and "given whole below (3 lines)" in block
+    assert "Architect" not in block  # the content is not inlined in the row list
+    files = file_blocks(ids)
+    assert files.startswith('<file id="R2" name="GSK _b__x___b_.xlsx">')
+    assert "1 | Architect | Closed" in files and files.rstrip().endswith("</file>")
+    assert file_blocks({"R1": ws.facts[0]}) == ""
 
 
 def test_model_reply_items_are_read_after_the_marker():
