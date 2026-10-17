@@ -45,4 +45,4 @@ printf '%s\n' "RLS catalog: no violations"
 export DATABASE_URL="$runtime_url"
 export CHECKPOINT_DATABASE_URL="$checkpoint_runtime_url"
 uv run --frozen pytest tests/isolation -x
-uv run --frozen pytest -m "not eval" --cov
+uv run --frozen pytest -m "not eval and not live" --cov

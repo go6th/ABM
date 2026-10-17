@@ -48,6 +48,9 @@ async def _query(tenant: UUID, table: T.TableInfo, **payload: Any) -> dict[str, 
 async def test_a_tabular_question_is_answered_from_the_table_store_not_a_sample(
     tenant_a: UUID, tmp_path: Path
 ) -> None:
+    """The golden tabular question over the store with a real Postgres: the strict query is
+    empty (with the relax directive), the relaxed one is complete, deduplicated, sorted and
+    projected, and the 5,001st match is an error, never a silent cut."""
     account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
     doc = await _ingest(tenant_a, tmp_path, account, fixtures.gsk_job_postings_xlsx())
     assert doc_row(doc)["status"] == "indexed"
@@ -83,6 +86,8 @@ async def test_a_tabular_question_is_answered_from_the_table_store_not_a_sample(
     # the golden question: no open Salesforce posting first seen on or after 1 March 2026
     strict = await _query(tenant_a, jobs, where=QUESTION_WHERE)
     assert strict["row_count"] == 0 and strict["rows"] == [] and not strict["truncated"]
+    # an empty result tells the model what to do next (the relax directive of TABULAR_RULES)
+    assert "relax" in strict["next"] and "status" in strict["next"]
     assert strict["applied_where"][2] == {
         "column": "first_seen",
         "op": "gte",
@@ -108,6 +113,20 @@ async def test_a_tabular_question_is_answered_from_the_table_store_not_a_sample(
     latest = max(twice["rows"], key=lambda r: r["cells"]["last_seen"])
     kept = next(r for r in unique["rows"] if r["cells"]["requisition"] == 446999)
     assert kept["row"] == latest["row"]
+    several = await _query(
+        tenant_a,
+        jobs,
+        where=[{"column": "class", "op": "in", "value": list(fixtures.OWNER_CLASSES)}],
+    )
+    assert several["row_count"] == 6  # four postings, two of them in two rows
+
+
+async def test_query_table_returns_complete_sets(tenant_a: UUID, tmp_path: Path) -> None:
+    """Acceptances 3/4 of the data-access brief on their own: a filtered result is the whole
+    set, never a top-k sample — payload on request, ordering honoured, null cells queryable."""
+    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
+    await _ingest(tenant_a, tmp_path, account, fixtures.gsk_job_postings_xlsx())
+    jobs = await _jobs(tenant_a, account)
     # payload on request; ordering; a filtered result is the whole set, never a top-k
     with_text = await _query(
         tenant_a,
@@ -129,17 +148,9 @@ async def test_a_tabular_question_is_answered_from_the_table_store_not_a_sample(
     assert seen == sorted(seen, reverse=True)
     nulls = await _query(tenant_a, jobs, where=[{"column": "requisition", "op": "is_null"}])
     assert nulls["row_count"] == 4
-    several = await _query(
-        tenant_a,
-        jobs,
-        where=[{"column": "class", "op": "in", "value": list(fixtures.OWNER_CLASSES)}],
-    )
-    assert several["row_count"] == 6  # four postings, two of them in two rows
 
 
-async def test_query_table_refuses_unknown_columns_with_a_structured_error(
-    tenant_a: UUID, tmp_path: Path
-) -> None:
+async def test_query_table_refuses_unknown_columns(tenant_a: UUID, tmp_path: Path) -> None:
     account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
     await _ingest(tenant_a, tmp_path, account, fixtures.gsk_job_postings_xlsx())
     jobs = await _jobs(tenant_a, account)
@@ -262,9 +273,7 @@ async def test_reingest_tables_queues_pre_store_documents_once(
     assert admin("SELECT count(*) FROM document_tables WHERE document_id = %s", old) == [(1,)]
 
 
-async def test_a_seeded_pii_cell_never_reaches_the_store_index_or_tools(
-    tenant_a: UUID, tmp_path: Path
-) -> None:
+async def test_pii_never_reaches_store_or_tools(tenant_a: UUID, tmp_path: Path) -> None:
     """Acceptance 13 of the data-access brief: under the strict tier the workbook's "Lee Park"
     (a name column) is stored only as its ``[PERSON_NAME_n]`` placeholder — never in the table
     store, the passages or their metadata, the private index, the embedder's input, or anything

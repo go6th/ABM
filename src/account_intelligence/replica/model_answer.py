@@ -73,19 +73,63 @@ SYSTEM = (
 TABULAR_RULES = (
     "When the question is a filter, count, or lookup over a spreadsheet or CRM export, you MUST"
     " answer by calling `describe_table` then `query_table`; never estimate from retrieved"
-    " passages. Treat an empty result as a finding: state it plainly, then relax exactly one"
-    " predicate (status first, then date) and show the nearest rows, saying which predicate you"
-    " relaxed. Deduplicate on the business key before counting. When a platform name is also a"
-    ' common word (e.g. "salesforce" meaning the field sales team), or a row is flagged'
-    " partial=true (the name matched only as a substring), call `read_rows` on those rows for"
-    " the evidence column (`Platform sentences` / `What the posting says`) and split genuine"
-    " product mentions from false positives, quoting the deciding phrase. Report counts of"
-    " both. Cite row numbers.\n"
+    " passages. A word in the question that names a column's VALUE (a role, a class, a status —"
+    ' "platform owners") is a filter on that column over EVERY stored value the wording covers'
+    ' (`describe_table` lists the values of a low-cardinality column: "platform owners" covers'
+    ' both "Platform owner" and "Admin and owner role"); never judge membership from titles or'
+    " descriptions. Match a platform or product NAME with `icontains` (exports spell names in"
+    " mixed case). When a query answers with 0 rows, you MUST relax exactly one predicate (status"
+    " first, then date) and query again BEFORE writing anything; then state the finding plainly,"
+    " name the predicate you relaxed and show the nearest rows. Leave `columns` out: the default"
+    " projection returns every filterable column; pass it only to add a payload (long-text)"
+    " column the answer needs, and keep it identical between the strict and the relaxed query."
+    " Add `order_by` only when the question asks for an order, and then"
+    " exactly the order it asks for. Deduplicate on the business key before counting. A query's"
+    " result already carries every filterable column of each row; call `read_rows` ONLY for a"
+    " payload (long-text) column the question is about, or when the question asks how many rows"
+    " MENTION a platform or whether matches are false positives (the name is also a common word"
+    ' — "salesforce" can mean the field sales team) AND the evidence column is payload (when it'
+    " is not, it is already in the query result: judge from it there), or when a row is flagged"
+    " partial=true (the name matched only as a substring): then call `read_rows` on those rows"
+    " for the evidence"
+    " column (`Platform sentences` / `What the posting says`), split genuine product mentions"
+    " from false positives judging from the evidence column alone (never the long description),"
+    " name every false positive by its business key and quote the exact deciding phrase VERBATIM"
+    " (no emphasis or markup inside a quote). Report counts of both. Cite row numbers.\n"
     "A table is one of the numbered rows above (a row marked `table`): cite its id, like [R2],"
     " for every statement that rests on its query results, and name the sheet row numbers"
     " (`row 17`) in the text. Call the tools first and write the answer after the last result;"
-    " do not narrate the calls."
+    " do not narrate the calls.\n"
+    "Never ask the user to re-export or re-upload a file, and never say rows are missing or not"
+    " in the workspace: the table the question needs is in the numbered rows above — correct"
+    " the tool call and query again."
 )
+
+
+# phrases that mean the answer refused the files the workspace already holds (the eval fails
+# on them; production logs a warning — see the ``ask.route`` caller). "can't"/"cannot" alone
+# are too common to guard on; the guarded forms are about the data being unavailable.
+REFUSAL_PHRASES = (
+    "re-export",
+    "reexport",
+    "re-upload",
+    "reupload",
+    "upload the file again",
+    "not in the workspace",
+    "not available in the workspace",
+    "rows are missing",
+    "rows were not provided",
+    "only a sample",
+    "sample of the rows",
+    "cannot access the file",
+    "can't access the file",
+)
+
+
+def refusal_phrase(text: str) -> str | None:
+    """The refusal phrase an answer contains, or None (see ``REFUSAL_PHRASES``)."""
+    folded = " ".join(text.casefold().split())
+    return next((p for p in REFUSAL_PHRASES if p in folded), None)
 
 
 # the table tools whose presence in the offered set puts the tabular rules in the prompt

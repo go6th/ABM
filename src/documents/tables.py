@@ -17,7 +17,8 @@ answer every time.
   reads it before it queries a table it has not seen in the turn.
 * ``query``: ``where`` predicates (the closed ``op`` set of ``rag.retrieval``), ``columns``,
   ``order_by``, ``distinct_on`` (the business key: duplicate rows collapse to the one seen
-  last, rows without the key fall back to title plus location, else stay apart) and ``limit``.
+  last; a row without the key merges onto the keyed row of the same title and a shared place
+  word, else falls back to title plus location) and ``limit``.
   Every column name is checked against the schema and every value is a bound parameter; the SQL
   text never carries the caller's words. Unknown columns, operators or values are a
   ``QueryError`` the model reads and corrects, never a 500. More than ``MAX_FILTER_ROWS``
@@ -29,12 +30,15 @@ answer every time.
 
 GUARANTEE(test_a_tabular_question_is_answered_from_the_table_store_not_a_sample)
 
-GUARANTEE(test_query_table_refuses_unknown_columns_with_a_structured_error)
+GUARANTEE(test_query_table_returns_complete_sets)
+
+GUARANTEE(test_query_table_refuses_unknown_columns)
 """
 
 from __future__ import annotations
 
 import fnmatch
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -164,6 +168,10 @@ class ColumnInfo:
     type: str
     payload: bool
     multi_valued: bool = False
+    # the router's lexicon (generated at ingest): the column's natural forms, and the distinct
+    # values of a low-cardinality text column; empty for tables ingested before the lexicon
+    aliases: tuple[str, ...] = ()
+    values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -239,6 +247,8 @@ def _info(row: Any, name: str) -> TableInfo:
                 str(c.get("type", "text")),
                 bool(c.get("payload")),
                 bool(c.get("multi_valued")),
+                tuple(str(a) for a in c.get("aliases") or ()),
+                tuple(str(v) for v in c.get("values") or ()),
             )
             for c in (row.columns or [])
         ),
@@ -488,22 +498,89 @@ def _sort_key(value: Any) -> tuple[int, Any]:
     return (0, str(got).casefold())
 
 
+# geographic filler words that say nothing about which posting a row is ("Europe", "Northern
+# America"): a location match never rests on them
+_GEO_NOISE = frozenset(
+    {
+        "europe",
+        "asia",
+        "americas",
+        "america",
+        "africa",
+        "oceania",
+        "emea",
+        "apac",
+        "latam",
+        "northern",
+        "southern",
+        "western",
+        "eastern",
+        "central",
+        "north",
+        "south",
+        "east",
+        "west",
+        "united",
+        "states",
+        "kingdom",
+        "region",
+    }
+)
+
+
+def _location_tokens(value: Any) -> frozenset[str]:
+    """The words a location shares with another spelling of the same place ("Espoo, Uusimaa,
+    Finland" and "Finland, Northern Europe, Europe" share ``finland``; geographic filler is
+    ignored)."""
+    return frozenset(
+        w for w in re.findall(r"[a-z]{4,}", str(value or "").casefold()) if w not in _GEO_NOISE
+    )
+
+
 def _dedupe(rows: list[dict[str, Any]], key: str) -> tuple[list[dict[str, Any]], int]:
     """One row per business key: the one with the latest ``last_seen`` (else the lowest row
-    number); a row without the key collapses on title plus location when the table has
-    them, else stays as it is. Returns the survivors in row order and how many were removed."""
+    number). A row without the key — a re-scrape that lost its id — merges onto the keyed row
+    of the same title whose location shares a real place word (the Finland posting re-scraped
+    as Espoo collapses onto its requisition), and apart from that falls back to title plus
+    location among themselves, else stays as it is. Returns the survivors in row order and how
+    many were removed."""
     best: dict[Any, dict[str, Any]] = {}
+    # pass 1: the keyed rows, and which title belongs to which keyed group with which places
+    title_groups: dict[str, set[Any]] = {}
+    group_places: dict[Any, frozenset[str]] = {}
     for row in rows:
         cells = row["cells"]
         value = cells.get(key)
         if value is None or str(value).strip() == "":
+            continue
+        group: Any = ("key", str(value).strip().casefold())
+        held = best.get(group)
+        if held is None or _later(row, held):
+            best[group] = row
+        title = str(cells.get("title") or "").strip().casefold()
+        if title:
+            title_groups.setdefault(title, set()).add(group)
+        group_places[group] = group_places.get(group, frozenset()) | _location_tokens(
+            cells.get("location")
+        )
+    # pass 2: the keyless rows
+    for row in rows:
+        cells = row["cells"]
+        value = cells.get(key)
+        if value is not None and str(value).strip():
+            continue
+        title = str(cells.get("title") or "").strip().casefold()
+        places = _location_tokens(cells.get("location"))
+        candidates = sorted(title_groups.get(title, ()), key=str)
+        group = next(
+            (g for g in candidates if places and group_places.get(g, frozenset()) & places), None
+        )
+        if group is None:
             fallback = tuple(str(cells.get(c) or "").casefold() for c in FALLBACK_KEY if c in cells)
-            if not any(fallback):
+            if not title or not any(fallback):
                 best[("row", row["row"])] = row
                 continue
-            group: Any = ("fallback", fallback)
-        else:
-            group = ("key", str(value).strip().casefold())
+            group = ("fallback", fallback)
         held = best.get(group)
         if held is None or _later(row, held):
             best[group] = row
@@ -526,7 +603,8 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
     ``MAX_FILTER_ROWS``: narrow the filter), deduplicated on ``distinct_on``, ordered, projected
     and bounded by ``limit`` (``truncated`` only then). On a multi-valued column, a
     ``contains``/``icontains`` predicate matches a whole list item first and a substring second;
-    a row that matched by substring alone comes back ``partial=true``."""
+    a row that matched by substring alone comes back ``partial=true``. An empty result carries
+    ``next``: the relax-one-predicate directive the model is to follow before answering."""
     where, params = _sql(query)
     found = await repo.table_rows(session, query.table.id, where, params, MAX_FILTER_ROWS + 1)
     if len(found) > MAX_FILTER_ROWS:
@@ -578,6 +656,15 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
         out["dedup_removed"] = removed
     if multi:
         out["partial_rows"] = partial
+    if matched == 0 and query.where:
+        # the directive the TABULAR_RULES promise at the point the decision is made (the model
+        # reads the result, then decides): a cloud sampler at near-tie logits goes both ways on
+        # prose rules; data it just received carries further
+        out["next"] = (
+            "0 rows matched. Before answering, relax exactly one predicate (status first, then"
+            " date) and query again with the same columns; then state the finding and name the"
+            " predicate you relaxed."
+        )
     return out
 
 

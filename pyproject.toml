@@ -100,6 +100,7 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 markers = [
     "eval: agent evaluation tests (golden set); run only in the eval gate",
+    "live: evals that call the real model (spend); nightly CI and on demand only",
     "requires_postgres: requires the scratch PostgreSQL test database",
     "large_file: generates a 1 GB+ file (runs only with RF_LARGE_FILE=1)",
 ]

@@ -1,13 +1,16 @@
 # Eval gate (D-50, D-51): a REQUIRED check on every pull request (branch protection: see
 # docs/evals/ci-and-budget.md). `replay` runs on every pull request (recorded model outputs and
-# provider cassettes; no network, no spend). `live` is required when prompts, model routing,
-# agent or grading code change; it needs a live budget and Workload Identity, and until both
-# exist it reports not_run, which BLOCKS the merge (E5: no override in code). `nightly` runs the
-# full set on a schedule. The routing governance check fails a routing change with no decision.
+# provider cassettes; no network, no spend). `live` (2026-10-17: the five tabular questions of
+# evals/tabular_gsk over the real GSK workspace fixture, Kimi K3 at temperature 0) runs on the
+# nightly schedule, on demand (workflow_dispatch) and on a prompt/routing change; with no
+# MOONSHOT_API_KEY secret it reports not_run, which BLOCKS the merge (E5: no override in
+# code). `nightly` runs the full set on a schedule. The routing governance check fails a
+# routing change with no decision.
 name: eval
 
 on:
   pull_request:
+  workflow_dispatch: # the live tabular eval on demand
   schedule:
     - cron: "17 2 * * *"
 
@@ -81,9 +84,27 @@ jobs:
         timeout-minutes: 30
         run: uv run --frozen pytest -m eval tests/evals -p no:cacheprovider
       - id: live
-        name: Live eval (needs a budget and Workload Identity; not configured)
-        if: needs.changes.outputs.model == 'true' || github.event_name == 'schedule'
-        run: echo "outcome=not_run" >> "$GITHUB_OUTPUT"
+        name: Live tabular eval (Kimi K3 on the real GSK workspace)
+        if: needs.changes.outputs.model == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          # the key is Ollama Cloud's (owner decision 2026-10-15)
+          MOONSHOT_BASE_URL: https://ollama.com/v1
+          MOONSHOT_API_DIALECT: ollama
+          MOONSHOT_MODEL: kimi-k3:cloud
+        timeout-minutes: 60
+        run: |
+          if [ -z "${MOONSHOT_API_KEY}" ]; then
+            echo "no MOONSHOT_API_KEY secret: the live tabular eval cannot run"
+            echo "outcome=not_run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if uv run --frozen pytest -m live tests/evals/test_tabular_gsk_live.py -p no:cacheprovider; then
+            echo "outcome=ran" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=ran" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
       - name: Gate (no override)
         run: |
           replay=$([ "${{ steps.replay.outcome }}" = "success" ] && echo ran || echo infrastructure_error)

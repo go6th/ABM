@@ -85,7 +85,7 @@ test-isolation: ## PostgreSQL tenant isolation hard gate
 
 test: ## Isolation suite first, then everything except evals
 	$(MAKE) test-isolation
-	$(TEST_ENV) $(UV) run --frozen pytest -m "not eval" --cov
+	$(TEST_ENV) $(UV) run --frozen pytest -m "not eval and not live" --cov
 
 check: ## Full pre-PR gate against a scratch database (needs psql)
 	DATABASE_URL="$(DATABASE_URL)" \
@@ -165,7 +165,7 @@ scan: ## Run secret, client-output, and canary-related security regression tests
 
 verify: ## Run local quality, contract, isolation, test, Terraform, and build checks
 	$(MAKE) lint types static contract test-isolation scan obs-verify
-	$(TEST_ENV) $(UV) run --frozen pytest -m "not eval"
+	$(TEST_ENV) $(UV) run --frozen pytest -m "not eval and not live"
 	npm --prefix web run lint
 	npm --prefix web test
 	$(MAKE) infra-fmt infra-validate build

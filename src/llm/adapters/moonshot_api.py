@@ -163,7 +163,7 @@ def request_body(
 ) -> dict[str, Any]:
     """The documented Chat Completions body for one call (``dialect`` picks the token field).
     ``tools`` are Anthropic-shaped, converted here; ``temperature`` (0 for a tabular turn) pins
-    sampling."""
+    sampling, and 0 pins the sampler's ``seed`` too (the eval's determinism bar)."""
     body: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -184,6 +184,10 @@ def request_body(
         body["tool_choice"] = "auto"
     if temperature is not None:
         body["temperature"] = temperature
+        if temperature == 0:
+            # the tabular turn's determinism bar (the same question, the same calls): pin the
+            # sampler's seed as well; ``seed`` is the documented OpenAI field both dialects take
+            body["seed"] = 0
     if stream:
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}

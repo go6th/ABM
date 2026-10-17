@@ -25,7 +25,12 @@ never the file type it came from); ``ShapeLog`` logs the decision once per membe
   location), each payload field unsplit; joining the parts with ``; `` gives the row back.
   Filterable columns are never split across parts. A table that would pass the passage cap
   raises ``TableIngestTruncated`` instead of dropping rows silently (documents keep the
-  ``truncated`` flag).
+  ``truncated`` flag). The table's record also carries what the question router matches a
+  natural question against: each column's natural forms (the header as written, lowercased and
+  punctuation-stripped, the normalised name with spaces, a date column's ``... date`` form) and
+  the distinct values of its low-cardinality text columns (50 at most; the items of a
+  multi-valued cell counted one by one), so "Open", "Platform owner" or "Salesforce" in a
+  question route to the table that holds them.
 
 Every passage carries its location (page, slide, section and character span, sheet and row,
 or the transcript's time range), which is what a fact cites. The text is the file's own text:
@@ -122,7 +127,10 @@ class Column:
     """One column of an ingested table: its normalised name, the header as written, the type
     tally of its non-empty cells and whether it is payload (not in the row's first part);
     ``lists`` tallies the text cells that hold a comma/semicolon/pipe list of short items, so
-    the column can be marked multi-valued (a fifth or more of its text cells do)."""
+    the column can be marked multi-valued (a fifth or more of its text cells do). ``values``
+    tallies the distinct short text values (the items of a list cell one by one) for the
+    router's value index, until the column goes past ``VALUE_INDEX_LIMIT`` distinct ones (then
+    it is dropped: no low-cardinality index)."""
 
     name: str
     raw: str
@@ -132,6 +140,7 @@ class Column:
     texts: int = 0
     booleans: int = 0
     lists: int = 0
+    values: dict[str, int] | None = field(default_factory=dict)
 
     @property
     def type(self) -> str:
@@ -168,6 +177,16 @@ class Column:
         elif kind == "text":
             self.texts += 1
 
+    def note_value(self, value: str) -> None:
+        """Count one distinct short text value for the router's value index; a column past
+        ``VALUE_INDEX_LIMIT`` distinct values drops the tally (no low-cardinality index)."""
+        if self.values is None or len(value) > VALUE_INDEX_CHARS:
+            return
+        if value not in self.values and len(self.values) >= VALUE_INDEX_LIMIT:
+            self.values = None
+            return
+        self.values[value] = self.values.get(value, 0) + 1
+
 
 @dataclass
 class TableSchema:
@@ -195,6 +214,14 @@ class TableSchema:
                     "texts": c.texts,
                     "booleans": c.booleans,
                     "lists": c.lists,
+                    # the router's lexicon: natural forms, and the value index of a
+                    # low-cardinality text column (never a payload column's long text)
+                    "aliases": column_aliases(c.raw, c.name, c.type),
+                    "values": (
+                        sorted(c.values, key=str.casefold)
+                        if c.values is not None and c.type == "text" and not c.payload
+                        else []
+                    ),
                 }
                 for c in self.columns
             ],
@@ -203,6 +230,11 @@ class TableSchema:
             "business_key": self.business_key,
             "row_count": self.rows,
         }
+
+
+# the router's value index: only a column with at most this many distinct short values gets one
+VALUE_INDEX_LIMIT = 50
+VALUE_INDEX_CHARS = 80
 
 
 def normalise_column(raw: str, taken: set[str], index: int) -> str:
@@ -216,6 +248,28 @@ def normalise_column(raw: str, taken: set[str], index: int) -> str:
         name = f"{base}_{n}"
     taken.add(name)
     return name
+
+
+_PUNCT = re.compile(r"[^a-z0-9 ]+")
+
+
+def column_aliases(raw: str, name: str, kind: str) -> list[str]:
+    """The natural forms a question may call this column (the router matches them): the header
+    as written, lowercased and punctuation-stripped; the normalised name with spaces; a date
+    column's ``... date`` forms ("first seen date" → ``first_seen``). Generated once at ingest
+    and kept in the table's record."""
+    forms = {
+        f
+        for f in {
+            " ".join(raw.strip().casefold().split()),
+            " ".join(_PUNCT.sub(" ", raw.casefold()).split()),
+            name.replace("_", " "),
+        }
+        if f
+    }
+    if kind == "date":
+        forms |= {f"{f} date" for f in list(forms)}
+    return sorted(forms)
 
 
 def typed_cell(value: Any) -> tuple[Any, str]:
@@ -538,8 +592,16 @@ class Chunker:
                 if value is None:
                     continue
                 column.tally(kind)
-                if kind == "text" and list_items(cell_text(value)):
-                    column.lists += 1
+                if kind == "text":
+                    items = list_items(cell_text(value))
+                    if items:
+                        column.lists += 1
+                    if not column.payload:
+                        if items:  # a list cell indexes its items (a platform name, not the string)
+                            for item in items:
+                                column.note_value(item)
+                        else:
+                            column.note_value(cell_text(value))
                 (payload if column.payload else short).append(f"{column.raw}: {cell_text(value)}")
             if not short and not payload:
                 continue

@@ -85,7 +85,7 @@ unannotated (the generator's check fails otherwise).
 | metrics stuck count clients | `src/account_intelligence/api/routes/tasks.py:471` | every client once per pass | last client |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
 | month normalisation | `src/jobs/window.py:15` | one iteration (month - 12 >= -11) | month in 1..12 |
-| moonshot stream | `src/llm/adapters/moonshot_api.py:314` | the server's chunks until [DONE] | [DONE], end |
+| moonshot stream | `src/llm/adapters/moonshot_api.py:318` | the server's chunks until [DONE] | [DONE], end |
 | narrative reread | `src/verify/narrative.py:74` | one verdict per sentence | all sentences decided |
 | notification relay | `src/spend/notify.py:224` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
 | notification relay clients | `src/account_intelligence/api/routes/tasks.py:417` | every client once per pass | last client |
@@ -96,7 +96,7 @@ unannotated (the generator's check fails otherwise).
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
 | part download | `src/account_intelligence/api/routes/downloads.py:151` | the range's bytes / 1 MiB | range sent |
-| passage split | `src/documents/chunking.py:283` | len(text) / (max_chars - overlap) + 1 spans | end of text |
+| passage split | `src/documents/chunking.py:337` | len(text) / (max_chars - overlap) + 1 spans | end of text |
 | people gap passes | `src/people/pipeline.py:362` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
 | people search paging | `src/people/search.py:127` | max_pages_per_source and max_people_per_run | converged, no_progress (no new person, cursor repeat, failed call), cap_reached, budget, deadline |
 | plan delimited parts | `src/documents/parts.py:158` | the file's lines | end of file |
@@ -112,8 +112,8 @@ unannotated (the generator's check fails otherwise).
 | provider job poll | `src/account_intelligence/connectors/paginate.py:154` | max_polls with a bounded interval | succeeded, failed, ProviderJobTimeout |
 | reindex clients | `src/documents/reindex.py:49` | the workspaces in scope once per run, `limit` documents each | last client |
 | reindex documents | `src/documents/reindex.py:53` | `limit` per client per run | rows exhausted |
-| reingest clients | `src/documents/tables_reingest.py:51` | every client once per run, `limit` documents each | last client |
-| reingest documents | `src/documents/tables_reingest.py:55` | `limit` per client per run | rows exhausted |
+| reingest clients | `src/documents/tables_reingest.py:55` | every client once per run, `limit` documents each | last client |
+| reingest documents | `src/documents/tables_reingest.py:61` | `limit` per client per run | rows exhausted |
 | relationship target prefix strip | `src/exports/ooxml.py:71` | the target's length (each pass removes at least one character) | no leading "../" or "/" left |
 | renderer output drain | `src/exports/word/renderer.py:82` | the byte cap (max_output_bytes or max_stderr_bytes) in 64 KiB reads | end of stream, cap exceeded (the process is killed) |
 | renderer re-run | `src/exports/word/renderer.py:179` | 1 + reruns (1) attempts per document | converged (rendered), cap_reached (RenderError) |
@@ -129,12 +129,12 @@ unannotated (the generator's check fails otherwise).
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
 | stall marking | `src/account_intelligence/runs/sweeper.py:164` | batch_size runs per pass | rows exhausted |
-| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:295` | the pieces in the text received so far | no complete piece left, a refused piece |
+| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:339` | the pieces in the text received so far | no complete piece left, a refused piece |
 | stuck scan | `src/obs/stuck.py:79` | keyset pages of `page` runs until none remain | all scanned |
 | table export pages | `src/account_intelligence/replica/table_export.py:49` | the table's rows / page pages | a short page |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
 | tool rounds | `src/account_intelligence/chat/service.py:338` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
-| tool rounds | `src/account_intelligence/chat/service.py:459` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
+| tool rounds | `src/account_intelligence/chat/service.py:463` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
 | topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |
 | topological sort | `src/account_intelligence/workflow/spec.py:58` | number of stages (each pass removes at least one or raises) | ordered, cycle error |
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:248` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
@@ -143,8 +143,8 @@ unannotated (the generator's check fails otherwise).
 | union-find path compression | `src/people/merge.py:81` | the same path length | root reached |
 | union-find path walk | `src/jobs/dedupe.py:60` | number of identities (path halving) | root found |
 | union-find root walk | `src/people/merge.py:78` | number of records (each step moves to a parent; unions always point the larger root at the smaller, so there is no cycle) | root reached |
-| unique column name | `src/documents/chunking.py:214` | the table's columns | a name no column has |
-| unique table name | `src/documents/tables.py:266` | the workspace's tables | a name no table has |
+| unique column name | `src/documents/chunking.py:246` | the table's columns | a name no column has |
+| unique table name | `src/documents/tables.py:276` | the workspace's tables | a name no table has |
 | verification batch | `src/verify/claims.py:110` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
 | walk to verifying | `src/account_intelligence/runs/lifecycle.py:594` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |

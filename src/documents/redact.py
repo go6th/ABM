@@ -16,7 +16,7 @@ original document is kept unchanged in object storage.
 
 GUARANTEE(test_redaction_tiers_redact_what_they_promise)
 
-GUARANTEE(test_a_seeded_pii_cell_never_reaches_the_store_index_or_tools)  # brief acceptance 13
+GUARANTEE(test_pii_never_reaches_store_or_tools)  # brief acceptance 13
 """
 
 from __future__ import annotations

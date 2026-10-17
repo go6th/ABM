@@ -10,7 +10,12 @@ the model no longer reads ten retrieved passages and guesses. It is given two to
 spreadsheet itself: `describe_table` (what columns the sheet has, their types, a few sample
 values, how many rows) and `query_table` (filter, project, sort, deduplicate; always the
 complete set of matching rows, never a sample). The answer is computed, cited by row number,
-and the same every time: the tool calls are deterministic and the model runs at temperature 0.
+and held to one reading: temperature 0 with the sampler's seed pinned; the live eval asks each
+question five times and three of the five canonical tool-call traces must be identical (a batched
+cloud model is not bit-identical; the EVIDENCE decisions must converge — a trace's canon keeps
+only the filtered `query_table` calls and the `read_rows` calls on the case's target table and
+folds away what provably cannot change a result: the projection, the order-insensitive lists, an
+`icontains` value's case; describe, other-table and where-less calls are exploration, not judged).
 
 Files uploaded **before** this change have their rows indexed as passages only. Run
 `reingest-tables` once (below) so their tables appear in the store; until then such a question
@@ -23,9 +28,9 @@ Before anything is retrieved, each Ask question gets a route and a reason (logge
 
 | Route | When | What the model gets |
 |---|---|---|
-| `prose` | the workspace has no ingested table; or the question has no filter word and no column name and the fallback says prose | retrieval and the whole file, as before |
-| `tabular` | a filter word (list, how many, count, which, all, every, where, with, after, before, since, between, on or after, open, closed, first seen, last seen, unique, duplicate, sorted...) **or** a column name of one of the tables appears in the question, and no prose word does | `describe_table` + `query_table` only; no passages; temperature 0 |
-| `mixed` | filter words or column names **and** prose words (why, explain, summarise, describe, tell me about, what does, overview, recommend, strategy...); or no rule fires and the fallback cannot decide | tools and retrieval both |
+| `prose` | the workspace has no ingested table; or only prose words matched (nothing tabular did); or the fallback says prose | retrieval and the whole file, as before |
+| `tabular` | a natural form of a column (aliases, stored at ingest: the header as written, lowercased and punctuation-stripped, the normalised name, a date column's "… date" form) **or** a value of a low-cardinality text column (50 short distinct values at most, stored likewise — "Open", "Salesforce", "Platform owner") appears in the question, and no prose word does; a trailing plural `s` counts | `describe_table` + `query_table` only; no passages; temperature 0 |
+| `mixed` | a column or value hit **and** prose words (why, explain, summarise, describe, tell me about, what does, overview, recommend, strategy...); **or a filter word with no column or value hit** (list, how many, count, which, all, every, where, after, before, since, between, on or after, open, closed, unique, duplicate, sorted... — retrieval alone would answer from a sample, so the tools are always offered); or no rule fires and the fallback cannot decide | tools and retrieval both |
 
 The fallback classification (no rule fired, tables exist) is one short, non-streamed call to the
 conversation's Claude model at temperature 0 whose reply must be exactly `{"route": ...}`
@@ -59,7 +64,10 @@ seen in the turn (a query on an undescribed table is refused with `describe_firs
 ```
 
 Result: `{"table", "rows": [{"table", "row", "member", "cells": {...}}], "row_count",
-"truncated", "applied_where", "deduped_on", "dedup_removed"}`. `row_count` is the number of
+"truncated", "applied_where", "deduped_on", "dedup_removed"}`, plus `next` when a filtered
+query matched nothing — the directive to relax exactly one predicate (status first, then date)
+and query again before answering.
+ `row_count` is the number of
 matching rows (after `distinct_on`); `truncated` is true only when `limit` was hit; more than
 5,000 matches is the structured error `filter_too_wide` (narrow the filter), never a silent
 cut. Every row carries `{table, row, member}`, so `documents.chunking.cite` cites it as it cites
@@ -70,7 +78,9 @@ Semantics: `eq`/`neq`/`in` on text are case-insensitive; dates compare as dates 
 `YYYY-MM-DD`), numbers as numbers; `contains`/`icontains` match a whole item of a multi-valued
 cell ("Veeva, Salesforce") or a substring; `is_null` is an empty cell too. `distinct_on` keeps,
 per key, the row with the latest `last_seen` (else the lowest row number); a row without the
-key collapses on `title` + `location` when the table has them, else stays apart.
+key — a re-scrape that lost its id — merges onto the keyed row of the same title whose location
+shares a real place word (continent/cardinal words do not count), and apart from that falls
+back to title + location when the table has them, else stays apart.
 
 Safety: the SQL is built from the column whitelist of the schema and bound parameters only;
 the caller's words never reach the SQL text. Unknown tables, columns, operators and badly typed
@@ -141,10 +151,14 @@ documents show "parsing" then "indexed" again in the file list while it runs.
 
 ## Observability
 
-Every Ask turn logs `ask.route` with `route`, `reason`, `outcome` (model or local),
+Every Ask turn logs `ask.route` with `route`, `reason`, `matched_columns` and
+`matched_values` (the lexicon hits that carried the route — column names and low-cardinality
+value terms, never free text), `outcome` (model or local),
 `tools_called`, `predicates` (column and operator only, never values), `row_count` (the last
 query's), `relaxed_predicate` (the one column the model dropped between two queries of the same
-table), `dedup_removed` and `empty_results`. Metrics (`config/telemetry/metrics.yaml`):
+table), `dedup_removed` and `empty_results`. With tables in the workspace an answer whose text
+carries a re-export/missing-rows refusal phrase logs `ask.answer_refusal` (warning; the live
+eval fails on the same phrases). Metrics (`config/telemetry/metrics.yaml`):
 `ask_routes_total{route}` (the tabular share is the `tabular` series over the sum) and
 `ask_table_queries_total{empty_result}` (the empty-result rate).
 

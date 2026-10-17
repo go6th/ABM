@@ -1,11 +1,12 @@
 """The golden GSK question end to end (tabular questions, 2026-10-17), against the SYNTHETIC
-workbook of ``tests.documents.fixtures`` (the owner's real file is not in the repository): the
+workbook of ``tests.documents.fixtures`` (the owner's real file is exercised by
+``tests/documents/test_tables_real_gsk.py`` and the live eval in ``tests/evals``): the
 router sends it to the table tools; a model that follows the tabular rules (scripted here: no
 live model call) describes the table, queries it with the three predicates, finds nothing,
 relaxes the status alone, deduplicates on the requisition and names the false positives; the
 answer is the same, byte for byte, five runs over.
 
-GUARANTEE(test_the_golden_gsk_question_answers_identically_five_times)
+GUARANTEE(test_the_golden_gsk_question_answers_identically_five_times_with_stub_model)
 """
 
 from __future__ import annotations
@@ -159,7 +160,7 @@ async def _run_once(
     return model.calls, tools.stats(), model.text, events
 
 
-async def test_the_golden_gsk_question_answers_identically_five_times(
+async def test_the_golden_gsk_question_answers_identically_five_times_with_stub_model(
     tenant_a: UUID, tmp_path: Path
 ) -> None:
     domain = f"gsk-{uuid4().hex[:6]}.example"

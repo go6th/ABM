@@ -16,7 +16,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from documents.chunking import Passage
+from documents.chunking import VALUE_INDEX_LIMIT, Passage, column_aliases
 from documents.embed import literal
 
 _COLS = (
@@ -961,9 +961,10 @@ async def set_table_schema(s: AsyncSession, table_id: UUID, record: dict[str, An
         into = merged.setdefault(
             name,
             {"name": name, "raw": column.get("raw", name), "payload": False, "dates": 0,
-             "numbers": 0, "texts": 0, "lists": 0},
+             "numbers": 0, "texts": 0, "lists": 0, "values": set()},
         )  # fmt: skip
         into["payload"] = bool(into["payload"] or column.get("payload"))
+        into["values"] |= set(column.get("values") or ())
         for kind in ("dates", "numbers", "texts", "lists"):
             into[kind] += int(column.get(kind) or 0)
     for column in merged.values():
@@ -977,6 +978,18 @@ async def set_table_schema(s: AsyncSession, table_id: UUID, record: dict[str, An
         )
         # multi-valued: a fifth or more of the text cells hold a list of short items
         column["multi_valued"] = bool(texts and column["lists"] * LIST_TALLY_REQUIRED >= texts)
+        # the router's lexicon, from the column as merged: its natural forms, and the value
+        # index when the column stayed low-cardinality (the ingest's cap applies here too)
+        column["aliases"] = column_aliases(
+            str(column["raw"]), str(column["name"]), str(column["type"])
+        )
+        column["values"] = (
+            sorted(column["values"], key=str.casefold)
+            if column["type"] == "text"
+            and not column["payload"]
+            and 0 < len(column["values"]) <= VALUE_INDEX_LIMIT
+            else []
+        )
     columns = list(merged.values())
     await s.execute(
         text(
@@ -1070,6 +1083,20 @@ async def documents_without_tables(s: AsyncSession, limit: int) -> list[Any]:
         {"n": limit},
     )
     return list(rows.all())
+
+
+async def tables_held(s: AsyncSession) -> tuple[int, int]:
+    """The tables and table rows this tenant's store holds right now (the reingest report's
+    per-workspace numbers)."""
+    row = (
+        await s.execute(
+            text(
+                "SELECT (SELECT count(*) FROM document_tables),"
+                " (SELECT count(*) FROM document_table_rows)"
+            )
+        )
+    ).one()
+    return int(row[0]), int(row[1])
 
 
 async def reset_for_reparse(s: AsyncSession, document_id: UUID) -> bool:

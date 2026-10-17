@@ -113,7 +113,7 @@ jobs:
           PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           uv run --frozen pytest tests/isolation -x -p no:cacheprovider
-          uv run --frozen pytest -m "not eval" -p no:cacheprovider -W error::pytest.PytestWarning --cov
+          uv run --frozen pytest -m "not eval and not live" -p no:cacheprovider -W error::pytest.PytestWarning --cov
 
   infra:
     runs-on: ubuntu-latest

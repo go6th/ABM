@@ -17,6 +17,8 @@ gha-creds-*.json
 docs/sources/
 _review/
 *.zip
+# the real GSK workspace fixture is the golden/live tabular eval's truth: it IS committed
+!tests/fixtures/gsk/*.zip
 
 *.log
 .DS_Store

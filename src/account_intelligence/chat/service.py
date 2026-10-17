@@ -419,8 +419,12 @@ class MoonshotChatProvider:
 
     supports_tools = True
 
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, *, effort: str = "low") -> None:
         self._client = client
+        # chat stays snappy ("low"); the live tabular eval asks for "high" — at temperature 0
+        # one more reasoning pass is what makes the model FOLLOW the relax/order rules instead
+        # of flipping a coin at them
+        self._effort = effort
 
     async def stream(
         self,
@@ -466,7 +470,7 @@ class MoonshotChatProvider:
                 system_instruction,
                 request_messages,
                 max_tokens=max_output_tokens,
-                effort="low",
+                effort=self._effort,
                 tools=tools,
                 temperature=temperature,
             ):

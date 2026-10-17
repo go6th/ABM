@@ -54,7 +54,7 @@ from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica import obs as ask_obs
 from account_intelligence.replica import router as R
-from account_intelligence.replica.model_answer import stream_with_model
+from account_intelligence.replica.model_answer import refusal_phrase, stream_with_model
 from account_intelligence.replica.settings import touch_activity
 from account_intelligence.replica.tools import AccessTools
 from documents import tables as T
@@ -151,6 +151,7 @@ async def ask(
             provider = _provider_for(request, service, analysis_model)
             tools: AccessTools | None = None
             decision = R.Decision("prose", "no table in the workspace")
+            found: list[T.TableInfo] = []
             async with tenant_txn(ident.tenant_id) as session:
                 ws = await A.load_workspace(
                     session,
@@ -259,6 +260,8 @@ async def ask(
                 extra={
                     "request_id": str(body.request_id),
                     "route": decision.route,
+                    "matched_columns": ",".join(decision.matched_columns)[:200],
+                    "matched_values": ",".join(decision.matched_values)[:200],
                     "reason": decision.reason[:200],
                     "outcome": "model" if from_model else "local",
                     "latency_ms": round((time.monotonic() - turn_started) * 1000),
@@ -277,6 +280,13 @@ async def ask(
                 (choice.name if choice else model_id) if from_model else None
             )
             plain = A.plain_text(answer["paragraphs"])[:100_000] or " "
+            # the refusal guard rail (the eval fails on the same phrases): with tables in the
+            # workspace an answer must never send the user away to re-export a file
+            if found and from_model and refusal_phrase(plain):
+                log.warning(
+                    "ask.answer_refusal",
+                    extra={"request_id": str(body.request_id), "route": decision.route},
+                )
             async with audited_txn(
                 request,
                 audit_class="run",

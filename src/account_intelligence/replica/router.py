@@ -11,14 +11,24 @@ answers:
 * ``prose``: retrieval, as before.
 
 The decision is (a) whether the workspace holds any table at all (none: ``prose``), (b) a cheap
-rule set: filter words (list, how many, which, all ... where / with / after / before / since,
-count, open, closed...) and column names of the tables appearing in the question, against
-prose words (why, explain, summarise, describe...), and (c) when no rule fires, a model
-classification at temperature 0 with a strict JSON schema (``LlmRouteClassifier``; optional,
+rule set that matches the question against the tables' own words taken at ingest
+(``documents.chunking`` keeps them in each column's record): the column names in their natural
+forms (the header as written, lowercased and punctuation-stripped, the normalised name with
+spaces, a date column's "… date" form) and the distinct values of low-cardinality text columns
+("Open", "Platform owner", "Salesforce"), against filter words (list, how many, which, all ...
+where / with / after / before / since, count, open, closed...) and prose words (why, explain,
+summarise, describe...). A column or value hit routes ``tabular`` (``mixed`` when prose words
+sit alongside); a filter word without any hit routes ``mixed`` — retrieval-only answers a
+tabular question from a sample, so it needs the question to match nothing tabular at all;
+prose words alone stay ``prose``; and (c) when no rule fires, a model classification at
+temperature 0 with a strict JSON schema (``LlmRouteClassifier``; optional,
 ``ASK_ROUTE_LLM_FALLBACK``), else ``mixed``, which offers both. Every decision carries its
-reason, which the Ask route logs (``ask.route``).
+reason and what it matched, which the Ask route logs (``ask.route``: route, matched_columns,
+matched_values, reason).
 
 GUARANTEE(test_the_router_sends_filter_questions_to_the_table_tools)
+
+GUARANTEE(test_natural_phrasing_routes_tabular_or_mixed_and_a_summary_stays_prose)
 """
 
 from __future__ import annotations
@@ -107,26 +117,54 @@ Classifier = Callable[[str, Sequence[str]], Awaitable[str | None]]
 
 @dataclass(frozen=True)
 class Decision:
-    """The route and why."""
+    """The route, why, and what the question matched (column names and low-cardinality
+    values, for the turn's log line)."""
 
     route: str
     reason: str
+    matched_columns: tuple[str, ...] = ()
+    matched_values: tuple[str, ...] = ()
 
 
 def _hits(words: Sequence[str], question: str) -> list[str]:
     return [w for w in words if re.search(rf"(?<![\w-]){re.escape(w)}(?![\w-])", question)]
 
 
-def column_hits(question: str, tables: Sequence[TableInfo]) -> list[str]:
-    """Column names of the workspace's tables (as written, or normalised with spaces) that the
-    question names; one- to three-letter names are ignored (``id``, ``row``)."""
-    found: set[str] = set()
+def _forms_hit(forms: set[str], question: str) -> set[str]:
+    """The alias or value forms the question names; a trailing plural ``s`` on the question's
+    word counts ("platform owners" matches the ``class`` value "Platform owner")."""
+    return {
+        f
+        for f in forms
+        if len(f) >= 4 and re.search(rf"(?<![\w-]){re.escape(f)}s?(?![\w-])", question)
+    }
+
+
+def column_hits(question: str, tables: Sequence[TableInfo]) -> dict[str, list[str]]:
+    """The columns whose natural forms the question names (aliased at ingest: the header as
+    written, lowercased and punctuation-stripped, the normalised name with spaces, a date
+    column's "… date" form), by column name. One- to three-letter forms are ignored
+    (``id``, ``row``)."""
+    found: dict[str, set[str]] = {}
     for table in tables:
         for column in table.columns:
-            for form in {column.raw.casefold(), column.name.replace("_", " ")}:
-                if len(form) >= 4 and _hits((form,), question):
-                    found.add(column.name)
-    return sorted(found)
+            forms = set(column.aliases) or {column.raw.casefold(), column.name.replace("_", " ")}
+            matched = _forms_hit(forms, question)
+            if matched:
+                found.setdefault(column.name, set()).update(matched)
+    return {name: sorted(forms) for name, forms in found.items()}
+
+
+def value_hits(question: str, tables: Sequence[TableInfo]) -> dict[str, list[str]]:
+    """The low-cardinality values the question names ("Open", "Platform owner", "Salesforce"),
+    by the column holding them: the value routes the question to that column's table."""
+    found: dict[str, set[str]] = {}
+    for table in tables:
+        for column in table.columns:
+            matched = _forms_hit({v.casefold() for v in column.values if len(v) >= 4}, question)
+            if matched:
+                found.setdefault(column.name, set()).update(matched)
+    return {name: sorted(values) for name, values in found.items()}
 
 
 def rule_route(question: str, tables: Sequence[TableInfo]) -> Decision | None:
@@ -136,13 +174,29 @@ def rule_route(question: str, tables: Sequence[TableInfo]) -> Decision | None:
     q = " ".join(question.casefold().split())
     verbs = _hits(FILTER_WORDS, q)
     columns = column_hits(q, tables)
+    values = value_hits(q, tables)
     prose = _hits(PROSE_WORDS, q)
-    if not verbs and not columns:
-        return None
-    what = f"filter words {verbs[:4]}, columns {columns[:4]}"
+    matched_columns = sorted(set(columns) | set(values))
+    matched_values = sorted({v for found in values.values() for v in found})
+    what = f"filter words {verbs[:4]}, columns {matched_columns[:4]}, values {matched_values[:4]}"
+    if columns or values:
+        return Decision(
+            "mixed" if prose else "tabular",
+            f"{what}; prose words {prose[:3]}" if prose else what,
+            tuple(matched_columns),
+            tuple(matched_values),
+        )
+    if verbs:
+        # a tabular-sounding verb that matches nothing still gets the tools (mixed), never
+        # retrieval only: retrieval would answer it from a sample
+        return Decision(
+            "mixed",
+            f"{what} (no column or value matched)"
+            + (f"; prose words {prose[:3]}" if prose else ""),
+        )
     if prose:
-        return Decision("mixed", f"{what} with prose words {prose[:3]}")
-    return Decision("tabular", what)
+        return Decision("prose", f"prose words {prose[:3]}, nothing tabular matched")
+    return None
 
 
 async def route(
