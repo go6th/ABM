@@ -245,6 +245,9 @@ class Workspace:
     passages: list[Row] = field(default_factory=list)
     # the best-matching uploaded file, whole, when it fits the budget (take_whole_file)
     whole_files: list[Row] = field(default_factory=list)
+    # the ingested tables of the caller's files the model may query (table_rows; the Ask
+    # route fills it, with the table tools, for a tabular or mixed question)
+    tables: list[Row] = field(default_factory=list)
     tracker: list[Row] = field(default_factory=list)
     reports: list[Row] = field(default_factory=list)
 
@@ -617,6 +620,33 @@ async def passage_rows(
                 url=None,
                 grade="internal",
                 extra={"quote": p.content[:300], "passage": True},
+            )
+        )
+    return out
+
+
+def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
+    """The workspace's ingested tables (``documents.tables.list_tables``) as citable rows: the
+    model cites the table it queried, and the answer's source list names the file."""
+    by_id = {a.id: a for a in ws.accounts}
+    out = []
+    for t in tables:
+        acct = by_id.get(t.account_id)
+        if acct is None:
+            continue
+        columns = ", ".join(c.raw for c in t.columns if not c.payload)[:400]
+        out.append(
+            Row(
+                key=f"table:{t.id}",
+                kind="file",
+                account=acct,
+                text=f"{t.document}, table {t.name}: {t.row_count} rows; columns: {columns}",
+                title=f"From your files: {t.document} (table {t.name})",
+                meta=f"Internal · {t.row_count} rows, queried whole",
+                when=None,
+                url=None,
+                grade="internal",
+                extra={"table": t.name, "document": t.document, "rows": t.row_count},
             )
         )
     return out

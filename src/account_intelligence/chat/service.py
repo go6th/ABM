@@ -1,9 +1,18 @@
-"""Server-only streaming provider adapter and bounded chat request validation."""
+"""Server-only streaming provider adapter and bounded chat request validation.
+
+Tools (2026-10-17): the Anthropic provider runs a bounded tool loop when a turn offers tools
+(``describe_table`` and ``query_table`` for tabular questions): a round that ends in
+``tool_use`` has its tool calls executed by the caller's ``run_tool`` and their results sent
+back, up to ``MAX_TOOL_ROUNDS`` rounds, and only the last round's text is the answer (text the
+model wrote before calling a tool is withdrawn with a ``discard`` event). Moonshot offers no
+tools; a tabular turn there answers through retrieval.
+"""
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal, Protocol
@@ -196,15 +205,26 @@ class ChatUsage:
 
 @dataclass(frozen=True)
 class ChatEvent:
-    """One streamed text delta, final provider usage, or terminal refusal."""
+    """One streamed text delta, a tool call the provider ran (name, input and result), a
+    ``discard`` (the text streamed so far in this turn was written before a tool call and is
+    withdrawn), or the final provider usage."""
 
-    kind: Literal["text", "usage"]
+    kind: Literal["text", "usage", "tool", "discard"]
     text: str = ""
     usage: ChatUsage | None = None
+    tool: Mapping[str, Any] | None = None
+
+
+# a tool call the model makes: name and input in, a JSON-serialisable result out
+ToolRunner = Callable[[str, dict[str, Any]], Awaitable[Any]]
+MAX_TOOL_ROUNDS = 12
+TOOL_RESULT_MAX_CHARS = 200_000
 
 
 class ChatProvider(Protocol):
     """A streaming provider adapter; API keys are held only in this server object."""
+
+    supports_tools: bool
 
     def stream(
         self,
@@ -218,10 +238,15 @@ class ChatProvider(Protocol):
         context: str = "",
         system: str | None = None,
         cached: str | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        run_tool: ToolRunner | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Yield bounded text deltas followed by exactly one final usage event. ``system``
         replaces the grounded rules; ``cached`` is large data (a whole file) appended to the
-        system prompt in a block the provider may cache across turns."""
+        system prompt in a block the provider may cache across turns; ``tools`` (with
+        ``run_tool``) lets the model call them, each call and its result yielded as a ``tool``
+        event; ``temperature`` pins sampling (0 for a tabular turn)."""
         ...
 
 
@@ -259,6 +284,8 @@ def grounded_system_prompt(context: str, max_output_tokens: int) -> str:
 class AnthropicChatProvider:
     """The first-party Anthropic Messages API over the SDK client already wired at startup."""
 
+    supports_tools = True
+
     def __init__(self, client: Any) -> None:
         self._client = client
 
@@ -274,12 +301,18 @@ class AnthropicChatProvider:
         context: str = "",
         system: str | None = None,
         cached: str | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        run_tool: ToolRunner | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Stream text and final token counts; provider exceptions retain no user text.
         ``system`` replaces the default grounded rules (the Ask answer format supplies its own);
         ``cached`` (a whole file) is a second system block with a cache breakpoint, so the same
-        file is billed in full once per cache life and at the cached rate after."""
-        request_messages = [
+        file is billed in full once per cache life and at the cached rate after. With ``tools``
+        the model may call them: each round that ends in a tool call runs the calls through
+        ``run_tool``, sends the results back and streams the next round; the usage event sums
+        every round."""
+        request_messages: list[dict[str, Any]] = [
             {"role": message.role, "content": message.content} for message in messages
         ]
         system_instruction = system or grounded_system_prompt(context, max_output_tokens)
@@ -289,31 +322,102 @@ class AnthropicChatProvider:
                 {"type": "text", "text": system_instruction},
                 {"type": "text", "text": cached, "cache_control": {"type": "ephemeral"}},
             ]
-        async with self._client.messages.stream(
-            model=model.id,
-            max_tokens=max_output_tokens,
-            system=system_blocks,
-            messages=request_messages,
-        ) as stream:
-            async for delta in stream.text_stream:
-                if delta:
-                    yield ChatEvent("text", text=str(delta))
-            final = await stream.get_final_message()
-        usage = final.usage
+        request: dict[str, Any] = {
+            "model": model.id,
+            "max_tokens": max_output_tokens,
+            "system": system_blocks,
+        }
+        if tools:
+            request["tools"] = [dict(t) for t in tools]
+        if temperature is not None:
+            request["temperature"] = temperature
+        totals = [0, 0, 0, 0]
+        rounds = 0
+        # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer; exit=the model
+        # stops without a tool call, or no tool runner
+        while True:
+            wrote = False
+            async with self._client.messages.stream(**request, messages=request_messages) as stream:
+                async for event in stream:
+                    if getattr(event, "type", None) == "text" and event.text:
+                        wrote = True
+                        yield ChatEvent("text", text=str(event.text))
+                final = await stream.get_final_message()
+            usage = final.usage
+            totals[0] += int(getattr(usage, "input_tokens", 0) or 0)
+            totals[1] += int(getattr(usage, "output_tokens", 0) or 0)
+            totals[2] += int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+            totals[3] += int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+            calls = [b for b in final.content if getattr(b, "type", None) == "tool_use"]
+            if not calls or run_tool is None or rounds >= MAX_TOOL_ROUNDS:
+                break
+            rounds += 1
+            if wrote:
+                yield ChatEvent("discard")  # text before a tool call is not the answer
+            results: list[dict[str, Any]] = []
+            for call in calls:
+                arguments = dict(call.input or {})
+                result = await run_tool(str(call.name), arguments)
+                yield ChatEvent(
+                    "tool", tool={"name": call.name, "input": arguments, "result": result}
+                )
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": call.id,
+                        "content": _tool_result_text(result),
+                    }
+                )
+            request_messages.append({"role": "assistant", "content": _blocks(final.content)})
+            request_messages.append({"role": "user", "content": results})
         yield ChatEvent(
             "usage",
             usage=ChatUsage(
-                input_tokens=int(getattr(usage, "input_tokens", 0)),
-                output_tokens=int(getattr(usage, "output_tokens", 0)),
-                cache_read_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0),
-                cache_write_tokens=int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
+                input_tokens=totals[0],
+                output_tokens=totals[1],
+                cache_read_tokens=totals[2],
+                cache_write_tokens=totals[3],
             ),
         )
 
 
+def _blocks(content: Sequence[Any]) -> list[dict[str, Any]]:
+    """The assistant turn as the API takes it back: its text and tool_use blocks only."""
+    out: list[dict[str, Any]] = []
+    for block in content:
+        kind = getattr(block, "type", None)
+        if kind == "text" and getattr(block, "text", ""):
+            out.append({"type": "text", "text": str(block.text)})
+        elif kind == "tool_use":
+            out.append(
+                {
+                    "type": "tool_use",
+                    "id": str(block.id),
+                    "name": str(block.name),
+                    "input": dict(block.input or {}),
+                }
+            )
+    return out
+
+
+def _tool_result_text(result: Any) -> str:
+    """A tool result as the model reads it (JSON, bounded)."""
+    text = json.dumps(result, ensure_ascii=False, default=str, sort_keys=True)
+    if len(text) > TOOL_RESULT_MAX_CHARS:
+        text = json.dumps(
+            {"error": {"code": "result_too_large", "message": "narrow the query (columns, limit)"}}
+        )
+    return text
+
+
 class MoonshotChatProvider:
     """Kimi K3 for Ask (owner decision 2026-10-14): the same events as the Anthropic provider,
-    from Moonshot's streamed Chat Completions (``llm.adapters.moonshot_api``)."""
+    from Moonshot's streamed Chat Completions (``llm.adapters.moonshot_api``), including the
+    tool loop (the table tools on a tabular turn): OpenAI-style tool deltas assemble into the
+    round's calls, their results go back as ``tool`` messages and only the last round's text is
+    the answer. Moonshot caches nothing."""
+
+    supports_tools = True
 
     def __init__(self, client: Any) -> None:
         self._client = client
@@ -330,30 +434,86 @@ class MoonshotChatProvider:
         context: str = "",
         system: str | None = None,
         cached: str | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        run_tool: ToolRunner | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Stream text and final token counts; provider exceptions retain no user text. The
-        whole file (``cached``) rides in the system prompt; Moonshot caches nothing."""
+        whole file (``cached``) rides in the system prompt. With ``tools`` the model may call
+        them: each round's accumulated calls run through ``run_tool``, their results go back
+        and the next round streams; a call whose arguments were not JSON is answered with a
+        structured error instead of running."""
+        from llm.adapters import moonshot_api as k
+
         del user_id, request_id, fresh_output
-        async for kind, value in self._client.stream(
-            model.id,
-            (system or grounded_system_prompt(context, max_output_tokens))
-            + (f"\n\n{cached}" if cached else ""),
-            [{"role": m.role, "content": m.content} for m in messages],
-            max_tokens=max_output_tokens,
-            effort="low",
-        ):
-            if kind == "text":
-                yield ChatEvent("text", text=str(value))
-            else:
+        system_instruction = (system or grounded_system_prompt(context, max_output_tokens)) + (
+            f"\n\n{cached}" if cached else ""
+        )
+        request_messages: list[dict[str, Any]] = [
+            {"role": m.role, "content": m.content} for m in messages
+        ]
+        totals = [0, 0, 0, 0]
+        rounds = 0
+        # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer; exit=the model
+        # stops without a tool call, or no tool runner
+        while True:
+            wrote = False
+            text: list[str] = []
+            calls: list[k.ToolCall] = []
+            usage: Any = None
+            async for kind, value in self._client.stream(
+                model.id,
+                system_instruction,
+                request_messages,
+                max_tokens=max_output_tokens,
+                effort="low",
+                tools=tools,
+                temperature=temperature,
+            ):
+                if kind == "text":
+                    wrote = True
+                    text.append(str(value))
+                    yield ChatEvent("text", text=str(value))
+                elif kind == "tools":
+                    calls = list(value)
+                else:
+                    usage = value
+            if usage is not None:
+                totals[0] += int(usage.input_tokens)
+                totals[1] += int(usage.output_tokens)
+                totals[2] += int(usage.cache_read_input_tokens or 0)
+                totals[3] += int(usage.cache_creation_input_tokens or 0)
+            if not calls or run_tool is None or rounds >= MAX_TOOL_ROUNDS:
+                break
+            rounds += 1
+            if wrote:
+                yield ChatEvent("discard")  # text before a tool call is not the answer
+            results: list[dict[str, Any]] = []
+            for call in calls:
+                if call.input is None:
+                    result: Any = {
+                        "error": {
+                            "code": "bad_arguments",
+                            "message": "tool arguments were not a JSON object",
+                        }
+                    }
+                else:
+                    result = await run_tool(call.name, call.input)
                 yield ChatEvent(
-                    "usage",
-                    usage=ChatUsage(
-                        input_tokens=value.input_tokens,
-                        output_tokens=value.output_tokens,
-                        cache_read_tokens=value.cache_read_input_tokens or 0,
-                        cache_write_tokens=value.cache_creation_input_tokens or 0,
-                    ),
+                    "tool", tool={"name": call.name, "input": call.input or {}, "result": result}
                 )
+                results.append(k.tool_result(call, _tool_result_text(result)))
+            request_messages.append(k.assistant_round("".join(text), calls))
+            request_messages.extend(results)
+        yield ChatEvent(
+            "usage",
+            usage=ChatUsage(
+                input_tokens=totals[0],
+                output_tokens=totals[1],
+                cache_read_tokens=totals[2],
+                cache_write_tokens=totals[3],
+            ),
+        )
 
 
 class ProviderByModel:

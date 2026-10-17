@@ -95,8 +95,16 @@ def test_estimates_and_actual_cost_include_cache_usage() -> None:
 async def test_anthropic_adapter_streams_only_text_and_final_usage() -> None:
     calls: list[dict[str, Any]] = []
 
+    class TextEvent:
+        type = "text"
+
+        def __init__(self, text: str) -> None:
+            self.text = text
+
     class ProviderStream:
-        text_stream = iter(())
+        async def __aiter__(self) -> Any:
+            yield TextEvent("Hello")
+            yield TextEvent(" world")
 
         async def __aenter__(self) -> ProviderStream:
             return self
@@ -106,28 +114,20 @@ async def test_anthropic_adapter_streams_only_text_and_final_usage() -> None:
 
         async def get_final_message(self) -> Any:
             return SimpleNamespace(
+                content=[],
+                stop_reason="end_turn",
                 usage=SimpleNamespace(
                     input_tokens=3,
                     output_tokens=2,
                     cache_read_input_tokens=1,
                     cache_creation_input_tokens=0,
-                )
+                ),
             )
-
-    class TextStream:
-        def __aiter__(self):
-            async def chunks():
-                yield "Hello"
-                yield " world"
-
-            return chunks()
 
     @asynccontextmanager
     async def stream(**kwargs: Any):
         calls.append(kwargs)
-        current = ProviderStream()
-        current.text_stream = TextStream()
-        yield current
+        yield ProviderStream()
 
     client = SimpleNamespace(messages=SimpleNamespace(stream=stream))
     provider = AnthropicChatProvider(client)

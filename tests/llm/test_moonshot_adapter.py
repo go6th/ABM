@@ -126,6 +126,100 @@ async def test_a_stream_yields_text_then_one_usage() -> None:
     assert events[-1][0] == "usage" and events[-1][1].output_tokens == 2
 
 
+async def test_kimi_streams_tool_calls_and_their_results_go_back() -> None:
+    """The Ask tool harness on Kimi K3: tools go out in the OpenAI functions shape with the
+    sampling pinned; streamed ``tool_calls`` fragments assemble by index; the round's calls and
+    their results ride the transcript verbatim in the next round."""
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append(body)
+        chunks = [
+            {"choices": [{"delta": {"content": "Checking."}}]},
+            # one call, split over two chunks, out of order with a second call whole
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 1,
+                                    "id": "b1",
+                                    "function": {
+                                        "name": "describe_table",
+                                        "arguments": '{"table": "Jobs"}',
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "a1",
+                                    "function": {"name": "query_table", "arguments": '{"tab'},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [{"index": 0, "function": {"arguments": 'le": "Jobs"}'}}]
+                        }
+                    }
+                ]
+            },
+            {"choices": [], "usage": {"prompt_tokens": 11, "completion_tokens": 4}},
+        ]
+        sse = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+        return httpx.Response(200, content=sse.encode())
+
+    tools = [{"name": "query_table", "description": "d", "input_schema": {"type": "object"}}]
+    events = [e async for e in _client(handler).stream(
+        "kimi-k3", "rules",
+        [{"role": "user", "content": "q"},
+         {"role": "assistant", "content": "", "tool_calls": [{"id": "x", "type": "function",
+            "function": {"name": "describe_table", "arguments": "{}"}}]},
+         {"role": "tool", "tool_call_id": "x", "content": "{}"}],
+        max_tokens=500, tools=tools, temperature=0.0)]  # fmt: skip
+
+    body = seen[0]
+    assert body["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "query_table",
+                "description": "d",
+                "parameters": {"type": "object"},
+            },
+        }
+    ]
+    assert body["tool_choice"] == "auto" and body["temperature"] == 0.0
+    # an assistant round with tool calls keeps them verbatim; a tool result is tool_call_id-scoped
+    assert body["messages"][2]["tool_calls"][0]["id"] == "x"
+    assert body["messages"][3]["role"] == "tool" and body["messages"][3]["tool_call_id"] == "x"
+    kinds = [k for k, _ in events]
+    assert kinds == ["text", "tools", "usage"]
+    text, calls, usage = events[0][1], events[1][1], events[2][1]
+    assert text == "Checking."
+    assert [c.name for c in calls] == ["query_table", "describe_table"]  # index order
+    assert calls[0].id == "a1" and calls[0].input == {"table": "Jobs"}
+    assert calls[0].raw_arguments == '{"table": "Jobs"}'
+    assert calls[1].input == {"table": "Jobs"}
+    assert usage.output_tokens == 4
+
+
 async def test_the_body_never_sends_empty_content() -> None:
     body = request_body("kimi-k3", "", "", 10)
     assert all(m["content"] for m in body["messages"])

@@ -11,10 +11,23 @@ with a model key set, Claude writes the prose from the same rows and every sente
 are checked before it is sent (``replica.model_answer``). The rows include the account's
 research, the tracker, previous deliverables, the client's uploaded files (Internal) and the
 user's own mail and drive.
+
+Tabular questions (2026-10-17): before retrieval, ``replica.router`` decides whether the
+question is a filter, count or lookup over the caller's ingested tables. A ``tabular`` turn
+skips retrieval and gives the model the ``describe_table`` and ``query_table`` tools (bound to
+the caller's accounts, ``replica.tools``) at temperature 0; ``mixed`` offers tools and
+retrieval; ``prose`` is unchanged. A tenant whose ``run_python`` admin flag is on also gets the
+sandboxed ``run_python`` tool on the tabular and mixed routes (60 seconds, no network, every
+call logged by the code's sha256). Each turn logs ``ask.route`` with the route, its reason,
+the tools called, the predicates (columns and operators only), the last row count, the
+predicate the model relaxed and the rows deduplication removed; ``replica.obs`` counts routes
+and empty results. Kimi K3 (Moonshot) and Claude both run the tool loop; a provider without
+tools would answer a tabular question through retrieval, as before.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -39,8 +52,12 @@ from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import answers as A
 from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
+from account_intelligence.replica import obs as ask_obs
+from account_intelligence.replica import router as R
 from account_intelligence.replica.model_answer import stream_with_model
 from account_intelligence.replica.settings import touch_activity
+from account_intelligence.replica.tools import AccessTools
+from documents import tables as T
 from llm.choice import catalogue
 from obs.logging import logger
 
@@ -122,6 +139,7 @@ async def ask(
 
     async def events() -> AsyncIterator[bytes]:
         """Stream the answer: replay a repeated request, or search, compose, store and send."""
+        turn_started = time.monotonic()
         if replay is not None:
             yield sse("thread", {"thread_id": str(body.thread_id), "created": False})
             yield sse("answer", replay["answer"] or {})
@@ -129,6 +147,10 @@ async def ask(
             return
         yield sse("status", {"state": "searching"})
         try:
+            service = getattr(request.app.state, "chat_service", None)
+            provider = _provider_for(request, service, analysis_model)
+            tools: AccessTools | None = None
+            decision = R.Decision("prose", "no table in the workspace")
             async with tenant_txn(ident.tenant_id) as session:
                 ws = await A.load_workspace(
                     session,
@@ -136,21 +158,53 @@ async def ask(
                     body.account_id,
                     include_closed=A.wants_closed(body.question),
                 )
-                # the passages of the caller's own documents that best answer this question
-                # (hybrid search; Ask never read the files before, audit 2026-10-15)
                 docs = getattr(request.app.state.container, "documents", None)
                 searched = {body.account_id} if body.account_id else {a.id for a in ws.accounts}
+                semantic = getattr(docs, "semantic", None)
+                # is the question a filter, count or lookup over the caller's tables?
                 try:
-                    async with session.begin_nested():  # a failure rolls back only this
-                        ws.passages = await A.passage_rows(
-                            session, ws, body.question, searched, getattr(docs, "semantic", None)
+                    found = await T.list_tables(session, sorted(searched))
+                    decision = await R.route(
+                        body.question, found, _classifier(request, provider, analysis_model)
+                    )
+                    if decision.route != "prose" and not getattr(provider, "supports_tools", False):
+                        decision = R.Decision(
+                            "prose", f"{decision.reason}; the model's provider offers no tools"
                         )
-                        # the file the question is about goes to the model whole (2026-10-17)
-                        await A.take_whole_file(
-                            session, ws, get_settings().ask_whole_file_max_chars
+                    if decision.route != "prose":
+                        ws.tables = A.table_rows(ws, found)
+                    if getattr(provider, "supports_tools", False):
+                        tools = AccessTools(
+                            lambda: tenant_txn(ident.tenant_id),
+                            found,
+                            sorted(searched),
+                            semantic,
+                            run_python=await _run_python_on(session, ident.tenant_id),
                         )
-                except Exception:  # noqa: BLE001 - an answer without passages still stands
-                    log.warning("ask_passages_failed", extra={"request_id": str(body.request_id)})
+                except Exception:  # noqa: BLE001 - an answer without tables still stands
+                    log.warning("ask_tables_failed", extra={"request_id": str(body.request_id)})
+                    decision, tools = R.Decision("prose", "the table store failed"), None
+                # the passages of the caller's own documents that best answer this question
+                # (hybrid search; Ask never read the files before, audit 2026-10-15); a tabular
+                # question is answered from the table store instead, never from a sample
+                if decision.route != "tabular":
+                    try:
+                        async with session.begin_nested():  # a failure rolls back only this
+                            ws.passages = await A.passage_rows(
+                                session,
+                                ws,
+                                body.question,
+                                searched,
+                                getattr(docs, "semantic", None),
+                            )
+                            # the file the question is about goes to the model whole
+                            await A.take_whole_file(
+                                session, ws, get_settings().ask_whole_file_max_chars
+                            )
+                    except Exception:  # noqa: BLE001 - an answer without passages still stands
+                        log.warning(
+                            "ask_passages_failed", extra={"request_id": str(body.request_id)}
+                        )
             scope = A.scope_account(ws, body.account_id)
             q, draft = A.draft_local(body.question, ws, now, scope)
             model_id = LOCAL_MODEL
@@ -158,8 +212,6 @@ async def ask(
             numbering: dict[str, int] = {}
             streamed = False
             from_model = False
-            service = getattr(request.app.state, "chat_service", None)
-            provider = _provider_for(request, service, analysis_model)
             if isinstance(service, ChatService) and provider is not None and ws.accounts:
                 try:
                     model = service.registry.resolve(analysis_model)
@@ -171,12 +223,21 @@ async def ask(
                         draft,
                         user_id=ident.user_id,
                         request_id=str(body.request_id),
+                        tools=tools.offered(decision.route) if tools is not None else None,
+                        run_tool=tools.run if tools is not None else None,
+                        temperature=0.0 if tools is not None else None,
                     ):
                         if kind == "piece":
                             index, piece = value
                             parts = A.number_marks(piece, numbering)
                             yield sse("text", {"p": index, "parts": parts})
                             streamed = True
+                        elif kind == "discard":  # text before a tool call: forget it
+                            if streamed:
+                                yield sse("reset", {})
+                            numbering, streamed = {}, False
+                        elif kind == "tool":
+                            continue  # counted by the tools themselves
                         elif kind == "done":
                             draft, usage, model_id = value.draft, value.usage, model.id
                             from_model = True
@@ -192,6 +253,24 @@ async def ask(
                     for piece in A.pieces(para):
                         yield sse("text", {"p": index, "parts": A.number_marks(piece, numbering)})
             answer = A.finish(draft, q, ws, now, scope)
+            stats = tools.stats() if tools is not None else {}
+            log.info(
+                "ask.route",
+                extra={
+                    "request_id": str(body.request_id),
+                    "route": decision.route,
+                    "reason": decision.reason[:200],
+                    "outcome": "model" if from_model else "local",
+                    "latency_ms": round((time.monotonic() - turn_started) * 1000),
+                    **stats,
+                },
+            )
+            ask_obs.record_route(decision.route)
+            if tools is not None:
+                ask_obs.record_table_queries(
+                    sum(1 for c in tools.calls if c["name"] == "query_table"),
+                    int(stats.get("empty_results") or 0),
+                )
             # "What this answer used" names the model that wrote it (none: the workspace's own)
             choice = catalogue().get(model_id) if from_model else None
             answer["used"]["model_name"] = (
@@ -261,6 +340,35 @@ def _provider_for(request: Request, service: Any, model_id: str) -> Any:
     if choice is not None and choice.provider != "anthropic":
         return None
     return getattr(service, "provider", None)
+
+
+def _classifier(request: Request, provider: Any, model_id: str) -> Any:
+    """The fallback route classifier (``ASK_ROUTE_LLM_FALLBACK``): the Anthropic client of the
+    conversation's model, or None (Moonshot, no client, or off)."""
+    if get_settings().ask_route_llm_fallback != "on":
+        return None
+    choice = catalogue().get(model_id)
+    if choice is None or choice.provider != "anthropic" or provider is None:
+        return None
+    client = getattr(getattr(request.app.state.container, "llm", None), "client", None)
+    if client is None:
+        return None
+    return R.LlmRouteClassifier(client, model_id)
+
+
+async def _run_python_on(session: Any, tenant_id: UUID) -> bool:
+    """Whether this tenant may use the run_python sandbox tool (the admin flag, deny by
+    default; a flags failure turns it off, never on)."""
+    try:
+        from admin import flags
+        from metering import limits as metering
+
+        rule = await flags.current(session, "run_python")
+        if not rule:
+            return False
+        return flags.evaluate(rule, "run_python", tenant_id, await metering.plan_code(session))
+    except Exception:  # noqa: BLE001 - deny by default
+        return False
 
 
 def _json(value: Any) -> str:

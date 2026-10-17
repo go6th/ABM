@@ -195,6 +195,15 @@ class Settings(BaseSettings):
         ),
         component="api",
     )
+    ask_route_llm_fallback: Literal["on", "off"] = var(
+        "on",
+        purpose=(
+            "Ask: when no routing rule decides whether a question is tabular or prose and the"
+            " workspace holds tables, ask the conversation's model (one short call at"
+            " temperature 0); off offers tools and retrieval both in that case."
+        ),
+        component="api",
+    )
     run_reserve_credits: float = var(6.0, purpose="Credits reserved when a run starts.")
 
     # Google Cloud runtime

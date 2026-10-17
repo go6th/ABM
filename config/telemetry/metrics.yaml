@@ -33,7 +33,13 @@ label_sets:
   verdict: {values: [supported, overstated, unsupported, contradicted, confirmed, value_mismatch, not_found, unreadable, unavailable, not_independent], source: "config/verify.yaml"}
   failure_class: {bound: 15, source: "skill references/04 one owner per failure class"}
   graph_version: {bound: 5, status: "proposal: live graph versions"}
+  route: {values: [tabular, prose, mixed], source: "account_intelligence.replica.router.ROUTES"}
+  empty_result: {values: ["true", "false"], status: proposal}
+  sandbox_outcome: {values: [ok, error], status: proposal}
 metrics:
+  ask_routes_total: {type: counter, unit: "1", labels: [route], series_bound: 3, owner: replica, description: "Ask turns by route (the tabular share)"}
+  ask_table_queries_total: {type: counter, unit: "1", labels: [empty_result], series_bound: 2, owner: replica, description: "query_table calls by whether they found rows (the empty-result rate)"}
+  ask_run_python_total: {type: counter, unit: "1", labels: [sandbox_outcome], series_bound: 2, owner: replica, description: "run_python sandbox runs by outcome (ok, error)"}
   connector_calls: {type: counter, unit: "1", labels: [provider_code, operation, outcome], series_bound: 8000, owner: connectors, description: "provider calls by outcome"}
   connector_unknown_cost: {type: counter, unit: "1", labels: [provider_code, operation], series_bound: 200, owner: connectors, description: "calls whose cost is unknown"}
   connector_latency_ms: {type: histogram, unit: ms, labels: [provider_code, operation, outcome], series_bound: 8000, owner: connectors, description: "provider latency"}

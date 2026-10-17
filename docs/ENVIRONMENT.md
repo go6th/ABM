@@ -49,6 +49,8 @@ or a value has the wrong type (errors name the variable, never the value).
 | `STAFF_EXTERNAL_EMAILS` | Personal Google accounts (no Workspace) allowed as staff; still need a role. | no | - | - | api, web |
 | `RUN_BUDGET_USD` | Per-run spend ceiling in USD (all phases). | no | - | - | api, worker |
 | `RUN_TOOL_CALL_CAP` | Per-run connector call ceiling. | no | - | - | api, worker |
+| `ASK_WHOLE_FILE_MAX_CHARS` | Ask: the uploaded file a question is about goes to the model whole when it has at most this many characters (about 75k tokens); a larger file answers through retrieved passages only. | no | - | - | api |
+| `ASK_ROUTE_LLM_FALLBACK` | Ask: when no routing rule decides whether a question is tabular or prose and the workspace holds tables, ask the conversation's model (one short call at temperature 0); off offers tools and retrieval both in that case. | no | - | - | api |
 | `RUN_RESERVE_CREDITS` | Credits reserved when a run starts. | no | - | - | api, worker |
 | `GCP_PROJECT` | Google Cloud project id. | no | staging, production | - | api, worker |
 | `GCP_REGION` | Region of Cloud Run, Tasks and SQL. | no | staging, production | - | api, worker |

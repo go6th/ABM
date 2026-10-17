@@ -22,6 +22,12 @@ platform.kimi.ai):
   never retries). 429 ``exceeded_current_quota_error`` is ``ProviderCreditsExhausted``. 401 and
   403 are ``AuthFailed``; 404 is ``ModelUnavailable``; 400 ``content_filter`` is
   ``ContentRefused``; a 400 naming the context window is ``ContextTooLong``.
+* Tools (the Ask tool harness on Kimi K3, 2026-10-17): OpenAI-style tools, which Ollama's
+  OpenAI compatibility documents (tools and tool_choice ``auto`` in the request; streamed
+  ``delta.tool_calls`` fragments assembled by index; the assistant round echoed back with its
+  ``tool_calls`` and each result as a ``role: "tool"`` message keyed by ``tool_call_id``). The
+  platform's tool schemas are Anthropic-shaped (``input_schema``); ``openai_tools`` sends them
+  as ``{"type": "function", "function": {"name", "description", "parameters"}}``.
 
 The same OpenAI-compatible API is also served by Ollama Cloud (owner decision 2026-10-15: the
 owner's Kimi K3 key is an Ollama Cloud key until Kimi moves to Google Cloud). Ollama differs in
@@ -35,12 +41,15 @@ adaptive thinking and Anthropic prompt caching. As the research model it reaches
 through the platform's data tools and the ledger.
 
 GUARANTEE(test_moonshot_requests_and_errors_follow_the_documentation)
+
+GUARANTEE(test_kimi_streams_tool_calls_and_their_results_go_back)
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -60,6 +69,56 @@ DIALECTS = ("moonshot", "ollama")  # MOONSHOT_API_DIALECT
 # Our effort levels onto Kimi K3's three (low, high, max; the documented default is max).
 EFFORT = {"low": "low", "medium": "high", "high": "high", "xhigh": "max", "max": "max"}
 RETRYABLE_429 = frozenset({"rate_limit_reached_error", "engine_overloaded_error"})
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One function call the model asked for in a round: the id its result answers, the name,
+    the parsed JSON arguments (``None`` when the arguments were not JSON: the caller answers
+    that call with a structured error itself, never an exception) and the raw argument text."""
+
+    id: str
+    name: str
+    input: dict[str, Any] | None
+    raw_arguments: str = ""
+
+
+def openai_tools(tools: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """The platform's Anthropic-shaped tool definitions (``name``, ``description``,
+    ``input_schema``) as the OpenAI functions body (``parameters``)."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": str(t["name"]),
+                "description": str(t.get("description") or ""),
+                "parameters": dict(t.get("input_schema") or {"type": "object"}),
+            },
+        }
+        for t in tools
+    ]
+
+
+def assistant_round(text: str, calls: Sequence[ToolCall]) -> dict[str, Any]:
+    """The assistant round the model wrote (its text and its tool calls), echoed back so the
+    next round continues the transcript (OpenAI keeps the calls verbatim on the message)."""
+    return {
+        "role": "assistant",
+        "content": text or " ",
+        "tool_calls": [
+            {
+                "id": c.id,
+                "type": "function",
+                "function": {"name": c.name, "arguments": c.raw_arguments or "{}"},
+            }
+            for c in calls
+        ],
+    }
+
+
+def tool_result(call: ToolCall, content: str) -> dict[str, Any]:
+    """One tool's result as the message it goes back as."""
+    return {"role": "tool", "tool_call_id": call.id, "content": content}
 
 
 class MoonshotError(RuntimeError):
@@ -99,8 +158,12 @@ def request_body(
     schema_name: str = "output",
     stream: bool = False,
     dialect: str = "moonshot",
+    tools: Sequence[Mapping[str, Any]] | None = None,
+    temperature: float | None = None,
 ) -> dict[str, Any]:
-    """The documented Chat Completions body for one call (``dialect`` picks the token field)."""
+    """The documented Chat Completions body for one call (``dialect`` picks the token field).
+    ``tools`` are Anthropic-shaped, converted here; ``temperature`` (0 for a tabular turn) pins
+    sampling."""
     body: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -116,6 +179,11 @@ def request_body(
             "type": "json_schema",
             "json_schema": {"name": schema_name, "schema": dict(json_schema), "strict": True},
         }
+    if tools:
+        body["tools"] = openai_tools(tools)
+        body["tool_choice"] = "auto"
+    if temperature is not None:
+        body["temperature"] = temperature
     if stream:
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}
@@ -207,12 +275,18 @@ class MoonshotClient:
         self,
         model: str,
         system: str,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[Mapping[str, Any]],
         *,
         max_tokens: int,
         effort: str | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
-        """("text", delta) for each piece, then exactly one ("usage", LlmUsage)."""
+        """("text", delta) for each piece; ("tools", [ToolCall]) once, when the round ends in
+        tool calls (the caller runs them and replies through ``assistant_round`` plus one
+        ``tool_result`` each in the next round's ``messages``); then exactly one ("usage",
+        LlmUsage). Messages ride verbatim (assistant rounds with tool calls, tool results); a
+        plain text message with empty content is still sent as a space."""
         body = request_body(
             self.remote_model or model,
             system,
@@ -221,11 +295,14 @@ class MoonshotClient:
             effort=effort,
             stream=True,
             dialect=self.dialect,
+            tools=tools,
+            temperature=temperature,
         )
         body["messages"] = [{"role": "system", "content": system or " "}] + [
-            {"role": m["role"], "content": m["content"] or " "} for m in messages
+            _message(m) for m in messages
         ]
         usage = LlmUsage(0, 0)
+        pending: dict[int, dict[str, str]] = {}
         try:
             async with self._http.stream(
                 "POST", self._url, json=body, headers=self._headers
@@ -244,11 +321,15 @@ class MoonshotClient:
                     if chunk.get("usage"):
                         usage = usage_of(chunk["usage"])
                     for choice in chunk.get("choices") or []:
-                        delta = (choice.get("delta") or {}).get("content")
-                        if delta:
-                            yield "text", str(delta)
+                        delta = choice.get("delta") or {}
+                        if delta.get("tool_calls"):
+                            _collect(pending, delta["tool_calls"])
+                        elif delta.get("content"):
+                            yield "text", str(delta["content"])
         except (httpx.TimeoutException, httpx.TransportError) as error:
             raise Overloaded("model connection failed") from error
+        if pending:
+            yield "tools", _assemble(pending)
         yield "usage", usage
 
     async def aclose(self) -> None:
@@ -261,3 +342,57 @@ def _json(reply: httpx.Response) -> Any:
         return reply.json()
     except ValueError:
         return {}
+
+
+def _message(m: Mapping[str, Any]) -> dict[str, Any]:
+    """One transcript message, verbatim; only a plain text message's empty content becomes a
+    space (the API refuses empty content, but an assistant round with tool calls may carry
+    none)."""
+    message = dict(m)
+    if (
+        not message.get("tool_calls")
+        and not message.get("tool_call_id")
+        and not message.get("content")
+    ):
+        message["content"] = " "
+    return message
+
+
+def _collect(pending: dict[int, dict[str, str]], calls: Sequence[Any]) -> None:
+    """Streamed tool-call fragments into their slot by index (one call's id, name and argument
+    JSON may arrive over many chunks)."""
+    for call in calls:
+        if not isinstance(call, Mapping):
+            continue
+        index = int(call.get("index") or 0)
+        entry = pending.setdefault(index, {"id": "", "name": "", "arguments": ""})
+        if call.get("id"):
+            entry["id"] += str(call["id"])
+        fn = call.get("function")
+        if isinstance(fn, Mapping):
+            if fn.get("name"):
+                entry["name"] += str(fn["name"])
+            if fn.get("arguments"):
+                entry["arguments"] += str(fn["arguments"])
+
+
+def _assemble(pending: dict[int, dict[str, str]]) -> list[ToolCall]:
+    """The round's assembled tool calls in index order; arguments are parsed JSON, ``None``
+    when they are not (the caller answers that call with a structured error)."""
+    return [
+        ToolCall(
+            id=entry["id"] or f"call_{index}",
+            name=entry["name"],
+            input=_parse_arguments(entry["arguments"]),
+            raw_arguments=entry["arguments"],
+        )
+        for index, entry in sorted(pending.items())
+    ]
+
+
+def _parse_arguments(raw: str) -> dict[str, Any] | None:
+    try:
+        got = json.loads(raw or "{}")
+    except ValueError:
+        return None
+    return got if isinstance(got, dict) else None
