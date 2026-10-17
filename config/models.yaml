@@ -76,6 +76,16 @@ task_settings:
   narrative:       {effort: high,   prompt_cache: true}
   verification:    {effort: low,    prompt_cache: true}
 
+# The conversational surfaces' model and effort (owner decision 2026-10-17: every surface reads
+# one layer; the research, Ask and eval surfaces all run on Kimi K3, Claude Fable 5.1 or Claude
+# Opus 5.5 — switching is config here, never code). `chat`: Ask answers and follow-up chat; the
+# model is the conversation's analysis model (the choices block below), so only effort lives
+# here. `eval`: the live tabular eval suite (tests/evals/test_tabular_gsk_live.py); its model
+# must be one of the choices models, overridable per run with EVAL_MODEL / EVAL_EFFORT.
+surfaces:
+  chat: {model: null, effort: high}
+  eval: {model: kimi-k3, effort: high}
+
 models:
   claude-opus-5-5:
     provider: anthropic

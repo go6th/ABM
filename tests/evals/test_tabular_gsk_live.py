@@ -1,7 +1,10 @@
 """GAP 2/3 of the spreadsheet-parity follow-up (2026-10-17): the five questions of
-``evals/tabular_gsk/cases.yaml`` asked of the REAL model (Kimi K3, temperature 0) over the
-owner's REAL GSK workspace, end to end — the router decides, the table tools run on Postgres,
-the streamed answer is what is judged. Each case runs five times: the five canonical tool-call
+``evals/tabular_gsk/cases.yaml`` asked of the REAL model over the owner's REAL GSK workspace,
+end to end — the router decides, the table tools run on Postgres, the streamed answer is what
+is judged. The model comes from the one layer every surface reads: ``surfaces.eval`` of
+``config/models.yaml`` (default kimi-k3 at effort high), overridable per run with
+``EVAL_MODEL`` / ``EVAL_EFFORT`` — Kimi K3, Claude Fable 5.1 or Claude Opus 5.5. Each case runs
+five times: the five canonical tool-call
 traces (``_canon``: only the evidence calls — the FILTERED ``query_table`` calls and the
 ``read_rows`` calls on the case's ``target_table``, with the projection, the order-insensitive
 lists and an ``icontains`` value's case folded away as provably result-preserving; describe,
@@ -10,7 +13,8 @@ of the five identical (a batched cloud model is not bit-identical even at temper
 pinned seed; the brief's "identical tool traces" landing as one converged evidence sequence),
 and every run's answer — deviants included — must pass the case's assertions. Marked ``live``:
 the nightly eval workflow and on-demand runs only, never the
-offline suite; the run FAILS without MOONSHOT_API_KEY (silence would hide a broken harness).
+offline suite; the run FAILS without the eval model's key (MOONSHOT_API_KEY for Kimi K3,
+ANTHROPIC_API_KEY for a Claude model; silence would hide a broken harness).
 
 The stubbed counterpart (no spend, same pipeline shape) is
 ``tests/documents/test_tables_golden.py``; the store's truth against the same file is
@@ -32,7 +36,7 @@ import pytest
 import yaml
 
 from account_intelligence.chat.registry import get_chat_registry
-from account_intelligence.chat.service import MoonshotChatProvider
+from account_intelligence.chat.service import AnthropicChatProvider, MoonshotChatProvider
 from account_intelligence.config import get_settings
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import answers as A
@@ -64,30 +68,60 @@ def _matches(text: str, needle: str) -> bool:
     return needle.casefold() in text.casefold()
 
 
-def _model_and_provider() -> tuple[Any, MoonshotChatProvider]:
+def _model_and_provider() -> tuple[Any, Any]:
+    """The eval's model and provider from the one layer every surface reads (owner decision
+    2026-10-17): the ``surfaces.eval`` entry of ``config/models.yaml``, overridable per run
+    with ``EVAL_MODEL`` / ``EVAL_EFFORT`` (the default is kimi-k3 at high — the landed suite).
+    Kimi K3 streams from Moonshot, where temperature 0 also pins the seed; a Claude model
+    streams from Anthropic, whose Messages call has no temperature or seed parameter — there
+    the per-run answer assertions are the hard gate and the convergence bar the tolerated
+    signal (a batched cloud model is not bit-identical either way)."""
+    from account_intelligence.platform.llm import resolve_eval_choice
+    from llm.choice import catalogue
+
+    target = resolve_eval_choice()
+    model = get_chat_registry().resolve(target.model)
+    effort = target.effort or "high"
+    found = catalogue().get(target.model)
+    if found is not None and found.provider == "moonshot":
+        settings = get_settings()
+        key = settings.moonshot_api_key.get_secret_value() if settings.moonshot_api_key else ""
+        if not key and settings.moonshot_api_key_file:
+            key = Path(settings.moonshot_api_key_file).read_text().strip()
+        if not key:
+            import dotenv
+
+            key = (
+                os.environ.get("MOONSHOT_API_KEY")
+                or dotenv.get_key(Path(__file__).resolve().parents[2] / ".env", "MOONSHOT_API_KEY")
+                or ""
+            )
+        if not key:
+            pytest.fail("the live tabular eval needs MOONSHOT_API_KEY (settings or environment)")
+        from llm.adapters.moonshot_api import BASE_URL, MoonshotClient
+
+        client = MoonshotClient(
+            key,
+            base_url=os.environ.get("MOONSHOT_BASE_URL") or BASE_URL,
+            dialect=os.environ.get("MOONSHOT_API_DIALECT") or "moonshot",
+            remote_model=os.environ.get("MOONSHOT_MODEL") or None,
+        )
+        return model, MoonshotChatProvider(client, effort=effort)
     settings = get_settings()
-    key = settings.moonshot_api_key.get_secret_value() if settings.moonshot_api_key else ""
-    if not key and settings.moonshot_api_key_file:
-        key = Path(settings.moonshot_api_key_file).read_text().strip()
+    key = settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else ""
     if not key:
         import dotenv
 
         key = (
-            os.environ.get("MOONSHOT_API_KEY")
-            or dotenv.get_key(Path(__file__).resolve().parents[2] / ".env", "MOONSHOT_API_KEY")
+            os.environ.get("ANTHROPIC_API_KEY")
+            or dotenv.get_key(Path(__file__).resolve().parents[2] / ".env", "ANTHROPIC_API_KEY")
             or ""
         )
     if not key:
-        pytest.fail("the live tabular eval needs MOONSHOT_API_KEY (settings or environment)")
-    from llm.adapters.moonshot_api import BASE_URL, MoonshotClient
+        pytest.fail("the live tabular eval on a Claude model needs ANTHROPIC_API_KEY")
+    from account_intelligence.platform.llm import anthropic_api_client
 
-    client = MoonshotClient(
-        key,
-        base_url=os.environ.get("MOONSHOT_BASE_URL") or BASE_URL,
-        dialect=os.environ.get("MOONSHOT_API_DIALECT") or "moonshot",
-        remote_model=os.environ.get("MOONSHOT_MODEL") or None,
-    )
-    return get_chat_registry().resolve("kimi-k3"), MoonshotChatProvider(client, effort="high")
+    return model, AnthropicChatProvider(anthropic_api_client(key), effort=effort)
 
 
 EVIDENCE_CALLS = ("query_table", "read_rows")  # the calls a canon judges (owner call 2026-10-17)

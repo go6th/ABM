@@ -95,7 +95,13 @@ business-key and payload tuning live in `docs/tabular-queries.md`.
 `evals/tabular_gsk/cases.yaml` holds five owner questions over the **real** GSK workspace
 fixture (`tests/fixtures/gsk/GSK_workspace.zip`); `tests/evals/test_tabular_gsk_live.py`
 (marker `live`, never in the offline suite; the offline selectors exclude `live`) ingests it
-through the production path and asks each question of the real model five times: the canonical
+through the production path and asks each question of the real model five times. The eval's
+model comes from the one layer every surface reads (owner decision 2026-10-17): the
+`surfaces.eval` entry of `config/models.yaml` — default `kimi-k3` at effort `high` —
+overridable per run with `EVAL_MODEL` / `EVAL_EFFORT` to any choices model (Kimi K3, Claude
+Fable 5.1, Claude Opus 5.5). Kimi K3 runs at temperature 0 with the seed pinned; a Claude
+model's Messages call has no temperature or seed parameter, so there the per-run answer
+assertions are the hard gate and convergence the tolerated signal. The five canonical
 tool-call traces must converge, at least three of the five identical (a batched cloud model is
 not bit-identical even at temperature 0 and a pinned seed) — a trace's canon judges only the
 evidence calls (the filtered `query_table` calls and the `read_rows` calls on the case's named
@@ -106,7 +112,8 @@ answer, a deviant trace's included, must pass the case's terms
 (the right requisition ids named, the right counts, a deciding phrase quoted for the
 field-sales false positives, and never a re-export refusal). It runs nightly and on demand in
 `.github/workflows/eval.yml` with the `MOONSHOT_API_KEY` secret, and locally with the key in
-`.env`. The offline doubles: `tests/documents/test_tables_real_gsk.py` pins the sheet's truth
+`.env` (`ANTHROPIC_API_KEY` when `EVAL_MODEL` names a Claude model). The offline doubles:
+`tests/documents/test_tables_real_gsk.py` pins the sheet's truth
 (no model), `test_tables_golden.py` …`_with_stub_model` the byte-identical scripted answer.
 
 ## Runbook: rebuilding a workspace

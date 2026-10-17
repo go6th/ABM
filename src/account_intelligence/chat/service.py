@@ -286,8 +286,12 @@ class AnthropicChatProvider:
 
     supports_tools = True
 
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, *, effort: str | None = None) -> None:
         self._client = client
+        # effort comes from one config value for every chat surface (models.yaml
+        # ``surfaces.chat``, owner decision 2026-10-17) — the same knob MoonshotChatProvider
+        # takes; ``output_config`` is the Messages request field for it (anthropic 1.11.0).
+        self._effort = effort
 
     async def stream(
         self,
@@ -329,8 +333,11 @@ class AnthropicChatProvider:
         }
         if tools:
             request["tools"] = [dict(t) for t in tools]
-        if temperature is not None:
-            request["temperature"] = temperature
+        if self._effort is not None:
+            request["output_config"] = {"effort": self._effort}
+        # temperature is deliberately NOT forwarded: the installed SDK's Messages call has no
+        # temperature parameter (open item OI-LLM-1) — forwarding the 0.0 that tabular Ask
+        # turns send would TypeError every round. The Moonshot provider pins temperature/seed.
         totals = [0, 0, 0, 0]
         rounds = 0
         # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer; exit=the model
@@ -530,6 +537,24 @@ class ProviderByModel:
     def for_model(self, provider: str) -> ChatProvider | None:
         """The provider adapter by provider name."""
         return self.providers.get(provider)
+
+
+def provider_for(
+    providers: ProviderByModel | None, service: Any, model_id: str
+) -> ChatProvider | None:
+    """The streaming provider of a conversation's model, for every chat surface (Ask and
+    follow-up chat; owner decision 2026-10-17: one model layer): Moonshot for Kimi K3, else
+    the Anthropic provider — None when that provider is not set up (the local answer stands)."""
+    from llm.choice import catalogue
+
+    choice = catalogue().get(model_id)
+    if choice is not None and providers is not None:
+        found = providers.for_model(choice.provider)
+        if found is not None:
+            return found
+    if choice is not None and choice.provider != "anthropic":
+        return None
+    return getattr(service, "provider", None)
 
 
 class ChatService:

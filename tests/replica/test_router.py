@@ -152,8 +152,18 @@ async def test_the_model_classifier_accepts_only_the_schema_json() -> None:
     classifier = R.LlmRouteClassifier(good, "model-z")
     assert await classifier("q", ["Jobs: Title"]) == "tabular"
     call = good.messages.calls[0]
-    assert call["temperature"] == 0 and call["model"] == "model-z"
-    assert call["max_tokens"] == 40 and "<question>" in call["messages"][0]["content"]
+    assert call["model"] == "model-z" and call["max_tokens"] == 40
+    assert "<question>" in call["messages"][0]["content"]
+    # no unsupported kwarg may reach the Messages call: the installed SDK's create has NO
+    # ``temperature`` parameter (OI-LLM-1), and the one this used to send made every
+    # classification TypeError and silently fall back to ``mixed`` (fixed 2026-10-17)
+    assert "temperature" not in call
+    import inspect
+
+    import anthropic
+
+    accepted = set(inspect.signature(anthropic.resources.messages.AsyncMessages.create).parameters)
+    assert set(call) <= accepted
     assert await R.LlmRouteClassifier(Client('{"route": "maybe"}'), "m")("q", []) is None
     assert await R.LlmRouteClassifier(Client("tabular"), "m")("q", []) is None
     assert await R.LlmRouteClassifier(Client('{"route": "prose", "x": 1}'), "m")("q", []) is None

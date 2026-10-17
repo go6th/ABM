@@ -141,3 +141,77 @@ async def test_anthropic_adapter_streams_only_text_and_final_usage() -> None:
     assert calls[0]["messages"] == [{"role": "user", "content": "question"}]
     assert "temperature" not in calls[0]
     assert "Answer ONLY from the WORKSPACE DATA" in calls[0]["system"]
+
+
+@pytest.mark.asyncio
+async def test_anthropic_adapter_carries_the_configured_effort_and_never_a_temperature() -> None:
+    """The chat surface's effort (models.yaml ``surfaces.chat``, owner decision 2026-10-17)
+    rides as ``output_config``; a caller's temperature is not forwarded — the Messages call
+    has no temperature parameter (OI-LLM-1) and the tabular turn's 0.0 would TypeError."""
+    calls: list[dict[str, Any]] = []
+
+    class ProviderStream:
+        async def __aiter__(self) -> Any:
+            return
+            yield  # pragma: no cover - no text rounds in this fixture
+
+        async def __aenter__(self) -> ProviderStream:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get_final_message(self) -> Any:
+            return SimpleNamespace(
+                content=[],
+                stop_reason="end_turn",
+                usage=SimpleNamespace(
+                    input_tokens=1,
+                    output_tokens=1,
+                    cache_read_input_tokens=0,
+                    cache_creation_input_tokens=0,
+                ),
+            )
+
+    @asynccontextmanager
+    async def stream(**kwargs: Any):
+        calls.append(kwargs)
+        yield ProviderStream()
+
+    client = SimpleNamespace(messages=SimpleNamespace(stream=stream))
+    model = get_chat_registry().model(None)
+    provider = AnthropicChatProvider(client, effort="high")
+    [
+        event
+        async for event in provider.stream(
+            model, [ChatMessage("user", "question")], 1024, temperature=0.0
+        )
+    ]
+    assert calls[0]["output_config"] == {"effort": "high"}
+    assert "temperature" not in calls[0]
+    calls.clear()
+    provider = AnthropicChatProvider(client)  # no effort configured: the request carries none
+    [event async for event in provider.stream(model, [ChatMessage("user", "question")], 1024)]
+    assert "output_config" not in calls[0]
+
+
+def test_provider_for_serves_each_choices_model_from_its_own_provider() -> None:
+    """One model layer for every chat surface (owner decision 2026-10-17): Kimi K3 from the
+    Moonshot provider, a Claude model from the Anthropic one; a provider that is not set up
+    answers None and a Moonshot conversation never falls back to the Anthropic provider."""
+    from account_intelligence.chat.service import ProviderByModel, provider_for
+
+    anthropic_provider = AnthropicChatProvider(SimpleNamespace())
+    moonshot_provider = SimpleNamespace(supports_tools=True)
+    service = SimpleNamespace(provider=anthropic_provider)
+    providers = ProviderByModel({"anthropic": anthropic_provider, "moonshot": moonshot_provider})
+    assert provider_for(providers, service, "kimi-k3") is moonshot_provider
+    assert provider_for(providers, service, "claude-fable-5-1") is anthropic_provider
+    assert provider_for(providers, service, "claude-opus-5-5") is anthropic_provider
+    # Moonshot not set up: None (the surface answers that the model is unavailable) —
+    # a Kimi conversation must never be silently served by the Anthropic provider
+    assert (
+        provider_for(ProviderByModel({"anthropic": anthropic_provider}), service, "kimi-k3") is None
+    )
+    # the service's own provider remains the fallback for a Claude conversation
+    assert provider_for(None, service, "claude-fable-5-1") is anthropic_provider

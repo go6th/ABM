@@ -35,6 +35,7 @@ from account_intelligence.chat.service import (
     ChatService,
     ChatUsage,
     OutOfContextError,
+    provider_for,
     sse,
     validate_project_context,
 )
@@ -51,8 +52,9 @@ from account_intelligence.chat.store import (
     reserve_turn,
 )
 from account_intelligence.db.session import tenant_txn
-from account_intelligence.model_routing import PipelinePhase, get_model_router
-from account_intelligence.platform.llm import anthropic_api_client
+from account_intelligence.platform.llm import anthropic_api_client, chat_effort
+from account_intelligence.replica import models as M
+from llm.choice import catalogue
 
 router = APIRouter(tags=["chat"])
 register("GET", "/v1/models", tenant_route("read_public", "read", step_up=False))
@@ -254,9 +256,13 @@ async def stream_turn(
     service = getattr(request.app.state, "chat_service", None)
     if not isinstance(service, ChatService) or service.provider is None:
         raise DependencyUnavailable()
-    # Automatic model routing: follow-up chat uses the model config/models.yaml names for the
-    # chat phase. Callers cannot override model selection.
-    model = service.registry.resolve(get_model_router().select_model(PipelinePhase.CHAT).id)
+    # The conversation's analysis model (owner decision 2026-10-17: follow-up chat reads the one
+    # model layer every surface reads, like Ask and the research graph): the thread's kept model
+    # while it is usable, else the user's current one — Kimi K3 included. Providers come from
+    # the shared ProviderByModel, so a Moonshot conversation answers through Moonshot.
+    async with tenant_txn(ident.tenant_id) as session:
+        analysis_model = await M.conversation_model(session, ident.user_id, None, thread_id)
+    model = service.registry.resolve(analysis_model)
 
     # Enforce project/domain scope: reject off-topic queries outside ABM and account intelligence
     if body.enforce_project_scope:
@@ -310,28 +316,35 @@ async def stream_turn(
             422, "invalid_message", "Message cannot be sent", "Check the message and try again."
         ) from None
 
-    turn_provider = service.provider
+    turn_provider = provider_for(
+        getattr(request.app.state, "chat_providers", None), service, analysis_model
+    )
     owned_provider = False
     owned_client: Any | None = None
     if not reservation.is_replay:
-        key_store = getattr(request.app.state, "tenant_model_keys", None)
-        try:
-            ciphertext = await encrypted_key_for_thread(ident.tenant_id, ident.user_id, thread_id)
-            if ciphertext is not None:
-                if not isinstance(key_store, TenantModelKeyStore) or not key_store.configured:
-                    raise TenantKeyUnavailable("tenant model key KMS is unavailable")
-                tenant_key = await key_store.decrypt(ident.tenant_id, ciphertext)
-                owned_client = anthropic_api_client(tenant_key)
-                tenant_key = ""
-                turn_provider = AnthropicChatProvider(owned_client)
-                owned_provider = True
-        except asyncio.CancelledError:
-            await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
-            raise
-        except Exception:
-            # release the reserved turn on any provider failure, then answer 503
-            await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
-            raise DependencyUnavailable() from None
+        # A tenant's own Anthropic key can serve a Claude conversation, never Kimi K3.
+        choice = catalogue().get(analysis_model)
+        if choice is not None and choice.provider == "anthropic":
+            key_store = getattr(request.app.state, "tenant_model_keys", None)
+            try:
+                ciphertext = await encrypted_key_for_thread(
+                    ident.tenant_id, ident.user_id, thread_id
+                )
+                if ciphertext is not None:
+                    if not isinstance(key_store, TenantModelKeyStore) or not key_store.configured:
+                        raise TenantKeyUnavailable("tenant model key KMS is unavailable")
+                    tenant_key = await key_store.decrypt(ident.tenant_id, ciphertext)
+                    owned_client = anthropic_api_client(tenant_key)
+                    tenant_key = ""
+                    turn_provider = AnthropicChatProvider(owned_client, effort=chat_effort())
+                    owned_provider = True
+            except asyncio.CancelledError:
+                await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
+                raise
+            except Exception:
+                # release the reserved turn on any provider failure, then answer 503
+                await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
+                raise DependencyUnavailable() from None
     if turn_provider is None:
         await fail_turn(ident.tenant_id, reservation, charge_estimate=False)
         raise DependencyUnavailable()

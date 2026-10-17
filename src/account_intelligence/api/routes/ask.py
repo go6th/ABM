@@ -45,7 +45,7 @@ from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
-from account_intelligence.chat.service import ChatService, sse
+from account_intelligence.chat.service import ChatService, provider_for, sse
 from account_intelligence.chat.store import record_ask_turn
 from account_intelligence.config import get_settings
 from account_intelligence.db.session import tenant_txn
@@ -339,17 +339,9 @@ async def ask(
 
 
 def _provider_for(request: Request, service: Any, model_id: str) -> Any:
-    """The streaming provider of the conversation's model: Moonshot for Kimi K3, else the
-    Anthropic provider (None when that provider is not set up: the local answer stands)."""
-    choice = catalogue().get(model_id)
-    providers = getattr(request.app.state, "chat_providers", None)
-    if choice is not None and providers is not None:
-        found = providers.for_model(choice.provider)
-        if found is not None:
-            return found
-    if choice is not None and choice.provider != "anthropic":
-        return None
-    return getattr(service, "provider", None)
+    """The streaming provider of the conversation's model (the shared helper of every chat
+    surface; None when it is not set up: the local answer stands)."""
+    return provider_for(getattr(request.app.state, "chat_providers", None), service, model_id)
 
 
 def _classifier(request: Request, provider: Any, model_id: str) -> Any:

@@ -9,6 +9,7 @@ The folder map of the whole repository is `../PROJECT_STRUCTURE.md`.
 | Document | What it is |
 | --- | --- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | the system as built: services, request flow, tenancy and private workspaces, where data lives |
+| [workspace-how-it-works.md](workspace-how-it-works.md) | the workspace end to end, in full detail: ingest, the document/table store, the Ask tool loop, and the one model layer every surface reads |
 | [product-overview.md](product-overview.md) | the product: problem, workflow, grading, refresh, billing, where the source documents disagree |
 | [build/REPLICA_PROMPT.md](build/REPLICA_PROMPT.md) | the product specification in force (the design prototype as a working product, with the owner's decisions) |
 | [design/claude-design/](design/claude-design/) | the design prototype every screen is built to (17 HTML pages) |

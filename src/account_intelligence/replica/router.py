@@ -232,10 +232,12 @@ class LlmRouteClassifier:
             "<tables>\n" + "\n".join(hints) + "\n</tables>\n<question>\n" + question[:2000]
             + "\n</question>"
         )  # fmt: skip
+        # no temperature: the installed SDK's Messages call has no temperature parameter
+        # (OI-LLM-1) — passing one TypeErrors and every classification silently fell back to
+        # ``mixed`` (found 2026-10-17 with the one-model-layer work).
         reply = await self._client.messages.create(
             model=self.model_id,
             max_tokens=self.max_tokens,
-            temperature=0,
             system=CLASSIFIER_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )

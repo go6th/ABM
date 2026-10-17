@@ -10,12 +10,18 @@ the model no longer reads ten retrieved passages and guesses. It is given two to
 spreadsheet itself: `describe_table` (what columns the sheet has, their types, a few sample
 values, how many rows) and `query_table` (filter, project, sort, deduplicate; always the
 complete set of matching rows, never a sample). The answer is computed, cited by row number,
-and held to one reading: temperature 0 with the sampler's seed pinned; the live eval asks each
+and held to one reading: on Kimi K3, temperature 0
+with the sampler's seed pinned (a Claude model's Messages call has no temperature or seed
+parameter, so there the per-run answer assertions are the hard gate). The live eval asks each
 question five times and three of the five canonical tool-call traces must be identical (a batched
 cloud model is not bit-identical; the EVIDENCE decisions must converge — a trace's canon keeps
 only the filtered `query_table` calls and the `read_rows` calls on the case's target table and
 folds away what provably cannot change a result: the projection, the order-insensitive lists, an
 `icontains` value's case; describe, other-table and where-less calls are exploration, not judged).
+The eval's model is the `surfaces.eval` entry of `config/models.yaml` (default `kimi-k3`, effort
+`high`), overridable per run with `EVAL_MODEL` / `EVAL_EFFORT` — the one layer every surface
+reads (owner decision 2026-10-17), so the suite runs on Kimi K3, Claude Fable 5.1 or Claude
+Opus 5.5 without a code change.
 
 Files uploaded **before** this change have their rows indexed as passages only. Run
 `reingest-tables` once (below) so their tables appear in the store; until then such a question

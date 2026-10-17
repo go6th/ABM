@@ -86,8 +86,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Fail closed: with no model client the chat routes answer 503. Never substitute canned
     # text; an answer without a source must not be shown as account intelligence.
+    # Effort comes from models.yaml ``surfaces.chat`` (owner decision 2026-10-17: one layer
+    # every surface reads), so a Claude answer thinks as deep as a Kimi one.
+    from account_intelligence.platform.llm import chat_effort
+
+    effort = chat_effort()
     client = getattr(container.llm, "client", None)
-    provider = AnthropicChatProvider(client) if client is not None else None
+    provider = AnthropicChatProvider(client, effort=effort) if client is not None else None
     app.state.chat_service = ChatService(get_chat_registry(), provider)
     # each Ask model's provider (owner decision 2026-10-14): Kimi K3 streams from Moonshot
     from account_intelligence.chat.service import MoonshotChatProvider, ProviderByModel
@@ -96,7 +101,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.chat_providers = ProviderByModel(
         {
             **({"anthropic": provider} if provider is not None else {}),
-            **({"moonshot": MoonshotChatProvider(moonshot)} if moonshot is not None else {}),
+            **(
+                {"moonshot": MoonshotChatProvider(moonshot, effort=effort or "low")}
+                if moonshot is not None
+                else {}
+            ),
         }
     )
     from account_intelligence.chat.credentials import TenantModelKeyStore

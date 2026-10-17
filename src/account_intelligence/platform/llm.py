@@ -90,6 +90,70 @@ def judge_differs_from_generator(routes: Mapping[str, ModelRoute]) -> bool:
     return routes["judge"].model != routes["extractor"].model
 
 
+@dataclass(frozen=True)
+class SurfaceTarget:
+    """The model and effort one conversational surface runs on (``surfaces`` of models.yaml)."""
+
+    surface: str
+    model: str | None
+    effort: str | None
+
+
+@lru_cache(maxsize=2)
+def load_surfaces(path: Path | None = None) -> dict[str, SurfaceTarget]:
+    """The conversational surfaces' model/effort from ``config/models.yaml`` (owner decision
+    2026-10-17: one layer every surface reads — research, Ask and the evals all run on Kimi K3,
+    Claude Fable 5.1 or Claude Opus 5.5, and switching is config here, never code). The block is
+    optional: its absence reproduces the behavior before it existed (the chat providers without
+    an effort, the tabular eval on kimi-k3 at high). A surface model must be one of the choices
+    models; an effort must be a known level."""
+    from llm.choice import catalogue
+
+    data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
+    ids = set(catalogue().ids)
+    targets = {}
+    for name, knobs in (data.get("surfaces") or {}).items():
+        knobs = knobs or {}
+        model, effort = knobs.get("model"), knobs.get("effort")
+        if model is not None and str(model) not in ids:
+            raise ValueError(f"models.yaml surfaces: {name} names {model!r}, not a choices model")
+        if effort is not None and str(effort) not in EFFORT_LEVELS:
+            raise ValueError(f"models.yaml surfaces: {name} has unknown effort {effort!r}")
+        targets[str(name)] = SurfaceTarget(
+            str(name),
+            str(model) if model is not None else None,
+            str(effort) if effort is not None else None,
+        )
+    return targets
+
+
+def chat_effort() -> str | None:
+    """The effort every Ask and follow-up-chat provider is built with (None = no effort set,
+    the provider's own default stands)."""
+    target = load_surfaces().get("chat")
+    return target.effort if target is not None else None
+
+
+def resolve_eval_choice(env: Mapping[str, str] | None = None) -> SurfaceTarget:
+    """The live tabular eval's model and effort: ``EVAL_MODEL`` / ``EVAL_EFFORT`` override the
+    ``surfaces.eval`` entry, whose default keeps the landed kimi-k3-at-high suite unchanged.
+    Anthropic models run at temperature 0 without a seed (the SDK's Messages call has no
+    temperature or seed parameter); the answer assertions stay the hard gate either way."""
+    import os
+
+    from llm.choice import catalogue
+
+    env = os.environ if env is None else env
+    target = load_surfaces().get("eval") or SurfaceTarget("eval", "kimi-k3", "high")
+    model = env.get("EVAL_MODEL") or target.model
+    effort = env.get("EVAL_EFFORT") or target.effort
+    if model is None or model not in catalogue().ids:
+        raise ValueError(f"the eval surface's model {model!r} is not a choices model")
+    if effort is not None and effort not in EFFORT_LEVELS:
+        raise ValueError(f"the eval surface has unknown effort {effort!r}")
+    return SurfaceTarget("eval", model, effort)
+
+
 class AnthropicLlm:
     """``LlmPort`` over an ``AsyncAnthropic`` or ``AsyncAnthropicVertex`` client (same API)."""
 
