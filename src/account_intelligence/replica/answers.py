@@ -1324,6 +1324,51 @@ def compose_other(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
         return
     top = [r for *_, r in scored[:3]]
     d.focus = top[0].account
+    # Generic questions can still resolve to job postings (for example, "what do you
+    # have on GSK?"). Keep those answers structured and complete instead of reducing
+    # the retrieved rows to the three-item narrative fallback below.
+    if top[0].kind == "job":
+        best_score = scored[0][0]
+        job_rows = [
+            r
+            for score, *_rest, r in scored
+            if r.kind == "job" and r.account.id == top[0].account.id and score == best_score
+        ][:400]
+        if job_rows:
+            account = top[0].account.name
+            table_rows = []
+            for r in job_rows:
+                table_rows.append(
+                    [
+                        r.account.name,
+                        r.text.removesuffix(" (closed)"),
+                        str(r.extra.get("location") or "Not listed"),
+                        str(r.extra.get("status") or "Not listed").replace("_", " ").title(),
+                        day_month(r.when) if r.when else "Not listed",
+                        "Workspace posting" + d.cite(r),
+                    ]
+                )
+            d.para(
+                f"Your workspace contains {len(job_rows)} relevant job posting"
+                f"{'s' if len(job_rows) != 1 else ''} at **{account}**."
+                + "".join(d.cite(r) for r in job_rows)
+            )
+            d.structured = {
+                "headline": (
+                    f"Your workspace contains {len(job_rows)} relevant job posting"
+                    f"{'s' if len(job_rows) != 1 else ''} at {account}."
+                ),
+                "stats": [{"label": "Relevant postings", "value": str(len(job_rows))}],
+                "sections": [
+                    {
+                        "kind": "table",
+                        "title": "Job postings",
+                        "columns": ["Account", "Role", "Location", "Status", "Posted", "Source"],
+                        "rows": table_rows,
+                    }
+                ],
+            }
+            return
     d.para(
         "Here is what your workspace holds on that: "
         + " ".join(
