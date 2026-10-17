@@ -659,10 +659,29 @@ module "cloud_run_jobs" {
       cpu         = "1"
       memory      = "1Gi"
     }
+    # one-off admin command, run by hand on the current worker image (gcloud run jobs execute):
+    # queues a workspace's pre-table-store documents for re-read; the worker service then
+    # processes them exactly like new uploads. The worker IDENTITY (the command enqueues Cloud
+    # Tasks, and only the api/worker identities hold tasks.enqueuer) with the plain job role:
+    # SERVICE_ROLE=worker would demand the blob mount no job carries, and reingest never reads
+    # blobs — it queues.
+    reingest-tables = {
+      image       = var.images.worker
+      sa_email    = local.sa.worker
+      command     = ["python", "-m", "account_intelligence.worker", "reingest-tables"]
+      args        = []
+      env         = merge(local.common_env, { SERVICE_ROLE = "job", DB_IAM_USER = module.cloud_sql.iam_users["worker"] })
+      secret_env  = local.db_secret
+      timeout     = "1800s"
+      max_retries = 0
+      cpu         = "1"
+      memory      = "1Gi"
+    }
   }
   runners = {
     spend-invariants = { scheduler = local.sa.scheduler }
     migrate          = { deployer = local.sa.deployer }
+    reingest-tables  = { deployer = local.sa.deployer }
   }
   depends_on = [module.secret_manager]
 }
