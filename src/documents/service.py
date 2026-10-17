@@ -6,6 +6,9 @@
                     token-checked content route only where the store has none)
       -> complete (size checked; status quarantined; processing enqueued)
       -> process: type check from content -> malware scan -> sha256 -> promote out of quarantine
+         into the raw file store (0078: one object per tenant and sha256 — a re-upload of the
+         same bytes registers no second copy; a changed file is a new hash, so a superseded
+         version is kept until its own document is deleted)
          -> plan the parts (in the sandbox) -> read each part in its own sandbox child:
             company evidence (raw) -> redact -> chunk -> passages, written in batches
          -> (bound to an account) embed and index in the private ``chunks`` index, page by page
@@ -26,8 +29,9 @@
 * A document uploaded without an account stops at ``parsed`` with the detected company; the
   user confirms the company (``confirm_company``), which binds and indexes it. Ambiguity is never
   resolved by guessing.
-* Deleting a document removes its index rows, passages, redaction map, stored objects and row,
-  and marks every fact that cites it for re-evaluation.
+* Deleting a document removes its index rows, passages, redaction map and row, and marks every
+  fact that cites it for re-evaluation; its raw object and registry row go only when no other
+  document of the tenant shares the same bytes (brief B1).
 * Every step holds a lease with an expiry: a worker that dies is retried by the sweeper.
 
 GUARANTEE(test_file_upload_runs_through_scan_parse_and_index)
@@ -54,13 +58,14 @@ from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import repo
-from documents.chunking import Chunker, Passage
+from documents.chunking import Chunker, Passage, TableIngestTruncated
 from documents.company import Resolver
 from documents.config import InputModesConfig, load_config
 from documents.embed import EmbeddingPort
 from documents.redact import Redactor
 from documents.sandbox import ParsedUnit, SandboxFailed, parse_in_sandbox, plan_in_sandbox
 from documents.scan import ScanPort
+from documents.shapes import ShapeLog
 from obs.logging import logger
 from research_files.blobstore import BlobMissing, BlobStore, PartTooLarge
 from research_files.detect import by_name, detect
@@ -102,6 +107,10 @@ PART_MESSAGES = {
     "parse:page_limit": "This part has more pages than one part may.",
     "parse:unit_too_large": "One row or line in this part is too large to read.",
     "parse:unsupported_type": "This part's content could not be read.",
+    "parse:table_truncated": (
+        "A table in this part has more rows than one part may hold, so it was not stored in"
+        " part: split the file and upload it again."
+    ),
 }
 
 
@@ -133,8 +142,14 @@ def quarantine_key(tenant_id: UUID, document_id: UUID) -> str:
 
 
 def document_key(tenant_id: UUID, document_id: UUID) -> str:
-    """Where a scanned document lives."""
+    """Where a scanned document lived before 0078 (the raw file store); still the answer for
+    documents read before the registry existed."""
     return f"tenants/{tenant_id}/documents/{document_id}/raw"
+
+
+def raw_key(tenant_id: UUID, sha256: str) -> str:
+    """Where raw bytes live, content-addressed: one object per (tenant, sha256)."""
+    return f"tenants/{tenant_id}/raw/{sha256}"
 
 
 @dataclass
@@ -494,9 +509,16 @@ class DocumentService:
                 await self.blobs.delete(row.quarantine_key)
             return "rejected"
         size, sha = await asyncio.to_thread(self._hash, row.quarantine_key)
-        target = document_key(tenant_id, row.id)
-        await self.blobs.move(row.quarantine_key, target)
         async with self.txn(tenant_id) as s:
+            existing = await repo.raw_file(s, sha)
+        if existing is None:
+            target = raw_key(tenant_id, sha)
+            await self.blobs.move(row.quarantine_key, target)
+        else:  # the same bytes were stored before: one copy serves both documents
+            target = str(existing.object_key)
+            await self.blobs.delete(row.quarantine_key)
+        async with self.txn(tenant_id) as s:
+            await repo.register_raw_file(s, sha, size, target, row.id)
             await repo.set_status(
                 s,
                 row.id,
@@ -588,6 +610,7 @@ class DocumentService:
             redactor,
             cfg.parsing.max_passages,
             first_seq=part_no * repo.PART_SPAN,
+            shape_log=ShapeLog(str(tenant_id), str(doc.detected_type or "")),
         )
         header = cursor.get("header")
         if header:
@@ -598,12 +621,15 @@ class DocumentService:
         written = 0
         members_read: set[str] = set()  # zip members the parser read (skipped ones apart)
         skipped: list[dict[str, str]] = []  # zip members the parser listed but did not read
+        ingested_at = self.clock.now().isoformat()  # B4: one stamp for the whole document
 
         async def renew() -> bool:
             async with self.txn(tenant_id) as s:
                 return await repo.renew_part(
                     s, doc.id, part_no, self.worker, cfg.parsing.lease_ttl_s
                 )
+
+        table_ids: dict[str, UUID] = {}  # the table store records this part writes into
 
         async def flush(beat: Any) -> bool:
             nonlocal written, batch
@@ -617,7 +643,25 @@ class DocumentService:
             async with self.txn(tenant_id) as s:
                 if not await repo.alive(s, doc.id):
                     return False
-                await repo.write_passages(s, doc.id, doc.account_id, batch, entries)
+                await repo.write_passages(
+                    s, doc.id, doc.account_id, batch, entries, ingested_at=ingested_at
+                )
+                # every table row, whole and typed, into the store (queried, never sampled)
+                by_table: dict[str, list[tuple[int, int, dict[str, Any]]]] = {}
+                for p in batch:
+                    if p.kind == "crm_row" and p.metadata:
+                        by_table.setdefault(str(p.location["table"]), []).append(
+                            (int(p.location["row"]), p.seq, p.metadata)
+                        )
+                for table, rows in by_table.items():
+                    if table not in table_ids:
+                        schema = chunker.tables[table]
+                        table_ids[table] = await repo.ensure_table(
+                            s, doc.id, doc.account_id, table, schema.member
+                        )
+                    await repo.write_table_rows(
+                        s, table_ids[table], doc.id, doc.account_id, part_no, rows
+                    )
             written += len(batch)
             batch = []
             return True
@@ -660,9 +704,23 @@ class DocumentService:
                     return
                 if beat.lost:
                     return
+                if table_ids:
+                    async with self.txn(tenant_id) as s:
+                        for table, table_id in table_ids.items():
+                            await repo.set_table_schema(s, table_id, chunker.tables[table].record())
         except SandboxFailed as failed:
             async with self.txn(tenant_id) as s:
                 await repo.fail_part(s, doc.id, part_no, self.worker, f"parse:{failed.code}")
+            return
+        except TableIngestTruncated as cut:
+            # a table past the passage cap fails this member outright: a table stored in part
+            # would answer a count or a filter wrongly (documents keep the truncated flag)
+            _log.warning(
+                "documents.table_truncated",
+                extra={"tenant_id": str(tenant_id), "rows": cut.total, "count": cut.kept},
+            )
+            async with self.txn(tenant_id) as s:
+                await repo.fail_part(s, doc.id, part_no, self.worker, "parse:table_truncated")
             return
         evidence = {
             "company": resolver.state(),
@@ -947,9 +1005,19 @@ class DocumentService:
             row, chunks = out
             marked = await mark_document_facts(s, document_id, row.account_id)
             await repo.record_deletion(s, row, chunks, marked, user)
-        for key in (row.quarantine_key, row.object_key):
-            if key:
-                await self.blobs.delete(key)
+        if row.quarantine_key:
+            await self.blobs.delete(row.quarantine_key)
+        if row.object_key:
+            # the raw object is shared by every document of the tenant with the same sha256
+            # (0078): delete it, and its registry row, only when this was the last one
+            shared = False
+            if row.sha256:
+                async with self.txn(tenant_id) as s:
+                    shared = await repo.documents_with_sha(s, str(row.sha256)) > 0
+                    if not shared:
+                        await repo.remove_raw_file(s, str(row.sha256))
+            if not shared:
+                await self.blobs.delete(row.object_key)
         return {"document_id": str(document_id), "chunks_removed": chunks, "facts_marked": marked}
 
     async def status(self, tenant_id: UUID, document_id: UUID) -> dict[str, Any]:

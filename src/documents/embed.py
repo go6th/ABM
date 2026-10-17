@@ -19,6 +19,10 @@ import re
 from collections.abc import Sequence
 from typing import Any, Protocol
 
+from obs.logging import logger
+
+_log = logger(__name__)
+
 _WORD = re.compile(r"[a-z0-9]+(?:['.-][a-z0-9]+)*")
 
 
@@ -139,13 +143,11 @@ class FastEmbedder:
 
     def _load(self) -> Any:
         if self._engine is None:
-            import logging
             import os
 
             import onnxruntime as ort  # type: ignore[import-untyped]
             from fastembed import TextEmbedding
 
-            log = logging.getLogger("documents.embedder")
             # one thread per core up to eight (the worker has eight since 2026-10-16; before, two
             # threads indexed a 37,000-passage file at half the speed the instance could give)
             threads = max(1, min(os.cpu_count() or 2, 8))
@@ -156,7 +158,7 @@ class FastEmbedder:
                     if "CUDAExecutionProvider" not in _providers(engine):
                         engine = None  # the runtime loaded but CUDA did not come up (warning above)
                 except Exception as exc:  # no driver or CUDA libraries on this instance
-                    log.warning(
+                    _log.warning(
                         "documents.embedder.cuda_unavailable",
                         extra={"error_class": type(exc).__name__},
                     )
@@ -171,7 +173,7 @@ class FastEmbedder:
             self._engine = engine
             # the message is the event name and the fields are catalogued (config/telemetry/
             # logs.yaml): kind is the device, count the CPU threads
-            log.info(
+            _log.info(
                 "documents.embedder.loaded",
                 extra={"model": self.model, "kind": self.device, "count": threads},
             )

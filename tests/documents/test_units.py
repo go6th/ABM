@@ -72,7 +72,11 @@ def test_chunking_follows_the_three_shapes() -> None:
     long_text = " ".join(f"Sentence {i} explains the rollout plan in detail." for i in range(400))
     pages = [ParsedUnit("page", {"page": 1}, long_text, heading="Page 1")]
     passages = list(chunker.passages(pages))
-    max_chars = CFG.chunking.document_max_tokens * CFG.chunking.chars_per_token
+    # the cap is calibrated from the file's own first text (B4): a budget that fits its language
+    from account_intelligence.rag.tokenizer import calibrate
+
+    ratio = calibrate(long_text, float(CFG.chunking.chars_per_token)).chars_per_token
+    max_chars = int(CFG.chunking.document_max_tokens * ratio)
     assert len(passages) > 1 and all(len(p.text) <= max_chars for p in passages)
     assert all(400 * 0.5 <= p.tokens <= 800 for p in passages[:-1])
     assert passages[0].heading_path == "deck.pdf > Page 1" and passages[0].location["page"] == 1
@@ -421,9 +425,10 @@ def test_every_line_of_a_file_is_in_a_passage_and_short_sections_merge() -> None
 
 
 def test_a_long_row_is_split_into_exact_parts_that_join_back() -> None:
-    """A record longer than a passage becomes parts cut at field boundaries, never inside a
-    field; joining them with '; ' gives the row back; each part cites its row and part; a short
-    row stays one passage."""
+    """A row's short (filterable) columns are always one part, never split, however wide the
+    record; a payload column (a long description) goes whole into the parts after it, cut
+    only at field boundaries; joining the parts with '; ' gives the row back; each part cites
+    its row and part; a short row stays one passage."""
     from documents.chunking import _row_parts
 
     c = Chunker(CFG.chunking, "pack.zip", Redactor("standard"), 1000)
@@ -441,19 +446,233 @@ def test_a_long_row_is_split_into_exact_parts_that_join_back() -> None:
         rows=[(1, row1), (2, ["2", "Small", *[""] * 120, "y"])],
     )
     out = list(c.passages([unit]))
-    parts = [p for p in out if p.location.get("row") == 1]
-    assert len(parts) > 1 and all(p.tokens <= CFG.chunking.document_max_tokens for p in parts)
+    wide = [p for p in out if p.location.get("row") == 1]
     whole = "; ".join(f"{h}: {v}" for h, v in zip(header, row1, strict=True))
-    assert "; ".join(p.text for p in parts) == whole
+    assert len(wide) == 1 and wide[0].text == whole and "part" not in wide[0].location
+    assert wide[0].heading_path == "pack.zip > data/teams.json"
+    small = [p for p in out if p.location.get("row") == 2]
+    assert len(small) == 1 and "part" not in small[0].location
+    # a payload column: whole, in the parts after the short fields
+    d = Chunker(CFG.chunking, "pack.zip", Redactor("standard"), 1000)
+    header2 = ["id", "title", "description", "notes"]
+    long_text = " ".join(f"Paragraph {i} of the posting." for i in range(400))
+    row = ["7", "Architect", long_text, long_text]
+    unit2 = ParsedUnit(
+        "rows",
+        {"table": "data/jobs.json", "member": "data/jobs.json"},
+        "",
+        header=header2,
+        rows=[(1, row)],
+    )
+    parts = list(d.passages([unit2]))
+    assert len(parts) > 1 and parts[0].text == "id: 7; title: Architect"
+    assert "; ".join(p.text for p in parts) == "; ".join(
+        f"{h}: {v}" for h, v in zip(header2, row, strict=True)
+    )
     assert [p.location["part"] for p in parts] == list(range(1, len(parts) + 1))
     assert all(p.location["parts"] == len(parts) for p in parts)
     assert (
         cite(parts[1].location)
-        == f"data/teams.json, row 1 of data/teams.json (part 2 of {len(parts)})"
+        == f"data/jobs.json, row 1 of data/jobs.json (part 2 of {len(parts)})"
     )
-    assert parts[0].heading_path == "pack.zip > data/teams.json"
-    small = [p for p in out if p.location.get("row") == 2]
-    assert len(small) == 1 and "part" not in small[0].location
-    assert _row_parts(["a: 1", "b: 2"], 100) == ["a: 1; b: 2"]
+    assert _row_parts(["a: 1", "b: 2"], [], 100) == ["a: 1; b: 2"]
     long_field = "a: " + "x" * 90  # longer than a piece: stays whole, never cut inside a field
-    assert _row_parts([long_field, "b: 2", "c: 3"], 60) == [long_field, "b: 2; c: 3"]
+    assert _row_parts(["k: 1"], [long_field, "b: 2", "c: 3"], 60) == [
+        "k: 1",
+        long_field,
+        "b: 2; c: 3",
+    ]
+
+
+def test_a_row_embeds_its_short_columns_and_keeps_the_description_as_payload() -> None:
+    """A row's first part (what is embedded and keyword-indexed) holds the short, filterable
+    columns only, under 1,500 characters even with a 6k-character description; every cell,
+    the description included, is typed in the passage's metadata (dates as ISO strings,
+    numbers as numbers, the name case folded with spaces as underscores); two runs over the
+    same rows give the same passages and the same schema record."""
+    header = fixtures.GSK_COLUMNS
+    rows = [(i + 2, list(r)) for i, r in enumerate(fixtures.gsk_job_postings_rows()[:60])]
+    for _, cells in rows:  # as the xlsx parser hands dates over: ISO strings
+        cells[5], cells[6] = cells[5].isoformat(), cells[6].isoformat() if cells[6] else None
+
+    def run() -> tuple[list[object], dict[str, object]]:
+        c = Chunker(CFG.chunking, "GSK_Job_Postings.xlsx", Redactor("standard"), 10_000)
+        unit = ParsedUnit("rows", {"table": "Jobs"}, "", header=header, rows=rows)
+        return list(c.passages([unit])), c.tables["Jobs"].record()
+
+    passages, schema = run()
+    first = [p for p in passages if p.location["row"] == 2]
+    assert len(first[0].text) < 1500 and "Full description" not in first[0].text
+    assert first[0].text.startswith("Requisition: 446999; Title: Salesforce Platform Owner")
+    assert len(first) > 1 and first[1].text.startswith("Full description: ")
+    md = first[0].metadata
+    assert md["requisition"] == 446999 and md["first_seen"] == "2026-03-01"
+    assert md["status"] == "Closed" and md["platforms_named"] and len(md["full_description"]) > 5000
+    assert md["what_the_posting_says"] and not first[1].metadata  # payload parts carry none
+    assert schema["payload_columns"] == ["full_description"]
+    assert schema["business_key"] == "requisition" and schema["row_count"] == 60
+    types = {c["name"]: c["type"] for c in schema["columns"]}
+    assert types["first_seen"] == "date" and types["requisition"] == "number"
+    assert types["status"] == "text" and types["last_seen"] == "date"
+    raw = {c["name"]: c["raw"] for c in schema["columns"]}
+    assert raw["platforms_named"] == "Platforms named"
+    again, schema_again = run()
+    assert {p.sha256 for p in again} == {p.sha256 for p in passages}
+    assert [p.metadata for p in again] == [p.metadata for p in passages]
+    assert schema_again == schema
+
+
+def test_passages_carry_the_prose_and_transcript_metadata() -> None:
+    """B4/B5: a prose passage's metadata records its kind, member, heading path and page (what
+    filters read); a transcript window records its speakers (redacted like the text) and its
+    time range; a row passage keeps its typed cells and nothing else."""
+    body = " ".join(f"Sentence {i} explains the rollout plan in detail." for i in range(120))
+    c = Chunker(CFG.chunking, "guide.pdf", Redactor("standard"), 100)
+    page = ParsedUnit("page", {"page": 3}, body, heading="Page 3")
+    sections = list(c.passages([page]))
+    assert sections  # the page splits at the size cap; every part keeps the same record
+    meta = sections[0].metadata
+    assert meta["kind"] == "section" and meta["page"] == 3
+    assert meta["heading_path"] == "guide.pdf > Page 3" and "member" not in meta
+    assert all(p.metadata == meta for p in sections[1:])
+
+    inner = Chunker(CFG.chunking, "bundle.zip", Redactor("standard"), 100)
+    zipped = ParsedUnit("note", {"member": "plans/a.txt"}, body, heading="A")
+    zs = list(inner.passages([zipped]))
+    assert zs and all(p.metadata["member"] == "plans/a.txt" for p in zs)
+
+    t = Chunker(CFG.chunking, "call.txt", Redactor("standard"), 100)
+    talk = ParsedUnit("section", {"section": "(no heading)"}, fixtures.transcript_txt().decode())
+    windows = list(t.passages([talk]))
+    assert windows[0].metadata["kind"] == "transcript_window"
+    assert windows[0].metadata["speakers"] == ["Buyer", "Seller"]
+    assert windows[0].metadata["start_s"] == 0.0 and windows[0].metadata["end_s"] > 0
+
+    rows = Chunker(CFG.chunking, "crm.xlsx", Redactor("standard"), 100)
+    unit = ParsedUnit("rows", {"table": "Contacts"}, "", header=["Name"], rows=[(2, ["Lee Park"])])
+    (row,) = list(rows.passages([unit]))
+    assert row.metadata == {"name": "Lee Park"}  # typed cells, no prose keys
+
+
+def test_cells_type_booleans_and_dates_and_conflicts_are_recorded() -> None:
+    """typed_cell: a bool and the exact words true/false are booleans (shown lowercase in the row
+    text); ISO dates and unambiguous day-first/month-first dates are dates; an ambiguous
+    05/06/2024 stays text (never a guess); a column of mixed kinds records the conflict and
+    keeps type text."""
+    from documents.chunking import cell_text, typed_cell
+
+    assert typed_cell(True) == (True, "boolean")
+    assert typed_cell("true") == (True, "boolean")
+    assert typed_cell(" FALSE ") == (False, "boolean")
+    assert cell_text(True) == "true" and cell_text(False) == "false"
+    assert typed_cell("2026-03-01") == ("2026-03-01", "date")
+    assert typed_cell("31/12/2024") == ("2024-12-31", "date")  # day-first, month proven by 31
+    assert typed_cell("12/31/2024") == ("2024-12-31", "date")  # month-first, day proven by 31
+    assert typed_cell("05/06/2024") == ("05/06/2024", "text")  # ambiguous: text, not a guess
+    assert typed_cell("45/13/2024") == ("45/13/2024", "text")
+
+    c = Chunker(CFG.chunking, "board.csv", Redactor("standard"), 100)
+    unit = ParsedUnit(
+        "rows",
+        {"table": "Board"},
+        "",
+        header=["Active", "When", "What"],
+        rows=[
+            (2, ["true", "2026-03-01", "renewal"]),
+            (3, [False, "next Tuesday", "expansion"]),
+        ],
+    )
+    p = list(c.passages([unit]))
+    assert "Active: true" in p[0].text and "Active: false" in p[1].text
+    record = c.tables["Board"].record()
+    types = {col["name"]: col["type"] for col in record["columns"]}
+    assert types["active"] == "boolean" and types["what"] == "text"
+    assert record["type_conflicts"] == ["when"] and types["when"] == "text"
+    booleans = {col["name"]: col["booleans"] for col in record["columns"]}
+    assert booleans["active"] == 2 and booleans["when"] == 0
+
+
+def test_a_table_past_the_passage_cap_raises_instead_of_dropping_rows() -> None:
+    """A table with more rows than the cap raises TableIngestTruncated at the first row that
+    does not fit, naming the table and the rows kept; a document keeps the truncated flag."""
+    from documents.chunking import TableIngestTruncated
+
+    c = Chunker(CFG.chunking, "crm.xlsx", Redactor("standard"), 5)
+    unit = ParsedUnit(
+        "rows",
+        {"table": "Contacts"},
+        "",
+        header=["Name", "Title"],
+        rows=[(i + 2, [f"Person {i}", "VP"]) for i in range(6)],
+    )
+    out: list[object] = []
+    with pytest.raises(TableIngestTruncated) as cut:
+        for p in c.passages([unit]):
+            out.append(p)
+    assert len(out) == 5 and cut.value.table == "Contacts"
+    assert (cut.value.kept, cut.value.total) == (5, 6) and c.truncated
+    text = Chunker(CFG.chunking, "deck.pdf", Redactor("standard"), 1)
+    body = " ".join(f"Sentence {i} explains the rollout plan in detail." for i in range(400))
+    pages = [ParsedUnit("page", {"page": n}, body, heading=f"Page {n}") for n in (1, 2)]
+    assert len(list(text.passages(pages))) == 1 and text.truncated  # documents: as before
+
+
+def test_a_list_column_is_detected_multi_valued_and_matched_whole_item_first() -> None:
+    """A text column whose cells often hold a short list ("Veeva, Salesforce") is recorded
+    multi_valued (a fifth of its text cells or more); plain list-cells do not count when the
+    items are sentence-length; contains on such a column reports a whole-item match vs a
+    substring-only one (the row flagged partial)."""
+    from documents.chunking import list_items
+    from documents.tables import ColumnInfo, Where, _whole_item
+
+    assert list_items("Veeva, Salesforce") == ["Veeva", "Salesforce"]
+    assert list_items("Salesforce; Workday|Veeva") == ["Salesforce", "Workday", "Veeva"]
+    assert list_items("Salesforce Effectiveness") is None  # no separator: not a list
+    assert list_items("a very long item that reads like a whole sentence here, and more") is None
+    assert list_items("Veeva, ") is None and list_items("Solo") is None
+
+    header = ["Id", "Tags"]
+    rows = [
+        (2, [1, "Salesforce, Veeva"]),
+        (3, [2, "Workday, Salesforce"]),
+        (4, [3, "Salesforce Effectiveness"]),
+        (5, [4, "Veeva"]),
+        (6, [5, "Salesforce; Workday"]),
+        (7, [6, "SAP"]),
+        (8, [7, None]),
+    ]
+    c = Chunker(CFG.chunking, "tags.xlsx", Redactor("standard"), 100)
+    unit = ParsedUnit("rows", {"table": "Tags"}, "", header=header, rows=rows)
+    list(c.passages([unit]))
+    tags = next(col for col in c.tables["Tags"].columns if col.name == "tags")
+    assert tags.multi_valued  # 3 of six text cells hold a short list
+    cols = {col["name"]: col["multi_valued"] for col in c.tables["Tags"].record()["columns"]}
+    assert cols == {"id": False, "tags": True}
+
+    column = ColumnInfo("tags", "Tags", "text", False, True)
+    icontains = Where(column, "icontains", "salesforce")
+    assert _whole_item(icontains, "Salesforce, Veeva")
+    assert _whole_item(icontains, "Salesforce; Workday")
+    assert not _whole_item(icontains, "Salesforce Effectiveness")  # substring only: partial
+    contains = Where(column, "contains", "Salesforce")
+    assert _whole_item(contains, "Workday, Salesforce")
+    assert not _whole_item(contains, "Workday, salesforce")  # case-sensitive op
+
+
+def test_a_row_cap_past_max_table_rows_fails_the_member() -> None:
+    """The table row cap is its own config (max_table_rows), failing the member's ingest
+    instead of storing a partial table as if whole."""
+    from documents.chunking import TableIngestTruncated
+
+    cfg = CFG.chunking.model_copy(update={"max_table_rows": 3})
+    c = Chunker(cfg, "big.xlsx", Redactor("standard"), 10_000)
+    unit = ParsedUnit(
+        "rows",
+        {"table": "Rows"},
+        "",
+        header=["Name"],
+        rows=[(i + 2, [f"r{i}"]) for i in range(4)],
+    )
+    with pytest.raises(TableIngestTruncated) as cut:
+        list(c.passages([unit]))
+    assert (cut.value.kept, cut.value.total) == (3, 4)

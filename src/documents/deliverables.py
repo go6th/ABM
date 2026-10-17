@@ -452,6 +452,7 @@ async def backfill_imports(now: datetime, *, limit: int = 10) -> dict[str, int]:
             owner = str(row.owner_user_id)
 
             def as_owner(tenant_id: UUID, owner: str = owner) -> Any:
+                """A tenant transaction acting as the import's owner (binds the loop's owner)."""
                 return tenant_txn(tenant_id, user=owner, system=True)
 
             try:

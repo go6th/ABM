@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from documents.service import document_key, quarantine_key
+from documents.service import document_key, quarantine_key, raw_key
 from tenancy.storage import tenant_of_key, tenant_prefixes
 
 
@@ -17,6 +17,7 @@ def test_quarantine_keys_use_the_lifecycle_prefix_and_resolve_to_their_tenant() 
     assert tenant_of_key(f"uploads/tenants/{tenant}/x/part-000001") == tenant
     assert tenant_of_key(f"tenants/{tenant}/quarantine/{document}/raw") == tenant  # older rows
     assert tenant_of_key(document_key(tenant, document)) == tenant
+    assert tenant_of_key(raw_key(tenant, "a" * 64)) == tenant
     assert tenant_of_key(f"quarantine/tenants/{tenant}/../x") is None
 
 
@@ -26,6 +27,7 @@ def test_offboarding_sees_every_prefix_of_a_tenant() -> None:
     for key in (
         quarantine_key(tenant, uuid4()),
         document_key(tenant, uuid4()),
+        raw_key(tenant, "a" * 64),
         f"uploads/tenants/{tenant}/u/part-000001",
         f"quarantine/{tenant}/r/i",
     ):

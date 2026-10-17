@@ -1,4 +1,6 @@
-"""Parsed units to passages: the chunk is the unit of retrieval, embedding and citation.
+"""Parsed units to passages: the chunk is the unit of retrieval, embedding and citation. Every
+unit's route is its shape from ``documents.shapes`` (rows, timestamped speaker turns, or prose —
+never the file type it came from); ``ShapeLog`` logs the decision once per member.
 
 * Documents (PDF pages, Word sections, slides, text sections): structure aware, 400 to 800
   tokens, about 12% overlap; the heading path (document name, the member inside a zip, then the
@@ -11,10 +13,19 @@
   heading.
 * Call transcripts (text whose lines are mostly timestamped speaker turns): windows of whole
   speaker turns of 60 to 90 seconds, speaker labels kept.
-* CRM exports and spreadsheets (rows with a header): one row per passage, ``column: value``. A
-  row longer than a passage (a JSON record with a nested list) is split at its ``; `` field
-  boundaries into exact parts (``part`` and ``parts`` in the location); joining the parts with
-  ``; `` gives the row back.
+* CRM exports and spreadsheets (rows with a header): one row per passage, ``column: value``,
+  with every cell typed (ISO or unambiguous day-/month-first date, number, boolean or text,
+  under the normalised column name) in ``Passage.metadata``, which is what the table store and
+  metadata filters read; a mixed column keeps type ``text`` and the conflict is on record
+  (``type_conflicts``), never hidden. The passage
+  text is a projection: the row's short, filterable columns first; a payload column (a long
+  description: median cell over ``table_payload_min_chars``, or a name in
+  ``table_payload_columns``) is never in the row's first part, so the row's embedding is not
+  95% boilerplate, and goes whole into the parts after it (``part`` and ``parts`` in the
+  location), each payload field unsplit; joining the parts with ``; `` gives the row back.
+  Filterable columns are never split across parts. A table that would pass the passage cap
+  raises ``TableIngestTruncated`` instead of dropping rows silently (documents keep the
+  ``truncated`` flag).
 
 Every passage carries its location (page, slide, section and character span, sheet and row,
 or the transcript's time range), which is what a fact cites. The text is the file's own text:
@@ -24,31 +35,57 @@ rewritten beyond redaction).
 GUARANTEE(test_every_line_of_a_file_is_in_a_passage_and_short_sections_merge)
 
 GUARANTEE(test_chunking_follows_the_three_shapes)
+
+GUARANTEE(test_a_row_embeds_its_short_columns_and_keeps_the_description_as_payload)
+
+GUARANTEE(test_a_table_past_the_passage_cap_raises_instead_of_dropping_rows)
+
+GUARANTEE(test_cells_type_booleans_and_dates_and_conflicts_are_recorded)
 """
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import math
 import re
 from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass, field
+from datetime import date
+from statistics import median
 from typing import Any
 
+from account_intelligence.rag.tokenizer import Calibration, calibrate
 from documents.config import ChunkingCfg
 from documents.redact import Redactor
 from documents.sandbox import ParsedUnit
+from documents.shapes import Shape, ShapeLog, member_of
+from documents.shapes import turns as shape_turns
 
-_TURN = re.compile(
-    r"^\s*\[?(?P<ts>(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\]?\s*[-–]?\s*"
-    r"(?P<speaker>[A-Z][\w .'&-]{0,40}?)\s*:\s*(?P<text>.*)$"
-)
-_TURN_AFTER = re.compile(
-    r"^\s*(?P<speaker>[A-Z][\w .'&-]{0,40}?)\s*[\[(](?P<ts>(?:\d{1,2}:)?\d{1,2}:\d{2})[\])]\s*:?\s*"
-    r"(?P<text>.*)$"
-)
+_ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.0+)?)?$")
+_INT = re.compile(r"^-?(?:0|[1-9]\d*)$")
+_FLOAT = re.compile(r"^-?(?:0|[1-9]\d*)\.\d+$")
+_SPACES = re.compile(r"\s+")
+# a slash/dot/dash date without the year first: day-first (EU, the workspace's convention) when
+# the first number cannot be a month, month-first (US) when the second cannot; when both could
+# be a month the value stays TEXT — never invent a date from an ambiguous cell (B3 determinism)
+_DMY_MDY_DATE = re.compile(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$")
+_BOOL = {"true": True, "false": False}
+
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n{2,}")
 MERGE_BELOW = 0.25  # of document_min_tokens: a shorter section merges with its neighbours
+_LIST_SPLIT = re.compile(r"\s*[,;|]\s*")
+LIST_ITEM_MAX_CHARS = 48  # a longer item is a sentence, not a list entry
+
+
+def list_items(text: str) -> list[str] | None:
+    """The items of a list cell (``Veeva, Salesforce``): at least two separated by a comma,
+    semicolon or pipe, each non-empty and short; None when the cell is not such a list. Shared
+    with ``documents.tables`` (detection and whole-item matching agree)."""
+    items = [item.strip() for item in _LIST_SPLIT.split(text.strip())]
+    if len(items) < 2 or not all(items) or any(len(i) > LIST_ITEM_MAX_CHARS for i in items):
+        return None
+    return items
 
 
 @dataclass
@@ -62,46 +99,177 @@ class Passage:
     text: str
     tokens: int
     sha256: str = field(init=False)
+    # a crm_row's cells, typed, under the normalised column names (every column, payload too);
+    # empty for every other kind and for a row's payload parts
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.sha256 = hashlib.sha256(self.text.encode("utf-8")).hexdigest()
 
 
+class TableIngestTruncated(Exception):
+    """A table has more rows than the passage cap allows: the ingest of that member fails
+    rather than storing part of the table as if it were whole. ``kept`` rows were emitted;
+    ``total`` is the rows seen when the cap was hit (the parser streams, so at least that)."""
+
+    def __init__(self, table: str, kept: int, total: int) -> None:
+        super().__init__(f"table {table!r} has more than {kept} rows (at least {total})")
+        self.table, self.kept, self.total = table, kept, total
+
+
+@dataclass
+class Column:
+    """One column of an ingested table: its normalised name, the header as written, the type
+    tally of its non-empty cells and whether it is payload (not in the row's first part);
+    ``lists`` tallies the text cells that hold a comma/semicolon/pipe list of short items, so
+    the column can be marked multi-valued (a fifth or more of its text cells do)."""
+
+    name: str
+    raw: str
+    payload: bool = False
+    dates: int = 0
+    numbers: int = 0
+    texts: int = 0
+    booleans: int = 0
+    lists: int = 0
+
+    @property
+    def type(self) -> str:
+        """``date``, ``number`` or ``boolean`` when every non-empty cell is one, else ``text``."""
+        kinds = [bool(self.dates), bool(self.numbers), bool(self.texts), bool(self.booleans)]
+        if sum(kinds) != 1:
+            return "text"
+        if self.dates:
+            return "date"
+        if self.numbers:
+            return "number"
+        return "boolean" if self.booleans else "text"
+
+    @property
+    def conflicting(self) -> bool:
+        """Cells of more than one kind sat in this column (``type_conflicts`` in the table's
+        record): a mixed column keeps type ``text`` and the conflict is on record, not hidden."""
+        return sum(bool(n) for n in (self.dates, self.numbers, self.texts, self.booleans)) > 1
+
+    @property
+    def multi_valued(self) -> bool:
+        """A text column whose cells are often a list (``Platforms named``): the predicates
+        ``contains``/``icontains`` then match a whole item first, a substring second."""
+        return bool(self.texts and self.lists * 5 >= self.texts)
+
+    def tally(self, kind: str) -> None:
+        """Count one non-empty cell of ``kind``."""
+        if kind == "date":
+            self.dates += 1
+        elif kind == "number":
+            self.numbers += 1
+        elif kind == "boolean":
+            self.booleans += 1
+        elif kind == "text":
+            self.texts += 1
+
+
+@dataclass
+class TableSchema:
+    """What the chunker learned about one table: the columns in header order, the payload
+    columns, the business key (the column duplicate rows collapse on) and the rows seen."""
+
+    table: str
+    member: str | None
+    columns: list[Column]
+    business_key: str | None = None
+    rows: int = 0
+
+    def record(self) -> dict[str, Any]:
+        """The JSON record the store keeps (``document_tables.columns`` and friends)."""
+        return {
+            "columns": [
+                {
+                    "name": c.name,
+                    "raw": c.raw,
+                    "type": c.type,
+                    "payload": c.payload,
+                    "multi_valued": c.multi_valued,
+                    "dates": c.dates,
+                    "numbers": c.numbers,
+                    "texts": c.texts,
+                    "booleans": c.booleans,
+                    "lists": c.lists,
+                }
+                for c in self.columns
+            ],
+            "payload_columns": [c.name for c in self.columns if c.payload],
+            "type_conflicts": [c.name for c in self.columns if c.conflicting],
+            "business_key": self.business_key,
+            "row_count": self.rows,
+        }
+
+
+def normalise_column(raw: str, taken: set[str], index: int) -> str:
+    """The normalised column name: case folded, spaces to underscores, unique in the table
+    (``_2``, ``_3`` for a repeated header, ``column_<n>`` for an empty one)."""
+    base = _SPACES.sub("_", str(raw).strip().casefold()) or f"column_{index + 1}"
+    name, n = base, 1
+    # LOOP(unique column name): cap=the table's columns; exit=a name no column has
+    while name in taken:
+        n += 1
+        name = f"{base}_{n}"
+    taken.add(name)
+    return name
+
+
+def typed_cell(value: Any) -> tuple[Any, str]:
+    """A cell as the typed value the store keeps and its kind: ``(None, "null")`` for an
+    empty cell, a boolean (a real bool or the exact string ``true``/``false``), an ISO date
+    string (``YYYY-MM-DD``, a midnight timestamp included) as that date, a day- or month-first
+    date whose month is unambiguous (``31/12/2024``, ``12/31/2024``; an ambiguous ``05/06/2024``
+    stays text — never invent a date), an int or float (or a plain numeric string without a
+    leading zero) as a number, anything else as text."""
+    if value is None:
+        return None, "null"
+    if isinstance(value, bool):
+        return value, "boolean"
+    if isinstance(value, int | float):
+        return value, "number"
+    text = str(value).strip()
+    if not text:
+        return None, "null"
+    m = _ISO_DATE.match(text)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat(), "date"
+        except ValueError:
+            return text, "text"
+    m = _DMY_MDY_DATE.match(text)
+    if m:
+        first, second, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if first <= 12 and second <= 12:
+            return text, "text"  # ambiguous: no date from a guess
+        day, month = (first, second) if first > 12 else (second, first)
+        try:
+            return date(year, month, day).isoformat(), "date"
+        except ValueError:
+            return text, "text"
+    if text.casefold() in _BOOL:
+        return _BOOL[text.casefold()], "boolean"
+    if _INT.match(text):
+        return int(text), "number"
+    if _FLOAT.match(text):
+        return float(text), "number"
+    return text, "text"
+
+
+def cell_text(value: Any) -> str:
+    """The typed cell as the passage text shows it (a boolean as the lowercase word the file
+    would use)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 def tokens(text: str, cfg: ChunkingCfg) -> int:
     """Estimated tokens of ``text`` (no tokenizer is bundled)."""
     return math.ceil(len(text) / cfg.chars_per_token)
-
-
-def seconds(ts: str) -> float:
-    """``h:mm:ss`` or ``mm:ss`` (with optional fraction) to seconds."""
-    parts = [float(p.replace(",", ".")) for p in ts.split(":")]
-    total = 0.0
-    for p in parts:
-        total = total * 60 + p
-    return total
-
-
-def _turns(text: str) -> list[tuple[float, str, str, int]] | None:
-    """Timestamped speaker turns ``(seconds, speaker, text, line)`` when the text is a transcript
-    (at least 60% of its non-empty lines, and at least 4 turns), else None."""
-    lines = [ln for ln in text.splitlines()]
-    turns: list[tuple[float, str, str, int]] = []
-    nonempty = 0
-    for no, line in enumerate(lines, 1):
-        if not line.strip() or line.strip().upper() == "WEBVTT":
-            continue
-        nonempty += 1
-        m = _TURN.match(line) or _TURN_AFTER.match(line)
-        if m:
-            turns.append((seconds(m.group("ts")), m.group("speaker").strip(), m.group("text"), no))
-        elif turns:
-            # a continuation line belongs to the previous turn
-            t = turns[-1]
-            turns[-1] = (t[0], t[1], f"{t[2]} {line.strip()}", t[3])
-            nonempty -= 1
-    if len(turns) >= 4 and len(turns) >= 0.6 * max(nonempty, 1):
-        return turns
-    return None
 
 
 def _split(text: str, max_chars: int, min_chars: int, overlap: int) -> list[tuple[int, int]]:
@@ -136,6 +304,7 @@ class Chunker:
         redactor: Redactor,
         max_passages: int,
         first_seq: int = 0,
+        shape_log: ShapeLog | None = None,
     ):
         self.cfg = cfg
         self.name = name
@@ -144,11 +313,34 @@ class Chunker:
         self.first_seq = first_seq  # a part's passages are numbered from its own range
         self.seq = first_seq
         self.headers: dict[str, list[str]] = {}
+        self.tables: dict[str, TableSchema] = {}  # what was learned about each table
         self.truncated = False
+        self.shape_log = shape_log  # one logged ``documents.shape`` decision per member (B2)
+        # the token budget is calibrated once per file from its own first text (B4; see _tokens)
+        self._cal: Calibration | None = None
         # carried between calls: the service hands units one at a time, and short sections
         # merge across those calls; ``finish`` (or ``final=True``) closes the file
         self._pending: list[ParsedUnit] = []
         self._held: Passage | None = None  # the last section passage, open for a short tail
+
+    def _note(self, unit: ParsedUnit, shape: Shape) -> None:
+        """Log this member's shape decision once (routing itself stays per unit)."""
+        if self.shape_log is not None:
+            self.shape_log.note(unit, shape)
+
+    def _calibration(self, sample: str) -> Calibration:
+        """This file's calibration, primed from ``sample`` when it is the first text budgeted."""
+        if self._cal is None:
+            self._cal = calibrate(sample, float(self.cfg.chars_per_token))
+        return self._cal
+
+    def _tokens(self, text: str) -> int:
+        """Budget tokens of ``text``: a real tokenizer when the runtime has one, else the
+        configured chars per token calibrated once from this file's own first text — a Japanese
+        transcript or a German contract gets the budget that fits it, not the English estimate
+        (B4). The calibration is a pure function of the sample: the same file always parts the
+        same way."""
+        return self._calibration(text).tokens(text)
 
     def _next(
         self, kind: str, location: dict[str, Any], heading: str | None, text: str
@@ -157,13 +349,16 @@ class Chunker:
             self.truncated = True
             return None
         self.seq += 1
-        member = _member(location)
+        member = member_of(location)
         path = self.name
         if member and member != heading:
             path = f"{path} > {member}"
         if heading:
             path = f"{path} > {heading}"
-        return Passage(self.seq, kind, location, path[:500], text, tokens(text, self.cfg))
+        p = Passage(self.seq, kind, location, path[:500], text, self._tokens(text))
+        if kind != "crm_row":  # a row's metadata is its typed cells; the rest carry B4/B5's
+            p.metadata = passage_meta(kind, location, p.heading_path)
+        return p
 
     @property
     def _floor(self) -> int:
@@ -177,31 +372,34 @@ class Chunker:
             if unit.fatal:
                 continue
             if unit.rows is not None:
+                self._note(unit, "tabular")
                 yield from self.finish()
                 yield from self._rows(unit)
                 continue
             if not unit.text.strip():
                 continue
-            turns = _turns(unit.text)
-            if turns is not None:
+            found = shape_turns(unit.text)
+            if found is not None:
+                self._note(unit, "transcript")
                 yield from self.finish()
-                yield from self._transcript(unit, turns)
+                yield from self._transcript(unit, found)
                 continue
+            self._note(unit, "prose")
             pending = self._pending
-            if pending and _member(unit.location) != _member(pending[-1].location):
+            if pending and member_of(unit.location) != member_of(pending[-1].location):
                 yield from self.finish()  # another file in the zip: nothing merges across
                 pending = self._pending
             if (
                 pending
                 and self._heading(unit) not in (None, self._heading(pending[-1]))
-                and sum(tokens(u.text, self.cfg) for u in pending) >= self._floor
+                and sum(self._tokens(u.text) for u in pending) >= self._floor
             ):
                 # a new heading after a section of real size: the section stands on its own;
                 # a shorter one (a title line, a footer) merges forward instead
                 self._held = yield from self._settle(self._held, self._flush(pending))
                 self._pending = pending = []
             pending.append(unit)
-            size = sum(tokens(u.text, self.cfg) for u in pending)
+            size = sum(self._tokens(u.text) for u in pending)
             if size >= self.cfg.document_min_tokens:
                 self._held = yield from self._settle(self._held, self._flush(pending))
                 self._pending = []
@@ -237,7 +435,7 @@ class Chunker:
             and held.kind == "section"
             and tail.tokens < self._floor
             and held.tokens + tail.tokens <= self.cfg.document_max_tokens
-            and _member(held.location) == _member(tail.location)
+            and member_of(held.location) == member_of(tail.location)
         )
 
     def _joined(self, held: Passage, tail: Passage) -> Passage:
@@ -250,9 +448,9 @@ class Chunker:
         end = tail.location.get("to", tail.location)
         at = {k: v for k, v in start.items() if k != "chars"}
         location = at if start == end else {"from": at, "to": {k: v for k, v in end.items()}}
-        return Passage(
-            held.seq, "section", location, held.heading_path, text, tokens(text, self.cfg)
-        )
+        joined = Passage(held.seq, "section", location, held.heading_path, text, self._tokens(text))
+        joined.metadata = passage_meta("section", location, held.heading_path)
+        return joined
 
     @staticmethod
     def _heading(unit: ParsedUnit) -> str | None:
@@ -290,8 +488,9 @@ class Chunker:
                 "to": units[-1].location,
             }
         )
-        max_chars = int(self.cfg.document_max_tokens * self.cfg.chars_per_token)
-        min_chars = int(self.cfg.document_min_tokens * self.cfg.chars_per_token)
+        ratio = self._calibration(text).chars_per_token  # the split width must fit the file too
+        max_chars = int(self.cfg.document_max_tokens * ratio)
+        min_chars = int(self.cfg.document_min_tokens * ratio)
         overlap = int(max_chars * self.cfg.overlap_fraction)
         span = base.get("lines") if len(units) == 1 else None
         for start, end in _split(text, max_chars, min_chars, overlap):
@@ -315,26 +514,88 @@ class Chunker:
         if unit.header:
             self.headers[table] = [str(h) for h in unit.header]
         header = self.headers.get(table, [])
-        for row_no, cells in unit.rows or []:
-            parts = []
+        rows = unit.rows or []
+        schema = self.tables.get(table)
+        if schema is None:
+            schema = self._schema(table, unit, header, rows)
+            self.tables[table] = schema
+        first_row = [str(c) for c in rows[0][1]] if rows else []
+        ratio = self._calibration("; ".join([*header, *first_row])).chars_per_token
+        max_chars = int(self.cfg.document_max_tokens * ratio)
+        for row_no, cells in rows:
+            short: list[str] = []
+            payload: list[str] = []
+            metadata: dict[str, Any] = {}
             for i, cell in enumerate(cells):
-                if cell is None or str(cell).strip() == "":
+                column = schema.columns[i] if i < len(schema.columns) else None
+                if column is None:  # a cell past the header: named by its position
+                    column = Column(normalise_column("", {c.name for c in schema.columns}, i), "")
+                    column.raw = f"column {i + 1}"
+                    schema.columns.append(column)
+                raw = None if cell is None else self.redactor.cell(column.raw, str(cell))
+                value, kind = typed_cell(raw)
+                metadata[column.name] = value
+                if value is None:
                     continue
-                column = header[i] if i < len(header) else f"column {i + 1}"
-                parts.append(f"{column}: {self.redactor.cell(column, str(cell))}")
-            if not parts:
+                column.tally(kind)
+                if kind == "text" and list_items(cell_text(value)):
+                    column.lists += 1
+                (payload if column.payload else short).append(f"{column.raw}: {cell_text(value)}")
+            if not short and not payload:
                 continue
+            schema.rows += 1
+            if schema.rows > self.cfg.max_table_rows:  # never a partial table (B3)
+                raise TableIngestTruncated(table, self.cfg.max_table_rows, schema.rows)
             row_at: dict[str, Any] = {"table": table, "row": row_no}
             if unit.location.get("member"):  # a sheet inside a zip keeps the file it came from
                 row_at["member"] = unit.location["member"]
-            max_chars = int(self.cfg.document_max_tokens * self.cfg.chars_per_token)
-            pieces = _row_parts(parts, max_chars)
+            pieces = _row_parts(short, payload, max_chars)
             for i, piece in enumerate(pieces, 1):
                 at = {**row_at, "part": i, "parts": len(pieces)} if len(pieces) > 1 else row_at
                 p = self._next("crm_row", at, table, piece)
                 if p is None:
-                    return
+                    kept = schema.rows - 1
+                    raise TableIngestTruncated(table, kept, kept + 1)
+                if i == 1:
+                    p.metadata = metadata
                 yield p
+
+    def _schema(
+        self, table: str, unit: ParsedUnit, header: list[str], rows: list[tuple[int, list[Any]]]
+    ) -> TableSchema:
+        """The table's columns from its header, with the payload columns decided on the first
+        unit's rows (a column whose median non-empty cell is longer than
+        ``table_payload_min_chars``, or whose name is in ``table_payload_columns``) and the
+        business key (the per-table rule, else the first of ``table_business_keys`` present)."""
+        width = max([len(header), *(len(cells) for _, cells in rows)], default=0)
+        taken: set[str] = set()
+        columns = [
+            Column(normalise_column(header[i] if i < len(header) else "", taken, i), header[i])
+            if i < len(header)
+            else Column(normalise_column("", taken, i), f"column {i + 1}")
+            for i in range(width)
+        ]
+        explicit = {name.casefold() for name in self.cfg.table_payload_columns}
+        for i, column in enumerate(columns):
+            lengths = [
+                len(str(cells[i]).strip())
+                for _, cells in rows
+                if i < len(cells) and cells[i] is not None and str(cells[i]).strip()
+            ]
+            column.payload = column.name in explicit or bool(
+                lengths and median(lengths) > self.cfg.table_payload_min_chars
+            )
+        names = {c.name for c in columns}
+        key = next(
+            (
+                column
+                for pattern, column in self.cfg.table_business_key.items()
+                if fnmatch.fnmatchcase(table, pattern) and column in names
+            ),
+            None,
+        ) or next((k for k in self.cfg.table_business_keys if k in names), None)
+        member = unit.location.get("member")
+        return TableSchema(table, str(member) if member else None, columns, key)
 
     def _transcript(
         self, unit: ParsedUnit, turns: list[tuple[float, str, str, int]]
@@ -368,23 +629,45 @@ class Chunker:
             "end_s": end,
             "lines": [window[0][3], window[-1][3]],
         }
-        return self._next("transcript_window", location, "Call transcript", "\n".join(lines))
+        p = self._next("transcript_window", location, "Call transcript", "\n".join(lines))
+        if p is not None:  # the window's own speakers and time range (B5), redacted like the text
+            p.metadata |= {
+                "speakers": sorted({self.redactor.speaker(s) for _, s, _, _ in window}),
+                "start_s": window[0][0],
+                "end_s": end,
+            }
+        return p
 
 
-def _member(location: dict[str, Any]) -> str | None:
+_PROSE_LOC_KEYS = ("member", "page", "slide", "section")
+
+
+def passage_meta(kind: str, location: dict[str, Any], heading_path: str | None) -> dict[str, Any]:
+    """The filterable record of a prose or transcript passage (brief B4/B5): its shape, the
+    member of an archive it is in, its heading path, and the page/slide/section it spans. A row
+    passage carries its typed cells instead, and the store stamps ``ingested_at`` on every one."""
+    meta: dict[str, Any] = {"kind": kind}
     start = location.get("from", location)
-    value = start.get("member") or location.get("member")
-    return str(value) if value else None
+    for key in _PROSE_LOC_KEYS:
+        value = location.get(key, start.get(key))
+        if value is not None:
+            meta[key] = value
+    if heading_path:
+        meta["heading_path"] = heading_path
+    return meta
 
 
-def _row_parts(fields: list[str], max_chars: int) -> list[str]:
-    """``column: value`` fields joined with ``; `` into pieces of at most ``max_chars`` where the
-    fields allow; a single field longer than that stays whole (never cut inside a field, so
-    ``"; ".join(parts)`` is exactly the row)."""
+def _row_parts(short: list[str], payload: list[str], max_chars: int) -> list[str]:
+    """The row's ``column: value`` fields joined with ``; `` into pieces: the short (filterable)
+    fields are always one piece, never split; the payload fields follow in pieces of at most
+    ``max_chars`` where the fields allow (a field longer than that stays whole, never cut), so
+    ``"; ".join(parts)`` is exactly the row. A row without payload is one piece."""
     pieces: list[str] = []
+    if short:
+        pieces.append("; ".join(short))
     current: list[str] = []
     size = 0
-    for f in fields:
+    for f in payload:
         if current and size + 2 + len(f) > max_chars:
             pieces.append("; ".join(current))
             current, size = [], 0

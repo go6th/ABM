@@ -63,7 +63,7 @@ from account_intelligence.rag.retrieval import (
     RerankerPort,
     SparseRetrieverPort,
     drop_below,
-    metadata_filter,
+    filtered_set,
     rerank,
     select_top_k,
     weighted_reciprocal_rank_fusion,
@@ -303,8 +303,12 @@ class RagLoop:
             }
             fused = weighted_reciprocal_rank_fusion(rankings, weights, k=config.rrf_k)
             visible = filter_by_acl(candidates.values(), self.subject)
-            filtered = metadata_filter(visible, filters, required=config.metadata_required)
-            kept = drop_below(filtered, fused, config.min_score)
+            if filters:
+                # a filtered result is a set: every match is kept, never a score-gated top-k
+                # sample (FilterTooWide, not a silent cut, past the guard)
+                kept = filtered_set(visible, filters, required=config.metadata_required)
+            else:
+                kept = drop_below(visible, fused, config.min_score)
             if self.reranker is not None:
                 ordered = tuple(await self.reranker.rerank(query, kept))
             else:
@@ -314,7 +318,7 @@ class RagLoop:
                     fused=fused,
                     lexical_weight=config.lexical_weight,
                 )
-            selected = select_top_k(ordered, config.top_k)
+            selected = ordered if filters else select_top_k(ordered, config.top_k)
             scored = tuple(
                 chunk.model_copy(update={"score": _fused_score(chunk.chunk_id, fused)})
                 for chunk in selected

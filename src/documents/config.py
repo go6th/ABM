@@ -56,7 +56,7 @@ class SandboxCfg(_M):
 
 
 class ChunkingCfg(_M):
-    """Passage sizes."""
+    """Passage sizes, and how a table's rows are projected and keyed."""
 
     chars_per_token: float = Field(gt=0)
     document_min_tokens: int = Field(gt=0)
@@ -64,6 +64,17 @@ class ChunkingCfg(_M):
     overlap_fraction: float = Field(ge=0, lt=0.5)
     transcript_min_s: int = Field(gt=0)
     transcript_max_s: int = Field(gt=0)
+    # payload columns (stored and queryable, never in a row's first, embedded part): by
+    # normalised name, and any column whose median cell is longer than this many characters
+    table_payload_columns: tuple[str, ...] = ("full_description", "description", "raw_text")
+    table_payload_min_chars: int = Field(default=1000, gt=0)
+    # the business key duplicate rows collapse on: the first of these normalised column names
+    # the table has, unless a per-table rule (glob on the table name) names another column
+    table_business_keys: tuple[str, ...] = ("requisition", "requisition_id", "id")
+    table_business_key: dict[str, str] = Field(default_factory=dict)
+    # a table with more rows than this fails the member's ingest (TableIngestTruncated);
+    # a partial table is never stored as if whole
+    max_table_rows: int = Field(default=500_000, gt=0)
 
 
 class EmbeddingCfg(_M):

@@ -45,23 +45,30 @@ class Passage:
     score: float
 
 
-async def _lexical(session: Any, question: str, scope: list[UUID]) -> list[dict[str, Any]]:
+async def _lexical(
+    session: Any, question: str, scope: list[UUID], within: list[UUID] | None
+) -> list[dict[str, Any]]:
     rows = await session.execute(
         text(
             "SELECT p.document_id::text || ':' || p.seq AS key, p.account_id, p.content,"
             " p.location, coalesce(d.name, 'an uploaded file') AS document"
             " FROM document_passages p JOIN documents d ON d.id = p.document_id"
             " WHERE p.account_id = ANY(:scope)"
+            " AND (CAST(:within AS uuid[]) IS NULL OR p.document_id = ANY(CAST(:within AS uuid[])))"
             " AND p.tsv @@ websearch_to_tsquery('simple', :q)"
             " ORDER BY ts_rank_cd(p.tsv, websearch_to_tsquery('simple', :q)) DESC LIMIT :n"
         ),
-        {"scope": scope, "q": question, "n": LEXICAL_LIMIT},
+        {"scope": scope, "q": question, "n": LEXICAL_LIMIT, "within": within},
     )
     return [dict(r._mapping) for r in rows]
 
 
 async def _dense(
-    session: Any, vector: Sequence[float], scope: list[UUID], model: str
+    session: Any,
+    vector: Sequence[float],
+    scope: list[UUID],
+    model: str,
+    within: list[UUID] | None,
 ) -> list[dict[str, Any]]:
     from documents.embed import literal
 
@@ -71,9 +78,10 @@ async def _dense(
             " c.location, coalesce(d.name, 'an uploaded file') AS document"
             " FROM chunks c JOIN documents d ON d.id = c.doc_id"
             " WHERE c.account_id = ANY(:scope) AND c.semantic_model = :m"
+            " AND (CAST(:within AS uuid[]) IS NULL OR c.doc_id = ANY(CAST(:within AS uuid[])))"
             " ORDER BY c.semantic_embedding <=> CAST(:v AS halfvec) LIMIT :n"
         ),
-        {"scope": scope, "v": literal(vector), "m": model, "n": DENSE_LIMIT},
+        {"scope": scope, "v": literal(vector), "m": model, "n": DENSE_LIMIT, "within": within},
     )
     return [dict(r._mapping) for r in rows]
 
@@ -120,12 +128,16 @@ async def retrieve(
     scope: Sequence[UUID],
     embedder: Any | None = None,
     k: int = TOP_K,
+    within: Sequence[UUID] | None = None,
 ) -> list[Passage]:
-    """The ``k`` passages of the caller's documents that best answer ``question``."""
+    """The ``k`` passages of the caller's documents that best answer ``question``;
+    ``within`` narrows both rankings to those documents (a search_passages document filter,
+    2026-10-17)."""
     accounts = list(scope)
     if not accounts or not question.strip():
         return []
-    lexical = await _lexical(session, question, accounts)
+    inside = [UUID(str(d)) for d in within] if within else None
+    lexical = await _lexical(session, question, accounts, inside)
     dense: list[dict[str, Any]] = []
     if embedder is not None:
         try:
@@ -134,7 +146,7 @@ async def retrieve(
                 await backfill(session, accounts, embedder)
                 embed_query = getattr(embedder, "embed_query", embedder.embed)
                 (vector,) = await embed_query([question])
-                dense = await _dense(session, vector, accounts, str(embedder.model))
+                dense = await _dense(session, vector, accounts, str(embedder.model), inside)
         except Exception:  # noqa: BLE001 - keyword search still answers
             dense = []
     rows = {r["key"]: r for r in dense}

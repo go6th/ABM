@@ -76,6 +76,10 @@ STORAGE_LAYOUTS: dict[str, StorageLayout] = {
         "documents.service.document_key",
         lambda t: f"tenants/{t}/documents/{_id(t, 'document')}/raw",
     ),
+    "raw_file": StorageLayout(
+        "documents.service.raw_key (the content-addressed raw file store, 0078)",
+        lambda t: f"tenants/{t}/raw/{'a' * 64}",
+    ),
     "internal_file": StorageLayout(
         "documents.graph.internal_document",
         lambda t: f"tenants/{t}/internal/{_id(t, 'run')}/{'a' * 64}.docx",

@@ -46,6 +46,17 @@ chunking:
   overlap_fraction: 0.12
   transcript_min_s: 60
   transcript_max_s: 90
+  # tables (2026-10-17): a payload column is stored and queryable but never in a row's first,
+  # embedded part (a 6k-character description made every row embed alike); by normalised name,
+  # plus any column whose median cell is longer than table_payload_min_chars
+  table_payload_columns: [full_description, description, raw_text]
+  table_payload_min_chars: 1000
+  # the business key duplicate rows collapse on (query_table distinct_on): the first of these
+  # the table has; table_business_key names another column for one table (glob on its name)
+  table_business_keys: [requisition, requisition_id, id]
+  table_business_key: {}
+  # a table with more rows than this fails the member's ingest; never stored in part
+  max_table_rows: 500000
 
 embedding:
   model: local-hash-v1               # deterministic local feature hashing (no vendor configured)

@@ -67,9 +67,11 @@ async def test_file_upload_runs_through_scan_parse_and_index(
         doc,
     )
     assert index == [(len(passages), True, "local-hash-v1", True)]
-    # the raw object left quarantine; the embedding batch was metered
+    # the raw object left quarantine for the content-addressed raw store (0078); the batch metered
     assert not (tmp_path / f"quarantine/tenants/{tenant_a}/{doc}/raw").exists()
-    assert (tmp_path / f"tenants/{tenant_a}/documents/{doc}/raw").exists()
+    (object_key,) = admin("SELECT object_key FROM documents WHERE id = %s", doc)[0]
+    assert str(object_key).startswith(f"tenants/{tenant_a}/raw/")
+    assert (tmp_path / str(object_key)).exists()
     assert admin(
         "SELECT task, model, cost_usd FROM research_file_model_calls WHERE file_id = %s", doc
     )[0] == ("embed_passages", "local-hash-v1", 0)

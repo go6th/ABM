@@ -26,6 +26,9 @@ _COLS = (
     " upload_expires_at, created_at, updated_at, parts_total, indexed_through"
 )
 PART_SPAN = 10_000_000  # passage numbers per part: part n writes n * PART_SPAN + 1, + 2, ...
+# a text column is multi-valued (a cell holds "a, b; c" items) when a fifth or more of its
+# text cells hold one (documents.chunking.Column.lists tallies the cells that do)
+LIST_TALLY_REQUIRED = 5
 
 
 def _j(value: Any) -> str:
@@ -175,8 +178,10 @@ async def release(s: AsyncSession, document_id: UUID, owner: str) -> None:
 
 
 async def clear_passages(s: AsyncSession, document_id: UUID) -> None:
-    """Remove a document's passages, redaction map and index rows (a re-parse starts clean)."""
+    """Remove a document's passages, redaction map, index rows and tables (a re-parse starts
+    clean)."""
     await s.execute(text("DELETE FROM chunks WHERE doc_id = :d"), {"d": document_id})
+    await s.execute(text("DELETE FROM document_tables WHERE document_id = :d"), {"d": document_id})
     await s.execute(
         text("DELETE FROM document_redactions WHERE document_id = :d"), {"d": document_id}
     )
@@ -191,16 +196,19 @@ async def write_passages(
     account_id: UUID | None,
     passages: Sequence[Passage],
     redactions: Sequence[tuple[int, str, str, str]],
+    ingested_at: str | None = None,
 ) -> None:
     """Insert passages and the redaction map rows ``(passage seq, placeholder, kind, original)``
-    (one batched statement each). A passage number already written is left as it is."""
+    (one batched statement each). A passage number already written is left as it is. Every
+    passage's stored metadata carries ``ingested_at`` (the document's ingest stamp the caller
+    passes; B4: when the workspace read this text)."""
     if passages:
         await s.execute(
             text(
                 "INSERT INTO document_passages (tenant_id, account_id, document_id, seq, kind,"
-                " location, heading_path, content, content_sha256, token_count) VALUES"
+                " location, heading_path, content, content_sha256, token_count, metadata) VALUES"
                 " ((SELECT app_tenant()), :a, :d, :seq, :k, CAST(:loc AS jsonb), :h, :c, :sha,"
-                " :tok) ON CONFLICT (document_id, seq) DO NOTHING"
+                " :tok, CAST(:md AS jsonb)) ON CONFLICT (document_id, seq) DO NOTHING"
             ),
             [
                 {
@@ -213,6 +221,11 @@ async def write_passages(
                     "c": p.text,
                     "sha": p.sha256,
                     "tok": p.tokens,
+                    "md": _j(
+                        {**p.metadata, **({"ingested_at": ingested_at} if ingested_at else {})}
+                    )
+                    if p.metadata or ingested_at
+                    else None,
                 }
                 for p in passages
             ],
@@ -635,8 +648,9 @@ async def clear_part(s: AsyncSession, document_id: UUID, part_no: int) -> None:
         "DELETE FROM document_redactions WHERE document_id = :d"
         " AND passage_seq BETWEEN :lo AND :hi",
         "DELETE FROM document_passages WHERE document_id = :d AND seq BETWEEN :lo AND :hi",
+        "DELETE FROM document_table_rows WHERE document_id = :d AND part_no = :n",
     ):
-        await s.execute(text(sql), {"d": document_id, "lo": lo, "hi": hi})
+        await s.execute(text(sql), {"d": document_id, "lo": lo, "hi": hi, "n": part_no})
 
 
 async def alive(s: AsyncSession, document_id: UUID) -> bool:
@@ -872,3 +886,251 @@ async def unmark_imported(s: AsyncSession, document_id: UUID) -> None:
     await s.execute(
         text("UPDATE documents SET imported_at = NULL WHERE id = :d"), {"d": document_id}
     )
+
+
+# ------------------------------------------------------------------ the table store (0077)
+
+
+async def ensure_table(
+    s: AsyncSession, document_id: UUID, account_id: UUID | None, table_name: str, member: str | None
+) -> UUID:
+    """The id of the document's table record, created on first sight (any part may be first)."""
+    row = await s.execute(
+        text(
+            "INSERT INTO document_tables (owner_user_id, document_id, account_id, table_name,"
+            " member) SELECT d.owner_user_id, d.id, :a, :t, :m FROM documents d WHERE d.id = :d"
+            " ON CONFLICT (document_id, table_name) DO UPDATE SET updated_at = now()"
+            " RETURNING id"
+        ),
+        {"d": document_id, "a": account_id, "t": table_name[:500], "m": member},
+    )
+    return UUID(str(row.scalar_one()))
+
+
+async def write_table_rows(
+    s: AsyncSession,
+    table_id: UUID,
+    document_id: UUID,
+    account_id: UUID | None,
+    part_no: int,
+    rows: Sequence[tuple[int, int, dict[str, Any]]],
+) -> None:
+    """Store rows ``(row number, passage seq, typed cells)`` of one part; a row number already
+    stored for the table is left as it is (a part read again wrote it first)."""
+    if not rows:
+        return
+    await s.execute(
+        text(
+            "INSERT INTO document_table_rows (owner_user_id, table_id, document_id,"
+            " account_id, part_no, row_no, seq, cells) SELECT d.owner_user_id, :t, d.id, :a,"
+            " :p, :r, :seq, CAST(:c AS jsonb) FROM documents d WHERE d.id = :d"
+            " ON CONFLICT (tenant_id, table_id, row_no) DO NOTHING"
+        ),
+        [
+            {
+                "t": table_id,
+                "d": document_id,
+                "a": account_id,
+                "p": part_no,
+                "r": row_no,
+                "seq": seq,
+                "c": _j(cells),
+            }
+            for row_no, seq, cells in rows
+        ],
+    )
+
+
+async def set_table_schema(s: AsyncSession, table_id: UUID, record: dict[str, Any]) -> None:
+    """Record what a part learned about the table's columns, merged with what other parts
+    recorded (type tallies add up, payload stays payload, the first business key stands); the
+    row count is counted from the stored rows, so it is exact whatever the order of parts."""
+    held = (
+        await s.execute(
+            text(
+                "SELECT columns, business_key FROM document_tables WHERE id = :t FOR NO KEY UPDATE"
+            ),
+            {"t": table_id},
+        )
+    ).first()
+    if held is None:
+        return
+    merged: dict[str, dict[str, Any]] = {}
+    for column in [*(held.columns or []), *record.get("columns", [])]:
+        name = str(column.get("name"))
+        into = merged.setdefault(
+            name,
+            {"name": name, "raw": column.get("raw", name), "payload": False, "dates": 0,
+             "numbers": 0, "texts": 0, "lists": 0},
+        )  # fmt: skip
+        into["payload"] = bool(into["payload"] or column.get("payload"))
+        for kind in ("dates", "numbers", "texts", "lists"):
+            into[kind] += int(column.get(kind) or 0)
+    for column in merged.values():
+        dates, numbers, texts = column["dates"], column["numbers"], column["texts"]
+        column["type"] = (
+            "date"
+            if dates and not numbers and not texts
+            else "number"
+            if numbers and not dates and not texts
+            else "text"
+        )
+        # multi-valued: a fifth or more of the text cells hold a list of short items
+        column["multi_valued"] = bool(texts and column["lists"] * LIST_TALLY_REQUIRED >= texts)
+    columns = list(merged.values())
+    await s.execute(
+        text(
+            "UPDATE document_tables SET columns = CAST(:c AS jsonb), payload_columns ="
+            " CAST(:p AS jsonb), business_key = coalesce(business_key, :k), row_count ="
+            " (SELECT count(*) FROM document_table_rows r WHERE r.table_id = :t),"
+            " updated_at = now() WHERE id = :t"
+        ),
+        {
+            "t": table_id,
+            "c": _j(columns),
+            "p": _j([c["name"] for c in columns if c["payload"]]),
+            "k": record.get("business_key"),
+        },
+    )
+
+
+async def tables_for(s: AsyncSession, accounts: Sequence[UUID]) -> list[Any]:
+    """The ingested tables of these accounts (newest document first, then by name), with the
+    document's name."""
+    if not accounts:
+        return []
+    rows = await s.execute(
+        text(
+            "SELECT t.id, t.document_id, t.account_id, t.member, t.table_name, t.columns,"
+            " t.payload_columns, t.business_key, t.row_count, coalesce(d.name, 'an uploaded"
+            " file') AS document, d.created_at FROM document_tables t JOIN documents d ON d.id ="
+            " t.document_id WHERE t.account_id = ANY(:scope) AND t.row_count > 0"
+            " ORDER BY d.created_at DESC, d.id, t.table_name"
+        ),
+        {"scope": list(accounts)},
+    )
+    return list(rows.all())
+
+
+async def table_rows(
+    s: AsyncSession, table_id: UUID, where: str, params: dict[str, Any], limit: int
+) -> list[Any]:
+    """Rows ``(row_no, seq, cells)`` of one table matching ``where`` (a fragment over the row
+    alias ``r`` whose values are all bound in ``params``; ``documents.tables`` builds it from the
+    column whitelist and never from the caller's text), in row order, at most ``limit``."""
+    rows = await s.execute(
+        text(
+            # the fragment names whitelisted columns as bound jsonb keys and binds every value
+            # (documents.tables._sql); no caller text is in it
+            "SELECT r.row_no, r.seq, r.cells FROM document_table_rows r WHERE r.table_id = :t"  # nosec B608
+            + (f" AND ({where})" if where else "")
+            + " ORDER BY r.row_no LIMIT :n"
+        ),
+        {**params, "t": table_id, "n": limit},
+    )
+    return list(rows.all())
+
+
+async def table_rows_by_no(s: AsyncSession, table_id: UUID, row_nos: Sequence[int]) -> list[Any]:
+    """Rows ``(row_no, cells)`` of one table by row number (``read_rows``: the payload cells a
+    query leaves out), in row order. The numbers are bound as one array parameter."""
+    rows = await s.execute(
+        text(
+            "SELECT r.row_no, r.cells FROM document_table_rows r WHERE r.table_id = :t"
+            " AND r.row_no = ANY(:rows) ORDER BY r.row_no"
+        ),
+        {"t": table_id, "rows": [int(n) for n in row_nos]},
+    )
+    return list(rows.all())
+
+
+async def indexed_documents(s: AsyncSession, limit: int) -> list[Any]:
+    """Every indexed document of this client, oldest first: the ones ``reindex`` sends through
+    the current read again so passages, table store and index are rebuilt."""
+    rows = await s.execute(
+        text(
+            "SELECT d.id, d.owner_user_id FROM documents d WHERE d.status = 'indexed'"
+            " ORDER BY d.created_at LIMIT :n"
+        ),
+        {"n": limit},
+    )
+    return list(rows.all())
+
+
+async def documents_without_tables(s: AsyncSession, limit: int) -> list[Any]:
+    """Indexed documents holding table rows (crm_row passages) but no table record: the ones
+    ingested before the table store existed (``reingest-tables``)."""
+    rows = await s.execute(
+        text(
+            "SELECT d.id, d.owner_user_id, d.account_id FROM documents d WHERE d.status ="
+            " 'indexed' AND EXISTS (SELECT 1 FROM document_passages p WHERE p.document_id = d.id"
+            " AND p.kind = 'crm_row') AND NOT EXISTS (SELECT 1 FROM document_tables t WHERE"
+            " t.document_id = d.id) ORDER BY d.created_at LIMIT :n"
+        ),
+        {"n": limit},
+    )
+    return list(rows.all())
+
+
+async def reset_for_reparse(s: AsyncSession, document_id: UUID) -> bool:
+    """Send an indexed document through its read again: its parts go back to pending, its
+    passages, index and tables are cleared and its status is ``parsing``; False when it is
+    not indexed (already under way, or never read)."""
+    res = await s.execute(
+        text(
+            "UPDATE documents SET status = 'parsing', indexed_through = NULL, imported_at = NULL,"
+            " stop_detail = NULL, updated_at = now() WHERE id = :d AND status = 'indexed'"
+        ),
+        {"d": document_id},
+    )
+    if not res.rowcount:  # type: ignore[attr-defined]
+        return False
+    await clear_passages(s, document_id)
+    await s.execute(
+        text(
+            "UPDATE document_parts SET status = 'pending', failure = NULL, passages = 0,"
+            " evidence = NULL, lease_owner = NULL, lease_expires_at = NULL, updated_at = now()"
+            " WHERE document_id = :d"
+        ),
+        {"d": document_id},
+    )
+    return True
+
+
+async def raw_file(s: AsyncSession, sha256: str) -> Any | None:
+    """The raw-file registry row of a hash (None when these bytes were never stored): the raw
+    file store (0078) keeps one object per (tenant, sha256)."""
+    return (
+        await s.execute(
+            text("SELECT sha256, object_key, size_bytes FROM raw_files WHERE sha256 = :h"),
+            {"h": sha256},
+        )
+    ).first()
+
+
+async def register_raw_file(
+    s: AsyncSession, sha256: str, size_bytes: int, object_key: str, document_id: UUID
+) -> None:
+    """Register an object's hash, owned by the document's owner (copied like 0077's writers; a
+    re-upload of the same bytes registers nothing)."""
+    await s.execute(
+        text(
+            "INSERT INTO raw_files (sha256, size_bytes, object_key, first_document_id,"
+            " owner_user_id) SELECT :h, :b, :k, :d, d.owner_user_id FROM documents d"
+            " WHERE d.id = :d ON CONFLICT (tenant_id, sha256) DO NOTHING"
+        ),
+        {"h": sha256, "b": size_bytes, "k": object_key, "d": document_id},
+    )
+
+
+async def documents_with_sha(s: AsyncSession, sha256: str) -> int:
+    """How many surviving documents of the tenant share a hash (the raw object stays while
+    any do)."""
+    return int(
+        await s.scalar(text("SELECT count(*) FROM documents WHERE sha256 = :h"), {"h": sha256}) or 0
+    )
+
+
+async def remove_raw_file(s: AsyncSession, sha256: str) -> None:
+    """Drop the registry row of a hash (the caller deletes the object; 0078)."""
+    await s.execute(text("DELETE FROM raw_files WHERE sha256 = :h"), {"h": sha256})

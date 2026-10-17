@@ -30,4 +30,4 @@ Landmarks: `0001_core` (tenants, accounts, facts, wallets), `0002_rls`, `0004_ru
 `0005_sources`, `0008_tracker`, `0009_grading`, `0012_job_pipeline`, `0014_people_pipeline`,
 `0041_abm_agents` and `0042_abm_distill` (the research graph), `0045_chat`, `0047_local_auth`,
 `0049_research_cache`, `0050_durable_runs`, `0051_research_files`, `0053_replica` (the product
-screens), `0063_private_workspaces`, `0067_resumable_research`, `0074_retrieval_indexes` (current).
+screens), `0063_private_workspaces`, `0067_resumable_research`, `0074_retrieval_indexes`, `0077_table_store`, `0078_raw_files` (current).

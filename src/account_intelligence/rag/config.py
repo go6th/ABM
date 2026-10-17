@@ -27,6 +27,18 @@ class RetrievalConfig:
     min_score: float
     metadata_required: bool
 
+    def __post_init__(self) -> None:
+        """Refuse a gate that would drop every single-arm hit: weighted fusion scores a chunk
+        ranked first by one arm alone at exactly that arm's weight, so a ``min_score`` above
+        the smaller weight silently discards keyword-only (or vector-only) hits."""
+        floor = min(self.dense_weight, self.sparse_weight)
+        if self.min_score > floor:
+            raise ValueError(
+                f"rag config retrieval.min_score {self.min_score} is above the smaller arm"
+                f" weight {floor}: a chunk found by one arm only scores at most that weight,"
+                " so every single-arm hit would be dropped; lower min_score or raise the weight"
+            )
+
 
 @dataclass(frozen=True)
 class CacheConfig:

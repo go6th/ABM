@@ -6,10 +6,15 @@ import math
 
 import pytest
 
+from account_intelligence.rag.config import RetrievalConfig
 from account_intelligence.rag.models import ChunkACL, RetrievedChunk
 from account_intelligence.rag.retrieval import (
+    FilterTooWide,
+    Predicate,
     bm25_scores,
+    dedupe,
     drop_below,
+    filtered_set,
     fuse_weights,
     lexical_overlap,
     metadata_filter,
@@ -35,13 +40,25 @@ def _chunk(chunk_id: str, text: str, *, metadata: dict[str, str] | None = None) 
 
 
 class TestTokenize:
-    def test_lower_cases_and_keeps_numbers(self) -> None:
-        """Words are folded; numbers stay attached to their units."""
-        assert tokenize("Acme 40% Revenue") == ("acme", "40%", "revenue")
+    def test_lower_cases_and_strips_punctuation(self) -> None:
+        """Words are folded; punctuation at a token's edge is dropped."""
+        assert tokenize("Acme 40% Revenue") == ("acme", "40", "revenue")
 
     def test_drops_non_alnum_tokens(self) -> None:
         """Tokens without any alphanumeric character are dropped."""
         assert tokenize("--- ... !!!") == ()
+
+    def test_punctuation_never_glues_to_a_platform_name(self) -> None:
+        """``(Salesforce,`` and ``Veeva/Salesforce`` both yield the bare platform token, so a
+        keyword query for ``salesforce`` reaches a cell like ``Veeva, Salesforce``."""
+        assert tokenize("(Salesforce,") == ("salesforce",)
+        assert tokenize("Veeva/Salesforce") == ("veeva", "salesforce")
+        assert tokenize("SFMC/Pardot") == ("sfmc", "pardot")
+
+    def test_dates_and_versions_stay_whole(self) -> None:
+        """A dot or hyphen between alphanumerics joins; at an edge it does not."""
+        assert tokenize("first seen 2026-03-01.") == ("first", "seen", "2026-03-01")
+        assert tokenize("release v3.2 (beta)") == ("release", "v3.2", "beta")
 
 
 class TestBm25:
@@ -126,6 +143,100 @@ class TestMetadataFilter:
         chunks = (_chunk("a", "t", metadata={"tier": "basic"}),)
         assert metadata_filter(chunks, {"tier": "premium"}) == ()
 
+    def test_predicates_compare_dates_numbers_and_lists_by_type(self) -> None:
+        """ISO dates order as dates, numbers as numbers, and ``icontains`` matches a whole
+        item of a multi-valued cell before a substring."""
+        rows = (
+            _chunk(
+                "a",
+                "t",
+                metadata={
+                    "first_seen": "2026-03-01",
+                    "status": "Closed",
+                    "platforms_named": "Veeva, Salesforce",
+                    "requisition": "443372",
+                },
+            ),
+            _chunk(
+                "b",
+                "t",
+                metadata={
+                    "first_seen": "2026-02-28",
+                    "status": "Open",
+                    "platforms_named": "SAP",
+                    "requisition": "9",
+                },
+            ),
+        )
+        after = metadata_filter(rows, [Predicate("first_seen", "gte", "2026-03-01")])
+        assert [c.chunk_id for c in after] == ["a"]
+        named = metadata_filter(rows, [Predicate("platforms_named", "icontains", "salesforce")])
+        assert [c.chunk_id for c in named] == ["a"]
+        assert metadata_filter(rows, [Predicate("platforms_named", "contains", "salesforce")]) == ()
+        big = metadata_filter(rows, [Predicate("requisition", "gt", 100)])
+        assert [c.chunk_id for c in big] == ["a"]  # numeric, not lexical ("9" > "443372")
+        either = metadata_filter(rows, [Predicate("status", "in", ["open", "closed"])])
+        assert [c.chunk_id for c in either] == ["a", "b"]
+        assert metadata_filter(rows, [Predicate("status", "neq", "Open")])[0].chunk_id == "a"
+        assert metadata_filter(rows, [Predicate("missing", "is_null")]) == ()  # fail closed
+        assert [c.chunk_id for c in metadata_filter(rows, [Predicate("status", "not_null")])] == [
+            "a",
+            "b",
+        ]
+
+    def test_predicates_fail_closed_on_a_missing_column(self) -> None:
+        """A chunk without the predicate's column is dropped when the filter is required."""
+        rows = (_chunk("a", "t", metadata={"status": "Open"}), _chunk("b", "t"))
+        assert [c.chunk_id for c in metadata_filter(rows, [Predicate("status", "eq", "Open")])] == [
+            "a"
+        ]
+        assert metadata_filter(rows, [Predicate("status", "eq", "Open")], required=False) == rows
+
+    def test_an_unknown_op_is_refused(self) -> None:
+        """The predicate operators are the tool's closed enum."""
+        with pytest.raises(ValueError, match="unknown predicate op"):
+            Predicate("status", "like", "Open")
+
+    def test_a_filtered_result_is_the_whole_set(self) -> None:
+        """300 matching rows come back whole whatever the top-k is; the guard raises rather
+        than truncating."""
+        rows = tuple(
+            _chunk(f"r{i:03d}", "t", metadata={"status": "Closed", "row": str(i + 2)})
+            for i in range(300)
+        )
+        kept = filtered_set(rows, [Predicate("status", "eq", "Closed")])
+        assert len(kept) == 300 and len(select_top_k(kept, 10)) == 10
+        with pytest.raises(FilterTooWide, match="narrow the filter"):
+            filtered_set(rows, [Predicate("status", "eq", "Closed")], max_filter_rows=100)
+
+
+class TestDedupe:
+    def test_duplicate_business_keys_collapse_to_the_latest_last_seen(self) -> None:
+        """Two rows of one requisition become one hit, the one seen last."""
+        rows = (
+            _chunk("a", "t", metadata={"requisition": "443372", "last_seen": "2026-05-01"}),
+            _chunk("b", "t", metadata={"requisition": "443372", "last_seen": "2026-06-09"}),
+            _chunk("c", "t", metadata={"requisition": "1", "row": "7"}),
+            _chunk("d", "t", metadata={"requisition": "1", "row": "3"}),
+            _chunk("e", "t", metadata={"row": "9"}),  # no key: kept as it is
+        )
+        assert [c.chunk_id for c in dedupe(rows, "requisition")] == ["b", "d", "e"]
+
+
+class TestConfigGuard:
+    def test_a_min_score_above_the_smaller_arm_weight_fails_startup(self) -> None:
+        """A gate above the sparse weight would drop every keyword-only hit."""
+        with pytest.raises(ValueError, match="single-arm hit would be dropped"):
+            RetrievalConfig(
+                top_k=8,
+                dense_weight=0.7,
+                sparse_weight=0.4,
+                rrf_k=60,
+                lexical_weight=0.25,
+                min_score=0.6,
+                metadata_required=True,
+            )
+
 
 class TestRerank:
     def test_lexical_overlap_identical_is_one(self) -> None:
@@ -135,6 +246,12 @@ class TestRerank:
     def test_lexical_overlap_disjoint_is_zero(self) -> None:
         """Disjoint token sets do not overlap."""
         assert lexical_overlap("acme", "zeta") == 0.0
+
+    def test_lexical_overlap_is_query_coverage_not_jaccard(self) -> None:
+        """A long passage holding every query token scores 1.0, whatever its length."""
+        long_row = " ".join(["filler"] * 300) + " salesforce open 2026-03-01"
+        assert lexical_overlap("open salesforce 2026-03-01", long_row) == 1.0
+        assert lexical_overlap("open salesforce veeva", long_row) == pytest.approx(2 / 3)
 
     def test_rerank_blend_cannot_promote_zero_score(self) -> None:
         """A zero-fused chunk stays below a strong one for any blend."""

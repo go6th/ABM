@@ -118,11 +118,13 @@ async def test_one_part_per_request_hands_the_rest_to_new_tasks(
     the same as one long request gives."""
     data = _crm_csv(400)
     account = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
-    whole = service(tmp_path / "whole")
+    # both services share the one root (0078: the raw store is content-addressed — the second
+    # upload reuses the first's object, exactly as two worker replicas share a bucket)
+    whole = service(tmp_path)
     _small_parts(whole, 4096)
     one = UUID((await upload(whole, tenant_a, "crm.csv", data, account))["document_id"])
     assert await whole.process(tenant_a, one) == "indexed"
-    split = service(tmp_path / "split")
+    split = service(tmp_path)
     split.parts_per_request = 1
     _small_parts(split, 4096)
     doc = UUID((await upload(split, tenant_a, "crm.csv", data, account))["document_id"])
@@ -155,10 +157,10 @@ async def test_parts_read_the_same_passages_as_the_whole_file(
 ) -> None:
     data = make()
     account = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
-    whole = service(tmp_path / "whole")
+    whole = service(tmp_path)  # one root for both runs (0078: content-addressed raw store)
     one = UUID((await upload(whole, tenant_a, name, data, account))["document_id"])
     assert await whole.process(tenant_a, one) == "indexed"
-    split = service(tmp_path / "split")
+    split = service(tmp_path)
     _small_parts(split, 4096)
     many = UUID((await upload(split, tenant_a, name, data, account))["document_id"])
     assert await split.process(tenant_a, many) == "indexed"
@@ -184,19 +186,19 @@ async def test_a_worker_killed_mid_file_resumes_without_duplicate_passages(
 ) -> None:
     data = _crm_csv(1500)
     account = _make_account(tenant_a, f"northwind-{uuid4().hex[:6]}.example")
-    clean = service(tmp_path / "clean")
+    clean = service(tmp_path)  # one root for both runs (0078: content-addressed raw store)
     _small_parts(clean, 16384)
     ref = UUID((await upload(clean, tenant_a, "crm.csv", data, account))["document_id"])
     assert await clean.process(tenant_a, ref) == "indexed"
     expected = _passages(ref)
 
-    svc = service(tmp_path / "killed")
+    svc = service(tmp_path)
     _small_parts(svc, 16384)
     doc = UUID((await upload(svc, tenant_a, "crm.csv", data, account))["document_id"])
     # the worker dies (SIGKILL semantics) after its 3rd passage batch is committed
     died = subprocess.run(
         [sys.executable, "-m", "tests.documents.kill_worker", str(tenant_a), str(doc), "3",
-         str(tmp_path / "killed")],
+         str(tmp_path)],
         cwd=ROOT, env=os.environ.copy(), capture_output=True, text=True, timeout=300,
     )  # fmt: skip
     assert died.returncode == 137, died.stderr[-2000:]

@@ -131,6 +131,9 @@ created_owned:
   limit_requests: a user's requests for more researches or chats (0065)
   document_parts: the parts of a document being read, owned by its owner (0066)
   download_jobs: a user's "Download everything" archive builds (0068)
+  document_tables: the ingested tables of a document, owned by its owner (0077)
+  document_table_rows: the rows of those tables, owned by the document's owner (0077)
+  raw_files: the content-addressed raw bytes registry, owned by the first uploader (0078)
 
 tenant:
   # identity, access and the client's own settings
