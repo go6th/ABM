@@ -31,4 +31,6 @@ async def test_the_thread_keeps_its_analysis_model_kimi_included(world: dict) ->
     async with tenant_txn(tenant) as session:
         # no kept model on the thread and no saved preference: the catalogue's analysis default
         current = await M.conversation_model(session, "priya-test", None, plain, env=KEYS)
-        assert current == "claude-fable-5-1"
+        from llm.choice import catalogue
+
+        assert current == catalogue().default_analysis

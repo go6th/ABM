@@ -124,3 +124,47 @@
 /* An empty workspace: the two first steps under the composer (owner decision 2026-10-14) */
 .first-steps { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 18px; }
 .first-steps .btn { min-height: 40px; }
+
+/* ---------- Structured answers (render_answer, 2026-10-17) ---------- */
+/* The answer the model returned as strict JSON: headline card, headline numbers as chips,
+   sections in reading order. Tables reuse .md-table's zebra and borders, in a bounded frame
+   whose header row sticks; the first column pins on narrow screens. Classes only (CSP). */
+.sa-head { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.sa-headline { font-size: 17px; line-height: 1.55; font-weight: 600; color: var(--ink); margin: 0; }
+.sa-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.sa-stat {
+  display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px;
+  border: 1px solid var(--line-soft); border-radius: var(--r-field); background: var(--hover-soft);
+  font-size: 13px; color: var(--text-3);
+}
+.sa-stat b { font-size: 15px; color: var(--ink); }
+.sa-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sa-title { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--text-3); }
+.sa-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.sa-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: var(--r-cite);
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700;
+}
+.sa-frame { overflow: auto; max-height: min(60vh, 520px); }
+.sa-frame table th { position: sticky; top: 0; z-index: 1; }
+.sa-note { font-size: 13px; color: var(--muted); line-height: 1.5; }
+.sa-nowrap { white-space: nowrap; }
+.sa-dup {
+  margin-left: 8px; padding: 1px 6px; border-radius: var(--r-cite); font-size: 11px; font-weight: 700;
+  background: var(--warn-card); color: var(--warn-ink); border: 1px solid var(--warn-card-line);
+}
+.sa-callout { padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; line-height: 1.6; }
+.sa-callout.warn { background: var(--warn-card); border-color: var(--warn-card-line); }
+.sa-callout.good { background: var(--ok-bg); border-color: var(--ok-ink); }
+.sa-callout.good .sa-title { color: var(--ok-ink); }
+.sa-callout.warn .sa-title { color: var(--warn-ink); }
+.sa-steps { margin: 0; padding-left: 24px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; line-height: 1.55; color: var(--ink-2); }
+.sa-steps li::marker { color: var(--accent); font-weight: 700; }
+.sa-prose { margin: 0; font-size: 16.5px; line-height: 1.7; color: var(--ink-2); overflow-wrap: anywhere; }
+
+@media (max-width: 759px) {
+  .sa-frame td:first-child, .sa-frame th:first-child {
+    position: sticky; left: 0; z-index: 1; background: var(--surface);
+  }
+  .sa-frame th:first-child { z-index: 2; background: var(--hover-soft); }
+}

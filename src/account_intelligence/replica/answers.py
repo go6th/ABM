@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -897,6 +898,9 @@ class Draft:
         self.rows: dict[str, Row] = {}
         self.items: tuple[str, list[str]] | None = None
         self.focus: Acct | None = None
+        # the model's render_answer call (replica.render), validated and with row-key
+        # citations; finish() numbers it for the client, which renders it as cards and tables
+        self.structured: dict[str, Any] | None = None
 
     def cite(self, *rows: Row) -> str:
         """Number the rows as citations (reusing a row's number) and return the markers."""
@@ -1344,7 +1348,16 @@ COMPOSERS = {
 # Output
 
 
-_MARK = re.compile(r"\[\[([a-z_]+:[0-9a-f-]{36})\]\]|\[(\d{1,3})\]|\*\*(.+?)\*\*")
+# a row key is ``kind:<uuid>``; a retrieved passage's key carries its sequence number too
+# (``passage:<uuid>:<seq>``, documents/retrieve.py). Every marker pattern must accept that
+# tail, else a passage citation leaks into the rendered answer as a raw [[…]] marker and the
+# row earns no Sources entry (fixed 2026-10-17 — the structured-answer post-processor).
+_ROW_KEY = r"[a-z_]+:[0-9a-f-]{36}(?::\d+)?"
+_KEYS_IN = re.compile(r"\[\[(" + _ROW_KEY + r")\]\]")
+_MARK = re.compile(r"\[\[(" + _ROW_KEY + r")\]\]|\[(\d{1,3})\]|\*\*(.+?)\*\*")
+# any [[…]] that survived ``to_parts`` (a marker that matched no numbered row) never reaches
+# the client: a streamed or stored answer shows citations, never raw row markers
+_LEFTOVER = re.compile(r"\s*\[\[[^\]\n]{0,200}\]\]")
 
 
 def to_parts(value: str, numbering: dict[str, int]) -> list[dict[str, str]]:
@@ -1353,20 +1366,21 @@ def to_parts(value: str, numbering: dict[str, int]) -> list[dict[str, str]]:
     pos = 0
     for m in _MARK.finditer(value):
         if m.start() > pos:
-            parts.append({"t": "text", "v": value[pos : m.start()]})
+            parts.append({"t": "text", "v": _LEFTOVER.sub("", value[pos : m.start()])})
         if m.group(1):
             parts.append({"t": "cite", "v": str(numbering[m.group(1)])})
         elif m.group(2):
             parts.append({"t": "cite", "v": m.group(2)})
         else:
-            parts.append({"t": "bold", "v": m.group(3)})
+            # a citation swallowed by a bold match is at least not shown as a raw marker
+            parts.append({"t": "bold", "v": _LEFTOVER.sub("", m.group(3))})
         pos = m.end()
     if pos < len(value):
-        parts.append({"t": "text", "v": value[pos:]})
+        parts.append({"t": "text", "v": _LEFTOVER.sub("", value[pos:])})
     return [p for p in parts if p["v"]]
 
 
-_PIECE_END = re.compile(r"[.!?](?:\s*\[\[[a-z_]+:[0-9a-f-]{36}\]\])*\s+(?=\S)")
+_PIECE_END = re.compile(r"[.!?](?:\s*\[\[" + _ROW_KEY + r"\]\])*\s+(?=\S)")
 
 
 def pieces(paragraph: str) -> list[str]:
@@ -1384,9 +1398,26 @@ def pieces(paragraph: str) -> list[str]:
 def number_marks(text: str, numbering: dict[str, int]) -> list[dict[str, str]]:
     """One streamed piece as answer parts, numbering new citations in order of appearance (the
     same numbers ``finish`` gives the whole answer)."""
-    for key in re.findall(r"\[\[([a-z_]+:[0-9a-f-]{36})\]\]", text):
+    for key in _KEYS_IN.findall(text):
         numbering.setdefault(key, len(numbering) + 1)
     return to_parts(text, numbering)
+
+
+def structured_out(payload: Mapping[str, Any], numbering: dict[str, int]) -> dict[str, Any]:
+    """A validated render_answer payload for the client: every row-key marker in its strings
+    becomes the citation's number, written ``[n]`` — anything else is wiped."""
+
+    def swap(value: Any) -> Any:
+        if isinstance(value, str):
+            value = _KEYS_IN.sub(lambda m: f"[{numbering[m.group(1)]}]", value)
+            return _LEFTOVER.sub("", value)
+        if isinstance(value, list):
+            return [swap(v) for v in value]
+        if isinstance(value, dict):
+            return {k: swap(v) for k, v in value.items()}
+        return value
+
+    return swap(dict(payload))
 
 
 def plain_text(paragraphs: list[list[dict[str, str]]]) -> str:
@@ -1500,7 +1531,7 @@ def finish(
     """Number the citations, build the source list, the used summary, the offer and follow-ups."""
     numbering: dict[str, int] = {}
     for para in d.paragraphs:
-        for key in re.findall(r"\[\[([a-z_]+:[0-9a-f-]{36})\]\]", para):
+        for key in _KEYS_IN.findall(para):
             numbering.setdefault(key, len(numbering) + 1)
     paragraphs = [to_parts(p, numbering) for p in d.paragraphs]
     cited = [d.rows[k] for k in numbering]
@@ -1509,6 +1540,7 @@ def finish(
     used_mail = any(r.kind == "mail_drive" for r in cited)
     return {
         "paragraphs": paragraphs,
+        "structured": structured_out(d.structured, numbering) if d.structured else None,
         "items": {"title": d.items[0], "items": d.items[1]} if d.items and d.items[1] else None,
         "sources": [source_out(numbering[r.key], r) for r in cited],
         "used": {

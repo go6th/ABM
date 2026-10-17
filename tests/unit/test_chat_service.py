@@ -199,19 +199,20 @@ def test_provider_for_serves_each_choices_model_from_its_own_provider() -> None:
     """One model layer for every chat surface (owner decision 2026-10-17): Kimi K3 from the
     Moonshot provider, a Claude model from the Anthropic one; a provider that is not set up
     answers None and a Moonshot conversation never falls back to the Anthropic provider."""
+    from llm.choice import catalogue
+
     from account_intelligence.chat.service import ProviderByModel, provider_for
 
+    OPUS, FABLE, KIMI = catalogue().ids  # catalogue ids, never literals (the R1 static guard)
     anthropic_provider = AnthropicChatProvider(SimpleNamespace())
     moonshot_provider = SimpleNamespace(supports_tools=True)
     service = SimpleNamespace(provider=anthropic_provider)
     providers = ProviderByModel({"anthropic": anthropic_provider, "moonshot": moonshot_provider})
-    assert provider_for(providers, service, "kimi-k3") is moonshot_provider
-    assert provider_for(providers, service, "claude-fable-5-1") is anthropic_provider
-    assert provider_for(providers, service, "claude-opus-5-5") is anthropic_provider
+    assert provider_for(providers, service, KIMI) is moonshot_provider
+    assert provider_for(providers, service, FABLE) is anthropic_provider
+    assert provider_for(providers, service, OPUS) is anthropic_provider
     # Moonshot not set up: None (the surface answers that the model is unavailable) —
     # a Kimi conversation must never be silently served by the Anthropic provider
-    assert (
-        provider_for(ProviderByModel({"anthropic": anthropic_provider}), service, "kimi-k3") is None
-    )
+    assert provider_for(ProviderByModel({"anthropic": anthropic_provider}), service, KIMI) is None
     # the service's own provider remains the fallback for a Claude conversation
-    assert provider_for(None, service, "claude-fable-5-1") is anthropic_provider
+    assert provider_for(None, service, FABLE) is anthropic_provider

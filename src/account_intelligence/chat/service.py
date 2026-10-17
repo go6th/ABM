@@ -366,6 +366,7 @@ class AnthropicChatProvider:
             if wrote:
                 yield ChatEvent("discard")  # text before a tool call is not the answer
             results: list[dict[str, Any]] = []
+            terminal = False
             for call in calls:
                 arguments = dict(call.input or {})
                 result = await run_tool(str(call.name), arguments)
@@ -379,6 +380,13 @@ class AnthropicChatProvider:
                         "content": _tool_result_text(result),
                     }
                 )
+                # render_answer's ok result is terminal: the call IS the answer (its input
+                # was yielded above); no model round follows it
+                terminal = terminal or (
+                    isinstance(result, dict) and result.get("terminal") is True
+                )
+            if terminal:
+                break
             request_messages.append({"role": "assistant", "content": _blocks(final.content)})
             request_messages.append({"role": "user", "content": results})
         yield ChatEvent(
@@ -504,6 +512,7 @@ class MoonshotChatProvider:
             if wrote:
                 yield ChatEvent("discard")  # text before a tool call is not the answer
             results: list[dict[str, Any]] = []
+            terminal = False
             for call in calls:
                 if call.input is None:
                     result: Any = {
@@ -518,6 +527,12 @@ class MoonshotChatProvider:
                     "tool", tool={"name": call.name, "input": call.input or {}, "result": result}
                 )
                 results.append(k.tool_result(call, _tool_result_text(result)))
+                # render_answer's ok result is terminal: the call IS the answer
+                terminal = terminal or (
+                    isinstance(result, dict) and result.get("terminal") is True
+                )
+            if terminal:
+                break
             request_messages.append(k.assistant_round("".join(text), calls))
             request_messages.extend(results)
         yield ChatEvent(

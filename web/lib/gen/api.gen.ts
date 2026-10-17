@@ -235,6 +235,19 @@ export const AnswerPart = z.object({
 }).strict();
 export type AnswerPart = z.infer<typeof AnswerPart>;
 
+export const AnswerSection = z.object({
+  "columns": z.array(z.string()).nullable().optional(),
+  "items": z.array(z.string()).nullable().optional(),
+  "kind": z.string(),
+  "note": z.string().nullable().optional(),
+  "paragraphs": z.array(z.string()).nullable().optional(),
+  "rows": z.array(z.array(z.string())).nullable().optional(),
+  "text": z.string().nullable().optional(),
+  "title": z.string().nullable().optional(),
+  "tone": z.string().nullable().optional(),
+}).strict();
+export type AnswerSection = z.infer<typeof AnswerSection>;
+
 export const AnswerSource = z.object({
   "account_domain": z.string().nullable(),
   "account_name": z.string().nullable(),
@@ -246,6 +259,19 @@ export const AnswerSource = z.object({
   "url": z.string().nullable(),
 }).strict();
 export type AnswerSource = z.infer<typeof AnswerSource>;
+
+export const AnswerStat = z.object({
+  "label": z.string(),
+  "value": z.string(),
+}).strict();
+export type AnswerStat = z.infer<typeof AnswerStat>;
+
+export const AnswerStructured = z.object({
+  "headline": z.string(),
+  "sections": z.array(AnswerSection),
+  "stats": z.array(AnswerStat),
+}).strict();
+export type AnswerStructured = z.infer<typeof AnswerStructured>;
 
 export const AnswerUsed = z.object({
   "mail_drive": z.string(),
@@ -397,6 +423,7 @@ export const ChatAnswer = z.object({
   "offer": AnswerOffer.nullable(),
   "paragraphs": z.array(z.array(AnswerPart)),
   "sources": z.array(AnswerSource),
+  "structured": AnswerStructured.nullable().optional(),
   "used": AnswerUsed,
 }).strict();
 export type ChatAnswer = z.infer<typeof ChatAnswer>;
@@ -2757,6 +2784,17 @@ export const KNOWN_VALUES = {
     "text",
     "bold",
     "cite"
+  ],
+  "AnswerSection.kind": [
+    "table",
+    "prose",
+    "callout",
+    "steps"
+  ],
+  "AnswerSection.tone": [
+    "info",
+    "warn",
+    "good"
   ],
   "AnswerSource.kind": [
     "fact",

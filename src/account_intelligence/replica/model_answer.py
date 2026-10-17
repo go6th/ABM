@@ -21,6 +21,14 @@ tables are numbered rows it cites, and the store answers its queries with comple
 the model writes before a tool call is withdrawn (``discard``: the caller resets what it
 streamed) and only the final round's text is the answer.
 
+A turn that offers the access tools also offers ``render_answer`` (``replica.render``,
+``RENDER_RULES``): the model ends with one call carrying the whole answer as strict JSON —
+every answer carries at least one table section (every matching row, never a sample; a
+narrative answer tables the facts it rests on). The tools check the shape, and this
+module checks the call's ``[R3]`` citations against the numbered rows exactly as it checks
+Markdown; the call ends the tool loop. A turn that never calls the tool still answers as
+Markdown (the ``parse`` path).
+
 GUARANTEE(test_a_streamed_answer_only_sends_checked_citations)
 """
 
@@ -32,6 +40,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from account_intelligence.chat.service import ChatMessage, ChatUsage
+from account_intelligence.replica import render as RENDER
 from account_intelligence.replica.answers import (
     Draft,
     Question,
@@ -59,7 +68,8 @@ SYSTEM = (
     " cell per field the question touches, the row's citation id in its last cell; never prose"
     " about the rows, never a shortlist of a few with 'and others', never a summary when the"
     " rows hold more. Give the full detail the rows hold. Short paragraphs only for a"
-    " narrative, a bulleted list only for a handful of points. Bold each account name the first"
+    " narrative, a bulleted list only for a handful of points — and even a narrative answer"
+    " ends with a table of the facts it rests on (one fact per row). Bold each account name the first"
     " time it appears, like **Highmark**.\n"
     "3. Say a row's grade when it matters: Confirmed facts may be stated; Probable and"
     " Hypothesis rows are things to ask about, not to state.\n"
@@ -309,9 +319,13 @@ async def stream_with_model(
     para, broken, written = 0, False, False
     live = Draft()
     usage: ChatUsage | None = None
-    system = SYSTEM + (
-        "\n" + TABULAR_RULES if tools and {t.get("name") for t in tools} & TABLE_TOOLS_NAMED else ""
-    )
+    # the model's accepted render_answer call (shape was checked by the tools); its citations
+    # are checked here against the numbered rows when the reply ends (replica.render)
+    rendered: dict[str, Any] | None = None
+    offered = {t.get("name") for t in tools} if tools else set()
+    system = SYSTEM + ("\n" + TABULAR_RULES if offered & TABLE_TOOLS_NAMED else "")
+    if RENDER.NAME in offered:
+        system += "\n" + RENDER.RENDER_RULES
     async for event in provider.stream(
         model,
         [ChatMessage("user", prompt)],
@@ -328,6 +342,14 @@ async def stream_with_model(
             usage = event.usage
             continue
         if event.kind == "tool":
+            tool = event.tool or {}
+            if (
+                tool.get("name") == RENDER.NAME
+                and isinstance(tool.get("result"), dict)
+                and tool["result"].get("ok")
+                and isinstance(tool.get("input"), dict)
+            ):
+                rendered = tool["input"]
             yield "tool", event.tool
             continue
         if event.kind == "discard":
@@ -357,16 +379,22 @@ async def stream_with_model(
             if ends and written:  # an empty paragraph is no paragraph (as in ``parse``)
                 para, written = para + 1, False
         buffer = body + held
-    if not broken:
-        body = buffer.split("ITEMS:", 1)[0]
-        piece, _, _ = take(body, final=True)
-        if piece is not None:
-            out = checked(piece, ids, live)
-            if out is None:
-                broken = True
-            elif out.strip():
-                yield "piece", (para, out)
-    draft = None if broken else parse("".join(full), ids)
+    if rendered is not None:
+        # the answer came as strict JSON: check its citations against the numbered rows (an
+        # unknown id discards the reply, as in parse) and build the draft from it
+        converted = RENDER.rewrite(rendered, ids)
+        draft = None if converted is None else RENDER.to_draft(*converted)
+    else:
+        if not broken:
+            body = buffer.split("ITEMS:", 1)[0]
+            piece, _, _ = take(body, final=True)
+            if piece is not None:
+                out = checked(piece, ids, live)
+                if out is None:
+                    broken = True
+                elif out.strip():
+                    yield "piece", (para, out)
+        draft = None if broken else parse("".join(full), ids)
     if draft is None:
         yield "reset", usage
         return

@@ -84,6 +84,8 @@ or a value has the wrong type (errors name the variable, never the value).
 | `MOONSHOT_BASE_URL` | Kimi K3 API base URL (https): Moonshot AI, or https://ollama.com/v1 (Ollama). | no | - | - | api, worker |
 | `MOONSHOT_API_DIALECT` | Which Kimi K3 API MOONSHOT_BASE_URL serves: moonshot, or ollama (Ollama Cloud). | no | - | - | api, worker |
 | `MOONSHOT_MODEL` | The provider's own Kimi K3 model name when it differs (Ollama: kimi-k3:cloud). | no | - | - | api, worker |
+| `EVAL_MODEL` | The live tabular eval suite's model override (default: models.yaml surfaces.eval). Test tooling only; the app never reads it. | no | - | - | eval |
+| `EVAL_EFFORT` | The live tabular eval suite's effort override (default: models.yaml surfaces.eval). Test tooling only; the app never reads it. | no | - | - | eval |
 | `GMAIL_API_BASE` | Gmail API base URL for the per-user Mail and drive sync. | no | - | - | worker |
 | `GOOGLE_DRIVE_API_BASE` | Google Drive API base URL for the per-user Mail and drive sync. | no | - | - | worker |
 | `MICROSOFT_GRAPH_API_BASE` | Microsoft Graph API base URL (Outlook, OneDrive, SharePoint sync). | no | - | - | worker |

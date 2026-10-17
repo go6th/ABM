@@ -8,6 +8,7 @@ import Link from "next/link";
 import type { ChatAnswer } from "@/lib/gen/api.gen";
 import { LINK_REL, safeLink } from "@/lib/render";
 import { AnswerMarkdown } from "./AnswerMarkdown";
+import { AnswerStructured } from "./AnswerStructured";
 
 type Source = ChatAnswer["sources"][number];
 
@@ -58,7 +59,13 @@ export function AnswerView({
   return (
     <div className="reply">
       <div className="answered"><span className="mk" aria-hidden="true" />{answer.answered ? "Answered from your workspace" : "Searched your workspace"}</div>
-      {answer.paragraphs.map((para, i) => <AnswerMarkdown key={i} parts={para} cite={cite} />)}
+      {answer.structured ? (
+        // the model's render_answer call: cards and tables from the code, identical on every
+        // model; paragraphs (the Markdown of the same answer) remain for the stream/store
+        <AnswerStructured data={answer.structured} cite={cite} />
+      ) : (
+        answer.paragraphs.map((para, i) => <AnswerMarkdown key={i} parts={para} cite={cite} />)
+      )}
       {answer.items ? (
         <div className="card items-card">
           <div className="lbl">{answer.items.title}</div>

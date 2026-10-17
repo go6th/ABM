@@ -1881,10 +1881,43 @@ class AnswerOffer(Out):
     refreshed_days_ago: int | None
 
 
+class AnswerStat(Out):
+    """One headline number the answer rests on, shown as a chip under the headline."""
+
+    label: str
+    value: str
+
+
+class AnswerSection(Out):
+    """One section of a structured answer (render_answer, 2026-10-17): a table with every
+    matching row, prose of at most two sentences, one callout, or next steps. Citations in
+    the strings are written [n] and number into the answer's sources list."""
+
+    kind: Literal["table", "prose", "callout", "steps"]
+    title: str | None = None
+    columns: list[str] | None = None
+    rows: list[list[str]] | None = None
+    note: str | None = None
+    paragraphs: list[str] | None = None
+    text: str | None = None
+    tone: Literal["info", "warn", "good"] | None = None
+    items: list[str] | None = None
+
+
+class AnswerStructured(Out):
+    """The model's render_answer call, validated and with citations numbered: the UI renders
+    these cards and tables; ``paragraphs`` holds the same answer as Markdown."""
+
+    headline: str
+    stats: list[AnswerStat]
+    sections: list[AnswerSection]
+
+
 class ChatAnswer(Out):
     """A workspace answer: paragraphs with numbered citations to stored rows."""
 
     paragraphs: list[list[AnswerPart]]
+    structured: AnswerStructured | None = None
     items: AnswerItems | None
     sources: list[AnswerSource]
     used: AnswerUsed

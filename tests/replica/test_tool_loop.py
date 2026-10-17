@@ -149,8 +149,10 @@ async def test_the_provider_runs_tool_calls_and_streams_the_final_round() -> Non
     }
     usage = events[-1].usage
     assert (usage.input_tokens, usage.output_tokens, usage.cache_read_tokens) == (40, 17, 3)
-    # every request carried the tools and the temperature; later rounds carry the transcript
-    assert all(r["tools"] == tools and r["temperature"] == 0.0 for r in client.requests)
+    # every request carried the tools; a caller's temperature is never forwarded — the
+    # installed SDK's Messages call has no temperature parameter (OI-LLM-1) and the tabular
+    # turn's 0.0 would TypeError every round
+    assert all(r["tools"] == tools and "temperature" not in r for r in client.requests)
     second = client.requests[1]["messages"]
     assert second[1] == {
         "role": "assistant",
@@ -359,12 +361,14 @@ async def test_run_python_joins_the_offer_only_for_a_flagged_tenant() -> None:
         "describe_table",
         "query_table",
         "read_rows",
+        "render_answer",
     ]
     assert [t["name"] for t in off.offered("prose")] == [
         "list_sources",
         "search_passages",
         "read_passage",
         "read_span",
+        "render_answer",
     ]
     on = AccessTools(lambda: None, [], [], run_python=True)  # type: ignore[arg-type]
     assert "run_python" not in [t["name"] for t in on.offered("prose")]
@@ -376,6 +380,7 @@ async def test_run_python_joins_the_offer_only_for_a_flagged_tenant() -> None:
         "search_passages",
         "read_passage",
         "read_span",
+        "render_answer",
         "run_python",
     ]
     refused = await off.run("run_python", {"code": "result = 1"})

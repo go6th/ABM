@@ -768,6 +768,135 @@
         "title": "AnswerPart",
         "type": "object"
       },
+      "AnswerSection": {
+        "additionalProperties": false,
+        "description": "One section of a structured answer (render_answer, 2026-10-17): a table with every\nmatching row, prose of at most two sentences, one callout, or next steps. Citations in\nthe strings are written [n] and number into the answer's sources list.",
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "kind": {
+            "enum": [
+              "table",
+              "prose",
+              "callout",
+              "steps"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "paragraphs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paragraphs"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "enum": [
+                  "info",
+                  "warn",
+                  "good"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "AnswerSection",
+        "type": "object"
+      },
       "AnswerSource": {
         "additionalProperties": false,
         "description": "A stored row an answer cites: what it is, when, and where to open it.",
@@ -855,6 +984,57 @@
           "account_name"
         ],
         "title": "AnswerSource",
+        "type": "object"
+      },
+      "AnswerStat": {
+        "additionalProperties": false,
+        "description": "One headline number the answer rests on, shown as a chip under the headline.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "AnswerStat",
+        "type": "object"
+      },
+      "AnswerStructured": {
+        "additionalProperties": false,
+        "description": "The model's render_answer call, validated and with citations numbered: the UI renders\nthese cards and tables; ``paragraphs`` holds the same answer as Markdown.",
+        "properties": {
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerSection"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "stats": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerStat"
+            },
+            "title": "Stats",
+            "type": "array"
+          }
+        },
+        "required": [
+          "headline",
+          "stats",
+          "sections"
+        ],
+        "title": "AnswerStructured",
         "type": "object"
       },
       "AnswerUsed": {
@@ -1722,6 +1902,16 @@
             },
             "title": "Sources",
             "type": "array"
+          },
+          "structured": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerStructured"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "used": {
             "$ref": "#/components/schemas/AnswerUsed"

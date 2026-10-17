@@ -323,6 +323,20 @@ class Settings(BaseSettings):
     moonshot_model: str | None = var(
         purpose="The provider's own Kimi K3 model name when it differs (Ollama: kimi-k3:cloud).",
     )
+    eval_model: str | None = var(
+        purpose=(
+            "The live tabular eval suite's model override (default: models.yaml"
+            " surfaces.eval). Test tooling only; the app never reads it."
+        ),
+        component="eval",
+    )
+    eval_effort: str | None = var(
+        purpose=(
+            "The live tabular eval suite's effort override (default: models.yaml"
+            " surfaces.eval). Test tooling only; the app never reads it."
+        ),
+        component="eval",
+    )
     gmail_api_base: str = var(
         "https://gmail.googleapis.com/gmail/v1",
         purpose="Gmail API base URL for the per-user Mail and drive sync.",

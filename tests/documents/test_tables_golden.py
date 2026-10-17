@@ -25,7 +25,7 @@ from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import answers as A
 from account_intelligence.replica import router as R
 from account_intelligence.replica.model_answer import TABULAR_RULES, stream_with_model
-from account_intelligence.replica.tools import TableTools
+from account_intelligence.replica.tools import AccessTools, TableTools
 from documents import tables as T
 from tests.conftest import _make_account
 from tests.documents import fixtures
@@ -41,6 +41,18 @@ STRICT = [
 ]
 SHOWN = ["requisition", "title", "class", "status", "first_seen", "platform_sentences"]
 FALSE_POSITIVE = re.compile(r"field sales", re.I)
+
+
+def _strings(value: Any) -> Any:
+    """Every string inside a nested answer structure."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            yield from _strings(v)
 
 
 class ScriptedTabularModel:
@@ -158,6 +170,186 @@ async def _run_once(
         )
     ]
     return model.calls, tools.stats(), model.text, events
+
+
+class ScriptedRenderModel(ScriptedTabularModel):
+    """The same rule-following model, ending with ONE render_answer call (owner decision
+    2026-10-17): the whole answer — every unique posting in one complete table section — as
+    strict JSON; the code renders it, so the answer's format no longer depends on the model."""
+
+    async def stream(self, model: Any, messages: Any, max_tokens: int, **kw: Any) -> Any:
+        assert kw["temperature"] == 0.0
+        assert [t["name"] for t in kw["tools"]] == [
+            "list_sources",
+            "describe_table",
+            "query_table",
+            "read_rows",
+            "render_answer",
+        ]
+        from account_intelligence.replica.render import RENDER_RULES
+
+        assert RENDER_RULES in kw["system"]
+        prompt = messages[0].content
+        rid = re.search(r"\[(R\d+)\][^\n]*\| table \|", prompt).group(1)  # type: ignore[union-attr]
+        table = re.search(r'table "([^"]+)"', prompt).group(1)  # type: ignore[union-attr]
+        run = kw["run_tool"]
+        cite = f"[{rid}]"
+        self.calls.append({"name": "describe_table", "input": {"table": table}})
+        described = await run("describe_table", {"table": table})
+        yield ChatEvent("tool", tool={"name": "describe_table"})
+        key = described["business_key"]
+        strict_payload = {"table": table, "where": STRICT, "distinct_on": key, "columns": SHOWN}
+        self.calls.append({"name": "query_table", "input": strict_payload})
+        strict = await run("query_table", strict_payload)
+        yield ChatEvent("tool", tool={"name": "query_table"})
+        assert strict["row_count"] == 0
+        relaxed_payload = {
+            "table": table,
+            "where": [w for w in STRICT if w["column"] != "status"],
+            "distinct_on": key,
+            "columns": SHOWN,
+            "order_by": [{"column": "first_seen", "desc": True}],
+        }
+        self.calls.append({"name": "query_table", "input": relaxed_payload})
+        relaxed = await run("query_table", relaxed_payload)
+        yield ChatEvent("tool", tool={"name": "query_table"})
+        rows = relaxed["rows"]
+        genuine = [
+            r
+            for r in rows
+            if not FALSE_POSITIVE.search(str(r["cells"].get("platform_sentences") or ""))
+        ]
+        false = [r for r in rows if r not in genuine]
+        payload = {
+            "headline": (
+                "**GSK**: no Salesforce-related posting opened since 1 March 2026; relaxing the"
+                f" status (the date stays) finds {relaxed['row_count']} unique closed postings,"
+                f" {len(genuine)} genuine and {len(false)} where salesforce means the field"
+                f" sales team {cite}."
+            ),
+            "stats": [
+                {"label": "open since 1 Mar 2026", "value": "0"},
+                {"label": "unique closed matches", "value": str(relaxed["row_count"])},
+                {"label": "false positives", "value": str(len(false))},
+            ],
+            "sections": [
+                {
+                    "kind": "prose",
+                    "paragraphs": [
+                        f"The strict filter returns 0 rows, so the status alone was relaxed"
+                        f" {cite}."
+                    ],
+                },
+                {
+                    "kind": "table",
+                    "title": "Every matching posting",
+                    "columns": [
+                        "Sheet row",
+                        "Requisition",
+                        "Title",
+                        "Class",
+                        "First seen",
+                        "Reading",
+                        "Source",
+                    ],
+                    "rows": [
+                        [
+                            f"row {r['row']}",
+                            str(r["cells"]["requisition"] or "(none)"),
+                            str(r["cells"]["title"]),
+                            str(r["cells"]["class"]),
+                            str(r["cells"]["first_seen"]),
+                            "genuine" if r in genuine else "field sales team, not the platform",
+                            cite,
+                        ]
+                        for r in rows
+                    ],
+                },
+                {
+                    "kind": "steps",
+                    "title": "Next steps",
+                    "items": ["Ask about the closed roles' successor postings."],
+                },
+            ],
+        }
+        self.rendered = payload
+        yield ChatEvent(
+            "tool",
+            tool={"name": "render_answer", "input": payload, "result": {"ok": True, "terminal": True}},
+        )
+        yield ChatEvent("usage", usage=ChatUsage(1, 1))
+
+
+async def test_the_golden_gsk_answer_is_one_render_call_identical_five_times(
+    tenant_a: UUID, tmp_path: Path
+) -> None:
+    """The structured answer (owner decision 2026-10-17): one render_answer call ending the
+    turn, every matching posting a table row, byte-identical over five runs."""
+    domain = f"gsk-{uuid4().hex[:6]}.example"
+    account = _make_account(tenant_a, domain)
+    svc = service(tmp_path)
+    done = await upload(
+        svc, tenant_a, "GSK_Job_Postings.xlsx", fixtures.gsk_job_postings_xlsx(), account
+    )
+    assert await svc.process(tenant_a, UUID(done["document_id"])) == "indexed"
+    acct = A.Acct(account, domain, "GSK", [], None, None, 1)
+
+    async def once() -> tuple[list[dict[str, Any]], dict[str, Any], str]:
+        ws = A.Workspace([acct], [], [], [], [], [], [], {}, False)
+        async with tenant_txn(tenant_a, user="user-1") as s:
+            found = await T.list_tables(s, [account])
+        ws.tables = A.table_rows(ws, found)
+        tools = AccessTools(lambda: tenant_txn(tenant_a, user="user-1"), found, [account])
+        q, local = A.draft_local(QUESTION, ws, datetime.now(UTC))
+        model = ScriptedRenderModel()
+        events = [
+            (k, v)
+            async for k, v in stream_with_model(
+                model,
+                object(),
+                q,
+                ws,
+                local,
+                user_id="u",
+                request_id="r",
+                tools=tools.offered("tabular"),
+                run_tool=tools.run,
+                temperature=0.0,
+            )
+        ]
+        # the turn is tool calls and the render; no answer text ever streamed
+        assert [k for k, _ in events] == ["tool", "tool", "tool", "tool", "done"]
+        draft = events[-1][1].draft
+        draft.focus = acct
+        answer = A.finish(draft, q, ws, datetime.now(UTC), None)
+        return model.calls, answer, "\n".join(draft.paragraphs)
+
+    calls, answer, markdown = await once()
+    assert [c["name"] for c in calls] == ["describe_table", "query_table", "query_table"]
+    structured = answer["structured"]
+    assert structured is not None and structured["stats"][0]["value"] == "0"
+    table = next(s for s in structured["sections"] if s["kind"] == "table")
+    # every unique posting is its own row — never a sample, never a shortlist (the mandate)
+    assert len(table["rows"]) == 14
+    # every row cites the one table source, numbered by the code
+    assert {row[-1] for row in table["rows"]} == {"[1]"}
+    assert [s["n"] for s in answer["sources"]] == [1]
+    titles = [t for _, t, *_ in fixtures.GSK_SALESFORCE_RECENT]
+    body = json.dumps(structured)
+    assert sum(1 for t in titles if t in body) >= 14
+    assert all("false" not in r[5] or "field sales" in r[5] for r in table["rows"])
+    # no row marker reaches the finished answer, structured or Markdown
+    assert not any("[[" in s for s in _strings(answer))
+    assert markdown.count("| row ") == 14 and "[[table:" in markdown
+    # five runs: byte-identical tool calls and answer
+    for again in range(4):
+        other_calls, other_answer, other_markdown = await once()
+        assert json.dumps(other_calls, sort_keys=True) == json.dumps(calls, sort_keys=True)
+        assert json.dumps(other_answer["structured"], sort_keys=True) == json.dumps(
+            structured, sort_keys=True
+        )
+        assert other_answer["paragraphs"] == answer["paragraphs"]
+        assert other_markdown == markdown
 
 
 async def test_the_golden_gsk_question_answers_identically_five_times_with_stub_model(

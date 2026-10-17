@@ -4,11 +4,13 @@ and ``read_span`` over the passages, and — only for a tenant whose ``run_pytho
 ``run_python`` over the turn's results in the sandbox (``documents.run_python``), bound to the
 caller's tenant and accounts, with the turn's statistics for the ``ask.route`` log line (tools
 called, predicates, the last row count, the predicate the model relaxed, rows removed by
-deduplication, empty results, sandbox runs).
+deduplication, empty results, sandbox runs). Every route also offers ``render_answer``: the
+final answer as strict JSON (``replica.render``), shape-checked here and then the tool loop
+ends — the answer's format is the code's, not the model's.
 
 Which are on offer depends on the turn's route (the brief's exposure rule): ``tabular`` gets
 ``list_sources`` and the table tools only, ``prose`` ``list_sources`` and the passage tools,
-``mixed`` all. Every call opens its own short tenant transaction (the answer streams outside
+``mixed`` all — each with ``render_answer`` on top. Every call opens its own short tenant transaction (the answer streams outside
 one); the stores (``documents.tables``, ``documents.sources``) check columns and operators and
 bind every value, and an error comes back to the model as a structured result, never as an
 exception. Querying or reading a table the turn has not described is refused the same way, so
@@ -28,18 +30,22 @@ from documents import sources as S
 from documents import tables as T
 from obs.logging import logger
 
+from account_intelligence.replica import render as RENDER
+
 log = logger(__name__)
 
 TxnFactory = Callable[[], AbstractAsyncContextManager[Any]]
 
 # which tools a route offers (Part E): tabular questions are computed from the store, prose
-# ones read the passages, mixed have both; list_sources is everywhere
+# ones read the passages, mixed have both; list_sources is everywhere. Every route with tools
+# also offers render_answer (2026-10-17): the final answer as strict JSON, rendered by the
+# code, so every model formats rows and tables identically (see replica.render)
 TABULAR_TOOLS = ("describe_table", "query_table", "read_rows")
 PROSE_TOOLS = ("search_passages", "read_passage", "read_span")
 ROUTE_TOOLS = {
-    "tabular": ("list_sources", *TABULAR_TOOLS),
-    "prose": ("list_sources", *PROSE_TOOLS),
-    "mixed": ("list_sources", *TABULAR_TOOLS, *PROSE_TOOLS),
+    "tabular": ("list_sources", *TABULAR_TOOLS, RENDER.NAME),
+    "prose": ("list_sources", *PROSE_TOOLS, RENDER.NAME),
+    "mixed": ("list_sources", *TABULAR_TOOLS, *PROSE_TOOLS, RENDER.NAME),
 }
 
 
@@ -156,7 +162,10 @@ class AccessTools:
         self.searches = 0
         self.python_calls = 0
         self.results: list[Any] = []
-        self._all: dict[str, dict[str, Any]] = {t["name"]: t for t in (*T.TOOLS, *S.SOURCE_TOOLS)}
+        self.rendered: dict[str, Any] | None = None  # the render_answer call, if one came
+        self._all: dict[str, dict[str, Any]] = {
+            t["name"]: t for t in (*T.TOOLS, *S.SOURCE_TOOLS, RENDER.RENDER_TOOL)
+        }
 
     def offered(self, route: str) -> tuple[dict[str, Any], ...]:
         """The tool definitions this route's model is offered."""
@@ -182,9 +191,13 @@ class AccessTools:
 
     async def run(self, name: str, payload: dict[str, Any]) -> Any:
         """Run one tool call; the result (or the structured error) the model reads. Every
-        result joins the turn's results, which are a later ``run_python`` code's ``data``."""
+        result joins the turn's results, which are a later ``run_python`` code's ``data``.
+        ``render_answer`` is shape-checked here and ends the tool loop (``terminal``); its
+        citations are checked downstream, by the code that numbered the workspace rows."""
         try:
-            if name in TABULAR_TOOLS:
+            if name == RENDER.NAME:
+                out = self._render(payload)
+            elif name in TABULAR_TOOLS:
                 out = await self.table_tools.run(name, payload)
             elif name == "run_python":
                 out = await self._run_python(payload)
@@ -194,6 +207,16 @@ class AccessTools:
             out = error.payload()
         self.results.append(out)
         return out
+
+    def _render(self, payload: dict[str, Any]) -> Any:
+        """A render_answer call: shape-checked (replica.render), then terminal — the tool loop
+        ends and the call's input becomes the answer."""
+        error = RENDER.check_shape(payload)
+        if error is not None:
+            code, message = error
+            return {"error": {"code": code, "message": message}}
+        self.rendered = payload
+        return {"ok": True, "terminal": True}
 
     async def _run_python(self, payload: dict[str, Any]) -> Any:
         """One sandbox run: refused unless the tenant's flag was on for this turn; logged by
