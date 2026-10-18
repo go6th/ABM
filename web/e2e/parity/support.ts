@@ -8,23 +8,69 @@ export { API, signIn };
 
 export interface Seeded { slug_a: string; slug_b: string; a: string; b: string }
 
+export interface TenantResponse {
+  status(): number;
+  ok(): boolean;
+  json(): Promise<unknown>;
+  text(): Promise<string>;
+}
+
+/** Use the browser's same-origin fetch so secure session cookies reach the /v1 proxy in HTTP tests. */
+export async function tenantRequest(
+  page: Page,
+  method: string,
+  path: string,
+  options: { data?: unknown; headers?: Record<string, string> } = {},
+): Promise<TenantResponse> {
+  const result = await page.evaluate(async ({ method, path, hasData, data, headers }) => {
+    const response = await fetch(path, {
+      method,
+      headers: {
+        accept: "application/json",
+        ...headers,
+        ...(hasData ? { "content-type": "application/json" } : {}),
+      },
+      body: hasData ? JSON.stringify(data) : undefined,
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    return { status: response.status, ok: response.ok, body: await response.text() };
+  }, {
+    method,
+    path,
+    hasData: options.data !== undefined,
+    data: options.data,
+    headers: options.headers ?? {},
+  });
+  return {
+    status: () => result.status,
+    ok: () => result.ok,
+    json: async () => JSON.parse(result.body) as unknown,
+    text: async () => result.body,
+  };
+}
+
 export async function seeded(request: APIRequestContext): Promise<Seeded> {
   return (await (await request.get(`${API}/fake-idp/tenants`)).json()) as Seeded;
 }
 
 /** Headers for a mutation sent with page.request: the /v1 proxy refuses one without a same-origin Origin. */
 export async function mutation(page: Page): Promise<Record<string, string>> {
-  const origin = new URL(page.url()).origin;
-  return { "X-CSRF-Token": await csrf(page), Origin: origin };
+  return { "X-CSRF-Token": await csrf(page) };
 }
 
 export async function csrf(page: Page): Promise<string> {
-  return ((await (await page.request.get("/v1/sso/session")).json()) as { csrf_token: string }).csrf_token;
+  return ((await tenantRequest(page, "GET", "/v1/sso/session").then((response) => response.json())) as { csrf_token: string }).csrf_token;
 }
 
 /** Sign in to the operator console with the dev staff verifier (APP_ENV=test only). */
-export async function operatorSignIn(page: Page, role: "operator" | "support", who = "parity") {
-  const base = process.env.PARITY_WEB_ORIGIN ?? process.env.E2E_WEB_ORIGIN ?? "http://127.0.0.1:3008";
+export async function operatorSignIn(
+  page: Page,
+  role: "operator" | "support",
+  who = "parity",
+  origin = process.env.PARITY_WEB_ORIGIN ?? "http://localhost:3001",
+) {
+  const base = origin;
   await page.context().addCookies([{ name: "6th_operator_session", value: `${role}:${who}`, url: base }]);
 }
 

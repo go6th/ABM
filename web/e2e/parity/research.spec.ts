@@ -1,7 +1,7 @@
 // The research path: refresh an account, the run finishes over the synthetic world, then the
 // account, the deep dive tables, the run pages and the downloads all show its results.
 import { test, expect } from "@playwright/test";
-import { API, seeded, signIn, watch, type Seeded } from "./support";
+import { API, seeded, signIn, tenantRequest, watch, type Seeded } from "./support";
 
 const DOMAIN = "acme.example"; // the synthetic world's scripted account (tests/system/world.py)
 let s: Seeded;
@@ -22,7 +22,7 @@ test("refresh: one confirmed refresh (double click) starts exactly one run, whic
   await dialog.getByRole("button", { name: "Confirm refresh" }).dblclick();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByText("Research in progress")).toBeVisible();
-  const runs = (await (await page.request.get("/v1/runs")).json()) as { runs: { domain: string; run_id: string }[] };
+  const runs = (await tenantRequest(page, "GET", "/v1/runs").then((response) => response.json())) as { runs: { domain: string; run_id: string }[] };
   const mine = runs.runs.filter((r) => r.domain === DOMAIN);
   expect(mine).toHaveLength(1);
   const driven = await page.request.post(`${API}/fake-idp/drive`, { data: { run_id: mine[0]!.run_id } });

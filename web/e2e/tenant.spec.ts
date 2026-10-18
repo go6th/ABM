@@ -2,7 +2,7 @@
 // pages, role limits, a second tenant that sees nothing of the first, sign-out, keyboard and axe.
 import { test, expect } from "@playwright/test";
 import { API, noSeriousA11y, signIn } from "./helpers";
-import { mutation } from "./parity/support";
+import { mutation, tenantRequest } from "./parity/support";
 
 let seeded: { slug_a: string; slug_b: string };
 
@@ -45,7 +45,7 @@ test("a viewer reads but cannot add, run or administer", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Refresh from web" })).toHaveCount(0);
   await page.goto("/settings/users");
   await expect(page.getByText("Only admins manage users.")).toBeVisible();
-  expect((await page.request.get("/v1/users")).status()).toBe(403);
+  expect((await tenantRequest(page, "GET", "/v1/users")).status()).toBe(403);
 });
 
 test("a conversation streams, persists and passes accessibility checks in dark mode", async ({ page }) => {
@@ -73,17 +73,17 @@ test("a conversation streams, persists and passes accessibility checks in dark m
 
 test("chat history is private to its tenant member", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ana", "analyst");
-  const created = await page.request.post("/v1/chat/threads", { data: {}, headers: await mutation(page) });
+  const created = await tenantRequest(page, "POST", "/v1/chat/threads", { data: {}, headers: await mutation(page) });
   expect(created.status()).toBe(201);
-  const threadId = (await created.json()).id as string;
-  await page.request.post("/v1/sso/logout", { headers: await mutation(page) });
+  const threadId = ((await created.json()) as { id: string }).id;
+  await tenantRequest(page, "POST", "/v1/sso/logout", { headers: await mutation(page) });
 
   await signIn(page, seeded.slug_a, "sam", "seller");
-  expect((await page.request.get(`/v1/chat/threads/${threadId}`)).status()).toBe(404);
-  await page.request.post("/v1/sso/logout", { headers: await mutation(page) });
+  expect((await tenantRequest(page, "GET", `/v1/chat/threads/${threadId}`)).status()).toBe(404);
+  await tenantRequest(page, "POST", "/v1/sso/logout", { headers: await mutation(page) });
 
   await signIn(page, seeded.slug_b, "bob", "admin");
-  expect((await page.request.get(`/v1/chat/threads/${threadId}`)).status()).toBe(404);
+  expect((await tenantRequest(page, "GET", `/v1/chat/threads/${threadId}`)).status()).toBe(404);
 });
 
 test("admins see BYO key availability without a key value", async ({ page }) => {
@@ -105,7 +105,7 @@ for (const [subject, role] of members) {
     await expect(page.getByRole("button", { name: "Refresh from web" })).toBeVisible();
     await page.goto("/settings/support");
     await expect(page.getByText("Only admins manage support access.")).toBeVisible();
-    expect((await page.request.get("/v1/audit")).status()).toBe(403);
+    expect((await tenantRequest(page, "GET", "/v1/audit")).status()).toBe(403);
   });
 }
 
@@ -122,10 +122,10 @@ test("a second tenant sees nothing of the first", async ({ page }) => {
   expect(foreign).toBe(missing);
   expect(foreign).toContain("Account not found");
   for (const path of ["/v1/accounts/acme-a.example/tables/people", "/v1/accounts/acme-b.example/runs"]) {
-    const status = (await page.request.get(path)).status();
+    const status = (await tenantRequest(page, "GET", path)).status();
     expect([403, 404]).toContain(status);
   }
-  const list = await (await page.request.get("/v1/accounts?limit=200")).json();
+  const list = await tenantRequest(page, "GET", "/v1/accounts?limit=200").then((response) => response.json()) as { accounts: { domain: string }[] };
   expect(list.accounts.map((a: { domain: string }) => a.domain)).toEqual(["beta-only.example"]);
 });
 
@@ -139,8 +139,8 @@ test("keyboard: the skip link is first and moves focus to the content", async ({
 
 test("signing out ends the session", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
-  expect((await page.request.post("/v1/sso/logout", { headers: await mutation(page) })).status()).toBeLessThan(300);
-  expect((await page.request.get("/v1/sso/session")).status()).toBe(401);
+  expect((await tenantRequest(page, "POST", "/v1/sso/logout", { headers: await mutation(page) })).status()).toBeLessThan(300);
+  expect((await tenantRequest(page, "GET", "/v1/sso/session")).status()).toBe(401);
   await page.goto("/");
   await expect(page).toHaveURL(/\/login/);
 });
@@ -165,7 +165,7 @@ test("alerts: the inbox shows the alert and a rating is saved", async ({ page })
 test("subscriptions start digest-only and subscribe up; admins see the budget in percent", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
   // start from the digest-only defaults (a fresh user's state; the API test covers new users)
-  await page.request.put("/v1/subscriptions", { data: { digest: true, immediate_rules: [], slack: false, threshold: 0, muted_accounts: [] }, headers: await mutation(page) });
+  await tenantRequest(page, "PUT", "/v1/subscriptions", { data: { digest: true, immediate_rules: [], slack: false, threshold: 0, muted_accounts: [] }, headers: await mutation(page) });
   await page.goto("/settings/alerts");
   const box = page.getByLabel("New build or admin role in your lanes");
   await expect(box).not.toBeChecked();
@@ -201,5 +201,5 @@ test("a seller cannot manage CRM write-back", async ({ page }) => {
   await signIn(page, seeded.slug_a, "sam", "seller");
   await page.goto("/settings/crm");
   await expect(page.getByText("Only admins manage CRM write-back.")).toBeVisible();
-  expect((await page.request.post("/v1/crm/salesforce/enable", { headers: await mutation(page) })).status()).toBe(403);
+  expect((await tenantRequest(page, "POST", "/v1/crm/salesforce/enable", { headers: await mutation(page) })).status()).toBe(403);
 });

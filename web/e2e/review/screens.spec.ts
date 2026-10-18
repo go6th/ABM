@@ -2,7 +2,7 @@
 // <screen>-<theme>-<width>.png. Signs in as client A's admin over the synthetic stack; the research
 // screens need acme.example researched (the parity research spec does that).
 import { expect, test, type Page } from "@playwright/test";
-import { seeded, signIn, operatorSignIn, type Seeded } from "../parity/support";
+import { seeded, signIn, operatorSignIn, tenantRequest, type Seeded } from "../parity/support";
 
 const OUT = "../docs/design-review";
 const WEB_ORIGIN = process.env.PARITY_WEB_ORIGIN ?? process.env.E2E_WEB_ORIGIN ?? "http://127.0.0.1:3008";
@@ -64,13 +64,13 @@ test("public screens", async ({ page }) => {
 test("client screens", async ({ page }) => {
   await signIn(page, s.slug_a, "ada", "admin");
   // a run's page needs a run id from this workspace
-  const runs = (await (await page.request.get("/v1/runs")).json()) as { runs: { run_id: string }[] };
+  const runs = (await tenantRequest(page, "GET", "/v1/runs").then((response) => response.json())) as { runs: { run_id: string }[] };
   const run = runs.runs[0]?.run_id;
   for (const [name, path] of CLIENT) await shoot(page, name, path);
   if (run) await shoot(page, "run", `/runs/${run}`);
 });
 
 test("operator screens", async ({ page }) => {
-  await operatorSignIn(page, "operator");
+  await operatorSignIn(page, "operator", "parity", WEB_ORIGIN);
   for (const [name, path] of OPERATOR) await shoot(page, name, path);
 });
