@@ -59,12 +59,23 @@ def model_profile(task: str, models_path: Path | None = None) -> str:
     return str(raw["profiles"][arm["routes"][task]]["model"])
 
 
+def model_family(task: str, models_path: Path | None = None) -> str:
+    """The configured model family for a task; missing family metadata fails closed."""
+    raw = yaml.safe_load((models_path or CONFIG_DIR / "models.yaml").read_text(encoding="utf-8"))
+    arm = raw["arms"][raw["active_arm"]]
+    profile = raw["profiles"][arm["routes"][task]]
+    family = profile.get("family")
+    if not isinstance(family, str) or not family.strip():
+        raise ConfigError(f"task {task!r} has no model family")
+    return family.strip().casefold()
+
+
 def ensure_judge_differs(cfg: GradingConfig, judge_profile: str, generator_profile: str) -> None:
-    """The judge must not be the generator's model (skill reference 06, verify node)."""
-    if judge_profile == generator_profile:
+    """The judge family must differ from the generator family (D-48)."""
+    if judge_profile.casefold() == generator_profile.casefold():
         raise ConfigError(
             f"judge task {cfg.judge.judge_task!r} and generator task {cfg.judge.generator_task!r} "
-            "use the same model profile"
+            "use the same model family"
         )
 
 

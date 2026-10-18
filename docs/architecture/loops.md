@@ -36,7 +36,7 @@ unannotated (the generator's check fails otherwise).
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:130` | limit (1000) | queue empty, limit |
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
 | jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
-| judge re-ask | `src/account_intelligence/grading/judge.py:88` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
+| judge re-ask | `src/account_intelligence/grading/judge.py:99` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:133` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |

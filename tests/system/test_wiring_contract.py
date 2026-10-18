@@ -164,7 +164,7 @@ def _cfg(code: str) -> Any:
         ({"P_SIGNALS_API_TOKEN": "t" * 24}, False),
         ({"P_SIGNALS_API_KEY": "k" * 24, "P_SIGNALS_API_TOKEN": "t" * 24}, True),
         (
-            {"P_SIGNALS_API_KEY": "your-predictleads-api-key", "P_SIGNALS_API_TOKEN": "t" * 24},
+            {"P_SIGNALS_API_KEY": "your-placeholder-api-key", "P_SIGNALS_API_TOKEN": "t" * 24},
             False,
         ),
         ({"P_SIGNALS_API_KEY": "replace-with-key", "P_SIGNALS_API_TOKEN": "t" * 24}, False),
@@ -301,11 +301,12 @@ def test_readiness_reports_every_component_by_status_word_only() -> None:
 def test_readiness_marks_providers_off_when_connectors_are_off() -> None:
     """API readyz-components: hermetic default shows every provider off, never configured."""
     from account_intelligence.api.routes.health import components
+    from account_intelligence.platform.hermetic import UnconfiguredLlm
 
     class _Container:
         connectors = None
         payloads = None
-        llm = type("UnconfiguredLlm", (), {})()
+        llm = UnconfiguredLlm()
 
     report = components(_Container(), {"P_SEARCH_API_KEY": "k" * 30})
     assert {v for k, v in report.items() if k.startswith("provider.")} == {"off"}

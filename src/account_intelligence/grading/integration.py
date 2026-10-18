@@ -24,7 +24,7 @@ from sqlalchemy import text
 from account_intelligence.grading import repo
 from account_intelligence.grading.config import GradingConfig
 from account_intelligence.grading.errors import ConfigError
-from account_intelligence.grading.judge import ensure_judge_differs, model_profile
+from account_intelligence.grading.judge import ensure_judge_differs, model_family
 from account_intelligence.grading.pipeline import grade_claims, load_inputs
 from account_intelligence.grading.ports import (
     Clock,
@@ -75,7 +75,7 @@ def judge_profile_ok(cfg: GradingConfig) -> bool:
     """True only when the configured judge model differs from the generator (G12)."""
     try:
         ensure_judge_differs(
-            cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task)
+            cfg, model_family(cfg.judge.judge_task), model_family(cfg.judge.generator_task)
         )
     except ConfigError:
         return False

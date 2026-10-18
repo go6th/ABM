@@ -64,6 +64,10 @@ or a value has the wrong type (errors name the variable, never the value).
 | `PAYLOAD_DIR` | Local directory for raw payloads (memory store when unset). | no | - | staging, production | api, worker |
 | `CONNECTORS` | Enable live provider connectors in dev (cloud always wires them). | no | - | - | api, worker |
 | `ALLOW_UNAUTHENTICATED_TASKS` | Accept unsigned task calls (local stack only). | no | - | staging, production | api, worker |
+| `LLM_FAKE` | Select the deterministic fake model (hermetic dev and test only). | no | - | staging, production | api, worker |
+| `FAKE_MODEL_SCENARIO` | Fake model scenario file under config/hermetic/fake_model (default happy). | no | - | staging, production | api, worker |
+| `DEV_ASSUME_PROVIDER_BALANCE` | Assume local provider balances for an end-to-end dev run. | no | - | staging, production | api, worker |
+| `DEV_AUTO_APPROVE_CAPS` | Auto-approve spend caps in the local dev stack only. | no | - | staging, production | api, worker |
 | `P_SEARCH_API_KEY` | Web search provider key. | **secret** | - | - | api, worker |
 | `P_SCRAPE_API_KEY` | Page scrape provider key. | **secret** | - | - | api, worker |
 | `P_SIGNALS_API_KEY` | Signals provider key. | **secret** | - | - | api, worker |
@@ -78,6 +82,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | Variable | Purpose | Secret |
 |---|---|---|
 | `API_ORIGIN` | Server-side origin of the API the web server proxies /v1 to. | no |
+| `NEXT_DIST_DIR` | Next.js build output directory (defaults to .next). | no |
 | `OPERATOR_GOOGLE_CLIENT_ID` | Google OAuth client id of the staff console. | no |
 | `OPERATOR_GOOGLE_CLIENT_SECRET` | Google OAuth client secret of the staff console. | **secret** |
 | `OPERATOR_GOOGLE_REDIRECT_URI` | Exact OAuth redirect URI of the staff console. | no |
@@ -98,6 +103,8 @@ or a value has the wrong type (errors name the variable, never the value).
 | `E2E_WEB_ORIGIN` | Web origin the E2E harness redirects to. | no |
 | `E2E_API_ORIGIN` | API origin used by the Playwright harness. | no |
 | `E2E_API_PORT` | Local port for the synthetic E2E API server. | no |
+| `PARITY_WEB_ORIGIN` | Web origin for the parity Playwright suite. | no |
+| `SCREENS` | Optional selection of review screenshots to capture. | no |
 | `FAKE_IDP_ISSUER` | Issuer of the local fake IdP (local stack only). | no |
 | `FAKE_IDP_AUDIENCE` | Audience the local fake IdP mints tokens for. | no |
 | `TF_STATE_BUCKET` | GCS bucket of the Terraform remote state (deploy pipeline). | no |

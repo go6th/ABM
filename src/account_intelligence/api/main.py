@@ -33,6 +33,7 @@ from account_intelligence.api.routes import (
 )
 from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 from account_intelligence.platform.ports import PayloadMissing
+from account_intelligence.platform.request_context import REQUEST_ID
 from obs.logging import logger
 
 _logger = logger(__name__)
@@ -137,7 +138,11 @@ def create_app() -> FastAPI:
             request_id = str(uuid4())
         request.state.request_id = request_id
         started = time.monotonic()
-        response = await call_next(request)
+        token = REQUEST_ID.set(request_id)
+        try:
+            response = await call_next(request)
+        finally:
+            REQUEST_ID.reset(token)
         _observe(request.url.path, response.status_code, time.monotonic() - started)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"

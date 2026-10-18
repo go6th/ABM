@@ -123,9 +123,9 @@ def test_registry_domains_after_the_first_and_unlisted_hosts(cfg: GradingConfig)
 
 
 def test_judge_profile_is_ok_only_when_judge_and_generator_differ(cfg: GradingConfig) -> None:
-    from account_intelligence.grading.judge import model_profile
+    from account_intelligence.grading.judge import model_family
 
-    differs = model_profile(cfg.judge.judge_task) != model_profile(cfg.judge.generator_task)
+    differs = model_family(cfg.judge.judge_task) != model_family(cfg.judge.generator_task)
     assert judge_profile_ok(cfg) is differs
     same = cfg.model_copy(
         update={"judge": cfg.judge.model_copy(update={"judge_task": cfg.judge.generator_task})}

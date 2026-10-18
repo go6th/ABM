@@ -14,7 +14,8 @@ export async function seeded(request: APIRequestContext): Promise<Seeded> {
 
 /** Headers for a mutation sent with page.request: the /v1 proxy refuses one without a same-origin Origin. */
 export async function mutation(page: Page): Promise<Record<string, string>> {
-  return { "X-CSRF-Token": await csrf(page), Origin: process.env.PARITY_WEB_ORIGIN ?? "http://localhost:3001" };
+  const origin = new URL(page.url()).origin;
+  return { "X-CSRF-Token": await csrf(page), Origin: origin };
 }
 
 export async function csrf(page: Page): Promise<string> {
@@ -23,7 +24,7 @@ export async function csrf(page: Page): Promise<string> {
 
 /** Sign in to the operator console with the dev staff verifier (APP_ENV=test only). */
 export async function operatorSignIn(page: Page, role: "operator" | "support", who = "parity") {
-  const base = process.env.PARITY_WEB_ORIGIN ?? "http://localhost:3001";
+  const base = process.env.PARITY_WEB_ORIGIN ?? process.env.E2E_WEB_ORIGIN ?? "http://127.0.0.1:3008";
   await page.context().addCookies([{ name: "6th_operator_session", value: `${role}:${who}`, url: base }]);
 }
 

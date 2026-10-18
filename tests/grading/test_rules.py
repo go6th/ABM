@@ -27,7 +27,7 @@ from account_intelligence.grading.judge import (
     apply_support_verdict,
     call_judge,
     ensure_judge_differs,
-    model_profile,
+    model_family,
     needs_judge,
 )
 from account_intelligence.grading.leads import (
@@ -306,11 +306,11 @@ def test_judge_must_differ_from_the_generator(cfg: GradingConfig, tmp_path: Path
     with pytest.raises(ConfigError):
         ensure_judge_differs(cfg, "same-model", "same-model")
     ensure_judge_differs(cfg, "judge-model", "generator-model")
-    # The repository's model config: claims come from the extraction task, the judge runs on a
-    # different model (verification), so the judge is allowed.
-    ensure_judge_differs(
-        cfg, model_profile(cfg.judge.judge_task), model_profile(cfg.judge.generator_task)
-    )
+    # The repository's model config: both tasks use the same provider family, so it fails closed.
+    with pytest.raises(ConfigError, match="same model family"):
+        ensure_judge_differs(
+            cfg, model_family(cfg.judge.judge_task), model_family(cfg.judge.generator_task)
+        )
     assert (
         needs_judge("A", "probable", cfg)
         and needs_judge("C", "confirmed", cfg)

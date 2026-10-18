@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail if a forbidden name (held only as a digest in config/skill/name_digests.yaml) appears in
-any tracked or new text file of the repository (work item 10). Prints paths and line numbers only.
+repository text files (work item 10). The exact user-supplied operating guide is an input reference,
+not an output, and is the only source-reference exemption. Prints paths and line numbers only.
 
     python scripts/abm_name_scan.py      # exit 0 clean, 1 found
 """
@@ -31,6 +32,10 @@ SKIP_SUFFIXES = {
     ".lock",
 }
 
+# The exact user-supplied operating guide is retained as an input reference. Its examples include
+# names that the output guard correctly prohibits in generated deliverables; it is never an output.
+SOURCE_REFERENCE_FILES = {"config/skill/archive/references/session-environment.md"}
+
 
 def files() -> list[Path]:
     out = subprocess.run(
@@ -40,7 +45,11 @@ def files() -> list[Path]:
         capture_output=True,
         text=True,
     ).stdout.splitlines()
-    return [ROOT / p for p in out if Path(p).suffix.lower() not in SKIP_SUFFIXES]
+    return [
+        ROOT / p
+        for p in out
+        if Path(p).suffix.lower() not in SKIP_SUFFIXES and p not in SOURCE_REFERENCE_FILES
+    ]
 
 
 def scan() -> list[tuple[str, int]]:
