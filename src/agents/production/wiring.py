@@ -40,6 +40,7 @@ from agents.production.payloads import StorePayloads
 from agents.production.provider import ConnectorProvider
 from agents.production.state import PgRunRecords, SettingsAdapter
 from agents.production.tracker import TrackerAdapter
+from agents.session_context import session_environment_context
 from llm.errors import SchemaInvalid
 from llm.schema import REASK_NOTE, validate
 
@@ -69,7 +70,8 @@ class RunDepsModel:
         import json
 
         schema = json.dumps(output.model_json_schema(), separators=(",", ":"))
-        system = (
+        session_context = session_environment_context(task_kind)
+        system = (f"{session_context}\n\n" if session_context else "") + (
             f"{prompt_text}\n\nAnswer with one JSON object, no prose and no code fence, that"
             f" validates against this JSON Schema:\n{schema}"
         )
