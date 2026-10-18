@@ -89,12 +89,18 @@ class CloudTasksScheduler:
         from google.cloud import tasks_v2
         from google.protobuf import timestamp_pb2  # type: ignore[import-untyped]
 
+        from account_intelligence.platform.request_context import REQUEST_ID
+
+        request_id = REQUEST_ID.get()
+        headers = {"Content-Type": "application/json"}
+        if request_id:
+            headers["X-Request-ID"] = request_id
         task = tasks_v2.Task(
             name=self.client.task_path(self.project, self.location, self.queue, name),
             http_request=tasks_v2.HttpRequest(
                 url=f"{self.worker_url}{path}",
                 http_method=tasks_v2.HttpMethod.POST,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
                 body=json.dumps(payload, sort_keys=True).encode(),
                 oidc_token=tasks_v2.OidcToken(
                     service_account_email=self.sa, audience=self.audience

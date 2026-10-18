@@ -85,9 +85,17 @@ function CapDecision({ runId, canDecide, onDecided }: { runId: string; canDecide
     setBusy(true);
     setMessage(null);
     try {
-      await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cap/${kind}`, kind === "approve"
-        ? { version: p.version, proposal_hash: p.proposal_hash }
-        : { version: p.version, reason: reason.trim() || "Not approved" });
+      if (kind === "approve") {
+        await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cap/approve`, {
+          version: p.version,
+          proposal_hash: p.proposal_hash,
+        });
+      } else {
+        await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cap/reject`, {
+          version: p.version,
+          reason: reason.trim() || "Not approved",
+        });
+      }
       setMessage({ ok: true, text: kind === "approve" ? "Spend limit approved." : "Spend limit rejected." });
       cap.reload();
       onDecided();

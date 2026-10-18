@@ -13,6 +13,7 @@ from typing import Any
 
 from opentelemetry import trace
 
+from account_intelligence.platform.request_context import REQUEST_ID
 from obs.catalog import Catalog
 from obs.exporters import DropCounter
 from obs.scrub import clean, scrub_exception
@@ -31,6 +32,9 @@ class JsonFormatter(std_logging.Formatter):
         """Render (never raises: a failure yields a minimal line and a drop)."""
         try:
             extra = {k: v for k, v in vars(record).items() if k not in RESERVED}
+            request_id = REQUEST_ID.get()
+            if request_id is not None:
+                extra["request_id"] = request_id
             event = str(
                 getattr(record, "event", record.msg if isinstance(record.msg, str) else "log")
             )

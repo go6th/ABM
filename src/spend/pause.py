@@ -471,4 +471,3 @@ async def expire(s: AsyncSession, run_id: UUID, now: datetime, cfg: V2Config) ->
                 return None  # a racing decision won
             return UUID(str(p.request_id))
     return None
-

@@ -171,9 +171,7 @@ def build() -> Any:
     from account_intelligence.chat.service import ChatEvent, ChatService, ChatUsage
 
     class SyntheticChatProvider:
-        async def stream(
-            self, model: Any, messages: Any, max_output_tokens: int, **_: Any
-        ) -> Any:
+        async def stream(self, model: Any, messages: Any, max_output_tokens: int, **_: Any) -> Any:
             """A deterministic stream for browser coverage; never contacts a model provider.
             The route also passes user_id, request_id and fresh_output, which it ignores."""
             del model, messages, max_output_tokens

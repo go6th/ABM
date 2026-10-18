@@ -6,6 +6,7 @@ SIGTERM); any exception or failed check is a 503 that names the failed check, ne
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -36,6 +37,36 @@ def _config() -> None:
     load_all()
 
 
+def components(container: Any | None, env: Any) -> dict[str, str]:
+    """Report dependency readiness using status words only; never return names or credentials."""
+    from account_intelligence.connectors.factory import provider_configured
+    from account_intelligence.connectors.settings import load_providers_config
+    from account_intelligence.platform.hermetic import UnconfiguredLlm
+
+    providers = load_providers_config().providers
+    report = {
+        "payload_store": "present"
+        if getattr(container, "payloads", None) is not None
+        else "absent",
+        "rate_limit_store": "shared" if env.get("REDIS_HOST") else "local",
+        "llm": "present"
+        if getattr(container, "llm", None) is not None
+        and not isinstance(getattr(container, "llm", None), UnconfiguredLlm)
+        else "absent",
+    }
+    connectors_on = getattr(container, "connectors", None) is not None
+    for code, config in providers.items():
+        suffix = code.value.removeprefix("p_")
+        report[f"provider.{suffix}"] = (
+            "off"
+            if not connectors_on
+            else "configured"
+            if provider_configured(config, env)
+            else "unconfigured"
+        )
+    return report
+
+
 @router.get("/readyz", responses={200: {"model": C.Ready}})
 async def readyz(request: Request) -> JSONResponse:
     """Readiness that fails closed (W5): 200 only when every check passes, else 503 naming it."""
@@ -59,9 +90,17 @@ async def readyz(request: Request) -> JSONResponse:
     except Exception as error:  # noqa: BLE001
         checks["config"] = f"failed: {type(error).__name__}"
     try:
+        component_status = components(container, os.environ)
+    except Exception as error:  # noqa: BLE001 - readiness fails closed on config drift
+        checks["components"] = f"failed: {type(error).__name__}"
+        component_status = {"status": "unavailable"}
+    try:
         await _database()
         checks["database"] = "ok"
     except Exception as error:  # noqa: BLE001
         checks["database"] = f"failed: {type(error).__name__}"
     ok = all(v == "ok" for v in checks.values())
-    return JSONResponse({"ready": ok, "checks": checks}, status_code=200 if ok else 503)
+    return JSONResponse(
+        {"ready": ok, "checks": checks, "components": component_status},
+        status_code=200 if ok else 503,
+    )

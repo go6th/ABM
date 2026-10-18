@@ -22,6 +22,7 @@ OUT = ROOT / "docs" / "ENVIRONMENT.md"
 # (name, purpose, secret)
 WEB = [
     ("API_ORIGIN", "Server-side origin of the API the web server proxies /v1 to.", False),
+    ("NEXT_DIST_DIR", "Next.js build output directory (defaults to .next).", False),
     ("OPERATOR_GOOGLE_CLIENT_ID", "Google OAuth client id of the staff console.", False),
     ("OPERATOR_GOOGLE_CLIENT_SECRET", "Google OAuth client secret of the staff console.", True),
     ("OPERATOR_GOOGLE_REDIRECT_URI", "Exact OAuth redirect URI of the staff console.", False),
@@ -43,6 +44,8 @@ TOOLING = [
     ("E2E_WEB_ORIGIN", "Web origin the E2E harness redirects to.", False),
     ("E2E_API_ORIGIN", "API origin used by the Playwright harness.", False),
     ("E2E_API_PORT", "Local port for the synthetic E2E API server.", False),
+    ("PARITY_WEB_ORIGIN", "Web origin for the parity Playwright suite.", False),
+    ("SCREENS", "Optional selection of review screenshots to capture.", False),
     ("FAKE_IDP_ISSUER", "Issuer of the local fake IdP (local stack only).", False),
     ("FAKE_IDP_AUDIENCE", "Audience the local fake IdP mints tokens for.", False),
     ("TF_STATE_BUCKET", "GCS bucket of the Terraform remote state (deploy pipeline).", False),

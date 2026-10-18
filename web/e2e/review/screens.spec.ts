@@ -1,10 +1,11 @@
 // Every screen in light and dark at 1440, 1024 and 390 wide, saved to docs/design-review/ as
 // <screen>-<theme>-<width>.png. Signs in as client A's admin over the synthetic stack; the research
 // screens need acme.example researched (the parity research spec does that).
-import { test, type Page } from "@playwright/test";
-import { seeded, signIn, operatorSignIn, type Seeded } from "../parity/support";
+import { expect, test, type Page } from "@playwright/test";
+import { seeded, signIn, operatorSignIn, tenantRequest, type Seeded } from "../parity/support";
 
 const OUT = "../docs/design-review";
+const WEB_ORIGIN = process.env.PARITY_WEB_ORIGIN ?? process.env.E2E_WEB_ORIGIN ?? "http://127.0.0.1:3008";
 const WIDTHS = [1440, 1024, 390] as const;
 const THEMES = ["light", "dark"] as const;
 const ONLY = process.env.SCREENS?.split(",") ?? null;
@@ -45,11 +46,11 @@ test.beforeAll(async ({ request }) => { s = await seeded(request); });
 async function shoot(page: Page, name: string, path: string) {
   if (ONLY && !ONLY.some((o) => name.startsWith(o))) return;
   for (const theme of THEMES) {
-    await page.context().addCookies([{ name: "ai_theme", value: theme, url: process.env.PARITY_WEB_ORIGIN ?? "http://localhost:3001" }]);
+    await page.context().addCookies([{ name: "ai_theme", value: theme, url: WEB_ORIGIN }]);
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-      await page.goto(path);
-      await page.waitForLoadState("networkidle");
+      await page.goto(path, { waitUntil: "domcontentloaded" });
+      await expect(page.getByRole("main")).toBeVisible();
       await page.waitForTimeout(400);
       await page.screenshot({ path: `${OUT}/${name}-${theme}-${width}.png`, fullPage: true, animations: "disabled" });
     }
@@ -61,9 +62,10 @@ test("public screens", async ({ page }) => {
 });
 
 test("client screens", async ({ page }) => {
+  test.setTimeout(180_000);
   await signIn(page, s.slug_a, "ada", "admin");
   // a run's page needs a run id from this workspace
-  const runs = (await (await page.request.get("/v1/runs")).json()) as { runs: { run_id: string }[] };
+  const runs = (await tenantRequest(page, "GET", "/v1/runs").then((response) => response.json())) as { runs: { run_id: string }[] };
   const run = runs.runs[0]?.run_id;
   for (const [name, path] of CLIENT) await shoot(page, name, path);
   if (run) await shoot(page, "run", `/runs/${run}`);

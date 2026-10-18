@@ -55,7 +55,8 @@ class FakeScenario:
         if unknown:
             raise ValueError(f"unknown fake model scenario keys: {sorted(unknown)}")
         tuples = {"narrative", "hypotheses", "questions", "judge_contradicts"}
-        return cls(**{k: tuple(v) if k in tuples else v for k, v in data.items()})
+        values: Any = {k: tuple(v) if k in tuples else v for k, v in data.items()}
+        return cls(**values)
 
 
 def load_scenario(path: str | Path) -> FakeScenario:

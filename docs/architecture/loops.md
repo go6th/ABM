@@ -7,10 +7,11 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | CRM reconcile | `src/crm_writeback/service.py:299` | 100 writes per pass | end |
-| agent schema re-ask | `src/agents/production/wiring.py:78` | 2 attempts | valid reply, SchemaInvalid |
+| agent schema re-ask | `src/agents/production/wiring.py:81` | 2 attempts | valid reply, SchemaInvalid |
 | alert fan-out | `src/alerts/engine.py:205` | len(recipients) | end |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
 | cache-eviction | `src/account_intelligence/rag/cache.py:103` | max_entries excess | capacity reached. |
+| cancel watch | `src/account_intelligence/workflow/runner.py:230` | settings.slice_seconds | graph done, canceled, or slice timeout |
 | catch-up selection | `src/refresh/schedule.py:66` | len(missed) | per_tick reached or end |
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
 | connector token refresh | `src/connectors_client/oauth.py:211` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
@@ -35,8 +36,8 @@ unannotated (the generator's check fails otherwise).
 | in-process slice drain, tests and dev | `src/account_intelligence/platform/hermetic.py:130` | limit (1000) | queue empty, limit |
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
 | jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
-| judge re-ask | `src/account_intelligence/grading/judge.py:87` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
-| lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:130` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
+| judge re-ask | `src/account_intelligence/grading/judge.py:99` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
+| lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:133` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
@@ -65,7 +66,7 @@ unannotated (the generator's check fails otherwise).
 | scheduler loop | `src/parallel/executor.py:250` | 10 iterations per unit plus 100 (each launches, blocks, awaits a completion or waits a bounded stall) | converged, deadline, budget, paused, cancelled, retryable, no_progress (SchedulerDeadlock) |
 | schema re-ask | `src/llm/port.py:126` | schema_reasks (1) | valid, SchemaInvalid |
 | simulation | `src/parallel/simulate.py:193` | sum of units over runs times 4 plus 1000 steps | all runs drained |
-| slice loop | `src/account_intelligence/workflow/runner.py:140` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
+| slice loop | `src/account_intelligence/workflow/runner.py:142` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:62` | batch_size runs | converged, cap_reached |
 | stuck scan | `src/obs/stuck.py:73` | keyset pages of `page` runs until none remain | all scanned |

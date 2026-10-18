@@ -203,6 +203,16 @@ class Settings(BaseSettings):
         purpose="Fake model scenario file under config/hermetic/fake_model (default happy).",
         forbidden_in=CLOUD,
     )
+    dev_assume_provider_balance: Literal["0", "1"] = var(
+        "0",
+        purpose="Assume local provider balances for an end-to-end dev run.",
+        forbidden_in=CLOUD,
+    )
+    dev_auto_approve_caps: Literal["0", "1"] = var(
+        "0",
+        purpose="Auto-approve spend caps in the local dev stack only.",
+        forbidden_in=CLOUD,
+    )
     p_search_api_key: SecretStr | None = var(purpose="Web search provider key.", secret=True)
     p_scrape_api_key: SecretStr | None = var(purpose="Page scrape provider key.", secret=True)
     p_signals_api_key: SecretStr | None = var(purpose="Signals provider key.", secret=True)

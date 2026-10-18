@@ -53,6 +53,7 @@ jobs:
           --health-cmd "pg_isready -U postgres -d ai"
           --health-interval 5s --health-timeout 3s --health-retries 20
     env:
+      TEST_DB: ai
       DATABASE_URL: postgresql+asyncpg://app_rw:local-dev-only@localhost:5432/ai
       MIGRATOR_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai
       CHECKPOINT_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai

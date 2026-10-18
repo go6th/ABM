@@ -1,6 +1,6 @@
 # Automatic Model Routing and Pricing Configuration
 # Strictly enforced by the backend model router. Callers cannot override model selection.
-version: "2026-10-09.1"
+version: "2026-10-18.1"
 
 # Hard allowlist of approved models
 allowlist:
@@ -18,11 +18,13 @@ tasks:
 profiles:
   collection_opus:
     provider: anthropic
+    family: claude
     model: claude-opus-5-5
     input_usd_per_mtok: 4.00
     output_usd_per_mtok: 20.00
   analysis_fable:
     provider: anthropic
+    family: claude
     model: claude-fable-5-1
     input_usd_per_mtok: 10.00
     output_usd_per_mtok: 50.00

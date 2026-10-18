@@ -54,7 +54,9 @@ def _web_server_env_reads() -> set[str]:
         for path in (ROOT / "web" / folder).rglob("*.ts*"):
             reads |= set(re.findall(r"process\.env\.([A-Z][A-Z0-9_]+)", path.read_text("utf-8")))
     for name in ("proxy.ts", "next.config.ts"):
-        reads |= set(re.findall(r"process\.env\.([A-Z][A-Z0-9_]+)", (ROOT / "web" / name).read_text()))
+        reads |= set(
+            re.findall(r"process\.env\.([A-Z][A-Z0-9_]+)", (ROOT / "web" / name).read_text())
+        )
     return reads - PLATFORM_VARS
 
 
@@ -72,7 +74,9 @@ def test_env_example_lists_exactly_what_the_code_reads() -> None:
     code = _registry_names() | _web_server_env_reads()
     example = set(_example_keys())
     assert not sorted(example - code), f"template keys no code reads: {sorted(example - code)}"
-    assert not sorted(code - example), f"read by code, missing from template: {sorted(code - example)}"
+    assert not sorted(code - example), (
+        f"read by code, missing from template: {sorted(code - example)}"
+    )
 
 
 def test_env_example_comments_sit_above_their_key() -> None:
@@ -99,8 +103,15 @@ def test_env_example_is_hermetic_and_valid_by_default() -> None:
     keys = _example_keys()
     assert keys["APP_ENV"] == "dev"
     assert keys["CONNECTORS"] == "off", "live providers must be an explicit opt-in"
-    for name in ("ANTHROPIC_API_KEY", "P_SEARCH_API_KEY", "P_SCRAPE_API_KEY", "P_SIGNALS_API_KEY",
-                 "P_SIGNALS_API_TOKEN", "P_PEOPLE_API_KEY", "P_ORG_API_KEY"):
+    for name in (
+        "ANTHROPIC_API_KEY",
+        "P_SEARCH_API_KEY",
+        "P_SCRAPE_API_KEY",
+        "P_SIGNALS_API_KEY",
+        "P_SIGNALS_API_TOKEN",
+        "P_PEOPLE_API_KEY",
+        "P_ORG_API_KEY",
+    ):
         assert keys[name] == "", f"{name} must ship empty, never a placeholder that looks set"
     assert keys["CHECKPOINT_DATABASE_URL"].startswith("postgresql://"), "checkpointer is psycopg"
     from account_intelligence.config import load_settings
@@ -108,8 +119,10 @@ def test_env_example_is_hermetic_and_valid_by_default() -> None:
     active = {
         k: v
         for k, v in keys.items()
-        if v and not any(line.startswith(f"#{k}=") or line.startswith(f"# {k}=")
-                         for line in _example_lines())
+        if v
+        and not any(
+            line.startswith(f"#{k}=") or line.startswith(f"# {k}=") for line in _example_lines()
+        )
     }
     load_settings(active)  # raises EnvironmentInvalid naming the variable
 
@@ -150,7 +163,10 @@ def _cfg(code: str) -> Any:
         ({"P_SIGNALS_API_KEY": "k" * 24}, False),  # signals needs the token too
         ({"P_SIGNALS_API_TOKEN": "t" * 24}, False),
         ({"P_SIGNALS_API_KEY": "k" * 24, "P_SIGNALS_API_TOKEN": "t" * 24}, True),
-        ({"P_SIGNALS_API_KEY": "your-predictleads-api-key", "P_SIGNALS_API_TOKEN": "t" * 24}, False),
+        (
+            {"P_SIGNALS_API_KEY": "your-placeholder-api-key", "P_SIGNALS_API_TOKEN": "t" * 24},
+            False,
+        ),
         ({"P_SIGNALS_API_KEY": "replace-with-key", "P_SIGNALS_API_TOKEN": "t" * 24}, False),
     ],
 )
@@ -170,7 +186,9 @@ def test_unconfigured_provider_sends_no_credential_at_all() -> None:
 
     half = auth_headers(_cfg("P_SIGNALS"), {"P_SIGNALS_API_KEY": "k" * 24})
     assert "x-api-key" not in half and "x-api-token" not in half
-    placeholder = auth_headers(_cfg("P_SEARCH"), {"P_SEARCH_API_KEY": "your-parallel-search-api-key"})
+    placeholder = auth_headers(
+        _cfg("P_SEARCH"), {"P_SEARCH_API_KEY": "your-parallel-search-api-key"}
+    )
     assert "x-api-key" not in placeholder
     full = auth_headers(
         _cfg("P_SIGNALS"), {"P_SIGNALS_API_KEY": "k" * 24, "P_SIGNALS_API_TOKEN": "t" * 24}
@@ -283,11 +301,12 @@ def test_readiness_reports_every_component_by_status_word_only() -> None:
 def test_readiness_marks_providers_off_when_connectors_are_off() -> None:
     """API readyz-components: hermetic default shows every provider off, never configured."""
     from account_intelligence.api.routes.health import components
+    from account_intelligence.platform.hermetic import UnconfiguredLlm
 
     class _Container:
         connectors = None
         payloads = None
-        llm = type("UnconfiguredLlm", (), {})()
+        llm = UnconfiguredLlm()
 
     report = components(_Container(), {"P_SEARCH_API_KEY": "k" * 30})
     assert {v for k, v in report.items() if k.startswith("provider.")} == {"off"}

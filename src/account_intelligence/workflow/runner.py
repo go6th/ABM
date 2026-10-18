@@ -225,8 +225,8 @@ async def _drive(graph: Any, graph_input: Any, config: Mapping[str, Any], deps: 
 
     task = asyncio.create_task(stream())
     try:
-        # LOOP(cancel watch): one status read per CANCEL_POLL_S; exit=graph done, canceled, or the
-        # slice timeout around it
+        # LOOP(cancel watch): cap=settings.slice_seconds;
+        # exit=graph done, canceled, or slice timeout
         while True:
             done, _ = await asyncio.wait({task}, timeout=CANCEL_POLL_S)
             if done:

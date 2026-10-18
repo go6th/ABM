@@ -2,6 +2,7 @@
 // pages, role limits, a second tenant that sees nothing of the first, sign-out, keyboard and axe.
 import { test, expect } from "@playwright/test";
 import { API, noSeriousA11y, signIn } from "./helpers";
+import { mutation, tenantRequest } from "./parity/support";
 
 let seeded: { slug_a: string; slug_b: string };
 
@@ -19,7 +20,7 @@ test("an admin signs in with SSO, sees only the tenant's accounts and adds one",
   await page.getByRole("button", { name: "Add account" }).click();
   await expect(page).toHaveURL(/\/accounts\/added-by-e2e\.example$/);
   await expect(page.getByRole("heading", { name: "added-by-e2e.example" })).toBeVisible();
-  const pages: [string, string][] = [["/settings/users", "Users"], ["/settings/support", "Support access"], ["/audit", "Audit"], ["/usage", "Usage"], ["/settings", "Settings"]];
+  const pages: [string, string][] = [["/settings/users", "Team and access"], ["/settings/support", "Support access"], ["/audit", "Audit"], ["/usage", "Usage"], ["/settings", "Settings"]];
   for (const [path, heading] of pages) {
     await page.goto(path);
     await expect(page.getByRole("heading", { name: heading, exact: false }).first()).toBeVisible();
@@ -44,7 +45,7 @@ test("a viewer reads but cannot add, run or administer", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Refresh from web" })).toHaveCount(0);
   await page.goto("/settings/users");
   await expect(page.getByText("Only admins manage users.")).toBeVisible();
-  expect((await page.request.get("/v1/users")).status()).toBe(403);
+  expect((await tenantRequest(page, "GET", "/v1/users")).status()).toBe(403);
 });
 
 test("a conversation streams, persists and passes accessibility checks in dark mode", async ({ page }) => {
@@ -52,13 +53,13 @@ test("a conversation streams, persists and passes accessibility checks in dark m
   await signIn(page, seeded.slug_a, "ana", "analyst");
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "What do you want to know?" })).toBeVisible();
-  const ground = await page.locator(".ws").evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(ground).toBe("rgb(18, 25, 31)");
+  const ground = await page.locator(".app").evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(ground).toBe("rgb(11, 11, 15)");
   await noSeriousA11y(page);
   await page.getByLabel("Your question").fill("Summarize our account notes");
   await page.keyboard.press("Enter");
   await expect(page.getByText("Synthetic response")).toBeVisible();
-  await expect(page.locator(".q").getByText("Summarize our account notes", { exact: true })).toBeVisible();
+  await expect(page.locator(".q")).toContainText("Summarize our account notes");
   await expect(page).toHaveURL(/\?t=/);
   const thread = page.getByRole("button", { name: "Summarize our account notes", exact: true });
   await expect(thread).toBeVisible();
@@ -72,22 +73,17 @@ test("a conversation streams, persists and passes accessibility checks in dark m
 
 test("chat history is private to its tenant member", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ana", "analyst");
-  const csrf = (await (await page.request.get("/v1/sso/session")).json()).csrf_token as string;
-  const created = await page.request.post("/v1/chat/threads", {
-    data: {},
-    headers: { "X-CSRF-Token": csrf },
-  });
+  const created = await tenantRequest(page, "POST", "/v1/chat/threads", { data: {}, headers: await mutation(page) });
   expect(created.status()).toBe(201);
-  const threadId = (await created.json()).id as string;
-  await page.request.post("/v1/sso/logout", { headers: { "X-CSRF-Token": csrf } });
+  const threadId = ((await created.json()) as { id: string }).id;
+  await tenantRequest(page, "POST", "/v1/sso/logout", { headers: await mutation(page) });
 
   await signIn(page, seeded.slug_a, "sam", "seller");
-  expect((await page.request.get(`/v1/chat/threads/${threadId}`)).status()).toBe(404);
-  const otherCsrf = (await (await page.request.get("/v1/sso/session")).json()).csrf_token as string;
-  await page.request.post("/v1/sso/logout", { headers: { "X-CSRF-Token": otherCsrf } });
+  expect((await tenantRequest(page, "GET", `/v1/chat/threads/${threadId}`)).status()).toBe(404);
+  await tenantRequest(page, "POST", "/v1/sso/logout", { headers: await mutation(page) });
 
   await signIn(page, seeded.slug_b, "bob", "admin");
-  expect((await page.request.get(`/v1/chat/threads/${threadId}`)).status()).toBe(404);
+  expect((await tenantRequest(page, "GET", `/v1/chat/threads/${threadId}`)).status()).toBe(404);
 });
 
 test("admins see BYO key availability without a key value", async ({ page }) => {
@@ -109,7 +105,7 @@ for (const [subject, role] of members) {
     await expect(page.getByRole("button", { name: "Refresh from web" })).toBeVisible();
     await page.goto("/settings/support");
     await expect(page.getByText("Only admins manage support access.")).toBeVisible();
-    expect((await page.request.get("/v1/audit")).status()).toBe(403);
+    expect((await tenantRequest(page, "GET", "/v1/audit")).status()).toBe(403);
   });
 }
 
@@ -126,15 +122,16 @@ test("a second tenant sees nothing of the first", async ({ page }) => {
   expect(foreign).toBe(missing);
   expect(foreign).toContain("Account not found");
   for (const path of ["/v1/accounts/acme-a.example/tables/people", "/v1/accounts/acme-b.example/runs"]) {
-    const status = (await page.request.get(path)).status();
+    const status = (await tenantRequest(page, "GET", path)).status();
     expect([403, 404]).toContain(status);
   }
-  const list = await (await page.request.get("/v1/accounts?limit=200")).json();
+  const list = await tenantRequest(page, "GET", "/v1/accounts?limit=200").then((response) => response.json()) as { accounts: { domain: string }[] };
   expect(list.accounts.map((a: { domain: string }) => a.domain)).toEqual(["beta-only.example"]);
 });
 
 test("keyboard: the skip link is first and moves focus to the content", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
+  await page.goto("/accounts");
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -143,9 +140,8 @@ test("keyboard: the skip link is first and moves focus to the content", async ({
 
 test("signing out ends the session", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
-  const csrf = (await (await page.request.get("/v1/sso/session")).json()).csrf_token as string;
-  expect((await page.request.post("/v1/sso/logout", { headers: { "X-CSRF-Token": csrf } })).status()).toBeLessThan(300);
-  expect((await page.request.get("/v1/sso/session")).status()).toBe(401);
+  expect((await tenantRequest(page, "POST", "/v1/sso/logout", { headers: await mutation(page) })).status()).toBeLessThan(300);
+  expect((await tenantRequest(page, "GET", "/v1/sso/session")).status()).toBe(401);
   await page.goto("/");
   await expect(page).toHaveURL(/\/login/);
 });
@@ -163,15 +159,14 @@ test("alerts: the inbox shows the alert and a rating is saved", async ({ page })
   await page.goto("/alerts");
   await expect(page.getByRole("heading", { name: /New role posted at/ })).toBeVisible();
   await page.getByRole("button", { name: "Rate" }).first().click();
-  await expect(page.getByText("Thanks.")).toBeVisible();
+  await expect(page.getByText("Feedback saved.")).toBeVisible();
   await noSeriousA11y(page);
 });
 
 test("subscriptions start digest-only and subscribe up; admins see the budget in percent", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
   // start from the digest-only defaults (a fresh user's state; the API test covers new users)
-  const csrf = (await (await page.request.get("/v1/sso/session")).json()).csrf_token as string;
-  await page.request.put("/v1/subscriptions", { data: { digest: true, immediate_rules: [], slack: false, threshold: 0, muted_accounts: [] }, headers: { "X-CSRF-Token": csrf } });
+  await tenantRequest(page, "PUT", "/v1/subscriptions", { data: { digest: true, immediate_rules: [], slack: false, threshold: 0, muted_accounts: [] }, headers: await mutation(page) });
   await page.goto("/settings/alerts");
   const box = page.getByLabel("New build or admin role in your lanes");
   await expect(box).not.toBeChecked();
@@ -207,5 +202,5 @@ test("a seller cannot manage CRM write-back", async ({ page }) => {
   await signIn(page, seeded.slug_a, "sam", "seller");
   await page.goto("/settings/crm");
   await expect(page.getByText("Only admins manage CRM write-back.")).toBeVisible();
-  expect((await page.request.post("/v1/crm/salesforce/enable", { headers: { "X-CSRF-Token": (await (await page.request.get("/v1/sso/session")).json()).csrf_token } })).status()).toBe(403);
+  expect((await tenantRequest(page, "POST", "/v1/crm/salesforce/enable", { headers: await mutation(page) })).status()).toBe(403);
 });

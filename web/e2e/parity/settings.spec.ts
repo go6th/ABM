@@ -1,6 +1,6 @@
 // Settings and administration for an admin of client A.
 import { test, expect } from "@playwright/test";
-import { mutation, seeded, signIn, watch, type Seeded } from "./support";
+import { mutation, seeded, signIn, tenantRequest, watch, type Seeded } from "./support";
 
 let s: Seeded;
 test.beforeAll(async ({ request }) => { s = await seeded(request); });
@@ -24,7 +24,7 @@ test("workspace settings: branding saves a display name", async ({ page }) => {
 
 test("alert preferences: subscribe up and the choice persists; the allowance shows in percent", async ({ page }) => {
   await signIn(page, s.slug_a, "ada", "admin");
-  const reset = await page.request.put("/v1/subscriptions", { data: { digest: true, immediate_rules: [], slack: false, threshold: 0, muted_accounts: [] }, headers: await mutation(page) });
+  const reset = await tenantRequest(page, "PUT", "/v1/subscriptions", { data: { digest: true, immediate_rules: [], slack: false, threshold: 0, muted_accounts: [] }, headers: await mutation(page) });
   expect(reset.ok()).toBeTruthy();
   await page.goto("/settings/alerts");
   const box = page.getByLabel("New build or admin role in your lanes");

@@ -206,7 +206,7 @@ async def test_the_disagreeing_judge_denies_the_listed_claims() -> None:
             await m.complete(
                 "judge",
                 "j",
-                json.dumps({"claim": "Acme Example opened", "sentence": "x."}),
+                json.dumps({"claim": "Salesforce opened", "sentence": "x."}),
                 max_tokens=5,
             )
         ).text
@@ -215,7 +215,10 @@ async def test_the_disagreeing_judge_denies_the_listed_claims() -> None:
     reread = json.loads(
         (
             await m.complete(
-                "judge", "r", json.dumps({"question": "q", "source": PAYLOAD["text"]}), max_tokens=5
+                "judge",
+                "r",
+                json.dumps({"question": "q", "source": "Salesforce opened a new office."}),
+                max_tokens=5,
             )
         ).text
     )

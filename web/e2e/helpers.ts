@@ -39,5 +39,5 @@ export async function signIn(page: Page, slug: string, subject: string, role: st
 export async function noSeriousA11y(page: Page) {
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const serious = result.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-  expect(serious.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+  expect(serious.map((v) => `${v.id}: ${v.nodes.map((node) => `${node.target.join(" ")} (${node.failureSummary})`).join("; ")}`)).toEqual([]);
 }

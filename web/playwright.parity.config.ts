@@ -7,6 +7,9 @@ import { defineConfig } from "@playwright/test";
 
 const apiOrigin = process.env.E2E_API_ORIGIN ?? "http://127.0.0.1:8088";
 const webOrigin = process.env.PARITY_WEB_ORIGIN ?? "http://localhost:3001";
+process.env.PARITY_WEB_ORIGIN = webOrigin;
+process.env.E2E_OPERATOR_SESSION_COOKIE = "6th_operator_session";
+process.env.E2E_OPERATOR_SESSION_SECURE = "false";
 
 export default defineConfig({
   testDir: "./e2e/parity",

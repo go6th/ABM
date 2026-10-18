@@ -347,6 +347,7 @@ button.group-item { width: 100%; border: 0; background: none; text-align: left; 
 .choices label { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: var(--r-control); border: 1px solid var(--hairline); background: var(--surface); cursor: pointer; transition: border-color var(--t-press) ease, background-color var(--t-press) ease; }
 .choices label:hover { background: var(--hover); }
 .choices label:has(input:checked) { border-color: var(--primary); background: var(--peri-fill); }
+.choices label:has(input:checked) .hint { color: var(--peri-ink); }
 .choices input { margin-top: 3px; accent-color: var(--primary); }
 .choices .hint { display: block; color: var(--ink-2); font-size: var(--t-footnote); }
 
