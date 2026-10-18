@@ -1,3 +1,5 @@
+"""Session-environment reference loading and ABM prompt injection contracts."""
+
 from pathlib import Path
 
 import pytest
