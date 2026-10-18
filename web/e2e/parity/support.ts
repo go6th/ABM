@@ -68,10 +68,17 @@ export async function operatorSignIn(
   page: Page,
   role: "operator" | "support",
   who = "parity",
-  origin = process.env.PARITY_WEB_ORIGIN ?? "http://localhost:3001",
 ) {
-  const base = origin;
-  await page.context().addCookies([{ name: "6th_operator_session", value: `${role}:${who}`, url: base }]);
+  if (page.url() === "about:blank") await page.goto("/operator/login");
+  const origin = new URL(page.url());
+  const base = origin.origin;
+  const value = `${role}:${who}`;
+  const secure = process.env.E2E_OPERATOR_SESSION_SECURE === "true";
+  const name = process.env.E2E_OPERATOR_SESSION_COOKIE ?? "6th_operator_session";
+  await page.context().addCookies([secure
+    ? { name, value, domain: origin.hostname, path: "/", secure: true }
+    : { name, value, url: base },
+  ]);
 }
 
 export async function noSeriousA11y(page: Page) {

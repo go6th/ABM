@@ -29,7 +29,7 @@ export default async function OperatorLoginPage({
         <p className="lede">Use your authorized Google Workspace account. A recent multi-factor sign-in is required.</p>
       </div>
       {message ? <div className="banner error" role="alert"><p className="grow">{message}</p></div> : null}
-      <Link className="btn primary lg block" href="/api/operator/login?return_to=%2Foperator">Continue with Google Workspace</Link>
+      <a className="btn primary lg block" href="/api/operator/login?return_to=%2Foperator">Continue with Google Workspace</a>
       <p className="auth-links"><Link className="link" href="/login">Client sign in</Link></p>
       <p className="auth-foot"><ShieldCheck size={16} aria-hidden="true" />Staff access only. Every action is audited.</p>
     </AuthFrame>

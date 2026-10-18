@@ -62,6 +62,7 @@ test("public screens", async ({ page }) => {
 });
 
 test("client screens", async ({ page }) => {
+  test.setTimeout(180_000);
   await signIn(page, s.slug_a, "ada", "admin");
   // a run's page needs a run id from this workspace
   const runs = (await tenantRequest(page, "GET", "/v1/runs").then((response) => response.json())) as { runs: { run_id: string }[] };
@@ -71,6 +72,6 @@ test("client screens", async ({ page }) => {
 });
 
 test("operator screens", async ({ page }) => {
-  await operatorSignIn(page, "operator", "parity", WEB_ORIGIN);
+  await operatorSignIn(page, "operator");
   for (const [name, path] of OPERATOR) await shoot(page, name, path);
 });

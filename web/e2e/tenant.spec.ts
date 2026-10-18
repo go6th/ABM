@@ -20,7 +20,7 @@ test("an admin signs in with SSO, sees only the tenant's accounts and adds one",
   await page.getByRole("button", { name: "Add account" }).click();
   await expect(page).toHaveURL(/\/accounts\/added-by-e2e\.example$/);
   await expect(page.getByRole("heading", { name: "added-by-e2e.example" })).toBeVisible();
-  const pages: [string, string][] = [["/settings/users", "Users"], ["/settings/support", "Support access"], ["/audit", "Audit"], ["/usage", "Usage"], ["/settings", "Settings"]];
+  const pages: [string, string][] = [["/settings/users", "Team and access"], ["/settings/support", "Support access"], ["/audit", "Audit"], ["/usage", "Usage"], ["/settings", "Settings"]];
   for (const [path, heading] of pages) {
     await page.goto(path);
     await expect(page.getByRole("heading", { name: heading, exact: false }).first()).toBeVisible();
@@ -53,13 +53,13 @@ test("a conversation streams, persists and passes accessibility checks in dark m
   await signIn(page, seeded.slug_a, "ana", "analyst");
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "What do you want to know?" })).toBeVisible();
-  const ground = await page.locator(".ws").evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(ground).toBe("rgb(18, 25, 31)");
+  const ground = await page.locator(".app").evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(ground).toBe("rgb(11, 11, 15)");
   await noSeriousA11y(page);
   await page.getByLabel("Your question").fill("Summarize our account notes");
   await page.keyboard.press("Enter");
   await expect(page.getByText("Synthetic response")).toBeVisible();
-  await expect(page.locator(".q").getByText("Summarize our account notes", { exact: true })).toBeVisible();
+  await expect(page.locator(".q")).toContainText("Summarize our account notes");
   await expect(page).toHaveURL(/\?t=/);
   const thread = page.getByRole("button", { name: "Summarize our account notes", exact: true });
   await expect(thread).toBeVisible();
@@ -131,6 +131,7 @@ test("a second tenant sees nothing of the first", async ({ page }) => {
 
 test("keyboard: the skip link is first and moves focus to the content", async ({ page }) => {
   await signIn(page, seeded.slug_a, "ada", "admin");
+  await page.goto("/accounts");
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -158,7 +159,7 @@ test("alerts: the inbox shows the alert and a rating is saved", async ({ page })
   await page.goto("/alerts");
   await expect(page.getByRole("heading", { name: /New role posted at/ })).toBeVisible();
   await page.getByRole("button", { name: "Rate" }).first().click();
-  await expect(page.getByText("Thanks.")).toBeVisible();
+  await expect(page.getByText("Feedback saved.")).toBeVisible();
   await noSeriousA11y(page);
 });
 

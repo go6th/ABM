@@ -25,7 +25,7 @@ export function operatorApiOrigin(): URL | null {
   const value = process.env.API_ORIGIN ?? "http://127.0.0.1:8080";
   try {
     const origin = new URL(value);
-    const localHttp = process.env.NODE_ENV !== "production" && origin.protocol === "http:" && ["localhost", "127.0.0.1"].includes(origin.hostname);
+    const localHttp = (process.env.NODE_ENV !== "production" || process.env.APP_ENV === "test") && origin.protocol === "http:" && ["localhost", "127.0.0.1"].includes(origin.hostname);
     const privateServiceHttp = origin.protocol === "http:" && origin.hostname === "api" && origin.port === "8080";
     if ((!localHttp && !privateServiceHttp && origin.protocol !== "https:") ||
         origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) return null;

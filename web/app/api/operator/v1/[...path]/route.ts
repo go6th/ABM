@@ -32,7 +32,15 @@ function problem(status: number, type: string, detail: string): NextResponse {
 
 function sameOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
-  return origin !== null && origin === new URL(request.url).origin;
+  const host = request.headers.get("host");
+  const protocol = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() ?? new URL(request.url).protocol.slice(0, -1);
+  if (!origin || !host || !protocol) return false;
+  try {
+    const supplied = new URL(origin);
+    return supplied.origin === origin && supplied.host === host && supplied.protocol === `${protocol}:`;
+  } catch {
+    return false;
+  }
 }
 
 async function proxy(request: NextRequest): Promise<NextResponse> {

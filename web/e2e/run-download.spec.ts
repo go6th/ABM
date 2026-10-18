@@ -15,6 +15,8 @@ test.beforeAll(async ({ request }) => {
 test("sign in, add an account, run it and download the deliverables", async ({ page }) => {
   test.setTimeout(180_000);
   await signIn(page, seeded.slug_a, "ada", "admin");
+  const priorRuns = await tenantRequest(page, "GET", "/v1/runs").then((response) => response.json()) as { runs: { run_id: string }[] };
+  const priorRunIds = new Set(priorRuns.runs.map((run) => run.run_id));
 
   await page.goto("/accounts");
   await page.getByLabel("Company domain").fill(DOMAIN);
@@ -32,7 +34,7 @@ test("sign in, add an account, run it and download the deliverables", async ({ p
   await expect(page.getByText("Research in progress")).toBeVisible();
 
   const runs = await tenantRequest(page, "GET", "/v1/runs").then((response) => response.json()) as { runs: { domain: string; run_id: string }[] };
-  const mine = runs.runs.filter((r: { domain: string }) => r.domain === DOMAIN);
+  const mine = runs.runs.filter((r: { domain: string; run_id: string }) => r.domain === DOMAIN && !priorRunIds.has(r.run_id));
   expect(mine, "a double click starts exactly one run").toHaveLength(1);
   const run = mine[0]!;
   const driven = await page.request.post(`${API}/fake-idp/drive`, { data: { run_id: run.run_id } });

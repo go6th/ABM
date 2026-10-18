@@ -328,7 +328,7 @@ def _allowed_base_url(base: str) -> bool:
         get_settings().app_env in ("dev", "test")
         and parsed.scheme == "http"
         and parsed.hostname in ("localhost", "127.0.0.1", "::1")
-        and parsed.port in (None, 80, 3000, 3001)
+        and parsed.port in (None, 80, 3000, 3001, 3008)
     )
 
 
