@@ -136,7 +136,8 @@ async def test_anthropic_adapter_streams_only_text_and_final_usage() -> None:
         event async for event in provider.stream(model, [ChatMessage("user", "question")], 1024)
     ]
     assert [event.text for event in events if event.kind == "text"] == ["Hello", " world"]
-    assert events[-1] == ChatEvent("usage", usage=ChatUsage(3, 2, 1, 0))
+    # the final round's stop reason travels with the usage (a cut-off reply is "max_tokens")
+    assert events[-1] == ChatEvent("usage", usage=ChatUsage(3, 2, 1, 0, stop_reason="end_turn"))
     assert calls[0]["model"] == model.id and calls[0]["max_tokens"] == 1024
     assert calls[0]["messages"] == [{"role": "user", "content": "question"}]
     assert "temperature" not in calls[0]
@@ -199,9 +200,8 @@ def test_provider_for_serves_each_choices_model_from_its_own_provider() -> None:
     """One model layer for every chat surface (owner decision 2026-10-17): Kimi K3 from the
     Moonshot provider, a Claude model from the Anthropic one; a provider that is not set up
     answers None and a Moonshot conversation never falls back to the Anthropic provider."""
-    from llm.choice import catalogue
-
     from account_intelligence.chat.service import ProviderByModel, provider_for
+    from llm.choice import catalogue
 
     OPUS, FABLE, KIMI = catalogue().ids  # catalogue ids, never literals (the R1 static guard)
     anthropic_provider = AnthropicChatProvider(SimpleNamespace())

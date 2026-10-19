@@ -649,7 +649,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         jobs_queue=env.get("TASKS_QUEUE_JOBS"),
     )
     payloads = GcsPayloadStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
-    access = env.get("LLM_ACCESS", "vertex_ai")
+    access = env.get("LLM_ACCESS", "anthropic_api")
     if access == "vertex_ai":
         llm: LlmPort = AnthropicLlm(
             vertex_client(project, env.get("VERTEX_REGION", region)), load_routes(), "vertex_ai"

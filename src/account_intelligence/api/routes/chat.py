@@ -54,6 +54,8 @@ from account_intelligence.chat.store import (
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.llm import anthropic_api_client, chat_effort
 from account_intelligence.replica import models as M
+from agents.errors import GuardViolation
+from agents.naming import sanitize_client_value
 from llm.choice import catalogue
 
 router = APIRouter(tags=["chat"])
@@ -362,12 +364,23 @@ async def stream_turn(
             raise DependencyUnavailable() from None
 
     async def events() -> AsyncIterator[bytes]:
-        """Stream sanitized chunks, save the final response, and charge failures conservatively."""
+        """Buffer, guard and send a complete response; charge failures conservatively."""
         if reservation.is_replay:
             replay_usage = reservation.replay_usage
             if replay_usage is None:
                 raise RuntimeError("replay usage is missing")
-            yield sse("text", {"text": reservation.replay_content or ""})
+            try:
+                replay_content = sanitize_client_value(reservation.replay_content or "")
+            except GuardViolation:
+                yield sse(
+                    "error",
+                    {
+                        "code": "output_blocked",
+                        "message": "The response could not be returned.",
+                    },
+                )
+                return
+            yield sse("text", {"text": replay_content})
             yield sse(
                 "done",
                 {
@@ -400,16 +413,18 @@ async def stream_turn(
                     if output_chars > 100_000:
                         raise ValueError("provider output exceeded the response bound")
                     output.append(event.text)
-                    yield sse("text", {"text": event.text})
                 elif event.kind == "usage":
                     usage = event.usage
             if usage is None:
                 raise ValueError("provider completed without usage")
             if usage.output_tokens > service.registry.limits.max_output_tokens:
                 raise ValueError("provider exceeded the configured output token limit")
-            answer = "".join(output)
+            answer = sanitize_client_value("".join(output))
+            if not isinstance(answer, str):
+                raise TypeError("sanitized model output must be text")
             cost = await complete_turn(ident.tenant_id, reservation, answer, usage)
             completed = True
+            yield sse("text", {"text": answer})
             yield sse(
                 "done",
                 {

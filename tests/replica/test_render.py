@@ -46,7 +46,9 @@ def _acct() -> A.Acct:
     )
 
 
-def _row(a: A.Acct, text: str, *, key: str | None = None, kind: str = "fact", days: int = 3) -> A.Row:
+def _row(
+    a: A.Acct, text: str, *, key: str | None = None, kind: str = "fact", days: int = 3
+) -> A.Row:
     return A.Row(
         key=key or f"{kind}:{uuid4()}",
         kind=kind,
@@ -76,7 +78,11 @@ def _payload(rid: str = "R1") -> dict[str, Any]:
                     ["Integration Architect", "2026-06-14", f"[{rid}]"],
                 ],
             },
-            {"kind": "callout", "text": f"Both point to one customer data program [{rid}].", "tone": "info"},
+            {
+                "kind": "callout",
+                "text": f"Both point to one customer data program [{rid}].",
+                "tone": "info",
+            },
             {"kind": "steps", "title": "Next steps", "items": [f"Call the platform owner [{rid}]"]},
         ],
     }
@@ -162,7 +168,9 @@ def test_a_rendered_answer_becomes_a_draft_whose_finish_carries_the_structured_p
     # the same answer as Markdown: a real table, line for line, for the stream and the store
     text = "\n".join(draft.paragraphs)
     assert "| Role | Posted | Source |" in text and "| Salesforce Architect | 16 Jun 2026 |" in text
-    assert "> Both point to one customer data program" in text and "1. Call the platform owner" in text
+    assert (
+        "> Both point to one customer data program" in text and "1. Call the platform owner" in text
+    )
     # the post-processor guarantee: no row marker anywhere in the whole answer
     assert not any("[[" in s for s in _strings(answer))
 
@@ -181,7 +189,10 @@ def test_a_passage_citation_numbers_instead_of_leaking_the_raw_marker() -> None:
     q, _ = A.draft_local("Who owns the roadmap?", ws, NOW)
     answer = A.finish(d, q, ws, NOW, None)
     parts = [p for part in answer["paragraphs"] for p in part]
-    assert [p for p in parts if p["t"] == "cite"] == [{"t": "cite", "v": "1"}, {"t": "cite", "v": "2"}]
+    assert [p for p in parts if p["t"] == "cite"] == [
+        {"t": "cite", "v": "1"},
+        {"t": "cite", "v": "2"},
+    ]
     assert [s["kind"] for s in answer["sources"]] == ["passage", "fact"]
     assert not any("[[" in s for s in _strings(answer))
     # the streamed pieces number passage markers the same way finish does
@@ -204,7 +215,11 @@ class _RenderProvider:
         self.kw = kw
         yield ChatEvent(
             "tool",
-            tool={"name": "render_answer", "input": self.payload, "result": {"ok": True, "terminal": True}},
+            tool={
+                "name": "render_answer",
+                "input": self.payload,
+                "result": {"ok": True, "terminal": True},
+            },
         )
         yield ChatEvent("usage", usage=ChatUsage(3, 2))
 

@@ -99,18 +99,30 @@ def test_conversion_internal_history_off_by_default() -> None:
 
 
 def test_conversion_operator_only_file_is_internal_only() -> None:
-    import subprocess
-    import sys
-
     import yaml
 
     spec = yaml.safe_load(Path("config/output_spec.yaml").read_text())
-    names = {d["id"]: d["filename"] for d in spec["deliverables"]}
-    assert names["operator_only"] == "{account}_Internal_Only"
-    result = subprocess.run(
-        [sys.executable, "scripts/abm_name_scan.py"], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stdout
+    deliverables = {d["id"]: d for d in spec["deliverables"]}
+    internal = deliverables["operator_only"]
+    assert internal["filename"] == "{account}_Internal_Only"
+    assert internal["audience"] == "operator_only"
+    assert internal["filename"] not in deliverables["workspace"]["includes"]
+
+    # Runtime builds a separate internal:<object key>; the client export path only builds the
+    # configured workspace set. Internal view/file routes are role gated (covered in
+    # tests/documents/test_file_runs.py), so the operator-only document cannot enter a client
+    # package or be fetched by a viewer.
+    source = Path("src/agents/production/delivery.py").read_text()
+    assert 'if audience != "client":' in source
+    assert "return (await self._internal(ctx),)" in source
+    assert "ids = await builder.build(str(ctx.tenant_id), str(ctx.run_id))" in source
+    assert "workspace" in deliverables and deliverables["workspace"]["includes"] == [
+        "summary",
+        "evidence",
+        "people",
+        "jobs",
+        "tech",
+    ]
 
 
 def test_conversion_updates_go_through_the_repository() -> None:

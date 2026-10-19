@@ -525,6 +525,31 @@ async def test_injection_through_every_parameter_is_inert(seeded: Any) -> None:
 
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
+async def test_with_delivery_off_files_and_pdf_are_refused(
+    seeded: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    w, payloads, build = seeded
+    plane = _app(w, payloads, build)
+    rules = build.cfg.rules
+    off = rules.delivery.model_copy(update={"enabled": False})
+    monkeypatch.setattr(
+        build,
+        "cfg",
+        build.cfg.model_copy(update={"rules": rules.model_copy(update={"delivery": off})}),
+    )
+    for kind in ("files", "pdf"):
+        r = await _post(plane, "POST", "/v1/exports", json={"domain": w.domain, "kind": kind})
+        assert r.status_code == 201, r.text
+        assert (r.json()["status"], r.json()["reason"]) == ("blocked", "delivery_disabled")
+    # a CSV is not a Word, deck or PDF deliverable and is still delivered
+    r = await _post(
+        plane, "POST", "/v1/exports", json={"domain": w.domain, "kind": "csv", "table": "coverage"}
+    )
+    assert r.json()["status"] == "delivered", r.json()
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
 async def test_every_export_kind_is_delivered_only_with_parity(
     seeded: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

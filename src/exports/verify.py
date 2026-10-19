@@ -9,6 +9,10 @@
   lost-row-at-page-break defect); ``not_run`` with a reason when no converter is installed;
 * ``recalc_check``: workbook recalculated, zero error values, formula totals equal the counts
   computed in code (B12); ``not_run`` with a reason when no engine is installed.
+* ``docx_rowcheck``: every table row in the Word file appears in the rendered PDF; fails closed
+  when LibreOffice or pdftotext is unavailable.
+* ``doc_checks``: no orphan citations, banned dashes, stale phrases, or excluded names in the
+  rendered document; runs on the real built file's extracted text.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ import io
 import re
 import shutil
 import subprocess  # nosec B404 - fixed argv, no shell
+import sys
 import tempfile
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
@@ -26,6 +31,7 @@ from pathlib import Path
 from lxml import etree
 from openpyxl import load_workbook
 
+from account_intelligence.config import CONFIG_DIR
 from exports.policy import leak_hits
 from exports.ports import CheckResult
 
@@ -235,3 +241,165 @@ def recalc_check(
     return CheckResult(
         "workbook_recalc", "failed" if problems else "passed", details=tuple(problems)
     )
+
+
+def _skill_scripts_dir() -> Path:
+    """Directory containing the skill's gate scripts (rowcheck.py, doc_checks.py)."""
+    return CONFIG_DIR / "skill" / "archive" / "scripts"
+
+
+def _run_rowcheck(docx: bytes, pdf: object) -> CheckResult:
+    """Run the skill's rowcheck.py on the docx and its PDF rendering.
+
+    Fails closed: if LibreOffice or pdftotext is unavailable, the check fails.
+    """
+    pdf_port = pdf  # type: ignore[assignment]
+    pdf_bytes = pdf_port.pdf_bytes(docx)
+    if pdf_bytes is None:
+        return CheckResult(
+            "docx_rowcheck",
+            "failed",
+            "Word to PDF converter unavailable (LibreOffice not installed or failed)",
+        )
+    pdftotext = shutil.which("pdftotext")
+    if pdftotext is None:
+        return CheckResult("docx_rowcheck", "failed", "pdftotext not installed")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        docx_path = tmp_path / "check.docx"
+        pdf_path = tmp_path / "check.pdf"
+        docx_path.write_bytes(docx)
+        pdf_path.write_bytes(pdf_bytes)
+        script = _skill_scripts_dir() / "rowcheck.py"
+        try:
+            result = subprocess.run(  # nosec B603 - fixed argv, no shell
+                [sys.executable, str(script), "check"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=tmp,
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            return CheckResult("docx_rowcheck", "failed", f"rowcheck execution failed: {e}")
+    if result.returncode != 0:
+        return CheckResult(
+            "docx_rowcheck", "failed", result.stdout.strip() or result.stderr.strip()
+        )
+    return CheckResult("docx_rowcheck", "passed")
+
+
+def _extract_doc_text(data: bytes) -> str:
+    """Extract visible text from a docx, pptx, or pdf file for doc_checks."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            names = z.namelist()
+            parts = []
+            for name in sorted(names):
+                if name.endswith((".docx", ".pptx")):
+                    parts.append(_extract_doc_text(z.read(name)))
+                elif name.startswith(
+                    ("word/", "ppt/slides/", "ppt/notesSlides/")
+                ) and name.endswith(".xml"):
+                    root = etree.fromstring(z.read(name), parser=_PARSER)
+                    parts.append("".join(t.text or "" for t in root.iter(f"{W}t")))
+                elif name in ("docProps/core.xml", "docProps/app.xml"):
+                    root = etree.fromstring(z.read(name), parser=_PARSER)
+                    parts.append("".join(t.text or "" for t in root.iter()))
+                elif name.endswith((".md", ".txt")):
+                    parts.append(z.read(name).decode("utf-8", "ignore"))
+            return "\n".join(parts)
+    except zipfile.BadZipFile:
+        return data.decode("utf-8", "ignore")
+
+
+def _run_doc_checks(
+    data: bytes,
+    kind: str,
+    account_ids: Sequence[str],
+    stale_phrases: Sequence[str],
+    excluded_names: Sequence[str],
+    verbatim_quotes: Sequence[str],
+) -> CheckResult:
+    """Run the skill's doc_checks.py on the extracted document text.
+
+    Uses the real built document text and the account's valid source IDs.
+    """
+    text = _extract_doc_text(data)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        text_path = tmp_path / "doc.txt"
+        ids_path = tmp_path / "ids.json"
+        text_path.write_text(text, encoding="utf-8")
+        import json
+
+        ids_path.write_text(json.dumps(list(account_ids)), encoding="utf-8")
+        quotes_path = tmp_path / "quotes.json"
+        quotes_path.write_text(json.dumps(list(verbatim_quotes)), encoding="utf-8")
+        script = _skill_scripts_dir() / "doc_checks.py"
+        cmd = [
+            sys.executable,
+            str(script),
+            str(text_path),
+            "--ids",
+            str(ids_path),
+            "--verbatim-quotes",
+            str(quotes_path),
+        ]
+        if stale_phrases:
+            cmd.extend(["--stale", *stale_phrases])
+        if excluded_names:
+            cmd.extend(["--exclude", *excluded_names])
+        try:
+            result = subprocess.run(  # nosec B603 - fixed argv, no shell
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            return CheckResult("doc_checks", "failed", f"doc_checks execution failed: {e}")
+    if result.returncode != 0:
+        return CheckResult("doc_checks", "failed", result.stdout.strip() or result.stderr.strip())
+    return CheckResult("doc_checks", "passed")
+
+
+def docx_rowcheck(docx: bytes, pdf: object) -> CheckResult:
+    """Rowcheck gate for a Word deliverable: fails closed without a converter."""
+    return _run_rowcheck(docx, pdf)
+
+
+def doc_checks(
+    data: bytes,
+    kind: str,
+    account_ids: Sequence[str],
+    stale_phrases: Sequence[str],
+    excluded_names: Sequence[str],
+    verbatim_quotes: Sequence[str] = (),
+) -> CheckResult:
+    """Document checks gate for Word, deck, or PDF deliverable."""
+    return _run_doc_checks(data, kind, account_ids, stale_phrases, excluded_names, verbatim_quotes)
+
+
+def third_party_scan(data: bytes, kind: str) -> CheckResult:
+    """Third-party domain and tool-name scan on final deliverable (docx, pptx, pdf, xlsx)."""
+    script = _skill_scripts_dir() / "third_party_scan.py"
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        file_path = tmp_path / f"scan.{kind}"
+        file_path.write_bytes(data)
+        try:
+            result = subprocess.run(  # nosec B603 - fixed argv, no shell
+                [sys.executable, str(script), str(file_path)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            return CheckResult(
+                "third_party_scan", "failed", f"third_party_scan execution failed: {e}"
+            )
+    if result.returncode != 0:
+        return CheckResult(
+            "third_party_scan", "failed", result.stdout.strip() or result.stderr.strip()
+        )
+    return CheckResult("third_party_scan", "passed")

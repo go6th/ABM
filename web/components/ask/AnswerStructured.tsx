@@ -9,7 +9,7 @@ import { Fragment, type ReactNode } from "react";
 import type { AnswerSection, AnswerStructured as Structured } from "@/lib/gen/api.gen";
 
 // [n] citations and **bold** inside the answer's strings; no other markup is recognised
-const TOKEN = /\[(\d{1,3})\]|\*\*(.+?)\*\*/g;
+const TOKEN = /(\[\d{1,3}\])|(\*\*.+?\*\*)/g;
 // a date renders on one line (never wrapped mid-date at any width)
 const DATE = /^(\d{4}-\d{2}-\d{2}|\d{1,2} [A-Z][a-z]{2} \d{4}|[A-Z][a-z]{2} \d{4})$/;
 
@@ -20,8 +20,8 @@ export function citedText(text: string, cite: (n: string) => ReactNode): ReactNo
   TOKEN.lastIndex = 0;
   while ((m = TOKEN.exec(text)) !== null) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    if (m[1]) out.push(<Fragment key={`c${out.length}`}>{cite(m[1])}</Fragment>);
-    else out.push(<strong key={`b${out.length}`}>{m[2]}</strong>);
+    if (m[1]) out.push(<Fragment key={`c${out.length}`}>{cite(m[1].slice(1, -1))}</Fragment>);
+    else if (m[2]) out.push(<strong key={`b${out.length}`}>{m[2].slice(2, -2)}</strong>);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));

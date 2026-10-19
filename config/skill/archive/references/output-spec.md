@@ -75,9 +75,9 @@ People are not listed in this file.
 - Then the confirmed stack sheet as before, vendor links stripped.
 - Sheet Platform teams: Team, Lane technology, Jobs count, First activity, Last activity, Team technologies (every technology the teams pull lists for the team, with its jobs count, as a comma separated cell), Team locations (city and country with jobs count), Job functions. The technologies and locations columns are read in phase 2 for two things: what sits next to the lane platform in each team, and whether the team is onshore, offshore or a captive. Vendor links stripped.
 
-## Owner Only file (only when there is something to put in it)
+## Rajesh Only file (only when there is something to put in it)
 
-`{Account}_the owner_Only.docx`. Created only when a call, email thread or internal conversation surfaced something important that names client or account team people, quotes what they said, or otherwise should not leave the user. Cover and header read "Owner Only". Short: the finding, where it came from ("call notes, date"), why it matters, and what the client facing files say instead. Kept out of the client share and out of the workspace zip, and named on its own line in the delivery note. Everything else about tool names and links still applies to it.
+`{Account}_Rajesh_Only.docx`. Created only when a call, email thread or internal conversation surfaced something important that names client or account team people, quotes what they said, or otherwise should not leave the user. Cover and header read "Rajesh Only". Short: the finding, where it came from ("call notes, date"), why it matters, and what the client facing files say instead. Kept out of the client share and out of the workspace zip, and named on its own line in the delivery note. Everything else about tool names and links still applies to it.
 
 ## Executive Brief deck (only on request)
 

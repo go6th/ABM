@@ -201,8 +201,8 @@ locals {
   # Per-instance shape (docs/deploy/ARCHITECTURE.md). The worker serves run slices (240 s each),
   # document parts (sandbox children of up to 1536 MiB, 1800 s) and short job tasks.
   size = {
-    api = { cpu = "1", memory = "2Gi", concurrency = 40, timeout = "300s" } # 2Gi: Ask loads the retrieval model in process (OOM at 1Gi, 2026-10-15)
-    web = { cpu = "1", memory = "512Mi", concurrency = 40, timeout = "300s" }
+    api = { cpu = "1", memory = "2Gi", concurrency = 40, timeout = "1800s" } # 2Gi: Ask loads the retrieval model in process (OOM at 1Gi, 2026-10-15); 1800s: a full-table Ask answer streams for minutes (owner, 2026-10-20)
+    web = { cpu = "1", memory = "512Mi", concurrency = 40, timeout = "1800s" }
     # 6 vCPU: an instance holds 8 at most across its containers, a container gets 1, 2, 4, 6 or 8,
     # and the clamd sidecar takes one (Cloud Run refused 8 + 1 and 7 + 1 on 2026-10-16). Document
     # indexing embeds passages on the GPU when

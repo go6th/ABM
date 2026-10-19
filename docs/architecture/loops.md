@@ -11,6 +11,7 @@ unannotated (the generator's check fails otherwise).
 | alert fan-out | `src/alerts/engine.py:205` | len(recipients) | end |
 | archive copy | `src/account_intelligence/replica/downloads.py:364` | the file's size / 1 MiB | end of file |
 | archive part upload | `src/account_intelligence/replica/downloads.py:380` | part size / 1 MiB | end of part |
+| ask keepalive | `src/account_intelligence/api/routes/ask.py:450` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
 | audit verify tenants | `src/account_intelligence/api/routes/tasks.py:368` | every client once per pass | last client |
 | auto resume clients | `src/account_intelligence/replica/auto_resume.py:302` | every client once per pass, `limit` runs each | last one |
@@ -26,7 +27,7 @@ unannotated (the generator's check fails otherwise).
 | common prefix | `src/documents/deliverables.py:192` | the shorter first part | first differing character |
 | connector token refresh | `src/connectors_client/oauth.py:228` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
 | continuation chain | `src/account_intelligence/replica/auto_resume.py:128` | MAX_AUTO_RESUMES + 8 hops | a run no continuation made |
-| converter re-run | `src/exports/verify.py:139` | 2 attempts | converted, None (not_run with reason) |
+| converter re-run | `src/exports/verify.py:145` | 2 attempts | converted, None (not_run with reason) |
 | copy document for the sandbox | `src/documents/service.py:817` | size / 1 MiB | end of object |
 | credit ledger pass | `src/account_intelligence/worker/nightly.py:87` | the tenants with credit activity in the window | end |
 | crm fetch pass | `src/connectors_client/framework.py:402` | max_pages_per_pass pages per pass | last page, page_cap |
@@ -59,7 +60,7 @@ unannotated (the generator's check fails otherwise).
 | gmail message metadata | `src/connectors_client/maildrive.py:201` | MAX_ITEMS listed messages | end of the list |
 | grading hand-off | `src/refresh/probe.py:201` | observations of this poll | end |
 | graph-neighbors | `src/account_intelligence/rag/graphrag.py:96` | entity_count | queue empty or max_hops. |
-| guarded name span | `src/agents/skill_context.py:103` | the word's length | the first non-letter |
+| guarded name span | `src/agents/skill_context.py:144` | the word's length | the first non-letter |
 | hash uploaded document | `src/documents/service.py:355` | size / 1 MiB reads | end of object |
 | idle expiry | `src/account_intelligence/replica/access.py:89` | one pass over the clients | every client checked or failed |
 | import backfill clients | `src/documents/deliverables.py:447` | every client once per pass, `limit` documents each | last client |
@@ -129,12 +130,12 @@ unannotated (the generator's check fails otherwise).
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
 | stall marking | `src/account_intelligence/runs/sweeper.py:164` | batch_size runs per pass | rows exhausted |
-| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:346` | the pieces in the text received so far | no complete piece left, a refused piece |
+| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:391` | the pieces in the text received so far | no complete piece left, a refused piece |
 | stuck scan | `src/obs/stuck.py:79` | keyset pages of `page` runs until none remain | all scanned |
 | table export pages | `src/account_intelligence/replica/table_export.py:49` | the table's rows / page pages | a short page |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
-| tool rounds | `src/account_intelligence/chat/service.py:349` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
-| tool rounds | `src/account_intelligence/chat/service.py:474` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
+| tool rounds | `src/account_intelligence/chat/service.py:352` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
+| tool rounds | `src/account_intelligence/chat/service.py:485` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
 | topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |
 | topological sort | `src/account_intelligence/workflow/spec.py:58` | number of stages (each pass removes at least one or raises) | ordered, cycle error |
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:248` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |

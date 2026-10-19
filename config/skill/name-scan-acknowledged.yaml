@@ -1,0 +1,7 @@
+# Exact internal skill payloads with personal-name scan hits. A hit is acknowledged only while
+# the entire installed vendor-supplied file retains this digest. Any edit or new file fails CI.
+files:
+  config/skill/archive/SKILL.md: 54287da72bfaefc9526a900f7ed56a007b09d37c7c96ece70793dee35c63d003
+  config/skill/archive/references/checklist.md: c8af62a7f2a3dcba4e6adf68fe146368a65a5ac967073d69aef1db7141d42a4c
+  config/skill/archive/references/lessons.md: 04e17f8c3b94448f71b8be9dd433beaec73db9cc84330c3dd684a2a30bc5e1d6
+  config/skill/archive/references/output-spec.md: 4f8112cdc14a4901eb3accee56efc93e892306a99d7a7cab79adb54a1f2a9d56

@@ -4,8 +4,8 @@ export cap.
 
 * Rows are read page by page (``PAGE`` at a time), so a table of any length is never held whole.
 * Every cell passes the client-file rules on its way out (``sheets.safe_cell``): a dash used as
-  punctuation becomes a comma, a data tool name, credit count, provider code or internal
-  reference is withheld in a shareable table (counted on the About sheet, and in the CSV's last
+  punctuation becomes a comma, tool names are scrubbed, provider domains and remaining guarded
+  terms are withheld in a shareable table (counted on the About sheet, and in the CSV's last
   line), and text a spreadsheet would run as a formula gets a leading apostrophe. The private
   table ("From your mail and drive") is the user's own and says so.
 * A shareable workbook is checked once more as a whole before it leaves
@@ -67,7 +67,11 @@ def _values(q: SH.Query, row: dict[str, Any]) -> list[Any]:
 
 def header(q: SH.Query) -> list[str]:
     """The header row."""
-    return ["#"] + [c.label for c in q.sheet.cols]
+    shareable = not q.sheet.private
+    return [
+        SH.safe_cell(value, shareable=shareable)[0]
+        for value in ("#", *(c.label for c in q.sheet.cols))
+    ]
 
 
 async def csv_chunks(q: SH.Query, source: AsyncIterator[dict[str, Any]]) -> AsyncIterator[bytes]:

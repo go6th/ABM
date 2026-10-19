@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from pathlib import Path
 
@@ -75,9 +75,53 @@ def client_hits(text: str, extra_terms: Iterable[str] = ()) -> tuple[tuple[str, 
     return tuple(sorted(set(hits)))
 
 
+def third_party_domain_hits(text: str) -> tuple[str, ...]:
+    """Provider domains named in text, for the output-side and pre-delivery guards."""
+    from documents.gate import provider_hosts
+
+    return tuple(
+        host
+        for host in provider_hosts()
+        if re.search(r"(?<![\w-])(?:[\w-]+\.)*" + re.escape(host) + r"(?![\w-])", text, re.I)
+    )
+
+
+def tool_name_hits(text: str) -> tuple[tuple[str, int], ...]:
+    """Remaining configured data-tool names after the output scrub, as (name, offset)."""
+    from agents.skill_context import tool_names
+
+    return tuple(
+        (name, match.start())
+        for name in tool_names()
+        for match in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I)
+    )
+
+
+def sanitize_client_value(value: object) -> object:
+    """Scrub tool names in nested output, then fail closed on remaining client terms/domains."""
+    from agents.skill_context import strip_tool_names
+
+    if isinstance(value, str):
+        if third_party_domain_hits(value):
+            raise GuardViolation("G9", "third_party_domain")
+        cleaned = strip_tool_names(value)
+        if tool_name_hits(cleaned) or client_hits(cleaned):
+            raise GuardViolation("G9", "client_output_leak")
+        return cleaned
+    if isinstance(value, Mapping):
+        return {key: sanitize_client_value(nested) for key, nested in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sanitize_client_value(nested) for nested in value]
+    return value
+
+
 def assert_client_clean(texts: Iterable[str], extra_terms: Iterable[str] = ()) -> None:
-    """Raise ``GuardViolation(G9, client_output_leak)`` with a hit count if any text leaks."""
+    """Raise ``GuardViolation(G9)`` with a reason if client text contains a guarded term."""
     extra = tuple(extra_terms)
-    count = sum(len(client_hits(t, extra)) for t in texts)
+    values = tuple(texts)
+    domains = sum(len(third_party_domain_hits(text)) for text in values)
+    if domains:
+        raise GuardViolation("G9", "third_party_domain", f"{domains} hit(s)")
+    count = sum(len(tool_name_hits(text)) + len(client_hits(text, extra)) for text in values)
     if count:
         raise GuardViolation("G9", "client_output_leak", f"{count} hit(s)")

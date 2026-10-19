@@ -99,7 +99,11 @@ RENDER_TOOL: dict[str, Any] = {
                             "items": {"type": "array", "maxItems": 12, "items": _str},
                         },
                         "note": _str,
-                        "paragraphs": {"type": "array", "maxItems": MAX_PROSE_PARAGRAPHS, "items": _str},
+                        "paragraphs": {
+                            "type": "array",
+                            "maxItems": MAX_PROSE_PARAGRAPHS,
+                            "items": _str,
+                        },
                         "text": _str,
                         "tone": {"enum": list(TONES)},
                         "items": {"type": "array", "maxItems": MAX_STEPS, "items": _str},
@@ -225,9 +229,15 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
     if kind == "prose":
         paragraphs = section.get("paragraphs")
         if not _string_list(paragraphs, MAX_PROSE_PARAGRAPHS):
-            return "bad_prose", f"prose section {i + 1}: paragraphs must be 1-{MAX_PROSE_PARAGRAPHS} strings"
+            return (
+                "bad_prose",
+                f"prose section {i + 1}: paragraphs must be 1-{MAX_PROSE_PARAGRAPHS} strings",
+            )
         for p, para in enumerate(paragraphs):
-            if len(para) > PROSE_MAX_CHARS or len(_SENTENCE_END.findall(para)) > MAX_PROSE_SENTENCES:
+            if (
+                len(para) > PROSE_MAX_CHARS
+                or len(_SENTENCE_END.findall(para)) > MAX_PROSE_SENTENCES
+            ):
                 return (
                     "bad_prose",
                     f"prose section {i + 1}: paragraph {p + 1} exceeds two sentences — "
@@ -255,7 +265,9 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
     return "bad_kind", f"section {i + 1}: kind must be table, prose, callout or steps"
 
 
-def rewrite(payload: dict[str, Any], ids: dict[str, Row]) -> tuple[dict[str, Any], dict[str, Row]] | None:
+def rewrite(
+    payload: dict[str, Any], ids: dict[str, Row]
+) -> tuple[dict[str, Any], dict[str, Row]] | None:
     """Check every ``[R3]`` citation in the payload against the rows the model was sent and
     rewrite them to row-key markers (the same conversion ``checked`` gives Markdown). None
     when a citation is unknown: the reply is discarded and the local answer stands."""

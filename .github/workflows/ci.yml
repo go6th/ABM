@@ -78,6 +78,8 @@ jobs:
             -host 0.0.0.0 -port 8123 -initial-queue projects/dev/locations/here/queues/runs
       - name: Environment registry (typed, fail fast)
         run: uv run --frozen python -m account_intelligence.config
+      - name: Personal-name scan (exact unchanged internal skill files acknowledged)
+        run: uv run --frozen python scripts/abm_name_scan.py
       - name: Lint and types
         run: make lint
       - name: Static gates (W1 imports, docstrings, comments, guarantees, loops, bandit, vulture)

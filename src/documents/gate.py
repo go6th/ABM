@@ -60,18 +60,31 @@ _XML_TAG = re.compile(r"<[^>]+>")
 
 
 def client_text(data: bytes) -> str:
-    """The visible text of a client file: Word body, workbook strings and cells, or plain text."""
+    """The visible text of a client file: Word body, workbook strings and cells, PPTX slides and
+    notes, document properties, or plain text."""
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             names = z.namelist()
             parts = []
             for name in sorted(names):
-                if name.endswith((".docx", ".xlsx", ".zip")):
+                if name.endswith((".docx", ".xlsx", ".pptx", ".zip")):
                     parts.append(client_text(z.read(name)))
                 elif (
-                    name.startswith(("word/", "xl/sharedStrings", "xl/worksheets/"))
-                    and name.endswith(".xml")
-                ) or name.endswith((".md", ".txt", ".csv")):
+                    (
+                        name.startswith(
+                            (
+                                "word/",
+                                "ppt/slides/",
+                                "ppt/notesSlides/",
+                                "xl/sharedStrings",
+                                "xl/worksheets/",
+                            )
+                        )
+                        and name.endswith(".xml")
+                    )
+                    or name in ("docProps/core.xml", "docProps/app.xml")
+                    or name.endswith((".md", ".txt", ".csv"))
+                ):
                     body = z.read(name).decode("utf-8", "ignore")
                     # character references (openpyxl writes an em dash as &#8212;) are decoded
                     parts.append(

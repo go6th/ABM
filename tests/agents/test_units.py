@@ -8,14 +8,19 @@ from uuid import uuid4
 
 import pytest
 
+from account_intelligence.connectors.registry_internal import vendor_names
+from account_intelligence.connectors.settings import load_providers_config
 from agents.config import load_skill_config
 from agents.contracts import BudgetMeter, load_registry
 from agents.errors import GuardViolation, NoPulledData, OutputRejected
 from agents.manifest import ManifestRow, PullManifest, check_build_precondition
 from agents.modes import RunMode, resolve_mode
+from agents.naming import third_party_domain_hits
 from agents.ports import RunContext, TenantAgentSettings
 from agents.runtime import call_agent
 from agents.schemas import (
+    Claim,
+    DistillInput,
     DistillOutput,
     ExtractionInput,
     RunRequest,
@@ -128,6 +133,92 @@ def test_runtime_rejects_schema_failures_and_injection_echoes() -> None:
                 client_bound=False,
             )
         )
+
+
+def test_client_bound_model_output_is_scrubbed_then_scanned() -> None:
+    inp = DistillInput(account_name="A", audience="client", facts=())
+    vendor = next(
+        name for name in vendor_names(load_providers_config()).values() if name != "Parallel"
+    )
+    output = DistillOutput(
+        narrative=(Claim(text=f"{vendor} found a useful source", fact_ids=("f1",)),)
+    )
+    clean = run(
+        call_agent(
+            REG["distill"],
+            Model(output),
+            BudgetMeter(REG["distill"], T0),
+            CTX,
+            inp,
+            client_bound=True,
+        )
+    )
+    assert clean.narrative[0].text == "6th agents found a useful source"
+
+    from urllib.parse import urlsplit
+
+    provider = next(iter(load_providers_config().providers.values()))
+    domain = urlsplit(provider.base_url).hostname
+    domain_output = DistillOutput(
+        narrative=(Claim(text=f"See {vendor} at {domain} for details", fact_ids=("f1",)),)
+    )
+    with pytest.raises(OutputRejected, match="third_party_domain"):
+        run(
+            call_agent(
+                REG["distill"],
+                Model(domain_output),
+                BudgetMeter(REG["distill"], T0),
+                CTX,
+                inp,
+                client_bound=True,
+            )
+        )
+    assert third_party_domain_hits(domain or "")
+
+
+def test_client_json_answer_scrubs_tool_names_and_blocks_provider_domains() -> None:
+    from urllib.parse import urlsplit
+
+    from account_intelligence.api.errors import APIProblem
+    from account_intelligence.api.routes.account_workspace import _client_value
+    from account_intelligence.connectors.settings import load_providers_config
+
+    vendor = next(
+        name for name in vendor_names(load_providers_config()).values() if name != "Parallel"
+    )
+    clean = _client_value({"answer": f"{vendor} found three matching rows"})
+    assert clean == {"answer": "6th agents found three matching rows"}
+
+    host = urlsplit(next(iter(load_providers_config().providers.values())).base_url).hostname
+    with pytest.raises(APIProblem) as error:
+        _client_value({"answer": f"{vendor} used https://{host}/search"})
+    assert error.value.type == "client_output_blocked"
+
+
+def test_export_csv_scrubs_tool_names_and_blocks_provider_domains() -> None:
+    from urllib.parse import urlsplit
+
+    from account_intelligence.connectors.settings import load_providers_config
+    from views.packages import csv_bytes, csv_package
+    from views.tables import specs
+
+    vendor = next(
+        name for name in vendor_names(load_providers_config()).values() if name != "Parallel"
+    )
+    host = urlsplit(next(iter(load_providers_config().providers.values())).base_url).hostname
+    spec = specs()["people"]
+    row = {column.key: "" for column in spec.exported_columns}
+    key = spec.exported_columns[0].key
+
+    row[key] = f"Found by {vendor}"
+    body = csv_bytes(spec, [row])
+    assert vendor.lower().encode() not in body.lower()
+    assert b"6th agents" in body
+
+    row[key] = f"Found by {vendor} at https://{host}/search"
+    package, body = csv_package(uuid4(), uuid4(), "people", [row])
+    assert package.status == "blocked" and package.reason == "client_output_refused"
+    assert body is None
 
 
 def settings(**kw: object) -> TenantAgentSettings:

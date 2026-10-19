@@ -1,21 +1,22 @@
 # The manual skill this agent layer encodes (D-101). INTERNAL.
 #
-# The skill archive (version 1.11, operator supplied 2026-10-16) is in the repository: its text
-# files (SKILL.md and references/) under config/skill/archive/, shipped in every image and read
-# at run time by agents.skill_context (the owner's rules, lessons and output spec travel with
-# every model call, tool names stripped). The .skill bundle and the reader's guide stay in
-# docs/sources/ (not committed); the guide's text is docs/abm/skill-readers-guide-v2.md. Values
-# the guide states are cited by its source id (S1 to S21).
+# The installed skill payload is the operator-supplied v1.11 package, extracted unchanged under
+# config/skill/archive/ and read by agents.skill_context. The companion session-environment.md is
+# stored alongside it as a separate document; this deployment is v1.11 plus companion document.
+# The reader's guide text is docs/abm/skill-readers-guide-v2.md. Values it states are cited by its
+# source id (S1 to S21).
 version: "1.1.0"
 skill:
   name: {value: abm-account-research, source: "guide S1 (archive folder name)"}
   version: {value: "1.11", source: "config/skill/archive/references/checklist.md change log (2026-10-07, version 1.11)"}
-  file_count: {value: 16, source: "guide S1 (archive manifest)"}
+  file_count: {value: 17, source: "v1.11 package manifest (17 files); companion document is separate"}
 archive:
   status: present
   path: config/skill/archive/
   text_files: [SKILL.md, references/checklist.md, references/lessons.md, references/output-spec.md, references/phase1-pull.md, references/phase2-build.md, references/signals.md, references/tools.md]
-  note: "Replace these files from the next .skill bundle; assets/ and scripts/ are the manual tooling and are not shipped"
+  companion: references/session-environment.md
+  package: abm-account-research-v1.11-session-installed.zip
+  note: "The package payload is installed unchanged; the companion document is kept separately alongside it."
 guide:
   path: {value: docs/sources/ABM_Skill_Readers_Guide_v2.docx, source: "operator supplied 2026-10-08"}
   sources:

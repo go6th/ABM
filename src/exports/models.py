@@ -402,3 +402,4 @@ class BuildResult(_Frozen):
     errors: tuple[str, ...] = ()
     change_note: str | None = None
     reused: bool = False
+    verbatim_quotes: tuple[str, ...] = ()

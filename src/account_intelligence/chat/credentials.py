@@ -115,12 +115,24 @@ async def encrypted_key_for_thread(tenant_id: UUID, user_id: str, thread_id: UUI
         ).first()
         if owner is None:
             return None
-        row = (
-            await session.execute(
-                text("SELECT ciphertext FROM tenant_model_credentials WHERE provider = 'anthropic'")
-            )
-        ).first()
+        row = await _encrypted_key(session)
     return None if row is None else bytes(row.ciphertext)
+
+
+async def encrypted_key_for_tenant(tenant_id: UUID) -> bytes | None:
+    """Read the tenant's saved Anthropic key for a new Ask conversation."""
+    async with tenant_txn(tenant_id) as session:
+        row = await _encrypted_key(session)
+    return None if row is None else bytes(row.ciphertext)
+
+
+async def _encrypted_key(session: AsyncSession) -> Any:
+    """Read the Anthropic ciphertext inside the caller's tenant-scoped transaction."""
+    return (
+        await session.execute(
+            text("SELECT ciphertext FROM tenant_model_credentials WHERE provider = 'anthropic'")
+        )
+    ).first()
 
 
 async def save_encrypted_key(session: AsyncSession, ciphertext: bytes, updated_by: str) -> str:

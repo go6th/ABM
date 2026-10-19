@@ -235,6 +235,22 @@ class StalePhrases(_Strict):
     phrases: tuple[str, ...]
 
 
+class ExcludedNames(_Strict):
+    """Excluded names (empty until the product owner supplies the list)."""
+
+    source: str
+    names: tuple[str, ...]
+
+
+class DeliveryConfig(_Strict):
+    """Delivery gate configuration."""
+
+    enabled: bool = False
+    source: str
+    render_checks: bool = False
+    render_checks_source: str
+
+
 class Abbreviation(_Strict):
     """One abbreviation and its expansion."""
 
@@ -484,6 +500,8 @@ class ContentRules(_Strict):
     sensitive_sentence: SensitiveSentence
     banned_dashes: BannedDashes
     stale_phrases: StalePhrases
+    excluded_names: ExcludedNames
+    delivery: DeliveryConfig
     abbreviations: Abbreviations
     partner_rule: PartnerRule
     quote_handling: QuoteHandling

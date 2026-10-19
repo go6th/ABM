@@ -38,7 +38,9 @@ from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.ports import NotConfigured
 from datamodel import export_verify
+from exports.verify import doc_checks
 from metering import events as usage
+from obs.logging import logger
 from pilot import usefulness
 from pilot.feedback import policy as pilot_policy
 from tenancy.storage import PathRefused, require_owned, tenant_of_key
@@ -46,6 +48,7 @@ from views import packages
 from views.materialize import api_rows
 from views.tables import TABLES
 
+log = logger(__name__)
 router = APIRouter(prefix="/exports", tags=["exports"])
 register("POST", "/v1/exports", tenant_route("export_files", "export"))
 register("GET", "/v1/exports", tenant_route("export_files", "read"))
@@ -70,18 +73,21 @@ class ExportBody(BaseModel):
     table: Literal["people", "jobs", "tech", "facts", "coverage"] | None = None
 
 
-async def _deliverables(request: Request, tenant_id: UUID, run_id: UUID) -> list[Any]:
+async def _deliverables(
+    request: Request, tenant_id: UUID, run_id: UUID
+) -> tuple[list[Any], tuple[str, ...]]:
     builder = getattr(request.app.state.container, "builder", None)
     if builder is None:
         raise NotConfigured("the export builders are not configured")
     result = await builder.build_all(str(tenant_id), str(run_id))
     if result.status != "complete":
-        return []
+        return [], ()
     payloads = request.app.state.container.payloads
-    return [
+    deliverables = [
         (d.kind, d.filename, d.object_key, await payloads.get(d.object_key))
         for d in result.deliverables
     ]
+    return deliverables, result.verbatim_quotes
 
 
 @router.post("", response_model=C.ExportPackage, status_code=201)
@@ -92,6 +98,21 @@ async def create_export(
     await limit_user(ident, "export")
     if body.kind == "csv" and body.table is None:
         raise APIProblem(422, "table_required", "Table required", "A CSV export needs a table.")
+
+    builder = getattr(request.app.state.container, "builder", None)
+    if builder is not None:
+        delivery_cfg = builder.cfg.rules.delivery
+        if not delivery_cfg.enabled and body.kind in ("files", "pdf"):
+            return {
+                "package_id": "00000000-0000-0000-0000-000000000000",
+                "run_id": "00000000-0000-0000-0000-000000000000",
+                "kind": body.kind,
+                "status": "blocked",
+                "reason": "delivery_disabled",
+                "parity": {},
+                "files": [],
+            }
+
     async with tenant_txn(ident.tenant_id) as s:
         rule = await exclusion_rule(s)
         account_id, run_id = await resolve_run(s, body.domain, body.run_id, rule)
@@ -108,7 +129,7 @@ async def create_export(
         assert body.table is not None
         pkg, csv_body = packages.csv_package(ident.tenant_id, run_id, body.table, api[body.table])
     else:
-        produced = await _deliverables(request, ident.tenant_id, run_id)
+        produced, verbatim_quotes = await _deliverables(request, ident.tenant_id, run_id)
         if not produced:
             pkg = packages.blocked(body.kind, "build_failed")
         elif body.kind == "files":
@@ -119,9 +140,45 @@ async def create_export(
             summary = next((b for k, _, _, b in produced if k == "summary"), None)
             pdf = converter.pdf_bytes(summary) if converter and summary else None
             text_ = converter.text_of_pdf(pdf) if converter and pdf else None
-            pkg = packages.pdf_package(ident.tenant_id, run_id, pdf, text_, api)
-            if pkg.status == "delivered" and pdf is not None:
-                await plane.objects.put_if_absent(pkg.files[0].key, pdf, "application/pdf")
+            if pdf is not None and text_ is not None:
+                manifest = None
+                for d in produced:
+                    if d[0] == "summary" and hasattr(builder, "manifest"):
+                        manifest = builder.manifest
+                        break
+                account_ids = []
+                if manifest and hasattr(manifest, "source_codes_cited"):
+                    account_ids = list(manifest.source_codes_cited)
+                for table in ("facts", "coverage"):
+                    for row in api.get(table, []):
+                        ref = row.get("ref")
+                        if ref and ref not in account_ids:
+                            account_ids.append(ref)
+                # the checks read the PDF's extracted text (pdftotext), never its raw bytes
+                result = doc_checks(
+                    text_.encode("utf-8"),
+                    "summary_pdf",
+                    account_ids,
+                    builder.cfg.rules.stale_phrases.phrases,
+                    builder.cfg.rules.excluded_names.names
+                    if hasattr(builder.cfg.rules, "excluded_names")
+                    else (),
+                    verbatim_quotes,
+                )
+                if result.status == "failed":
+                    # the stored reason is a code (ck_export_packages_reason); the findings can
+                    # quote document text, so only the run is logged
+                    log.warning(
+                        "export.doc_checks_failed",
+                        extra={"run_id": str(run_id), "reason": "doc_checks_failed"},
+                    )
+                    pkg = packages.blocked("pdf", "doc_checks_failed")
+                else:
+                    pkg = packages.pdf_package(ident.tenant_id, run_id, pdf, text_, api)
+                    if pkg.status == "delivered":
+                        await plane.objects.put_if_absent(pkg.files[0].key, pdf, "application/pdf")
+            else:
+                pkg = packages.blocked("pdf", "pdf_not_configured")
     if csv_body is not None and pkg.status == "delivered":
         await plane.objects.put_if_absent(pkg.files[0].key, csv_body, "text/csv")
     async with tenant_txn(ident.tenant_id) as s:

@@ -235,27 +235,32 @@ async def test_distill_lies_are_dropped_or_rejected(h: Harness) -> None:
 
 
 @pytest.mark.parametrize(
-    "bad",
+    ("bad", "must_be_rejected"),
     [
-        {"hypotheses": [{"text": "No fact ids", "fact_ids": []}]},
-        {"narrative": [{"text": f"Data from {VENDOR} shows growth", "fact_ids": ["X"]}]},
-        {"narrative": [{"text": "We used 40 credits on this", "fact_ids": ["X"]}]},
+        ({"hypotheses": [{"text": "No fact ids", "fact_ids": []}]}, True),
+        ({"narrative": [{"text": f"Data from {VENDOR} shows growth", "fact_ids": ["X"]}]}, False),
+        ({"narrative": [{"text": "We used 40 credits on this", "fact_ids": ["X"]}]}, True),
     ],
 )
-async def test_distill_schema_and_tool_name_lies_reject_client_output(h: Harness, bad) -> None:  # type: ignore[no-untyped-def]
+async def test_distill_output_scrubs_tool_names_and_rejects_other_leaks(
+    h: Harness, bad, must_be_rejected
+) -> None:  # type: ignore[no-untyped-def]
     def lie(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         fid = payload["facts"][0]["fact_id"]
         return {k: [{**c, "fact_ids": c["fact_ids"] and [fid]} for c in v] for k, v in bad.items()}
 
     lying(h, "abm_distill", lie)
     _, state = await h.run("r")
-    assert (
-        state["counters"].get("distill_client_drop_output_schema_invalid", 0)
-        + state["counters"].get("distill_client_drop_output_client_output_leak", 0)
-        == 1
-    )
+    drops = state["counters"].get("distill_client_drop_output_schema_invalid", 0) + state[
+        "counters"
+    ].get("distill_client_drop_output_client_output_leak", 0)
     texts = " ".join(line for lines in h.builder.files.values() for line in lines)
     assert VENDOR not in texts and "credits" not in texts
+    if must_be_rejected:
+        assert drops == 1
+    else:
+        assert drops == 0
+        assert "6th agents shows growth" in texts
 
 
 async def test_sense_check_lies_are_filtered(h: Harness) -> None:

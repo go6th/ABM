@@ -1,0 +1,13 @@
+{
+  "name": "abm-skill-render-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Runtime libraries used by the bundled ABM skill examples",
+  "dependencies": {
+    "docx": "9.5.1",
+    "pptxgenjs": "3.12.0"
+  },
+  "overrides": {
+    "image-size": "^2.0.4"
+  }
+}

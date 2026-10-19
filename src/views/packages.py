@@ -31,6 +31,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.safety.client_output import ClientOutputLeak, assert_client_safe
+from agents.errors import GuardViolation
 from exports.verify import keys_once_in_order
 from tenancy.storage import tenant_path
 from views.parity import ParityResult, check, check_package
@@ -98,7 +99,14 @@ def files_package(
     """The standing set: ``deliverables`` are (kind, filename, object key, bytes)."""
     pkg = Package("files", "blocked", None)
     produced: dict[str, tuple[str, bytes]] = {}
+    from agents.naming import assert_client_clean
+    from documents.gate import client_text
+
     for kind, name, key, body in deliverables:
+        try:
+            assert_client_clean((client_text(body),))
+        except GuardViolation:
+            return blocked("files", "client_output_refused")
         pkg.files.append(
             PackageFile(
                 kind, name, key, hashlib.sha256(body).hexdigest(), len(body), "deliverables"
@@ -113,12 +121,14 @@ def files_package(
 
 def csv_bytes(spec: TableSpec, rows: list[dict[str, Any]]) -> bytes:
     """One table as CSV from its rows (exported columns, neutralised cells)."""
+    from agents.naming import sanitize_client_value
+
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     cols = spec.exported_columns
-    writer.writerow([c.header for c in cols])
+    writer.writerow([sanitize_client_value(c.header) for c in cols])
     for row in rows:
-        writer.writerow([csv_cell(row.get(c.key)) for c in cols])
+        writer.writerow([csv_cell(sanitize_client_value(row.get(c.key))) for c in cols])
     return out.getvalue().encode("utf-8")
 
 
@@ -127,10 +137,10 @@ def csv_package(
 ) -> tuple[Package, bytes | None]:
     """A CSV of one table, scanned and read back for parity; returns the package and bytes."""
     spec = specs()[table]  # type: ignore[index]
-    body = csv_bytes(spec, rows)
     try:
+        body = csv_bytes(spec, rows)
         assert_client_safe(body.decode("utf-8").splitlines())
-    except ClientOutputLeak:
+    except (ClientOutputLeak, GuardViolation):
         return blocked("csv", "client_output_refused"), None
     digest = hashlib.sha256(body).hexdigest()
     key = tenant_path(tenant_id, "exports", str(run_id), f"{digest}.csv")
@@ -154,6 +164,12 @@ def pdf_package(
     """The Account Summary as PDF; parity is the facts and coverage row keys, once and in order."""
     if pdf is None or pdf_text is None:
         return blocked("pdf", "pdf_not_configured")
+    from agents.naming import assert_client_clean
+
+    try:
+        assert_client_clean((pdf_text,))
+    except GuardViolation:
+        return blocked("pdf", "client_output_refused")
     digest = hashlib.sha256(pdf).hexdigest()
     key = tenant_path(tenant_id, "exports", str(run_id), f"{digest}.pdf")
     pkg = Package(

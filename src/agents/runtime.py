@@ -9,7 +9,8 @@
 3. routes by the agent's task kind (split mode is routing, G11): the model port picks the tier;
 4. treats a schema failure as a typed rejection (nothing from the output is kept);
 5. rejects an output that echoes a canary or an instruction marker (injection echo, G14 of the
-   grading spec) or, for client-bound output, names a tool, provider or person (G9).
+   grading spec); client-bound output has tool names scrubbed, then is rejected if it still names
+   a provider, person or provider domain (G9). The pre-delivery file gate scans built files too.
 
 Prompts are loaded from ``src/agents/<name>/prompt.md`` with their hash; prompt and document text
 are never logged or put into an error.
@@ -31,7 +32,7 @@ from account_intelligence.grading.config import load_grading_config
 from account_intelligence.grading.spans import casefold_text
 from agents.contracts import AgentContract, BudgetMeter
 from agents.errors import GuardViolation, OutputRejected
-from agents.naming import client_hits
+from agents.naming import sanitize_client_value
 from agents.ports import AgentModel, RunContext
 from llm.errors import SchemaInvalid
 from llm.prompts import prompt_hash
@@ -117,9 +118,16 @@ async def call_agent(
     meter.charge_tokens(tokens)
     if not isinstance(output, contract.output_schema):
         raise OutputRejected("G4", "schema_invalid", contract.name)
+    if client_bound:
+        try:
+            output = contract.output_schema.model_validate(
+                sanitize_client_value(output.model_dump(mode="json"))
+            )
+        except GuardViolation as error:
+            raise OutputRejected("G9", error.code, contract.name) from error
+        except ValidationError as error:
+            raise OutputRejected("G4", "schema_invalid", contract.name) from error
     texts = tuple(strings_of(output.model_dump(mode="json")))
     if any(echoes_injection(t) for t in texts):
         raise OutputRejected("G9", "injection_echo", contract.name)
-    if client_bound and any(client_hits(t) for t in texts):
-        raise OutputRejected("G9", "client_output_leak", contract.name)
     return output

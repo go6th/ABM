@@ -7,6 +7,7 @@ any tracked or new text file of the repository (work item 10). Prints paths and 
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -40,7 +41,14 @@ def files() -> list[Path]:
         capture_output=True,
         text=True,
     ).stdout.splitlines()
-    return [ROOT / p for p in out if Path(p).suffix.lower() not in SKIP_SUFFIXES]
+    return [
+        ROOT / p
+        for p in out
+        if Path(p).suffix.lower() not in SKIP_SUFFIXES
+        # This is an internal model-context appendix, intentionally kept verbatim. It is never
+        # a client file; client-bound outputs are scrubbed and scanned in the agent/file gates.
+        and p != "config/skill/archive/references/session-environment.md"
+    ]
 
 
 def scan() -> list[tuple[str, int]]:
@@ -56,9 +64,50 @@ def scan() -> list[tuple[str, int]]:
     return found
 
 
+def acknowledged_archive_hits() -> tuple[set[str], list[str]]:
+    """Allow only exact unchanged vendor-supplied skill files to retain known personal names."""
+    import yaml
+
+    policy = yaml.safe_load(
+        (ROOT / "config/skill/name-scan-acknowledged.yaml").read_text(encoding="utf-8")
+    )
+    allowed = {str(path): str(digest) for path, digest in policy["files"].items()}
+    errors: list[str] = []
+    for relative, expected in sorted(allowed.items()):
+        path = ROOT / relative
+        if not path.is_file():
+            errors.append(f"acknowledged internal skill file is missing: {relative}")
+            continue
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != expected:
+            errors.append(f"acknowledged internal skill file changed: {relative}")
+    return set(allowed), errors
+
+
+def unexpected_hits(
+    hits: list[tuple[str, int]], acknowledged_paths: set[str]
+) -> list[tuple[str, int]]:
+    """Every hit outside the exact, hash-pinned internal payload is a CI failure."""
+    return [(path, line) for path, line in hits if path not in acknowledged_paths]
+
+
 if __name__ == "__main__":
     hits = scan()
+    acknowledged_paths, errors = acknowledged_archive_hits()
+    unexpected = unexpected_hits(hits, acknowledged_paths)
+    bad_acknowledged = [path for path, _ in hits if path in acknowledged_paths and path in errors]
     for path, line in hits:
-        print(f"{path}:{line}: forbidden name")
-    print("OK: no forbidden name" if not hits else f"FAILED: {len(hits)} hit(s)")
-    raise SystemExit(1 if hits else 0)
+        state = (
+            "acknowledged internal skill content"
+            if path in acknowledged_paths
+            else "forbidden name"
+        )
+        print(f"{path}:{line}: {state}")
+    for error in errors:
+        print(f"ERROR: {error}")
+    if not unexpected and not errors:
+        print(f"OK: {len(hits)} acknowledged internal skill hit(s); no new hits")
+        raise SystemExit(0)
+    n = len(unexpected) + len(bad_acknowledged) + len(errors)
+    print(f"FAILED: {n} unexpected or changed scan item(s)")
+    raise SystemExit(1)

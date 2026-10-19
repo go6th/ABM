@@ -30,7 +30,7 @@ Each entry records what went wrong or what the user asked for, and the rule it p
 
 ## 2026-09-25, scope change
 
-- **User confirmed the tool name and client staff name checks stay, and added a channel for the exceptions.** Rule: when something super important comes from a call or similar and it names client people or must not leave the user, do not drop it and do not put it in the client files; write a separate `{Account}_the owner_Only.docx`, keep it out of the share and the zip, and give it its own line in the delivery note.
+- **User confirmed the tool name and client staff name checks stay, and added a channel for the exceptions.** Rule: when something super important comes from a call or similar and it names client people or must not leave the user, do not drop it and do not put it in the client files; write a separate `{Account}_Rajesh_Only.docx`, keep it out of the share and the zip, and give it its own line in the delivery note.
 - **The skill description still listed the executive deck as a standard deliverable after the user had said no deck unless asked.** Rule: the deck is off by default in every file of this skill; never offer it, build it or count it among the deliverables unless the user asks for one.
 - **User asked to add Veeva to the platform lanes.** Rule: Veeva is the sixth lane, alongside Salesforce, SAP, ServiceNow, Tableau and Data and AI. Search it on every life sciences account across jobs, tech detections, people titles and vendor customer stories; look specifically for Veeva CRM to Vault CRM migration timing, since Veeva CRM runs on the Salesforce platform and the migration changes the Salesforce picture at the account.
 

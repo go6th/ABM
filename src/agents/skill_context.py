@@ -1,6 +1,6 @@
 """The owner's research skill as context for every model call (operator request 2026-10-16).
 
-The skill archive (``config/skill/archive``: SKILL.md and its references, version 1.11) is the
+The skill archive (``config/skill/archive``: SKILL.md and its references) is the
 owner's own description of how an account is researched: the rules that matter most, the
 lessons learned run by run, the sense check, the writing rules and the grading scheme. Each
 agent's system prompt carries the parts relevant to its step, so the model works from the
@@ -9,15 +9,19 @@ owner's concept and not only from the short agent prompt:
 * every agent: SKILL.md "Rules that matter most";
 * extraction (pass 1, pass 2, people): the lessons log and the signal tiers;
 * the sense check: the lessons log and the phase 2 sense-check step;
-* distill: the output spec (writing rules, grades, section order) and the lessons log.
+* distill: the output spec (writing rules, grades, section order) and the lessons log;
+* Ask (a question about a workspace, owner request 2026-10-19): the rules that matter most,
+  the checklist's standing requirements and scope defaults, and the companion's standing rules
+  and its rules for answering against an existing workspace (``ask_skill_context``).
 
-Data and enrichment tool names (the provider configuration's vendor names) are replaced by
-"6th agents", credit language by budget language
-and guarded person names by "the owner" before the text is used (G9: a client-bound output that
-carries any of them is rejected whole, and a model repeats what it reads);
-the text is bounded (``MAX_CHARS``) and loaded once per process. The system block is what the
-model provider caches, so the context costs its tokens once per cache window, not per call.
-A missing archive gives an empty context: the run still works from the agent prompts alone.
+Skill references have data and enrichment tool names (the provider configuration's vendor names)
+replaced by "6th agents", credit language by budget language and guarded person names by "the
+owner" before use (G9: client-bound output is rejected if it carries them). The companion
+session-environment reference is injected verbatim because its complete standing rules and
+methods must reach every ABM model call. Both are loaded once per process; the model provider
+caches the system block, so the context costs its tokens once per cache window, not per call.
+Known ABM calls fail closed if the archive, a required skill file, or the companion reference is
+missing. Unknown task kinds are left untouched.
 """
 
 from __future__ import annotations
@@ -30,6 +34,15 @@ from account_intelligence.config import CONFIG_DIR
 
 ARCHIVE_DIR = CONFIG_DIR / "skill" / "archive"
 MAX_CHARS = 48_000
+SESSION_ENVIRONMENT_MAX_CHARS = 48_000
+ASSEMBLED_PROMPT_MAX_CHARS = 100_000
+SESSION_ENVIRONMENT_DIRECTIVE = (
+    "Before any ABM task, read references/session-environment.md in full. Where it overlaps "
+    "with the skill's reference files, the skill files win. Never summarize or truncate it. "
+    "The skill's documented path /home/claude/abm-account-research/ maps to the bundled "
+    "runtime directory config/skill/archive/; resolve relative references/, assets/ and "
+    "scripts/ paths from that directory."
+)
 # every data and enrichment tool the skill names becomes "6th agents": the vendor names come
 # from the provider configuration (the one place they may live), never from code
 REPLACEMENT = "6th agents"
@@ -63,6 +76,26 @@ SECTIONS: dict[str, tuple[tuple[str, str | None], ...]] = {
     ),
 }
 
+# what Ask reads for every answer about a workspace: the skill's rules and its standing
+# requirements, then the companion's standing rules and its workspace answering rules (sections 4
+# and 5; sections 2 and 3 describe a research run's sandbox and tools, which Ask does not have)
+ASK_SECTIONS: tuple[tuple[str, str | None], ...] = (
+    ("SKILL.md", "Rules that matter most"),
+    ("references/checklist.md", "1. Standing requirements from the user"),
+    ("references/checklist.md", "2. Scope defaults"),
+    ("references/session-environment.md", "4. Standing user rules injected on claude.ai"),
+    ("references/session-environment.md", "5. Answering questions against an existing workspace"),
+)
+ASK_DIRECTIVE = (
+    "The owner's research skill applies to every answer about an account; follow it. Where the"
+    " companion's standing rules and the checklist disagree (for example on the platform lanes),"
+    " the checklist wins. In this workspace, computing from the files means the `describe_table`"
+    " and `query_table` tools when they are offered, or counting over a whole file that is"
+    " provided; never count from passages. The answer rules above (citations, the full table)"
+    " still apply; the skill's pull, build and delivery steps describe research runs, not"
+    " answers."
+)
+
 
 @lru_cache(maxsize=1)
 def tool_names() -> tuple[str, ...]:
@@ -76,6 +109,9 @@ def tool_names() -> tuple[str, ...]:
     except Exception:  # noqa: BLE001 - no provider config: the provider terms still apply
         return ()
     names |= {f"{n} Search" for n in names}
+    # "Parallel" is also ordinary English ("in parallel", "parallel processing"). The
+    # provider's compound display name remains matchable without rewriting those phrases.
+    names.discard("Parallel")
     return tuple(sorted(names, key=len, reverse=True))
 
 
@@ -86,7 +122,12 @@ def strip_tool_names(text: str, extra: tuple[str, ...] = ()) -> str:
             text = re.sub(
                 r"(?<!\w)" + re.escape(name.strip()) + r"(?!\w)", REPLACEMENT, text, flags=re.I
             )
-    return text.replace(f"{REPLACEMENT}, {REPLACEMENT}", REPLACEMENT)
+    return re.sub(
+        rf"\b{re.escape(REPLACEMENT)}\b(?:\s*(?:,|and)\s*\b{re.escape(REPLACEMENT)}\b)+",
+        REPLACEMENT,
+        text,
+        flags=re.I,
+    )
 
 
 def scrub_client_terms(text: str) -> str:
@@ -125,29 +166,79 @@ def _provider_terms() -> tuple[str, ...]:
 
 @lru_cache(maxsize=16)
 def skill_context(task_kind: str, archive: Path | None = None) -> str:
-    """The skill text for one task kind, tool names stripped and bounded; "" without an archive
-    or for a task kind the skill does not cover."""
-    base = archive or ARCHIVE_DIR
+    """The skill text for one covered task, tool names stripped and bounded.
+
+    Missing files for a covered task raise ``FileNotFoundError``. An unknown task kind returns
+    an empty string.
+    """
+    if task_kind not in SECTIONS:
+        return ""
+    return _assemble(archive or ARCHIVE_DIR, SECTIONS[task_kind], task_kind)[:MAX_CHARS]
+
+
+@lru_cache(maxsize=4)
+def ask_skill_context(archive: Path | None = None) -> str:
+    """The skill text every Ask answer follows (``ASK_SECTIONS``), tool names and guarded names
+    stripped like every other skill reference. Fails closed: a missing file or section raises,
+    and so does a text too long to send whole."""
+    text = f"{ASK_DIRECTIVE}\n\n" + _assemble(
+        archive or ARCHIVE_DIR, ASK_SECTIONS, "ask", strict=True
+    )
+    if len(text) > MAX_CHARS:
+        raise ValueError(f"Ask skill context is {len(text)} characters; refusing to truncate it")
+    return text
+
+
+def _assemble(
+    base: Path, sections: tuple[tuple[str, str | None], ...], task: str, *, strict: bool = False
+) -> str:
+    """The named sections of the archive's files, in order, scrubbed for client use; ``strict``
+    raises on any missing section instead of only on an empty result."""
     parts: list[str] = []
-    for file, heading in SECTIONS.get(task_kind, ()):
+    for file, heading in sections:
         path = base / file
         if not path.is_file():
-            continue
+            raise FileNotFoundError(f"required ABM skill file is missing: {path}")
         body = section(path.read_text(encoding="utf-8"), heading)
+        if not body and strict:
+            raise ValueError(f"required ABM skill section is missing: {file}, {heading}")
         if body:
             parts.append(f"<!-- {file} -->\n{body}")
     if not parts:
-        return ""
-    text = scrub_client_terms(strip_tool_names("\n\n".join(parts), _provider_terms()))
-    return text[:MAX_CHARS]
+        raise ValueError(f"required ABM skill context is empty for task: {task}")
+    return scrub_client_terms(strip_tool_names("\n\n".join(parts), _provider_terms()))
+
+
+@lru_cache(maxsize=8)
+def session_environment_context(archive: Path | None = None) -> str:
+    """Read the ABM session appendix unchanged and in full, failing closed if it is absent or
+    too large to send without truncation. Unlike skill references, this file is not scrubbed:
+    the owner requires the 21 standing rules to reach the model verbatim."""
+    base = archive or ARCHIVE_DIR
+    path = base / "references" / "session-environment.md"
+    if not path.is_file():
+        raise FileNotFoundError(f"required ABM context is missing: {path}")
+    text = path.read_bytes().decode("utf-8")
+    if len(text) > SESSION_ENVIRONMENT_MAX_CHARS:
+        raise ValueError(f"ABM session context is {len(text)} characters; refusing to truncate it")
+    return text
 
 
 def with_skill_context(prompt_text: str, task_kind: str) -> str:
-    """The agent prompt followed by the owner's skill context for this step, or the prompt alone."""
+    """The session appendix, then this step's skill context, follow every ABM agent prompt."""
     context = skill_context(task_kind)
     if not context:
         return prompt_text
-    return (
-        f"{prompt_text}\n\nThe owner's research skill (follow it; it is the standard every file"
+    session = session_environment_context()
+    assembled = (
+        f"{prompt_text}\n\n{SESSION_ENVIRONMENT_DIRECTIVE}\n\n"
+        f"<!-- references/session-environment.md, verbatim -->\n{session}\n\n"
+        f"The owner's research skill (follow it; it is the standard every file"
         f" is judged by):\n\n{context}"
     )
+    if len(assembled) > ASSEMBLED_PROMPT_MAX_CHARS:
+        raise ValueError(
+            f"assembled ABM prompt is {len(assembled)} characters; limit is "
+            f"{ASSEMBLED_PROMPT_MAX_CHARS}"
+        )
+    return assembled

@@ -19,6 +19,15 @@ def _vendor() -> str:
     return sorted(n for n in vendor_names(load_providers_config()).values() if n != "Parallel")[0]
 
 
+def _vendors() -> tuple[str, ...]:
+    from account_intelligence.connectors.registry_internal import vendor_names
+    from account_intelligence.connectors.settings import load_providers_config
+
+    return tuple(
+        sorted(n for n in vendor_names(load_providers_config()).values() if n != "Parallel")
+    )
+
+
 @pytest.mark.parametrize(
     ("raw", "safe"),
     [
@@ -43,7 +52,10 @@ def test_cells_lose_formulas_and_punctuation_dashes(raw: object, safe: object) -
 )
 def test_tool_names_credit_counts_and_references_are_withheld(raw: str) -> None:
     raw = raw.format(vendor=_vendor())
-    assert SH.safe_cell(raw, shareable=True) == (SH.WITHHELD, True)
+    expected = (
+        ("Found by 6th agents", False) if raw.startswith("Found by ") else (SH.WITHHELD, True)
+    )
+    assert SH.safe_cell(raw, shareable=True) == expected
     assert SH.safe_cell(raw, shareable=False) == (raw, False)
 
 
@@ -63,13 +75,85 @@ def test_a_planted_tool_name_never_reaches_the_file() -> None:
     data = SH.workbook(_sheet(f"{_vendor()} shows growth"), "Acme")
     assert _vendor().lower().encode() not in data.lower()
     ws = load_workbook(io.BytesIO(data))["Sheet 1"]
+    assert ws["B2"].value == "6th agents shows growth"
+
+
+def test_people_workbook_scrubs_vendor_names_from_cells_and_summary() -> None:
+    """The People workbook uses the same guarded cell writer as other client tables."""
+    names = _vendors()[:2]
+    sheet = {
+        **_sheet("ordinary title"),
+        "title": "People",
+        "columns": [
+            {"key": "person", "label": "Person", "kind": "strong"},
+            {"key": "source", "label": "Found by", "kind": "plain"},
+        ],
+        "rows": [
+            {
+                "n": n,
+                "cells": {"person": f"Person {n}", "source": name},
+                "link": None,
+            }
+            for n, name in enumerate(names, start=1)
+        ],
+    }
+    data = SH.workbook(sheet, "Acme")
+
+    assert all(name.lower().encode() not in data.lower() for name in names)
+    ws = load_workbook(io.BytesIO(data))["Sheet 1"]
+    assert [ws.cell(row, 3).value for row in (2, 3)] == ["6th agents", "6th agents"]
+
+
+def test_model_text_with_tool_name_and_provider_domain_is_withheld_from_client_file() -> None:
+    from documents.gate import provider_hosts
+
+    host = provider_hosts()[0]
+    source = f"Found by {_vendor()} at https://{host}/search"
+    data = SH.workbook(_sheet(source), "Acme")
+    ws = load_workbook(io.BytesIO(data))["Sheet 1"]
     assert ws["B2"].value == SH.WITHHELD
+    assert _vendor().lower().encode() not in data.lower()
+    assert host.encode() not in data.lower()
+
+
+def test_provider_domain_in_shareable_cell_is_withheld() -> None:
+    from documents.gate import provider_hosts
+
+    assert SH.safe_cell(f"Found at https://{provider_hosts()[0]}/search", shareable=True) == (
+        SH.WITHHELD,
+        True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_provider_domain_and_tool_name_are_blocked_in_streamed_csv() -> None:
+    from account_intelligence.replica import table_export as TX
+    from documents.gate import provider_hosts
+
+    q = SH.parse("signals", None, None, None, 0, 10)
+    vendor = _vendor()
+    host = provider_hosts()[0]
+
+    async def rows():
+        yield {
+            "n": 1,
+            "cells": {
+                col.key: f"{vendor} at https://{host}/search" if col.key == "title" else "ok"
+                for col in q.sheet.cols
+            },
+            "link": None,
+        }
+
+    body = b"".join([chunk async for chunk in TX.csv_chunks(q, rows())])
+    assert vendor.lower().encode() not in body.lower()
+    assert host.encode() not in body.lower()
+    assert SH.WITHHELD.encode() in body
 
 
 def test_the_about_sheet_is_checked_too() -> None:
     data = SH.workbook(_sheet("fine"), _vendor())
     about = dict(load_workbook(io.BytesIO(data))["About"].iter_rows(values_only=True))
-    assert about["Account"] == SH.WITHHELD
+    assert about["Account"] == "6th agents"
 
 
 def test_anything_left_in_the_finished_file_blocks_the_export(

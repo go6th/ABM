@@ -236,8 +236,7 @@ class ScriptedRenderModel(ScriptedTabularModel):
                 {
                     "kind": "prose",
                     "paragraphs": [
-                        f"The strict filter returns 0 rows, so the status alone was relaxed"
-                        f" {cite}."
+                        f"The strict filter returns 0 rows, so the status alone was relaxed {cite}."
                     ],
                 },
                 {
@@ -275,7 +274,11 @@ class ScriptedRenderModel(ScriptedTabularModel):
         self.rendered = payload
         yield ChatEvent(
             "tool",
-            tool={"name": "render_answer", "input": payload, "result": {"ok": True, "terminal": True}},
+            tool={
+                "name": "render_answer",
+                "input": payload,
+                "result": {"ok": True, "terminal": True},
+            },
         )
         yield ChatEvent("usage", usage=ChatUsage(1, 1))
 
@@ -342,7 +345,7 @@ async def test_the_golden_gsk_answer_is_one_render_call_identical_five_times(
     assert not any("[[" in s for s in _strings(answer))
     assert markdown.count("| row ") == 14 and "[[table:" in markdown
     # five runs: byte-identical tool calls and answer
-    for again in range(4):
+    for _again in range(4):
         other_calls, other_answer, other_markdown = await once()
         assert json.dumps(other_calls, sort_keys=True) == json.dumps(calls, sort_keys=True)
         assert json.dumps(other_answer["structured"], sort_keys=True) == json.dumps(

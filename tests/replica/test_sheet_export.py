@@ -77,15 +77,24 @@ def _cells(content: bytes, sheet: str = "Sheet 1") -> list[Any]:
 async def test_a_shareable_export_withholds_tool_names_and_neutralises_formulas(
     world: dict[str, Any],
 ) -> None:
+    from documents.gate import provider_hosts
+
     _plant_signal(world["a"], "highmark.example", f"Hiring surge seen by {_vendor()} crawl")
     _plant_signal(world["a"], "highmark.example", '=HYPERLINK("http://evil.example","open")')
+    provider_host = provider_hosts()[0]
+    _plant_signal(world["a"], "highmark.example", f"Source https://{provider_host}/search")
     _plant_signal(world["a"], "highmark.example", "Data team grows — fast")
     plane = _plane(world["a"], "priya-test", world["payloads"])
     r = await _call(plane, "GET", "/v1/accounts/highmark.example/sheets/signals/xlsx")
     assert r.status_code == 200, r.text
     values = [v for v in _cells(r.content) if isinstance(v, str)]
     assert not any(_vendor().lower() in v.lower() for v in values)
-    assert SH.WITHHELD in values
+    assert provider_host.lower().encode() not in r.content.lower()
+    assert SH.safe_cell(f"Hiring surge seen by {_vendor()} crawl", shareable=True) == (
+        "Hiring surge seen by 6th agents crawl",
+        False,
+    )
+    assert SH.WITHHELD in values  # the actual configured provider domain is withheld
     assert '\'=HYPERLINK("http://evil.example","open")' in values
     assert "Data team grows, fast" in values
     book = load_workbook(io.BytesIO(r.content))

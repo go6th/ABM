@@ -2,13 +2,13 @@
 offer to refresh from the web (never taken without the user's confirmation) and follow-ups.
 
 ``POST /v1/chat/ask`` streams server-sent events: ``status`` (searching the workspace), ``text``
-(the answer as it is written, one sentence at a time: paragraph index and parts, with citation
-numbers already final), ``reset`` (the model's reply could not be used: forget the text so far,
-the local answer follows), ``thread`` (the thread the turn belongs to, created on the first
-question), ``answer`` (the whole structured answer, the same text) and ``done``; or ``error``. A
-repeated ``request_id`` replays the stored answer. Answers never reach the web or a data tool;
-with a model key set, Claude writes the prose from the same rows and every sentence's citations
-are checked before it is sent (``replica.model_answer``). The rows include the account's
+(paragraph index and final citation parts), ``thread`` (the thread the turn belongs to, created on
+the first question), ``answer`` (the whole structured answer) and ``done``; or ``error``. Model
+text is buffered until the complete answer passes the client output scrub and tool/person/provider
+domain scans; no partial text is sent first. A repeated ``request_id`` replays the stored answer
+through the same guard. Answers never reach the web or a data tool; with a model key set, Claude
+writes the prose from the same rows and every sentence's citations are checked before composition
+(``replica.model_answer``). The rows include the account's
 research, the tracker, previous deliverables, the client's uploaded files (Internal) and the
 user's own mail and drive.
 
@@ -27,6 +27,7 @@ tools would answer a tabular question through retrieval, as before.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
@@ -45,10 +46,21 @@ from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
-from account_intelligence.chat.service import ChatService, provider_for, sse
+from account_intelligence.chat.credentials import (
+    TenantKeyUnavailable,
+    TenantModelKeyStore,
+    encrypted_key_for_tenant,
+)
+from account_intelligence.chat.service import (
+    AnthropicChatProvider,
+    ChatService,
+    provider_for,
+    sse,
+)
 from account_intelligence.chat.store import record_ask_turn
 from account_intelligence.config import get_settings
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.platform.llm import anthropic_api_client, chat_effort
 from account_intelligence.replica import answers as A
 from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
@@ -57,6 +69,7 @@ from account_intelligence.replica import router as R
 from account_intelligence.replica.model_answer import refusal_phrase, stream_with_model
 from account_intelligence.replica.settings import touch_activity
 from account_intelligence.replica.tools import AccessTools
+from agents.naming import sanitize_client_value
 from documents import tables as T
 from llm.choice import catalogue
 from obs.logging import logger
@@ -141,14 +154,28 @@ async def ask(
         """Stream the answer: replay a repeated request, or search, compose, store and send."""
         turn_started = time.monotonic()
         if replay is not None:
+            try:
+                replay_answer = sanitize_client_value(replay["answer"] or {})
+            except Exception:  # noqa: BLE001 - a stored answer that fails the gate is withheld
+                yield sse(
+                    "error",
+                    {
+                        "code": "answer_failed",
+                        "message": "The answer could not be completed. Try again.",
+                    },
+                )
+                return
             yield sse("thread", {"thread_id": str(body.thread_id), "created": False})
-            yield sse("answer", replay["answer"] or {})
+            yield sse("answer", replay_answer)
             yield sse("done", {"turn_id": replay["turn_id"], "replayed": True})
             return
         yield sse("status", {"state": "searching"})
+        owned_client = None
         try:
             service = getattr(request.app.state, "chat_service", None)
-            provider = _provider_for(request, service, analysis_model)
+            provider, owned_client = await _provider_for_ask(
+                request, service, analysis_model, ident.tenant_id
+            )
             tools: AccessTools | None = None
             decision = R.Decision("prose", "no table in the workspace")
             found: list[T.TableInfo] = []
@@ -210,12 +237,25 @@ async def ask(
             q, draft = A.draft_local(body.question, ws, now, scope)
             model_id = LOCAL_MODEL
             usage = None
-            numbering: dict[str, int] = {}
-            streamed = False
             from_model = False
+            log.info(
+                "ask.gate",
+                extra={
+                    "request_id": str(body.request_id),
+                    "has_chat_service": isinstance(service, ChatService),
+                    "provider_resolved": provider is not None,
+                    "provider_type": type(provider).__name__ if provider else None,
+                    "has_accounts": bool(ws.accounts),
+                    "analysis_model": analysis_model,
+                },
+            )
             if isinstance(service, ChatService) and provider is not None and ws.accounts:
                 try:
                     model = service.registry.resolve(analysis_model)
+                    log.info(
+                        "ask.model_call_start",
+                        extra={"request_id": str(body.request_id), "model_id": model.id},
+                    )
                     async for kind, value in stream_with_model(
                         provider,
                         model,
@@ -229,30 +269,61 @@ async def ask(
                         temperature=0.0 if tools is not None else None,
                     ):
                         if kind == "piece":
-                            index, piece = value
-                            parts = A.number_marks(piece, numbering)
-                            yield sse("text", {"p": index, "parts": parts})
-                            streamed = True
-                        elif kind == "discard":  # text before a tool call: forget it
-                            if streamed:
-                                yield sse("reset", {})
-                            numbering, streamed = {}, False
+                            # Hold streamed pieces until the whole answer is scrubbed and scanned.
+                            # No partial phrase can escape before the complete scan.
+                            continue
+                        elif kind == "discard":  # text before a tool call is never sent
+                            continue
                         elif kind == "tool":
                             continue  # counted by the tools themselves
                         elif kind == "done":
                             draft, usage, model_id = value.draft, value.usage, model.id
                             from_model = True
+                            log.info(
+                                "ask.model_call_done",
+                                extra={
+                                    "request_id": str(body.request_id),
+                                    "model_id": model.id,
+                                    "has_usage": usage is not None,
+                                },
+                            )
                         else:  # the reply could not be used: the local answer follows
                             usage = value
-                except Exception:  # the local answer stands; no user text is logged
-                    log.warning("ask_model_fallback", extra={"request_id": str(body.request_id)})
-            if not from_model:
-                if streamed:
-                    yield sse("reset", {})
-                numbering = {}
-                for index, para in enumerate(draft.paragraphs):
-                    for piece in A.pieces(para):
-                        yield sse("text", {"p": index, "parts": A.number_marks(piece, numbering)})
+                            log.warning(
+                                "ask.model_call_reset",
+                                extra={
+                                    "request_id": str(body.request_id),
+                                    "reason": "provider returned reset",
+                                    # a cut-off reply shows as stop_reason max_tokens
+                                    "output_tokens": getattr(usage, "output_tokens", None),
+                                    "input_tokens": getattr(usage, "input_tokens", None),
+                                    "stop_reason": getattr(usage, "stop_reason", None),
+                                },
+                            )
+                except Exception as e:  # the local answer stands; no user text is logged
+                    log.exception("ask_model_fallback")
+                    log.warning(
+                        "ask.gate_fallback",
+                        extra={
+                            "request_id": str(body.request_id),
+                            "reason": "exception_in_stream_with_model",
+                            "exception_type": type(e).__name__,
+                            "exception_msg": str(e)[:200],
+                        },
+                    )
+                    # Keep the local records, but disclose that the model answer was unavailable.
+                    _mark_local_fallback(draft)
+            else:
+                log.warning(
+                    "ask.gate_fallback",
+                    extra={
+                        "request_id": str(body.request_id),
+                        "reason": "gate_failed",
+                        "has_chat_service": isinstance(service, ChatService),
+                        "provider_resolved": provider is not None,
+                        "has_accounts": bool(ws.accounts),
+                    },
+                )
             answer = A.finish(draft, q, ws, now, scope)
             stats = tools.stats() if tools is not None else {}
             log.info(
@@ -279,6 +350,9 @@ async def ask(
             answer["used"]["model_name"] = (
                 (choice.name if choice else model_id) if from_model else None
             )
+            answer = sanitize_client_value(answer)
+            for index, paragraph in enumerate(answer["paragraphs"]):
+                yield sse("text", {"p": index, "parts": paragraph})
             plain = A.plain_text(answer["paragraphs"])[:100_000] or " "
             # the refusal guard rail (the eval fails on the same phrases): with tables in the
             # workspace an answer must never send the user away to re-export a file
@@ -330,18 +404,96 @@ async def ask(
                     "message": "The answer could not be completed. Try again.",
                 },
             )
+        finally:
+            if owned_client is not None:
+                try:
+                    await owned_client.close()
+                except Exception:
+                    # Cleanup must not hide the streamed response or its original failure.
+                    log.exception("ask_tenant_provider_close_failed")
 
     return StreamingResponse(
-        events(),
+        _with_keepalive(events()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
+
+
+# a relay drops a stream that is silent for 300 s (Node's body timeout in the web tier, 2026-10-19);
+# while the model writes a long structured answer nothing else is sent, so a comment frame
+# (ignored by every SSE reader, web/lib/sse.ts included) keeps the stream alive
+KEEPALIVE_S = 15.0
+KEEPALIVE = b": keepalive\n\n"
+
+
+async def _with_keepalive(
+    frames: AsyncIterator[bytes], every: float = KEEPALIVE_S
+) -> AsyncIterator[bytes]:
+    """The stream's frames, with a keepalive comment whenever it is silent for ``every``
+    seconds. The source runs whole in one task, so its context (tenant transaction, request
+    id) is the one it started with; closing this stream cancels that task."""
+    queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+    async def pump() -> None:
+        try:
+            async for frame in frames:
+                await queue.put(("frame", frame))
+        except BaseException as error:  # noqa: BLE001 - re-raised on the reading side
+            await queue.put(("error", error))
+            return
+        await queue.put(("end", None))
+
+    task = asyncio.create_task(pump())
+    try:
+        # LOOP(ask keepalive): cap=the source stream's frames plus one keepalive per silent
+        # interval; exit=the source ends or fails, or the client goes away
+        while True:
+            try:
+                kind, value = await asyncio.wait_for(queue.get(), timeout=every)
+            except TimeoutError:
+                yield KEEPALIVE
+                continue
+            if kind == "end":
+                return
+            if kind == "error":
+                raise value
+            yield value
+    finally:
+        if not task.done():
+            task.cancel()
 
 
 def _provider_for(request: Request, service: Any, model_id: str) -> Any:
     """The streaming provider of the conversation's model (the shared helper of every chat
     surface; None when it is not set up: the local answer stands)."""
     return provider_for(getattr(request.app.state, "chat_providers", None), service, model_id)
+
+
+async def _provider_for_ask(
+    request: Request, service: Any, model_id: str, tenant_id: UUID
+) -> tuple[Any, Any | None]:
+    """Resolve the selected provider, preferring the tenant's saved key for Claude."""
+    provider = _provider_for(request, service, model_id)
+    choice = catalogue().get(model_id)
+    if choice is None or choice.provider != "anthropic":
+        return provider, None
+    ciphertext = await encrypted_key_for_tenant(tenant_id)
+    if ciphertext is None:
+        return provider, None
+    key_store = getattr(request.app.state, "tenant_model_keys", None)
+    if not isinstance(key_store, TenantModelKeyStore) or not key_store.configured:
+        raise TenantKeyUnavailable("tenant model key KMS is unavailable")
+    api_key = await key_store.decrypt(tenant_id, ciphertext)
+    try:
+        client = anthropic_api_client(api_key)
+    finally:
+        del api_key
+    return AnthropicChatProvider(client, effort=chat_effort()), client
+
+
+def _mark_local_fallback(draft: A.Draft) -> None:
+    """Prepend a notice without changing the local answer's citations or structured content."""
+    draft.paragraphs.insert(0, "AI summary unavailable. Showing workspace records:")
 
 
 def _classifier(request: Request, provider: Any, model_id: str) -> Any:

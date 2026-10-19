@@ -33,7 +33,6 @@ PROD_ENV = {
     "TASKS_AUDIENCE": "https://worker.invalid",
     "PAYLOAD_BUCKET": "synthetic-payloads",
     "CHECKPOINT_DATABASE_URL": "postgresql://app_rw@/ai?host=/cloudsql/x",
-    "LLM_ACCESS": "vertex_ai",
     "REDIS_URL": "rediss://10.0.0.3:6379/0",
 }
 
@@ -44,10 +43,18 @@ def _fake_google(monkeypatch: pytest.MonkeyPatch) -> None:
 
     class _Client:
         def __init__(self, *a: Any, **k: Any) -> None:
-            pass
+            self.api_key = k.get("api_key")
 
         def bucket(self, name: str) -> Any:
             return types.SimpleNamespace(name=name)
+
+        def secret_version_path(self, project: str, secret: str, version: str) -> str:
+            return f"projects/{project}/secrets/{secret}/versions/{version}"
+
+        def access_secret_version(self, name: str) -> Any:
+            return types.SimpleNamespace(
+                payload=types.SimpleNamespace(data=b"synthetic-anthropic-api-key")
+            )
 
     storage_mod = types.ModuleType("google.cloud.storage")
     storage_mod.Client = _Client  # type: ignore[attr-defined]
@@ -59,7 +66,7 @@ def _fake_google(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(secretmanager, "SecretManagerServiceClient", _Client)
     import anthropic
 
-    monkeypatch.setattr(anthropic, "AsyncAnthropicVertex", _Client)
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _Client)
 
 
 def test_assert_gcp_runtime_refuses_hermetic_adapters_w4(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,6 +86,7 @@ def test_assert_gcp_runtime_refuses_hermetic_adapters_w4(monkeypatch: pytest.Mon
 
     assert isinstance(prod.scheduler, CloudTasksScheduler)
     assert isinstance(prod.payloads, GcsPayloadStore)
+    assert prod.llm.client.api_key == "synthetic-anthropic-api-key"
     assert prod.verify_task_token is not None
     assert prod.connectors is not None and prod.extras["retry_policy"] is not None
     from account_intelligence.connectors.ratelimit import RedisRateStore

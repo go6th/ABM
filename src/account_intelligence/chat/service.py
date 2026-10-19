@@ -201,6 +201,8 @@ class ChatUsage:
     output_tokens: int
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    # why the last round ended (Anthropic: "end_turn", "tool_use", "max_tokens"); None if unknown
+    stop_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -342,6 +344,7 @@ class AnthropicChatProvider:
         # temperature is deliberately NOT forwarded: the installed SDK's Messages call has no
         # temperature parameter (open item OI-LLM-1) — forwarding the 0.0 that tabular Ask
         # turns send would TypeError every round. The Moonshot provider pins temperature/seed.
+        stop_reason: str | None = None
         totals = [0, 0, 0, 0]
         rounds = 0
         # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer; exit=the model
@@ -355,6 +358,7 @@ class AnthropicChatProvider:
                         yield ChatEvent("text", text=str(event.text))
                 final = await stream.get_final_message()
             usage = final.usage
+            stop_reason = getattr(final, "stop_reason", None)
             totals[0] += int(getattr(usage, "input_tokens", 0) or 0)
             totals[1] += int(getattr(usage, "output_tokens", 0) or 0)
             totals[2] += int(getattr(usage, "cache_read_input_tokens", 0) or 0)
@@ -382,9 +386,7 @@ class AnthropicChatProvider:
                 )
                 # render_answer's ok result is terminal: the call IS the answer (its input
                 # was yielded above); no model round follows it
-                terminal = terminal or (
-                    isinstance(result, dict) and result.get("terminal") is True
-                )
+                terminal = terminal or (isinstance(result, dict) and result.get("terminal") is True)
             if terminal:
                 break
             request_messages.append({"role": "assistant", "content": _blocks(final.content)})
@@ -396,6 +398,7 @@ class AnthropicChatProvider:
                 output_tokens=totals[1],
                 cache_read_tokens=totals[2],
                 cache_write_tokens=totals[3],
+                stop_reason=None if stop_reason is None else str(stop_reason),
             ),
         )
 
@@ -528,9 +531,7 @@ class MoonshotChatProvider:
                 )
                 results.append(k.tool_result(call, _tool_result_text(result)))
                 # render_answer's ok result is terminal: the call IS the answer
-                terminal = terminal or (
-                    isinstance(result, dict) and result.get("terminal") is True
-                )
+                terminal = terminal or (isinstance(result, dict) and result.get("terminal") is True)
             if terminal:
                 break
             request_messages.append(k.assistant_round("".join(text), calls))

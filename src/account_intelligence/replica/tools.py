@@ -10,12 +10,13 @@ ends — the answer's format is the code's, not the model's.
 
 Which are on offer depends on the turn's route (the brief's exposure rule): ``tabular`` gets
 ``list_sources`` and the table tools only, ``prose`` ``list_sources`` and the passage tools,
-``mixed`` all — each with ``render_answer`` on top. Every call opens its own short tenant transaction (the answer streams outside
-one); the stores (``documents.tables``, ``documents.sources``) check columns and operators and
-bind every value, and an error comes back to the model as a structured result, never as an
-exception. Querying or reading a table the turn has not described is refused the same way, so
-the model always reads the columns and types first. Predicates are logged as ``column:op``
-only (no values: they are the user's words).
+``mixed`` all — each with ``render_answer`` on top. Every call opens its own short tenant
+transaction (the answer streams outside one); the stores (``documents.tables``,
+``documents.sources``) check columns and operators and bind every value, and an error comes
+back to the model as a structured result, never as an exception. Querying or reading a table
+the turn has not described is refused the same way, so the model always reads the columns and
+types first. Predicates are logged as ``column:op`` only (no values: they are the user's
+words).
 """
 
 from __future__ import annotations
@@ -25,12 +26,11 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any
 from uuid import UUID
 
+from account_intelligence.replica import render as RENDER
 from documents import run_python as RP
 from documents import sources as S
 from documents import tables as T
 from obs.logging import logger
-
-from account_intelligence.replica import render as RENDER
 
 log = logger(__name__)
 

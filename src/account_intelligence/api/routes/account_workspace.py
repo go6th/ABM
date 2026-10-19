@@ -30,6 +30,8 @@ from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import sheets as SH
 from account_intelligence.replica import workspace as W
+from agents.errors import GuardViolation
+from agents.naming import sanitize_client_value
 from obs.logging import logger
 from tenancy.storage import PathRefused, require_owned
 
@@ -91,7 +93,7 @@ async def account_workspace(domain: str, ident: Identity = Depends(authorize)) -
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
         out = await W.workspace(s, account_id, ident.user_id, datetime.now(UTC))
-    return {**out, "latest_run": None}
+    return _client_value({**out, "latest_run": None})
 
 
 @router.get("/{domain}/file-analysis", response_model=C.FileAnalysisRun)
@@ -245,7 +247,21 @@ async def account_sheet(
         account_id = await account_id_of(s, domain)
         name = await _account_name(s, account_id)
         out = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC))
-    return {**out, "account_name": name}
+    response = {**out, "account_name": name}
+    return response if q.sheet.private else _client_value(response)
+
+
+def _client_value(value: Any) -> Any:
+    """Scrub tool names and refuse remaining tool/person/domain hits before a JSON response."""
+    try:
+        return sanitize_client_value(value)
+    except GuardViolation as error:
+        raise APIProblem(
+            422,
+            "client_output_blocked",
+            "Response held back",
+            "This response failed a safety check and could not be returned.",
+        ) from error
 
 
 @router.get("/{domain}/sheets/{sheet}/xlsx")

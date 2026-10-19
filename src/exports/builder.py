@@ -9,8 +9,9 @@ Steps, each failing closed (B15):
 3. render in the fixed order Summary, Evidence, People, Jobs, Tech (Word through the sandboxed
    renderer, workbooks in process) and normalise every package (B10);
 4. verify each file from its bytes: leak scan of every member (B9) and the row keys re-read from
-   the produced file equal the rows selected, once each and in order (B3); optionally the PDF
-   lost-row check and the workbook recalculation (B12) when a converter is configured;
+   the produced file equal the rows selected, once each and in order (B3); the PDF lost-row check
+   (rowcheck), the document checks (stale phrases, excluded names, banned dashes, orphan citations),
+   and the workbook recalculation (B12) when a converter is configured;
 5. build the workspace zip only when all five files passed (D-25, B13);
 6. store the set put-if-absent in one transaction (B14): a repeated build returns the stored set.
 
@@ -74,10 +75,13 @@ from exports.readers.people import map_people
 from exports.readers.summary import map_summary
 from exports.readers.tech import map_tech
 from exports.verify import (
+    doc_checks,
     docx_row_keys,
+    docx_rowcheck,
     pdf_row_presence,
     recalc_check,
     scan_package,
+    third_party_scan,
     xlsx_row_keys,
 )
 from exports.word.compose import compose_evidence, compose_summary
@@ -299,6 +303,8 @@ class ExportBuilder:
     def _verify(
         self, kind: str, body: bytes, mapped: Mapped[Any], ctx: MapContext, out: Assembly
     ) -> None:
+        model = mapped.model
+        assert model is not None
         with obs.span(f"exports.verify.{kind}", ctx.content.run_id):
             hits = scan_package(body, ctx.restricted)
             if hits:
@@ -323,11 +329,33 @@ class ExportBuilder:
                 out.checks.append(result)
                 if result.status == "failed":
                     raise RowConservation(f"{kind}: rows lost in the PDF rendering", result.details)
+                result = docx_rowcheck(body, self.pdf)
+                out.checks.append(result)
+                if result.status == "failed":
+                    raise RowConservation(f"{kind}: rowcheck failed", result.details)
             if self.recalc is not None and kind in ("people", "jobs", "tech"):
                 result = recalc_check(body, self._expected(kind, mapped), self.recalc)
                 out.checks.append(result)
                 if result.status == "failed":
                     raise SchemaViolation(f"{kind}: workbook recalculation", result.details)
+            if kind in ("summary", "evidence"):
+                result = doc_checks(
+                    body,
+                    kind,
+                    self._account_source_ids(ctx),
+                    self.cfg.rules.stale_phrases.phrases,
+                    self.cfg.rules.excluded_names.names
+                    if hasattr(self.cfg.rules, "excluded_names")
+                    else (),
+                    self._verbatim_quotes(kind, model),
+                )
+                out.checks.append(result)
+                if result.status == "failed":
+                    raise BannedContent(f"{kind}: document checks failed", result.details)
+                result = third_party_scan(body, kind)
+                out.checks.append(result)
+                if result.status == "failed":
+                    raise BannedContent(f"{kind}: third-party scan failed", result.details)
 
     def _expected(self, kind: str, mapped: Mapped[Any]) -> dict[tuple[str, str], int]:
         """Formula cells and the counts computed in code they must equal (B12)."""
@@ -344,6 +372,21 @@ class ExportBuilder:
             for i, line in enumerate(model.counts, start=2)
             if line.formula != "none"
         }
+
+    def _account_source_ids(self, ctx: MapContext) -> tuple[str, ...]:
+        """Valid source IDs for the account (keys of the URL map) for doc_checks."""
+        return tuple(sorted(ctx.index.by_code.keys()))
+
+    @staticmethod
+    def _verbatim_quotes(kind: str, model: Any) -> tuple[str, ...]:
+        """Permit exact source text through authored-prose dash checks after quote screening."""
+        if kind == "summary":
+            return tuple(q.text for q in model.executive_voice) + tuple(
+                finding.sentence for finding in model.linkedin_findings if not finding.withheld
+            )
+        return tuple(
+            use.sentence for source in model.sources for use in source.uses if not use.withheld
+        ) + tuple(item.sentence for item in model.news)
 
     def _manifest(self, out: Assembly, content: SnapshotContent, ctx: MapContext) -> BuildManifest:
         mapped = out.mapped
@@ -489,6 +532,13 @@ class ExportBuilder:
             manifest=out.manifest,
             change_note=note,
             reused=bool(existing),
+            verbatim_quotes=tuple(
+                dict.fromkeys(
+                    quote
+                    for kind in ("summary", "evidence")
+                    for quote in self._verbatim_quotes(kind, out.mapped[kind].model)
+                )
+            ),
         )
         obs.build_outcome(run_id, "complete", (), out.manifest.rows_per_file)
         return result

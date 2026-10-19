@@ -118,7 +118,7 @@ How each surface reads the layer:
 | Surface | Model comes from | Effort comes from |
 |---|---|---|
 | **Research graph** (planner / extractor / classifier / synthesis / narrative / judge tiers) | The run's recorded choice (`account_runs.models`: the user's research and analysis models), each tier served by `ChoiceLlm.complete_as` | The tier's task in `task_settings` (e.g. synthesis/narrative `high`, extraction `low`) — passed to Anthropic (`output_config`) and Moonshot (`reasoning_effort`) alike |
-| **Ask answers** | The conversation's analysis model (thread's kept model → user's preference → catalogue default) | `surfaces.chat.effort` (`high`) — both chat providers are built with it at startup |
+| **Ask answers** | The conversation's analysis model (thread's kept model → user's preference → catalogue default); a saved workspace Anthropic key serves Claude selections, while Kimi uses Moonshot | `surfaces.chat.effort` (`high`) |
 | **Follow-up chat** | The same conversation model as Ask (Kimi included; a tenant's own Anthropic key — BYOK — can serve Claude only) | `surfaces.chat.effort` |
 | **Live tabular eval** | `surfaces.eval.model` (default `kimi-k3`), overridable per run with **`EVAL_MODEL`** | `surfaces.eval.effort` (`high`), overridable with **`EVAL_EFFORT`** |
 

@@ -6,6 +6,14 @@ version: "1.0.0"
 status: proposal
 decision: D-24
 
+delivery:
+  # When enabled, Word, deck, and PDF deliverables are produced only if all gates pass.
+  # When disabled, they are refused with a clear message.
+  enabled: true
+  source: "owner decision 2026-10-18: Word, deck and PDF delivery enabled in this release, gated"
+  render_checks: false
+  render_checks_source: "D-24 proposal; enabled per environment in deployment config"
+
 attribution:
   # PRD s3.4 / SKILL rule 6: client-facing output is attributed to "6th agents".
   name: "6th agents"
@@ -37,6 +45,10 @@ banned_dashes:
 stale_phrases:
   source: "TODO, needs product owner: the PRD names the check, not the list; the legacy doc_checks.py was not supplied"
   phrases: []
+
+excluded_names:
+  source: "TODO, needs product owner: the PRD names the check, not the list; the legacy doc_checks.py was not supplied"
+  names: []
 
 abbreviations:
   # PRD s3.4: abbreviations written out on first use. The list is not given.

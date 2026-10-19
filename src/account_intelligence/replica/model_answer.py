@@ -29,6 +29,10 @@ module checks the call's ``[R3]`` citations against the numbered rows exactly as
 Markdown; the call ends the tool loop. A turn that never calls the tool still answers as
 Markdown (the ``parse`` path).
 
+Every answer also follows the owner's research skill: its rules, the checklist's standing
+requirements and the companion document's standing rules and workspace answering rules end the
+system prompt (``agents.skill_context.ask_skill_context``, owner request 2026-10-19).
+
 GUARANTEE(test_a_streamed_answer_only_sends_checked_citations)
 """
 
@@ -49,12 +53,15 @@ from account_intelligence.replica.answers import (
     about,
     first_call_questions,
 )
+from agents.skill_context import ask_skill_context
 
 MAX_ROWS = 40
 # retrieved document passages always get places (they were never read before, audit 2026-10-15)
 MAX_PASSAGES = 10
-# long enough for a table of every matching row (owner decision 2026-10-17)
-MAX_OUTPUT_TOKENS = 8000
+# long enough for a table of every matching row (owner decision 2026-10-17): 8000 cut off a
+# 290-row answer on staging (2026-10-19), so the reply was discarded; every catalogued model
+# allows at least 128000
+MAX_OUTPUT_TOKENS = 32000
 
 SYSTEM = (
     "You answer a B2B seller's question using ONLY the workspace rows and files provided."
@@ -69,7 +76,8 @@ SYSTEM = (
     " about the rows, never a shortlist of a few with 'and others', never a summary when the"
     " rows hold more. Give the full detail the rows hold. Short paragraphs only for a"
     " narrative, a bulleted list only for a handful of points — and even a narrative answer"
-    " ends with a table of the facts it rests on (one fact per row). Bold each account name the first"
+    " ends with a table of the facts it rests on (one fact per row)."
+    " Bold each account name the first"
     " time it appears, like **Highmark**.\n"
     "3. Say a row's grade when it matters: Confirmed facts may be stated; Probable and"
     " Hypothesis rows are things to ask about, not to state.\n"
@@ -92,9 +100,13 @@ TABULAR_RULES = (
     ' (`describe_table` lists the values of a low-cardinality column: "platform owners" covers'
     ' both "Platform owner" and "Admin and owner role"); never judge membership from titles or'
     " descriptions. Match a platform or product NAME with `icontains` (exports spell names in"
-    " mixed case). When a query answers with 0 rows, you MUST relax exactly one predicate (status"
-    " first, then date) and query again BEFORE writing anything; then state the finding plainly,"
-    " name the predicate you relaxed and show the nearest rows. Leave `columns` out: the default"
+    " mixed case). When a strict query returns 0 rows, relax exactly one predicate (status first,"
+    " then date) and query again BEFORE writing anything. In the answer, state the strict zero"
+    " first with its base (for example, `0 open out of 644 job rows`), then show the nearest set"
+    " under a clear `Relaxed set` label, name the predicate relaxed, and retain the other filters."
+    " Never substitute the relaxed count for the strict answer or return nothing. Every count"
+    " names its base, including raw name matches versus genuine postings and unique postings"
+    " after deduplication. Leave `columns` out: the default"
     " projection returns every filterable column; pass it only to add a payload (long-text)"
     " column the answer needs, and keep it identical between the strict and the relaxed query."
     " Add `order_by` only when the question asks for an order, and then"
@@ -107,8 +119,17 @@ TABULAR_RULES = (
     " partial=true (the name matched only as a substring): then call `read_rows` on those rows"
     " for the evidence"
     " column (`Platform sentences` / `What the posting says`), split genuine product mentions"
-    " from false positives judging from the evidence column alone (never the long description),"
-    " name every false positive by its business key and quote the exact deciding phrase VERBATIM"
+    " from false positives judging from the title, class and evidence columns (never the long"
+    " description). Classify a platform mention by its role in the posting: a platform-specific"
+    " responsibility, core duty or requirement is genuine; a name appearing only in a generic"
+    " office-software skills list, without a platform-specific duty, is a tools-list false"
+    " positive. For Salesforce, SFE/SFI (Sales Force Effectiveness or Sales Force Incentive)"
+    " titles do not make a posting a Salesforce platform role; apply the same context rule."
+    " A generic tools-list mention does not disqualify a separate platform-specific responsibility."
+    " Treat former-employer recruiting boilerplate as its own named false-positive class. Keep"
+    " raw name-match counts separate from genuine-platform counts, and apply each drop list to"
+    " every count, table and file carrying that claim."
+    " Name every false positive by its business key and quote the exact deciding phrase VERBATIM"
     " (no emphasis or markup inside a quote). Report counts of both. Cite row numbers.\n"
     "A table is one of the numbered rows above (a row marked `table`): cite its id, like [R2],"
     " for every statement that rests on its query results, and name the sheet row numbers"
@@ -326,6 +347,8 @@ async def stream_with_model(
     system = SYSTEM + ("\n" + TABULAR_RULES if offered & TABLE_TOOLS_NAMED else "")
     if RENDER.NAME in offered:
         system += "\n" + RENDER.RENDER_RULES
+    # the owner's research skill rides on every answer (agents.skill_context.ask_skill_context)
+    system += "\n\n" + ask_skill_context()
     async for event in provider.stream(
         model,
         [ChatMessage("user", prompt)],

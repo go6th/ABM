@@ -14,8 +14,10 @@ from uuid import uuid4
 
 import pytest
 
+from account_intelligence.api.routes.ask import _mark_local_fallback
 from account_intelligence.replica import answers as A
 from account_intelligence.replica.model_answer import stream_with_model, take
+from agents.skill_context import ask_skill_context
 
 
 @dataclass
@@ -88,6 +90,26 @@ async def test_a_streamed_answer_only_sends_checked_citations() -> None:
 
 
 @pytest.mark.asyncio
+async def test_every_answer_carries_the_owners_skill_in_its_system_prompt() -> None:
+    seen: dict[str, Any] = {}
+
+    class Capture(FakeProvider):
+        async def stream(self, *a: Any, **k: Any):  # type: ignore[no-untyped-def]
+            seen["system"] = k["system"]
+            async for event in super().stream(*a, **k):
+                yield event
+
+    ws = _world()
+    q, local = A.draft_local("What is Acme hiring for?", ws, datetime.now(UTC))
+    async for _ in stream_with_model(
+        Capture(["Acme is hiring [R1]."]), object(), q, ws, local, user_id="u", request_id="r"
+    ):
+        pass
+    assert seen["system"].endswith(ask_skill_context())
+    assert "## 5. Answering questions against an existing workspace" in seen["system"]
+
+
+@pytest.mark.asyncio
 async def test_an_invented_citation_stops_the_stream_but_a_list_or_table_streams() -> None:
     invented = await _collect(["Acme is hiring [R1]. ", "Also [R9] says more. ", "End."])
     assert [k for k, _ in invented] == ["piece", "reset"]  # nothing after the bad sentence
@@ -111,6 +133,18 @@ def test_pieces_wait_for_the_citations_after_a_sentence() -> None:
     assert take("Acme is hiring. ") == (None, False, "Acme is hiring. ")
     assert take("Acme is hiring. [R1] Next") == ("Acme is hiring. [R1] ", False, "Next")
     assert take("Last one", final=True) == ("Last one", True, "")
+
+
+def test_model_failure_keeps_local_draft_and_adds_a_fallback_notice() -> None:
+    draft = A.Draft()
+    draft.para("Acme is hiring Salesforce developers [[fact:1]].")
+
+    _mark_local_fallback(draft)
+
+    assert draft.paragraphs == [
+        "AI summary unavailable. Showing workspace records:",
+        "Acme is hiring Salesforce developers [[fact:1]].",
+    ]
 
 
 @pytest.mark.requires_postgres
@@ -143,3 +177,28 @@ async def test_the_route_streams_text_that_matches_the_final_answer(world: dict[
         return "".join(f"[{p['v']}]" if p["t"] == "cite" else p["v"] for p in parts).strip()
 
     assert [flat(streamed[i]) for i in sorted(streamed)] == [flat(p) for p in answer["paragraphs"]]
+
+
+@pytest.mark.asyncio
+async def test_a_silent_ask_stream_sends_keepalives_and_keeps_every_frame() -> None:
+    import asyncio
+
+    from account_intelligence.api.routes.ask import KEEPALIVE, _with_keepalive
+
+    async def source():  # type: ignore[no-untyped-def]
+        yield b"event: status\ndata: {}\n\n"
+        await asyncio.sleep(0.05)  # the model is writing: nothing is sent
+        yield b"event: answer\ndata: {}\n\n"
+
+    got = [f async for f in _with_keepalive(source(), every=0.01)]
+    assert got[0] == b"event: status\ndata: {}\n\n" and got[-1] == b"event: answer\ndata: {}\n\n"
+    assert KEEPALIVE in got[1:-1]
+    # a comment frame carries no data line, so an SSE reader skips it
+    assert KEEPALIVE.startswith(b":") and b"data:" not in KEEPALIVE
+
+    async def broken():  # type: ignore[no-untyped-def]
+        yield b"event: status\ndata: {}\n\n"
+        raise RuntimeError("source failed")
+
+    with pytest.raises(RuntimeError, match="source failed"):
+        [f async for f in _with_keepalive(broken(), every=0.01)]

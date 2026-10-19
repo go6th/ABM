@@ -124,6 +124,7 @@ tables:
     plant: {part_size: 8388608, parts_total: 1, status: open}
   research_files:
     plant: {sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, status: AUDITED}
+  raw_files: {}
   documents:
     plant: {status: parsed, object_key: "tenants/{tenant}/documents/{uuid}/raw",
             sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
@@ -133,6 +134,8 @@ tables:
   document_parts: {}
   download_jobs: {}
   document_redactions: {}
+  document_tables: {}
+  document_table_rows: {}
   document_policies: {}
   document_deletions: {}
   run_documents: {}
@@ -827,6 +830,7 @@ routes:
 # Storage layouts (tenancy.catalog.STORAGE_LAYOUTS): a sample key of tenant A must resolve to A,
 # never to B, and a download token for it must be refused in B's session.
 storage:
+  raw_file: {layout: "tenants/<tenant>/raw/<sha256>"}
   raw_payload: {layout: "tenants/<tenant>/accounts/<account>/runs/<run>/raw/<sha256>.json.gz"}
   deliverable: {layout: "<tenant>/<account>/<run>/deliverables/<sha256>.<ext> (predates TN4)"}
   prepulled_quarantine: {layout: "quarantine/<tenant>/<run>/<intent>"}

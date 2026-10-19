@@ -11,6 +11,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /uvx /bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+ && rm -rf /var/lib/apt/lists/*
+COPY runtime/abm-render-tools/package.json runtime/abm-render-tools/package-lock.json /opt/abm-render-tools/
+RUN npm ci --prefix /opt/abm-render-tools --ignore-scripts
 COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
 # The document retrieval model (bge-small-en-v1.5, ONNX, about 130 MB), downloaded once at build
@@ -21,18 +25,21 @@ RUN FASTEMBED_CACHE_PATH=/app/models /app/.venv/bin/python -c \
 
 FROM python:3.12-slim AS runtime
 # Current Debian security updates on top of the base image (the Trivy gate fails on fixable HIGH).
-RUN apt-get update && apt-get -y upgrade && apt-get clean && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get -y upgrade \
+ && apt-get install -y --no-install-recommends nodejs poppler-utils libreoffice-writer \
+ && apt-get clean && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --no-create-home app
 # Local payload store (compose mounts the shared `payloads` volume here; it inherits this owner).
 RUN mkdir -p /tmp/payloads && chown 10001:10001 /tmp/payloads
 WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
 COPY --from=build /app/models /app/models
+COPY --from=build /opt/abm-render-tools /opt/abm-render-tools
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY config ./config
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 CONFIG_DIR=/app/config FASTEMBED_CACHE_PATH=/app/models HF_HUB_OFFLINE=1 PORT=8080 \
-    SERVICE_ROLE=api
+    SERVICE_ROLE=api NODE_PATH=/opt/abm-render-tools/node_modules EVAL_MODEL=kimi-k3 EVAL_EFFORT=high
 USER 10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \

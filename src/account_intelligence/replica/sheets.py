@@ -624,14 +624,21 @@ def safe_cell(value: Any, *, shareable: bool) -> tuple[Any, bool]:
     """One cell made safe for a client file. Returns (value, withheld).
 
     Dashes used as punctuation become commas and dash characters become hyphens (the format
-    rule); in a shareable workbook a cell that names a data tool, a credit count, a provider code
-    or an internal reference is withheld; text that a spreadsheet would run as a formula (it
-    starts with ``=``, ``+``, ``-``, ``@``, a tab or a return) gets a leading apostrophe."""
+    rule); in a shareable workbook tool names are scrubbed, provider domains and remaining
+    guarded terms are withheld; text that a spreadsheet would run as a formula (it starts with
+    ``=``, ``+``, ``-``, ``@``, a tab or a return) gets a leading apostrophe."""
     if not isinstance(value, str):
         return value, False
     text_value = _ANY_DASH.sub("-", _SPACED_DASH.sub(", ", value))
-    if shareable and leak_hits(text_value):
-        return WITHHELD, True
+    if shareable:
+        from agents.naming import third_party_domain_hits, tool_name_hits
+        from agents.skill_context import strip_tool_names
+
+        if third_party_domain_hits(text_value):
+            return WITHHELD, True
+        text_value = strip_tool_names(text_value)
+        if tool_name_hits(text_value) or leak_hits(text_value):
+            return WITHHELD, True
     if text_value.startswith(_FORMULA_START):
         text_value = "'" + text_value
     return text_value, False
@@ -718,11 +725,17 @@ def workbook(sheet: dict[str, Any], account_name: str) -> bytes:
 def check_finished(data: bytes) -> None:
     """The last check of a shareable workbook as a whole: no client term, no dash used as
     punctuation (``ExportBlocked``)."""
+    from agents.naming import third_party_domain_hits, tool_name_hits
     from documents.gate import client_text
     from exports.verify import scan_package
 
+    body = client_text(data)
     failed = tuple(f"client_terms:{h.split(': ')[-1]}" for h in scan_package(data, ()))
-    if _GATE_DASHES.search(client_text(data)):
+    if third_party_domain_hits(body):
+        failed += ("provider_host",)
+    if tool_name_hits(body):
+        failed += ("tool_name",)
+    if _GATE_DASHES.search(body):
         failed += ("client_dashes",)
     if failed:
         raise ExportBlocked(failed)

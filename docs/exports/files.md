@@ -2,7 +2,7 @@
 
 # The standing file set
 
-Rules status: **proposal** (D-24); rules hash `cd237d51444ced9d6ed86126555343b064140c77e2831c32cf55f307f6a70901` (covers
+Rules status: **proposal** (D-24); rules hash `9c0a515a417ea981f2dda1c1d0cb07df3a5a986e246231bcc9fea818749300cf` (covers
 `export_rules.yaml`, `lanes.yaml` and `output_spec.yaml`).
 
 | Kind | File name | Format |

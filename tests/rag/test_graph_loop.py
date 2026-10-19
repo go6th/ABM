@@ -211,7 +211,7 @@ async def test_a_low_confidence_answer_waits_for_review_and_a_rejection_refuses(
     validate_state({k: v for k, v in approved.items() if not k.startswith("__")})
 
 
-def test_the_checkpoint_state_never_carries_text_or_grows_unbounded() -> None:
+async def test_the_checkpoint_state_never_carries_text_or_grows_unbounded() -> None:
     validate_state({"run_id": "r", "query": "q", "chunk_ids": ["c1"]})
     with pytest.raises(ValueError, match="may not carry"):
         validate_state({"run_id": "r", "chunks": ["text"]})

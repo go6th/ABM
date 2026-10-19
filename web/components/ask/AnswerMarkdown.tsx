@@ -29,11 +29,13 @@ export const SCHEMA = {
 export function toMarkdown(parts: StreamPart[]): string {
   return parts
     .map((p) => {
-      if (p.t === "cite") return `[${p.v}](#cite-${p.v})`;
+      if (p.t === "cite") return ` [${p.v}](#cite-${p.v}) `;
       if (p.t === "bold") return `**${p.v}**`;
       return p.v;
     })
-    .join("");
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Some models return a complete table as tab-separated text instead of Markdown. Normalize
