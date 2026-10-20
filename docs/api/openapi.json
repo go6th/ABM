@@ -1181,6 +1181,19 @@
             ],
             "title": "Account Id"
           },
+          "effort": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
           "model": {
             "anyOf": [
               {
@@ -8475,6 +8488,10 @@
             "title": "Analysis",
             "type": "string"
           },
+          "analysis_effort": {
+            "title": "Analysis Effort",
+            "type": "string"
+          },
           "default_analysis": {
             "title": "Default Analysis",
             "type": "string"
@@ -8482,6 +8499,13 @@
           "default_research": {
             "title": "Default Research",
             "type": "string"
+          },
+          "efforts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Efforts",
+            "type": "array"
           },
           "models": {
             "items": {
@@ -8493,6 +8517,10 @@
           "research": {
             "title": "Research",
             "type": "string"
+          },
+          "research_effort": {
+            "title": "Research Effort",
+            "type": "string"
           }
         },
         "required": [
@@ -8500,7 +8528,10 @@
           "research",
           "analysis",
           "default_research",
-          "default_analysis"
+          "default_analysis",
+          "efforts",
+          "research_effort",
+          "analysis_effort"
         ],
         "title": "ModelChoices",
         "type": "object"
@@ -9330,6 +9361,19 @@
         "additionalProperties": false,
         "description": "The models to remember (only the fields sent change).",
         "properties": {
+          "analysis_effort": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Effort"
+          },
           "analysis_model": {
             "anyOf": [
               {
@@ -9342,6 +9386,19 @@
               }
             ],
             "title": "Analysis Model"
+          },
+          "research_effort": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Effort"
           },
           "research_model": {
             "anyOf": [
@@ -9759,6 +9816,19 @@
         "additionalProperties": false,
         "description": "Confirm a refresh. ``credits`` is the estimate the user saw and agreed to.",
         "properties": {
+          "analysis_effort": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Effort"
+          },
           "analysis_model": {
             "anyOf": [
               {
@@ -9801,6 +9871,19 @@
             "format": "uuid",
             "title": "Request Id",
             "type": "string"
+          },
+          "research_effort": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Effort"
           },
           "research_model": {
             "anyOf": [
@@ -10011,6 +10094,19 @@
         "additionalProperties": false,
         "description": "Confirm new research. ``credits`` is the estimate the user saw and agreed to.",
         "properties": {
+          "analysis_effort": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Effort"
+          },
           "analysis_model": {
             "anyOf": [
               {
@@ -10053,6 +10149,19 @@
             "format": "uuid",
             "title": "Request Id",
             "type": "string"
+          },
+          "research_effort": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Effort"
           },
           "research_model": {
             "anyOf": [

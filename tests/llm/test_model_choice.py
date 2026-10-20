@@ -5,13 +5,14 @@ from __future__ import annotations
 from llm.choice import NOT_ENABLED, NOT_SET_UP, RunModels, availability, catalogue
 
 # model ids live only in config (R1): the three choices in their configured order
-OPUS, FABLE, KIMI = catalogue().ids
+OPUS, FABLE, KIMI, SONNET, HAIKU = catalogue().ids
 KEYS = {"ANTHROPIC_API_KEY": "x", "MOONSHOT_API_KEY": "y"}
 
 
-def test_the_catalogue_offers_three_models_with_the_owners_defaults() -> None:
+def test_the_catalogue_offers_five_models_with_the_owners_defaults() -> None:
     cat = catalogue()
-    assert len(cat.ids) == 3
+    # every Claude model is a choice since 2026-10-20 (owner decision), plus Kimi K3
+    assert len(cat.ids) == 5
     assert (cat.default_research, cat.default_analysis) == (
         OPUS,
         OPUS,
@@ -20,7 +21,12 @@ def test_the_catalogue_offers_three_models_with_the_owners_defaults() -> None:
         "Most capable, slower",
         "Fast and strong",
         "Kimi K3 by Moonshot AI",
+        "Fast and economical",
+        "Fastest and cheapest, for simple work",
     ]
+    # the effort beside each model: medium or high, medium by default for both roles
+    assert cat.efforts == ("medium", "high")
+    assert (cat.default_research_effort, cat.default_analysis_effort) == ("medium", "medium")
     kimi = cat.get(KIMI)
     assert kimi is not None and kimi.provider == "moonshot"
     assert "web_search" not in kimi.features and "citations" not in kimi.features

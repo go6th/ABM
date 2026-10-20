@@ -14,7 +14,7 @@ from account_intelligence.platform.ports import LlmResult, LlmUsage
 from llm.choice import RunModels, catalogue
 
 pytestmark = pytest.mark.asyncio
-OPUS, FABLE, KIMI = catalogue().ids
+OPUS, FABLE, KIMI, SONNET, HAIKU = catalogue().ids
 
 
 class FakeMessages:

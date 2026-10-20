@@ -111,8 +111,9 @@ def load_routes(path: Path | None = None) -> dict[str, ModelRoute]:
 @lru_cache(maxsize=2)
 def model_efforts(path: Path | None = None) -> dict[str, str]:
     """The fixed effort of a model (``effort`` on its ``models`` entry in models.yaml): every
-    call on that model runs at it, whatever its task or surface asks (owner decision 2026-10-20:
-    Opus 5.5 at medium). A model without one keeps the task's or surface's effort."""
+    call on that model runs at it, whatever its task or surface asks. None is set: since
+    2026-10-20 the user picks the effort beside each model (owner decision), and a model
+    without one keeps the user's, task's or surface's effort."""
     data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
     out = {}
     for model, spec in (data.get("models") or {}).items():
@@ -232,7 +233,7 @@ class AnthropicLlm:
         options = options or CallOptions()
         schema_key = _schema_key(options.schema)
         if schema_key in _REFUSED_SCHEMAS:
-            options = CallOptions(options.cached_user, None, options.batch)
+            options = CallOptions(options.cached_user, None, options.batch, options.effort)
         if options.batch is not None and _has_batches(self.client):
             batched = await self._batched(route, system, user, max_tokens, options)
             if batched is not None:
@@ -252,7 +253,7 @@ class AnthropicLlm:
                 raise
             _REFUSED_SCHEMAS.add(_schema_key(options.schema))
             log.warning("llm.schema_refused", extra={"model": route.model, "tier": route.tier})
-            plain = CallOptions(options.cached_user, None, None)
+            plain = CallOptions(options.cached_user, None, None, options.effort)
             message = await self.client.messages.create(
                 **request_kwargs(route, system, user, max_tokens, plain)
             )
@@ -369,7 +370,7 @@ def request_kwargs(
         "messages": [{"role": "user", "content": content}],
     }
     output: dict[str, Any] = {}
-    effort = effort_for(route.model, route.effort)
+    effort = options.effort or effort_for(route.model, route.effort)
     if effort is not None:
         output["effort"] = effort
     if options.schema is not None:
@@ -482,8 +483,9 @@ class ChoiceLlm:
             # the user text
             if options is not None and options.cached_user:
                 user = f"{options.cached_user}\n\n{user}"
+            effort = options.effort if options is not None and options.effort else route.effort
             result: LlmResult = await self.moonshot.complete(
-                model, system, user, max_tokens=max_tokens, effort=route.effort
+                model, system, user, max_tokens=max_tokens, effort=effort
             )
             return result
         if self.anthropic is None:

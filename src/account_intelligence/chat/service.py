@@ -245,12 +245,14 @@ class ChatProvider(Protocol):
         tools: Sequence[Mapping[str, Any]] | None = None,
         run_tool: ToolRunner | None = None,
         temperature: float | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Yield bounded text deltas followed by exactly one final usage event. ``system``
         replaces the grounded rules; ``cached`` is large data (a whole file) appended to the
         system prompt in a block the provider may cache across turns; ``tools`` (with
         ``run_tool``) lets the model call them, each call and its result yielded as a ``tool``
-        event; ``temperature`` pins sampling (0 for a tabular turn)."""
+        event; ``temperature`` pins sampling (0 for a tabular turn); ``effort`` is the user's
+        choice for this turn (medium or high), in place of the provider's configured one."""
         ...
 
 
@@ -316,6 +318,7 @@ class AnthropicChatProvider:
         tools: Sequence[Mapping[str, Any]] | None = None,
         run_tool: ToolRunner | None = None,
         temperature: float | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Stream text and final token counts; provider exceptions retain no user text.
         ``system`` replaces the default grounded rules (the Ask answer format supplies its own).
@@ -354,10 +357,10 @@ class AnthropicChatProvider:
             request["cache_control"] = ephemeral
         from account_intelligence.platform.llm import effort_for
 
-        # a model with a fixed effort (models.yaml, Opus 5.5 at medium) keeps it on every surface
-        effort = effort_for(model.id, self._effort)
-        if effort is not None:
-            request["output_config"] = {"effort": effort}
+        # the user's choice for this turn, else a model's fixed effort (none set) or the surface's
+        chosen = effort or effort_for(model.id, self._effort)
+        if chosen is not None:
+            request["output_config"] = {"effort": chosen}
         # temperature is deliberately NOT forwarded: the installed SDK's Messages call has no
         # temperature parameter (open item OI-LLM-1) — forwarding the 0.0 that tabular Ask
         # turns send would TypeError every round. The Moonshot provider pins temperature/seed.
@@ -480,6 +483,7 @@ class MoonshotChatProvider:
         tools: Sequence[Mapping[str, Any]] | None = None,
         run_tool: ToolRunner | None = None,
         temperature: float | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Stream text and final token counts; provider exceptions retain no user text. The
         whole file (``cached``) rides in the system prompt. With ``tools`` the model may call
@@ -509,7 +513,7 @@ class MoonshotChatProvider:
                 system_instruction,
                 request_messages,
                 max_tokens=max_output_tokens,
-                effort=self._effort,
+                effort=effort or self._effort,
                 tools=tools,
                 temperature=temperature,
             ):

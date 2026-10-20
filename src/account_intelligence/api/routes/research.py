@@ -85,6 +85,9 @@ class ResearchBody(BaseModel):
     # the models chosen on the screen (owner decision 2026-10-14); None: the user's current ones
     research_model: str | None = Field(default=None, min_length=1, max_length=64)
     analysis_model: str | None = Field(default=None, min_length=1, max_length=64)
+    # the effort beside each model for this run (medium or high; owner decision 2026-10-20)
+    research_effort: str | None = Field(default=None, min_length=1, max_length=16)
+    analysis_effort: str | None = Field(default=None, min_length=1, max_length=16)
 
 
 @router.post("", response_model=C.ResearchStarted, status_code=201)
@@ -115,7 +118,12 @@ async def start_research(
         est = await CR.estimate(s, None, "new_research")
         try:
             models = await M.resolve(
-                s, ident.user_id, research=body.research_model, analysis=body.analysis_model
+                s,
+                ident.user_id,
+                research=body.research_model,
+                analysis=body.analysis_model,
+                research_effort=body.research_effort,
+                analysis_effort=body.analysis_effort,
             )
         except M.ModelRefused as error:
             raise refused(error) from None

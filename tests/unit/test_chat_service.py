@@ -206,7 +206,7 @@ def test_provider_for_serves_each_choices_model_from_its_own_provider() -> None:
     from account_intelligence.chat.service import ProviderByModel, provider_for
     from llm.choice import catalogue
 
-    OPUS, FABLE, KIMI = catalogue().ids  # catalogue ids, never literals (the R1 static guard)
+    OPUS, FABLE, KIMI, _, _ = catalogue().ids  # catalogue ids, never literals (the R1 static guard)
     anthropic_provider = AnthropicChatProvider(SimpleNamespace())
     moonshot_provider = SimpleNamespace(supports_tools=True)
     service = SimpleNamespace(provider=anthropic_provider)

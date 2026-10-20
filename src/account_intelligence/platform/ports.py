@@ -118,11 +118,15 @@ class CallOptions:
     * ``cached_user``: a large document that opens the user turn as its own cached block (the
       question follows it), so calls about the same source pay the cached-read price for it.
     * ``schema``: the reply's JSON Schema, sent as structured output so a reply cannot fail it.
-    * ``batch``: send the call through the Message Batches API at half price (``BatchSlot``)."""
+    * ``batch``: send the call through the Message Batches API at half price (``BatchSlot``).
+    * ``effort``: the user's effort for the role, in place of the task's."""
 
     cached_user: str | None = None
     schema: Mapping[str, Any] | None = None
     batch: BatchSlot | None = None
+    # the effort the user chose for this call's role (medium or high, owner decision
+    # 2026-10-20); None keeps the task's configured effort
+    effort: str | None = None
 
 
 class SecretSource(Protocol):

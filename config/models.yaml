@@ -143,10 +143,6 @@ models:
     provider: anthropic
     display_name: "Claude Opus 5.5"
     responsibility: "Data collection and judgment calls"
-    # every call on this model runs at this effort, whatever its task or surface asks (owner
-    # decision 2026-10-20: "opus should run on medium"; the judge and a user's Opus extraction
-    # asked low). A model without `effort` keeps the task's or surface's effort.
-    effort: medium
     context_window: 1000000
     max_output_tokens: 128000
     pricing:
@@ -195,7 +191,7 @@ models:
   claude-haiku-5-5:
     provider: anthropic
     display_name: "Claude Haiku 5.5"
-    responsibility: "Ask route classification (one word per question)"
+    responsibility: "Ask route classification; a user's choice for research or analysis"
     context_window: 1000000
     max_output_tokens: 128000
     # prompts up to 100k tokens; above that $0.50 in and $2.50 out (the classifier sends < 1k)
@@ -271,6 +267,13 @@ choices:
   # analysis default Opus 5.5 (token review item 4, 2026-10-20: was Fable 5.1, 2.5x the price);
   # Fable 5.1 stays a choice in every model menu
   defaults: {research: claude-opus-5-5, analysis: claude-opus-5-5}
+  # The effort a user picks for each role, beside its model (owner decision 2026-10-20: medium or
+  # high for every model, chosen in the frontend, no fixed effort per task or model). The chosen
+  # effort serves every tier of its role (research: planning, pulling, extraction,
+  # classification; analysis: Ask, synthesis, narrative, the judge) and replaces the
+  # task_settings effort. A user who has not chosen gets the default.
+  efforts: [medium, high]
+  default_effort: {research: medium, analysis: medium}
   needs_client_permission: []
   models:
     - id: claude-opus-5-5
@@ -291,3 +294,16 @@ choices:
       line: "Kimi K3 by Moonshot AI"
       key_env: MOONSHOT_API_KEY
       features: [strict_json]
+    # owner decision 2026-10-20: every Claude model is a choice, to try them per role
+    - id: claude-sonnet-5-5
+      label: "Sonnet 5.5"
+      name: "Claude Sonnet 5.5"
+      line: "Fast and economical"
+      key_env: ANTHROPIC_API_KEY
+      features: [strict_json, web_search, citations, adaptive_thinking, prompt_caching]
+    - id: claude-haiku-5-5
+      label: "Haiku 5.5"
+      name: "Claude Haiku 5.5"
+      line: "Fastest and cheapest, for simple work"
+      key_env: ANTHROPIC_API_KEY
+      features: [strict_json, adaptive_thinking, prompt_caching]

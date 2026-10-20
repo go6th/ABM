@@ -7,6 +7,9 @@
   go to Moonshot AI).
 * A user's two choices live in ``user_preferences`` (owned by the user); a conversation may set
   its own analysis model (``chat_threads.analysis_model``).
+* Beside each model the user picks an effort, medium or high (owner decision 2026-10-20,
+  ``choices.efforts``); it serves every tier of its role and replaces the tasks' own effort.
+  Not chosen: the catalogue's default effort.
 
 ``resolve`` is called before any work starts: a model that is not set up or not allowed is
 refused there with the reason the user sees, never at the provider.
@@ -79,18 +82,33 @@ def reason(model_id: str, pol: Policy, env: Mapping[str, str] | None = None) -> 
     )
 
 
-async def preferences(session: Any, user_id: str) -> tuple[str | None, str | None]:
-    """The user's saved research and analysis models (None: not chosen)."""
+async def preferences(
+    session: Any, user_id: str
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """The user's saved research and analysis models and efforts (None: not chosen)."""
     row = (
         await session.execute(
             text(
-                "SELECT research_model, analysis_model FROM user_preferences"
-                " WHERE owner_user_id = :u"
+                "SELECT research_model, analysis_model, research_effort, analysis_effort"
+                " FROM user_preferences WHERE owner_user_id = :u"
             ),
             {"u": user_id},
         )
     ).first()
-    return (row.research_model, row.analysis_model) if row is not None else (None, None)
+    if row is None:
+        return None, None, None, None
+    return row.research_model, row.analysis_model, row.research_effort, row.analysis_effort
+
+
+def _offered(effort: str | None, fallback: str) -> str:
+    """The saved effort while the catalogue still offers it, else the default."""
+    return effort if effort is not None and effort in catalogue().efforts else fallback
+
+
+def effort_refusal(effort: str) -> str | None:
+    """None when the effort is offered, else the reason the user sees."""
+    offered = catalogue().efforts
+    return None if effort in offered else f"Effort must be one of: {', '.join(offered)}"
 
 
 def _usable(choice: str | None, fallback: str, pol: Policy, env: Mapping[str, str] | None) -> str:
@@ -106,11 +124,14 @@ async def current(
 ) -> tuple[RunModels, Policy]:
     """The models the user works with now (saved choice, else the platform default)."""
     pol = await policy(session)
-    research, analysis = await preferences(session, user_id)
+    research, analysis, research_effort, analysis_effort = await preferences(session, user_id)
+    cat = catalogue()
     return (
         RunModels(
             _usable(research, pol.default_research, pol, env),
             _usable(analysis, pol.default_analysis, pol, env),
+            research_effort=_offered(research_effort, cat.default_research_effort),
+            analysis_effort=_offered(analysis_effort, cat.default_analysis_effort),
         ),
         pol,
     )
@@ -122,10 +143,12 @@ async def resolve(
     *,
     research: str | None = None,
     analysis: str | None = None,
+    research_effort: str | None = None,
+    analysis_effort: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> RunModels:
-    """The models for one run or answer: an explicit request must be usable (``ModelRefused``
-    otherwise), else the user's current models."""
+    """The models and efforts for one run or answer: an explicit request must be usable
+    (``ModelRefused`` otherwise), else the user's current ones."""
     models, pol = await current(session, user_id, env)
     for role, wanted in (("research", research), ("analysis", analysis)):
         if wanted is None:
@@ -134,6 +157,12 @@ async def resolve(
         if why is not None:
             raise ModelRefused(role, why)
         setattr(models, role, wanted)
+    for role, effort in (("research", research_effort), ("analysis", analysis_effort)):
+        if effort is None:
+            continue
+        if (why := effort_refusal(effort)) is not None:
+            raise ModelRefused(role, why)
+        setattr(models, f"{role}_effort", effort)
     return models
 
 
@@ -143,6 +172,8 @@ async def save_preferences(
     *,
     research: str | None,
     analysis: str | None,
+    research_effort: str | None = None,
+    analysis_effort: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> RunModels:
     """Remember the user's choices (each one checked first); returns the models now in use."""
@@ -150,15 +181,23 @@ async def save_preferences(
     for role, wanted in (("research", research), ("analysis", analysis)):
         if wanted is not None and (why := reason(wanted, pol, env)) is not None:
             raise ModelRefused(role, why)
+    for role, effort in (("research", research_effort), ("analysis", analysis_effort)):
+        if effort is not None and (why := effort_refusal(effort)) is not None:
+            raise ModelRefused(role, why)
     await session.execute(
         text(
-            "INSERT INTO user_preferences (owner_user_id, research_model, analysis_model)"
-            " VALUES (:u, :r, :a) ON CONFLICT (tenant_id, owner_user_id) DO UPDATE SET"
+            "INSERT INTO user_preferences (owner_user_id, research_model, analysis_model,"
+            " research_effort, analysis_effort) VALUES (:u, :r, :a, :re, :ae)"
+            " ON CONFLICT (tenant_id, owner_user_id) DO UPDATE SET"
             " research_model = coalesce(EXCLUDED.research_model, user_preferences.research_model),"
             " analysis_model = coalesce(EXCLUDED.analysis_model, user_preferences.analysis_model),"
+            " research_effort = coalesce(EXCLUDED.research_effort,"
+            " user_preferences.research_effort),"
+            " analysis_effort = coalesce(EXCLUDED.analysis_effort,"
+            " user_preferences.analysis_effort),"
             " updated_at = now()"
         ),
-        {"u": user_id, "r": research, "a": analysis},
+        {"u": user_id, "r": research, "a": analysis, "re": research_effort, "ae": analysis_effort},
     )
     models, _ = await current(session, user_id, env)
     return models
@@ -205,6 +244,10 @@ def choices_view(
         "analysis": models.analysis,
         "default_research": pol.default_research,
         "default_analysis": pol.default_analysis,
+        # the effort menus (owner decision 2026-10-20)
+        "efforts": list(catalogue().efforts),
+        "research_effort": models.research_effort or catalogue().default_research_effort,
+        "analysis_effort": models.analysis_effort or catalogue().default_analysis_effort,
     }
 
 

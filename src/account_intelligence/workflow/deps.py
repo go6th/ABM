@@ -208,6 +208,10 @@ class RunDeps:
         judge = chosen or str(routes["judge"].model)
         return independent_judge(extractor, cat) if judge == extractor else chosen
 
+    def _effort(self, tier: str) -> str | None:
+        """The effort the run's user chose for this tier's role (None: the task's own)."""
+        return self.models.effort_for_tier(tier) if self.models is not None else None
+
     def _cache_tier(self, tier: str, model: str | None) -> str:
         """The tier as the reply keys name it: the bare tier for the tier's configured model (so
         replies stored before the model choice existed are still reused, never paid again), the
@@ -254,6 +258,10 @@ class RunDeps:
         tier = LEGACY_TIER[task_kind]
         model = self.chosen_model(tier, override)
         key_tier = self._cache_tier(tier, model)
+        effort = self._effort(tier)
+        if effort is not None:
+            # a reply asked at another effort is another reply: trying high never reuses medium
+            key_tier = f"{key_tier}~{effort}"
         # the request as the keys see it: a cached source block is part of the request
         keyed_user = f"{cached_user}\x00{user}" if cached_user else user
         if not replayable:
@@ -462,9 +470,10 @@ class RunDeps:
         from llm.adapters.anthropic_api import map_error
 
         extra: dict[str, Any] = {}
+        effort = self._effort(tier)
         if getattr(self.llm, "supports_call_options", False):
-            if schema is not None or cached_user or batch is not None:
-                extra["options"] = CallOptions(cached_user or None, schema, batch)
+            if schema is not None or cached_user or batch is not None or effort is not None:
+                extra["options"] = CallOptions(cached_user or None, schema, batch, effort)
         elif cached_user:
             user = f"{cached_user}\n\n{user}"
         try:

@@ -96,6 +96,9 @@ class AskBody(BaseModel):
     # the analysis model for this conversation (the composer's model chip); None keeps the
     # conversation's model, else the user's current analysis model
     model: str | None = Field(default=None, min_length=1, max_length=64)
+    # the effort for this question (medium or high, the composer's effort chip; owner decision
+    # 2026-10-20); None: the user's analysis effort
+    effort: str | None = Field(default=None, min_length=1, max_length=16)
 
 
 def week_of(now: datetime) -> date:
@@ -141,6 +144,9 @@ async def ask(
             analysis_model = await M.conversation_model(
                 session, ident.user_id, body.model, body.thread_id
             )
+            turn_effort = (
+                await M.resolve(session, ident.user_id, analysis_effort=body.effort)
+            ).analysis_effort
         except M.ModelRefused as error:
             raise refused(error) from None
     replay = (
@@ -252,6 +258,7 @@ async def ask(
                     "provider_type": type(provider).__name__ if provider else None,
                     "has_accounts": bool(ws.accounts),
                     "analysis_model": analysis_model,
+                    "effort": turn_effort,
                 },
             )
             if isinstance(service, ChatService) and provider is not None and ws.accounts:
@@ -273,6 +280,7 @@ async def ask(
                         tools=tools.offered(decision.route) if tools is not None else None,
                         run_tool=tools.run if tools is not None else None,
                         temperature=0.0 if tools is not None else None,
+                        effort=turn_effort,
                     ):
                         if kind == "piece":
                             # Hold streamed pieces until the whole answer is scrubbed and scanned.

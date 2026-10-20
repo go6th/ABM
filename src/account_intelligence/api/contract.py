@@ -2497,6 +2497,11 @@ class ModelChoices(Out):
     analysis: str
     default_research: str
     default_analysis: str
+    # the effort menus beside each model (owner decision 2026-10-20): the offered levels and the
+    # user's current effort for each role
+    efforts: list[str]
+    research_effort: str
+    analysis_effort: str
 
 
 class ConsoleModel(Out):

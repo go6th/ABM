@@ -391,6 +391,7 @@ async def stream_with_model(
     tools: Sequence[Mapping[str, Any]] | None = None,
     run_tool: Any | None = None,
     temperature: float | None = None,
+    effort: str | None = None,
 ) -> AsyncIterator[tuple[str, Any]]:
     """Events while the model writes: ("piece", (paragraph index, text with row markers)) for
     each checked sentence, ("tool", the call and its result) for each table tool the model ran,
@@ -432,6 +433,7 @@ async def stream_with_model(
         tools=tools,
         run_tool=run_tool,
         temperature=temperature,
+        effort=effort,
     ):
         if event.kind == "usage":
             usage = event.usage

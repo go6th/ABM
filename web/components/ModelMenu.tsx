@@ -1,7 +1,8 @@
 "use client";
 // The model chip and its menu (owner decision 2026-10-14), as claude.ai shows a model picker:
 // the chip names the model ("Fable 5.1", or "Research: Opus 5.5") with a down arrow; the menu
-// lists each model's name and one plain line. A model that cannot be chosen is greyed out with
+// lists each model's name and one plain line. Beside it, the effort chip ("Effort: Medium",
+// medium or high, owner decision 2026-10-20). A model that cannot be chosen is greyed out with
 // its reason ("Not set up", "Not enabled for your workspace"), so nothing fails at Send.
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -98,29 +99,73 @@ export function ModelMenu({ choices, value, onChange, role, menuDown = false, cl
   );
 }
 
-/** The two model choices of a research run, defaulting to the user's current models. */
+const EFFORT_NAMES: Record<string, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+
+/** "Effort: Medium" beside a model chip (owner decision 2026-10-20): a press moves to the next
+ * effort the server offers (medium, high), like the Search on/off chip. */
+export function EffortChip({ efforts, value, onChange, role, className = "chipa" }: {
+  efforts: string[];
+  value: string;
+  onChange: (effort: string) => void;
+  role?: "Research" | "Analysis";
+  className?: string;
+}) {
+  if (efforts.length < 2) return null;
+  const name = (e: string) => EFFORT_NAMES[e] ?? e;
+  const next = efforts[(efforts.indexOf(value) + 1) % efforts.length] ?? value;
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-label={`${role ? `${role} effort` : "Effort"}: ${name(value)}. Change to ${name(next)}`}
+      title="How hard the model thinks: higher is slower and costs more"
+      onClick={() => onChange(next)}
+    >
+      {role ? `${role} effort` : "Effort"}: {name(value)}
+    </button>
+  );
+}
+
+/** The two model and effort choices of a research run, defaulting to the user's current ones. */
 export function useResearchModels() {
   const choices = useModelChoices();
   const [research, setResearch] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
-  const picked = choices ? { research: research ?? choices.research, analysis: analysis ?? choices.analysis } : null;
+  const [researchEffort, setResearchEffort] = useState<string | null>(null);
+  const [analysisEffort, setAnalysisEffort] = useState<string | null>(null);
+  const picked = choices ? {
+    research: research ?? choices.research,
+    analysis: analysis ?? choices.analysis,
+    researchEffort: researchEffort ?? choices.research_effort,
+    analysisEffort: analysisEffort ?? choices.analysis_effort,
+  } : null;
   return {
     choices,
     picked,
     setResearch,
     setAnalysis,
-    /** The confirm body's model fields (empty until the menus have loaded). */
-    body: picked ? { research_model: picked.research, analysis_model: picked.analysis } : {},
+    setResearchEffort,
+    setAnalysisEffort,
+    /** The confirm body's model and effort fields (empty until the menus have loaded). */
+    body: picked ? {
+      research_model: picked.research,
+      analysis_model: picked.analysis,
+      research_effort: picked.researchEffort,
+      analysis_effort: picked.analysisEffort,
+    } : {},
   };
 }
 
-/** "Research: Opus 5.5" and "Analysis: Fable 5.1", changeable before Start. */
+/** "Research: Opus 5.5 · Effort: Medium" and "Analysis: …", changeable before Start. */
 export function ResearchModelChips({ state }: { state: ReturnType<typeof useResearchModels> }) {
   if (!state.choices || !state.picked) return null;
+  const { choices, picked } = state;
   return (
     <div className="row-12 wrap" role="group" aria-label="Models for this research">
-      <ModelMenu choices={state.choices} value={state.picked.research} onChange={state.setResearch} role="Research" menuDown className="chipa" />
-      <ModelMenu choices={state.choices} value={state.picked.analysis} onChange={state.setAnalysis} role="Analysis" menuDown className="chipa" />
+      <ModelMenu choices={choices} value={picked.research} onChange={state.setResearch} role="Research" menuDown className="chipa" />
+      <EffortChip efforts={choices.efforts} value={picked.researchEffort} onChange={state.setResearchEffort} role="Research" />
+      <ModelMenu choices={choices} value={picked.analysis} onChange={state.setAnalysis} role="Analysis" menuDown className="chipa" />
+      <EffortChip efforts={choices.efforts} value={picked.analysisEffort} onChange={state.setAnalysisEffort} role="Analysis" />
     </div>
   );
 }

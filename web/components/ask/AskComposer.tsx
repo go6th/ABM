@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { refreshHref } from "./AnswerView";
-import { ModelMenu } from "@/components/ModelMenu";
+import { EffortChip, ModelMenu } from "@/components/ModelMenu";
 import type { ModelChoices } from "@/lib/gen/api.gen";
 
 export interface ScopeAccount { id: string; domain: string; name: string }
@@ -52,7 +52,7 @@ function AddFilesMenu() {
 
 export function AskComposer({
   variant, draft, onDraft, onSend, busy, accounts, scope, onScope, placeholder, menuDown = false, webHintOpen, onWebHint,
-  models = null, model = null, onModel,
+  models = null, model = null, onModel, effort = null, onEffort,
 }: {
   variant: "hero" | "follow" | "account";
   draft: string;
@@ -69,6 +69,8 @@ export function AskComposer({
   models?: ModelChoices | null;
   model?: string | null;
   onModel?: (id: string) => void;
+  effort?: string | null;
+  onEffort?: (effort: string) => void;
 }) {
   const router = useRouter();
   const inputId = useId();
@@ -182,6 +184,9 @@ export function AskComposer({
         </button>
         {models && model && onModel ? (
           <ModelMenu choices={models} value={model} onChange={onModel} menuDown={menuDown} className={chip} />
+        ) : null}
+        {models && effort && onEffort ? (
+          <EffortChip efforts={models.efforts} value={effort} onChange={onEffort} className={chip} />
         ) : null}
         <span className="spacer" />
         <button

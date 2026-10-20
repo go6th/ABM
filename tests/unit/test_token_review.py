@@ -448,20 +448,19 @@ def test_the_spend_view_migration_is_additive() -> None:
 
 
 @pytest.mark.asyncio
-async def test_opus_runs_at_medium_whatever_its_task_asks() -> None:
+async def test_the_users_effort_replaces_the_tasks_on_every_model() -> None:
+    """Owner decision 2026-10-20: the user picks medium or high beside each model; no model or
+    task has a fixed effort any more."""
     from account_intelligence.chat.service import AnthropicChatProvider, ChatMessage
-    from account_intelligence.platform.llm import effort_for
+    from account_intelligence.platform.llm import model_efforts
 
-    # extraction asks low; its model (Opus 5.5) has a fixed effort of medium
-    assert _ROUTES["extractor"].model == OPUS and _ROUTES["extractor"].effort == "low"
-    extract = request_kwargs(_ROUTES["extractor"], "s", "u", 10)
-    assert extract["output_config"]["effort"] == "medium"
-    # any task on Opus, e.g. a judge route a user's choice puts on it
-    picked = ModelRoute("judge", "anthropic", OPUS, "low", True)
-    assert request_kwargs(picked, "s", "u", 10)["output_config"]["effort"] == "medium"
-    # a model without a fixed effort keeps the task's
-    assert request_kwargs(ROUTE, "s", "u", 10)["output_config"]["effort"] == "low"
-    assert effort_for(SONNET, "high") == "high"
+    assert model_efforts() == {}  # nothing fixed per model
+    extract = _ROUTES["extractor"]
+    assert extract.effort == "low"  # the task's own effort, when the user chose none
+    assert request_kwargs(extract, "s", "u", 10)["output_config"]["effort"] == "low"
+    for chosen in ("medium", "high"):
+        kw = request_kwargs(extract, "s", "u", 10, CallOptions(effort=chosen))
+        assert kw["output_config"]["effort"] == chosen
 
     captured: list[dict[str, Any]] = []
 
@@ -489,9 +488,70 @@ async def test_opus_runs_at_medium_whatever_its_task_asks() -> None:
         def stream(self, **kw: Any) -> Stream:
             return Stream(kw)
 
-    provider = AnthropicChatProvider(type("C", (), {"messages": Msgs()})(), effort="high")
-    for model_id in (OPUS, SONNET):
+    provider = AnthropicChatProvider(type("C", (), {"messages": Msgs()})(), effort="medium")
+    for model_id, effort in ((OPUS, "high"), (SONNET, None), (HELPER, "high")):
         model = type("M", (), {"id": model_id})()
-        async for _ in provider.stream(model, [ChatMessage("user", "q")], 100, system="R"):
+        async for _ in provider.stream(model, [ChatMessage("user", "q")], 100, effort=effort):
             pass
-    assert [c["output_config"]["effort"] for c in captured] == ["medium", "high"]
+    # the turn's choice wins; without one the surface's effort stands
+    assert [c["output_config"]["effort"] for c in captured] == ["high", "medium", "high"]
+
+
+@pytest.mark.asyncio
+async def test_a_run_applies_each_roles_effort_and_keys_its_replies_by_it() -> None:
+    from account_intelligence.platform.hermetic import MemoryPayloadStore
+    from account_intelligence.workflow.deps import RunDeps
+    from llm.choice import RunModels, catalogue
+
+    cat = catalogue()
+    seen: list[tuple[str, str | None]] = []
+
+    class Port:
+        supports_call_options = True
+        routes = load_routes()
+
+        async def complete(self, tier: str, system: str, user: str, **kw: Any) -> Any:
+            from account_intelligence.platform.ports import LlmResult, LlmUsage
+
+            options = kw.get("options")
+            seen.append((tier, options.effort if options else None))
+            return LlmResult('{"ok": 1}', OPUS, LlmUsage(1, 1))
+
+        async def complete_as(self, *a: Any, **k: Any) -> Any:
+            raise AssertionError("defaults run on the arm")
+
+    def deps(models: RunModels | None) -> Any:
+        d = RunDeps.__new__(RunDeps)
+        for name, value in {
+            "llm": Port(),
+            "models": models,
+            "router": None,
+            "reply_cache": None,
+            "txn": None,
+            "payloads": MemoryPayloadStore(),
+            "run_input": {},
+            "tenant_id": uuid4(),
+            "account_id": uuid4(),
+            "run_id": uuid4(),
+        }.items():
+            object.__setattr__(d, name, value)
+        return d
+
+    chosen = RunModels(
+        cat.default_research, cat.default_analysis, research_effort="high", analysis_effort="medium"
+    )
+    run = deps(chosen)
+    await run.model("abm_pass1_extract", "s", "u")  # research role
+    await run.model("support_judge", "s", "u")  # analysis role
+    assert seen == [("extractor", "high"), ("judge", "medium")]
+    # the same request at another effort is another reply (trying high never reuses medium)
+    await run.model("abm_pass1_extract", "s", "u")
+    assert len(seen) == 2  # same effort: replayed within the run
+    run.models.research_effort = "medium"
+    await run.model("abm_pass1_extract", "s", "u")
+    assert seen[-1] == ("extractor", "medium") and len(seen) == 3
+    # a run from before the choice keeps each task's own effort
+    old = deps(None)
+    await old.model("abm_pass1_extract", "s", "u")
+    assert seen[-1] == ("extractor", None)
+    assert RunModels.from_json({"research_effort": "turbo"}).research_effort is None

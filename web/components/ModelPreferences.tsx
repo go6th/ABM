@@ -1,7 +1,8 @@
 "use client";
-// The two default models, saved to the user's own profile (PUT /v1/me/model-preferences).
+// The two default models and the effort beside each (medium or high), saved to the user's own
+// profile (PUT /v1/me/model-preferences).
 import { useState } from "react";
-import { ModelMenu, useModelChoicesState } from "@/components/ModelMenu";
+import { EffortChip, ModelMenu, useModelChoicesState } from "@/components/ModelMenu";
 import { api, ApiError } from "@/lib/api";
 import type { ModelChoices } from "@/lib/gen/api.gen";
 import { StateCard } from "@/ui/design";
@@ -21,10 +22,10 @@ export function ModelPreferences() {
   if (!choices) return <div className="card pad"><div className="skel line" /><div className="skel line w80" /></div>;
   if (!choices.models.length) return <StateCard title="No models are available" body="Ask your administrator to set up a model." />;
 
-  const save = async (role: "research" | "analysis", id: string) => {
+  const save = async (role: "research" | "analysis", field: "model" | "effort", value: string) => {
     setMessage(null);
     try {
-      const next = await api<ModelChoices>("PUT", "/v1/me/model-preferences", { [`${role}_model`]: id });
+      const next = await api<ModelChoices>("PUT", "/v1/me/model-preferences", { [`${role}_${field}`]: value });
       setSaved(next);
       setMessage({ ok: true, text: "Saved." });
     } catch (cause) {
@@ -37,7 +38,10 @@ export function ModelPreferences() {
       {ROLES.map((r) => (
         <div key={r.key} className="row-16 wrap line-top">
           <div className="grow-240"><b>{r.role} model</b><div className="mut sm-text">{r.text}</div></div>
-          <ModelMenu choices={choices} value={choices[r.key]} onChange={(id) => void save(r.key, id)} role={r.role} menuDown className="btn sm" />
+          <div className="row-12 wrap">
+            <ModelMenu choices={choices} value={choices[r.key]} onChange={(id) => void save(r.key, "model", id)} role={r.role} menuDown className="btn sm" />
+            <EffortChip efforts={choices.efforts} value={choices[`${r.key}_effort`]} onChange={(e) => void save(r.key, "effort", e)} role={r.role} className="btn sm" />
+          </div>
         </div>
       ))}
       {message ? <p className={`sm-text ${message.ok ? "mut" : "bad-text"}`} role={message.ok ? "status" : "alert"}>{message.text}</p> : null}

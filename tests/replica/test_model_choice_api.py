@@ -16,7 +16,7 @@ from tests.conftest import ADMIN_DSN
 from tests.replica.test_workspace_api import _call, _plane
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
-OPUS, FABLE, KIMI = catalogue().ids
+OPUS, FABLE, KIMI, SONNET, HAIKU = catalogue().ids
 
 
 @pytest.fixture
@@ -83,6 +83,37 @@ async def test_preferences_are_remembered_and_checked(world: dict[str, Any], key
         assert (await _call(plane, "GET", "/v1/models/choices")).json()["research"] == OPUS
     finally:
         _allow(world["a"], None)
+
+
+async def test_the_effort_beside_each_model_is_remembered_and_checked(
+    world: dict[str, Any], keys: None
+) -> None:
+    """Owner decision 2026-10-20: medium or high beside each model, every Claude model choosable."""
+    plane = _plane(world["a"], f"eff-{uuid4().hex[:6]}", world["payloads"])
+    got = (await _call(plane, "GET", "/v1/models/choices")).json()
+    assert got["efforts"] == ["medium", "high"]
+    assert (got["research_effort"], got["analysis_effort"]) == ("medium", "medium")
+    assert {SONNET, HAIKU} <= {m["id"] for m in got["models"] if m["available"]}
+    saved = await _call(
+        plane,
+        "PUT",
+        "/v1/me/model-preferences",
+        json={"research_model": SONNET, "research_effort": "high"},
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert (body["research"], body["research_effort"], body["analysis_effort"]) == (
+        SONNET,
+        "high",
+        "medium",
+    )
+    # saving the analysis effort keeps the research choices
+    again = await _call(plane, "PUT", "/v1/me/model-preferences", json={"analysis_effort": "high"})
+    assert (again.json()["research_effort"], again.json()["analysis_effort"]) == ("high", "high")
+    refused = await _call(
+        plane, "PUT", "/v1/me/model-preferences", json={"analysis_effort": "turbo"}
+    )
+    assert refused.status_code == 422 and "Effort must be one of" in refused.text
 
 
 async def test_ask_refuses_a_model_before_it_starts(world: dict[str, Any], keys: None) -> None:

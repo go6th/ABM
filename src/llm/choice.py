@@ -55,6 +55,11 @@ class Catalogue:
     default_research: str
     default_analysis: str
     needs_client_permission: frozenset[str]
+    # the efforts a user may pick for a role and the default of each role (owner decision
+    # 2026-10-20: medium or high, for every model)
+    efforts: tuple[str, ...] = ("medium", "high")
+    default_research_effort: str = "medium"
+    default_analysis_effort: str = "medium"
 
     def get(self, model_id: str) -> ModelChoice | None:
         """The choice with this id, if any."""
@@ -96,7 +101,16 @@ def catalogue(path: str | None = None) -> Catalogue:
         default_research=str(raw["defaults"]["research"]),
         default_analysis=str(raw["defaults"]["analysis"]),
         needs_client_permission=frozenset(raw.get("needs_client_permission", [])),
+        efforts=tuple(str(e) for e in raw.get("efforts") or ("medium", "high")),
+        default_research_effort=str((raw.get("default_effort") or {}).get("research", "medium")),
+        default_analysis_effort=str((raw.get("default_effort") or {}).get("analysis", "medium")),
     )
+    known = {"low", "medium", "high", "xhigh", "max"}
+    if not cat.efforts or any(e not in known for e in cat.efforts):
+        raise ValueError(f"models.yaml choices: unknown efforts {cat.efforts}")
+    for effort in (cat.default_research_effort, cat.default_analysis_effort):
+        if effort not in cat.efforts:
+            raise ValueError(f"models.yaml choices: default effort {effort!r} is not offered")
     for model_id in (cat.default_research, cat.default_analysis):
         if cat.get(model_id) is None:
             raise ValueError(f"models.yaml choices: default {model_id} is not a choice")
@@ -105,11 +119,20 @@ def catalogue(path: str | None = None) -> Catalogue:
 
 @dataclass
 class RunModels:
-    """The models one run or answer uses, and any step that fell back (recorded with why)."""
+    """The models one run or answer uses, the effort the user chose for each role, and any step
+    that fell back (recorded with why). An effort of None (a run from before the choice
+    existed) leaves each task's configured effort."""
 
     research: str
     analysis: str
     fallbacks: list[dict[str, str]] = field(default_factory=list)
+    research_effort: str | None = None
+    analysis_effort: str | None = None
+
+    def effort_for_tier(self, tier: str, cat: Catalogue | None = None) -> str | None:
+        """The effort the user chose for the role this tier belongs to (None: not chosen)."""
+        cat = cat or catalogue()
+        return self.research_effort if tier in cat.research_tiers else self.analysis_effort
 
     def for_tier(self, tier: str, cat: Catalogue | None = None) -> str:
         """The model for one tier of the legacy port."""
@@ -125,8 +148,17 @@ class RunModels:
         self.fallbacks.append({"step": step, "from": from_model, "to": to_model, "reason": reason})
 
     def as_json(self) -> dict[str, Any]:
-        """What the run row and the answer record store."""
-        return {"research": self.research, "analysis": self.analysis, "fallbacks": self.fallbacks}
+        """What the run row and the answer record store (the efforts only once chosen)."""
+        out: dict[str, Any] = {
+            "research": self.research,
+            "analysis": self.analysis,
+            "fallbacks": self.fallbacks,
+        }
+        if self.research_effort is not None:
+            out["research_effort"] = self.research_effort
+        if self.analysis_effort is not None:
+            out["analysis_effort"] = self.analysis_effort
+        return out
 
     @classmethod
     def from_json(cls, raw: Mapping[str, Any] | None) -> RunModels:
@@ -137,7 +169,14 @@ class RunModels:
             str(raw.get("research") or cat.default_research),
             str(raw.get("analysis") or cat.default_analysis),
             list(raw.get("fallbacks") or []),
+            _effort(raw.get("research_effort"), cat),
+            _effort(raw.get("analysis_effort"), cat),
         )
+
+
+def _effort(value: Any, cat: Catalogue) -> str | None:
+    """A stored effort when it is still offered, else None (the tasks' own effort)."""
+    return str(value) if value is not None and str(value) in cat.efforts else None
 
 
 def independent_judge(generator: str, cat: Catalogue | None = None) -> str:

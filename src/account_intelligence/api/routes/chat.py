@@ -264,6 +264,8 @@ async def stream_turn(
     # the shared ProviderByModel, so a Moonshot conversation answers through Moonshot.
     async with tenant_txn(ident.tenant_id) as session:
         analysis_model = await M.conversation_model(session, ident.user_id, None, thread_id)
+        # the user's analysis effort (medium or high, owner decision 2026-10-20)
+        turn_effort = (await M.current(session, ident.user_id))[0].analysis_effort
     model = service.registry.resolve(analysis_model)
 
     # Enforce project/domain scope: reject off-topic queries outside ABM and account intelligence
@@ -407,6 +409,7 @@ async def stream_turn(
                 request_id=str(body.request_id),
                 fresh_output=body.fresh_output,
                 context=grounding,
+                effort=turn_effort,
             ):
                 if event.kind == "text":
                     output_chars += len(event.text)

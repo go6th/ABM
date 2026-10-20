@@ -62,6 +62,8 @@ export function Ask({
   // the analysis model for this conversation (the model chip); null: the user's current one
   const choices = useModelChoices();
   const [model, setModel] = useState<string | null>(null);
+  // the effort for this conversation's questions (the effort chip); null: the user's analysis effort
+  const [effort, setEffort] = useState<string | null>(null);
   // chats left this month, and the refusal when none is (owner decision 2026-10-14)
   const { limits, reload } = useMyLimits();
   const [hit, setHit] = useState<{ kind: "researches" | "chats"; message: string } | null>(null);
@@ -132,6 +134,7 @@ export function Ask({
         thread_id: threadId,
         account_id: scope?.id ?? null,
         ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
       }, controller.signal);
       await readFrames(reply, (frame) => {
         if (frame.event === "thread") {
@@ -169,7 +172,7 @@ export function Ask({
       }
       patch(key, { status: "failed", error: failureText(cause), partial: undefined });
     }
-  }, [busy, threadId, scope, router, model, reload]);
+  }, [busy, threadId, scope, router, model, effort, reload]);
 
   // ?q= from an account page: ask once on arrival.
   useEffect(() => {
@@ -185,6 +188,7 @@ export function Ask({
   const composerProps = {
     draft, onDraft: setDraft, busy, accounts, scope, onScope: setScope,
     models: choices, model: model ?? choices?.analysis ?? null, onModel: setModel,
+    effort: effort ?? choices?.analysis_effort ?? null, onEffort: setEffort,
     webHintOpen: webHint, onWebHint: setWebHint, onSend: () => void send(draft),
   };
 

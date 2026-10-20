@@ -15,7 +15,7 @@ from account_intelligence.platform.llm import (
 from llm.choice import catalogue
 
 # model ids come from the catalogue, never as literals (the R1 static guard scans for them)
-OPUS, FABLE, KIMI = catalogue().ids
+OPUS, FABLE, KIMI, SONNET, HAIKU = catalogue().ids
 
 
 def test_the_shipped_block_is_the_owner_decision() -> None:

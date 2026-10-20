@@ -216,7 +216,7 @@ async def test_terminated_access_is_refused_everywhere_and_re_enabled(
 async def test_platform_defaults_and_the_model_choice(staff_env: None) -> None:
     from llm.choice import catalogue
 
-    opus, fable, kimi = catalogue().ids
+    opus, fable, kimi, sonnet, haiku = catalogue().ids
     plane = make_app()
     before = (await _staff(plane, "GET", "/operator/v1/console/defaults")).json()
     assert before["admins"] == [
@@ -226,8 +226,8 @@ async def test_platform_defaults_and_the_model_choice(staff_env: None) -> None:
     assert before["skill_version"] and before["model_router_on"] is False
     # the analysis default is Opus 5.5 since 2026-10-20 (token review item 4)
     assert (before["default_research_model"], before["default_analysis_model"]) == (opus, opus)
-    assert [m["id"] for m in before["models"]] == [opus, fable, kimi]
-    assert [m["needs_client_permission"] for m in before["models"]] == [False, False, False]
+    assert [m["id"] for m in before["models"]] == [opus, fable, kimi, sonnet, haiku]
+    assert not any(m["needs_client_permission"] for m in before["models"])
     try:
         r = await _staff(
             plane,

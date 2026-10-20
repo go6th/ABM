@@ -304,6 +304,7 @@ export type Archive = z.infer<typeof Archive>;
 
 export const AskBody = z.object({
   "account_id": z.string().nullable().optional(),
+  "effort": z.string().nullable().optional(),
   "model": z.string().nullable().optional(),
   "question": z.string(),
   "request_id": z.string(),
@@ -1728,10 +1729,13 @@ export type ModelChoice = z.infer<typeof ModelChoice>;
 
 export const ModelChoices = z.object({
   "analysis": z.string(),
+  "analysis_effort": z.string(),
   "default_analysis": z.string(),
   "default_research": z.string(),
+  "efforts": z.array(z.string()),
   "models": z.array(ModelChoice),
   "research": z.string(),
+  "research_effort": z.string(),
 }).strict();
 export type ModelChoices = z.infer<typeof ModelChoices>;
 
@@ -1884,7 +1888,9 @@ export const PolicyBody = z.object({
 export type PolicyBody = z.infer<typeof PolicyBody>;
 
 export const Preferences = z.object({
+  "analysis_effort": z.string().nullable().optional(),
   "analysis_model": z.string().nullable().optional(),
+  "research_effort": z.string().nullable().optional(),
   "research_model": z.string().nullable().optional(),
 }).strict();
 export type Preferences = z.infer<typeof Preferences>;
@@ -1985,10 +1991,12 @@ export const Reconcile = z.object({
 export type Reconcile = z.infer<typeof Reconcile>;
 
 export const RefreshBody = z.object({
+  "analysis_effort": z.string().nullable().optional(),
   "analysis_model": z.string().nullable().optional(),
   "credits": z.number().int().nullable().optional(),
   "from_turn_id": z.string().nullable().optional(),
   "request_id": z.string(),
+  "research_effort": z.string().nullable().optional(),
   "research_model": z.string().nullable().optional(),
   "scope": z.string(),
   "topic": z.string().nullable().optional(),
@@ -2039,11 +2047,13 @@ export const RejectBody = z.object({
 export type RejectBody = z.infer<typeof RejectBody>;
 
 export const ResearchBody = z.object({
+  "analysis_effort": z.string().nullable().optional(),
   "analysis_model": z.string().nullable().optional(),
   "company_name": z.string(),
   "credits": z.number().int().nullable().optional(),
   "domain": z.string(),
   "request_id": z.string(),
+  "research_effort": z.string().nullable().optional(),
   "research_model": z.string().nullable().optional(),
 }).strict();
 export type ResearchBody = z.infer<typeof ResearchBody>;
