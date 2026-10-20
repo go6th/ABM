@@ -108,6 +108,10 @@ MAX_SPEND_PAUSES = 3
 STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "people")
 # extraction calls in flight at once per step (each call is independent; see _interpret)
 EXTRACT_CONCURRENCY = 8
+# a run that graded no fact has nothing to build: it ends finished with this reason instead of
+# the builder's missing_content (audit 2026-10-20: five McKesson refreshes ended "stopped before
+# finishing" and offered a Resume that re-paid the same extraction for the same empty result)
+NO_NEW_FINDINGS = "no_new_findings"
 STEP_ORDER: dict[str, int] = {step: index for index, step in enumerate(STEPS)}
 
 
@@ -704,6 +708,9 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         """Step 6 (code): build files after the sense-check precondition; scan every file (G9)."""
         ctx = context(state)
         current: tuple[StoredFact, ...] = await deps.grading.facts(ctx)
+        if not current:
+            _log.info("build.no_findings", extra={"count": 0, "outcome": NO_NEW_FINDINGS})
+            return {"outcome": "completed", "error_code": NO_NEW_FINDINGS}
         try:
             require_sense_check(
                 await deps.records.sense_check(ctx),
@@ -772,7 +779,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         return {"counters": {"rows_closed_at_gate": len(unreported)}} if unreported else {}
 
     def after_build(state: AbmState) -> str:
-        return "finish" if state.get("outcome") in ("failed", "partial") else "gate"
+        done = state.get("outcome") in ("failed", "partial")
+        return "finish" if done or state.get("error_code") == NO_NEW_FINDINGS else "gate"
 
     def after_gate(state: AbmState) -> str:
         return "finish" if state.get("error_code") else "deliver"

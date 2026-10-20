@@ -135,3 +135,34 @@ async def test_a_narrative_that_states_an_unconfirmed_fact_becomes_a_question(h:
     assert [c.text for c in client.narrative] == ["Is the platform work the current priority?"]
     assert all(f in client.narrative[0].fact_ids for f in client.questions[0].fact_ids)
     assert "internal" not in {a for (_, a) in h.records.distilled}  # one distill call per run
+
+
+async def test_a_run_that_graded_no_fact_finishes_with_no_new_findings(h: Harness) -> None:
+    """Audit 2026-10-20: refreshes whose every candidate was dropped ended "build failed
+    (missing content)" and offered a Resume that re-paid the same empty extraction."""
+    built: list[str] = []
+
+    async def nothing(ctx):  # type: ignore[no-untyped-def]
+        return ()
+
+    async def build(ctx, audience):  # type: ignore[no-untyped-def]
+        built.append(audience)
+        return ()
+
+    h.grading.facts = nothing  # type: ignore[method-assign]
+    h.builder.build = build  # type: ignore[method-assign]
+    _, state = await h.run("r")
+    assert state["outcome"] == "completed" and state["error_code"] == "no_new_findings"
+    assert built == []  # nothing to build, so the builder is never asked
+    assert state["settled"] is True
+
+
+def test_no_new_findings_is_a_finished_run_not_a_stop() -> None:
+    from account_intelligence.workflow.transitions import RunStatus
+    from agents.production.wiring import AbmGraphFactory
+
+    status, reason, refund = AbmGraphFactory.target(
+        None,  # type: ignore[arg-type]
+        {"outcome": "completed", "error_code": "no_new_findings", "mode": "full"},
+    )
+    assert (status, reason, refund) == (RunStatus.COMPLETED, "no_new_findings", False)

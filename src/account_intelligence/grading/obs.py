@@ -6,7 +6,6 @@ tenant label on any metric.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -42,9 +41,15 @@ def record_batch(grades: Mapping[str, int], drops: Mapping[str, int]) -> None:
         _graded.add(n, {"product_grade": grade})
     for reason, n in drops.items():
         _dropped.add(n, {"reason": reason})
+    # a structured event, not a JSON message: the sinks keep allow-listed fields only and drop
+    # message text, so the drop reasons were invisible in Cloud Logging (audit 2026-10-20: a run
+    # whose every claim failed value_not_in_sentence logged nothing about why)
     _logger.info(
-        json.dumps(
-            {"event": "grading.batch", "graded": dict(grades), "dropped": dict(drops)},
-            sort_keys=True,
-        )
+        "grading.batch",
+        extra={
+            "count": sum(grades.values()),
+            "dropped": sum(drops.values()),
+            "error_code": ",".join(f"{k}={v}" for k, v in sorted(drops.items()))[:200],
+            "graded": ",".join(f"{k}={v}" for k, v in sorted(grades.items()))[:200],
+        },
     )

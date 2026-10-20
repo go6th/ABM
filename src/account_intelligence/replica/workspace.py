@@ -492,6 +492,8 @@ STOP_TEXT = {
     ),
     "steps_waiting": "Some steps could not be finished. Open Coverage to see which steps and why.",
     "pull_only": "This run only collected data; nothing was written up yet.",
+    # the run graded no new fact (audit 2026-10-20): finished, nothing to resume
+    "no_new_findings": "Nothing new was found on the web for this research.",
     "slice_ceiling": "It ran longer than the platform allows for one research.",
     "budget_cap": "It reached the credits confirmed for it.",
 }
@@ -568,7 +570,7 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
     # a research that delivered its files with steps it could not finish (consent, waiting on
     # the owner, not approved) is finished, not stopped: Coverage says which steps and why
     stopped = ended_early and row.finished_reason not in (
-        None, "completed", "canceled", "user_canceled", "steps_waiting"
+        None, "completed", "canceled", "user_canceled", "steps_waiting", "no_new_findings"
     )  # fmt: skip
     if not (stalled or stopped):
         return None

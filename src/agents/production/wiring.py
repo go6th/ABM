@@ -34,7 +34,7 @@ from account_intelligence.workflow.transitions import RunStatus
 from agents.adapters import PgConsentStore, PgManifestStore
 from agents.config import SkillConfig, skill_config
 from agents.contracts import load_registry
-from agents.graph import AbmDeps, AbmState, build_abm_graph
+from agents.graph import NO_NEW_FINDINGS, AbmDeps, AbmState, build_abm_graph
 from agents.ports import RunContext
 from agents.production.credit import CreditAdapter
 from agents.production.delivery import ExportBuilderPort, GateAdapter, NoteDelivery, RunnerSettles
@@ -304,7 +304,8 @@ class AbmGraphFactory:
         if values.get("mode") == "pull" and outcome == "completed":
             return RunStatus.PARTIAL, "pull_only", False  # Phase 1 evaluates no rows (G15)
         if outcome == "completed":
-            return RunStatus.COMPLETED, None, False
+            # nothing new found is a finished research, not a stop (no Resume offered)
+            return RunStatus.COMPLETED, (str(code) if code == NO_NEW_FINDINGS else None), False
         # delivered, with steps that could not be finished (blocked, waiting on the owner, not
         # approved): finished with gaps, never "stopped" (audit 2026-10-15)
         return RunStatus.PARTIAL, str(code or "steps_waiting"), False

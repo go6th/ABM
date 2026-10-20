@@ -238,3 +238,9 @@ async def test_the_account_card_names_the_quality_checks_that_held_the_files(
     assert card is not None and not card["stalled"]
     assert "a data provider named in a client file" in card["reason"]
     assert "a step without a status or a reason" in card["reason"]
+
+
+def test_no_new_findings_is_said_as_nothing_found() -> None:
+    from account_intelligence.replica.workspace import stop_text
+
+    assert stop_text("no_new_findings") == "Nothing new was found on the web for this research."
