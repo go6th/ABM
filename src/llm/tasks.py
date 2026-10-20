@@ -15,6 +15,11 @@ from typing import Any
 from llm.config import TaskKind, load_routing_config
 from llm.errors import UnknownTaskKind
 
+# the largest limit a reply cut off at its task kind's limit is re-asked with: the SDK refuses a
+# non-streamed call whose limit could outrun its ten-minute timeout (above about 21333 tokens),
+# and research calls are not streamed
+MAX_REASK_TOKENS = 21000
+
 LEGACY_TIER: dict[str, str] = {
     "plan_gaps": "planner",
     "extract_facts": "extractor",

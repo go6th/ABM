@@ -31,6 +31,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -54,6 +55,8 @@ from account_intelligence.chat.credentials import (
 from account_intelligence.chat.service import (
     AnthropicChatProvider,
     ChatService,
+    ChatUsage,
+    actual_cost,
     provider_for,
     sse,
 )
@@ -177,6 +180,9 @@ async def ask(
                 request, service, analysis_model, ident.tenant_id
             )
             tools: AccessTools | None = None
+            classifier: Any = None
+            # the model the answer was paid on, kept even when its reply is not used
+            paid_model: str | None = None
             decision = R.Decision("prose", "no table in the workspace")
             found: list[T.TableInfo] = []
             async with tenant_txn(ident.tenant_id) as session:
@@ -192,9 +198,8 @@ async def ask(
                 # is the question a filter, count or lookup over the caller's tables?
                 try:
                     found = await T.list_tables(session, sorted(searched))
-                    decision = await R.route(
-                        body.question, found, _classifier(request, provider, analysis_model)
-                    )
+                    classifier = _classifier(request, provider, analysis_model)
+                    decision = await R.route(body.question, found, classifier)
                     if decision.route != "prose" and not getattr(provider, "supports_tools", False):
                         decision = R.Decision(
                             "prose", f"{decision.reason}; the model's provider offers no tools"
@@ -252,6 +257,7 @@ async def ask(
             if isinstance(service, ChatService) and provider is not None and ws.accounts:
                 try:
                     model = service.registry.resolve(analysis_model)
+                    paid_model = model.id
                     log.info(
                         "ask.model_call_start",
                         extra={"request_id": str(body.request_id), "model_id": model.id},
@@ -326,11 +332,19 @@ async def ask(
                 )
             answer = A.finish(draft, q, ws, now, scope)
             stats = tools.stats() if tools is not None else {}
+            cost = _turn_cost(service, paid_model, usage, classifier)
             log.info(
                 "ask.route",
                 extra={
                     "request_id": str(body.request_id),
                     "route": decision.route,
+                    # the cost view's inputs (token review item 19, 2026-10-20)
+                    "model_id": paid_model,
+                    "input_tokens": getattr(usage, "input_tokens", 0),
+                    "output_tokens": getattr(usage, "output_tokens", 0),
+                    "cache_read_tokens": getattr(usage, "cache_read_tokens", 0),
+                    "cache_write_tokens": getattr(usage, "cache_write_tokens", 0),
+                    "cost_usd": str(cost),
                     "matched_columns": ",".join(decision.matched_columns)[:200],
                     "matched_values": ",".join(decision.matched_values)[:200],
                     "reason": decision.reason[:200],
@@ -379,6 +393,10 @@ async def ask(
                     account_id=body.account_id,
                     input_tokens=usage.input_tokens if usage else 0,
                     output_tokens=usage.output_tokens if usage else 0,
+                    cache_read_tokens=usage.cache_read_tokens if usage else 0,
+                    cache_write_tokens=usage.cache_write_tokens if usage else 0,
+                    cost_usd=cost,
+                    billed_model_id=paid_model,
                     answer_json=_json(answer),
                     week=week_of(now),
                     category=A.classify(body.question),
@@ -497,17 +515,51 @@ def _mark_local_fallback(draft: A.Draft) -> None:
 
 
 def _classifier(request: Request, provider: Any, model_id: str) -> Any:
-    """The fallback route classifier (``ASK_ROUTE_LLM_FALLBACK``): the Anthropic client of the
-    conversation's model, or None (Moonshot, no client, or off)."""
+    """The fallback route classifier (``ASK_ROUTE_LLM_FALLBACK``) on the helper model of
+    ``models.yaml`` ``helpers.route_classifier`` (Haiku 5.5), over the container's Anthropic
+    client; None when the conversation is not on a Claude model (Moonshot), there is no client,
+    no helper is configured, or it is off."""
+    from account_intelligence.platform.llm import load_helper
+
     if get_settings().ask_route_llm_fallback != "on":
         return None
     choice = catalogue().get(model_id)
     if choice is None or choice.provider != "anthropic" or provider is None:
         return None
     client = getattr(getattr(request.app.state.container, "llm", None), "client", None)
-    if client is None:
+    helper = load_helper("route_classifier")
+    if client is None or helper is None:
         return None
-    return R.LlmRouteClassifier(client, model_id)
+    return R.LlmRouteClassifier(client, helper.model, helper.max_tokens)
+
+
+def _turn_cost(service: Any, paid: Any, usage: Any, classifier: Any) -> Decimal:
+    """What the turn cost: the answer's usage at its model's prices (also when the reply was
+    not used: it was paid) plus the route classifier's call at the helper model's prices.
+    A model the registry does not price counts zero and is logged."""
+    total = Decimal(0)
+    pairs = [(paid, usage)]
+    if classifier is not None and getattr(classifier, "usage", None) is not None:
+        u = classifier.usage
+        pairs.append(
+            (
+                classifier.model_id,
+                ChatUsage(
+                    int(getattr(u, "input_tokens", 0) or 0),
+                    int(getattr(u, "output_tokens", 0) or 0),
+                    int(getattr(u, "cache_read_input_tokens", 0) or 0),
+                    int(getattr(u, "cache_creation_input_tokens", 0) or 0),
+                ),
+            )
+        )
+    for model_id, used in pairs:
+        if model_id is None or used is None or not isinstance(service, ChatService):
+            continue
+        try:
+            total += actual_cost(service.registry.resolve(model_id), used)
+        except Exception:  # noqa: BLE001 - an unpriced model never fails the answer
+            log.warning("ask.cost_unpriced", extra={"model_id": str(model_id)})
+    return total
 
 
 async def _run_python_on(session: Any, tenant_id: UUID) -> bool:

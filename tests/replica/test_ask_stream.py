@@ -110,9 +110,13 @@ async def test_every_answer_carries_the_owners_skill_in_its_system_prompt() -> N
 
 
 @pytest.mark.asyncio
-async def test_an_invented_citation_stops_the_stream_but_a_list_or_table_streams() -> None:
+async def test_an_invented_citation_is_dropped_but_a_list_or_table_streams() -> None:
     invented = await _collect(["Acme is hiring [R1]. ", "Also [R9] says more. ", "End."])
-    assert [k for k, _ in invented] == ["piece", "reset"]  # nothing after the bad sentence
+    # the sentence resting only on a row that was not sent is dropped, never streamed, and
+    # the paid reply is kept (token review item 6, 2026-10-20: was a reset to the local answer)
+    assert [k for k, _ in invented] == ["piece", "piece", "done"]
+    assert all("R9" not in text and "says more" not in text for _, (_, text) in invented[:2])
+    assert "says more" not in invented[-1][1].draft.paragraphs[0]
     # Markdown structure is kept line for line (owner decision 2026-10-17)
     listed = await _collect(["- Acme is hiring [R1].\n- It builds [R2].\n\nMore [R2]."])
     # each list line is its own checked piece (a sentence end), in the same paragraph

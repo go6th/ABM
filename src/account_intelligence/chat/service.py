@@ -219,7 +219,9 @@ class ChatEvent:
 
 # a tool call the model makes: name and input in, a JSON-serialisable result out
 ToolRunner = Callable[[str, dict[str, Any]], Awaitable[Any]]
-MAX_TOOL_ROUNDS = 12
+# describe, query, a relaxed query, read_rows and render_answer fit with one round to spare
+# (token review item 3, 2026-10-20: was 12; every round resends the conversation)
+MAX_TOOL_ROUNDS = 6
 TOOL_RESULT_MAX_CHARS = 200_000
 
 
@@ -316,22 +318,30 @@ class AnthropicChatProvider:
         temperature: float | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Stream text and final token counts; provider exceptions retain no user text.
-        ``system`` replaces the default grounded rules (the Ask answer format supplies its own);
-        ``cached`` (a whole file) is a second system block with a cache breakpoint, so the same
-        file is billed in full once per cache life and at the cached rate after. With ``tools``
-        the model may call them: each round that ends in a tool call runs the calls through
-        ``run_tool``, sends the results back and streams the next round; the usage event sums
-        every round."""
+        ``system`` replaces the default grounded rules (the Ask answer format supplies its own).
+
+        Caching (token review items 2 and 3, 2026-10-20): ``cached`` (a whole file) is the FIRST
+        system block with its own cache breakpoint, ahead of the rules (which change with the
+        route), so every question on the same file reads it from the cache; the rules are the
+        second cached block. With ``tools`` the request also carries the API's automatic cache
+        breakpoint, so each tool round reads the earlier rounds from the cache instead of
+        paying for the growing conversation again. With ``tools`` the model may call them:
+        each round that ends in a tool call runs the calls through ``run_tool``, sends the
+        results back and streams the next round; the usage event sums every round."""
         request_messages: list[dict[str, Any]] = [
             {"role": message.role, "content": message.content} for message in messages
         ]
         system_instruction = system or grounded_system_prompt(context, max_output_tokens)
-        system_blocks: Any = system_instruction
+        ephemeral = {"type": "ephemeral"}
+        system_blocks: list[dict[str, Any]] = []
         if cached:
-            system_blocks = [
-                {"type": "text", "text": system_instruction},
-                {"type": "text", "text": cached, "cache_control": {"type": "ephemeral"}},
-            ]
+            system_blocks.append({"type": "text", "text": cached, "cache_control": ephemeral})
+        rules: dict[str, Any] = {"type": "text", "text": system_instruction}
+        if system is not None:
+            # fixed rules (Ask) are cached; the grounded chat prompt carries this turn's
+            # workspace data, which no later turn repeats, so it is not
+            rules["cache_control"] = ephemeral
+        system_blocks.append(rules)
         request: dict[str, Any] = {
             "model": model.id,
             "max_tokens": max_output_tokens,
@@ -339,6 +349,9 @@ class AnthropicChatProvider:
         }
         if tools:
             request["tools"] = [dict(t) for t in tools]
+            # the automatic breakpoint moves to the last message of every round (at most 3 of
+            # the 4 breakpoints are used: the file, the rules and this one)
+            request["cache_control"] = ephemeral
         if self._effort is not None:
             request["output_config"] = {"effort": self._effort}
         # temperature is deliberately NOT forwarded: the installed SDK's Messages call has no

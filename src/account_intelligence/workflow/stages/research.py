@@ -43,19 +43,25 @@ MAX_RECORDS = 40
 
 async def ask_json(deps: RunDeps, task_kind: str, system: str, user: Mapping[str, Any]) -> Any:
     """One model call named by its task kind (R2), with ONE bounded re-ask on unparseable output
-    (workflow spec 3.7); the token limit is the task kind's (R7)."""
+    (workflow spec 3.7); the token limit is the task kind's (R7). A reply cut off at that limit
+    is re-asked with twice the limit (the same limit would cut it off again)."""
+    from llm.tasks import MAX_REASK_TOKENS, require
+
     body = json.dumps(user, sort_keys=True)
+    limit: int | None = None
     # LOOP(model re-ask): cap=1 re-ask on unparseable output; exit=parsed, None (item blocked)
     for attempt in range(2):
         note = (
             ""
-            if attempt == 0
+            if attempt == 0 or limit is not None
             else "\nYour previous answer was not valid JSON. Answer with JSON only."
         )
-        result = await deps.model(task_kind, system, body + note)
+        result = await deps.model(task_kind, system, body + note, max_tokens=limit)
         parsed = parse_json(result.text)
         if parsed is not None:
             return parsed
+        if str(result.extra.get("stop_reason") or "") == "max_tokens":
+            limit = min(require(task_kind).max_tokens * 2, MAX_REASK_TOKENS)
     return None
 
 

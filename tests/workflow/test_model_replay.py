@@ -30,7 +30,18 @@ async def test_the_same_request_in_the_same_run_is_answered_once() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_task_kind_marked_not_cacheable_is_always_asked() -> None:
+async def test_a_task_kind_marked_not_cacheable_is_always_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    import llm.tasks as tasks
+
+    # every configured kind is replayable since 2026-10-20 (the re-reads were the last ones,
+    # token review item 11); the mechanism is checked on a kind marked not cacheable here
+    assert tasks.require("source_reread").cacheable
+    real = tasks.require
+    monkeypatch.setattr(tasks, "require", lambda kind: replace(real(kind), cacheable=False))
     llm = ScriptedLlm(lambda *a: "{}")
     deps = _deps(llm, MemoryPayloadStore())
     await deps.model("source_reread", "sys", "same")

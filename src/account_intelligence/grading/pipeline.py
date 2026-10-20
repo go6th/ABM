@@ -35,7 +35,7 @@ from account_intelligence.grading.errors import GradingError, SchemaViolation, r
 from account_intelligence.grading.judge import (
     Judged,
     apply_support_verdict,
-    call_judge,
+    call_judge_many,
     needs_judge,
 )
 from account_intelligence.grading.leads import LeadVerification, evaluate_lead, new_lead
@@ -270,14 +270,9 @@ async def _judge_all(
     if not needs_judge(claim.engine_grade or "D", claim.product_grade, cfg):
         return Judged(True, claim.engine_grade or "D", claim.product_grade, claim.flags)
     statement = f"{claim.attribute_key} = {claim.value}"
-    result = None
-    for ev in claim.evidence:
-        result = await call_judge(
-            port if judge_ok else None, statement, ev.supporting_sentence, cfg
-        )
-        if result.outcome != "supported":
-            break
-    assert result is not None
+    # every distinct evidence sentence, in order, judged in one call (``call_judge_many``)
+    sentences = list(dict.fromkeys(ev.supporting_sentence for ev in claim.evidence))
+    result = await call_judge_many(port if judge_ok else None, statement, sentences, cfg)
     return apply_support_verdict(
         claim.engine_grade or "D", claim.product_grade, claim.flags, result, cfg
     )

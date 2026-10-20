@@ -15,15 +15,29 @@ providers:
     enabled: true
     credential_source: env_or_secret_manager
 models:
+  # published prices (platform.claude.com pricing, read 2026-10-20; token review item 18: was
+  # $3 in, $8 out, 200k context)
   - id: claude-sonnet-5-5
     provider: anthropic
     display_name: Claude Sonnet 5.5
-    input_usd_per_million: "3.00"
-    output_usd_per_million: "8.00"
-    cache_write_usd_per_million: "3.75"
-    cache_read_usd_per_million: "0.30"
-    context_window: 200000
-    max_output_tokens: 8192
+    input_usd_per_million: "2.00"
+    output_usd_per_million: "10.00"
+    cache_write_usd_per_million: "2.50"
+    cache_read_usd_per_million: "0.20"
+    context_window: 1000000
+    max_output_tokens: 128000
+    capabilities: {streaming: true, vision: false, tool_use: false}
+  # the Ask route classifier's model (models.yaml `helpers`); prices for prompts up to 100k
+  # tokens ($0.50 in, $2.50 out above that)
+  - id: claude-haiku-5-5
+    provider: anthropic
+    display_name: Claude Haiku 5.5
+    input_usd_per_million: "0.10"
+    output_usd_per_million: "0.50"
+    cache_write_usd_per_million: "0.125"
+    cache_read_usd_per_million: "0.01"
+    context_window: 1000000
+    max_output_tokens: 128000
     capabilities: {streaming: true, vision: false, tool_use: false}
   - id: claude-fable-5-1
     provider: anthropic

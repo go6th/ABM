@@ -100,7 +100,7 @@ async def test_kimi_falls_back_to_claude_when_it_cannot_meet_the_schema() -> Non
             return override or self.models.for_tier(tier)
 
         async def model(
-            self, task_kind: str, system: str, user: str, *, model: str | None = None
+            self, task_kind: str, system: str, user: str, *, model: str | None = None, **kw: Any
         ) -> LlmResult:
             served.append(model)
             return LlmResult(

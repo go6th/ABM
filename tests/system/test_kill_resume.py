@@ -22,12 +22,15 @@ from pathlib import Path
 import pytest
 
 from account_intelligence.connectors.base import ProviderCode
+from account_intelligence.connectors.settings import load_providers_config
 from account_intelligence.platform.hermetic import LocalPayloadStore
 from tests.connectors.conftest import FakeClock, FakeProvider, FakeSleep, Harness
 from tests.system.world import LEDGER_SUM, Script, admin, create_only, drive, settled_once
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 ROOT = Path(__file__).resolve().parents[2]
+# the run lease from config (1500 s since slices became 1200 s, 2026-10-20; was 300 s)
+LEASE_S = load_providers_config().defaults.ledger.lease_ttl_s
 
 
 def _harness(payload_dir: Path) -> Harness:
@@ -79,7 +82,7 @@ async def test_killed_worker_resumes_without_double_payment(tmp_path: Path, kill
     harness = _harness(payloads)
     tenant, run = await create_only(harness)
     assert _kill(tenant, run, kill_at, payloads) == 137  # died mid-run
-    harness.clock.advance(400)  # the dead worker's lease (300 s) expires
+    harness.clock.advance(LEASE_S + 100)  # the dead worker's lease expires
     await drive(harness, Script(), tenant, run)
     _assert_final(run)
     starts = admin(
@@ -113,7 +116,7 @@ async def test_two_workers_on_one_run_finish_once(tmp_path: Path) -> None:
     )
     assert not [r for r in results if isinstance(r, BaseException)]
     # the loser yielded ("busy"); if it came back later it found the run finished (noop)
-    harness.clock.advance(400)
+    harness.clock.advance(LEASE_S + 100)
     await drive(harness, Script(), tenant, run, worker_id="worker-c")
     _assert_final(run)
     keys = admin("SELECT args_hash, count(*) FROM tool_calls WHERE run_id = %s GROUP BY 1", run)

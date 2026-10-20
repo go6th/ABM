@@ -12,7 +12,10 @@ KEYS = {"ANTHROPIC_API_KEY": "x", "MOONSHOT_API_KEY": "y"}
 def test_the_catalogue_offers_three_models_with_the_owners_defaults() -> None:
     cat = catalogue()
     assert len(cat.ids) == 3
-    assert (cat.default_research, cat.default_analysis) == (OPUS, FABLE)
+    assert (cat.default_research, cat.default_analysis) == (
+        OPUS,
+        OPUS,
+    )  # analysis default Opus 5.5 since 2026-10-20 (token review item 4)
     assert [m.line for m in cat.models] == [
         "Most capable, slower",
         "Fast and strong",
@@ -60,7 +63,7 @@ def test_the_record_round_trips_with_its_fallbacks() -> None:
     models.fell_back("abm_pass1_extract", KIMI, OPUS, "schema_invalid")
     again = RunModels.from_json(models.as_json())
     assert again == models
-    assert RunModels.from_json(None) == RunModels(OPUS, FABLE)
+    assert RunModels.from_json(None) == RunModels(OPUS, OPUS)
 
 
 def test_a_key_loaded_from_the_secret_store_counts_as_set_up(monkeypatch) -> None:  # type: ignore[no-untyped-def]

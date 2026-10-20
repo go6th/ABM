@@ -34,7 +34,10 @@ from verify.config import VerifyConfig
 from verify.policy import action_for, cap_claim
 
 PROMPTS = __import__("pathlib").Path(__file__).resolve().parent / "prompts"
-PROMPT = "source_reread.v1"
+# v2 (token review item 10, 2026-10-20): the source opens the user turn as its own cached block
+# and the question follows, so the claims read from one source pay its full price once per
+# cache window instead of once per claim
+PROMPT = "source_reread.v2"
 
 
 async def generator_family(deps: Any) -> str | None:
@@ -52,13 +55,24 @@ async def generator_family(deps: Any) -> str | None:
     return None if family is None else str(family)
 
 
+def source_block(source_text: str) -> str:
+    """The stored source as the cached block that opens a re-read's user turn (identical bytes
+    for every claim read from it, so the cache hits)."""
+    return f"<source>\n{source_text}\n</source>"
+
+
 def _ask(deps: Any, family: str | None) -> claims_mod.Ask:
     prompt_text, prompt_hash = load(PROMPT, PROMPTS)
 
     async def ask(question: str, source_text: str) -> claims_mod.Reread:
-        payload = {"question": question, "source": source_text}
         if deps.router is None:
-            result = await deps.model("source_reread", prompt_text, json.dumps(payload))
+            result = await deps.model(
+                "source_reread",
+                prompt_text,
+                json.dumps({"question": question}),
+                schema=claims_mod.Reread.model_json_schema(),
+                cached_user=source_block(source_text),
+            )
             parsed = claims_mod.Reread.model_validate_json(result.text)
             return parsed
         from llm.models import Scope
@@ -67,7 +81,7 @@ def _ask(deps: Any, family: str | None) -> claims_mod.Ask:
             "source_reread",
             prompt_text,
             prompt_hash,
-            payload,
+            {"question": question, "source": source_text},
             claims_mod.Reread,
             Scope(deps.tenant_id, deps.run_id, generator_family=family),
         )

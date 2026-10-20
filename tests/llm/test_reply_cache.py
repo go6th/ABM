@@ -90,7 +90,21 @@ async def test_reply_reuse_expires_and_stays_within_the_tenant() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_fresh_run_and_a_non_cacheable_task_always_ask() -> None:
+async def test_a_fresh_run_and_a_non_cacheable_task_always_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    import llm.tasks as tasks
+
+    # no configured kind is marked not cacheable since 2026-10-20 (token review item 11): the
+    # re-read kind is marked so here to check the mechanism
+    real = tasks.require
+    monkeypatch.setattr(
+        tasks,
+        "require",
+        lambda kind: replace(real(kind), cacheable=kind != "source_reread"),
+    )
     cache = InMemoryReplyCache()
     llm = ScriptedLlm(lambda *a: '{"ok": true}')
     tenant = uuid4()

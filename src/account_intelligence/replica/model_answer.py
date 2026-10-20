@@ -1,14 +1,15 @@
 """Ask answers written by Claude from the same numbered workspace rows the local composer uses.
 
 The model sees only the rows (as untrusted data inside a fenced block) and the question. Its
-reply must cite rows as ``[R3]``; every cited id is checked against the rows that were sent, and
-a reply with no valid citation, an unknown id or a broken format is discarded in favour of the
-local answer. The model never goes to the web and has no tools.
+reply must cite rows as ``[R3]``; every cited id is checked against the rows that were sent. A
+citation of a row that was not sent is removed, and a line resting only on such citations is
+dropped (``repair``, logged ``ask.citation_dropped``); a reply with no valid citation left or a
+broken format is discarded in favour of the local answer. The model never goes to the web.
 
 ``stream_with_model`` yields the reply sentence by sentence while the model writes: each
 sentence's citations are checked before it is sent (so a streamed citation always points at a
-real row); an unknown id stops the stream (``reset``) and the local answer is used instead; the
-final structured answer follows the stream. The reply is Markdown: tables, lists and code are
+real row; an unknown id is repaired, never sent); the final structured answer follows the
+stream. The reply is Markdown: tables, lists and code are
 kept line for line (the web renders them; owner decision 2026-10-17).
 
 When a question is about one of the client's uploaded files, the best-matching file travels
@@ -54,6 +55,9 @@ from account_intelligence.replica.answers import (
     first_call_questions,
 )
 from agents.skill_context import ask_skill_context
+from obs.logging import logger
+
+log = logger("replica.model_answer")
 
 MAX_ROWS = 40
 # retrieved document passages always get places (they were never read before, audit 2026-10-15)
@@ -219,7 +223,8 @@ def context_block(rows: list[Row]) -> tuple[str, dict[str, Row]]:
         if r.extra.get("whole_file"):
             lines.append(
                 f"[{rid}] account: {r.account.name} | file | {r.extra.get('document', 'a file')},"
-                f" given whole below ({r.extra.get('lines', '?')} lines) | source: {r.title}"
+                f' given whole in <file doc="{file_doc(r)}"> ({r.extra.get("lines", "?")} lines)'
+                f" | source: {r.title}"
             )
             continue
         if r.extra.get("table"):
@@ -237,32 +242,97 @@ def context_block(rows: list[Row]) -> tuple[str, dict[str, Row]]:
     return "\n".join(lines), ids
 
 
+def file_doc(row: Row) -> str:
+    """The stable label of a whole file: its document id (the row key ``whole:<id>``), never
+    the row number, which changes from question to question."""
+    return row.key.split(":", 1)[1] if row.key.startswith("whole:") else row.key
+
+
 def file_blocks(ids: dict[str, Row]) -> str:
     """The whole files among the numbered rows, each in a tagged block the model reads as data
-    (sent as one cached system block: the same file costs its full price once per cache life)."""
+    (sent as the first, cached system block: the same file costs its full price once per cache
+    life). The block is labelled by the document id, not the row number: a row number changes
+    from question to question, which changed the cached bytes and missed the cache on every
+    question (token review item 2, 2026-10-20); the numbered row names the document instead."""
     blocks = []
-    for rid, r in ids.items():
-        if not r.extra.get("whole_file"):
-            continue
+    for r in sorted(
+        (r for r in ids.values() if r.extra.get("whole_file")), key=lambda r: file_doc(r)
+    ):
         name = re.sub(r"[^\w .()\[\]-]", "_", str(r.extra.get("document", "file")))[:120]
-        blocks.append(f'<file id="{rid}" name="{name}">\n{r.text}\n</file>')
+        blocks.append(f'<file doc="{file_doc(r)}" name="{name}">\n{r.text}\n</file>')
     return "\n\n".join(blocks)
 
 
 _CITE = re.compile(r"\[(R\d{1,3})\]")
 
 
+def repair(text: str, ids: dict[str, Row]) -> tuple[str, list[str]]:
+    """The text with every citation of a row that was not sent removed, and those ids. A unit
+    whose citations were ALL unknown is dropped: it rests on nothing the model was given. A
+    unit is a table row or a list item (one line), or one sentence of a prose line (with the
+    citations that follow it). A unit with at least one known citation keeps its text and its
+    known citations. Was: one unknown id discarded the whole paid reply (token review item 6,
+    2026-10-20)."""
+    dropped: list[str] = []
+    kept: list[str] = []
+    for line in text.split("\n"):
+        if not _CITE.search(line):
+            kept.append(line)
+            continue
+        units = [line] if _STRUCTURED_LINE.match(line) else _sentences(line)
+        out, changed = [], False
+        for unit in units:
+            found = _CITE.findall(unit)
+            unknown = [rid for rid in found if rid not in ids]
+            if not unknown:
+                out.append(unit)
+                continue
+            dropped.extend(unknown)
+            changed = True
+            if len(unknown) < len(found):
+                out.append(_CITE.sub(lambda m: m.group(0) if m.group(1) in ids else "", unit))
+        if out:
+            kept.append("".join(out).rstrip() if changed else line)
+    return "\n".join(kept), dropped
+
+
+# a Markdown table row or list item: repaired as one unit
+_STRUCTURED_LINE = re.compile(r"^\s*(\||[-*+]\s|\d+[.)]\s)")
+
+
+def _sentences(line: str) -> list[str]:
+    """A prose line cut after each sentence and the citations that follow it (the same cut
+    the stream uses, ``_SENTENCE_END``); the pieces join back to the line."""
+    pieces, at = [], 0
+    for m in _SENTENCE_END.finditer(line):
+        pieces.append(line[at : m.end()])
+        at = m.end()
+    pieces.append(line[at:])
+    return [p for p in pieces if p]
+
+
+def _log_dropped(dropped: list[str], where: str) -> None:
+    if dropped:
+        log.warning(
+            "ask.citation_dropped",
+            extra={"where": where, "count": len(dropped), "ids": ",".join(dropped[:20])},
+        )
+
+
 def parse(reply: str, ids: dict[str, Row]) -> Draft | None:
-    """Turn a model reply into a draft with row-key citations, or None if it cannot be used."""
+    """Turn a model reply into a draft with row-key citations, or None if it cannot be used
+    (nothing left, or not one valid citation). Citations of rows that were not sent are
+    repaired (``repair``), never a reason to discard the reply."""
     body, _, tail = reply.partition("ITEMS:")
     d = Draft()
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body.strip()) if p.strip()]
     if not paragraphs:
         return None
     for para in paragraphs:
-        for rid in _CITE.findall(para):
-            if rid not in ids:
-                return None
+        para, dropped = repair(para, ids)
+        _log_dropped(dropped, "parse")
+        if not para.strip():
+            continue
 
         def swap(m: re.Match[str]) -> str:
             return d.cite(ids[m.group(1)])
@@ -300,10 +370,12 @@ def take(buffer: str, final: bool = False) -> tuple[str | None, bool, str]:
 
 
 def checked(piece: str, ids: dict[str, Row], live: Draft) -> str | None:
-    """The piece with its ``[R3]`` ids turned into row markers, or None when it cites a row that
-    was not sent."""
-    if any(rid not in ids for rid in _CITE.findall(piece)):
-        return None
+    """The piece with its ``[R3]`` ids turned into row markers; a citation of a row that was
+    not sent is repaired (``repair``: the id removed, a line resting only on such ids dropped),
+    so a streamed citation always points at a real row. None is no longer returned; the type
+    stays for callers."""
+    piece, dropped = repair(piece, ids)
+    _log_dropped(dropped, "stream")
     return _CITE.sub(lambda m: live.cite(ids[m.group(1)]), piece)
 
 

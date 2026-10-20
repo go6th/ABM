@@ -37,7 +37,10 @@ async def test_the_menus_grey_out_what_cannot_be_chosen(
 ) -> None:
     plane = _plane(world["a"], f"menu-{uuid4().hex[:6]}", world["payloads"])
     got = (await _call(plane, "GET", "/v1/models/choices")).json()
-    assert (got["research"], got["analysis"]) == (OPUS, FABLE)
+    assert (got["research"], got["analysis"]) == (
+        OPUS,
+        OPUS,
+    )  # analysis default Opus 5.5 since 2026-10-20 (token review item 4)
     by_id = {m["id"]: m for m in got["models"]}
     assert by_id[OPUS]["available"] and by_id[OPUS]["line"] == "Most capable, slower"
     # every enabled model is allowed by default (owner decision 2026-10-15)
@@ -69,7 +72,7 @@ async def test_preferences_are_remembered_and_checked(world: dict[str, Any], key
     try:
         saved = await _call(plane, "PUT", "/v1/me/model-preferences", json={"research_model": KIMI})
         assert saved.status_code == 200, saved.text
-        assert (saved.json()["research"], saved.json()["analysis"]) == (KIMI, FABLE)
+        assert (saved.json()["research"], saved.json()["analysis"]) == (KIMI, OPUS)
         # private to the user: a colleague still has the defaults
         other = _plane(world["a"], f"pref-{uuid4().hex[:6]}", world["payloads"])
         assert (await _call(other, "GET", "/v1/models/choices")).json()["research"] == OPUS

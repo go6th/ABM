@@ -3,8 +3,12 @@ version: "2026-10-02.1"
 settings:
   execution_mode: sequential
   concurrency: 1
-  slice_seconds: 240
-  max_slices: 60
+  # token review item 13 (2026-10-20): a call still running when a slice ends is lost and paid
+  # again in the next slice, and 240 s cut off long extraction replies; 1200 s fits a long reply
+  # (and the Cloud Tasks 1800 s dispatch maximum, SLICE_DEADLINE_S 1500). 8 slices keep the run's
+  # wall-clock bound at 2 h 40 min (was 60 x 240 s = 4 h).
+  slice_seconds: 1200
+  max_slices: 8
   max_calls: 60
   max_budget_usd: 5.0
   approval_timeout_hours: 24

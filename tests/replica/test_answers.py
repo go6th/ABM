@@ -256,10 +256,12 @@ def test_a_whole_file_is_announced_as_a_row_and_given_in_its_own_block():
         extra={"whole_file": True, "document": 'GSK <b>"x"</b>.xlsx', "lines": 3},
     )
     block, ids = context_block([ws.facts[0], sheet])
-    assert "[R2] account:" in block and "given whole below (3 lines)" in block
+    assert "[R2] account:" in block and 'given whole in <file doc="doc-1"> (3 lines)' in block
     assert "Architect" not in block  # the content is not inlined in the row list
     files = file_blocks(ids)
-    assert files.startswith('<file id="R2" name="GSK _b__x___b_.xlsx">')
+    # labelled by the document, never the row number (the cached bytes stay the same from
+    # question to question; token review item 2, 2026-10-20)
+    assert files.startswith('<file doc="doc-1" name="GSK _b__x___b_.xlsx">')
     assert "1 | Architect | Closed" in files and files.rstrip().endswith("</file>")
     assert file_blocks({"R1": ws.facts[0]}) == ""
 

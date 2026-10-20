@@ -67,13 +67,18 @@ class RunDepsModel:
         ctx: RunContext,
     ) -> tuple[M, int]:
         """One call with the output's JSON Schema in the instructions (the prompt says "matching
-        the schema"; without the schema itself the model invents field names). A reply that fails
-        it is asked once more; a second failure is ``SchemaInvalid`` (never kept)."""
+        the schema"; without the schema itself the model invents field names) and as structured
+        output, so a Claude reply cannot fail it (token review item 12, 2026-10-20). A reply that
+        still fails it is asked once more; a second failure is ``SchemaInvalid`` (never kept). A
+        reply cut off at its token limit is asked again with twice the limit (up to
+        ``MAX_REASK_TOKENS``): the same limit would cut it off again."""
         import json
 
         from agents.skill_context import with_skill_context
+        from llm.tasks import MAX_REASK_TOKENS, require
 
-        schema = json.dumps(output.model_json_schema(), separators=(",", ":"))
+        json_schema = output.model_json_schema()
+        schema = json.dumps(json_schema, separators=(",", ":"))
         # the owner's skill travels with every call (operator request 2026-10-16); it sits in
         # the cached system block, so it is paid for once per cache window
         system = (
@@ -83,6 +88,8 @@ class RunDepsModel:
         user = json.dumps(dict(payload))
         tokens = 0
         override: str | None = None
+        limit = require(task_kind).max_tokens
+        cut_off = False
         # LOOP(agent schema re-ask): cap=2 attempts, then 2 on the Claude default when the
         # chosen model is Kimi K3; exit=valid reply, SchemaInvalid
         for attempt in range(4):
@@ -90,13 +97,21 @@ class RunDepsModel:
                 override = await self._fallback(task_kind)
                 if override is None:
                     break
+            if cut_off:
+                limit = min(limit * 2, MAX_REASK_TOKENS)
             result = await self.deps.model(
-                task_kind, system, user + (REASK_NOTE if attempt % 2 else ""), model=override
+                task_kind,
+                system,
+                user + (REASK_NOTE if attempt % 2 and not cut_off else ""),
+                model=override,
+                schema=json_schema,
+                max_tokens=limit,
             )
             tokens += int(result.usage.input_tokens + result.usage.output_tokens)
             validated = validate(result.text, output)
             if validated is not None:
                 return validated, tokens
+            cut_off = str(result.extra.get("stop_reason") or "") == "max_tokens"
         raise SchemaInvalid(f"{task_kind}: output failed its schema")
 
     async def _fallback(self, task_kind: str) -> str | None:

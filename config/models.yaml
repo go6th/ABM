@@ -1,12 +1,13 @@
 # Automatic Model Routing and Pricing Configuration
 # Strictly enforced by the backend model router. Callers cannot override model selection.
-version: "2026-10-13.1"
+version: "2026-10-20.1"
 
 # Hard allowlist of approved models
 allowlist:
   - claude-opus-5-5
   - claude-fable-5-1
   - claude-sonnet-5-5
+  - claude-haiku-5-5
   - kimi-k3
 
 tasks:
@@ -33,6 +34,13 @@ profiles:
     model: claude-sonnet-5-5
     input_usd_per_mtok: 2.00
     output_usd_per_mtok: 10.00
+  # on the allowlist for the Ask route classifier (`helpers`); no research task routes here until
+  # a Haiku 5.5 eval on the GSK workspace passes (token review item 9)
+  helper_haiku:
+    provider: anthropic
+    model: claude-haiku-5-5
+    input_usd_per_mtok: 0.10
+    output_usd_per_mtok: 0.50
 
 arms:
   automatic:
@@ -59,7 +67,11 @@ arms:
       narrative: analysis_fable
       verification: collection_opus
 
-active_arm: automatic  # the owner's split (2026-10-14): Opus 5.5 pulls and extracts, Fable 5.1 analyses
+# token review item 9 (2026-10-20): the cost_saving arm (extraction and classification on Sonnet
+# 5.5, verification on Opus 5.5). The arm serves every tier whose run keeps the default model of
+# its role (workflow.deps.RunDeps.chosen_model); a model the user picks still serves its tiers.
+# Was "automatic" (the owner's split of 2026-10-14); switch back here to restore it.
+active_arm: cost_saving
 decision_status: Decided
 
 # Per-task request knobs for the Messages call (verified against anthropic 1.11.0, 2026-10-13:
@@ -68,13 +80,49 @@ decision_status: Decided
 # so routine tasks run low and the deliverable writers run high. prompt_cache: the system prompt
 # (the agent prompt plus its JSON schema, identical across calls of a task) is sent as a cached
 # block, so repeated calls within the cache window pay the cached-read price for it.
+# cache_ttl: "5m" (default, write 1.25x input) or "1h" (write 2x input); a batched call always
+# uses "1h" because batches finish minutes apart. synthesis and narrative went from high to medium
+# (token review item 14, 2026-10-20: thinking is billed as output at the Fable rate); compare one
+# account's deliverables before raising them again.
 task_settings:
   pull_planning:   {effort: medium, prompt_cache: true}
   extraction:      {effort: low,    prompt_cache: true}
   classification:  {effort: low,    prompt_cache: true}
-  synthesis:       {effort: high,   prompt_cache: true}
-  narrative:       {effort: high,   prompt_cache: true}
+  synthesis:       {effort: medium, prompt_cache: true}
+  narrative:       {effort: medium, prompt_cache: true}
   verification:    {effort: low,    prompt_cache: true}
+
+# Message Batches (token review item 8, 2026-10-20): research calls are not interactive, so the
+# listed task kinds go through the Batches API at 50% of the standard price (the discount stacks
+# with prompt caching). The batch id is kept per request in the run's payloads: a slice that ends
+# while a batch runs leaves it running and the next slice collects the reply (never paid twice).
+# A batch still unfinished `max_wait_seconds` after its first submission is cancelled (an
+# unprocessed request is not billed) and the call is made at the standard price. Kimi K3 and
+# Claude on Vertex have no batches: their calls stay standard.
+batch:
+  enabled: true
+  poll_seconds: 20
+  max_wait_seconds: 1800
+  task_kinds:
+    - plan_gaps
+    - extract_facts
+    - classify_posting
+    - second_pass_posting
+    - classify_person
+    - lead_queries
+    - synthesise_hypotheses
+    - write_narrative
+    - distill
+    - support_judge
+    - source_reread
+    - narrative_reread
+    - file_extract_facts
+    - abm_setup
+    - abm_pass1_extract
+    - abm_pass2_extract
+    - abm_people_extract
+    - abm_sense_check
+    - abm_distill
 
 # The conversational surfaces' model and effort (owner decision 2026-10-17: every surface reads
 # one layer; the research, Ask and eval surfaces all run on Kimi K3, Claude Fable 5.1 or Claude
@@ -82,8 +130,10 @@ task_settings:
 # model is the conversation's analysis model (the choices block below), so only effort lives
 # here. `eval`: the live tabular eval suite (tests/evals/test_tabular_gsk_live.py); its model
 # must be one of the choices models, overridable per run with EVAL_MODEL / EVAL_EFFORT.
+# Ask and chat run at medium effort (token review item 4, 2026-10-20: was high; thinking is
+# billed as output).
 surfaces:
-  chat: {model: null, effort: high}
+  chat: {model: null, effort: medium}
   eval: {model: kimi-k3, effort: high}
 
 models:
@@ -135,6 +185,25 @@ models:
       cached_read_usd_per_million: 0.20
       cache_write_usd_per_million: 2.50
       output_usd_per_million: 10.00
+
+  claude-haiku-5-5:
+    provider: anthropic
+    display_name: "Claude Haiku 5.5"
+    responsibility: "Ask route classification (one word per question)"
+    context_window: 1000000
+    max_output_tokens: 128000
+    # prompts up to 100k tokens; above that $0.50 in and $2.50 out (the classifier sends < 1k)
+    pricing:
+      input_usd_per_million: 0.10
+      cached_read_usd_per_million: 0.01
+      cache_write_usd_per_million: 0.125
+      output_usd_per_million: 0.50
+
+# Small helper calls that are not a conversation or a research task (token review item 5,
+# 2026-10-20): the Ask route classifier left the conversation model (Fable 5.1 at the time) for
+# Haiku 5.5 with thinking off and a structured reply. Each model must be on the allowlist.
+helpers:
+  route_classifier: {model: claude-haiku-5-5, max_tokens: 64}
 
 # Pipeline Phase Routing
 routing:
@@ -193,7 +262,9 @@ routing:
 choices:
   research_tiers: [planner, extractor, classifier]
   analysis_tiers: [synthesis, narrative, judge]
-  defaults: {research: claude-opus-5-5, analysis: claude-fable-5-1}
+  # analysis default Opus 5.5 (token review item 4, 2026-10-20: was Fable 5.1, 2.5x the price);
+  # Fable 5.1 stays a choice in every model menu
+  defaults: {research: claude-opus-5-5, analysis: claude-opus-5-5}
   needs_client_permission: []
   models:
     - id: claude-opus-5-5

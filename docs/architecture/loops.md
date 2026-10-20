@@ -7,15 +7,16 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | CRM reconcile | `src/crm_writeback/service.py:299` | 100 writes per pass | end |
-| agent schema re-ask | `src/agents/production/wiring.py:88` | 2 attempts, then 2 on the Claude default when the chosen model is Kimi K3 | valid reply, SchemaInvalid |
+| agent schema re-ask | `src/agents/production/wiring.py:95` | 2 attempts, then 2 on the Claude default when the chosen model is Kimi K3 | valid reply, SchemaInvalid |
 | alert fan-out | `src/alerts/engine.py:205` | len(recipients) | end |
 | archive copy | `src/account_intelligence/replica/downloads.py:364` | the file's size / 1 MiB | end of file |
 | archive part upload | `src/account_intelligence/replica/downloads.py:380` | part size / 1 MiB | end of part |
-| ask keepalive | `src/account_intelligence/api/routes/ask.py:450` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
+| ask keepalive | `src/account_intelligence/api/routes/ask.py:468` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
 | audit verify tenants | `src/account_intelligence/api/routes/tasks.py:368` | every client once per pass | last client |
 | auto resume clients | `src/account_intelligence/replica/auto_resume.py:302` | every client once per pass, `limit` runs each | last one |
 | auto resume runs | `src/account_intelligence/replica/auto_resume.py:310` | `limit` runs per client per pass | rows exhausted |
+| batch poll | `src/account_intelligence/platform/llm.py:264` | max_wait_seconds from the first submission, then cancel and at most the same wait again for the cancel to land | ended, cancel deadline |
 | blob compose copy | `src/research_files/blobstore.py:143` | the part's size in COPY_BUFFER reads | end of part |
 | cache-eviction | `src/account_intelligence/rag/cache.py:103` | max_entries excess | capacity reached. |
 | cancel watch | `src/account_intelligence/workflow/runner.py:247` | the slice timeout around it | graph done, canceled, timeout |
@@ -60,6 +61,7 @@ unannotated (the generator's check fails otherwise).
 | gmail message metadata | `src/connectors_client/maildrive.py:201` | MAX_ITEMS listed messages | end of the list |
 | grading hand-off | `src/refresh/probe.py:201` | observations of this poll | end |
 | graph-neighbors | `src/account_intelligence/rag/graphrag.py:96` | entity_count | queue empty or max_hops. |
+| grouped judge re-ask | `src/account_intelligence/grading/judge.py:136` | max_reasks (1) | verdicts for every sentence, unavailable (claim capped, G12) |
 | guarded name span | `src/agents/skill_context.py:144` | the word's length | the first non-letter |
 | hash uploaded document | `src/documents/service.py:355` | size / 1 MiB reads | end of object |
 | idle expiry | `src/account_intelligence/replica/access.py:89` | one pass over the clients | every client checked or failed |
@@ -75,8 +77,8 @@ unannotated (the generator's check fails otherwise).
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
 | jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
 | json array items | `src/research_files/parsers/tabular.py:653` | the array's items | closing bracket, corrupt item |
-| judge re-ask | `src/account_intelligence/grading/judge.py:88` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
-| lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:133` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
+| judge re-ask | `src/account_intelligence/grading/judge.py:95` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
+| lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:146` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
 | lease heartbeat | `src/documents/service.py:455` | the step's duration / (lease_ttl_s / 3) renewals | step finished (cancelled), lease lost |
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
@@ -84,7 +86,7 @@ unannotated (the generator's check fails otherwise).
 | mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
 | metrics stuck count clients | `src/account_intelligence/api/routes/tasks.py:471` | every client once per pass | last client |
-| model re-ask | `src/account_intelligence/workflow/stages/research.py:49` | 1 re-ask on unparseable output | parsed, None (item blocked) |
+| model re-ask | `src/account_intelligence/workflow/stages/research.py:53` | 1 re-ask on unparseable output | parsed, None (item blocked) |
 | month normalisation | `src/jobs/window.py:15` | one iteration (month - 12 >= -11) | month in 1..12 |
 | moonshot stream | `src/llm/adapters/moonshot_api.py:318` | the server's chunks until [DONE] | [DONE], end |
 | narrative reread | `src/verify/narrative.py:74` | one verdict per sentence | all sentences decided |
@@ -103,7 +105,7 @@ unannotated (the generator's check fails otherwise).
 | plan delimited parts | `src/documents/parts.py:158` | the file's lines | end of file |
 | plan line pieces | `src/documents/parts.py:102` | the file's size / LINE_PIECE pieces at least | end of file |
 | plan text parts | `src/documents/parts.py:208` | the file's lines | end of file |
-| planner gap loop | `src/account_intelligence/workflow/stages/research.py:198` | 1 + planner_gap_passes (2) | converged, no_progress, budget, cap_reached |
+| planner gap loop | `src/account_intelligence/workflow/stages/research.py:204` | 1 + planner_gap_passes (2) | converged, no_progress, budget, cap_reached |
 | posting batch loop | `src/jobs/pipeline.py:380` | postings pulled (bounded by the pull caps), batch_size per batch | all processed (one failure is isolated) |
 | posting extractor re-ask | `src/jobs/extractor.py:97` | 1 re-ask, run cap max_extractor_calls | verified, unclassified(reason), hostile |
 | posts pull | `src/people/posts.py:125` | cost_sample_size, then the budget-approved remainder or unknown_cost_post_cap | converged, budget, cap_reached, deadline |
@@ -130,12 +132,12 @@ unannotated (the generator's check fails otherwise).
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
 | stall marking | `src/account_intelligence/runs/sweeper.py:164` | batch_size runs per pass | rows exhausted |
-| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:391` | the pieces in the text received so far | no complete piece left, a refused piece |
+| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:463` | the pieces in the text received so far | no complete piece left, a refused piece |
 | stuck scan | `src/obs/stuck.py:79` | keyset pages of `page` runs until none remain | all scanned |
 | table export pages | `src/account_intelligence/replica/table_export.py:49` | the table's rows / page pages | a short page |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
-| tool rounds | `src/account_intelligence/chat/service.py:352` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
-| tool rounds | `src/account_intelligence/chat/service.py:485` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
+| tool rounds | `src/account_intelligence/chat/service.py:365` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
+| tool rounds | `src/account_intelligence/chat/service.py:498` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
 | topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |
 | topological sort | `src/account_intelligence/workflow/spec.py:58` | number of stages (each pass removes at least one or raises) | ordered, cycle error |
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:248` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
@@ -146,7 +148,7 @@ unannotated (the generator's check fails otherwise).
 | union-find root walk | `src/people/merge.py:78` | number of records (each step moves to a parent; unions always point the larger root at the smaller, so there is no cycle) | root reached |
 | unique column name | `src/documents/chunking.py:246` | the table's columns | a name no column has |
 | unique table name | `src/documents/tables.py:276` | the workspace's tables | a name no table has |
-| verification batch | `src/verify/claims.py:110` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
+| verification batch | `src/verify/claims.py:112` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
 | walk to verifying | `src/account_intelligence/runs/lifecycle.py:594` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |
 | xlsx header row | `src/research_files/parsers/tabular.py:387` | one row | header read |

@@ -103,7 +103,9 @@ async def verify(
     independent: bool,
 ) -> list[Finding]:
     """One finding per claim (see the module docstring); never raises for a model failure."""
-    ordered = sorted(claims, key=lambda c: (not c.high, c.key))
+    # High rows first (the budget order), then grouped by source so the re-reads of one source
+    # run back to back while its cached block is warm
+    ordered = sorted(claims, key=lambda c: (not c.high, text_hash(c.source_text), c.key))
     findings: list[Finding] = []
     # LOOP(verification batch): cap=max_claims_per_run claims, one re-read each; exit=converged,
     # budget (the rest capped), unavailable (that claim capped)

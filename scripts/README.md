@@ -53,4 +53,5 @@ and checked for drift). Run them with `uv run --frozen python scripts/<name>.py`
 | `deploy_staging.sh` | PRINTS the staging release commands (runs nothing) | `make deploy-staging` |
 | `scale_smoke.py` | synthetic scale run; writes `docs/phase3/scale_smoke.md` | manual |
 | `token_savings.py` | what the research cache saved in provider calls and model tokens | manual |
+| `cost_report.py` | model spend per day by surface (Ask, chat, research), task kind and model, with the cache-read share (view `llm_spend_daily`) | manual |
 | `benchmark_model_split.py` | summarises supplied benchmark results (makes no model calls) | manual |

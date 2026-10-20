@@ -103,7 +103,7 @@ CLASSIFIER_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["route"],
     "additionalProperties": False,
-    "properties": {"route": {"enum": list(ROUTES)}},
+    "properties": {"route": {"type": "string", "enum": list(ROUTES)}},
 }
 CLASSIFIER_SYSTEM = (
     "Classify a seller's question about their workspace. Answer with JSON only, exactly"
@@ -218,15 +218,22 @@ async def route(
 
 
 class LlmRouteClassifier:
-    """The fallback classification: one short, non-streamed call at temperature 0 whose reply
-    must be the schema's JSON (anything else counts as no answer)."""
+    """The fallback classification: one short, non-streamed call whose reply must be the
+    schema's JSON (anything else counts as no answer). It runs on the helper model of
+    ``models.yaml`` ``helpers.route_classifier`` (Haiku 5.5; token review item 5, 2026-10-20:
+    was the conversation's model, Fable 5.1 on every unmatched question) with thinking off and
+    the schema as structured output. ``usage`` holds the last call's token counts (priced
+    into the turn's cost by the caller)."""
 
-    def __init__(self, client: Any, model_id: str, max_tokens: int = 40) -> None:
+    def __init__(self, client: Any, model_id: str, max_tokens: int = 64) -> None:
         self._client, self.model_id, self.max_tokens = client, model_id, max_tokens
+        self.usage: Any = None
 
     async def __call__(self, question: str, hints: Sequence[str]) -> str | None:
         """``tabular``, ``prose`` or ``mixed``, or None."""
         import jsonschema
+
+        from account_intelligence.platform.llm import structured_schema
 
         prompt = (
             "<tables>\n" + "\n".join(hints) + "\n</tables>\n<question>\n" + question[:2000]
@@ -234,13 +241,19 @@ class LlmRouteClassifier:
         )  # fmt: skip
         # no temperature: the installed SDK's Messages call has no temperature parameter
         # (OI-LLM-1) — passing one TypeErrors and every classification silently fell back to
-        # ``mixed`` (found 2026-10-17 with the one-model-layer work).
+        # ``mixed`` (found 2026-10-17 with the one-model-layer work). Thinking off: a one-word
+        # label needs none, and thinking tokens would count against the small limit.
         reply = await self._client.messages.create(
             model=self.model_id,
             max_tokens=self.max_tokens,
             system=CLASSIFIER_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
+            thinking={"type": "disabled"},
+            output_config={
+                "format": {"type": "json_schema", "schema": structured_schema(CLASSIFIER_SCHEMA)}
+            },
         )
+        self.usage = getattr(reply, "usage", None)
         text = "".join(
             str(getattr(block, "text", "")) for block in getattr(reply, "content", [])
         ).strip()

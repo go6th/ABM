@@ -33,7 +33,7 @@ defaults:
     max_polls: 40
     total_timeout_s: 150.0
   ledger:
-    lease_ttl_s: 300            # longer than one 240 s slice
+    lease_ttl_s: 1500           # longer than one 1200 s slice (workflow_v1.yaml; was 300 for 240 s)
     in_flight_wait_s: 30.0      # wait for an identical call by this worker
     in_flight_poll_s: 0.25
     in_flight_stale_s: 900.0    # a 'started' attempt older than this by this worker is stale

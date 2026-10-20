@@ -18,6 +18,12 @@ provider and model. Verified against the installed ``anthropic`` package (1.11.0
   block makes repeated calls of one task pay the cached-read price for the prompt and schema.
 * The SDK client retries twice by default; the container builds clients with
   ``max_retries=0`` so the graph node ``RetryPolicy`` stays the single retry owner (W6).
+* Token review 2026-10-20 (``platform.ports.CallOptions``): a research call may carry its
+  reply's JSON Schema (sent as ``output_config.format``, built with the SDK's
+  ``transform_schema``, so a reply cannot fail the schema and be asked again), a source document
+  that opens the user turn as its own cached block, and a ``BatchSlot`` that sends it through
+  the Message Batches API at half price. A batched call's system block is cached for one hour
+  (``ttl: 1h``): batches finish minutes apart, past the five-minute default.
 """
 
 from __future__ import annotations
@@ -31,7 +37,16 @@ from typing import Any
 import yaml
 
 from account_intelligence.config import CONFIG_DIR
-from account_intelligence.platform.ports import LlmResult, LlmUsage, NotConfigured
+from account_intelligence.platform.ports import (
+    BatchSlot,
+    CallOptions,
+    LlmResult,
+    LlmUsage,
+    NotConfigured,
+)
+from obs.logging import logger
+
+log = logger("platform.llm")
 
 TIER_TASK = {
     "planner": "pull_planning",
@@ -44,6 +59,7 @@ TIER_TASK = {
 
 
 EFFORT_LEVELS = frozenset({"low", "medium", "high", "xhigh", "max"})
+CACHE_TTLS = frozenset({"5m", "1h"})
 
 
 @dataclass(frozen=True)
@@ -55,6 +71,9 @@ class ModelRoute:
     model: str
     effort: str | None = None
     prompt_cache: bool = False
+    # the system block's cache lifetime ("5m" default, "1h" pays a 2x write to survive longer
+    # pauses); a batched call always uses "1h"
+    cache_ttl: str = "5m"
 
 
 @lru_cache(maxsize=2)
@@ -75,12 +94,16 @@ def load_routes(path: Path | None = None) -> dict[str, ModelRoute]:
         effort = knobs.get("effort")
         if effort is not None and str(effort) not in EFFORT_LEVELS:
             raise ValueError(f"models.yaml: {task} has unknown effort {effort!r}")
+        ttl = str(knobs.get("cache_ttl", "5m"))
+        if ttl not in CACHE_TTLS:
+            raise ValueError(f"models.yaml: {task} has unknown cache_ttl {ttl!r}")
         routes[tier] = ModelRoute(
             tier,
             str(profile["provider"]),
             model,
             str(effort) if effort is not None else None,
             bool(knobs.get("prompt_cache", False)),
+            ttl,
         )
     return routes
 
@@ -154,22 +177,121 @@ def resolve_eval_choice(env: Mapping[str, str] | None = None) -> SurfaceTarget:
     return SurfaceTarget("eval", model, effort)
 
 
+# schemas the API refused as structured output (by digest, per process): their calls go without
+# the format from then on, the schema still in the prompt and the reply still checked in code
+_REFUSED_SCHEMAS: set[str] = set()
+
+
 class AnthropicLlm:
     """``LlmPort`` over an ``AsyncAnthropic`` or ``AsyncAnthropicVertex`` client (same API)."""
+
+    supports_call_options = True
 
     def __init__(self, client: Any, routes: Mapping[str, ModelRoute], provider: str) -> None:
         self.client = client
         self.routes = dict(routes)
         self.provider = provider
 
-    async def complete(self, tier: str, system: str, user: str, *, max_tokens: int) -> LlmResult:
-        """One messages call for the tier's configured model; returns text and usage."""
+    async def complete(
+        self,
+        tier: str,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int,
+        options: CallOptions | None = None,
+    ) -> LlmResult:
+        """One messages call for the tier's configured model; returns text and usage. With a
+        ``BatchSlot`` (and a client that has the Batches API) the call goes through a message
+        batch; a batch that errors, expires or is cancelled falls back to one standard call."""
         route = self.routes.get(tier)
         if route is None or route.provider != "anthropic":
             raise NotConfigured(f"tier {tier} has no anthropic route")
-        message = await self.client.messages.create(
-            **request_kwargs(route, system, user, max_tokens)
-        )
+        options = options or CallOptions()
+        schema_key = _schema_key(options.schema)
+        if schema_key in _REFUSED_SCHEMAS:
+            options = CallOptions(options.cached_user, None, options.batch)
+        if options.batch is not None and _has_batches(self.client):
+            batched = await self._batched(route, system, user, max_tokens, options)
+            if batched is not None:
+                return batched
+        return await self._standard(route, system, user, max_tokens, options)
+
+    async def _standard(
+        self, route: ModelRoute, system: str, user: str, max_tokens: int, options: CallOptions
+    ) -> LlmResult:
+        """One ``messages.create``; a structured-output schema the API refuses (400 naming the
+        schema or format) is remembered and the call is made once more without it."""
+        kwargs = request_kwargs(route, system, user, max_tokens, options)
+        try:
+            message = await self.client.messages.create(**kwargs)
+        except Exception as error:  # noqa: BLE001 - narrowed below, everything else re-raised
+            if options.schema is None or not _schema_refused(error):
+                raise
+            _REFUSED_SCHEMAS.add(_schema_key(options.schema))
+            log.warning("llm.schema_refused", extra={"model": route.model, "tier": route.tier})
+            plain = CallOptions(options.cached_user, None, None)
+            message = await self.client.messages.create(
+                **request_kwargs(route, system, user, max_tokens, plain)
+            )
+        return self._result(message, batch=False)
+
+    async def _batched(
+        self, route: ModelRoute, system: str, user: str, max_tokens: int, options: CallOptions
+    ) -> LlmResult | None:
+        """The call through the Message Batches API, re-attaching to a batch an earlier slice
+        submitted (``BatchSlot``). None when the batch did not succeed (errored, expired or
+        cancelled after ``max_wait_seconds``): the caller then makes the standard call, which
+        is the only payment for this request."""
+        import asyncio
+
+        slot: BatchSlot = options.batch  # type: ignore[assignment]
+        record = await slot.load()
+        if not record or not record.get("batch_id"):
+            params = request_kwargs(route, system, user, max_tokens, options, ttl="1h")
+            batch = await self.client.messages.batches.create(
+                requests=[{"custom_id": "call", "params": params}]
+            )
+            record = {"batch_id": str(batch.id), "submitted_at": float(slot.now())}
+            await slot.save(record)
+            log.info("llm.batch_submitted", extra={"model": route.model, "tier": route.tier})
+        batch_id = str(record["batch_id"])
+        submitted = float(record.get("submitted_at") or slot.now())
+        cancelled = False
+        beat = float(slot.now())
+        # LOOP(batch poll): cap=max_wait_seconds from the first submission, then cancel and at
+        # most the same wait again for the cancel to land; exit=ended, cancel deadline
+        while True:
+            batch = await self.client.messages.batches.retrieve(batch_id)
+            if str(batch.processing_status) == "ended":
+                break
+            waited = float(slot.now()) - submitted
+            if not cancelled and waited > slot.max_wait_seconds:
+                await self.client.messages.batches.cancel(batch_id)
+                cancelled = True
+                log.warning(
+                    "llm.batch_cancelled",
+                    extra={"model": route.model, "tier": route.tier, "waited_s": round(waited)},
+                )
+            elif cancelled and waited > 2 * slot.max_wait_seconds:
+                return None
+            if slot.heartbeat is not None and float(slot.now()) - beat >= slot.heartbeat_seconds:
+                beat = float(slot.now())
+                await slot.heartbeat()
+            await asyncio.sleep(slot.poll_seconds)
+        results = await self.client.messages.batches.results(batch_id)
+        async for item in results:
+            outcome = item.result
+            if str(outcome.type) == "succeeded":
+                return self._result(outcome.message, batch=True)
+            log.warning(
+                "llm.batch_unsuccessful",
+                extra={"model": route.model, "tier": route.tier, "result": str(outcome.type)},
+            )
+        await slot.save({})  # the next attempt submits afresh
+        return None
+
+    def _result(self, message: Any, *, batch: bool) -> LlmResult:
         text = "".join(
             str(getattr(block, "text", "")) for block in message.content if block.type == "text"
         )
@@ -182,27 +304,86 @@ class AnthropicLlm:
                 output_tokens=int(usage.output_tokens),
                 cache_read_input_tokens=usage.cache_read_input_tokens,
                 cache_creation_input_tokens=usage.cache_creation_input_tokens,
+                cache_creation_1h_input_tokens=getattr(
+                    getattr(usage, "cache_creation", None), "ephemeral_1h_input_tokens", None
+                ),
             ),
-            extra={"provider": self.provider, "stop_reason": message.stop_reason},
+            extra={"provider": self.provider, "stop_reason": message.stop_reason, "batch": batch},
         )
 
 
-def request_kwargs(route: ModelRoute, system: str, user: str, max_tokens: int) -> dict[str, Any]:
+def request_kwargs(
+    route: ModelRoute,
+    system: str,
+    user: str,
+    max_tokens: int,
+    options: CallOptions | None = None,
+    *,
+    ttl: str | None = None,
+) -> dict[str, Any]:
     """The ``messages.create`` arguments for one call: the task's effort and, when configured, the
-    system prompt as one cached block (the only static prefix; run data stays in the user turn)."""
+    system prompt as one cached block (the only static prefix; run data stays in the user turn).
+    A ``cached_user`` document opens the user turn as a second cached block, ahead of the
+    question; a ``schema`` becomes structured output."""
+    options = options or CallOptions()
+    cache: dict[str, Any] = {"type": "ephemeral"}
+    lifetime = ttl or route.cache_ttl
+    if lifetime != "5m":
+        cache["ttl"] = lifetime
+    content: Any = user
+    if options.cached_user:
+        content = [
+            {"type": "text", "text": options.cached_user, "cache_control": dict(cache)},
+            {"type": "text", "text": user},
+        ]
     kwargs: dict[str, Any] = {
         "model": route.model,
         "max_tokens": max_tokens,
         "system": (
-            [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+            [{"type": "text", "text": system, "cache_control": dict(cache)}]
             if route.prompt_cache
             else system
         ),
-        "messages": [{"role": "user", "content": user}],
+        "messages": [{"role": "user", "content": content}],
     }
+    output: dict[str, Any] = {}
     if route.effort is not None:
-        kwargs["output_config"] = {"effort": route.effort}
+        output["effort"] = route.effort
+    if options.schema is not None:
+        output["format"] = {"type": "json_schema", "schema": structured_schema(options.schema)}
+    if output:
+        kwargs["output_config"] = output
     return kwargs
+
+
+def structured_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """A reply schema in the form structured output accepts (the SDK's ``transform_schema``:
+    closed objects, unsupported keywords moved into descriptions)."""
+    import anthropic
+
+    return dict(anthropic.transform_schema(dict(schema)))
+
+
+def _schema_key(schema: Mapping[str, Any] | None) -> str:
+    if schema is None:
+        return ""
+    import hashlib
+    import json
+
+    return hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
+
+
+def _schema_refused(error: Exception) -> bool:
+    """A 400 about the output format or its schema (too complex, unsupported keyword)."""
+    status = getattr(error, "status_code", None)
+    message = str(getattr(error, "message", "") or error).lower()
+    return status == 400 and any(word in message for word in ("schema", "output_config", "format"))
+
+
+def _has_batches(client: Any) -> bool:
+    """Whether the client has the Message Batches API (the first-party API has; Vertex not)."""
+    batches = getattr(getattr(client, "messages", None), "batches", None)
+    return batches is not None and hasattr(batches, "create")
 
 
 def anthropic_api_client(api_key: str) -> Any:
@@ -234,14 +415,33 @@ class ChoiceLlm:
         self.routes = dict(anthropic.routes) if anthropic is not None else {}
         self.client = getattr(anthropic, "client", None)
 
-    async def complete(self, tier: str, system: str, user: str, *, max_tokens: int) -> LlmResult:
+    supports_call_options = True
+
+    async def complete(
+        self,
+        tier: str,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int,
+        options: CallOptions | None = None,
+    ) -> LlmResult:
         """The tier's configured route (the default models)."""
         if self.anthropic is None:
             raise NotConfigured("no Anthropic model access is configured")
-        return await self.anthropic.complete(tier, system, user, max_tokens=max_tokens)
+        return await self.anthropic.complete(
+            tier, system, user, max_tokens=max_tokens, options=options
+        )
 
     async def complete_as(
-        self, model: str, tier: str, system: str, user: str, *, max_tokens: int
+        self,
+        model: str,
+        tier: str,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int,
+        options: CallOptions | None = None,
     ) -> LlmResult:
         """One call of ``tier`` on ``model``."""
         from dataclasses import replace
@@ -255,6 +455,10 @@ class ChoiceLlm:
         if choice.provider == "moonshot":
             if self.moonshot is None:
                 raise NotConfigured("Kimi K3 is not set up (MOONSHOT_API_KEY)")
+            # Kimi has no batches, structured output or cache blocks: the document rides in
+            # the user text
+            if options is not None and options.cached_user:
+                user = f"{options.cached_user}\n\n{user}"
             result: LlmResult = await self.moonshot.complete(
                 model, system, user, max_tokens=max_tokens, effort=route.effort
             )
@@ -264,4 +468,59 @@ class ChoiceLlm:
         chosen = AnthropicLlm(
             self.anthropic.client, {tier: replace(route, model=model)}, self.anthropic.provider
         )
-        return await chosen.complete(tier, system, user, max_tokens=max_tokens)
+        return await chosen.complete(tier, system, user, max_tokens=max_tokens, options=options)
+
+
+@dataclass(frozen=True)
+class BatchConfig:
+    """Which research calls go through the Message Batches API (``batch`` of models.yaml)."""
+
+    enabled: bool = False
+    task_kinds: frozenset[str] = frozenset()
+    poll_seconds: float = 20.0
+    max_wait_seconds: float = 1800.0
+
+    def applies(self, task_kind: str) -> bool:
+        """Whether one task kind's calls are batched."""
+        return self.enabled and task_kind in self.task_kinds
+
+
+@lru_cache(maxsize=2)
+def load_batch_config(path: Path | None = None) -> BatchConfig:
+    """The ``batch`` block of ``config/models.yaml``; absent means no call is batched."""
+    data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
+    raw = data.get("batch") or {}
+    cfg = BatchConfig(
+        bool(raw.get("enabled", False)),
+        frozenset(str(k) for k in raw.get("task_kinds") or ()),
+        float(raw.get("poll_seconds", 20)),
+        float(raw.get("max_wait_seconds", 1800)),
+    )
+    if cfg.poll_seconds <= 0 or cfg.max_wait_seconds <= cfg.poll_seconds:
+        raise ValueError("models.yaml batch: poll_seconds must be positive and below max_wait")
+    return cfg
+
+
+@dataclass(frozen=True)
+class HelperTarget:
+    """A small helper call's model and token limit (``helpers`` of models.yaml)."""
+
+    name: str
+    model: str
+    max_tokens: int
+
+
+@lru_cache(maxsize=4)
+def load_helper(name: str, path: Path | None = None) -> HelperTarget | None:
+    """One helper's model from ``config/models.yaml`` ``helpers`` (None when it is not
+    configured); the model must be on the allowlist and priced in ``models``."""
+    data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
+    raw = (data.get("helpers") or {}).get(name)
+    if not raw:
+        return None
+    model = str(raw["model"])
+    if model not in {str(m) for m in data.get("allowlist", [])}:
+        raise ValueError(f"models.yaml helpers: {name} names {model!r}, not on the allowlist")
+    if model not in (data.get("models") or {}):
+        raise ValueError(f"models.yaml helpers: {name} names {model!r}, which has no price")
+    return HelperTarget(name, model, int(raw.get("max_tokens", 64)))

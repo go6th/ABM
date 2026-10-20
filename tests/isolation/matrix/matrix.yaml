@@ -298,6 +298,7 @@ tables:
   unit_cost_rollups: {}
 views:
   run_spend_by_provider: {tenant_column: tenant_id}
+  llm_spend_daily: {tenant_column: tenant_id}
 # Definer functions run with their owner's rights: each must be narrow and return identifiers
 # only. `proof` names the test that pins that behaviour.
 functions:

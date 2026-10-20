@@ -471,10 +471,17 @@ async def record_ask_turn(
     answer_json: str,
     week: Any,
     category: str,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    cost_usd: Decimal = Decimal(0),
+    billed_model_id: str | None = None,
 ) -> tuple[UUID, UUID, bool]:
     """Store one completed Ask turn in the caller's transaction: the thread (created on the first
     question), the turn with its structured answer, and the weekly question count for its
-    category. Returns (thread id, turn id, whether the thread was created)."""
+    category. Returns (thread id, turn id, whether the thread was created). The turn carries
+    every token class and its priced cost, on the model that was paid (``billed_model_id``:
+    a reply the answer did not use was still paid; ``model_id`` names who wrote the answer),
+    with ``surface`` 'ask' (the cost view, migration 0079)."""
     created = False
     if thread_id is None:
         thread_id = UUID(
@@ -505,9 +512,10 @@ async def record_ask_turn(
             text(
                 "INSERT INTO chat_turns (thread_id, turn_number, request_id, model_id,"
                 " user_content, assistant_content, account_id, status, reserved_usd,"
-                " input_tokens, output_tokens, completed_at, answer_json) VALUES (:t, :n, :r,"
-                " :m, :q, :a, :acct, 'completed', 0, :it, :ot, now(), CAST(:j AS jsonb))"
-                " RETURNING id"
+                " input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd,"
+                " billed_model_id, surface, completed_at, answer_json) VALUES (:t, :n, :r,"
+                " :m, :q, :a, :acct, 'completed', 0, :it, :ot, :cr, :cw, :cost, :billed,"
+                " 'ask', now(), CAST(:j AS jsonb)) RETURNING id"
             ),
             {
                 "t": thread_id,
@@ -519,6 +527,10 @@ async def record_ask_turn(
                 "acct": account_id,
                 "it": input_tokens,
                 "ot": output_tokens,
+                "cr": cache_read_tokens,
+                "cw": cache_write_tokens,
+                "cost": cost_usd,
+                "billed": billed_model_id,
                 "j": answer_json,
             },
         )

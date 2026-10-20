@@ -94,10 +94,14 @@ async def confirmed_fact(harness: Harness, tenant: UUID) -> tuple[Any, ...]:
 
 
 def deps(info: RunInfo, reply: dict[str, Any] | None) -> Any:
-    async def model(task_kind: str, system: str, user: str) -> LlmResult:
+    async def model(task_kind: str, system: str, user: str, **kw: Any) -> LlmResult:
         assert task_kind == "source_reread"
         payload = json.loads(user)
+        assert set(payload) == {"question"}
         assert "Senior Salesforce Administrator" not in payload["question"]  # blind (V2)
+        # the source opens the user turn as its own cached block (token review item 10)
+        assert kw["cached_user"].startswith("<source>\n") and SENTENCE in kw["cached_user"]
+        assert kw["schema"]["type"] == "object"
         if reply is None:
             raise RuntimeError("verifier unavailable")
         return LlmResult(json.dumps(reply), "scripted", LlmUsage(1, 1))

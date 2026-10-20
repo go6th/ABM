@@ -20,8 +20,10 @@ OPUS, FABLE, KIMI = catalogue().ids
 
 def test_the_shipped_block_is_the_owner_decision() -> None:
     surfaces = load_surfaces()
-    assert chat_effort() == "high"  # Ask and follow-up chat providers are built at effort high
-    assert surfaces["chat"] == SurfaceTarget("chat", None, "high")
+    # Ask and follow-up chat providers are built at effort medium (token review item 4,
+    # 2026-10-20: was high; thinking is billed as output)
+    assert chat_effort() == "medium"
+    assert surfaces["chat"] == SurfaceTarget("chat", None, "medium")
     assert surfaces["eval"] == SurfaceTarget("eval", KIMI, "high")
 
 

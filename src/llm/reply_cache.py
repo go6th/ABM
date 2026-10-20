@@ -72,6 +72,17 @@ class ReplyUsage:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    # the part of ``cache_write_tokens`` written with the one-hour lifetime (billed at twice the
+    # input price instead of the five-minute write price)
+    cache_write_1h_tokens: int = 0
+    # served through the Message Batches API (every token at half price)
+    batch: bool = False
+
+
+# the Message Batches discount on every token class (platform.claude.com pricing, 2026-10-20)
+BATCH_DISCOUNT = Decimal("0.5")
+# a one-hour cache write costs twice the base input price
+CACHE_WRITE_1H_MULTIPLIER = Decimal(2)
 
 
 class ReplyCache(Protocol):
@@ -224,9 +235,9 @@ class PgReplyCache:
                 text(
                     "INSERT INTO model_reply_log (tenant_id, run_id, cache_key, task_kind, tier,"
                     " model, served_from, input_tokens, output_tokens, cache_read_tokens,"
-                    " cache_write_tokens, cost_usd, cost_known, reply_text, reply_model)"
+                    " cache_write_tokens, cost_usd, cost_known, reply_text, reply_model, batch)"
                     " VALUES ((SELECT app_tenant()), :r, :k, :task, :tier, :model, :served,"
-                    " :i, :o, :cr, :cw, :cost, :known, :reply, :reply_model)"
+                    " :i, :o, :cr, :cw, :cost, :known, :reply, :reply_model, :batch)"
                 ),
                 {
                     "r": run_id,
@@ -243,6 +254,7 @@ class PgReplyCache:
                     "known": cost_usd is not None,
                     "reply": reply_text,
                     "reply_model": model if reply_text is not None else None,
+                    "batch": usage.batch,
                 },
             )
 
@@ -264,14 +276,20 @@ def _prices(path: Path | None = None) -> dict[str, dict[str, Decimal]]:
 
 def price(model: str, usage: ReplyUsage) -> Decimal | None:
     """The call's cost from ``config/models.yaml`` prices (uncached input, cached reads, cache
-    writes and output priced separately); None when the model is not priced there."""
+    writes and output priced separately; one-hour cache writes at twice the input price; a
+    batched call at half price); None when the model is not priced there."""
     p = _prices().get(model)
     if p is None:
         return None
     million = Decimal(1_000_000)
-    return (
-        Decimal(usage.input_tokens) * p.get("input_usd_per_million", Decimal(0))
+    base_input = p.get("input_usd_per_million", Decimal(0))
+    long_writes = min(usage.cache_write_1h_tokens, usage.cache_write_tokens)
+    cost = (
+        Decimal(usage.input_tokens) * base_input
         + Decimal(usage.cache_read_tokens) * p.get("cached_read_usd_per_million", Decimal(0))
-        + Decimal(usage.cache_write_tokens) * p.get("cache_write_usd_per_million", Decimal(0))
+        + Decimal(usage.cache_write_tokens - long_writes)
+        * p.get("cache_write_usd_per_million", Decimal(0))
+        + Decimal(long_writes) * base_input * CACHE_WRITE_1H_MULTIPLIER
         + Decimal(usage.output_tokens) * p.get("output_usd_per_million", Decimal(0))
     ) / million
+    return cost * BATCH_DISCOUNT if usage.batch else cost

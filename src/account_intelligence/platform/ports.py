@@ -65,6 +65,8 @@ class LlmUsage:
     output_tokens: int
     cache_read_input_tokens: int | None = None
     cache_creation_input_tokens: int | None = None
+    # the part of the cache writes made with the one-hour lifetime (priced at 2x input)
+    cache_creation_1h_input_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,42 @@ class LlmPort(Protocol):
     async def complete(self, tier: str, system: str, user: str, *, max_tokens: int) -> LlmResult:
         """One model call for a tier: system and user text in, raw text and usage out."""
         ...
+
+
+@dataclass(frozen=True)
+class BatchSlot:
+    """Where one research call keeps its Message Batches request between slices (token review
+    item 8, 2026-10-20): ``load``/``save`` persist ``{"batch_id", "submitted_at"}`` under the
+    call's request digest, so a slice that ends while the batch is still processing leaves it
+    running and the next slice re-attaches instead of paying for the call again.
+    ``max_wait_seconds`` bounds how long a call waits from its first submission; past it the
+    batch is cancelled (an unprocessed request is not billed) and the call is made at the
+    standard price."""
+
+    load: Any  # async () -> dict | None
+    save: Any  # async (dict) -> None
+    now: Any  # () -> float, wall-clock seconds (the submission time survives a restart)
+    poll_seconds: float = 20.0
+    max_wait_seconds: float = 1800.0
+    # async () -> None: the run is alive while it waits (the stall sweeper reads this heartbeat)
+    heartbeat: Any | None = None
+    heartbeat_seconds: float = 300.0
+
+
+@dataclass(frozen=True)
+class CallOptions:
+    """Request extras for one call, honoured by a port whose ``supports_call_options`` is true
+    (``platform.llm.AnthropicLlm``); any other port gets ``cached_user`` folded into the user
+    text and ignores the rest, so every adapter keeps its plain ``complete`` signature.
+
+    * ``cached_user``: a large document that opens the user turn as its own cached block (the
+      question follows it), so calls about the same source pay the cached-read price for it.
+    * ``schema``: the reply's JSON Schema, sent as structured output so a reply cannot fail it.
+    * ``batch``: send the call through the Message Batches API at half price (``BatchSlot``)."""
+
+    cached_user: str | None = None
+    schema: Mapping[str, Any] | None = None
+    batch: BatchSlot | None = None
 
 
 class SecretSource(Protocol):

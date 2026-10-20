@@ -224,7 +224,8 @@ async def test_platform_defaults_and_the_model_choice(staff_env: None) -> None:
         {"email": "dev@6th.example", "role": "Support"},
     ]
     assert before["skill_version"] and before["model_router_on"] is False
-    assert (before["default_research_model"], before["default_analysis_model"]) == (opus, fable)
+    # the analysis default is Opus 5.5 since 2026-10-20 (token review item 4)
+    assert (before["default_research_model"], before["default_analysis_model"]) == (opus, opus)
     assert [m["id"] for m in before["models"]] == [opus, fable, kimi]
     assert [m["needs_client_permission"] for m in before["models"]] == [False, False, False]
     try:

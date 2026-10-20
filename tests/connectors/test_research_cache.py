@@ -209,7 +209,11 @@ async def test_a_stale_in_flight_attempt_of_this_worker_is_reissued(
     assert isinstance(first, Claimed)
     # still fresh: the identical claim waits (in flight)
     assert isinstance(await rt.ledger.claim(ctx, rt.worker_id, key, 0.005), InFlight)
-    harness.clock.advance(rt.ledger.in_flight_stale_s + 1)
+    # the attempt's start is stamped by the database clock and this test moves only the fake
+    # clock, so the abandoned attempt is reached past both bounds: staleness and the lease
+    # (1500 s since slices became 1200 s, 2026-10-20; it was 300 s, under the 900 s staleness,
+    # which is what this step relied on)
+    harness.clock.advance(max(rt.ledger.in_flight_stale_s, rt.ledger.lease_ttl_s) + 1)
     again = await rt.ledger.claim(ctx, rt.worker_id, key, 0.005)
     assert isinstance(again, Claimed) and again.possible_duplicate and again.attempt == 2
     with pytest.raises(CallInFlight):

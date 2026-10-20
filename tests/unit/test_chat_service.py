@@ -141,7 +141,10 @@ async def test_anthropic_adapter_streams_only_text_and_final_usage() -> None:
     assert calls[0]["model"] == model.id and calls[0]["max_tokens"] == 1024
     assert calls[0]["messages"] == [{"role": "user", "content": "question"}]
     assert "temperature" not in calls[0]
-    assert "Answer ONLY from the WORKSPACE DATA" in calls[0]["system"]
+    # one system block; the grounded prompt carries this turn's data, so it is not cached
+    (block,) = calls[0]["system"]
+    assert "Answer ONLY from the WORKSPACE DATA" in block["text"]
+    assert "cache_control" not in block and "cache_control" not in calls[0]
 
 
 @pytest.mark.asyncio

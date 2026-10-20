@@ -31,6 +31,9 @@ import re
 from typing import Any
 
 from account_intelligence.replica.answers import Draft, Row
+from obs.logging import logger
+
+log = logger("replica.render")
 
 NAME = "render_answer"
 
@@ -269,18 +272,36 @@ def rewrite(
     payload: dict[str, Any], ids: dict[str, Row]
 ) -> tuple[dict[str, Any], dict[str, Row]] | None:
     """Check every ``[R3]`` citation in the payload against the rows the model was sent and
-    rewrite them to row-key markers (the same conversion ``checked`` gives Markdown). None
-    when a citation is unknown: the reply is discarded and the local answer stands."""
+    rewrite them to row-key markers (the same conversion ``checked`` gives Markdown). A
+    citation of a row that was not sent is repaired, as in Markdown (token review item 6,
+    2026-10-20: was a discarded reply): an item of a list (a table row, a list entry) whose
+    citations are ALL unknown is dropped, and an unknown id elsewhere is removed. None when
+    every citation was unknown (the local answer then stands)."""
     rows: dict[str, Row] = {}
+    dropped: list[str] = []
+
+    def cites(value: Any) -> list[str]:
+        if isinstance(value, str):
+            return _CITE.findall(value)
+        if isinstance(value, list):
+            return [rid for v in value for rid in cites(v)]
+        if isinstance(value, dict):
+            return [rid for v in value.values() for rid in cites(v)]
+        return []
 
     def swap(value: Any) -> Any:
         if isinstance(value, str):
-            found = _CITE.findall(value)
-            if any(rid not in ids for rid in found):
-                raise KeyError(found)
-            return _CITE.sub(lambda m: mark(ids[m.group(1)]), value)
+            dropped.extend(rid for rid in _CITE.findall(value) if rid not in ids)
+            return _CITE.sub(lambda m: mark(ids[m.group(1)]) if m.group(1) in ids else "", value)
         if isinstance(value, list):
-            return [swap(v) for v in value]
+            kept = []
+            for v in value:
+                found = cites(v)
+                if found and all(rid not in ids for rid in found):
+                    dropped.extend(found)  # the item rests only on rows that were not sent
+                    continue
+                kept.append(swap(v))
+            return kept
         if isinstance(value, dict):
             return {k: swap(v) for k, v in value.items()}
         return value
@@ -292,10 +313,15 @@ def rewrite(
     work = dict(payload)
     if not isinstance(work.get("stats"), list):
         work["stats"] = []  # the client schema requires the key
-    try:
-        return swap(work), rows
-    except KeyError:
-        return None
+    out = swap(work)
+    if dropped:
+        log.warning(
+            "ask.citation_dropped",
+            extra={"where": "render", "count": len(dropped), "ids": ",".join(dropped[:20])},
+        )
+    if dropped and not rows:
+        return None  # every citation pointed at a row that was not sent
+    return out, rows
 
 
 def to_draft(headline_payload: dict[str, Any], rows: dict[str, Row]) -> Draft:

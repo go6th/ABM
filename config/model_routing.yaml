@@ -30,8 +30,11 @@ task_kinds:
     write_narrative:        {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     distill:                {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     support_judge:          {tier: judge,     max_tokens: 4000, temperature: null, cacheable: true}
-    source_reread:          {tier: judge,     max_tokens: 4000, temperature: null, cacheable: false}
-    narrative_reread:       {tier: judge,     max_tokens: 4000, temperature: null, cacheable: false}
+    # replayable since 2026-10-20 (token review item 11): a retried node or a restarted slice
+    # gets the stored verdict back instead of paying for the same re-read again; a different
+    # source or question is a different request and is asked afresh
+    source_reread:          {tier: judge,     max_tokens: 4000, temperature: null, cacheable: true}
+    narrative_reread:       {tier: judge,     max_tokens: 4000, temperature: null, cacheable: true}
     # Research files (2026-10-13): section summaries on the stronger tier, answers on the cheaper
     file_summarize_section: {tier: planner,   max_tokens: 2000, temperature: null, cacheable: true}
     file_answer_question:   {tier: extractor, max_tokens: 2000, temperature: null, cacheable: true}

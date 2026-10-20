@@ -152,7 +152,10 @@ async def test_the_model_classifier_accepts_only_the_schema_json() -> None:
     classifier = R.LlmRouteClassifier(good, "model-z")
     assert await classifier("q", ["Jobs: Title"]) == "tabular"
     call = good.messages.calls[0]
-    assert call["model"] == "model-z" and call["max_tokens"] == 40
+    assert call["model"] == "model-z" and call["max_tokens"] == 64
+    # a one-word label: thinking off, the schema as structured output (token review 2026-10-20)
+    assert call["thinking"] == {"type": "disabled"}
+    assert call["output_config"]["format"]["type"] == "json_schema"
     assert "<question>" in call["messages"][0]["content"]
     # no unsupported kwarg may reach the Messages call: the installed SDK's create has NO
     # ``temperature`` parameter (OI-LLM-1), and the one this used to send made every

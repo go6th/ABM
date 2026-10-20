@@ -77,10 +77,10 @@ async def test_the_file_a_question_is_about_reaches_the_model_whole(world: dict[
     q, local = A.understand(question, ws, None), A.Draft()
     rows = pick_rows(q, ws, local)
     block, ids = context_block(rows)
-    assert f"GSK_Job_Postings.xlsx, given whole below (3 lines) | source: {whole.title}" in block
-    rid = next(k for k, r in ids.items() if r.key == whole.key)
+    announced = f'GSK_Job_Postings.xlsx, given whole in <file doc="{doc}"> (3 lines)'
+    assert f"{announced} | source: {whole.title}" in block
     files = file_blocks(ids)
-    assert files.startswith(f'<file id="{rid}" name="GSK_Job_Postings.xlsx">')
+    assert files.startswith(f'<file doc="{doc}" name="GSK_Job_Postings.xlsx">')
     assert LINES[1] in files and LINES[2] in files
 
 

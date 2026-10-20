@@ -70,12 +70,12 @@ class CloudTasksScheduler:
     Three queues (``ARCHITECTURE.md``): run slices and approval timeouts on ``queue``, document
     processing on ``documents_queue``, research jobs and Download everything on ``jobs_queue``, so
     document parsing never starves run slices. Every task carries an explicit dispatch deadline:
-    ``SLICE_DEADLINE_S`` (a 240 s slice with margin) and ``JOB_DEADLINE_S``, and the service's
-    30-minute maximum for documents.
+    ``SLICE_DEADLINE_S`` (a 1200 s slice with margin, ``config/workflow_v1.yaml``) and
+    ``JOB_DEADLINE_S``, and the service's 30-minute maximum for documents.
     VERIFY(V-TASKS-1): name-based de-duplication window and dispatch deadline limits are
     service behaviour, not checked here."""
 
-    SLICE_DEADLINE_S = 600
+    SLICE_DEADLINE_S = 1500  # slice_seconds 1200 plus checkpoint and lease margin; max 1800
     JOB_DEADLINE_S = 600
     DOCUMENT_DEADLINE_S = 1800  # the Cloud Tasks maximum
 

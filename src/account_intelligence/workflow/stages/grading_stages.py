@@ -88,6 +88,19 @@ class LlmJudge:
             raise JudgeUnavailable("judge returned no JSON")
         return answer
 
+    async def judge_many(self, claim: str, sentences: list[str]) -> Any:
+        """Ask the judge tier about every evidence sentence of one claim in one call (one
+        verdict per sentence, ``grading.judge.call_judge_many``)."""
+        answer = await ask_json(
+            self.deps,
+            "support_judge",
+            prompt("judge_many.v1"),
+            {"claim": claim, "sentences": [f"{i}. {s}" for i, s in enumerate(sentences, 1)]},
+        )
+        if answer is None:
+            raise JudgeUnavailable("judge returned no JSON")
+        return answer
+
 
 class GradingStages:
     """Shared plumbing for the two grading stages."""

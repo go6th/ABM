@@ -29,6 +29,13 @@ class JudgeVerdict(BaseModel):
     reason: str = Field(min_length=1, max_length=300)
 
 
+class JudgeManyVerdict(BaseModel):
+    """A grouped judge answer: one verdict per sentence, in the order the sentences were sent."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    verdicts: list[JudgeVerdict] = Field(min_length=1)
+
+
 Outcome = Literal["supported", "unsupported", "unavailable", "not_required"]
 
 
@@ -105,6 +112,50 @@ async def call_judge(
         return JudgeResult(
             "supported" if verdict.supported else "unsupported", attempts, verdict.reason
         )
+    return JudgeResult("unavailable", attempts, "invalid_judge_output")
+
+
+async def call_judge_many(
+    port: SupportJudgePort | None, claim: str, sentences: list[str], cfg: GradingConfig
+) -> JudgeResult:
+    """Ask the judge about every evidence sentence of one claim in ONE call (token review item
+    10, 2026-10-20: was one call per sentence). Supported only when every sentence is; the
+    first unsupported sentence's reason is kept. A port without ``judge_many`` (or a single
+    sentence) is asked sentence by sentence as before. Never raises."""
+    many = getattr(port, "judge_many", None)
+    if port is None or many is None or len(sentences) < 2:
+        result = JudgeResult("unavailable", 0, "not_configured")
+        for sentence in sentences:
+            result = await call_judge(port, claim, sentence, cfg)
+            if result.outcome != "supported":
+                break
+        return result
+    attempts = 0
+    # LOOP(grouped judge re-ask): cap=max_reasks (1); exit=verdicts for every sentence,
+    # unavailable (claim capped, G12)
+    for _ in range(cfg.judge.max_reasks + 1):
+        attempts += 1
+        try:
+            raw = await many(claim, sentences)
+        except (
+            NotConfigured,
+            PlatformNotConfigured,
+            JudgeUnavailable,
+            TimeoutError,
+            ConnectionError,
+            OSError,
+        ):
+            return JudgeResult("unavailable", attempts, "judge_unavailable")
+        try:
+            grouped = JudgeManyVerdict.model_validate(raw)
+        except ValidationError:
+            continue
+        if len(grouped.verdicts) != len(sentences):
+            continue
+        refused = next((v for v in grouped.verdicts if not v.supported), None)
+        if refused is not None:
+            return JudgeResult("unsupported", attempts, refused.reason)
+        return JudgeResult("supported", attempts, grouped.verdicts[0].reason)
     return JudgeResult("unavailable", attempts, "invalid_judge_output")
 
 
