@@ -108,6 +108,28 @@ def load_routes(path: Path | None = None) -> dict[str, ModelRoute]:
     return routes
 
 
+@lru_cache(maxsize=2)
+def model_efforts(path: Path | None = None) -> dict[str, str]:
+    """The fixed effort of a model (``effort`` on its ``models`` entry in models.yaml): every
+    call on that model runs at it, whatever its task or surface asks (owner decision 2026-10-20:
+    Opus 5.5 at medium). A model without one keeps the task's or surface's effort."""
+    data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
+    out = {}
+    for model, spec in (data.get("models") or {}).items():
+        effort = (spec or {}).get("effort")
+        if effort is None:
+            continue
+        if str(effort) not in EFFORT_LEVELS:
+            raise ValueError(f"models.yaml: {model} has unknown effort {effort!r}")
+        out[str(model)] = str(effort)
+    return out
+
+
+def effort_for(model: str, asked: str | None) -> str | None:
+    """The effort one call on ``model`` runs at: the model's fixed effort, else ``asked``."""
+    return model_efforts().get(model, asked)
+
+
 def judge_differs_from_generator(routes: Mapping[str, ModelRoute]) -> bool:
     """G12 and workflow spec 2.3: the judge must not be the generator's model."""
     return routes["judge"].model != routes["extractor"].model
@@ -347,8 +369,9 @@ def request_kwargs(
         "messages": [{"role": "user", "content": content}],
     }
     output: dict[str, Any] = {}
-    if route.effort is not None:
-        output["effort"] = route.effort
+    effort = effort_for(route.model, route.effort)
+    if effort is not None:
+        output["effort"] = effort
     if options.schema is not None:
         output["format"] = {"type": "json_schema", "schema": structured_schema(options.schema)}
     if output:

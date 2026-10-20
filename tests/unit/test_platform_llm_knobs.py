@@ -16,6 +16,7 @@ from account_intelligence.config import CONFIG_DIR
 from account_intelligence.platform.llm import (
     AnthropicLlm,
     ModelRoute,
+    effort_for,
     judge_differs_from_generator,
     load_routes,
     request_kwargs,
@@ -90,7 +91,8 @@ async def test_the_port_passes_the_knobs_through() -> None:
     result = await llm.complete("judge", "s", "u", max_tokens=50)
     route = load_routes()["judge"]
     assert client.kwargs["model"] == route.model
-    assert client.kwargs["output_config"] == {"effort": route.effort}
+    # a model's fixed effort wins over the task's (models.yaml: Opus 5.5 at medium, 2026-10-20)
+    assert client.kwargs["output_config"] == {"effort": effort_for(route.model, route.effort)}
     assert result.usage.cache_read_input_tokens == 7
 
 

@@ -352,8 +352,12 @@ class AnthropicChatProvider:
             # the automatic breakpoint moves to the last message of every round (at most 3 of
             # the 4 breakpoints are used: the file, the rules and this one)
             request["cache_control"] = ephemeral
-        if self._effort is not None:
-            request["output_config"] = {"effort": self._effort}
+        from account_intelligence.platform.llm import effort_for
+
+        # a model with a fixed effort (models.yaml, Opus 5.5 at medium) keeps it on every surface
+        effort = effort_for(model.id, self._effort)
+        if effort is not None:
+            request["output_config"] = {"effort": effort}
         # temperature is deliberately NOT forwarded: the installed SDK's Messages call has no
         # temperature parameter (open item OI-LLM-1) — forwarding the 0.0 that tabular Ask
         # turns send would TypeError every round. The Moonshot provider pins temperature/seed.

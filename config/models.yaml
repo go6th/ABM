@@ -67,11 +67,13 @@ arms:
       narrative: analysis_fable
       verification: collection_opus
 
-# token review item 9 (2026-10-20): the cost_saving arm (extraction and classification on Sonnet
-# 5.5, verification on Opus 5.5). The arm serves every tier whose run keeps the default model of
-# its role (workflow.deps.RunDeps.chosen_model); a model the user picks still serves its tiers.
-# Was "automatic" (the owner's split of 2026-10-14); switch back here to restore it.
-active_arm: cost_saving
+# The owner's split (2026-10-14): Opus 5.5 plans, pulls, extracts and classifies, Fable 5.1
+# analyses and judges (the judge must differ from the extractor). The token review's cost_saving
+# arm (extraction on Sonnet 5.5) was tried on 2026-10-20 and reverted the same day by the owner:
+# extraction and classification stay on Opus 5.5, which runs at medium effort (its `effort` in
+# `models`). The arm serves every tier whose run keeps the default model of its role
+# (workflow.deps.RunDeps.chosen_model); a model the user picks still serves its tiers.
+active_arm: automatic
 decision_status: Decided
 
 # Per-task request knobs for the Messages call (verified against anthropic 1.11.0, 2026-10-13:
@@ -141,6 +143,10 @@ models:
     provider: anthropic
     display_name: "Claude Opus 5.5"
     responsibility: "Data collection and judgment calls"
+    # every call on this model runs at this effort, whatever its task or surface asks (owner
+    # decision 2026-10-20: "opus should run on medium"; the judge and a user's Opus extraction
+    # asked low). A model without `effort` keeps the task's or surface's effort.
+    effort: medium
     context_window: 1000000
     max_output_tokens: 128000
     pricing:

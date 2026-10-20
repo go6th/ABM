@@ -171,7 +171,7 @@ def _anthropic(status: int, calls: list[dict[str, object]]):  # type: ignore[no-
 @pytest.mark.parametrize("adapter", ["scripted", "anthropic"])
 async def test_llm_port_contract(adapter: str) -> None:
     from account_intelligence.platform.hermetic import ScriptedLlm
-    from account_intelligence.platform.llm import AnthropicLlm, load_routes
+    from account_intelligence.platform.llm import AnthropicLlm, effort_for, load_routes
 
     calls: list[dict[str, object]] = []
     llm = (
@@ -184,9 +184,11 @@ async def test_llm_port_contract(adapter: str) -> None:
     if calls:  # the request carries only verified parameters, model and knobs from config
         route = load_routes()["extractor"]
         expected = ["max_tokens", "messages", "model", "system"]
-        if route.effort is not None:
+        # a model's fixed effort wins over the task's (models.yaml: Opus 5.5 at medium)
+        effort = effort_for(route.model, route.effort)
+        if effort is not None:
             expected.append("output_config")
-            assert calls[0]["output_config"] == {"effort": route.effort}
+            assert calls[0]["output_config"] == {"effort": effort}
         assert sorted(calls[0]) == sorted(expected)
         assert calls[0]["model"] == route.model
         if route.prompt_cache:  # the system prompt is the one cached block

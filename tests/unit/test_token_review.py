@@ -23,7 +23,9 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+import yaml
 
+from account_intelligence.config import CONFIG_DIR
 from account_intelligence.platform.llm import (
     AnthropicLlm,
     ModelRoute,
@@ -35,15 +37,16 @@ from account_intelligence.platform.llm import (
 from account_intelligence.platform.ports import BatchSlot, CallOptions
 from llm.reply_cache import ReplyUsage, price
 
-# model ids come from config only (R1: no model id in tests): the cost_saving arm's extractor
-# (Sonnet 5.5), its judge (Opus 5.5) and the route classifier's helper (Haiku 5.5)
+# model ids come from config only (R1: no model id in tests): the Opus 5.5 and Sonnet 5.5
+# profiles of models.yaml and the route classifier's helper (Haiku 5.5)
+_RAW = yaml.safe_load((CONFIG_DIR / "models.yaml").read_text())
+OPUS = _RAW["profiles"]["collection_opus"]["model"]
+SONNET = _RAW["profiles"]["extraction_sonnet"]["model"]
 _ROUTES = load_routes()
-EXTRACTOR = _ROUTES["extractor"].model
-JUDGE = _ROUTES["judge"].model
 _HELPER = load_helper("route_classifier")
 assert _HELPER is not None
 HELPER = _HELPER.model
-ROUTE = ModelRoute("extractor", "anthropic", EXTRACTOR, "low", True)
+ROUTE = ModelRoute("extractor", "anthropic", SONNET, "low", True)
 
 
 @dataclass
@@ -63,7 +66,7 @@ class _Block:
 @dataclass
 class _Message:
     text: str
-    model: str = EXTRACTOR
+    model: str = SONNET
     stop_reason: str = "end_turn"
     usage: _Usage = field(default_factory=_Usage)
 
@@ -244,28 +247,25 @@ async def test_a_refused_schema_is_asked_again_without_it() -> None:
 
 
 def test_batched_and_long_cached_calls_are_priced_as_billed() -> None:
-    standard = price(EXTRACTOR, ReplyUsage(1_000_000, 100_000))
-    batched = price(EXTRACTOR, ReplyUsage(1_000_000, 100_000, batch=True))
+    standard = price(SONNET, ReplyUsage(1_000_000, 100_000))
+    batched = price(SONNET, ReplyUsage(1_000_000, 100_000, batch=True))
     assert standard == Decimal("3") and batched == Decimal("1.5")
     # 1M tokens written: half at the 5-minute rate (2.50), half for an hour (2 x 2.00)
-    writes = price(EXTRACTOR, ReplyUsage(0, 0, 0, 1_000_000, 500_000))
+    writes = price(SONNET, ReplyUsage(0, 0, 0, 1_000_000, 500_000))
     assert writes == Decimal("1.25") + Decimal("2")
     assert price(HELPER, ReplyUsage(1_000_000, 1_000_000)) == Decimal("0.60")
 
 
 def test_the_config_switches_the_arm_and_lowers_effort() -> None:
-    import yaml
-
-    from account_intelligence.config import CONFIG_DIR
-
     raw = yaml.safe_load((CONFIG_DIR / "models.yaml").read_text())
-    assert raw["active_arm"] == "cost_saving"
+    # the owner's split (reverted to on 2026-10-20): Opus 5.5 extracts, Fable 5.1 judges
+    assert raw["active_arm"] == "automatic"
     profiles = raw["profiles"]
     routes = load_routes()
-    assert routes["extractor"].model == profiles["extraction_sonnet"]["model"]
-    assert routes["classifier"].model == profiles["extraction_sonnet"]["model"]
-    assert routes["judge"].model == profiles["collection_opus"]["model"]
-    assert routes["planner"].model == profiles["collection_opus"]["model"]
+    for tier in ("planner", "extractor", "classifier"):
+        assert routes[tier].model == profiles["collection_opus"]["model"]
+    assert routes["judge"].model == profiles["analysis_fable"]["model"]
+    assert routes["judge"].model != routes["extractor"].model
     assert routes["synthesis"].effort == "medium" and routes["narrative"].effort == "medium"
     assert load_batch_config().applies("abm_pass1_extract")
     assert not load_batch_config().applies("file_answer_question")  # interactive
@@ -294,10 +294,15 @@ def test_a_role_on_its_default_runs_on_the_arm_and_the_judge_stays_independent()
     for tier in ("planner", "extractor", "classifier", "synthesis", "narrative", "judge"):
         assert default.chosen_model(tier) is None  # the arm's route serves it
     # a picked analysis model serves its tiers; the judge never matches the extractor
-    picked = deps(RunModels(cat.default_research, EXTRACTOR))
-    assert picked.chosen_model("synthesis") == EXTRACTOR
-    judge = picked.chosen_model("judge")
-    assert judge is not None and judge != EXTRACTOR
+    picked = deps(RunModels(cat.default_research, SONNET))
+    assert picked.chosen_model("synthesis") == SONNET
+    assert picked.chosen_model("judge") == SONNET  # differs from the arm's Opus extractor
+    # a research pick equal to the arm's judge (Fable 5.1) never judges its own extraction
+    fable = _RAW["profiles"]["analysis_fable"]["model"]
+    same = deps(RunModels(fable, cat.default_analysis))
+    assert same.chosen_model("extractor") == fable
+    judge = same.chosen_model("judge")
+    assert judge is not None and judge != fable
 
 
 def _row(key: str, text: str = "x", **extra: Any) -> Any:
@@ -384,7 +389,7 @@ async def test_ask_caches_the_file_first_the_rules_and_the_tool_loop() -> None:
             return Stream(kw)
 
     provider = AnthropicChatProvider(type("C", (), {"messages": Msgs()})())
-    model = type("M", (), {"id": JUDGE})()
+    model = type("M", (), {"id": OPUS})()
     tool = {"name": "query_table", "input_schema": {"type": "object"}}
     async for _ in provider.stream(
         model, [ChatMessage("user", "q")], 100, system="RULES", cached="FILE", tools=[tool]
@@ -440,3 +445,53 @@ def test_the_spend_view_migration_is_additive() -> None:
     assert "DROP" not in up
     down = (root / "0079_spend_view.down.sql").read_text()
     assert "DROP VIEW IF EXISTS llm_spend_daily" in down
+
+
+@pytest.mark.asyncio
+async def test_opus_runs_at_medium_whatever_its_task_asks() -> None:
+    from account_intelligence.chat.service import AnthropicChatProvider, ChatMessage
+    from account_intelligence.platform.llm import effort_for
+
+    # extraction asks low; its model (Opus 5.5) has a fixed effort of medium
+    assert _ROUTES["extractor"].model == OPUS and _ROUTES["extractor"].effort == "low"
+    extract = request_kwargs(_ROUTES["extractor"], "s", "u", 10)
+    assert extract["output_config"]["effort"] == "medium"
+    # any task on Opus, e.g. a judge route a user's choice puts on it
+    picked = ModelRoute("judge", "anthropic", OPUS, "low", True)
+    assert request_kwargs(picked, "s", "u", 10)["output_config"]["effort"] == "medium"
+    # a model without a fixed effort keeps the task's
+    assert request_kwargs(ROUTE, "s", "u", 10)["output_config"]["effort"] == "low"
+    assert effort_for(SONNET, "high") == "high"
+
+    captured: list[dict[str, Any]] = []
+
+    class Stream:
+        def __init__(self, kw: dict[str, Any]) -> None:
+            captured.append(kw)
+
+        async def __aenter__(self) -> Stream:
+            return self
+
+        async def __aexit__(self, *a: Any) -> None:
+            return None
+
+        def __aiter__(self) -> Any:
+            async def gen() -> Any:
+                if False:
+                    yield None
+
+            return gen()
+
+        async def get_final_message(self) -> Any:
+            return type("F", (), {"content": [], "stop_reason": "end_turn", "usage": _Usage()})()
+
+    class Msgs:
+        def stream(self, **kw: Any) -> Stream:
+            return Stream(kw)
+
+    provider = AnthropicChatProvider(type("C", (), {"messages": Msgs()})(), effort="high")
+    for model_id in (OPUS, SONNET):
+        model = type("M", (), {"id": model_id})()
+        async for _ in provider.stream(model, [ChatMessage("user", "q")], 100, system="R"):
+            pass
+    assert [c["output_config"]["effort"] for c in captured] == ["medium", "high"]
