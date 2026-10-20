@@ -5,14 +5,14 @@ from __future__ import annotations
 from llm.choice import NOT_ENABLED, NOT_SET_UP, RunModels, availability, catalogue
 
 # model ids live only in config (R1): the three choices in their configured order
-OPUS, FABLE, KIMI, SONNET, HAIKU = catalogue().ids
+OPUS, FABLE, KIMI, SONNET, HAIKU, GROK = catalogue().ids
 KEYS = {"ANTHROPIC_API_KEY": "x", "MOONSHOT_API_KEY": "y"}
 
 
-def test_the_catalogue_offers_five_models_with_the_owners_defaults() -> None:
+def test_the_catalogue_offers_six_models_with_the_owners_defaults() -> None:
     cat = catalogue()
-    # every Claude model is a choice since 2026-10-20 (owner decision), plus Kimi K3
-    assert len(cat.ids) == 5
+    # every Claude model is a choice since 2026-10-20 (owner decision), plus Kimi K3 and Grok 4.5
+    assert len(cat.ids) == 6
     assert (cat.default_research, cat.default_analysis) == (
         OPUS,
         OPUS,
@@ -23,6 +23,7 @@ def test_the_catalogue_offers_five_models_with_the_owners_defaults() -> None:
         "Kimi K3 by Moonshot AI",
         "Fast and economical",
         "Fastest and cheapest, for simple work",
+        "Grok 4.5 by xAI",
     ]
     # the effort beside each model: medium or high, medium by default for both roles
     assert cat.efforts == ("medium", "high")
@@ -30,6 +31,10 @@ def test_the_catalogue_offers_five_models_with_the_owners_defaults() -> None:
     kimi = cat.get(KIMI)
     assert kimi is not None and kimi.provider == "moonshot"
     assert "web_search" not in kimi.features and "citations" not in kimi.features
+    # Grok 4.5 (owner decision 2026-10-20): its own provider and key, allowed for every client
+    grok = cat.get(GROK)
+    assert grok is not None and (grok.provider, grok.key_env) == ("xai", "XAI_API_KEY")
+    assert grok.features == ("strict_json",) and GROK not in cat.needs_client_permission
 
 
 def test_tiers_follow_the_two_roles() -> None:
@@ -85,3 +90,16 @@ def test_a_key_loaded_from_the_secret_store_counts_as_set_up(monkeypatch) -> Non
     assert availability(KIMI, enabled=enabled, allowed=[KIMI], env={}) == NOT_SET_UP
     choice.mark_set_up("MOONSHOT_API_KEY")
     assert availability(KIMI, enabled=enabled, allowed=[KIMI], env={}) is None
+    assert availability(GROK, enabled=enabled, allowed=None, env={}) == NOT_SET_UP
+    choice.mark_set_up("XAI_API_KEY")
+    assert availability(GROK, enabled=enabled, allowed=None, env={}) is None
+
+
+def test_grok_is_greyed_out_until_its_key_is_set() -> None:
+    """Without XAI_API_KEY the menu shows Grok 4.5 "Not set up"; with it, every client may
+    choose it (it is not in needs_client_permission)."""
+    enabled = list(catalogue().ids)
+    assert availability(GROK, enabled=enabled, allowed=None, env=KEYS) == NOT_SET_UP
+    with_key = {**KEYS, "XAI_API_KEY": "z"}
+    assert availability(GROK, enabled=enabled, allowed=None, env=with_key) is None
+    assert RunModels(GROK, GROK).for_tier("judge") in (OPUS, FABLE)

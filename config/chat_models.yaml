@@ -14,6 +14,9 @@ providers:
   moonshot:
     enabled: true
     credential_source: env_or_secret_manager
+  xai:
+    enabled: true
+    credential_source: env_or_secret_manager
 models:
   # published prices (platform.claude.com pricing, read 2026-10-20; token review item 18: was
   # $3 in, $8 out, 200k context)
@@ -69,4 +72,16 @@ models:
     cache_read_usd_per_million: "0.30"
     context_window: 1048576
     max_output_tokens: 131072
+    capabilities: {streaming: true, vision: false, tool_use: false}
+  - id: grok-4.5
+    provider: xai
+    display_name: Grok 4.5
+    # docs.x.ai/docs/models, read 2026-10-20 (prompts under 200k tokens; xAI bills no cache
+    # write, so a written prefix is priced as input)
+    input_usd_per_million: "2.00"
+    output_usd_per_million: "6.00"
+    cache_write_usd_per_million: "2.00"
+    cache_read_usd_per_million: "0.30"
+    context_window: 500000
+    max_output_tokens: 128000
     capabilities: {streaming: true, vision: false, tool_use: false}

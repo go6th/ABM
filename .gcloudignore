@@ -1,0 +1,104 @@
+# Files and directories that gcloud should ignore when deploying with --source .
+# This file is only used for gcloud deploy with --source; the actual CI deploy uses
+# pre-built Docker images from Artifact Registry.
+
+# Version control
+.git
+.gitignore
+
+# Local environment and credentials
+.env
+.env.*
+gha-creds-*.json
+
+# Python virtual environments
+.venv/
+venv/
+**/.venv/
+**/venv/
+
+# Python cache
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test and coverage artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+mutants/
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Node.js and web build artifacts
+node_modules/
+web/node_modules/
+web/.next/
+web/out/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Documentation (only needed for local development, not at runtime)
+docs/
+docs/design/
+
+# CI and deployment configuration
+.github/
+ops/
+scripts/
+docker/
+compose*.yml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Large data files
+*.map
+*.zip
+*.docx
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Test and eval artifacts
+tests/
+evals/
+.claude/
+web/shots/
+web/e2e/
+
+# Infra
+infra/
+
+# Object store and payloads
+payloads/
+.tmp/
+
+# Backup files
+*.bak
+*.orig

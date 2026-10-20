@@ -16,7 +16,7 @@ from tests.conftest import ADMIN_DSN
 from tests.replica.test_workspace_api import _call, _plane
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
-OPUS, FABLE, KIMI, SONNET, HAIKU = catalogue().ids
+OPUS, FABLE, KIMI, SONNET, HAIKU, GROK = catalogue().ids
 
 
 @pytest.fixture
@@ -45,6 +45,16 @@ async def test_the_menus_grey_out_what_cannot_be_chosen(
     assert by_id[OPUS]["available"] and by_id[OPUS]["line"] == "Most capable, slower"
     # every enabled model is allowed by default (owner decision 2026-10-15)
     assert by_id[KIMI]["available"] and by_id[KIMI]["reason"] is None
+    # Grok 4.5 (owner decision 2026-10-20): "Not set up" until XAI_API_KEY is added, then
+    # allowed for every client
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY_FILE", raising=False)
+    got = (await _call(plane, "GET", "/v1/models/choices")).json()
+    grok = {m["id"]: m for m in got["models"]}[GROK]
+    assert (grok["available"], grok["reason"], grok["label"]) == (False, "Not set up", "Grok 4.5")
+    monkeypatch.setenv("XAI_API_KEY", "test-not-a-key")
+    got = (await _call(plane, "GET", "/v1/models/choices")).json()
+    assert {m["id"]: m["available"] for m in got["models"]}[GROK] is True
     _allow(world["a"], [OPUS, FABLE])  # the admin takes Kimi K3 off for this client
     try:
         got = (await _call(plane, "GET", "/v1/models/choices")).json()

@@ -136,7 +136,7 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
         </section>
         <section className="card pad stack-14" aria-labelledby="models-title">
           <h2 id="models-title" className="card-title">Allowed models</h2>
-          <p className="mut sm-text">The models this client&apos;s users may choose. All are on by default; Kimi K3 sends the client&apos;s data to the Kimi provider (Ollama Cloud on staging), so turn it off here if this client must keep data with Claude only.</p>
+          <p className="mut sm-text">The models this client&apos;s users may choose. All are on by default; Kimi K3 sends the client&apos;s data to the Kimi provider (Ollama Cloud on staging) and Grok 4.5 sends it to xAI, so turn them off here if this client must keep data with Claude only.</p>
           {detail.models.map((m) => (
             <label key={m.id} className="check line-top">
               <input

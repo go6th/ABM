@@ -1,12 +1,14 @@
 """The data tools as one Ask turn runs them (2026-10-17): ``list_sources``, ``describe_table``,
-``query_table`` and ``read_rows`` over the table store, ``search_passages``, ``read_passage``
-and ``read_span`` over the passages, and — only for a tenant whose ``run_python`` flag is on —
-``run_python`` over the turn's results in the sandbox (``documents.run_python``), bound to the
-caller's tenant and accounts, with the turn's statistics for the ``ask.route`` log line (tools
-called, predicates, the last row count, the predicate the model relaxed, rows removed by
-deduplication, empty results, sandbox runs). Every route also offers ``render_answer``: the
-final answer as strict JSON (``replica.render``), shape-checked here and then the tool loop
-ends — the answer's format is the code's, not the model's.
+``query_table``, ``read_rows`` and ``count_tiers`` (platform role tiers counted in code from the
+stored class, ``documents.tiers``, 2026-10-20) over the table store, ``search_passages``,
+``read_passage`` and ``read_span`` over the passages, and — only for a tenant whose
+``run_python`` flag is on — ``run_python`` over the turn's results in the sandbox
+(``documents.run_python``), bound to the caller's tenant and accounts, with the turn's
+statistics for the ``ask.route`` log line (tools called, predicates, the last row count, the
+predicate the model relaxed, rows removed by deduplication, empty results, sandbox runs). Every
+route also offers ``render_answer``: the final answer as strict JSON (``replica.render``),
+shape-checked here and then the tool loop ends — the answer's format is the code's, not the
+model's.
 
 Which are on offer depends on the turn's route (the brief's exposure rule): ``tabular`` gets
 ``list_sources`` and the table tools only, ``prose`` ``list_sources`` and the passage tools,
@@ -30,6 +32,7 @@ from account_intelligence.replica import render as RENDER
 from documents import run_python as RP
 from documents import sources as S
 from documents import tables as T
+from documents import tiers as TIERS
 from obs.logging import logger
 
 log = logger(__name__)
@@ -40,7 +43,7 @@ TxnFactory = Callable[[], AbstractAsyncContextManager[Any]]
 # ones read the passages, mixed have both; list_sources is everywhere. Every route with tools
 # also offers render_answer (2026-10-17): the final answer as strict JSON, rendered by the
 # code, so every model formats rows and tables identically (see replica.render)
-TABULAR_TOOLS = ("describe_table", "query_table", "read_rows")
+TABULAR_TOOLS = ("describe_table", "query_table", "read_rows", "count_tiers")
 PROSE_TOOLS = ("search_passages", "read_passage", "read_span")
 ROUTE_TOOLS = {
     "tabular": ("list_sources", *TABULAR_TOOLS, RENDER.NAME),
@@ -66,7 +69,7 @@ class TableTools:
     @property
     def tools(self) -> tuple[dict[str, Any], ...]:
         """The tool definitions the model is offered."""
-        return T.TOOLS
+        return (*T.TOOLS, TIERS.COUNT_TIERS_TOOL)
 
     def stats(self) -> dict[str, Any]:
         """The turn's statistics for the log line (values never include the user's words)."""
@@ -121,6 +124,19 @@ class TableTools:
                 row_nos, columns = T.parse_read(table, payload)
                 async with self.txn() as s:
                     return await T.read(s, table, row_nos, columns)
+            if name == "count_tiers":
+                table = T.find_table(self.tables, str(payload.get("table", "")))
+                record["table"] = table.name
+                if table.id not in self.described:
+                    raise T.QueryError(
+                        "describe_first",
+                        f"call describe_table on {table.name!r} before counting its tiers",
+                    )
+                async with self.txn() as s:
+                    out = await TIERS.count(s, table, payload)
+                self.row_count = int(out["base"]["rows_counted"])
+                self.dedup_removed += int(out["base"]["duplicates_removed"])
+                return out
             raise T.QueryError("unknown_tool", f"no tool named {name!r}")
         except T.QueryError as error:
             record["error"] = error.code
@@ -164,7 +180,8 @@ class AccessTools:
         self.results: list[Any] = []
         self.rendered: dict[str, Any] | None = None  # the render_answer call, if one came
         self._all: dict[str, dict[str, Any]] = {
-            t["name"]: t for t in (*T.TOOLS, *S.SOURCE_TOOLS, RENDER.RENDER_TOOL)
+            t["name"]: t
+            for t in (*T.TOOLS, TIERS.COUNT_TIERS_TOOL, *S.SOURCE_TOOLS, RENDER.RENDER_TOOL)
         }
 
     def offered(self, route: str) -> tuple[dict[str, Any], ...]:

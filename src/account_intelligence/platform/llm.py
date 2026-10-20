@@ -429,13 +429,17 @@ def vertex_client(project_id: str, region: str) -> Any:
 class ChoiceLlm:
     """The live model port with the user's model choice (owner decision 2026-10-14): ``complete``
     serves a tier with its configured route, as before; ``complete_as`` serves a tier with a
-    chosen model, on the Anthropic port for Claude models and on the Moonshot client for Kimi K3
-    (``llm.adapters.moonshot_api``), keeping the tier's effort and token limit. A provider that is
-    not set up raises ``NotConfigured``; the API refuses such a choice before any work starts."""
+    chosen model, on the Anthropic port for Claude models, on the Moonshot client for Kimi K3
+    (``llm.adapters.moonshot_api``) and on the xAI client for Grok 4.5 (``llm.adapters.xai_api``),
+    keeping the tier's effort and token limit. A provider that is not set up raises
+    ``NotConfigured``; the API refuses such a choice before any work starts."""
 
-    def __init__(self, anthropic: AnthropicLlm | None, moonshot: Any | None = None) -> None:
+    def __init__(
+        self, anthropic: AnthropicLlm | None, moonshot: Any | None = None, xai: Any | None = None
+    ) -> None:
         self.anthropic = anthropic
         self.moonshot = moonshot
+        self.xai = xai
         self.routes = dict(anthropic.routes) if anthropic is not None else {}
         self.client = getattr(anthropic, "client", None)
 
@@ -476,15 +480,16 @@ class ChoiceLlm:
         route = self.routes.get(tier)
         if choice is None or route is None:
             raise NotConfigured(f"tier {tier} or model choice is not configured")
-        if choice.provider == "moonshot":
-            if self.moonshot is None:
-                raise NotConfigured("Kimi K3 is not set up (MOONSHOT_API_KEY)")
-            # Kimi has no batches, structured output or cache blocks: the document rides in
-            # the user text
+        if choice.provider in ("moonshot", "xai"):
+            client = self.moonshot if choice.provider == "moonshot" else self.xai
+            if client is None:
+                raise NotConfigured(f"{choice.name} is not set up ({choice.key_env})")
+            # Kimi and Grok have no batches, structured output or cache blocks here: the
+            # document rides in the user text
             if options is not None and options.cached_user:
                 user = f"{options.cached_user}\n\n{user}"
             effort = options.effort if options is not None and options.effort else route.effort
-            result: LlmResult = await self.moonshot.complete(
+            result: LlmResult = await client.complete(
                 model, system, user, max_tokens=max_tokens, effort=effort
             )
             return result

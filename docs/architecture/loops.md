@@ -23,7 +23,7 @@ unannotated (the generator's check fails otherwise).
 | catch-up selection | `src/refresh/schedule.py:66` | len(missed) | per_tick reached or end |
 | cause chain | `src/account_intelligence/workflow/runner.py:333` | the chain length (each exception visited once) | end of chain |
 | clamd stream chunks | `src/documents/scan.py:137` | file size / 1 MiB chunks | end of stream |
-| close ended jobs | `src/account_intelligence/api/main.py:259` | every client once per pass, `limit` jobs each | last client |
+| close ended jobs | `src/account_intelligence/api/main.py:266` | every client once per pass, `limit` jobs each | last client |
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
 | common prefix | `src/documents/deliverables.py:192` | the shorter first part | first differing character |
 | connector token refresh | `src/connectors_client/oauth.py:228` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
@@ -94,7 +94,7 @@ unannotated (the generator's check fails otherwise).
 | notification relay clients | `src/account_intelligence/api/routes/tasks.py:417` | every client once per pass | last client |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:76` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:90` | max_pages * batch_size runs per pass | rows exhausted |
-| orphan sweep loop | `src/account_intelligence/api/main.py:292` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
+| orphan sweep loop | `src/account_intelligence/api/main.py:299` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
@@ -132,7 +132,7 @@ unannotated (the generator's check fails otherwise).
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
 | stall marking | `src/account_intelligence/runs/sweeper.py:164` | batch_size runs per pass | rows exhausted |
-| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:465` | the pieces in the text received so far | no complete piece left, a refused piece |
+| streamed answer pieces | `src/account_intelligence/replica/model_answer.py:498` | the pieces in the text received so far | no complete piece left, a refused piece |
 | stuck scan | `src/obs/stuck.py:79` | keyset pages of `page` runs until none remain | all scanned |
 | table export pages | `src/account_intelligence/replica/table_export.py:49` | the table's rows / page pages | a short page |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
@@ -151,6 +151,7 @@ unannotated (the generator's check fails otherwise).
 | verification batch | `src/verify/claims.py:112` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
 | walk to verifying | `src/account_intelligence/runs/lifecycle.py:594` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |
+| xai stream | `src/llm/adapters/xai_api.py:262` | the server's chunks until [DONE] | [DONE], end |
 | xlsx header row | `src/research_files/parsers/tabular.py:387` | one row | header read |
 | xlsx sheets | `src/research_files/parsers/tabular.py:342` | the workbook's sheets | last sheet |
 | xlsx sheets | `src/research_files/parsers/tabular.py:375` | the workbook's sheets | last sheet |

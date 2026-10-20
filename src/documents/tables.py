@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -537,13 +537,19 @@ def _location_tokens(value: Any) -> frozenset[str]:
     )
 
 
-def _dedupe(rows: list[dict[str, Any]], key: str) -> tuple[list[dict[str, Any]], int]:
+def _dedupe(
+    rows: list[dict[str, Any]],
+    key: str,
+    prefer: Callable[[dict[str, Any], dict[str, Any]], bool] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     """One row per business key: the one with the latest ``last_seen`` (else the lowest row
-    number). A row without the key — a re-scrape that lost its id — merges onto the keyed row
+    number; ``prefer(row, held)`` replaces that choice — ``documents.tiers`` keeps the earliest
+    posting). A row without the key — a re-scrape that lost its id — merges onto the keyed row
     of the same title whose location shares a real place word (the Finland posting re-scraped
     as Espoo collapses onto its requisition), and apart from that falls back to title plus
     location among themselves, else stays as it is. Returns the survivors in row order and how
     many were removed."""
+    _later = prefer or _latest_seen
     best: dict[Any, dict[str, Any]] = {}
     # pass 1: the keyed rows, and which title belongs to which keyed group with which places
     title_groups: dict[str, set[Any]] = {}
@@ -589,7 +595,7 @@ def _dedupe(rows: list[dict[str, Any]], key: str) -> tuple[list[dict[str, Any]],
     return survivors, len(rows) - len(survivors)
 
 
-def _later(row: dict[str, Any], held: dict[str, Any]) -> bool:
+def _latest_seen(row: dict[str, Any], held: dict[str, Any]) -> bool:
     a, b = typed(row["cells"].get("last_seen")), typed(held["cells"].get("last_seen"))
     if isinstance(a, date) and isinstance(b, date) and a != b:
         return a > b

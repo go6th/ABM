@@ -9,6 +9,7 @@ allowlist:
   - claude-sonnet-5-5
   - claude-haiku-5-5
   - kimi-k3
+  - grok-4.5
 
 tasks:
   - pull_planning
@@ -201,6 +202,22 @@ models:
       cache_write_usd_per_million: 0.125
       output_usd_per_million: 0.50
 
+  grok-4.5:
+    provider: xai
+    display_name: "Grok 4.5"
+    responsibility: "A user's choice for research or analysis (owner decision 2026-10-20)"
+    # docs.x.ai/docs/models, read 2026-10-20: prompts under 200k tokens; a request whose prompt
+    # reaches 200k is billed $4.00 in, $0.60 cached, $12.00 out for all its tokens. xAI bills no
+    # cache write (repeated prefixes are cached automatically) and has no batch API. Reasoning
+    # tokens are billed at the output price (the adapter counts them as output).
+    context_window: 500000
+    max_output_tokens: 128000
+    pricing:
+      input_usd_per_million: 2.00
+      cached_read_usd_per_million: 0.30
+      cache_write_usd_per_million: 2.00
+      output_usd_per_million: 6.00
+
 # Small helper calls that are not a conversation or a research task (token review item 5,
 # 2026-10-20): the Ask route classifier left the conversation model (Fable 5.1 at the time) for
 # Haiku 5.5 with thinking off and a structured reply. Each model must be on the allowlist.
@@ -307,3 +324,10 @@ choices:
       line: "Fastest and cheapest, for simple work"
       key_env: ANTHROPIC_API_KEY
       features: [strict_json, adaptive_thinking, prompt_caching]
+    # owner decision 2026-10-20: xAI Grok 4.5, allowed for every client
+    - id: grok-4.5
+      label: "Grok 4.5"
+      name: "Grok 4.5"
+      line: "Grok 4.5 by xAI"
+      key_env: XAI_API_KEY
+      features: [strict_json]

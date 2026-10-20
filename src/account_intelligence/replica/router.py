@@ -77,6 +77,12 @@ FILTER_WORDS = (
     "duplicate",
     "rows",
     "total",
+    # platform role tiers (count_tiers, 2026-10-20)
+    "role tier",
+    "role tiers",
+    "by tier",
+    "build roles",
+    "platform roles",
 )
 PROSE_WORDS = (
     "why",

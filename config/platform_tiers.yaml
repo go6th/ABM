@@ -1,0 +1,153 @@
+# Platform role tiers for Ask's count_tiers tool (documents.tiers; owner request 2026-10-20).
+#
+# Counts use the STORED tier: a per-platform "<Platform> role tier" column when the table has
+# one, else the row's single "Class" column, mapped below. Postings are never reclassified from
+# their text; rows that look wrong are listed as disputed with the rule (R1-R6) that flags them.
+# Detection errors found here are meant to be folded back into the ABM skill: edit this file.
+version: "2026-10-20.1"
+
+# the four tiers, in table order, then the two non-tier columns that keep the total reconciled
+tiers:
+  - Platform role
+  - Platform adjacent
+  - Platform user
+  - Tools list only
+not_counted: "Not counted (R1)"
+unclassified: "Unclassified"
+
+# stored labels (case folded; pipeline keys and workbook labels both) -> tier.
+# A label not listed here counts as Unclassified and is named in the tool result.
+class_map:
+  platform role: Platform role
+  build: Platform role
+  build role: Platform role
+  admin_owner: Platform role
+  admin and owner role: Platform role
+  platform adjacent: Platform adjacent
+  working_tool: Platform adjacent
+  working tool: Platform adjacent
+  platform user: Platform user
+  user: Platform user
+  user role: Platform user
+  tools list only: Tools list only
+  tools list: Tools list only
+  "false positive": Not counted (R1)
+  competitor or prior experience: Not counted (R1)
+  partner named: Not counted (R1)
+  product engineering: Not counted (R1)
+  "business technology role, no platform named": Not counted (R1)
+  unclassified: Unclassified
+  "not read (board match)": Unclassified
+
+# R1: whole product names in software context. Terms match on word boundaries, case folded,
+# except those listed in case_sensitive. Data and AI needs a NAMED product: generic "AI" or
+# "data" never matches.
+platforms:
+  Salesforce:
+    - salesforce
+    - sales cloud
+    - service cloud
+    - marketing cloud
+    - data cloud
+    - experience cloud
+    - commerce cloud
+    - agentforce
+    - pardot
+  ServiceNow:
+    - servicenow
+    - now assist
+    - now platform
+  SAP:
+    - SAP
+    - s/4hana
+    - s4hana
+    - successfactors
+    - ariba
+    - Concur
+    - Joule
+  Tableau:
+    - tableau
+  Veeva:
+    - veeva
+    - veeva vault
+    - vault crm
+    - vault qms
+  Data and AI:
+    - snowflake
+    - databricks
+    - azure ml
+    - azure machine learning
+    - azure openai
+    - vertex ai
+    - aws bedrock
+    - amazon bedrock
+    - sagemaker
+    - microsoft fabric
+    - agentforce
+    - now assist
+    - Joule
+# names that are also English words ("concur with", "joules") match only as written
+case_sensitive:
+  - SAP
+  - Concur
+  - Joule
+
+# R1 traps: a phrase blanked out of the text before matching, so it never counts as the
+# platform it imitates ("self-service cloud" is not Service Cloud, "service now" is not
+# ServiceNow). SAP inside a word ("ASAP") never matches: names match on word boundaries.
+traps:
+  self-service cloud: Salesforce
+  self service cloud: Salesforce
+  service now: ServiceNow
+  hashicorp vault: Veeva
+  vault by hashicorp: Veeva
+
+# R2: a name after one of these markers in the same sentence sits in an example list;
+# list_markers count only when a list follows them ("including Salesforce, Jira" is a list,
+# "including deep expertise in Databricks" is not)
+list_markers:
+  - including
+example_markers:
+  - "e.g."
+  - "eg."
+  - "e.g,"
+  - "such as"
+  - "including"
+  - "for example"
+  - "i.e."
+
+# R1/R4: a responsibility naming platform work (the platform is the object of these verbs)
+build_verbs:
+  - build
+  - configure
+  - administer
+  - administration
+  - develop
+  - architect
+  - own
+  - migrate
+  - implement
+  - customi
+  - integrat
+  - maintain
+
+# R4: a title holding one of these words is non-technical
+non_technical_titles:
+  - sales
+  - account manager
+  - account executive
+  - m&a
+  - mergers
+  - finance
+  - financial
+  - strategy
+  - business development
+
+# which columns hold what (normalised names, first present wins)
+columns:
+  platforms: [platforms_named, platforms, platform, lane, lanes, lane_families]
+  class: [class, posting_class, role_class, tier, role_tier]
+  title: [title, role, job_title]
+  status: [status]
+  date: [first_seen, posted, date_posted, first_posted]
+  evidence: [platform_sentences_(exact), platform_sentences, what_the_posting_says, full_description, posting, description]

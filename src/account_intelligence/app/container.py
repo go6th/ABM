@@ -305,18 +305,28 @@ def reply_cache(env: Mapping[str, str]) -> Any:
     return PgReplyCache(tenant_txn, cfg.model_replies.ttl_days if reuse else 0.0)
 
 
-def with_model_choice(llm: Any, env: Mapping[str, str], key: str | None = None) -> Any:
+def _provider_key(env: Mapping[str, str], name: str, key: str | None) -> str | None:
+    """A provider key: ``key`` (from the secret store), else ``name`` or the file ``name_FILE``
+    names (local runs)."""
+    found = key or env.get(name)
+    if not found and env.get(f"{name}_FILE"):
+        try:
+            found = Path(env[f"{name}_FILE"]).read_text().strip()
+        except OSError:
+            found = None
+    return found or None
+
+
+def with_model_choice(
+    llm: Any, env: Mapping[str, str], key: str | None = None, xai_key: str | None = None
+) -> Any:
     """The live port with the user's model choice (``platform.llm.ChoiceLlm``): Claude on the
     Anthropic port, Kimi K3 on the Moonshot client when ``MOONSHOT_API_KEY`` (or ``key``, from the
-    secret store) is set. The fake model and an unconfigured port are returned as they are."""
+    secret store) is set, Grok 4.5 on the xAI client when ``XAI_API_KEY`` (or ``xai_key``) is set.
+    The fake model and an unconfigured port are returned as they are."""
     from account_intelligence.platform.llm import AnthropicLlm, ChoiceLlm
 
-    moonshot_key = key or env.get("MOONSHOT_API_KEY")
-    if not moonshot_key and env.get("MOONSHOT_API_KEY_FILE"):
-        try:
-            moonshot_key = Path(env["MOONSHOT_API_KEY_FILE"]).read_text().strip()
-        except OSError:
-            moonshot_key = None
+    moonshot_key = _provider_key(env, "MOONSHOT_API_KEY", key)
     moonshot = None
     if moonshot_key:
         from llm.adapters.moonshot_api import BASE_URL, MoonshotClient
@@ -328,10 +338,17 @@ def with_model_choice(llm: Any, env: Mapping[str, str], key: str | None = None) 
             dialect=env.get("MOONSHOT_API_DIALECT") or "moonshot",
             remote_model=env.get("MOONSHOT_MODEL") or None,
         )
+    found_xai_key = _provider_key(env, "XAI_API_KEY", xai_key)
+    xai = None
+    if found_xai_key:
+        from llm.adapters.xai_api import BASE_URL as XAI_BASE_URL
+        from llm.adapters.xai_api import XaiClient
+
+        xai = XaiClient(found_xai_key, base_url=env.get("XAI_BASE_URL") or XAI_BASE_URL)
     if isinstance(llm, AnthropicLlm):
-        return ChoiceLlm(llm, moonshot)
-    if moonshot is not None and isinstance(llm, UnconfiguredLlm):
-        return ChoiceLlm(None, moonshot)
+        return ChoiceLlm(llm, moonshot, xai)
+    if (moonshot is not None or xai is not None) and isinstance(llm, UnconfiguredLlm):
+        return ChoiceLlm(None, moonshot, xai)
     return llm
 
 
@@ -672,7 +689,12 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
     moonshot_key = secrets.get(moonshot_secret) if moonshot_secret else None
     if moonshot_key:
         mark_set_up("MOONSHOT_API_KEY")
-    llm = with_model_choice(llm, env, moonshot_key)
+    # Grok 4.5 (owner decision 2026-10-20): likewise from XAI_SECRET
+    xai_secret = env.get("XAI_SECRET")
+    xai_key = secrets.get(xai_secret) if xai_secret else None
+    if xai_key:
+        mark_set_up("XAI_API_KEY")
+    llm = with_model_choice(llm, env, moonshot_key, xai_key)
     # D-48: the router is switched on with MODEL_ROUTER=on once config/model_routing.yaml names
     # candidates for this access path (V-LLM-2: the Vertex model id format is unverified)
     client = getattr(llm, "client", None)

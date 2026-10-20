@@ -14,7 +14,7 @@ from account_intelligence.platform.ports import LlmResult, LlmUsage
 from llm.choice import RunModels, catalogue
 
 pytestmark = pytest.mark.asyncio
-OPUS, FABLE, KIMI, SONNET, HAIKU = catalogue().ids
+OPUS, FABLE, KIMI, SONNET, HAIKU, GROK = catalogue().ids
 
 
 class FakeMessages:
@@ -51,6 +51,28 @@ def _port() -> tuple[ChoiceLlm, FakeMessages, FakeMoonshot]:
         messages,
         moonshot,
     )
+
+
+async def test_grok_is_served_by_the_xai_client_with_the_chosen_effort() -> None:
+    """Grok 4.5 (owner decision 2026-10-20) goes to the xAI client, never the Anthropic port or
+    the Moonshot client, with the user's effort for the role (else the tier's) and the source
+    document folded into the user text (no cache blocks); without its key it is refused."""
+    from account_intelligence.platform.ports import CallOptions, NotConfigured
+
+    messages, moonshot, xai = FakeMessages(), FakeMoonshot(), FakeMoonshot()
+    client = SimpleNamespace(messages=messages)
+    port = ChoiceLlm(AnthropicLlm(client, load_routes(), "anthropic_api"), moonshot, xai)
+    await port.complete_as(
+        GROK, "extractor", "s", "u", max_tokens=100,
+        options=CallOptions(cached_user="doc", effort="high"),
+    )  # fmt: skip
+    await port.complete_as(GROK, "synthesis", "s", "u", max_tokens=100)
+    assert xai.calls == [(GROK, "high"), (GROK, load_routes()["synthesis"].effort)]
+    assert moonshot.calls == [] and messages.models == []
+    with pytest.raises(NotConfigured, match="XAI_API_KEY"):
+        await ChoiceLlm(AnthropicLlm(client, load_routes(), "anthropic_api"), moonshot).complete_as(
+            GROK, "extractor", "s", "u", max_tokens=100
+        )
 
 
 async def test_a_chosen_model_reaches_its_provider() -> None:

@@ -104,7 +104,7 @@ def test_invalid_routing_config_is_refused(path: tuple[str, ...], value: Any) ->
         build(data, b"x")
 
 
-MODEL_ID = re.compile(r"\b(claude|gpt|gemini|llama|mistral)-[0-9a-z][0-9a-z.\-]*", re.I)
+MODEL_ID = re.compile(r"\b(claude|gpt|gemini|llama|mistral|grok)-[0-9a-z][0-9a-z.\-]*", re.I)
 
 
 def test_no_model_id_outside_config() -> None:

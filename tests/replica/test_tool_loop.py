@@ -361,6 +361,7 @@ async def test_run_python_joins_the_offer_only_for_a_flagged_tenant() -> None:
         "describe_table",
         "query_table",
         "read_rows",
+        "count_tiers",
         "render_answer",
     ]
     assert [t["name"] for t in off.offered("prose")] == [
@@ -377,6 +378,7 @@ async def test_run_python_joins_the_offer_only_for_a_flagged_tenant() -> None:
         "describe_table",
         "query_table",
         "read_rows",
+        "count_tiers",
         "search_passages",
         "read_passage",
         "read_span",

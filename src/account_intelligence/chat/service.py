@@ -568,9 +568,17 @@ class MoonshotChatProvider:
         )
 
 
+class XaiChatProvider(MoonshotChatProvider):
+    """Grok 4.5 for Ask (owner decision 2026-10-20): the Kimi K3 provider's events and tool loop
+    over xAI's streamed Chat Completions (``llm.adapters.xai_api``, whose ``stream`` yields what
+    the Moonshot client's does). The chosen effort maps onto Grok's ``reasoning_effort``; xAI
+    caches repeated prefixes itself and bills no cache write."""
+
+
 class ProviderByModel:
-    """Each Ask model's provider: Anthropic for Claude, Moonshot for Kimi K3. A provider that is
-    not set up is absent, and its models are greyed out before anyone presses Send."""
+    """Each Ask model's provider: Anthropic for Claude, Moonshot for Kimi K3, xAI for Grok 4.5.
+    A provider that is not set up is absent, and its models are greyed out before anyone presses
+    Send."""
 
     def __init__(self, providers: Mapping[str, ChatProvider]) -> None:
         self.providers = dict(providers)
@@ -584,8 +592,9 @@ def provider_for(
     providers: ProviderByModel | None, service: Any, model_id: str
 ) -> ChatProvider | None:
     """The streaming provider of a conversation's model, for every chat surface (Ask and
-    follow-up chat; owner decision 2026-10-17: one model layer): Moonshot for Kimi K3, else
-    the Anthropic provider — None when that provider is not set up (the local answer stands)."""
+    follow-up chat; owner decision 2026-10-17: one model layer): Moonshot for Kimi K3, xAI for
+    Grok 4.5, else the Anthropic provider — None when that provider is not set up (the local
+    answer stands)."""
     from llm.choice import catalogue
 
     choice = catalogue().get(model_id)

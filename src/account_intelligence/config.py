@@ -323,6 +323,7 @@ class Settings(BaseSettings):
     moonshot_model: str | None = var(
         purpose="The provider's own Kimi K3 model name when it differs (Ollama: kimi-k3:cloud).",
     )
+    xai_base_url: str = var("https://api.x.ai/v1", purpose="Grok 4.5 API base URL (https): xAI.")
     eval_model: str | None = var(
         purpose=(
             "The live tabular eval suite's model override (default: models.yaml"
@@ -355,6 +356,9 @@ class Settings(BaseSettings):
     moonshot_secret: str | None = var(
         purpose="Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up."
     )
+    xai_secret: str | None = var(
+        purpose="Secret Manager secret id holding the Grok 4.5 (xAI) key; unset: not set up."
+    )
     csrf_key_secret: str = var(
         "csrf-signing-key",
         purpose="Secret Manager secret id of the CSRF signing key (32 or more random bytes).",
@@ -377,6 +381,14 @@ class Settings(BaseSettings):
     )
     moonshot_api_key_file: str | None = var(
         purpose="File holding the Kimi K3 key for local runs.", forbidden_in=CLOUD
+    )
+    xai_api_key: SecretStr | None = var(
+        purpose="Grok 4.5 (xAI) key for local runs (cloud reads it from Secret Manager).",
+        secret=True,
+        forbidden_in=CLOUD,
+    )
+    xai_api_key_file: str | None = var(
+        purpose="File holding the Grok 4.5 key for local runs.", forbidden_in=CLOUD
     )
     payload_dir: str | None = var(
         purpose="Local directory for raw payloads (memory store when unset).", forbidden_in=CLOUD
@@ -525,6 +537,7 @@ class Settings(BaseSettings):
             "worker_url",
             "public_base_url",
             "moonshot_base_url",
+            "xai_base_url",
             "gmail_api_base",
             "google_drive_api_base",
             "microsoft_graph_api_base",

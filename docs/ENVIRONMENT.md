@@ -84,17 +84,21 @@ or a value has the wrong type (errors name the variable, never the value).
 | `MOONSHOT_BASE_URL` | Kimi K3 API base URL (https): Moonshot AI, or https://ollama.com/v1 (Ollama). | no | - | - | api, worker |
 | `MOONSHOT_API_DIALECT` | Which Kimi K3 API MOONSHOT_BASE_URL serves: moonshot, or ollama (Ollama Cloud). | no | - | - | api, worker |
 | `MOONSHOT_MODEL` | The provider's own Kimi K3 model name when it differs (Ollama: kimi-k3:cloud). | no | - | - | api, worker |
+| `XAI_BASE_URL` | Grok 4.5 API base URL (https): xAI. | no | - | - | api, worker |
 | `EVAL_MODEL` | The live tabular eval suite's model override (default: models.yaml surfaces.eval). Test tooling only; the app never reads it. | no | - | - | eval |
 | `EVAL_EFFORT` | The live tabular eval suite's effort override (default: models.yaml surfaces.eval). Test tooling only; the app never reads it. | no | - | - | eval |
 | `GMAIL_API_BASE` | Gmail API base URL for the per-user Mail and drive sync. | no | - | - | worker |
 | `GOOGLE_DRIVE_API_BASE` | Google Drive API base URL for the per-user Mail and drive sync. | no | - | - | worker |
 | `MICROSOFT_GRAPH_API_BASE` | Microsoft Graph API base URL (Outlook, OneDrive, SharePoint sync). | no | - | - | worker |
 | `MOONSHOT_SECRET` | Secret Manager secret id holding the Kimi K3 (Moonshot AI) key; unset: not set up. | no | - | - | api, worker |
+| `XAI_SECRET` | Secret Manager secret id holding the Grok 4.5 (xAI) key; unset: not set up. | no | - | - | api, worker |
 | `CSRF_KEY_SECRET` | Secret Manager secret id of the CSRF signing key (32 or more random bytes). | no | - | - | api |
 | `BYOK_KMS_KEY` | Cloud KMS crypto-key resource for optional encrypted tenant model keys. | no | - | - | api, worker |
 | `ANTHROPIC_API_KEY` | Model API key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |
 | `MOONSHOT_API_KEY` | Kimi K3 (Moonshot AI) key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |
 | `MOONSHOT_API_KEY_FILE` | File holding the Kimi K3 key for local runs. | no | - | staging, production | api, worker |
+| `XAI_API_KEY` | Grok 4.5 (xAI) key for local runs (cloud reads it from Secret Manager). | **secret** | - | staging, production | api, worker |
+| `XAI_API_KEY_FILE` | File holding the Grok 4.5 key for local runs. | no | - | staging, production | api, worker |
 | `PAYLOAD_DIR` | Local directory for raw payloads (memory store when unset). | no | - | staging, production | api, worker |
 | `DEVSTORE_PUBLIC_URL` | Dev only: the browser-facing URL of the development object store (resumable uploads straight to storage, owner decision 2026-10-14); unset: the API's content route stands in. | no | - | staging, production | api, worker |
 | `DEVSTORE_ROOT` | Dev only: the directory the development object store writes (the blob root). | no | - | staging, production | objectstore |

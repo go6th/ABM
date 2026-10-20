@@ -67,7 +67,12 @@ class ScriptedTabularModel:
 
     async def stream(self, model: Any, messages: Any, max_tokens: int, **kw: Any) -> Any:
         assert kw["temperature"] == 0.0 and TABULAR_RULES in kw["system"]
-        assert [t["name"] for t in kw["tools"]] == ["describe_table", "query_table", "read_rows"]
+        assert [t["name"] for t in kw["tools"]] == [
+            "describe_table",
+            "query_table",
+            "read_rows",
+            "count_tiers",
+        ]
         prompt = messages[0].content
         rid = re.search(r"\[(R\d+)\][^\n]*\| table \|", prompt).group(1)  # type: ignore[union-attr]
         table = re.search(r'table "([^"]+)"', prompt).group(1)  # type: ignore[union-attr]
@@ -184,6 +189,7 @@ class ScriptedRenderModel(ScriptedTabularModel):
             "describe_table",
             "query_table",
             "read_rows",
+            "count_tiers",
             "render_answer",
         ]
         from account_intelligence.replica.render import RENDER_RULES
