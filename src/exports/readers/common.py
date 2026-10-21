@@ -60,6 +60,9 @@ class MapContext:
     registry: NumberRegistry = field(default_factory=NumberRegistry)
     violations: list[Violation] = field(default_factory=list)
     withheld: int = 0
+    # authored blocks a content rule kept out of a file: (where, row id, rule). Listed in the
+    # manifest; the build goes on without them (never the text)
+    withheld_blocks: list[tuple[str, str, str]] = field(default_factory=list)
     formula_like: int = 0
 
     def __post_init__(self) -> None:
@@ -91,16 +94,17 @@ class MapContext:
             self.formula_like += 1
         return clean
 
-    def authored(self, text: str, where: str) -> str:
-        """``rendered`` plus the D-24 prose rules (banned dashes, stale phrases, abbreviations,
-        partner framings) for authored prose."""
-        clean = self.rendered(text, where)
-        self.flag(
-            authored_violations(
-                clean, self.rules, where, is_partner=self.content.is_salesforce_partner
-            )
+    def prose_violations(self, text: str, where: str) -> tuple[Violation, ...]:
+        """The D-24 prose rules (banned dashes, stale phrases, abbreviations, partner framings)
+        on authored prose. The caller withholds the block on a violation; the rules never fail
+        the build on their own (one dashed sentence held back five files, staging 2026-10-21)."""
+        return authored_violations(
+            sanitise(text), self.rules, where, is_partner=self.content.is_salesforce_partner
         )
-        return clean
+
+    def withhold(self, where: str, row_id: str, rule: str) -> None:
+        """Leave one authored block out of its file for ``rule``, counted and listed."""
+        self.withheld_blocks.append((where, row_id, rule))
 
     def quote(self, text: str, where: str) -> tuple[str, bool]:
         """A verbatim quote: (the quote, False) or (the withheld note, True). Never altered.

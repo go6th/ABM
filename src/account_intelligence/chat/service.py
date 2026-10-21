@@ -223,6 +223,21 @@ ToolRunner = Callable[[str, dict[str, Any]], Awaitable[Any]]
 # (token review item 3, 2026-10-20: was 12; every round resends the conversation)
 MAX_TOOL_ROUNDS = 6
 TOOL_RESULT_MAX_CHARS = 200_000
+# the final-answer tool (replica.render) and how many times a model that ends without calling it
+# is sent back to call it: the table-building guarantee must not depend on which model ran
+RENDER_TOOL_NAME = "render_answer"
+MAX_RENDER_NUDGES = 2
+RENDER_NUDGE = (
+    "You have not called `render_answer`. Call it now, once, with the whole answer: a headline"
+    " and sections that include at least one `table` section carrying EVERY matching row (or,"
+    " for a narrative answer, the facts the answer rests on, one per row), each row's [R#]"
+    " citation in its last cell. Do not write the answer as text."
+)
+
+
+def _render_offered(tools: Sequence[Mapping[str, Any]] | None) -> bool:
+    """Whether the final-answer tool is among the tools on offer."""
+    return bool(tools) and any(t.get("name") == RENDER_TOOL_NAME for t in tools or ())
 
 
 class ChatProvider(Protocol):
@@ -383,9 +398,11 @@ class AnthropicChatProvider:
         # turns send would TypeError every round. The Moonshot provider pins temperature/seed.
         stop_reason: str | None = None
         totals = [0, 0, 0, 0]
-        rounds = 0
-        # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer; exit=the model
-        # stops without a tool call, or no tool runner
+        rounds = nudges = 0
+        render_offered = _render_offered(tools)
+        # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer plus
+        # MAX_RENDER_NUDGES; exit=the model stops without a tool call (after its nudges), or no
+        # tool runner
         while True:
             wrote = False
             async with self._client.messages.stream(**request, messages=request_messages) as stream:
@@ -401,8 +418,25 @@ class AnthropicChatProvider:
             totals[2] += int(getattr(usage, "cache_read_input_tokens", 0) or 0)
             totals[3] += int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
             calls = [b for b in final.content if getattr(b, "type", None) == "tool_use"]
-            if not calls or run_tool is None or rounds >= MAX_TOOL_ROUNDS:
+            if run_tool is None:
                 break
+            over_budget = rounds >= MAX_TOOL_ROUNDS
+            # a model that ends without the final-answer call (text only, or out of tool rounds)
+            # is sent back for it: the answer's table must not depend on the model's habit
+            nudge = render_offered and nudges < MAX_RENDER_NUDGES
+            if not calls and not nudge:
+                break
+            if calls and over_budget and not render_offered:
+                break
+            if not calls:
+                nudges += 1
+                if wrote:
+                    yield ChatEvent("discard")
+                kept = _blocks(final.content)
+                if kept:
+                    request_messages.append({"role": "assistant", "content": kept})
+                request_messages.append({"role": "user", "content": RENDER_NUDGE})
+                continue
             rounds += 1
             if wrote:
                 yield ChatEvent("discard")  # text before a tool call is not the answer
@@ -410,7 +444,16 @@ class AnthropicChatProvider:
             terminal = False
             for call in calls:
                 arguments = dict(call.input or {})
-                result = await run_tool(str(call.name), arguments)
+                result: Any
+                if over_budget and call.name != RENDER_TOOL_NAME:
+                    result = {
+                        "error": {
+                            "code": "tool_budget_used",
+                            "message": "no more data calls; call render_answer now",
+                        }
+                    }
+                else:
+                    result = await run_tool(str(call.name), arguments)
                 yield ChatEvent(
                     "tool", tool={"name": call.name, "input": arguments, "result": result}
                 )
@@ -426,6 +469,11 @@ class AnthropicChatProvider:
                 terminal = terminal or (isinstance(result, dict) and result.get("terminal") is True)
             if terminal:
                 break
+            if over_budget:
+                if not nudge:
+                    break
+                nudges += 1
+                results.append({"type": "text", "text": RENDER_NUDGE})
             request_messages.append({"role": "assistant", "content": _blocks(final.content)})
             request_messages.append({"role": "user", "content": results})
         yield ChatEvent(
@@ -517,9 +565,11 @@ class MoonshotChatProvider:
             {"role": m.role, "content": m.content} for m in messages
         ]
         totals = [0, 0, 0, 0]
-        rounds = 0
-        # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer; exit=the model
-        # stops without a tool call, or no tool runner
+        rounds = nudges = 0
+        render_offered = _render_offered(tools)
+        # LOOP(tool rounds): cap=MAX_TOOL_ROUNDS tool rounds plus the answer plus
+        # MAX_RENDER_NUDGES; exit=the model stops without a tool call (after its nudges), or no
+        # tool runner
         while True:
             wrote = False
             text: list[str] = []
@@ -547,8 +597,22 @@ class MoonshotChatProvider:
                 totals[1] += int(usage.output_tokens)
                 totals[2] += int(usage.cache_read_input_tokens or 0)
                 totals[3] += int(usage.cache_creation_input_tokens or 0)
-            if not calls or run_tool is None or rounds >= MAX_TOOL_ROUNDS:
+            if run_tool is None:
                 break
+            over_budget = rounds >= MAX_TOOL_ROUNDS
+            nudge = render_offered and nudges < MAX_RENDER_NUDGES
+            if not calls and not nudge:
+                break
+            if calls and over_budget and not render_offered:
+                break
+            if not calls:
+                nudges += 1
+                if wrote:
+                    yield ChatEvent("discard")
+                if "".join(text).strip():
+                    request_messages.append({"role": "assistant", "content": "".join(text)})
+                request_messages.append({"role": "user", "content": RENDER_NUDGE})
+                continue
             rounds += 1
             if wrote:
                 yield ChatEvent("discard")  # text before a tool call is not the answer
@@ -562,6 +626,13 @@ class MoonshotChatProvider:
                             "message": "tool arguments were not a JSON object",
                         }
                     }
+                elif over_budget and call.name != RENDER_TOOL_NAME:
+                    result = {
+                        "error": {
+                            "code": "tool_budget_used",
+                            "message": "no more data calls; call render_answer now",
+                        }
+                    }
                 else:
                     result = await run_tool(call.name, call.input)
                 yield ChatEvent(
@@ -572,8 +643,13 @@ class MoonshotChatProvider:
                 terminal = terminal or (isinstance(result, dict) and result.get("terminal") is True)
             if terminal:
                 break
+            if over_budget and not nudge:
+                break
             request_messages.append(k.assistant_round("".join(text), calls))
             request_messages.extend(results)
+            if over_budget:
+                nudges += 1
+                request_messages.append({"role": "user", "content": RENDER_NUDGE})
         yield ChatEvent(
             "usage",
             usage=ChatUsage(

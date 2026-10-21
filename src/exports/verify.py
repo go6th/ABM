@@ -311,6 +311,16 @@ def _extract_doc_text(data: bytes) -> str:
         return data.decode("utf-8", "ignore")
 
 
+# A cited source code as the registry writes it (``S-0001``, widening past four digits). The
+# archived skill script matched ``[SJU]\d{1,3}``, which no real code ever satisfies and which
+# "Amazon S3" or "J1 visa" does; such text failed builds for nothing (staging 2026-10-21).
+_CITATION = re.compile(r"\bS-\d{4,}\b")
+_SPACED_HYPHEN = re.compile(r"\S\s+-\s+\S")
+# What an exempt passage is replaced by before the dash scan: a non-space letter, so removing a
+# passage can neither create a spaced hyphen nor join two others
+_BLANK = "X"
+
+
 def _run_doc_checks(
     data: bytes,
     kind: str,
@@ -318,48 +328,42 @@ def _run_doc_checks(
     stale_phrases: Sequence[str],
     excluded_names: Sequence[str],
     verbatim_quotes: Sequence[str],
+    passthrough: Sequence[str] = (),
+    dash_characters: Sequence[str] = ("—", "–"),
+    spaced_hyphen_is_punctuation: bool = True,
 ) -> CheckResult:
-    """Run the skill's doc_checks.py on the extracted document text.
+    """The document checks over the built file's extracted text (one implementation of the
+    skill's ``doc_checks.py`` rules, with its two defects fixed, see ``doc_checks``).
 
-    Uses the real built document text and the account's valid source IDs.
-    """
+    The dash rule's scope is authored prose (``export_rules.yaml banned_dashes.scope``): verbatim
+    quotes and ``passthrough`` texts (stored titles, names, labels and links the file prints as
+    they are) are blanked before the scan. ``details`` carry rule codes and counts, never text."""
     text = _extract_doc_text(data)
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        text_path = tmp_path / "doc.txt"
-        ids_path = tmp_path / "ids.json"
-        text_path.write_text(text, encoding="utf-8")
-        import json
+    details: list[str] = []
+    cited = set(_CITATION.findall(text))
+    orphans = sorted(cited - set(account_ids))
+    details.extend(f"orphan_citation:{code}" for code in orphans)
 
-        ids_path.write_text(json.dumps(list(account_ids)), encoding="utf-8")
-        quotes_path = tmp_path / "quotes.json"
-        quotes_path.write_text(json.dumps(list(verbatim_quotes)), encoding="utf-8")
-        script = _skill_scripts_dir() / "doc_checks.py"
-        cmd = [
-            sys.executable,
-            str(script),
-            str(text_path),
-            "--ids",
-            str(ids_path),
-            "--verbatim-quotes",
-            str(quotes_path),
-        ]
-        if stale_phrases:
-            cmd.extend(["--stale", *stale_phrases])
-        if excluded_names:
-            cmd.extend(["--exclude", *excluded_names])
-        try:
-            result = subprocess.run(  # nosec B603 - fixed argv, no shell
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except (subprocess.SubprocessError, OSError) as e:
-            return CheckResult("doc_checks", "failed", f"doc_checks execution failed: {e}")
-    if result.returncode != 0:
-        return CheckResult("doc_checks", "failed", result.stdout.strip() or result.stderr.strip())
-    return CheckResult("doc_checks", "passed")
+    authored = text
+    exempt = sorted({t for t in (*verbatim_quotes, *passthrough) if len(t) > 1}, key=len)
+    for passage in reversed(exempt):  # longest first, so a title inside a quote cannot split it
+        authored = authored.replace(passage, _BLANK)
+    dashes = sum(authored.count(ch) for ch in dash_characters)
+    if spaced_hyphen_is_punctuation:
+        dashes += len(_SPACED_HYPHEN.findall(authored))
+    if dashes:
+        details.append(f"banned_dash:{dashes}")
+
+    for rule, items in (("stale_phrase", stale_phrases), ("excluded_name", excluded_names)):
+        for i, item in enumerate(items, start=1):
+            n = text.count(item) if item else 0
+            if n:
+                details.append(f"{rule}:#{i}x{n}")  # the index, never the phrase or the name
+
+    if not details:
+        return CheckResult("doc_checks", "passed")
+    rules = sorted({d.split(":", 1)[0] for d in details})
+    return CheckResult("doc_checks", "failed", f"{kind}: {', '.join(rules)}", tuple(details))
 
 
 def docx_rowcheck(docx: bytes, pdf: PdfRenderPort) -> CheckResult:
@@ -374,9 +378,25 @@ def doc_checks(
     stale_phrases: Sequence[str],
     excluded_names: Sequence[str],
     verbatim_quotes: Sequence[str] = (),
+    passthrough: Sequence[str] = (),
+    dash_characters: Sequence[str] = ("—", "–"),
+    spaced_hyphen_is_punctuation: bool = True,
 ) -> CheckResult:
-    """Document checks gate for Word, deck, or PDF deliverable."""
-    return _run_doc_checks(data, kind, account_ids, stale_phrases, excluded_names, verbatim_quotes)
+    """Document checks gate for a Word, deck or PDF deliverable: no orphan citation, no banned
+    dash in authored prose, no stale phrase, no excluded name. Until 2026-10-21 this ran the
+    archived skill script, which scanned every dash in the file (a fifth of stored job titles
+    carry one) and matched no real citation; the rules now run here, in process."""
+    return _run_doc_checks(
+        data,
+        kind,
+        account_ids,
+        stale_phrases,
+        excluded_names,
+        verbatim_quotes,
+        passthrough,
+        dash_characters,
+        spaced_hyphen_is_punctuation,
+    )
 
 
 def third_party_scan(data: bytes, kind: str) -> CheckResult:

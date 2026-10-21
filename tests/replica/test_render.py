@@ -350,3 +350,28 @@ async def test_the_access_tools_shape_check_the_render_call_and_make_it_terminal
     assert "render_answer" in [t["name"] for t in tools.offered("prose")]
     assert "render_answer" in [t["name"] for t in tools.offered("tabular")]
     assert "render_answer" in [t["name"] for t in tools.offered("mixed")]
+
+
+def test_ensure_table_builds_a_facts_table_when_the_answer_has_none() -> None:
+    a = _acct()
+    row = _row(a, "Hiring a Salesforce admin | remote", key="fact:1")
+    d = A.Draft()
+    d.para(f"Highmark is hiring {d.cite(row)}.")
+    assert not RENDER.has_table(d)
+    assert RENDER.ensure_table(d) is True
+    assert RENDER.has_table(d)
+    table = d.paragraphs[-1]
+    assert "| Account | Type | Fact | Grade | Source |" in table
+    assert "Hiring a Salesforce admin / remote" in table and "[[fact:1]]" in table
+    assert RENDER.ensure_table(d) is False  # already has one: nothing added twice
+
+
+def test_ensure_table_leaves_a_table_answer_and_an_empty_answer_alone() -> None:
+    d = A.Draft()
+    d.para("Nothing found.")
+    assert RENDER.ensure_table(d) is False and d.paragraphs == ["Nothing found."]
+    d.structured = {
+        "headline": "h",
+        "sections": [{"kind": "table", "columns": ["a"], "rows": [["1"]]}],
+    }
+    assert RENDER.has_table(d)

@@ -12,6 +12,10 @@
 * Every number in authored text must be registered or appear in the rows the block cites (B6);
   a narrative or what-would-change block that cites a fact which may not be stated must be a
   question (D-24 proposal).
+* A block that breaks one of those content rules, or the D-24 prose rules, is withheld from the
+  file (listed in the manifest as ``withheld_blocks``) and the build goes on; only a missing
+  narrative, a provenance gap or a leak fails the build (staging 2026-10-21: one block held back
+  every file of a finished research).
 """
 
 from __future__ import annotations
@@ -174,36 +178,60 @@ def _sections(
             continue
         if s.kind in _CITED_KINDS and not s.codes:
             ctx.fail("narrative_without_code", where, s.id)
-        if s.kind == "hypothesis" and not sanitise(s.confirming_question or "").strip():
-            ctx.fail("question_missing", where, s.id)
-            continue
-        if s.kind == "executive_voice" and not sanitise(s.speaker or "").strip():
-            ctx.fail("speaker_missing", where, s.id)
-            continue
         for code in s.codes:
             if not ctx.index.knows(code):
                 ctx.fail("unknown_source_code", where, code)
-        for fid in s.fact_ids:
-            if fid not in rendered:
-                ctx.fail("section_fact_not_rendered", where, s.id)
-        states = s.kind in ("narrative", "decision_change") and not s.text.rstrip().endswith("?")
-        if states and any(
-            fid in rendered and not statement_policy(rendered[fid].product_grade, ctx.grading)  # type: ignore[arg-type]
-            for fid in s.fact_ids
-        ):
-            ctx.fail("unconfirmed_stated", where, s.id)
-        if s.kind != "executive_voice":
-            bad = unregistered(s.text, allowed, _cited_texts(ctx, s, by_fact))
-            if bad:
-                ctx.fail("unregistered_number", w, s.id)
+        # Content rules on the block's own prose withhold the block (listed in the manifest,
+        # counted) and the build goes on: the research stands, one sentence does not hold
+        # every file back. Provenance and leaks above still fail the build.
+        rule = _withhold_rule(ctx, s, rendered, allowed, by_fact)
+        if rule is not None:
+            ctx.withhold(w, s.id, rule)
+            continue
         out[s.kind].append(s)
     return out
 
 
+def _withhold_rule(
+    ctx: MapContext,
+    s: SectionRow,
+    rendered: dict[str, FactRow],
+    allowed: frozenset[str],
+    by_fact: dict[str, list[EvidenceRow]],
+) -> str | None:
+    """The first content rule that keeps a section out of the Summary, or None. A hypothesis
+    needs its question and an executive quote its speaker; a block may cite only facts the lane
+    tables show; a statement may rest only on facts the policy lets a client file state; a
+    number must be registered or in the cited rows (B6); the D-24 prose rules apply to every
+    authored block (an executive quote is verbatim and exempt)."""
+    if s.kind == "hypothesis" and not sanitise(s.confirming_question or "").strip():
+        return "question_missing"
+    if s.kind == "executive_voice" and not sanitise(s.speaker or "").strip():
+        return "speaker_missing"
+    if any(fid not in rendered for fid in s.fact_ids):
+        return "section_fact_not_rendered"
+    states = s.kind in ("narrative", "decision_change") and not s.text.rstrip().endswith("?")
+    if states and any(
+        fid in rendered and not statement_policy(rendered[fid].product_grade, ctx.grading)  # type: ignore[arg-type]
+        for fid in s.fact_ids
+    ):
+        return "unconfirmed_stated"
+    if s.kind == "executive_voice":
+        return None
+    if unregistered(s.text, allowed, _cited_texts(ctx, s, by_fact)):
+        return "unregistered_number"
+    where = f"summary.{s.kind}.{s.id}"
+    prose = ctx.prose_violations(s.text, where)
+    if s.kind == "hypothesis":
+        prose += ctx.prose_violations(s.confirming_question or "", where)
+    return prose[0].code if prose else None
+
+
 def _block(ctx: MapContext, s: SectionRow) -> AuthoredBlock:
+    # the prose rules were applied when the section was selected (``_withhold_rule``)
     return AuthoredBlock(
         row_id=s.id,
-        text=ctx.authored(s.text, f"summary.{s.kind}.{s.id}"),
+        text=ctx.rendered(s.text, f"summary.{s.kind}.{s.id}"),
         codes=tuple(c for c in s.codes if ctx.index.knows(c)),
     )
 
@@ -279,13 +307,17 @@ def map_summary(ctx: MapContext, people: PeopleModel | None) -> Mapped[SummaryMo
             continue
         if code is None:
             continue
+        prose = ctx.prose_violations(f.claim, where)
+        if prose:
+            ctx.withhold(where, row, prose[0].code)  # the templated claim is authored prose
+            continue
         sentence, withheld = ctx.quote(f.sentence, where)
         findings.append(
             FindingBlock(
                 ref=ref("F", len(findings) + 1),
                 row_id=f"{f.person_id}:{f.url}",
                 person=listed[f.person_id],
-                claim=ctx.authored(f.claim, where),
+                claim=ctx.rendered(f.claim, where),
                 sentence=sentence,
                 withheld=withheld,
                 url=f.url,
@@ -310,8 +342,8 @@ def map_summary(ctx: MapContext, people: PeopleModel | None) -> Mapped[SummaryMo
     hypotheses = tuple(
         HypothesisBlock(
             row_id=s.id,
-            text=ctx.authored(s.text, f"summary.hypothesis.{s.id}"),
-            question=ctx.authored(s.confirming_question or "", f"summary.hypothesis.{s.id}"),
+            text=ctx.rendered(s.text, f"summary.hypothesis.{s.id}"),
+            question=ctx.rendered(s.confirming_question or "", f"summary.hypothesis.{s.id}"),
             codes=tuple(x for x in s.codes if ctx.index.knows(x)),
         )
         for s in sections.get("hypothesis", [])

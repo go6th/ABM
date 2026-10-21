@@ -21,9 +21,13 @@ class ExportError(RuntimeError):
 
     code = "export_error"
 
-    def __init__(self, message: str, items: Iterable[str] = ()) -> None:
+    def __init__(self, message: str, items: Iterable[str] = (), *, rule: str | None = None) -> None:
         self.items: tuple[str, ...] = tuple(items)
         self.message = message
+        # the rule that fired (``banned_dash``, ``orphan_citation``), finer than the class code:
+        # a run's stop reason and its log line name the rule, not just "banned_content"
+        # (staging 2026-10-21: the class alone said nothing about which check held the files)
+        self.rule = rule
         suffix = ""
         if self.items:
             shown = ", ".join(self.items[:MAX_LISTED])

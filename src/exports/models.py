@@ -365,6 +365,10 @@ class BuildManifest(_Frozen):
     count_sentences: tuple[Text, ...]
     tracker_tally: tuple[Text, ...]
     withheld_sentences: int = Field(ge=0)
+    # authored blocks left out of the Summary by a content rule, ``where:row_id:rule`` (a dash,
+    # an untraceable number, a fact not in the tables): the set is still delivered, the gap is
+    # listed here, never silently (one such block used to fail every file, staging 2026-10-21)
+    withheld_blocks: tuple[str, ...] = ()
     long_text_parts: int = Field(ge=0)
     formula_like_cells: int = Field(ge=0)
     files: tuple[FileEntry, ...] = ()
@@ -400,6 +404,8 @@ class BuildResult(_Frozen):
     deliverables: tuple[Deliverable, ...] = ()
     manifest: BuildManifest | None = None
     errors: tuple[str, ...] = ()
+    # the rules that failed the build, most specific first (``banned_dash``, not the class)
+    codes: tuple[str, ...] = ()
     change_note: str | None = None
     reused: bool = False
     verbatim_quotes: tuple[str, ...] = ()

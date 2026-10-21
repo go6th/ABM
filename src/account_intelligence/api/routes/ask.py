@@ -70,6 +70,7 @@ from account_intelligence.replica import models as M
 from account_intelligence.replica import obs as ask_obs
 from account_intelligence.replica import router as R
 from account_intelligence.replica.model_answer import refusal_phrase, stream_with_model
+from account_intelligence.replica.render import ensure_table
 from account_intelligence.replica.settings import touch_activity
 from account_intelligence.replica.source_label import relabel_answer
 from account_intelligence.replica.tools import AccessTools
@@ -341,6 +342,8 @@ async def ask(
                         "has_accounts": bool(ws.accounts),
                     },
                 )
+            # the table guarantee's last line: whatever wrote the answer, it leaves with a table
+            ensure_table(draft)
             answer = A.finish(draft, q, ws, now, scope)
             stats = tools.stats() if tools is not None else {}
             cost = _turn_cost(service, paid_model, usage, classifier)

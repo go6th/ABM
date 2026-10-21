@@ -392,3 +392,71 @@ async def test_run_python_joins_the_offer_only_for_a_flagged_tenant() -> None:
     second = await on.run("run_python", {"code": "result = data[0]['result'] + 1"})
     assert second["result"] == 1  # the first run's result was the second run's data
     assert on.stats()["run_python_used"] == 2
+
+
+_RENDER_TOOLS = [{"name": "query_table"}, {"name": "render_answer"}]
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_ends_with_text_is_sent_back_for_render_answer() -> None:
+    """The table guarantee must not depend on the model's habit: text with no render_answer
+    call gets two nudges at most, and the call it then makes is the terminal answer."""
+    client = _Client(
+        [
+            _Final([_Text("Here are the postings in prose.")], "end_turn"),
+            _Final([_ToolUse("r1", "render_answer", {"headline": "h"})], "tool_use"),
+        ]
+    )
+    ran: list[str] = []
+
+    async def run_tool(name: str, payload: dict[str, Any]) -> Any:
+        ran.append(name)
+        return {"ok": True, "terminal": True}
+
+    events = [
+        e
+        async for e in AnthropicChatProvider(client).stream(
+            _model(), [ChatMessage("user", "q")], 100, tools=_RENDER_TOOLS, run_tool=run_tool
+        )
+    ]
+    assert ran == ["render_answer"] and len(client.requests) == 2
+    assert [e.kind for e in events if e.kind in ("discard", "tool")] == ["discard", "tool"]
+    nudge = client.requests[1]["messages"][-1]
+    assert nudge["role"] == "user" and "render_answer" in nudge["content"]
+
+
+@pytest.mark.asyncio
+async def test_nudges_stop_after_two_and_a_budget_overrun_only_runs_render_answer() -> None:
+    stubborn = _Client([_Final([_Text("prose")], "end_turn") for _ in range(5)])
+
+    async def run_tool(name: str, payload: dict[str, Any]) -> Any:
+        return {}
+
+    _ = [
+        e
+        async for e in AnthropicChatProvider(stubborn).stream(
+            _model(), [ChatMessage("user", "q")], 100, tools=_RENDER_TOOLS, run_tool=run_tool
+        )
+    ]
+    assert len(stubborn.requests) == 3  # the first round plus MAX_RENDER_NUDGES
+
+    rounds = [
+        _Final([_ToolUse(f"t{i}", "query_table", {})], "tool_use")
+        for i in range(MAX_TOOL_ROUNDS + 1)
+    ] + [_Final([_ToolUse("r", "render_answer", {})], "tool_use")]
+    client = _Client(rounds)
+    ran: list[str] = []
+
+    async def counting(name: str, payload: dict[str, Any]) -> Any:
+        ran.append(name)
+        return {"ok": True, "terminal": True} if name == "render_answer" else {}
+
+    _ = [
+        e
+        async for e in AnthropicChatProvider(client).stream(
+            _model(), [ChatMessage("user", "q")], 100, tools=_RENDER_TOOLS, run_tool=counting
+        )
+    ]
+    assert ran == ["query_table"] * MAX_TOOL_ROUNDS + ["render_answer"]
+    over = client.requests[MAX_TOOL_ROUNDS + 1]["messages"][-1]["content"]
+    assert any("tool_budget_used" in str(b.get("content")) for b in over if "content" in b)

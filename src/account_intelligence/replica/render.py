@@ -365,3 +365,55 @@ def _section_to_markdown(d: Draft, section: dict[str, Any]) -> None:
         d.para("> " + str(section["text"]))
     else:  # steps
         d.para("\n".join(f"{i}. {item}" for i, item in enumerate(section["items"], 1)))
+
+
+# a Markdown table's separator line: | --- | :---: |
+_TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", re.M)
+FACTS_TITLE = "Facts this answer rests on"
+FACTS_COLUMNS = ("Account", "Type", "Fact", "Grade", "Source")
+_FACT_CHARS = 280
+
+
+def has_table(draft: Draft) -> bool:
+    """Whether the answer carries a table: a ``table`` section of the structured payload, or a
+    Markdown table in its paragraphs."""
+    structured = draft.structured
+    if structured is not None and any(
+        isinstance(s, dict) and s.get("kind") == "table" for s in structured.get("sections", ())
+    ):
+        return True
+    return any(_TABLE_SEPARATOR.search(p) for p in draft.paragraphs)
+
+
+def ensure_table(draft: Draft) -> bool:
+    """The last line of the table guarantee, independent of the model: an answer that reached
+    this point without a table (a model that never called ``render_answer`` after being sent
+    back for it, the local answer, a provider without tools) gets a table of the rows it cites,
+    one fact per row, built by the code. True when a table was added; an answer that cites
+    nothing has no rows to table and is left as it is."""
+    if has_table(draft) or not draft.rows:
+        return False
+    rows = []
+    for row in draft.rows.values():
+        fact = " ".join(str(row.text).split())
+        if len(fact) > _FACT_CHARS:
+            fact = fact[: _FACT_CHARS - 1].rstrip() + "…"
+        rows.append(
+            [
+                row.account.name,
+                row.kind,
+                fact.replace("|", "/"),
+                row.grade or "",
+                f"{(row.title or '').replace('|', '/')} [[{row.key}]]",
+            ]
+        )
+    columns = list(FACTS_COLUMNS)
+    if draft.structured is not None:
+        draft.structured.setdefault("sections", []).append(
+            {"kind": "table", "title": FACTS_TITLE, "columns": columns, "rows": rows}
+        )
+    _section_to_markdown(
+        draft, {"kind": "table", "title": FACTS_TITLE, "columns": columns, "rows": rows}
+    )
+    log.info("ask.table_built_by_code", extra={"rows": len(rows)})
+    return True
