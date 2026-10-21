@@ -12,6 +12,7 @@ import { humanize } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
 import type { RunProgress, RunStatusView, ExportPackages } from "@/lib/gen/api.gen";
 import { Notice } from "@/ui/primitives";
+import { TokenMeter } from "./TokenMeter";
 
 /** The workflow's stages grouped into the skill's eight steps, in order. */
 const STEP_STAGES: string[][] = [
@@ -232,6 +233,7 @@ export function RunPanel({ runId, compact = false }: { runId: string; compact?: 
     <div className="stack">
       <StepList progress={progress} status={status} />
       <Checkpoint runId={runId} status={status} onDecided={reload} auto={auto} setAuto={setAuto} />
+      {run ? <TokenMeter tokens={run.tokens_used ?? 0} running={!terminal} /> : null}
       {!compact ? (
         <div className="section">
           <h3>{m.run.unitsSoFar}</h3>

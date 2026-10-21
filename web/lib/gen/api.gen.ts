@@ -2212,6 +2212,7 @@ export const RunStatusView = z.object({
   "status": z.string(),
   "stop_detail": z.string().nullable().optional(),
   "stored": StoredCounts.nullable().optional(),
+  "tokens_used": z.number().int().optional(),
 }).strict();
 export type RunStatusView = z.infer<typeof RunStatusView>;
 

@@ -518,3 +518,14 @@ table.xl th span.th { color: var(--text-3); }
 .form-row .field { min-width: 160px; }
 .t-footnote { font-size: 13px; color: var(--muted); }
 
+
+/* Token meter: one square per 100,000 tokens a research run has used. */
+.token-meter { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.token-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.token-meter-total { font-weight: 600; font-variant-numeric: tabular-nums; }
+.token-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.token-cell { aspect-ratio: 1; border-radius: 3px; background: var(--line-soft); border: 1px solid var(--line); }
+.token-cell.full { background: var(--accent); border-color: var(--accent); }
+.token-cell.p25 { background: var(--accent-tint); border-color: var(--accent-drop); }
+.token-cell.p50 { background: var(--accent-drop); border-color: var(--accent-drop); }
+.token-cell.p75 { background: var(--accent-line); border-color: var(--accent); }

@@ -776,6 +776,8 @@ class RunStatusView(Out):
     # the models the run used, in words ("Research: Opus 5.5 · Analysis: Fable 5.1"), and any
     # step a fallback served (owner decision 2026-10-14); None for a run from before the choice
     models_line: str | None = None
+    # input plus output tokens of every model call the run has stored so far (the token meter)
+    tokens_used: int = 0
 
 
 class CollectedFact(Out):

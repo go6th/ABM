@@ -449,6 +449,17 @@ async def get_run(
                 {"r": run_id},
             )
         ).first()
+        tokens_used = int(
+            (
+                await s.execute(
+                    text(
+                        "SELECT COALESCE(sum(input_tokens + output_tokens), 0) FROM llm_calls"
+                        " WHERE run_id = :r"
+                    ),
+                    {"r": run_id},
+                )
+            ).scalar_one()
+        )
     payload = {
         "domain": row.domain,
         "run_id": str(run_id),
@@ -462,6 +473,7 @@ async def get_run(
         "source_label": SOURCE_LABELS[row.input_mode],
         "linked_run_id": row.linked,
         "models_line": models_line(row.models),
+        "tokens_used": tokens_used,
         "gate": (
             {"verdict": gate.verdict, "defects": list(gate.defects)[:50]}
             if gate is not None
