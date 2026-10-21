@@ -492,3 +492,29 @@ table.xl th span.th { color: var(--text-3); }
 .part-fails { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .part-fails > li { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .part-fails .link-btn { min-height: 40px; }
+
+/* Run page and plain lists: the step list, key-value rows, the coverage table. */
+.steps { border-top: 1px solid var(--line-soft); }
+.steps li { display: flex; align-items: center; gap: 14px; min-height: 48px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+.steps .n { width: 24px; flex: none; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.steps .grow { flex: 1; min-width: 0; }
+.steps .state { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; padding: 0; font-size: 13px; white-space: nowrap; color: var(--muted); }
+.steps li[data-state="done"] .state { color: var(--ok-ink); }
+.steps li[data-state="running"] .state { color: var(--accent); }
+.steps li[data-state="paused"] .state { color: var(--warn-ink); }
+.steps li[data-state="running"] .grow { font-weight: 600; }
+.rows:not(.uploads) { border-top: 1px solid var(--line-soft); }
+.rows:not(.uploads) > li { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+.rows:not(.uploads) > li > a { color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
+.rows:not(.uploads) > li > a:hover { text-decoration: underline; }
+.end { color: var(--muted); font-size: 13px; white-space: nowrap; text-align: right; }
+.table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-field); background: var(--surface); }
+.table { width: 100%; font-size: 14px; }
+.table th, .table td { padding: 9px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+.table th { font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em; color: var(--text-3); background: var(--hover-soft); border-bottom: 1px solid var(--xl-head-line); white-space: nowrap; }
+.table tbody tr:last-child td { border-bottom: 0; }
+.count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.form-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.form-row .field { min-width: 160px; }
+.t-footnote { font-size: 13px; color: var(--muted); }
+

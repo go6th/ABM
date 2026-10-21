@@ -33,7 +33,10 @@ h1.big { font-size: 30px; }
 h2 { font-size: 15px; line-height: 1.4; font-weight: 600; }
 b, strong { font-weight: 700; }
 
-.mut { color: var(--muted); }
+.mut, .muted { color: var(--muted); }
+.ink { color: var(--ink); }
+.ink-2 { color: var(--ink-2); }
+.error-text { color: var(--bad-ink); }
 .lbl { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
 .small { font-size: 13px; }
 .meta { font-size: 12px; }

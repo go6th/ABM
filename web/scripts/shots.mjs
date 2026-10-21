@@ -29,7 +29,7 @@ const PASSWORD = process.env.E2E_PASSWORD;
 if (!EMAIL || !PASSWORD) throw new Error("set E2E_EMAIL and E2E_PASSWORD");
 await page.getByLabel("Work email").fill(EMAIL);
 await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
-await page.getByRole("button", { name: "Sign in to workspace" }).click();
+await page.getByRole("button", { name: "Sign in", exact: true }).click();
 await page.waitForURL(BASE + "/", { timeout: 60000 });
 console.log("signed in");
 

@@ -66,10 +66,19 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
     setUploadOwner(user.userId ?? null);
   }, [user.userId]);
 
+  // Escape and the scrim hand focus back to the Menu button, but only once the page behind
+  // is no longer inert: the button sits in the inert top bar until the closed state renders.
+  const refocus = useRef(false);
   const close = useCallback(() => {
+    refocus.current = true;
     setOpen(false);
-    menuButton.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (open || !refocus.current) return;
+    refocus.current = false;
+    menuButton.current?.focus();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

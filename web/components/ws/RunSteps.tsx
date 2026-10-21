@@ -118,11 +118,12 @@ export function Checkpoint({ runId, status, onDecided, auto, setAuto }: { runId:
   const paused = status === "AWAITING_APPROVAL";
 
   useEffect(() => {
+    if (!paused) return; // the panel shows only while the run waits for approval
     let alive = true;
     api<CapProposal>("GET", `/v1/runs/${encodeURIComponent(runId)}/cap`).then((c) => { if (alive) setCap(c); }).catch(() => { if (alive) setCap(null); });
     api<LiveSpend>("GET", `/v1/runs/${encodeURIComponent(runId)}/spend/live`).then((l) => { if (alive) setLive(l); }).catch(() => undefined);
     return () => { alive = false; };
-  }, [runId, status]);
+  }, [runId, paused]);
 
   const approve = useCallback(async () => {
     setBusy(true);

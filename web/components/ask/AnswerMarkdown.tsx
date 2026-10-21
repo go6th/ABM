@@ -34,7 +34,10 @@ export function toMarkdown(parts: StreamPart[]): string {
       return p.v;
     })
     .join("")
-    .replace(/\s+/g, " ")
+    // a chip's padding must not stack with the model's own spaces; newlines and tabs are
+    // structure (table rows, lists, fences) and stay as written
+    .replace(/ {2,}(?=\[\d{1,3}\]\(#cite-)/g, " ")
+    .replace(/(\(#cite-\d{1,3}\)) {2,}/g, "$1 ")
     .trim();
 }
 
