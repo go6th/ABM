@@ -13,7 +13,7 @@ unannotated (the generator's check fails otherwise).
 | archive heartbeat | `src/account_intelligence/replica/downloads.py:255` | the build's length / BEAT_S | cancelled when the build ends |
 | archive part upload | `src/account_intelligence/replica/downloads.py:448` | part size / 1 MiB | end of part |
 | archive table rows | `src/account_intelligence/replica/downloads.py:360` | the table's rows | end of the table |
-| ask keepalive | `src/account_intelligence/api/routes/ask.py:479` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
+| ask keepalive | `src/account_intelligence/api/routes/ask.py:482` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
 | audit verify tenants | `src/account_intelligence/api/routes/tasks.py:371` | every client once per pass | last client |
 | auto resume clients | `src/account_intelligence/replica/auto_resume.py:302` | every client once per pass, `limit` runs each | last one |
@@ -43,7 +43,7 @@ unannotated (the generator's check fails otherwise).
 | devstore chunk write | `src/devstore/server.py:166` | the chunk's bytes as the server delivers them | end of body |
 | devstore session lock | `src/devstore/server.py:98` | 1200 tries of 50 ms (one minute) | lock taken |
 | digest assembly | `src/alerts/digest.py:42` | len(items) | end |
-| distill re-ask | `src/agents/distill/agent.py:101` | 2 attempts | a narrative survived, or the second attempt (a narrative the model wrote and the guards dropped whole is asked for once more, with the reasons; the Summary needs a narrative and used to fail its build without one) |
+| distill re-ask | `src/agents/distill/agent.py:123` | 2 attempts | a narrative survived, or the second attempt (a narrative the model wrote and the guards dropped whole is asked for once more, with the reasons; the Summary needs a narrative and used to fail its build without one) |
 | document parts | `src/documents/service.py:575` | parts_total parts per worker, parts_per_request per call | no part left, client busy, request's share read (the next task continues) |
 | drive ancestry resolution | `src/connectors_client/framework.py:298` | max_ancestry_depth levels | no unresolved parent, depth cap (the decision is then unknown ancestry: deny) |
 | drive download | `src/connectors_client/drive_files.py:202` | max_bytes | end of body or over the cap |
@@ -140,8 +140,8 @@ unannotated (the generator's check fails otherwise).
 | stuck scan | `src/obs/stuck.py:79` | keyset pages of `page` runs until none remain | all scanned |
 | table export pages | `src/account_intelligence/replica/table_export.py:50` | the table's rows / page pages | a short page |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
-| tool rounds | `src/account_intelligence/chat/service.py:389` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
-| tool rounds | `src/account_intelligence/chat/service.py:523` | MAX_TOOL_ROUNDS tool rounds plus the answer | the model stops without a tool call, or no tool runner |
+| tool rounds | `src/account_intelligence/chat/service.py:406` | MAX_TOOL_ROUNDS tool rounds plus the answer plus MAX_RENDER_NUDGES | the model stops without a tool call (after its nudges), or no tool runner |
+| tool rounds | `src/account_intelligence/chat/service.py:573` | MAX_TOOL_ROUNDS tool rounds plus the answer plus MAX_RENDER_NUDGES | the model stops without a tool call (after its nudges), or no tool runner |
 | topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |
 | topological sort | `src/account_intelligence/workflow/spec.py:58` | number of stages (each pass removes at least one or raises) | ordered, cycle error |
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:248` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |

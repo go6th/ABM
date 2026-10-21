@@ -52,7 +52,7 @@ function AddFilesMenu() {
 
 export function AskComposer({
   variant, draft, onDraft, onSend, busy, accounts, scope, onScope, placeholder, menuDown = false, webHintOpen, onWebHint,
-  models = null, model = null, onModel, effort = null, onEffort,
+  models = null, model = null, onModel, effort = null, onEffort, meter = null,
 }: {
   variant: "hero" | "follow" | "account";
   draft: string;
@@ -71,6 +71,8 @@ export function AskComposer({
   onModel?: (id: string) => void;
   effort?: string | null;
   onEffort?: (effort: string) => void;
+  /** the token meter, shown beside Ask once the conversation has an answer */
+  meter?: React.ReactNode;
 }) {
   const router = useRouter();
   const inputId = useId();
@@ -189,6 +191,7 @@ export function AskComposer({
           <EffortChip efforts={models.efforts} value={effort} onChange={onEffort} className={chip} />
         ) : null}
         <span className="spacer" />
+        {meter}
         <button
           type="button"
           className="btn primary"

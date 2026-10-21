@@ -425,7 +425,7 @@ async def ask(
                     )
             yield sse("thread", {"thread_id": str(thread_id), "created": created})
             yield sse("answer", answer)
-            yield sse("done", {"turn_id": str(turn_id), "replayed": False})
+            yield sse("done", _done_frame(turn_id, model_id, usage, cost))
         except Exception:
             # the stream has started: any failure becomes an SSE error event (logged), not a 500
             log.exception("ask_failed")
@@ -545,6 +545,21 @@ def _classifier(request: Request, provider: Any, model_id: str) -> Any:
     if client is None or helper is None:
         return None
     return R.LlmRouteClassifier(client, helper.model, helper.max_tokens)
+
+
+def _done_frame(turn_id: Any, model_id: str, usage: Any, cost: Decimal) -> dict[str, Any]:
+    """The last frame of a new answer: its id and what it used, for the token meter in Ask. A
+    workspace answer (no model) reports zero tokens and its cost."""
+    return {
+        "turn_id": str(turn_id),
+        "replayed": False,
+        "model": model_id,
+        "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+        "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+        "cache_read_tokens": int(getattr(usage, "cache_read_tokens", 0) or 0),
+        "cache_write_tokens": int(getattr(usage, "cache_write_tokens", 0) or 0),
+        "cost_usd": str(cost),
+    }
 
 
 def _turn_cost(service: Any, paid: Any, usage: Any, classifier: Any) -> Decimal:

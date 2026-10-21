@@ -168,3 +168,23 @@
   }
   .sa-frame th:first-child { z-index: 2; background: var(--hover-soft); }
 }
+
+/* Token use: the meter beside the Ask box (a ring and a panel), the quiet line under each answer,
+   and the confirm before a research (a note with a rule, not a card). Every look is a class: the
+   CSP forbids inline styles. */
+.ctx-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 8px; border: 0; border-radius: var(--r-seg); background: none; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.ctx-btn:hover, .ctx-btn:focus-visible, .ctx-btn[aria-expanded="true"] { background: var(--hover-soft); color: var(--ink); }
+.ctx-ring { width: 18px; height: 18px; flex: none; transform: rotate(-90deg); }
+.ctx-track { fill: none; stroke: var(--line); stroke-width: 2.5; }
+.ctx-fill { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; transition: stroke-dashoffset var(--ease); }
+.ctx-label { white-space: nowrap; }
+@media (max-width: 759px) { .ctx-label { display: none; } }
+.usage-pop { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; width: 300px; max-width: calc(100vw - 32px); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-btn); box-shadow: var(--sh-composer); }
+.usage-title { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.usage-big { font-size: 16px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.usage-rows { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+.usage-rows > div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.usage-rows dt { color: var(--muted); }
+.usage-rows dd { margin: 0; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+.turn-usage { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.usage-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); }

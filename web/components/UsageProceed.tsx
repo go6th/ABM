@@ -16,7 +16,7 @@ export function UsageProceed({ usage, what, busy, message, note, onProceed, onCa
   onCancel: () => void;
 }) {
   return (
-    <div className="card wash pad-sm stack-10" role="group" aria-label="Confirm the expected use">
+    <div className="usage-ask" role="group" aria-label="Confirm the expected use">
       <p className="sm-text">
         {what} will use about <strong>{tokenCount(usage.tokens)} tokens</strong> (about <strong>{dollars(usage.cost_usd)}</strong>). Proceed?
       </p>

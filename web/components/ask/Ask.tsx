@@ -12,19 +12,24 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiStream, ApiError } from "@/lib/api";
+import { usageFromDone, type TurnUsage } from "@/lib/chat-usage";
 import type { ChatAnswer } from "@/lib/gen/api.gen";
 import { addPieces, readFrames, type StreamPart } from "@/lib/sse";
 import { NEW_CHAT_EVENT } from "@/components/ws/WorkspaceShell";
 import { AnswerView, StreamingAnswer, UsedPanel } from "./AnswerView";
 import { AskComposer, type ScopeAccount } from "./AskComposer";
+import { ContextMeter } from "./ContextMeter";
 import { useModelChoices } from "@/components/ModelMenu";
 import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
+import { dollars, tokenCount } from "@/lib/usage";
 
 export interface AskTurn {
   key: string;
   question: string;
   status: "searching" | "done" | "failed";
   answer?: ChatAnswer;
+  /** what the answer used (the token meter); absent until known */
+  usage?: TurnUsage;
   partial?: StreamPart[][];
   error?: string;
 }
@@ -38,6 +43,18 @@ function failureText(cause: unknown): string {
     if (cause.status === 429) return "Too many questions at once. Wait a moment and try again.";
   }
   return "The answer could not be completed. Try again.";
+}
+
+/** The quiet line under an answer: what it read, what it wrote and what it cost. */
+function TurnUsageLine({ usage }: { usage: TurnUsage }) {
+  const read = usage.input + usage.cacheRead + usage.cacheWrite;
+  // a workspace answer (no model) reads and writes nothing
+  if (!read && !usage.output) return <p className="turn-usage">From your workspace. No model tokens used.</p>;
+  return (
+    <p className="turn-usage">
+      {tokenCount(read)} in · {tokenCount(usage.output)} out · {dollars(usage.costUsd)}
+    </p>
+  );
 }
 
 export function Ask({
@@ -151,6 +168,9 @@ export function Ask({
           got = true;
           patch(key, { status: "done", answer: frame.data as unknown as ChatAnswer, partial: undefined });
           setActive(key);
+        } else if (frame.event === "done") {
+          const used = usageFromDone(frame.data);
+          if (used) patch(key, { usage: used });
         } else if (frame.event === "error" || frame.event === "invalid") {
           throw new ApiError(502, "answer_failed", "");
         }
@@ -184,6 +204,8 @@ export function Ask({
 
   const panelTurn = turns.find((t) => t.key === active && t.answer) ?? [...turns].reverse().find((t) => t.answer);
   const lastDone = [...turns].reverse().find((t) => t.answer);
+  const usages = turns.flatMap((t) => (t.usage ? [t.usage] : []));
+  const meter = <ContextMeter usages={usages} modelId={model ?? choices?.analysis ?? null} />;
   const pickAccount = () => setWebHint(true);
   const composerProps = {
     draft, onDraft: setDraft, busy, accounts, scope, onScope: setScope,
@@ -247,6 +269,7 @@ export function Ask({
                     busy={busy}
                   />
                 ) : null}
+                {t.usage ? <TurnUsageLine usage={t.usage} /> : null}
                 {t.answer && t.key === lastDone?.key ? (
                   <div className="used-inline">
                     <UsedPanel answer={t.answer} onOpenSource={(n) => setOpen({ turn: t.key, n })} />
@@ -265,7 +288,7 @@ export function Ask({
       <div className="ask-dock">
         <div className="ask-cols">
           <div className="stack-8">
-            <AskComposer variant="follow" placeholder="Ask a follow up" {...composerProps} />
+            <AskComposer variant="follow" placeholder="Ask a follow up" meter={meter} {...composerProps} />
             {limitLine}
           </div>
           <div className="ask-side" aria-hidden="true" />

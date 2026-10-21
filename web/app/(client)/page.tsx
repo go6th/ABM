@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import type { AccountPage, ChatThread } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { Ask, type AskTurn } from "@/components/ask/Ask";
+import { usageFromTurn } from "@/lib/chat-usage";
 import { StateCard } from "@/ui/design";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
     question: t.user_content,
     status: t.answer ? "done" : "failed",
     answer: t.answer ?? undefined,
+    usage: t.answer ? usageFromTurn(t) : undefined,
     error: t.answer ? undefined : "This answer was not kept. Ask it again.",
   }));
   const scope = account ? list.find((a) => a.domain === account) ?? null : null;
