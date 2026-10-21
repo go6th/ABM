@@ -1,0 +1,77 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api-ai_md",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env; set +a; export PUBLIC_BASE_URL=http://localhost:3000 DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_md; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8097"
+      ],
+      "port": 8097
+    },
+    {
+      "name": "web-dev",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd web && API_ORIGIN=http://127.0.0.1:8097 exec npx next dev -p 3000"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "api-srclabel",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env; set +a; export PUBLIC_BASE_URL=http://localhost:3005 DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_md; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8099"
+      ],
+      "port": 8099
+    },
+    {
+      "name": "web-srclabel",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd web && NEXT_DIST_DIR=.next-srclabel API_ORIGIN=http://127.0.0.1:8099 exec npx next dev -p 3005"
+      ],
+      "port": 3005
+    },
+    {
+      "name": "api-live",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env; set +a; export PUBLIC_BASE_URL=http://localhost:3006 RESEARCH_ENGINE=hermetic CONNECTORS=off ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_live CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_live MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_live; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8098"
+      ],
+      "port": 8098
+    },
+    {
+      "name": "web-live",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd web && NEXT_DIST_DIR=.next-live API_ORIGIN=http://127.0.0.1:8098 exec npx next dev -p 3006"
+      ],
+      "port": 3006
+    },
+    {
+      "name": "api-caps",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env; set +a; export PUBLIC_BASE_URL=http://localhost:3007 RESEARCH_CAPS=off RESEARCH_ENGINE=hermetic CONNECTORS=off ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_md; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8096"
+      ],
+      "port": 8096
+    },
+    {
+      "name": "web-caps",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd web && NEXT_DIST_DIR=.next-caps API_ORIGIN=http://127.0.0.1:8096 exec npx next dev -p 3007"
+      ],
+      "port": 3007
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+# Two grading vocabularies exist in the source documents. Both are kept (README section 16, row 2).
+# PRD / SaaS  : product language, client-facing contract.
+# Architecture v2: numeric engine (A to D) used to compute and calibrate.
+version: "2026-10-01.1"
+
+product_grades:           # PRD Appendix B
+  confirmed:
+    meaning: "Read in a primary source this run"
+    may_state_to_prospect: true
+  probable:
+    meaning: "Inferred from one or two sources, reasoning stated"
+    may_state_to_prospect: false
+    becomes: question
+  hypothesis:
+    meaning: "The system's synthesis, with a confirming question"
+    may_state_to_prospect: false
+    requires_confirming_question: true
+    becomes: question
+  lead:
+    meaning: "Seen in a secondary source, not verified; aggregator sources labelled"
+    may_state_to_prospect: false
+    becomes: question
+    stays_lead_only_if:           # PRD 3.4 verification rule
+      min_distinct_queries: 3
+      min_distinct_tool_categories: 2
+  internal:                        # SaaS 7.3 step 6 (Phase B only)
+    meaning: "Candidate fact extracted from client internal material"
+    may_state_to_prospect: false
+    never_confirmed_from_internal_alone: true   # unless client marks the source authoritative
+absence_of_evidence_grade: hypothesis
+
+engine:                   # Architecture v2 chapter 6.2 (starting values, tune on the golden set)
+  source_tiers:
+    T1_primary:            {weight: 0.90, examples: "company site, filings, official releases"}
+    T2_curated_structured: {weight: 0.75, examples: "curated structured brokers"}
+    T3_reputable_news:     {weight: 0.70}
+    T4_scraped_aggregated: {weight: 0.40}
+  # company and content: proposal (C38, 2026-10-12), pending product owner sign-off
+  half_life_days: {hiring: 21, technology: 90, leadership: 180, funding: 365, company: 90, content: 180}
+  recency: "r = 0.5 ** (age_days / half_life_days)"
+  lineage_rule: "sources sharing an upstream origin are one lineage group; take the max within a group, never the sum"
+  confidence: "c = 1 - product over lineage groups of (1 - w_i * r_i)"
+  grades:
+    A: {rule: "c >= 0.85 and >= 2 independent lineage groups, one of them T1 or T2", display: Verified}
+    B: {rule: "c >= 0.70", display: Likely}
+    C: {rule: "c >= 0.50", display: Indicative}
+    D: {rule: "c < 0.50", display: "Unverified (shown, clearly labelled)"}
+  conflicting: "two independent groups assert different normalised values, both c > 0.50; show both with evidence"
+  blocked: "required source failed or was rate limited after retries; show reason, never omit"
+  eval_gates:
+    precision_grade_A_min: 0.95
+    precision_grade_B_min: 0.85
+    coverage_expected_attributes_min: 0.80
+    citation_validity_min: 0.97
+    calibration_error_max: 0.05
+    injection_and_leakage_pass: 1.0
+
+# PROPOSED reconciliation. NOT stated in any source document. Needs product-owner sign-off (decision D-01).
+proposed_mapping:
+  status: proposal
+  rules:
+    - "confirmed requires read_in_primary_source_this_run = true; engine grade is stored alongside, not used to grant Confirmed"
+    - "probable: engine grade A or B without a primary read this run, reasoning stated"
+    - "hypothesis: engine synthesis or engine grade C, with a confirming question"
+    - "lead: engine grade D or any fact whose only support is a secondary or aggregator source"
+  store_both: [product_grade, engine_grade, engine_confidence]
