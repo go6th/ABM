@@ -10106,7 +10106,7 @@
       },
       "RefreshOption": {
         "additionalProperties": false,
-        "description": "One refresh scope with its time and credit estimate.",
+        "description": "One refresh scope with its time, credit and usage estimate.",
         "properties": {
           "affordable": {
             "title": "Affordable",
@@ -10136,6 +10136,9 @@
             ],
             "title": "Scope",
             "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageEstimate"
           }
         },
         "required": [
@@ -10144,7 +10147,8 @@
           "description",
           "minutes",
           "credits",
-          "affordable"
+          "affordable",
+          "usage"
         ],
         "title": "RefreshOption",
         "type": "object"
@@ -10381,12 +10385,21 @@
             "title": "Enough",
             "type": "boolean"
           },
+          "file_public_usage": {
+            "$ref": "#/components/schemas/UsageEstimate"
+          },
+          "file_usage": {
+            "$ref": "#/components/schemas/UsageEstimate"
+          },
           "minutes": {
             "title": "Minutes",
             "type": "integer"
           },
           "pool": {
             "$ref": "#/components/schemas/Credits"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageEstimate"
           }
         },
         "required": [
@@ -10395,7 +10408,10 @@
           "pool",
           "enough",
           "accounts_used",
-          "account_cap"
+          "account_cap",
+          "usage",
+          "file_usage",
+          "file_public_usage"
         ],
         "title": "ResearchEstimate",
         "type": "object"
@@ -13257,7 +13273,7 @@
       },
       "TopicOption": {
         "additionalProperties": false,
-        "description": "Research on one topic the user types: its time and credit estimate.",
+        "description": "Research on one topic the user types: its time, credit and usage estimate.",
         "properties": {
           "affordable": {
             "title": "Affordable",
@@ -13270,12 +13286,16 @@
           "minutes": {
             "title": "Minutes",
             "type": "integer"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageEstimate"
           }
         },
         "required": [
           "minutes",
           "credits",
-          "affordable"
+          "affordable",
+          "usage"
         ],
         "title": "TopicOption",
         "type": "object"
@@ -13468,6 +13488,31 @@
           "items"
         ],
         "title": "Usage",
+        "type": "object"
+      },
+      "UsageEstimate": {
+        "additionalProperties": false,
+        "description": "What a research is expected to use (owner decision 2026-10-21): model tokens, the dollar\ncost (model replies plus paid calls) and how many past runs it is based on (0: a rough\ndefault).",
+        "properties": {
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tokens",
+          "cost_usd",
+          "runs"
+        ],
+        "title": "UsageEstimate",
         "type": "object"
       },
       "UsageEvents": {

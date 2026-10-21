@@ -36,6 +36,7 @@ from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica.notifications import mark_read
 from account_intelligence.replica.settings import client_settings
+from account_intelligence.replica.usage_estimate import estimate_usage
 
 router = APIRouter(tags=["credits"])
 register("GET", "/v1/credits", tenant_route("read_public", "read", step_up=False))
@@ -78,6 +79,7 @@ async def _refresh_view(s: Any, account_id: UUID, now: datetime) -> dict[str, An
                 "minutes": est.minutes,
                 "credits": est.credits,
                 "affordable": est.credits <= pool["left"],
+                "usage": (await estimate_usage(s, scope)).as_json(),
             }
         )
     topic_est = await CR.estimate(s, account_id, "topic")
@@ -94,6 +96,7 @@ async def _refresh_view(s: Any, account_id: UUID, now: datetime) -> dict[str, An
             "minutes": topic_est.minutes,
             "credits": topic_est.credits,
             "affordable": topic_est.credits <= pool["left"],
+            "usage": (await estimate_usage(s, "topic")).as_json(),
         },
         "open_job": None
         if job is None

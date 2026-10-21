@@ -18,7 +18,7 @@ from typing import Any
 import yaml
 
 from account_intelligence.config import CONFIG_DIR
-from account_intelligence.dev_limits import UNCAPPED, dev_uncapped
+from account_intelligence.dev_limits import UNCAPPED, research_uncapped
 from jobs.errors import ConfigError
 
 CLASSES = ("build", "admin_owner", "working_tool", "user")
@@ -135,7 +135,7 @@ def load_jobs_config(directory: Path | None = None) -> JobsConfig:
         for name, cap in jobs["caps"].items():
             _need_provenance(cap, f"cap {name}")
             caps[name] = int(cap["value"])
-        if dev_uncapped():  # local stack: read and extract every posting (dev_limits)
+        if research_uncapped():  # caps off: read and extract every posting (dev_limits)
             caps.update({k: UNCAPPED for k in ("max_page_reads", "max_extractor_calls")})
         template = jobs["templates"]["count_sentence"]
         _need_provenance(template, "count_sentence template")

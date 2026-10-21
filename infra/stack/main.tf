@@ -85,6 +85,15 @@ variable "llm_access" {
     error_message = "llm_access must be anthropic_api or vertex_ai."
   }
 }
+variable "research_caps" {
+  type        = string
+  description = "\"off\" lifts every research cap (spend, call counts, credit pool, researches per user; owner decision 2026-10-21, temporary): the user confirms the expected tokens and cost instead."
+  default     = "on"
+  validation {
+    condition     = contains(["on", "off"], var.research_caps)
+    error_message = "research_caps must be on or off."
+  }
+}
 variable "moonshot_enabled" {
   type        = bool
   description = "Offer Kimi K3: set only after the moonshot-api-key secret has a version (the services read it at start)."
@@ -270,6 +279,8 @@ locals {
   common_env = merge(
     {
       APP_ENV = local.app_env
+      # "off": no research cap (dev_limits.research_uncapped); the API and the worker both read it
+      RESEARCH_CAPS = var.research_caps
       # documents are indexed and searched by meaning with an on-server model (no per-use cost)
       DOCUMENT_SEMANTIC_EMBEDDER = "fastembed"
       # app metrics to Cloud Monitoring (workload.googleapis.com/*) for the dashboards and alerts

@@ -158,6 +158,39 @@ async def test_finish_with_gaps_is_partial_swept_and_settled_proportionally() ->
     assert balance(t) == Decimal("97")
 
 
+async def test_the_settlement_counts_the_research_graphs_model_spend() -> None:
+    """Model replies the graph logged (model_reply_log, router off) are real spend: 0.05 of data
+    calls and 0.10 of model replies settle as 3 credits (audit 2026-10-21)."""
+    t = tenant()
+    run = (await _create(t, req())).run_id
+    await _to_verifying(t, run)
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        c.execute("UPDATE account_runs SET spent_usd = 0.05 WHERE id = %s", (run,))
+        c.execute(
+            "INSERT INTO model_reply_log (tenant_id, run_id, cache_key, task_kind, tier, model,"
+            " served_from, cost_usd, cost_known) VALUES (%s, %s, 'k', 'extract', 'extractor',"
+            " 'm', 'model', 0.10, true), (%s, %s, 'k2', 'extract', 'extractor', 'm', 'cache',"
+            " 0.50, true)",
+            (t, run, t, run),
+        )
+    async with tenant_txn(t) as s:
+        _, settlement = await finish(s, tracker(s), run, S.COMPLETED)
+    assert settlement.committed == Decimal(3)  # a cached reply cost nothing
+
+
+async def test_with_the_caps_off_a_run_has_no_budget_or_call_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from account_intelligence.dev_limits import UNCAPPED, UNCAPPED_BUDGET_USD
+
+    monkeypatch.setenv("RESEARCH_CAPS", "off")
+    t = tenant()
+    run = (await _create(t, req())).run_id
+    assert fetch("SELECT budget_usd, tool_call_cap FROM account_runs WHERE id = %s", run) == [
+        (UNCAPPED_BUDGET_USD.quantize(Decimal("0.0001")), UNCAPPED)
+    ]
+
+
 async def test_the_pool_ledger_replays_to_what_is_left() -> None:
     """Replaying the run's entries gives the pool what is left: the reserve holds the credits,
     the settle charges what was used and the release returns the hold."""

@@ -5,14 +5,16 @@
 // to it (its account is created when needed; owner decision 2026-10-14), with "Change"; "We found
 // more than one company. Which is this about?" when the files name several. The Also
 // check public sources switch (off by default), what it uses (a file analysis is one chat; with
-// public sources also one research; owner decision 2026-10-14) and Analyze file. Results open on
-// the account's file analysis screen.
+// public sources also one research; owner decision 2026-10-14) and Analyze file, which asks "this
+// analysis will use about N tokens (about $X). Proceed?" first (owner decision 2026-10-21).
+// Results open on the account's file analysis screen.
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
 import { DOMAIN_RE, allIndexed, cleanDomain, detectedCompany, needingCompany, type CompanyCandidate } from "@/lib/documents";
 import type { CompanyConfirmed, DocumentStatus, ResearchEstimate, RunCreated, RunStatusView } from "@/lib/gen/api.gen";
 import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
+import { UsageProceed } from "@/components/UsageProceed";
 import { DocumentDrop } from "@/components/ws/DocumentDrop";
 import { ResearchCompany } from "./ResearchCompany";
 
@@ -120,7 +122,7 @@ function useAutoAttach(waiting: DocumentStatus[], settled: boolean, onAttached: 
   return failed;
 }
 
-function FileTab({ initialDrive }: { initialDrive: boolean }) {
+function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: ResearchEstimate | null }) {
   const router = useRouter();
   const [docs, setDocs] = useState<DocumentStatus[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -171,9 +173,10 @@ function FileTab({ initialDrive }: { initialDrive: boolean }) {
     }
   };
 
+  const usage = estimate ? (enrich ? estimate.file_public_usage : estimate.file_usage) : null;
   const analyze = () => {
     if (!ready || busy) return;
-    if (enrich && !asking) {
+    if (usage && !asking) {
       setAsking(true);
       return;
     }
@@ -209,21 +212,32 @@ function FileTab({ initialDrive }: { initialDrive: boolean }) {
             <span className="mut">This analysis uses</span>
             <b>{uses}</b>
           </div>
-          {asking ? (
-            <div className="card wash pad-sm stack-10" role="group" aria-label="Confirm public sources">
-              <p className="sm-text">Checking public sources researches the company on the web as well, and uses one of your researches.</p>
-              <LimitNote limits={limits} kind="researches" />
-            </div>
-          ) : null}
           {hit ? <LimitReached kind={hit.kind} message={hit.message} pending={limits?.pending_requests.includes(hit.kind)} /> : null}
-          {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
+          {error && !asking ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
           <LimitNote limits={limits} kind="chats" />
-          <div className="row-12 wrap">
-            <button type="button" className="btn primary" disabled={!ready || busy || !bound || hit !== null} onClick={analyze}>
-              {busy ? "Starting…" : asking ? "Confirm and analyze" : "Analyze file"}
-            </button>
-            <span className="mut sm-text">Results are marked <b>From your files</b> and kept private to your workspace.</span>
-          </div>
+          {asking && usage && hit === null ? (
+            <UsageProceed
+              usage={usage}
+              what="This analysis"
+              busy={busy}
+              message={error}
+              note={enrich ? (
+                <>
+                  <p className="sm-text">Checking public sources researches the company on the web as well, and uses one of your researches.</p>
+                  <LimitNote limits={limits} kind="researches" />
+                </>
+              ) : null}
+              onProceed={() => void start()}
+              onCancel={() => { setAsking(false); setError(null); }}
+            />
+          ) : (
+            <div className="row-12 wrap">
+              <button type="button" className="btn primary" disabled={!ready || busy || !bound || hit !== null} onClick={analyze}>
+                {busy ? "Starting…" : "Analyze file"}
+              </button>
+              <span className="mut sm-text">Results are marked <b>From your files</b> and kept private to your workspace.</span>
+            </div>
+          )}
         </>
       ) : null}
     </div>
@@ -243,7 +257,7 @@ export function NewResearch({ estimate, initialTab, initialDrive = false }: { es
           <ResearchCompany estimate={estimate} idPrefix="nr" />
         </section>
       ) : (
-        <FileTab initialDrive={initialDrive} />
+        <FileTab initialDrive={initialDrive} estimate={estimate} />
       )}
     </>
   );

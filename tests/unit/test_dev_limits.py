@@ -1,10 +1,11 @@
-"""DEV_UNCAPPED lifts breadth and spend caps on the local stack only."""
+"""DEV_UNCAPPED lifts breadth and spend caps on the local stack only; RESEARCH_CAPS=off lifts them
+in any environment (owner decision 2026-10-21)."""
 
 from __future__ import annotations
 
 import pytest
 
-from account_intelligence.dev_limits import UNCAPPED, dev_uncapped
+from account_intelligence.dev_limits import UNCAPPED, dev_uncapped, research_uncapped
 
 
 def test_only_the_local_stack_with_the_switch_is_uncapped() -> None:
@@ -32,4 +33,29 @@ def test_the_switch_lifts_job_people_and_agent_caps(monkeypatch: pytest.MonkeyPa
     # windows and guards stay as configured
     assert people.caps["recent_activity_days"] == capped_people.caps["recent_activity_days"]
     assert people.caps["max_gap_passes"] == capped_people.caps["max_gap_passes"]
+    assert all(c.budgets.tool_calls == UNCAPPED for c in load_registry().values())
+
+
+def test_research_caps_off_lifts_the_caps_in_any_environment() -> None:
+    for env in ("dev", "staging", "prod"):
+        assert research_uncapped({"APP_ENV": env, "RESEARCH_CAPS": "off"})
+        assert research_uncapped({"APP_ENV": env, "RESEARCH_CAPS": " OFF "})
+        assert not research_uncapped({"APP_ENV": env})
+        assert not research_uncapped({"APP_ENV": env, "RESEARCH_CAPS": "on"})
+    assert research_uncapped({"DEV_UNCAPPED": "1"})  # the local switch still lifts them
+    assert not research_uncapped({"APP_ENV": "staging", "DEV_UNCAPPED": "1"})
+
+
+def test_caps_off_lifts_job_people_and_agent_caps_in_staging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agents.contracts import load_registry
+    from jobs.config import load_jobs_config
+    from people.config import load_people_config
+
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.delenv("DEV_UNCAPPED", raising=False)
+    monkeypatch.setenv("RESEARCH_CAPS", "off")
+    assert load_jobs_config.__wrapped__().caps["max_page_reads"] == UNCAPPED
+    assert load_people_config.__wrapped__().caps["max_people_per_run"] == UNCAPPED
     assert all(c.budgets.tool_calls == UNCAPPED for c in load_registry().values())

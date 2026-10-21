@@ -88,8 +88,14 @@ async def limits_for(session: Any, user_id: str) -> UserLimits:
             {"u": user_id},
         )
     ).one()
+    from account_intelligence.dev_limits import UNCAPPED, research_uncapped
+
+    researches = (
+        row.research_limit if row.research_limit is not None else row.research_limit_default
+    )
     return UserLimits(
-        int(row.research_limit if row.research_limit is not None else row.research_limit_default),
+        # caps off (dev_limits): researches are still counted, never refused
+        UNCAPPED if research_uncapped() else int(researches),
         int(row.chat_limit if row.chat_limit is not None else row.chat_limit_default),
         str(row.limit_reset),
     )

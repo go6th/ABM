@@ -87,6 +87,22 @@ async def test_researches_are_counted_refused_in_plain_words_and_counted_once(
     assert refused.json()["context"] == {"limit": "researches", "allowed": 2}
 
 
+async def test_with_the_caps_off_researches_are_counted_but_never_refused(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from account_intelligence.dev_limits import UNCAPPED
+
+    monkeypatch.setenv("RESEARCH_CAPS", "off")
+    user = f"nolim-{uuid4().hex[:6]}"
+    plane = _plane(world["a"], user, world["payloads"])
+    _limit(world["a"], user, 1, 40)
+    for name in ("one", "two"):
+        _account(world["a"], user, f"nolim-{name}-{user}.example")
+        assert (await _refresh(plane, f"nolim-{name}-{user}.example")).status_code == 201
+    mine = (await _call(plane, "GET", "/v1/me/limits")).json()
+    assert mine["researches"] == {"used": 2, "limit": UNCAPPED, "left": UNCAPPED - 2}
+
+
 async def test_a_question_is_refused_before_it_starts_when_no_chat_is_left(
     world: dict[str, Any],
 ) -> None:

@@ -247,7 +247,11 @@ async def reserve(
     left = (await pool(session, now))["left"]
     # A user's research is limited by their research limit, not by credits (owner decision
     # 2026-10-14): ``enforce_pool=False`` records the credits on the ledger without gating on them.
-    status = "queued" if credits <= left or not enforce_pool else "waiting_credit_limit"
+    # The research caps off (dev_limits) gate on nothing either.
+    from account_intelligence.dev_limits import research_uncapped
+
+    gated = enforce_pool and not research_uncapped()
+    status = "queued" if credits <= left or not gated else "waiting_credit_limit"
     if status == "waiting_credit_limit" and not wait_if_short:
         raise CreditsShort(credits, left)
     period = period_of(now)

@@ -31,6 +31,9 @@ async def test_new_research_shows_the_estimate_and_starts_only_on_confirm(
     est = (await _call(plane, "GET", "/v1/research/estimate")).json()
     assert est["credits"] > 0 and est["minutes"] > 0 and est["enough"] is True
     assert est["accounts_used"] == 4 and est["account_cap"] == 34
+    # what it is expected to use, before anything is confirmed (owner decision 2026-10-21)
+    for key in ("usage", "file_usage", "file_public_usage"):
+        assert est[key]["tokens"] > 0 and est[key]["cost_usd"] > 0 and est[key]["runs"] >= 0
     assert _db("SELECT count(*) FROM accounts WHERE domain = 'newco.example'") == [(0,)]
 
     request = str(uuid4())

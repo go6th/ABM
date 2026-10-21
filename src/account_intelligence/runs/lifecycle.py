@@ -38,6 +38,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_intelligence.dev_limits import UNCAPPED, UNCAPPED_BUDGET_USD, research_uncapped
 from account_intelligence.runs.transitions import TERMINAL, RunStatus, transition
 from account_intelligence.tracker.guard import finish_run
 from account_intelligence.tracker.model import ReasonCode
@@ -209,6 +210,11 @@ async def create_run(
     budget_usd = max(
         ZERO_BUDGET_USD, min(limits.budget_usd, Decimal(credits) * CR.rates().credit_value_usd)
     )
+    tool_call_cap = limits.tool_call_cap
+    if research_uncapped() and credits > 0:
+        # caps off (dev_limits): no budget or call count stops a run that may pay for calls; a
+        # run with no credits (only the client's own files) still pays for nothing
+        budget_usd, tool_call_cap = UNCAPPED_BUDGET_USD, UNCAPPED
     reserved = Decimal(credits)
     run_id = uuid4()
     models = await _run_models(session, account, request.run_input.get("models"))
@@ -233,7 +239,7 @@ async def create_run(
                 "k": request.idempotency_key,
                 "h": digest,
                 "usd": budget_usd,
-                "cap": limits.tool_call_cap,
+                "cap": tool_call_cap,
                 "input": json.dumps(request.run_input, sort_keys=True),
                 "cl": pins.checklist_version(),
                 "mv": json.dumps(pins.model_versions(), sort_keys=True),
@@ -676,9 +682,18 @@ async def settle_once(
         raise LifecycleError("only a terminal run is settled")
     now: datetime = (await session.execute(text("SELECT now()"))).scalar_one()
     platform_fault = refund_all or RunStatus(run.status) is RunStatus.FAILED
-    # real spend: the paid data calls (spent_usd) and the model calls of this run (llm_calls)
+    # real spend: the paid data calls (spent_usd) and the model calls of this run: the router's
+    # ledger (llm_calls) or the research graph's reply log (model_reply_log, written while the
+    # router is off), the larger of the two, as the token meter reads them (audit 2026-10-21: the
+    # settlement read llm_calls only, so graph runs settled without their model spend)
     model_usd = await session.scalar(
-        text("SELECT coalesce(sum(cost_usd), 0) FROM llm_calls WHERE run_id = :r"), {"r": run_id}
+        text(
+            "SELECT GREATEST("
+            " (SELECT coalesce(sum(cost_usd), 0) FROM llm_calls WHERE run_id = :r),"
+            " (SELECT coalesce(sum(cost_usd), 0) FROM model_reply_log"
+            "  WHERE run_id = :r AND served_from = 'model'))"
+        ),
+        {"r": run_id},
     )
     settled = await CR.settle_run(
         session,

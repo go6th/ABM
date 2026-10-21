@@ -27,7 +27,7 @@ from sqlalchemy import text
 
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.session import tenant_txn
-from account_intelligence.dev_limits import dev_uncapped
+from account_intelligence.dev_limits import dev_uncapped, research_uncapped
 from account_intelligence.platform.fake_model import FakeModel, load_scenario
 from account_intelligence.platform.hermetic import (
     EnvSecrets,
@@ -442,8 +442,9 @@ def _slices(spec: WorkflowSpec) -> SliceSettings:
         # local stack, DEV_UNCAPPED=1: a slice long enough for one long model reply (a 16k-token
         # extraction takes minutes; a call the slice timer cuts off is lost and asked again)
         slice_seconds=DEV_SLICE_SECONDS if dev_uncapped() else float(s.get("slice_seconds", 240)),
-        # local stack, DEV_UNCAPPED=1: a run takes as many slices as its research needs
-        max_slices=UNCAPPED if dev_uncapped() else int(s.get("max_slices", 60)),
+        # caps off (DEV_UNCAPPED=1 or RESEARCH_CAPS=off): a run takes as many slices as its
+        # research needs
+        max_slices=UNCAPPED if research_uncapped() else int(s.get("max_slices", 60)),
         approval_hours=float(s.get("approval_timeout_hours", 24)),
     )
 
@@ -704,6 +705,16 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         else None
     )
     connectors, retry = build_connectors(env, payloads, _require(env, "REDIS_URL"))
+    if research_uncapped(env):
+        from dataclasses import replace
+
+        from account_intelligence.connectors.paginate import PageLimits
+        from account_intelligence.dev_limits import UNCAPPED
+
+        # caps off: every page a provider has; repeated cursors and the slice ceiling still
+        # stop a loop (the slice length and the run lease stay as configured)
+        size = connectors.config.defaults.pagination.max_bytes * 100
+        connectors = replace(connectors, page_limits_override=PageLimits(UNCAPPED, UNCAPPED, size))
     clock = SystemClock()
     built = Container(
         env=app_env,

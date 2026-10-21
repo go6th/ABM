@@ -2038,6 +2038,13 @@ export const RefreshBody = z.object({
 }).strict();
 export type RefreshBody = z.infer<typeof RefreshBody>;
 
+export const UsageEstimate = z.object({
+  "cost_usd": z.number(),
+  "runs": z.number().int(),
+  "tokens": z.number().int(),
+}).strict();
+export type UsageEstimate = z.infer<typeof UsageEstimate>;
+
 export const RefreshOption = z.object({
   "affordable": z.boolean(),
   "credits": z.number().int(),
@@ -2045,6 +2052,7 @@ export const RefreshOption = z.object({
   "minutes": z.number().int(),
   "name": z.string(),
   "scope": z.string(),
+  "usage": UsageEstimate,
 }).strict();
 export type RefreshOption = z.infer<typeof RefreshOption>;
 
@@ -2052,6 +2060,7 @@ export const TopicOption = z.object({
   "affordable": z.boolean(),
   "credits": z.number().int(),
   "minutes": z.number().int(),
+  "usage": UsageEstimate,
 }).strict();
 export type TopicOption = z.infer<typeof TopicOption>;
 
@@ -2098,8 +2107,11 @@ export const ResearchEstimate = z.object({
   "accounts_used": z.number().int(),
   "credits": z.number().int(),
   "enough": z.boolean(),
+  "file_public_usage": UsageEstimate,
+  "file_usage": UsageEstimate,
   "minutes": z.number().int(),
   "pool": Credits,
+  "usage": UsageEstimate,
 }).strict();
 export type ResearchEstimate = z.infer<typeof ResearchEstimate>;
 

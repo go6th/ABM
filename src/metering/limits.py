@@ -33,6 +33,8 @@ DIMENSIONS = (
     "connectors",
     "storage_mb",
 )
+# the plan limits on research that RESEARCH_CAPS=off lifts (dev_limits)
+RESEARCH_DIMENSIONS = frozenset({"accounts", "runs_per_period", "refreshes_per_period"})
 UNITS = {
     "accounts": "accounts",
     "runs_per_period": "runs",
@@ -111,6 +113,10 @@ async def consume(s: Any, dimension: str, at: datetime, n: int = 1) -> int:
     if dimension not in DIMENSIONS or n < 1:
         raise ValueError("unknown dimension or bad amount")
     limit = (await limits(s)).get(dimension)
+    from account_intelligence.dev_limits import UNCAPPED, research_uncapped
+
+    if research_uncapped() and dimension in RESEARCH_DIMENSIONS:
+        limit = UNCAPPED  # research caps off (dev_limits): still counted, never refused
     if limit is None:
         raise LimitReached(dimension, 0)  # a dimension without a limit is not allowed (closed)
     period = period_key(dimension, at)

@@ -4,7 +4,7 @@ import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
 const config = [
-  { ignores: [".next/**", ".next-parity/**", "node_modules/**", "playwright-report/**", "test-results/**", "next-env.d.ts", "components/ProviderKey.tsx"] },
+  { ignores: [".next*/**", "node_modules/**", "playwright-report/**", "test-results/**", "next-env.d.ts", "components/ProviderKey.tsx"] },
   ...nextVitals,
   ...nextTs,
   {

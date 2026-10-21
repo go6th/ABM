@@ -36,6 +36,8 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from account_intelligence.dev_limits import research_uncapped
+
 PAGING = frozenset({"cursor", "page", "page_token", "offset", "limit", "per_page", "max_results"})
 _SPACE = re.compile(r"\s+")
 
@@ -104,7 +106,11 @@ async def run_spend(s: Any, run_id: UUID) -> Decimal:
 
 
 async def check_cap(s: Any, run_id: UUID, estimate_usd: float | Decimal = 0) -> None:
-    """``DollarCapReached`` when this call would take the run past the cap; moves the heartbeat."""
+    """``DollarCapReached`` when this call would take the run past the cap; moves the heartbeat.
+    With the research caps off (dev_limits) only the heartbeat moves."""
+    if research_uncapped():
+        await touch(s, run_id)
+        return
     cap = (await limits(s)).dollar_cap
     spent = await run_spend(s, run_id)
     if spent + Decimal(str(estimate_usd)) > cap or spent >= cap:
@@ -131,7 +137,10 @@ def query_key(provider: str, operation: str, args: dict[str, Any]) -> str:
 async def check_repeat(
     s: Any, run_id: UUID, key: str, args_hash: str, provider: str, operation: str
 ) -> None:
-    """``RepeatedCallStopped`` when another paid call for this query would pass the limit."""
+    """``RepeatedCallStopped`` when another paid call for this query would pass the limit (never
+    with the research caps off, dev_limits)."""
+    if research_uncapped():
+        return
     limit = (await limits(s)).repeat_call_limit
     paid = await s.scalar(
         text(

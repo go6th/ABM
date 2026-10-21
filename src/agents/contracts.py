@@ -23,7 +23,7 @@ import yaml
 from pydantic import BaseModel
 
 from account_intelligence.config import CONFIG_DIR
-from account_intelligence.dev_limits import UNCAPPED, dev_uncapped
+from account_intelligence.dev_limits import UNCAPPED, research_uncapped
 from agents.errors import AgentConfigInvalid, BudgetExceeded, ToolNotAllowed
 from agents.schemas import SCHEMAS
 
@@ -90,7 +90,7 @@ def _contract(name: str, spec: Mapping[str, Any]) -> AgentContract:
         raise AgentConfigInvalid(f"agent {name}: budgets must be positive")
     if tier is not None and budgets.tokens <= 0:
         raise AgentConfigInvalid(f"agent {name}: a model agent needs a token budget")
-    if dev_uncapped():  # local stack: no per-agent ceiling (a code-only agent keeps 0 tokens)
+    if research_uncapped():  # caps off: no per-agent ceiling (a code-only agent keeps 0 tokens)
         budgets = Budgets(UNCAPPED if budgets.tokens else 0, UNCAPPED, UNCAPPED)
     return AgentContract(
         name=name,

@@ -432,8 +432,18 @@ class Credits(Out):
     resets_on: str
 
 
+class UsageEstimate(Out):
+    """What a research is expected to use (owner decision 2026-10-21): model tokens, the dollar
+    cost (model replies plus paid calls) and how many past runs it is based on (0: a rough
+    default)."""
+
+    tokens: int
+    cost_usd: float
+    runs: int
+
+
 class RefreshOption(Out):
-    """One refresh scope with its time and credit estimate."""
+    """One refresh scope with its time, credit and usage estimate."""
 
     scope: Literal["jobs", "people", "full"]
     name: str
@@ -441,6 +451,7 @@ class RefreshOption(Out):
     minutes: int
     credits: int
     affordable: bool
+    usage: UsageEstimate
 
 
 class OpenJob(Out):
@@ -459,11 +470,12 @@ class OpenJob(Out):
 
 
 class TopicOption(Out):
-    """Research on one topic the user types: its time and credit estimate."""
+    """Research on one topic the user types: its time, credit and usage estimate."""
 
     minutes: int
     credits: int
     affordable: bool
+    usage: UsageEstimate
 
 
 class RefreshOptions(Out):
@@ -497,6 +509,10 @@ class ResearchEstimate(Out):
     enough: bool
     accounts_used: int
     account_cap: int
+    # expected use of a new company, a file analysis and one that also checks public sources
+    usage: UsageEstimate
+    file_usage: UsageEstimate
+    file_public_usage: UsageEstimate
 
 
 class ResearchStarted(Out):

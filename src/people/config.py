@@ -23,7 +23,7 @@ import yaml
 
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.db.enums import normalize_key
-from account_intelligence.dev_limits import UNCAPPED, dev_uncapped
+from account_intelligence.dev_limits import UNCAPPED, research_uncapped
 from jobs.config import load_jobs_config
 from jobs.errors import ConfigError as JobsConfigError
 from people.errors import ConfigError
@@ -276,7 +276,7 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
     for name, cap in rubric["caps"].items():
         _provenance(cap, f"cap {name}")
         caps[str(name)] = float(cap["value"])
-    if dev_uncapped():  # local stack: every person, profile and post (dev_limits)
+    if research_uncapped():  # caps off: every person, profile and post (dev_limits)
         caps.update({k: float(UNCAPPED) for k in _BREADTH_CAPS})
     return PeopleConfig(
         levels_in_scope=levels,
@@ -296,7 +296,7 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
         level_words={k: v for k, v in _tuple_map(words).items() if k != "status"},
         association_functions=tuple(str(f) for f in association["functions"]),
         technologies_per_lane=(
-            UNCAPPED if dev_uncapped() else int(association["technologies_per_lane"])
+            UNCAPPED if research_uncapped() else int(association["technologies_per_lane"])
         ),
         tenure_buckets=buckets,
         alumni_aliases=_tuple_map(alumni.get("aliases")),

@@ -45,6 +45,7 @@ from account_intelligence.replica import jobs
 from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica.settings import accounts_used, client_settings
+from account_intelligence.replica.usage_estimate import estimate_usage
 from account_intelligence.runs import lifecycle
 
 router = APIRouter(prefix="/research", tags=["research"])
@@ -66,6 +67,9 @@ async def _estimate(s: Any, user_id: str, now: datetime) -> dict[str, Any]:
         "enough": est.credits <= pool["left"],
         "accounts_used": used,
         "account_cap": settings.account_cap_per_user,
+        "usage": (await estimate_usage(s, "new_research")).as_json(),
+        "file_usage": (await estimate_usage(s, "file")).as_json(),
+        "file_public_usage": (await estimate_usage(s, "file_public")).as_json(),
     }
 
 

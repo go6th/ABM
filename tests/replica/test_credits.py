@@ -83,6 +83,53 @@ async def test_refresh_options_use_the_accounts_history(world: dict[str, Any]) -
     assert view["refreshed_days_ago"] == 2
 
 
+async def test_refresh_options_show_the_expected_use_of_past_runs(world: dict[str, Any]) -> None:
+    """Owner decision 2026-10-21: each scope shows the tokens and dollars it is expected to use,
+    the median of the workspace's finished runs of that scope (a run the credit cap stopped is
+    left out), else the rough default."""
+    from account_intelligence.replica.usage_estimate import settings
+
+    plane = _plane(world["b"], "other-test", world["payloads"])
+    account = _account(world["b"], "cigna.example")
+    made: list[tuple[str, str]] = []
+    with psycopg.connect(_admin(), autocommit=True) as c:
+        for tokens, cost, stop in ((100, 0.5, None), (300, 1.5, None), (200, 1.0, None),
+                                   (9000, 9.0, "credit_cap_reached")):  # fmt: skip
+            run = c.execute(
+                "INSERT INTO account_runs (tenant_id, account_id, status, graph_version,"
+                " budget_json, reserved_credits, idempotency_key, budget_usd, spent_usd,"
+                " finished_at) VALUES (%s, %s, 'COMPLETED', 'g', '{}', 0, %s, 1, 0.25, now())"
+                " RETURNING id",
+                (world["b"], account, uuid4().hex),
+            ).fetchone()[0]
+            c.execute(
+                "INSERT INTO model_reply_log (tenant_id, run_id, cache_key, task_kind, tier,"
+                " model, served_from, input_tokens, output_tokens, cost_usd, cost_known)"
+                " VALUES (%s, %s, %s, 'extract', 'extractor', 'm', 'model', %s, 0, %s, true)",
+                (world["b"], run, uuid4().hex, tokens, cost),
+            )
+            job = c.execute(
+                "INSERT INTO research_jobs (tenant_id, account_id, kind, scope, status, period,"
+                " credits_estimated, credits_used, requested_by, created_at, finished_at, run_id,"
+                " stop_reason, topic) VALUES (%s, %s, 'web_refresh', 'topic', 'done', '2026-10',"
+                " 40, 10, 'other-test', now(), now(), %s, %s, 'pricing') RETURNING id",
+                (world["b"], account, run, stop),
+            ).fetchone()[0]
+            made.append((str(job), str(run)))
+    try:
+        view = (await _call(plane, "GET", "/v1/accounts/cigna.example/refresh")).json()
+        assert view["topic"]["usage"] == {"tokens": 200, "cost_usd": 1.25, "runs": 3}
+        assert all(o["usage"]["tokens"] > 0 for o in view["options"])
+        assert settings().defaults["topic"].runs == 0  # the default says it is not measured
+    finally:
+        with psycopg.connect(_admin(), autocommit=True) as c, c.transaction():
+            c.execute("SET LOCAL session_replication_role = replica")
+            for job, run in made:
+                c.execute("DELETE FROM research_jobs WHERE id = %s", (job,))
+                c.execute("DELETE FROM model_reply_log WHERE run_id = %s", (run,))
+                c.execute("DELETE FROM account_runs WHERE id = %s", (run,))
+
+
 async def test_confirm_reserves_what_the_user_saw_then_settles(world: dict[str, Any]) -> None:
     plane = _plane(world["a"], "priya-test", world["payloads"])
     before = await _pool(world["a"])

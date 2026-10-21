@@ -1,0 +1,19 @@
+# What a research is expected to use, shown before the user confirms it (owner decision
+# 2026-10-21, while the research caps are off): model tokens (input + output, as the run's token
+# meter counts them) and the dollar cost (priced model replies plus paid provider calls).
+#
+# The estimate is the median of this workspace's last `history_runs` finished runs of the same
+# kind and scope. Until a workspace has one, the rough defaults below apply; they follow the
+# credit table (config/credits.yaml: credits x credit_value_usd) and the per-agent token budgets
+# (config/agents.yaml), and are not measured.
+version: 1
+source: "owner decision 2026-10-21; defaults are rough, replaced by measured history"
+history_runs: 5
+defaults:
+  jobs:         {tokens: 300000,  cost_usd: "1.00"}
+  people:       {tokens: 600000,  cost_usd: "3.00"}
+  full:         {tokens: 2500000, cost_usd: "11.00"}
+  topic:        {tokens: 400000,  cost_usd: "2.00"}
+  new_research: {tokens: 2500000, cost_usd: "11.00"}
+  file:         {tokens: 500000,  cost_usd: "2.00"}    # the client's files only (no paid calls)
+  file_public:  {tokens: 2500000, cost_usd: "11.00"}   # the files plus public sources

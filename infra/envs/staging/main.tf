@@ -61,6 +61,10 @@ variable "worker_gpu" {
 variable "llm_access" {
   type = string
 }
+variable "research_caps" {
+  type    = string
+  default = "off" # owner decision 2026-10-21: staging runs without research caps for now
+}
 variable "moonshot_enabled" {
   type    = bool
   default = false
@@ -135,6 +139,7 @@ module "stack" {
   scaling                 = var.scaling
   worker_gpu              = var.worker_gpu
   llm_access              = var.llm_access
+  research_caps           = var.research_caps
   moonshot_enabled        = var.moonshot_enabled
   moonshot_api            = var.moonshot_api
   maildrive               = var.maildrive

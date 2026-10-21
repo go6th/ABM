@@ -91,7 +91,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 "src/account_intelligence/api/**/*.py" = ["B008"]  # FastAPI Depends()/Header() defaults
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"  # the images and .python-version run 3.12; numpy stubs need it
 mypy_path = "src"
 files = ["src"]
 strict = true

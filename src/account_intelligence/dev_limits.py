@@ -6,14 +6,23 @@ cap gate is skipped (the run keeps ``RUN_BUDGET_USD``), provider pagination, the
 and the technologies per lane are lifted to ``UNCAPPED``, and so is the slice ceiling: a run takes
 as long as its research needs. Guards that only bound a loop (gap passes, retries, the slice length
 itself) stay: they never limit what is researched.
+
+``RESEARCH_CAPS=off`` lifts the same caps in any environment, staging included, and also every
+spend and count limit a research meets: the run's credit budget and call cap, the platform dollar
+cap and repeat-call limit, the monthly credit pool, the researches per user, the plan's runs and
+accounts and the account cap per user (owner decision 2026-10-21, for the time being; the user
+sees the expected tokens and cost before confirming instead). Unset, every cap applies.
 """
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from decimal import Decimal
 
 UNCAPPED = 1_000_000
+# the run budget with the caps off: far above any run, inside account_runs.budget_usd numeric(12,4)
+UNCAPPED_BUDGET_USD = Decimal("1000000")
 # slice length on the uncapped local stack (production keeps the configured 240 s)
 DEV_SLICE_SECONDS = 1200.0
 
@@ -22,3 +31,10 @@ def dev_uncapped(env: Mapping[str, str] | None = None) -> bool:
     """True on the local stack with ``DEV_UNCAPPED=1``; never in staging or production."""
     e = os.environ if env is None else env
     return e.get("APP_ENV", "dev") == "dev" and e.get("DEV_UNCAPPED") == "1"
+
+
+def research_uncapped(env: Mapping[str, str] | None = None) -> bool:
+    """True when the research caps are lifted: ``DEV_UNCAPPED`` on the local stack, or
+    ``RESEARCH_CAPS=off`` in any environment."""
+    e = os.environ if env is None else env
+    return dev_uncapped(e) or e.get("RESEARCH_CAPS", "").strip().lower() == "off"

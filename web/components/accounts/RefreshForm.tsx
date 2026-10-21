@@ -3,15 +3,19 @@
 // topic are radio cards (arrow keys move between them); typing in the topic box selects it. Then
 // the two model chips, Confirm refresh and Stay local, and the researches left this month (a
 // refresh is one research; owner decision 2026-10-14: researches, not credits, are shown). With
-// none left, the refusal and "Request more from admin" show instead. Nothing leaves the
-// workspace until Confirm.
+// none left, the refusal and "Request more from admin" show instead. Each scope shows the tokens
+// and dollars it is expected to use, and Confirm asks "this refresh will use about N tokens
+// (about $X). Proceed?" first (owner decision 2026-10-21). Nothing leaves the workspace until
+// Proceed.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
 import { ResearchModelChips, useResearchModels } from "@/components/ModelMenu";
+import { UsageProceed } from "@/components/UsageProceed";
 import { api, ApiError } from "@/lib/api";
 import type { RefreshOptions, RefreshStarted } from "@/lib/gen/api.gen";
+import { dollars, tokenCount } from "@/lib/usage";
 
 type Option = RefreshOptions["options"][number];
 type Scope = Option["scope"] | "topic";
@@ -32,7 +36,9 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
   const start: Scope = initialTopic
     ? "topic"
     : (options.find((o) => o.scope === "people") ?? options[0]!).scope;
-  const [scope, setScope] = useState<Scope>(start);
+  const [scope, setScopeNow] = useState<Scope>(start);
+  const [asking, setAsking] = useState(false);
+  const setScope = (next: Scope) => { setScopeNow(next); setAsking(false); };
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [hit, setHit] = useState<string | null>(null);
@@ -46,6 +52,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
   const topicText = topic.trim().replace(/\s+/g, " ");
   const needsTopic = scope === "topic" && topicText.length < 3;
   const back = `/accounts/${encodeURIComponent(view.domain)}`;
+  const usage = scope === "topic" ? topicCost.usage : options.find((o) => o.scope === scope)!.usage;
 
   const focusScope = (next: Scope) => {
     setScope(next);
@@ -117,6 +124,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
                 </span>
                 <span className="opt-cost">
                   <span className="strong">{minutes(o.minutes)}</span>
+                  <span className="mut xs-text">{tokenCount(o.usage.tokens)} tokens, {dollars(o.usage.cost_usd)}</span>
                 </span>
               </span>
             </button>
@@ -141,6 +149,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
               </span>
               <span className="opt-cost">
                 <span className="strong">{minutes(topicCost.minutes)}</span>
+                <span className="mut xs-text">{tokenCount(topicCost.usage.tokens)} tokens, {dollars(topicCost.usage.cost_usd)}</span>
               </span>
             </span>
           </button>
@@ -155,7 +164,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
               placeholder={`For example: ${view.name}'s plans for its customer data platform this year`}
               onFocus={() => setScope("topic")}
               onChange={(e) => { setTopic(e.target.value); setScope("topic"); }}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void confirm(); } }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!needsTopic) setAsking(true); } }}
               aria-describedby="topic-hint"
             />
             <div className="topic-hint mut" id="topic-hint">
@@ -166,7 +175,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
         </div>
       </div>
 
-      {message ? <div className="notice error" role="alert"><p>{message}</p></div> : null}
+      {message && !asking ? <div className="notice error" role="alert"><p>{message}</p></div> : null}
 
       <ResearchModelChips state={models} />
       {hit || (none && limits) ? (
@@ -176,13 +185,24 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
           pending={limits?.pending_requests.includes("researches")}
         />
       ) : null}
-      <div className="actions">
-        <button type="button" className="btn primary wide" onClick={() => void confirm()} disabled={busy || needsTopic || none || hit !== null} aria-describedby="refresh-note">
-          {busy ? "Starting refresh" : topicOn ? "Confirm research" : "Confirm refresh"}
-        </button>
-        <Link className="btn" href={back} prefetch={false}>Stay local</Link>
-        <span className="mut small" id="refresh-note">You will be notified when it finishes.</span>
-      </div>
+      {asking && !hit && !none ? (
+        <UsageProceed
+          usage={usage}
+          what={topicOn ? "This research" : "This refresh"}
+          busy={busy}
+          message={message}
+          onProceed={() => void confirm()}
+          onCancel={() => { setAsking(false); setMessage(null); }}
+        />
+      ) : (
+        <div className="actions">
+          <button type="button" className="btn primary wide" onClick={() => setAsking(true)} disabled={busy || needsTopic || none || hit !== null} aria-describedby="refresh-note">
+            {topicOn ? "Confirm research" : "Confirm refresh"}
+          </button>
+          <Link className="btn" href={back} prefetch={false}>Stay local</Link>
+          <span className="mut small" id="refresh-note">You will be notified when it finishes.</span>
+        </div>
+      )}
       <LimitNote limits={limits} kind="researches" />
     </>
   );

@@ -1,12 +1,14 @@
 "use client";
 // Research a new company (Add account section 1 and New research, company tab): Company name and
 // Website, the two model chips, then Start research shows what it uses ("1 of your 2 researches
-// left this month") and nothing starts until Confirm. With no research left, the refusal and
-// "Request more from admin" show instead (owner decision 2026-10-14: researches, not credits).
+// left this month") with the tokens and dollars it is expected to use ("Proceed?", owner decision
+// 2026-10-21), and nothing starts until Proceed. With no research left, the refusal and "Request
+// more from admin" show instead (owner decision 2026-10-14: researches, not credits).
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { LimitNote, LimitReached, limitLine, limitReached, useMyLimits } from "@/components/Limits";
 import { ResearchModelChips, useResearchModels } from "@/components/ModelMenu";
+import { UsageProceed } from "@/components/UsageProceed";
 import { api, ApiError } from "@/lib/api";
 import { DOMAIN_RE, cleanDomain } from "@/lib/documents";
 import type { ResearchEstimate, ResearchStarted } from "@/lib/gen/api.gen";
@@ -100,18 +102,15 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
       {refusal ? (
         <LimitReached kind="researches" message={refusal} pending={limits?.pending_requests.includes("researches")} />
       ) : asking ? (
-        <div className="card wash pad-sm stack-10" role="group" aria-label="Confirm the research">
-          <p className="sm-text">
-            Researching <strong>{name.trim()}</strong> uses one research{limits ? ` (${limitLine(limits, "researches")})` : ""}.
-          </p>
-          {message ? <p className="sm-text" role="alert">{message}</p> : null}
-          <div className="row-12">
-            <button type="button" className="btn primary" disabled={busy} onClick={() => void confirm()}>
-              {busy ? "Starting…" : "Confirm research"}
-            </button>
-            <button type="button" className="btn" onClick={() => { setAsking(false); setMessage(null); }}>Cancel</button>
-          </div>
-        </div>
+        <UsageProceed
+          usage={estimate.usage}
+          what={`Researching ${name.trim()}`}
+          busy={busy}
+          message={message}
+          note={<p className="mut xs-text">It uses one research{limits ? ` (${limitLine(limits, "researches")})` : ""}.</p>}
+          onProceed={() => void confirm()}
+          onCancel={() => { setAsking(false); setMessage(null); }}
+        />
       ) : (
         <div className="stack-8">
           <button type="button" className="btn primary align-start" disabled={!valid} onClick={() => setAsking(true)}>Start research</button>

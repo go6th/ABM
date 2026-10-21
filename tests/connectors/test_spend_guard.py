@@ -80,6 +80,32 @@ async def test_a_run_stops_partial_at_the_dollar_cap_counting_model_spend(
 
 
 @pytest.mark.asyncio
+async def test_with_the_caps_off_neither_the_dollar_cap_nor_the_repeat_limit_stops_a_run(
+    harness: Harness, tenant_a: UUID, platform: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RESEARCH_CAPS", "off")
+    account, run, domain = make_run(tenant_a)
+    ctx = context(tenant_a, account, run, domain)
+    _sql("UPDATE platform_defaults SET run_dollar_cap_usd = 0.10, repeat_call_limit = 1")
+    _sql(
+        "INSERT INTO model_reply_log (tenant_id, run_id, cache_key, task_kind, tier, model,"
+        " served_from, cost_usd, cost_known) VALUES (%s, %s, 'k', 'extract', 'extractor',"
+        " 'fake-model', 'model', 0.50, true)",
+        tenant_a,
+        run,
+    )
+    search = harness.providers[ProviderCode.P_SEARCH]
+    for _ in range(3):
+        search.script(Reply.cassette("p_search", "web_search"))
+    rt = harness.runtime()
+    for text in ("acme funding round", "Acme funding round", "ACME funding  round"):
+        await call_operation(Operation.WEB_SEARCH, WebSearchArgs(queries=(text,)), ctx, rt)
+    assert search.calls == 3  # past the dollar cap and paid three times for one query
+    (moved,) = _sql("SELECT progress_at IS NOT NULL FROM account_runs WHERE id = %s", run)
+    assert moved == (True,)  # the heartbeat still moves
+
+
+@pytest.mark.asyncio
 async def test_the_same_query_paid_past_the_limit_stops_the_run(
     harness: Harness, tenant_a: UUID, platform: None
 ) -> None:

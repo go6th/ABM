@@ -75,8 +75,8 @@ def reason_code(error: BaseException) -> str:
     return _CODE.sub("_", snake).strip("_") or "source_failed"
 
 
-# full reads of the account's own pages per web search (D-30 allow-list; lifted on the uncapped
-# local stack)
+# full reads of the account's own pages per web search (D-30 allow-list; lifted when the research
+# caps are off, dev_limits)
 OWN_PAGE_READS_PER_SEARCH = 3
 # full reads of other sites' pages per web search: news, filings, transcripts, interviews and
 # vendor stories the search found are read, not left as snippets (owner decision 2026-10-21,
@@ -276,7 +276,7 @@ class ConnectorProvider:
         Lead (G5): only a full page read in a primary source (the company's own site is T1) can
         make a fact Confirmed. The read is a live scrape (maxAge 0, origin full_page_read): an
         extract read may be a cached copy and never qualifies. Other hosts stay snippets (D-30)."""
-        from account_intelligence.dev_limits import UNCAPPED, dev_uncapped
+        from account_intelligence.dev_limits import UNCAPPED, research_uncapped
 
         own = list(
             dict.fromkeys(
@@ -285,7 +285,7 @@ class ConnectorProvider:
                 if isinstance(r, WebPageRecord) and _on_domain(r.url, ctx.domain)
             )
         )
-        limit = UNCAPPED if dev_uncapped() else OWN_PAGE_READS_PER_SEARCH
+        limit = UNCAPPED if research_uncapped() else OWN_PAGE_READS_PER_SEARCH
         reads = []
         for url in own[:limit]:
             try:
