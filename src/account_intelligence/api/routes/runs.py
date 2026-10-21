@@ -54,6 +54,7 @@ from opendoor.api import decode_cursor, encode_cursor
 from tenancy import settings
 from views import progress
 from views.progress import Progress
+from views.token_use import token_use
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 # the label every run and every result carries, by input mode
@@ -452,20 +453,8 @@ async def get_run(
         # the router's ledger (llm_calls) or the research graph's reply log (model_reply_log,
         # written while the router is off): the larger is the run's use (audit 2026-10-21: the
         # meter read llm_calls only and showed 0 for graph runs)
-        tokens_used = int(
-            (
-                await s.execute(
-                    text(
-                        "SELECT GREATEST("
-                        " (SELECT COALESCE(sum(input_tokens + output_tokens), 0) FROM llm_calls"
-                        "  WHERE run_id = :r),"
-                        " (SELECT COALESCE(sum(input_tokens + output_tokens), 0)"
-                        "  FROM model_reply_log WHERE run_id = :r AND served_from = 'model'))"
-                    ),
-                    {"r": run_id},
-                )
-            ).scalar_one()
-        )
+        use = await token_use(s, run_id)
+        tokens_used = use["total"]
     payload = {
         "domain": row.domain,
         "run_id": str(run_id),
@@ -480,6 +469,7 @@ async def get_run(
         "linked_run_id": row.linked,
         "models_line": models_line(row.models),
         "tokens_used": tokens_used,
+        "token_use": use,
         "gate": (
             {"verdict": gate.verdict, "defects": list(gate.defects)[:50]}
             if gate is not None

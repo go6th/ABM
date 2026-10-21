@@ -2304,6 +2304,25 @@ export const RunState = z.object({
 }).strict();
 export type RunState = z.infer<typeof RunState>;
 
+export const StepTokens = z.object({
+  "id": z.string(),
+  "name": z.string(),
+  "tokens": z.number().int(),
+}).strict();
+export type StepTokens = z.infer<typeof StepTokens>;
+
+export const TokenUse = z.object({
+  "cost_usd": z.number().optional(),
+  "expected_runs": z.number().int().optional(),
+  "expected_tokens": z.number().int().nullable().optional(),
+  "finished_at": z.string().nullable().optional(),
+  "reused": z.number().int().optional(),
+  "started_at": z.string().nullable().optional(),
+  "steps": z.array(StepTokens).optional(),
+  "total": z.number().int(),
+}).strict();
+export type TokenUse = z.infer<typeof TokenUse>;
+
 export const RunStatusView = z.object({
   "coverage": CoverageView,
   "domain": z.string().nullable().optional(),
@@ -2318,6 +2337,7 @@ export const RunStatusView = z.object({
   "status": z.string(),
   "stop_detail": z.string().nullable().optional(),
   "stored": StoredCounts.nullable().optional(),
+  "token_use": TokenUse.nullable().optional(),
   "tokens_used": z.number().int().optional(),
 }).strict();
 export type RunStatusView = z.infer<typeof RunStatusView>;

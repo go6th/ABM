@@ -293,7 +293,7 @@ export function RunPanel({ runId, compact = false, state }: { runId: string; com
     <div className="stack">
       <StepList progress={progress} status={status} />
       <Checkpoint runId={runId} status={status} onDecided={reload} auto={auto} setAuto={setAuto} />
-      {run ? <TokenMeter tokens={run.tokens_used ?? 0} running={!terminal} /> : null}
+      {run ? <TokenMeter run={run} steps={progress ? runSteps(progress, status) : []} at={currentStep(progress, status)} status={status} /> : null}
       {!compact ? (
         <div className="section">
           <h3>{m.run.unitsSoFar}</h3>

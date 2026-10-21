@@ -11455,6 +11455,16 @@
               }
             ]
           },
+          "token_use": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TokenUse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "tokens_used": {
             "default": 0,
             "title": "Tokens Used",
@@ -12420,6 +12430,31 @@
         "title": "StartBody",
         "type": "object"
       },
+      "StepTokens": {
+        "additionalProperties": false,
+        "description": "The tokens one research step's model calls used.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tokens"
+        ],
+        "title": "StepTokens",
+        "type": "object"
+      },
       "StoppedRun": {
         "additionalProperties": false,
         "description": "The account's latest research stopped before finishing, or stalled: Resume continues it.",
@@ -13269,6 +13304,77 @@
           "run_id"
         ],
         "title": "TimeoutTask",
+        "type": "object"
+      },
+      "TokenUse": {
+        "additionalProperties": false,
+        "description": "The run screen's token card: the total, each step's share, cost and the expectation.",
+        "properties": {
+          "cost_usd": {
+            "default": 0.0,
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "expected_runs": {
+            "default": 0,
+            "title": "Expected Runs",
+            "type": "integer"
+          },
+          "expected_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Tokens"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "reused": {
+            "default": 0,
+            "title": "Reused",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StepTokens"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total"
+        ],
+        "title": "TokenUse",
         "type": "object"
       },
       "TopicOption": {

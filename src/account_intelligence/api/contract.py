@@ -865,6 +865,33 @@ class GateSummary(Out):
     defects: list[GateDefect]
 
 
+class StepTokens(Out):
+    """The tokens one research step's model calls used."""
+
+    id: str
+    name: str
+    tokens: int
+
+
+class TokenUse(Out):
+    """The run screen's token card: the total, each step's share, cost and the expectation."""
+
+    # input plus output tokens of every reply the model served (the token meter's count)
+    total: int
+    # tokens of replies reused from earlier research (free, not in ``total``)
+    reused: int = 0
+    # the priced cost of those replies, in dollars
+    cost_usd: float = 0.0
+    # the eight steps in order (and "Other model calls" when any); [] for a run off the graph
+    steps: list[StepTokens] = []
+    started_at: str | None = None
+    finished_at: str | None = None
+    # what a research of the same kind used before (median of past runs); None: no estimate
+    expected_tokens: int | None = None
+    # how many past runs the expectation rests on (0: the configured rough default)
+    expected_runs: int = 0
+
+
 class RunStatusView(Out):
     """Response body: run status view."""
 
@@ -889,6 +916,8 @@ class RunStatusView(Out):
     models_line: str | None = None
     # input plus output tokens of every model call the run has stored so far (the token meter)
     tokens_used: int = 0
+    # the token card (None for a status read that did not compute it)
+    token_use: TokenUse | None = None
 
 
 class CollectedFact(Out):

@@ -192,7 +192,8 @@ async def test_with_nothing_running_the_stream_ends_and_asks_again_later(
 
 async def test_tokens_count_the_research_graphs_model_calls(world: dict[str, Any]) -> None:
     """The research graph logs its model calls in model_reply_log (the router's llm_calls stays
-    empty while the router is off): the run's token meter and the live screen count them."""
+    empty while the router is off): the run's token meter and the live screen count them, and the
+    token card splits them into the eight steps (reused replies are free and counted apart)."""
     plane = _plane(world["a"], "priya-test", world["payloads"])
     job, run_id = await _running(plane, world["a"], f"tok-{uuid4().hex[:6]}.example")
     _db(
@@ -202,9 +203,40 @@ async def test_tokens_count_the_research_graphs_model_calls(world: dict[str, Any
         " FROM account_runs WHERE id = %s",
         run_id,
     )
+    for key, kind, served, i, o in (
+        ("k0", "abm_setup", "model", 80, 20),
+        ("k2", "abm_sense_check", "model", 400, 100),
+        ("k3", "abm_pass1_extract", "model", 700, 300),  # after the sense check: follow-up
+        ("k4", "abm_distill", "cache", 5000, 1000),  # reused: free, not in the total
+    ):
+        _db(
+            "INSERT INTO model_reply_log (tenant_id, run_id, cache_key, task_kind, tier, model,"
+            " served_from, input_tokens, output_tokens)"
+            f" SELECT tenant_id, id, '{key}', '{kind}', 'research', 'm', '{served}', {i}, {o}"
+            " FROM account_runs WHERE id = %s",
+            run_id,
+        )
     run = await _call(plane, "GET", f"/v1/runs/{run_id}")
     assert run.status_code == 200, run.text
-    assert run.json()["tokens_used"] == 1500
+    assert run.json()["tokens_used"] == 3100
+    use = run.json()["token_use"]
+    assert use["total"] == 3100 and use["reused"] == 6000
+    by_step = {st["id"]: st["tokens"] for st in use["steps"]}
+    assert by_step == {
+        "setup": 100,
+        "search": 0,
+        "read": 1500,
+        "follow_up": 1500,
+        "write": 0,
+        "build": 0,
+        "gate": 0,
+        "deliver": 0,
+    }
+    assert use["started_at"] is not None and use["expected_tokens"] is not None
+    _db(
+        "DELETE FROM model_reply_log WHERE run_id = %s AND cache_key <> 'k1'",
+        run_id,
+    )
     body = (await _call(plane, "GET", "/v1/research/live", params={"selected": job})).json()
     assert next(i for i in body["running"] if i["job_id"] == job)["tokens"] == 1500
     assert body["detail"]["tokens"] == 1500

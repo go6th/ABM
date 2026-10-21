@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { m } from "@/lib/messages";
 import type { OpenJob } from "@/lib/gen/api.gen";
-import { Checkpoint, currentStep, StepList, StopButton, useRun } from "@/components/ws/RunSteps";
+import { Checkpoint, currentStep, runSteps, StepList, StopButton, useRun } from "@/components/ws/RunSteps";
 import { TokenMeter } from "@/components/ws/TokenMeter";
 import { LiveRefresh } from "./ResumeResearch";
 
@@ -80,7 +80,7 @@ export function ResearchProgress({ job, scopeName }: { job: OpenJob; scopeName: 
       )}
 
       {job.run_id ? <Checkpoint runId={job.run_id} status={status} onDecided={reload} auto={auto} setAuto={setAuto} /> : null}
-      {run ? <TokenMeter tokens={run.tokens_used ?? 0} running={!terminal} /> : null}
+      {run ? <TokenMeter run={run} steps={progress ? runSteps(progress, status) : []} at={at} status={status} /> : null}
 
       {message ? <p className="sm-text bad-text" role="alert">{message}</p> : null}
       <div className="actions">
