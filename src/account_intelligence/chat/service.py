@@ -323,12 +323,15 @@ class AnthropicChatProvider:
         """Stream text and final token counts; provider exceptions retain no user text.
         ``system`` replaces the default grounded rules (the Ask answer format supplies its own).
 
-        Caching (token review items 2 and 3, 2026-10-20): ``cached`` (a whole file) is the FIRST
-        system block with its own cache breakpoint, ahead of the rules (which change with the
-        route), so every question on the same file reads it from the cache; the rules are the
-        second cached block. With ``tools`` the request also carries the API's automatic cache
-        breakpoint, so each tool round reads the earlier rounds from the cache instead of
-        paying for the growing conversation again. With ``tools`` the model may call them:
+        Caching (token review items 2 and 3, 2026-10-20): ``cached`` (a whole file) is a system
+        block with its own cache breakpoint, ahead of the rules that change with the route, so
+        every question on the same file reads it from the cache. A ``system`` in parts
+        (``platform.prompt_cache.SystemPrompt``, 2026-10-21) puts its first part (the rules and
+        skill every answer shares) ahead of the file, cached for an hour, so the first question
+        on a new file reads it too; otherwise the rules are the block after the file.
+        With ``tools`` the request also carries the API's automatic cache breakpoint, so each
+        tool round reads the earlier rounds from the cache instead of paying for the growing
+        conversation again. With ``tools`` the model may call them:
         each round that ends in a tool call runs the calls through ``run_tool``, sends the
         results back and streams the next round; the usage event sums every round."""
         request_messages: list[dict[str, Any]] = [
@@ -337,14 +340,28 @@ class AnthropicChatProvider:
         system_instruction = system or grounded_system_prompt(context, max_output_tokens)
         ephemeral = {"type": "ephemeral"}
         system_blocks: list[dict[str, Any]] = []
-        if cached:
-            system_blocks.append({"type": "text", "text": cached, "cache_control": ephemeral})
-        rules: dict[str, Any] = {"type": "text", "text": system_instruction}
-        if system is not None:
-            # fixed rules (Ask) are cached; the grounded chat prompt carries this turn's
-            # workspace data, which no later turn repeats, so it is not
-            rules["cache_control"] = ephemeral
-        system_blocks.append(rules)
+        parts = tuple(p for p in (getattr(system, "parts", None) or ()) if p)
+        if system is not None and len(parts) > 1:
+            # a prompt in parts (Ask): its first part is the same for every answer of every
+            # account, so it leads with an hour's lifetime (an entry of a longer lifetime must
+            # come first); the file follows it and the rest of the rules (the route's) close
+            system_blocks.append(
+                {"type": "text", "text": parts[0], "cache_control": dict(ephemeral, ttl="1h")}
+            )
+            if cached:
+                system_blocks.append({"type": "text", "text": cached, "cache_control": ephemeral})
+            system_blocks.append(
+                {"type": "text", "text": "\n\n".join(parts[1:]), "cache_control": ephemeral}
+            )
+        else:
+            if cached:
+                system_blocks.append({"type": "text", "text": cached, "cache_control": ephemeral})
+            rules: dict[str, Any] = {"type": "text", "text": str(system_instruction)}
+            if system is not None:
+                # fixed rules (Ask) are cached; the grounded chat prompt carries this turn's
+                # workspace data, which no later turn repeats, so it is not
+                rules["cache_control"] = ephemeral
+            system_blocks.append(rules)
         request: dict[str, Any] = {
             "model": model.id,
             "max_tokens": max_output_tokens,
@@ -352,8 +369,8 @@ class AnthropicChatProvider:
         }
         if tools:
             request["tools"] = [dict(t) for t in tools]
-            # the automatic breakpoint moves to the last message of every round (at most 3 of
-            # the 4 breakpoints are used: the file, the rules and this one)
+            # the automatic breakpoint moves to the last message of every round (at most all 4
+            # breakpoints are used: the shared rules, the file, the route rules and this one)
             request["cache_control"] = ephemeral
         from account_intelligence.platform.llm import effort_for
 

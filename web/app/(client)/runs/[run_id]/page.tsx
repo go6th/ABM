@@ -1,6 +1,7 @@
 "use client";
-// Run: the skill's eight steps with done, running or waiting, work so far, files as they appear,
-// Stop, and the checkpoint card when the run pauses. A finished run shows its coverage.
+// Run: the research's steps with done, running, waiting or where it stopped, work so far, files as
+// they appear, Stop, Refresh, and the checkpoint card when the run pauses. A finished run shows its
+// coverage. The page and the panel share one copy of the run's polling and event stream.
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { RunFiles, RunPanel, useRun } from "@/components/ws/RunSteps";
@@ -12,7 +13,8 @@ import { cellText } from "@/lib/render";
 export default function RunPage() {
   const params = useParams<{ run_id: string }>();
   const runId = params.run_id;
-  const { run, status, terminal } = useRun(runId);
+  const live = useRun(runId);
+  const { run, status, terminal } = live;
   const label = run?.input_mode === "file" ? m.account.fromFiles : null;
   return (
     <div className="page narrow">
@@ -22,11 +24,11 @@ export default function RunPage() {
         sub={label}
         actions={run?.domain && terminal ? <Link className="btn" href={`/accounts/${encodeURIComponent(run.domain)}`}>{m.run.openAccount}</Link> : null}
       />
-      <RunPanel runId={runId} />
+      <RunPanel runId={runId} state={live} />
       {run?.models_line ? <p className="mut sm-text">{run.models_line}</p> : null}
       <section className="section">
         <h2>{m.run.files}</h2>
-        <RunFiles domain={run?.domain ?? null} runId={runId} />
+        <RunFiles domain={run?.domain ?? null} runId={runId} status={status} />
       </section>
       {run?.gate ? (
         <section className="section">

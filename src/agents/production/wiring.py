@@ -80,11 +80,15 @@ class RunDepsModel:
         json_schema = output.model_json_schema()
         schema = json.dumps(json_schema, separators=(",", ":"))
         # the owner's skill travels with every call (operator request 2026-10-16); it sits in
-        # the cached system block, so it is paid for once per cache window
-        system = (
-            f"{with_skill_context(prompt_text, task_kind)}\n\nAnswer with one JSON object, no"
-            f" prose and no code fence, that validates against this JSON Schema:\n{schema}"
+        # the cached system blocks, so it is paid for once per cache window
+        answer_rule = (
+            "Answer with one JSON object, no prose and no code fence, that validates against"
+            f" this JSON Schema:\n{schema}"
         )
+        prompt = with_skill_context(prompt_text, task_kind)
+        # the schema joins the least shared part, keeping the shared parts cacheable across kinds
+        extended = getattr(prompt, "extended", None)
+        system = extended(answer_rule) if extended else f"{prompt}\n\n{answer_rule}"
         user = json.dumps(dict(payload))
         tokens = 0
         override: str | None = None

@@ -17,7 +17,12 @@ function duration(minutes: number): string {
   return `about ${minutes} minutes`;
 }
 
-export function ResearchCompany({ estimate, idPrefix = "rc" }: { estimate: ResearchEstimate | null; idPrefix?: string }) {
+export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
+  estimate: ResearchEstimate | null;
+  idPrefix?: string;
+  /** Called with the started research instead of opening its account (the Research screen). */
+  onStarted?: (started: ResearchStarted) => void;
+}) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
@@ -41,13 +46,24 @@ export function ResearchCompany({ estimate, idPrefix = "rc" }: { estimate: Resea
     setBusy(true);
     setMessage(null);
     try {
-      await api<ResearchStarted>("POST", "/v1/research", {
+      const started = await api<ResearchStarted>("POST", "/v1/research", {
         request_id: requestId.current,
         company_name: name.trim(),
         domain,
         ...models.body,
       });
-      router.push("/accounts");
+      if (onStarted) {
+        // the Research screen follows it live where it is
+        requestId.current = crypto.randomUUID();
+        setName("");
+        setSite("");
+        setAsking(false);
+        setBusy(false);
+        onStarted(started);
+        return;
+      }
+      // the account page shows the research live: its steps, Stop and Refresh
+      router.push(`/accounts/${encodeURIComponent(started.domain || domain)}`);
       router.refresh();
     } catch (cause) {
       requestId.current = crypto.randomUUID();

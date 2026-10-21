@@ -392,11 +392,13 @@ class SheetFilter(Out):
 
 
 class SheetRow(Out):
-    """One row: its absolute number, its cells as shown, and its link if it has one."""
+    """One row: its absolute number, its cells as shown, and its link if it has one (the
+    original page; ``link_label`` reads "6th / LinkedIn", never a data connector's name)."""
 
     n: int
     cells: dict[str, str]
     link: str | None
+    link_label: str | None = None
 
 
 class Sheet(Out):
@@ -452,6 +454,8 @@ class OpenJob(Out):
     # live progress: research steps reported so far, of the run's steps (0 before it starts)
     steps_done: int = 0
     steps_total: int = 0
+    # the run carrying the job out (None until it starts): its live steps, Stop and details
+    run_id: str | None = None
 
 
 class TopicOption(Out):
@@ -535,6 +539,97 @@ class ResearchResumed(Out):
     domain: str
     steps_done: int
     steps_total: int
+
+
+class ResearchStopped(Out):
+    """Stop research: the job and how it ended."""
+
+    job_id: str
+    status: str
+
+
+class LiveStepAt(Out):
+    """Where a running research is: step ``index`` of ``total``, by name."""
+
+    index: int
+    total: int
+    name: str
+
+
+class ResearchLiveItem(Out):
+    """One web research on the Research screen (running or finished recently)."""
+
+    job_id: str
+    run_id: str | None
+    company: str
+    domain: str
+    kind: str
+    scope: str
+    topic: str | None
+    status: str
+    run_status: str | None
+    label: str
+    open: bool
+    can_stop: bool
+    step: LiveStepAt | None
+    steps_done: int
+    steps_total: int
+    # so far: current public findings, finished source calls, model tokens
+    findings: int
+    searches: int
+    tokens: int
+    created_at: str | None
+    started_at: str | None
+    finished_at: str | None
+
+
+class LiveFinding(Out):
+    """One finding as it was saved: what it answers, the value, its grade and where it was read."""
+
+    fact_id: str
+    kind: str
+    label: str
+    value: str
+    grade: str | None
+    source: str | None
+    found_at: str | None
+
+
+class LiveKindCount(Out):
+    """Findings of one kind so far."""
+
+    kind: str
+    count: int
+
+
+class ResearchLiveDetail(Out):
+    """The selected research: its steps, counts and newest findings."""
+
+    job_id: str
+    run_id: str | None
+    company: str
+    domain: str
+    label: str
+    open: bool
+    steps: list[ProgressStep]
+    findings: int
+    searches: int
+    pages_read: int
+    tokens: int
+    findings_by_kind: list[LiveKindCount]
+    latest_findings: list[LiveFinding]
+    # findings left out because the client output scan refused their text
+    withheld: int
+    reason: str | None
+
+
+class ResearchLive(Out):
+    """Response body: the Research screen (every web research running and recent, live)."""
+
+    as_of: str
+    running: list[ResearchLiveItem]
+    recent: list[ResearchLiveItem]
+    detail: ResearchLiveDetail | None
 
 
 class LibraryOffer(Out):
@@ -830,6 +925,17 @@ class RunCollected(Out):
     missing: list[MissingRow]
 
 
+class ProgressStep(Out):
+    """One step of a run: done, running, paused, waiting, stopped or not_reached."""
+
+    id: str
+    name: str
+    state: Literal["done", "running", "paused", "waiting", "stopped", "not_reached"]
+    # checklist rows this step has reported, of its rows (0 of 0: the step owns none)
+    rows_done: int = 0
+    rows_total: int = 0
+
+
 class RunProgress(Out):
     """Response body: run progress."""
 
@@ -841,6 +947,7 @@ class RunProgress(Out):
     current_stage: str | None
     finished: bool
     text: str
+    steps: list[ProgressStep] = []
 
 
 class PullOption(Out):
@@ -1843,13 +1950,15 @@ class AnswerPart(Out):
 
 
 class AnswerSource(Out):
-    """A stored row an answer cites: what it is, when, and where to open it."""
+    """A stored row an answer cites: what it is, when, and where to open it (``url`` is the
+    original page; ``label`` reads "6th / LinkedIn", never a data connector's name)."""
 
     n: int
     title: str
     meta: str
     date: str | None
     url: str | None
+    label: str | None = None
     kind: Literal[
         "fact", "job", "person", "signal", "technology", "mail_drive", "file", "tracker", "report"
     ]

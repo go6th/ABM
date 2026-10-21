@@ -44,6 +44,10 @@ REASONS: dict[str, ReasonCode] = {
     "pull_not_approved": ReasonCode.PULL_NOT_APPROVED,
     # outside a research job's scope (a jobs-only or people-only refresh)
     "not_planned": ReasonCode.NOT_PLANNED,
+    # internal history without internal access (the skill skips it; never web-searched)
+    "no_internal_access": ReasonCode.NO_INTERNAL_ACCESS,
+    # the people step's findings cannot be saved yet, so its pulls are not made (OI-ABM-4)
+    "people_not_recorded": ReasonCode.NOT_AVAILABLE_YET,
 }
 
 

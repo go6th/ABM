@@ -899,7 +899,7 @@
       },
       "AnswerSource": {
         "additionalProperties": false,
-        "description": "A stored row an answer cites: what it is, when, and where to open it.",
+        "description": "A stored row an answer cites: what it is, when, and where to open it (``url`` is the\noriginal page; ``label`` reads \"6th / LinkedIn\", never a data connector's name).",
         "properties": {
           "account_domain": {
             "anyOf": [
@@ -948,6 +948,17 @@
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
           },
           "meta": {
             "title": "Meta",
@@ -7933,6 +7944,117 @@
         "title": "LimitsChanged",
         "type": "object"
       },
+      "LiveFinding": {
+        "additionalProperties": false,
+        "description": "One finding as it was saved: what it answers, the value, its grade and where it was read.",
+        "properties": {
+          "fact_id": {
+            "title": "Fact Id",
+            "type": "string"
+          },
+          "found_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Found At"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fact_id",
+          "kind",
+          "label",
+          "value",
+          "grade",
+          "source",
+          "found_at"
+        ],
+        "title": "LiveFinding",
+        "type": "object"
+      },
+      "LiveKindCount": {
+        "additionalProperties": false,
+        "description": "Findings of one kind so far.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "count"
+        ],
+        "title": "LiveKindCount",
+        "type": "object"
+      },
+      "LiveStepAt": {
+        "additionalProperties": false,
+        "description": "Where a running research is: step ``index`` of ``total``, by name.",
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "total",
+          "name"
+        ],
+        "title": "LiveStepAt",
+        "type": "object"
+      },
       "LoginBody": {
         "additionalProperties": false,
         "description": "Local login request. Tenant IDs are checked against verified membership.",
@@ -8954,6 +9076,17 @@
             "title": "Kind",
             "type": "string"
           },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
           "scope": {
             "title": "Scope",
             "type": "string"
@@ -9415,6 +9548,49 @@
           }
         },
         "title": "Preferences",
+        "type": "object"
+      },
+      "ProgressStep": {
+        "additionalProperties": false,
+        "description": "One step of a run: done, running, paused, waiting, stopped or not_reached.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rows_done": {
+            "default": 0,
+            "title": "Rows Done",
+            "type": "integer"
+          },
+          "rows_total": {
+            "default": 0,
+            "title": "Rows Total",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "done",
+              "running",
+              "paused",
+              "waiting",
+              "stopped",
+              "not_reached"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state"
+        ],
+        "title": "ProgressStep",
         "type": "object"
       },
       "PublishBody": {
@@ -10246,6 +10422,319 @@
         "title": "ResearchJobTask",
         "type": "object"
       },
+      "ResearchLive": {
+        "additionalProperties": false,
+        "description": "Response body: the Research screen (every web research running and recent, live).",
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchLiveDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchLiveItem"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "running": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchLiveItem"
+            },
+            "title": "Running",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "running",
+          "recent",
+          "detail"
+        ],
+        "title": "ResearchLive",
+        "type": "object"
+      },
+      "ResearchLiveDetail": {
+        "additionalProperties": false,
+        "description": "The selected research: its steps, counts and newest findings.",
+        "properties": {
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "findings_by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/LiveKindCount"
+            },
+            "title": "Findings By Kind",
+            "type": "array"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "latest_findings": {
+            "items": {
+              "$ref": "#/components/schemas/LiveFinding"
+            },
+            "title": "Latest Findings",
+            "type": "array"
+          },
+          "open": {
+            "title": "Open",
+            "type": "boolean"
+          },
+          "pages_read": {
+            "title": "Pages Read",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "searches": {
+            "title": "Searches",
+            "type": "integer"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/ProgressStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "withheld": {
+            "title": "Withheld",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "run_id",
+          "company",
+          "domain",
+          "label",
+          "open",
+          "steps",
+          "findings",
+          "searches",
+          "pages_read",
+          "tokens",
+          "findings_by_kind",
+          "latest_findings",
+          "withheld",
+          "reason"
+        ],
+        "title": "ResearchLiveDetail",
+        "type": "object"
+      },
+      "ResearchLiveItem": {
+        "additionalProperties": false,
+        "description": "One web research on the Research screen (running or finished recently).",
+        "properties": {
+          "can_stop": {
+            "title": "Can Stop",
+            "type": "boolean"
+          },
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "open": {
+            "title": "Open",
+            "type": "boolean"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "run_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Status"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "searches": {
+            "title": "Searches",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LiveStepAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "steps_done": {
+            "title": "Steps Done",
+            "type": "integer"
+          },
+          "steps_total": {
+            "title": "Steps Total",
+            "type": "integer"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          }
+        },
+        "required": [
+          "job_id",
+          "run_id",
+          "company",
+          "domain",
+          "kind",
+          "scope",
+          "topic",
+          "status",
+          "run_status",
+          "label",
+          "open",
+          "can_stop",
+          "step",
+          "steps_done",
+          "steps_total",
+          "findings",
+          "searches",
+          "tokens",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "ResearchLiveItem",
+        "type": "object"
+      },
       "ResearchResumed": {
         "additionalProperties": false,
         "description": "Resume research: the new job, the stopped run it continues, and its steps already done.",
@@ -10314,6 +10803,26 @@
           "domain"
         ],
         "title": "ResearchStarted",
+        "type": "object"
+      },
+      "ResearchStopped": {
+        "additionalProperties": false,
+        "description": "Stop research: the job and how it ended.",
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "ResearchStopped",
         "type": "object"
       },
       "ResetPasswordBody": {
@@ -10775,6 +11284,14 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ProgressStep"
+            },
+            "title": "Steps",
+            "type": "array"
           },
           "text": {
             "title": "Text",
@@ -11576,7 +12093,7 @@
       },
       "SheetRow": {
         "additionalProperties": false,
-        "description": "One row: its absolute number, its cells as shown, and its link if it has one.",
+        "description": "One row: its absolute number, its cells as shown, and its link if it has one (the\noriginal page; ``link_label`` reads \"6th / LinkedIn\", never a data connector's name).",
         "properties": {
           "cells": {
             "additionalProperties": {
@@ -11595,6 +12112,17 @@
               }
             ],
             "title": "Link"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
           },
           "n": {
             "title": "N",
@@ -22713,6 +23241,138 @@
         ]
       }
     },
+    "/v1/research/live": {
+      "get": {
+        "description": "Every web research running now and finished recently, and the selected one in detail.",
+        "operationId": "research_live_v1_research_live_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "selected",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Selected"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchLive"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Research Live",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/live/stream": {
+      "get": {
+        "description": "The snapshot as server-sent events (see the module docstring).",
+        "operationId": "research_live_stream_v1_research_live_stream_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "selected",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Selected"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Research Live Stream",
+        "tags": [
+          "research"
+        ]
+      }
+    },
     "/v1/research/resume": {
       "post": {
         "description": "Continue a stopped research (owner decision 2026-10-14, Phase 4B section 4): a new run on\nthe same account, scope, topic and models that reuses every finished pull and model reply of\nthe stopped run at no cost (``run_input.resume_from``), so only the missing steps are paid\nfor. A stalled run is ended PARTIAL first, with everything it holds. It continues the research\nalready counted: it uses none of the user's researches. 409 when the run is still moving or\nfinished whole.",
@@ -22768,6 +23428,66 @@
           }
         },
         "summary": "Resume Research",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/{job_id}/stop": {
+      "post": {
+        "description": "Stop the research (see the module docstring); 409 when it has already ended.",
+        "operationId": "stop_research_v1_research__job_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchStopped"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Research",
         "tags": [
           "research"
         ]

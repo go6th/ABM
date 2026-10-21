@@ -401,6 +401,8 @@ routes:
     query: {ids: deliverables.id}
   GET /v1/credits: {probe: tenant}
   GET /v1/research/estimate: {probe: tenant}
+  GET /v1/research/live: {probe: tenant}
+  GET /v1/research/live/stream: {probe: tenant}
   GET /v1/library/available: {probe: tenant}
   GET /v1/mail-and-drive: {probe: tenant}
   POST /v1/mail-and-drive/{kind}/connect: {probe: tenant, params: {kind: gmail}}
@@ -444,6 +446,7 @@ routes:
   POST /v1/research/resume:
     probe: tenant
     body: {run_id: account_runs.id, request_id: "00000000-0000-4000-8000-000000000013"}
+  POST /v1/research/{job_id}/stop: {probe: tenant, params: {job_id: research_jobs.id}}
   POST /v1/chat/ask:
     probe: tenant
     body:

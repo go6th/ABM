@@ -48,6 +48,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from account_intelligence.chat.service import ChatMessage, ChatUsage
+from account_intelligence.platform.prompt_cache import SystemPrompt
 from account_intelligence.replica import render as RENDER
 from account_intelligence.replica.answers import (
     Draft,
@@ -65,10 +66,10 @@ log = logger("replica.model_answer")
 MAX_ROWS = 40
 # retrieved document passages always get places (they were never read before, audit 2026-10-15)
 MAX_PASSAGES = 10
-# long enough for a table of every matching row (owner decision 2026-10-17): 8000 cut off a
-# 290-row answer on staging (2026-10-19), so the reply was discarded; every catalogued model
-# allows at least 128000
-MAX_OUTPUT_TOKENS = 32000
+# no output cap of Ask's own (owner decision 2026-10-20): each call may write up to the chosen
+# model's maximum (chat_models.yaml), so a long table answer is never cut off and discarded.
+# 32000 cut off two full-table answers on staging (2026-10-20: 47k and 73k tokens, both reset)
+CATALOGUE_MIN_OUTPUT = 128000  # the smallest maximum of a catalogued model, for a bare model
 
 SYSTEM = (
     "You answer a B2B seller's question using ONLY the workspace rows and files provided."
@@ -450,15 +451,17 @@ async def stream_with_model(
     # are checked here against the numbered rows when the reply ends (replica.render)
     rendered: dict[str, Any] | None = None
     offered = {t.get("name") for t in tools} if tools else set()
-    system = SYSTEM + ("\n" + TABULAR_RULES if offered & TABLE_TOOLS_NAMED else "")
+    route_rules = TABULAR_RULES if offered & TABLE_TOOLS_NAMED else ""
     if RENDER.NAME in offered:
-        system += "\n" + RENDER.RENDER_RULES
-    # the owner's research skill rides on every answer (agents.skill_context.ask_skill_context)
-    system += "\n\n" + ask_skill_context()
+        route_rules += ("\n" if route_rules else "") + RENDER.RENDER_RULES
+    # the owner's research skill rides on every answer (agents.skill_context.ask_skill_context).
+    # Most shared first, for the prompt cache: the rules and the skill are the same for every
+    # answer (cached for an hour), the file follows them in the provider, then the route's rules
+    system = SystemPrompt((SYSTEM + "\n\n" + ask_skill_context(), route_rules))
     async for event in provider.stream(
         model,
         [ChatMessage("user", prompt)],
-        MAX_OUTPUT_TOKENS,
+        getattr(model, "max_output_tokens", CATALOGUE_MIN_OUTPUT),
         user_id=user_id,
         request_id=request_id,
         system=system,

@@ -6,6 +6,9 @@ company"): the estimate first, then Confirm reserves the credits and starts the 
 * ``POST /v1/research/resume``: Resume research (owner decision 2026-10-14): continue a
   stopped or stalled run, reusing every finished pull and model reply at no cost; "Resuming: N of
   M steps already done".
+* ``POST /v1/research/{job_id}/stop``: Stop a research that is waiting, queued or running. A run
+  already carrying it out ends CANCELED (unset rows are swept and the spend so far is settled, as
+  the run's own Stop does); a job no run has started yet ends canceled with its credits released.
 * ``POST /v1/research``: Confirm. The body repeats the credits the user saw; if the estimate
   moved, nothing is reserved (409 ``estimate_changed`` with the new figure). The account is added
   for the caller (it counts against their account cap: 409 ``account_cap_reached``), the credits
@@ -19,6 +22,7 @@ GUARANTEE(test_new_research_shows_the_estimate_and_starts_only_on_confirm)
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -280,3 +284,63 @@ async def _resumed(s: Any, job_id: Any, run_id: UUID, domain: str) -> dict[str, 
         "steps_done": int(row.done),
         "steps_total": int(row.total),
     }
+
+
+register("POST", "/v1/research/{job_id}/stop", tenant_route("start_run", "run", step_up=False))
+
+
+@router.post("/{job_id}/stop", response_model=C.ResearchStopped)
+async def stop_research(
+    job_id: UUID, request: Request, ident: Identity = Depends(authorize)
+) -> dict[str, Any]:
+    """Stop the research (see the module docstring); 409 when it has already ended."""
+    from account_intelligence.api.routes.runs import _tracker_for
+    from account_intelligence.workflow.transitions import RunStatus
+
+    now = datetime.now(UTC)
+    container = request.app.state.container
+    async with tenant_txn(ident.tenant_id) as s:
+        job = (
+            await s.execute(
+                text("SELECT id, status, run_id FROM research_jobs WHERE id = :j FOR UPDATE"),
+                {"j": job_id},
+            )
+        ).first()
+        if job is None:
+            raise APIProblem(404, "not_found", "Not found", "This research was not found.")
+        if job.status not in ("waiting_credit_limit", "queued", "running"):
+            raise APIProblem(
+                409, "research_ended", "Research has ended", "This research has already ended."
+            )
+        if job.run_id is not None:
+            try:
+                await lifecycle.finish(
+                    s,
+                    await _tracker_for(container, s),
+                    UUID(str(job.run_id)),
+                    RunStatus.CANCELED,
+                    reason="canceled_by_user",
+                )
+            except ValueError:
+                raise APIProblem(
+                    409,
+                    "research_not_stoppable",
+                    "Research cannot be stopped now",
+                    "This research cannot be stopped from where it is. Try again in a moment.",
+                ) from None
+        # a job no run carries yet (or one its run's settlement left open) ends here
+        await CR.settle(
+            s, job_id, spent_usd=Decimal(0), now=now, status="canceled", reason="Stopped by you."
+        )
+        await audit_action(
+            s,
+            request,
+            audit_class="run",
+            action="stop_research",
+            resource_type="research_job",
+            resource_id=job_id,
+        )
+        status = await s.scalar(
+            text("SELECT status FROM research_jobs WHERE id = :j"), {"j": job_id}
+        )
+    return {"job_id": str(job_id), "status": str(status)}

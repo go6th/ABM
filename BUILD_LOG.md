@@ -962,3 +962,30 @@ showing what is happening. Running that zip through the pipeline locally (22,380
   instance shape itself (vCPU, and an NVIDIA L4 for the embedder) is being changed in a parallel
   session on the same tree; that session owns `infra/`, `docker/worker.Dockerfile`,
   `pyproject.toml` and `documents/embed.py` for it, and the owner applies the Terraform plan.
+
+## Sources read "6th / <site>" and never name a connector (2026-10-21)
+
+Owner request: wherever a connector brought a row in, the client sees who found it (6th) and the
+website, never the connector, and the link opens the original page. Ask answers carry the same
+hyperlinks.
+
+* `replica/source_label.py`: `source_link(url)` gives "6th / LinkedIn", "6th / Lever",
+  "6th / quidelortho.com" (well-known sites by name, others by registrable domain) and the
+  original URL. A page on a data provider's own host (`documents.gate.provider_hosts`) has no
+  link and reads "6th agents"; so does a site name that would still carry a tool name.
+* Tables: `SheetRow.link_label`; the web cell shows the label as the link (was "Open"). Excel
+  exports (the table export, Download Everything's `Tables/`) write the label as a real
+  hyperlink; the CSV keeps the original page's address.
+* Ask: `AnswerSource.label`; each citation chip is followed by the label hyperlink, the source
+  card and the "What this answer used" list link the same way. Saved answers are relabelled when
+  a thread is reopened or replayed (`relabel_answer`). The workspace summary drops a
+  provider-hosted link.
+* Checked: stored data (ai_replica, every text and jsonb column) holds provider codes only, no
+  connector display names; the web code names none.
+* Tests: `tests/replica/test_source_label.py` (16), `web/tests/unit/answer-view.test.tsx` (+2).
+  Seen live on :3005 against ai_md: the Job postings table shows "6th / LinkedIn" links to
+  linkedin.com/jobs/view/...; a reopened Ask thread shows "6th / quidelortho.com" after each
+  citation.
+* Left as is: the research agents' prompt carries the companion reference verbatim (owner rule
+  2026-10-19), which names the connectors to the model only; every client output is still
+  scrubbed and scanned.

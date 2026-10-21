@@ -1475,13 +1475,18 @@ def plain_text(paragraphs: list[list[dict[str, str]]]) -> str:
 
 
 def source_out(n: int, r: Row) -> dict[str, Any]:
-    """One numbered source as the answer's SOURCES list shows it."""
+    """One numbered source as the answer's SOURCES list shows it: the link opens the original
+    page and reads "6th / LinkedIn" (``source_label``; a data provider's own page has none)."""
+    from account_intelligence.replica.source_label import source_link
+
+    link = source_link(r.url)
     return {
         "n": n,
         "title": r.title,
         "meta": r.meta,
         "date": r.when.date().isoformat() if r.when else None,
-        "url": r.url,
+        "url": link.href if link else None,
+        "label": link.label if link else None,
         "kind": r.kind,
         "account_domain": r.account.domain,
         "account_name": r.account.name,

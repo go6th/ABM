@@ -14,6 +14,18 @@ type Source = ChatAnswer["sources"][number];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// A cited source as a hyperlink to its original page, labelled "6th / <site>". A row with no web
+// page (an uploaded file, a provider's own page) has no link.
+export function SourceLink({ source }: { source: Source }) {
+  const href = safeLink(source.url ?? "");
+  if (!href) return null;
+  return (
+    <a className="src-link" href={href} target="_blank" rel={LINK_REL} aria-label={`Open source ${source.n}: ${source.label ?? source.title}`}>
+      {source.label ?? "Open source"}
+    </a>
+  );
+}
+
 export function dayMonth(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(`${iso}T00:00:00Z`);
@@ -40,20 +52,24 @@ export function AnswerView({
   const source: Source | undefined = answer.sources.find((s) => s.n === openSource);
   const href = source ? safeLink(source.url ?? "") : null;
   const offer = answer.offer;
-  // citation n as a chip that opens its source
+  // citation n as a chip that opens its source card, then the source itself as a hyperlink
+  // ("6th / LinkedIn") that opens the original page directly
   const cite = (v: string) => {
     const n = Number(v);
     const s = answer.sources.find((x) => x.n === n);
     return (
-      <button
-        type="button"
-        className="cite"
-        aria-expanded={openSource === n}
-        aria-label={`Source ${n}${s ? `: ${s.title}` : ""}`}
-        onClick={() => onOpenSource(openSource === n ? null : n)}
-      >
-        {n}
-      </button>
+      <>
+        <button
+          type="button"
+          className="cite"
+          aria-expanded={openSource === n}
+          aria-label={`Source ${n}${s ? `: ${s.title}` : ""}`}
+          onClick={() => onOpenSource(openSource === n ? null : n)}
+        >
+          {n}
+        </button>
+        {s ? <SourceLink source={s} /> : null}
+      </>
     );
   };
   return (
@@ -79,7 +95,7 @@ export function AnswerView({
           <span className="cite static" aria-hidden="true">{source.n}</span>
           <span className="grow"><b>{source.title}</b><br /><span className="mut meta">{source.meta}</span></span>
           <span className="acts">
-            {href ? <a className="link" href={href} target="_blank" rel={LINK_REL}>Open source</a> : null}
+            {href ? <a className="link" href={href} target="_blank" rel={LINK_REL}>{source.label ?? "Open source"}</a> : null}
             <button type="button" className="link" onClick={() => onOpenSource(null)}>Close</button>
           </span>
         </div>
@@ -154,7 +170,7 @@ export function UsedPanel({ answer, onOpenSource }: { answer: ChatAnswer; onOpen
           {answer.sources.map((s) => (
             <div key={s.n} className="used-src">
               <button type="button" className="cite static" aria-label={`Open source ${s.n}`} onClick={() => onOpenSource(s.n)}>{s.n}</button>
-              <span>{s.title}{s.date ? ` · ${dayMonth(s.date)}` : ""}</span>
+              <span>{s.title}{s.date ? ` · ${dayMonth(s.date)}` : ""} <SourceLink source={s} /></span>
             </div>
           ))}
         </>

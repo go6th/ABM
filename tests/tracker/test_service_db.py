@@ -66,7 +66,11 @@ async def test_seed_is_the_checklist_pinned_and_idempotent() -> None:
     assert (version, digest, count) == (cfg.version, cfg.sha256, 33)
     assert policy == {
         "high_rows_allowed_for_completed": ["done", "none"],
-        "high_reasons_allowed_for_completed": ["not_in_uploaded_data", "not_searched_file_only"],
+        "high_reasons_allowed_for_completed": [
+            "not_in_uploaded_data",
+            "not_searched_file_only",
+            "no_internal_access",
+        ],
     }
     async with txn(w) as t:
         assert await t.seed(w.run, w.tenant) is False  # re-seed is a no-op

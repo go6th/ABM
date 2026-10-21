@@ -226,15 +226,18 @@ class GraphEngine:
 
 def job_limits(limits: Any, rows: tuple[str, ...]) -> Any:
     """The run limits of a job: the agent graph searches each row in scope with every
-    configured phrasing, plus follow-ups and page reads, so its call cap is sized from its own
-    plan (rows x phrasings x 2), never below the configured cap. Money stays capped by the
-    budget, which is the job's credits (FIX_LOG D12)."""
+    configured phrasing, and each search may read the account's own pages and other sites'
+    pages it found, plus follow-ups, so its call cap is sized from its own plan (rows x
+    phrasings x calls per search, doubled for follow-ups and feed pages), never below the
+    configured cap. Money stays capped by the budget, which is the job's credits (FIX_LOG D12)."""
     from dataclasses import replace
 
     from agents.config import skill_config
+    from agents.production.provider import OFF_SITE_READS_PER_SEARCH, OWN_PAGE_READS_PER_SEARCH
 
     cfg = skill_config()
-    planned = len(rows or tuple(cfg.plan)) * max(1, len(cfg.phrasings)) * 2
+    per_search = 1 + OWN_PAGE_READS_PER_SEARCH + OFF_SITE_READS_PER_SEARCH
+    planned = len(rows or tuple(cfg.plan)) * max(1, len(cfg.phrasings)) * per_search * 2
     return replace(limits, tool_call_cap=max(int(limits.tool_call_cap), planned))
 
 

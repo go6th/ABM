@@ -11,7 +11,8 @@ import { Grade, Pill, StateCard } from "@/ui/design";
 import { FilesCard } from "@/components/accounts/FilesCard";
 import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
-import { LiveRefresh, ResumeResearch } from "@/components/accounts/ResumeResearch";
+import { ResumeResearch } from "@/components/accounts/ResumeResearch";
+import { ResearchProgress } from "@/components/accounts/ResearchProgress";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ function joinAnd(items: string[]): string {
   return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-const SCOPE_NAME: Record<string, string> = { jobs: "Job postings only", people: "People and teams", full: "Full refresh", topic: "a specific topic" };
+const SCOPE_NAME: Record<string, string> = { jobs: "Job postings only", people: "People and teams", full: "Full research", topic: "a specific topic", file: "your files" };
 
 export default async function AccountWorkspacePage({ params }: Params) {
   const domain = decodeURIComponent((await params).domain);
@@ -86,15 +87,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
         </div>
 
         {ws.open_job ? (
-          ws.open_job.status === "waiting_credit_limit" ? (
-            <div className="banner" role="status">A refresh is waiting to start. You will be notified when it finishes.</div>
-          ) : (
-            <div className="banner" role="status">
-              <span className="pdot" aria-hidden="true" />Refreshing from the web: {SCOPE_NAME[ws.open_job.scope] ?? "research"}.
-              {ws.open_job.steps_total ? ` ${ws.open_job.steps_done} of ${ws.open_job.steps_total} steps done.` : ""} You will be notified when it finishes.
-              <LiveRefresh />
-            </div>
-          )
+          <ResearchProgress key={`${ws.open_job.id}:${ws.open_job.run_id ?? ""}`} job={ws.open_job} scopeName={SCOPE_NAME[ws.open_job.scope] ?? "research"} />
         ) : ws.stopped_run ? <ResumeResearch stopped={ws.stopped_run} /> : (ws.gaps ?? []).length ? (
           <section className="card pad stack-10" aria-labelledby="gaps-title">
             <div className="strong" id="gaps-title">Research finished · {coverage}</div>

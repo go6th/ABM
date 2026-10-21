@@ -39,6 +39,7 @@ import zipfile
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
@@ -98,9 +99,12 @@ def client_text(data: bytes) -> str:
 CLIENT_FILES = frozenset({"summary", "evidence", "people", "jobs", "tech"})
 
 
+@lru_cache(maxsize=1)
 def provider_hosts() -> tuple[str, ...]:
     """Every data provider's registrable host (``example.com`` of ``api.example.com``), from
-    config: a client file must never name one."""
+    config: a client file must never name one. Read once per process: every cell of an exported
+    table is checked against it, and parsing providers.yaml per cell held the worker's event loop
+    for minutes on a large Download everything (staging, 2026-10-20)."""
     from urllib.parse import urlsplit
 
     from account_intelligence.connectors.settings import load_providers_config

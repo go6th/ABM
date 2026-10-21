@@ -133,6 +133,7 @@ export type Narrative = z.infer<typeof Narrative>;
 export const OpenJob = z.object({
   "id": z.string(),
   "kind": z.string(),
+  "run_id": z.string().nullable().optional(),
   "scope": z.string(),
   "status": z.string(),
   "steps_done": z.number().int().optional(),
@@ -253,6 +254,7 @@ export const AnswerSource = z.object({
   "account_name": z.string().nullable(),
   "date": z.string().nullable(),
   "kind": z.string(),
+  "label": z.string().nullable().optional(),
   "meta": z.string(),
   "n": z.number().int(),
   "title": z.string(),
@@ -1609,6 +1611,30 @@ export const LimitsChanged = z.object({
 }).strict();
 export type LimitsChanged = z.infer<typeof LimitsChanged>;
 
+export const LiveFinding = z.object({
+  "fact_id": z.string(),
+  "found_at": z.string().nullable(),
+  "grade": z.string().nullable(),
+  "kind": z.string(),
+  "label": z.string(),
+  "source": z.string().nullable(),
+  "value": z.string(),
+}).strict();
+export type LiveFinding = z.infer<typeof LiveFinding>;
+
+export const LiveKindCount = z.object({
+  "count": z.number().int(),
+  "kind": z.string(),
+}).strict();
+export type LiveKindCount = z.infer<typeof LiveKindCount>;
+
+export const LiveStepAt = z.object({
+  "index": z.number().int(),
+  "name": z.string(),
+  "total": z.number().int(),
+}).strict();
+export type LiveStepAt = z.infer<typeof LiveStepAt>;
+
 export const LoginBody = z.object({
   "email": z.string(),
   "password": z.string(),
@@ -1895,6 +1921,15 @@ export const Preferences = z.object({
 }).strict();
 export type Preferences = z.infer<typeof Preferences>;
 
+export const ProgressStep = z.object({
+  "id": z.string(),
+  "name": z.string(),
+  "rows_done": z.number().int().optional(),
+  "rows_total": z.number().int().optional(),
+  "state": z.string(),
+}).strict();
+export type ProgressStep = z.infer<typeof ProgressStep>;
+
 export const PublishBody = z.object({
   "tenant_ids": z.array(z.string()),
 }).strict();
@@ -2074,6 +2109,58 @@ export const ResearchJobTask = z.object({
 }).strict();
 export type ResearchJobTask = z.infer<typeof ResearchJobTask>;
 
+export const ResearchLiveDetail = z.object({
+  "company": z.string(),
+  "domain": z.string(),
+  "findings": z.number().int(),
+  "findings_by_kind": z.array(LiveKindCount),
+  "job_id": z.string(),
+  "label": z.string(),
+  "latest_findings": z.array(LiveFinding),
+  "open": z.boolean(),
+  "pages_read": z.number().int(),
+  "reason": z.string().nullable(),
+  "run_id": z.string().nullable(),
+  "searches": z.number().int(),
+  "steps": z.array(ProgressStep),
+  "tokens": z.number().int(),
+  "withheld": z.number().int(),
+}).strict();
+export type ResearchLiveDetail = z.infer<typeof ResearchLiveDetail>;
+
+export const ResearchLiveItem = z.object({
+  "can_stop": z.boolean(),
+  "company": z.string(),
+  "created_at": z.string().nullable(),
+  "domain": z.string(),
+  "findings": z.number().int(),
+  "finished_at": z.string().nullable(),
+  "job_id": z.string(),
+  "kind": z.string(),
+  "label": z.string(),
+  "open": z.boolean(),
+  "run_id": z.string().nullable(),
+  "run_status": z.string().nullable(),
+  "scope": z.string(),
+  "searches": z.number().int(),
+  "started_at": z.string().nullable(),
+  "status": z.string(),
+  "step": LiveStepAt.nullable(),
+  "steps_done": z.number().int(),
+  "steps_total": z.number().int(),
+  "tokens": z.number().int(),
+  "topic": z.string().nullable(),
+}).strict();
+export type ResearchLiveItem = z.infer<typeof ResearchLiveItem>;
+
+export const ResearchLive = z.object({
+  "as_of": z.string(),
+  "detail": ResearchLiveDetail.nullable(),
+  "recent": z.array(ResearchLiveItem),
+  "running": z.array(ResearchLiveItem),
+}).strict();
+export type ResearchLive = z.infer<typeof ResearchLive>;
+
 export const ResearchResumed = z.object({
   "domain": z.string(),
   "job_id": z.string(),
@@ -2091,6 +2178,12 @@ export const ResearchStarted = z.object({
   "status": z.string(),
 }).strict();
 export type ResearchStarted = z.infer<typeof ResearchStarted>;
+
+export const ResearchStopped = z.object({
+  "job_id": z.string(),
+  "status": z.string(),
+}).strict();
+export type ResearchStopped = z.infer<typeof ResearchStopped>;
 
 export const ResetPasswordBody = z.object({
   "password": z.string(),
@@ -2188,6 +2281,7 @@ export const RunProgress = z.object({
   "stages_done": z.number().int(),
   "stages_total": z.number().int(),
   "status": z.string(),
+  "steps": z.array(ProgressStep).optional(),
   "text": z.string(),
 }).strict();
 export type RunProgress = z.infer<typeof RunProgress>;
@@ -2345,6 +2439,7 @@ export type SheetFilter = z.infer<typeof SheetFilter>;
 export const SheetRow = z.object({
   "cells": z.record(z.string(), z.string()),
   "link": z.string().nullable(),
+  "link_label": z.string().nullable().optional(),
   "n": z.number().int(),
 }).strict();
 export type SheetRow = z.infer<typeof SheetRow>;
@@ -3015,6 +3110,14 @@ export const KNOWN_VALUES = {
     "standard",
     "minimal"
   ],
+  "ProgressStep.state": [
+    "done",
+    "running",
+    "paused",
+    "waiting",
+    "stopped",
+    "not_reached"
+  ],
   "QuotaBody.dimension": [
     "accounts",
     "runs_per_period",
@@ -3282,7 +3385,10 @@ export const operations = {
   "POST /v1/notifications/{notification_id}/read": { method: "POST", path: "/v1/notifications/{notification_id}/read", plane: "tenant", status: 200, request: null, requestRequired: false, response: NotificationRead },
   "POST /v1/research": { method: "POST", path: "/v1/research", plane: "tenant", status: 201, request: ResearchBody, requestRequired: true, response: ResearchStarted },
   "GET /v1/research/estimate": { method: "GET", path: "/v1/research/estimate", plane: "tenant", status: 200, request: null, requestRequired: false, response: ResearchEstimate },
+  "GET /v1/research/live": { method: "GET", path: "/v1/research/live", plane: "tenant", status: 200, request: null, requestRequired: false, response: ResearchLive },
+  "GET /v1/research/live/stream": { method: "GET", path: "/v1/research/live/stream", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/research/resume": { method: "POST", path: "/v1/research/resume", plane: "tenant", status: 201, request: ResumeBody, requestRequired: true, response: ResearchResumed },
+  "POST /v1/research/{job_id}/stop": { method: "POST", path: "/v1/research/{job_id}/stop", plane: "tenant", status: 200, request: null, requestRequired: false, response: ResearchStopped },
   "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunPage },
   "POST /v1/runs": { method: "POST", path: "/v1/runs", plane: "tenant", status: 202, request: RunBody, requestRequired: true, response: RunCreated },
   "GET /v1/runs/pull-option": { method: "GET", path: "/v1/runs/pull-option", plane: "tenant", status: 200, request: null, requestRequired: false, response: PullOption },

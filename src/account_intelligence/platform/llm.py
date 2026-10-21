@@ -24,11 +24,16 @@ provider and model. Verified against the installed ``anthropic`` package (1.11.0
   that opens the user turn as its own cached block, and a ``BatchSlot`` that sends it through
   the Message Batches API at half price. A batched call's system block is cached for one hour
   (``ttl: 1h``): batches finish minutes apart, past the five-minute default.
+* Prompt-cache warm gate (2026-10-21, ``platform.prompt_cache``): calls that share a cached
+  prefix and arrive together no longer each write it. One call leads (streamed, so its siblings
+  go at its first event and read what it wrote); batched siblings get one standard leader. A
+  ``SystemPrompt`` is sent as one cached block per part, most widely shared first, and every
+  call logs ``llm.usage`` with its cache reads and writes (``scripts/cache_report.py``).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -44,6 +49,7 @@ from account_intelligence.platform.ports import (
     LlmUsage,
     NotConfigured,
 )
+from account_intelligence.platform.prompt_cache import GATE, RATIO, prefix_key, system_blocks
 from obs.logging import logger
 
 log = logger("platform.llm")
@@ -234,30 +240,89 @@ class AnthropicLlm:
         schema_key = _schema_key(options.schema)
         if schema_key in _REFUSED_SCHEMAS:
             options = CallOptions(options.cached_user, None, options.batch, options.effort)
-        if options.batch is not None and _has_batches(self.client):
-            batched = await self._batched(route, system, user, max_tokens, options)
-            if batched is not None:
-                return batched
-        return await self._standard(route, system, user, max_tokens, options)
+        batched = options.batch is not None and _has_batches(self.client)
+        # the prefix exactly as this call will send it (a batched call caches for one hour)
+        prefix = prefix_key(
+            request_kwargs(route, system, user, max_tokens, options, ttl="1h" if batched else None)
+        )
+        if prefix is None or not GATE.enabled:
+            role, lead = ("none" if prefix is None else "off"), None
+        else:
+            role, lead = await GATE.enter(prefix, batched=batched)
+        started = GATE.clock()
+        try:
+            if batched and (lead is None or not lead.standard):
+                if lead is not None:
+                    lead.release()
+                result = await self._batched(route, system, user, max_tokens, options)
+                if result is None:
+                    result = await self._standard(route, system, user, max_tokens, options)
+            else:
+                # a lead of waiting siblings goes standard and streamed, with the batch's
+                # lifetime, and lets them go at its first event
+                result = await self._standard(
+                    route,
+                    system,
+                    user,
+                    max_tokens,
+                    options,
+                    ttl="1h" if batched else None,
+                    on_start=lead.release if lead is not None else None,
+                )
+        finally:
+            if lead is not None:
+                lead.release()
+        if prefix is not None:
+            usage = result.usage
+            GATE.warmed(
+                prefix,
+                int(usage.cache_read_input_tokens or 0),
+                int(usage.cache_creation_input_tokens or 0),
+                started,
+            )
+        _log_usage(route, result, role)
+        return result
 
     async def _standard(
-        self, route: ModelRoute, system: str, user: str, max_tokens: int, options: CallOptions
+        self,
+        route: ModelRoute,
+        system: str,
+        user: str,
+        max_tokens: int,
+        options: CallOptions,
+        *,
+        ttl: str | None = None,
+        on_start: Callable[[], None] | None = None,
     ) -> LlmResult:
-        """One ``messages.create``; a structured-output schema the API refuses (400 naming the
-        schema or format) is remembered and the call is made once more without it."""
-        kwargs = request_kwargs(route, system, user, max_tokens, options)
+        """One standard call; a structured-output schema the API refuses (400 naming the schema
+        or format) is remembered and the call is made once more without it. With ``on_start``
+        the call is streamed and ``on_start`` runs at its first event: the moment its cache
+        write becomes readable to the calls waiting on it."""
+        kwargs = request_kwargs(route, system, user, max_tokens, options, ttl=ttl)
         try:
-            message = await self.client.messages.create(**kwargs)
+            message = await self._send(kwargs, on_start)
         except Exception as error:  # noqa: BLE001 - narrowed below, everything else re-raised
             if options.schema is None or not _schema_refused(error):
                 raise
             _REFUSED_SCHEMAS.add(_schema_key(options.schema))
             log.warning("llm.schema_refused", extra={"model": route.model, "tier": route.tier})
             plain = CallOptions(options.cached_user, None, None, options.effort)
-            message = await self.client.messages.create(
-                **request_kwargs(route, system, user, max_tokens, plain)
+            message = await self._send(
+                request_kwargs(route, system, user, max_tokens, plain, ttl=ttl), on_start
             )
         return self._result(message, batch=False)
+
+    async def _send(self, kwargs: dict[str, Any], on_start: Callable[[], None] | None) -> Any:
+        """``messages.create``, or with ``on_start`` and a client that streams, the same request
+        streamed (the final message is the same object ``create`` returns)."""
+        stream = getattr(self.client.messages, "stream", None)
+        if on_start is None or stream is None:
+            return await self.client.messages.create(**kwargs)
+        async with stream(**kwargs) as events:
+            async for _event in events:
+                on_start()  # the response has begun: the prefix is readable now
+                break
+            return await events.get_final_message()
 
     async def _batched(
         self, route: ModelRoute, system: str, user: str, max_tokens: int, options: CallOptions
@@ -335,6 +400,43 @@ class AnthropicLlm:
         )
 
 
+def _log_usage(route: ModelRoute, result: LlmResult, role: str) -> None:
+    """One line per research call: its token classes and how it met the prompt cache (``kind``:
+    warm, follow, lead or none), so the cache-read share is measurable from the logs."""
+    usage = result.usage
+    log.info(
+        "llm.usage",
+        extra={
+            "tier": route.tier,
+            "model": result.model,
+            "kind": role,
+            "batch": bool(result.extra.get("batch")),
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "cache_read_tokens": int(usage.cache_read_input_tokens or 0),
+            "cache_write_tokens": int(usage.cache_creation_input_tokens or 0),
+            "cache_write_1h_tokens": int(usage.cache_creation_1h_input_tokens or 0),
+            "stop_reason": result.extra.get("stop_reason"),
+        },
+    )
+    # the catalog metrics behind the models dashboard and the cache_ratio_low alert
+    from obs.setup import record
+
+    read = int(usage.cache_read_input_tokens or 0)
+    written = int(usage.cache_creation_input_tokens or 0)
+    for kind, tokens in (
+        ("input", usage.input_tokens),
+        ("output", usage.output_tokens),
+        ("cache_read", read),
+        ("cache_write", written),
+    ):
+        if tokens:
+            record("llm_tokens_total", tokens, {"tier": route.tier, "token_kind": kind})
+    ratio = RATIO.add(route.tier, read, written, int(usage.input_tokens))
+    if ratio is not None:
+        record("cache_read_ratio", ratio, {"tier": route.tier})
+
+
 def request_kwargs(
     route: ModelRoute,
     system: str,
@@ -345,7 +447,8 @@ def request_kwargs(
     ttl: str | None = None,
 ) -> dict[str, Any]:
     """The ``messages.create`` arguments for one call: the task's effort and, when configured, the
-    system prompt as one cached block (the only static prefix; run data stays in the user turn).
+    system prompt as cached blocks (one per ``SystemPrompt`` part, most widely shared first; run
+    data stays in the user turn).
     A ``cached_user`` document opens the user turn as a second cached block, ahead of the
     question; a ``schema`` becomes structured output."""
     options = options or CallOptions()
@@ -363,9 +466,9 @@ def request_kwargs(
         "model": route.model,
         "max_tokens": max_tokens,
         "system": (
-            [{"type": "text", "text": system, "cache_control": dict(cache)}]
+            system_blocks(system, cache, reserved=1 if options.cached_user else 0)
             if route.prompt_cache
-            else system
+            else str(system)
         ),
         "messages": [{"role": "user", "content": content}],
     }

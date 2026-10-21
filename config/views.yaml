@@ -27,4 +27,14 @@ progress:
   sse_max_duration_s: 60        # a stream ends within the membership-cache bound; the client
                                 # reconnects (with Last-Event-ID) and is authorised again
   sse_heartbeat_s: 15
-  sse_poll_s: 2
+  sse_poll_s: 1                 # a step is on screen within a second of the graph saving it
+                                # (owner request 2026-10-21; each tick is a few indexed reads)
+# The Research screen (api.routes.live): every web research running and recent, live
+live:
+  poll_s: 1                     # the snapshot is read again each second, sent when it changed
+  max_duration_s: 60            # within the membership-cache bound; the browser reconnects
+  heartbeat_s: 15
+  idle_retry_s: 5               # nothing running: one snapshot, then the browser asks again
+  recent_days: 14               # finished research listed for this many days
+  recent_limit: 20
+  latest_findings: 25           # newest findings shown for the selected research

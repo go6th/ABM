@@ -148,8 +148,12 @@ def test_each_step_reads_what_it_needs() -> None:
     assert "output-spec.md" not in skill_context("abm_pass1_extract")
 
 
-def test_the_prompt_is_followed_by_the_context_or_stands_alone() -> None:
-    assert with_skill_context("PROMPT", "abm_distill").startswith("PROMPT\n\n")
+def test_the_context_precedes_the_prompt_or_the_prompt_stands_alone() -> None:
+    # most shared first (prompt caching matches prefixes): the session appendix, the skill, then
+    # the step's own prompt
+    prompt = with_skill_context("PROMPT", "abm_distill")
+    assert prompt.endswith("Your task:\n\nPROMPT")
+    assert prompt.startswith(SESSION_ENVIRONMENT_DIRECTIVE)
     assert "research skill" in with_skill_context("PROMPT", "abm_distill")
     assert with_skill_context("PROMPT", "not_a_task") == "PROMPT"
     with pytest.raises(FileNotFoundError, match="required ABM skill file is missing"):

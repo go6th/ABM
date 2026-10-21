@@ -81,6 +81,9 @@ class ReasonCode(StrEnum):
     # Added by the two research input modes (input mode "file"):
     NOT_IN_UPLOADED_DATA = "not_in_uploaded_data"
     NOT_SEARCHED_FILE_ONLY = "not_searched_file_only"
+    # Added 2026-10-21: an internal-history row on a run without the client's mail, notes and
+    # files switched on (the skill never substitutes web searches for it)
+    NO_INTERNAL_ACCESS = "no_internal_access"
 
 
 SWEEP_REASONS = frozenset(

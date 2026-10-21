@@ -34,9 +34,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Coroutine, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, TypedDict, cast
+from typing import Annotated, Any, Literal, TypedDict, TypeVar, cast
 from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
@@ -51,7 +51,9 @@ from agents.distill.agent import distill
 from agents.errors import BudgetExceeded, GuardViolation, NoPulledData, StalePullsNeedDecision
 from agents.extraction import ExtractionResult, extract, groups
 from agents.guards import (
+    ACCOUNT_KEYED_NEEDS,
     OFF_TARGET_EXEMPT_ROWS,
+    STATED_GAPS,
     consent_decision,
     coverage_verdict,
     facts_digest,
@@ -104,6 +106,7 @@ from llm.errors import (
 from obs.logging import logger
 
 _log = logger(__name__)
+T = TypeVar("T")
 MAX_SPEND_PAUSES = 3
 STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "people")
 # extraction calls in flight at once per step (each call is independent; see _interpret)
@@ -225,14 +228,47 @@ def model_failure_code(error: BaseException) -> str | None:
     return None
 
 
+async def _all_or_none(coros: Iterable[Coroutine[Any, Any, T]]) -> list[T]:
+    """Run the calls side by side and return their results in order. The first failure cancels
+    the others (none keeps paying for a model call, or saving facts, for a node that has already
+    failed) and is raised as itself, so the node's retry policy and its model-failure outcome
+    still see the real error."""
+    try:
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(c) for c in coros]
+    except BaseExceptionGroup as failed:
+        raise failed.exceptions[0]  # noqa: B904 - the original error, its own cause kept
+    return [t.result() for t in tasks]
+
+
 def _in_scope(state: AbmState, cfg: SkillConfig) -> set[str]:
     """The rows this run pulls: its job's scope, or the whole plan."""
     rows = state.get("scope_rows")
     return set(cfg.plan) if not rows else set(rows) & set(cfg.plan)
 
 
+# the skill's spend priority inside the cap (phase1-pull.md): people completeness first, then the
+# structured feeds, stack and teams, then releases, media and searches. Rows used to be pulled in
+# step and name order, so a capped run spent its budget on the first pass 1 searches and never
+# reached jobs, technology or people (audit 2026-10-21).
+SPEND_PRIORITY: Mapping[str, int] = {"people": 0, "feeds": 1, "searches": 2}
+
+
+def _spend_class(row: Any) -> str:
+    if row.step == "people" or row.need in ("people_by_title", "people_by_technology"):
+        return "people"
+    return "feeds" if row.need in ACCOUNT_KEYED_NEEDS else "searches"
+
+
 def _plan_order(cfg: SkillConfig) -> list[str]:
-    return sorted(cfg.plan, key=lambda k: (STEP_ORDER[cfg.plan[k].step], k))
+    return sorted(
+        cfg.plan,
+        key=lambda k: (
+            SPEND_PRIORITY[_spend_class(cfg.plan[k])],
+            STEP_ORDER[cfg.plan[k].step],
+            k,
+        ),
+    )
 
 
 RETRIED_NODES = frozenset(
@@ -299,6 +335,16 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             if key not in in_scope:
                 # outside this job's scope: reported "not planned for this run", never silent
                 rows.append(agent.blocked(cfg.plan[key], "not_planned"))
+                continue
+            if (
+                cfg.plan[key].step == "people"
+                and problem is None
+                and not getattr(deps.grading, "records_people", True)
+            ):
+                # the people step's findings cannot be saved yet, so its pulls are not paid for
+                # only to be thrown away (OI-ABM-4; audit 2026-10-21). Missing consent is the
+                # reason the client can act on, so it is reported first (the agent's own check)
+                rows.append(agent.blocked(cfg.plan[key], "people_not_recorded"))
                 continue
             try:
                 rows.append(
@@ -382,9 +428,11 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         return manifest
 
     async def _views(ctx: RunContext, rows: list[ManifestRow]) -> list[PayloadView]:
-        return [
-            await deps.payloads.view(ctx.tenant_id, ref) for r in rows for ref in r.payload_refs
-        ]
+        # a row stores one payload per item per phrasing: a feed returns the same records for
+        # each of its phrasings, and two searches often return the same page. Each payload is
+        # read once (audit 2026-10-21: news records reached the extractor six times)
+        refs = dict.fromkeys(ref for r in rows for ref in r.payload_refs)
+        return [await deps.payloads.view(ctx.tenant_id, ref) for ref in refs]
 
     async def _interpret(
         ctx: RunContext, views: list[PayloadView], consent_ok: bool
@@ -399,8 +447,11 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             for v in views
             # the client's own material (internal history) is about the account by construction;
             # environment rows (competitors, the sector) are about other companies by design
+            # feeds pulled by the account's own domain or organization id are about it by
+            # construction, though a record's text rarely names it (audit 2026-10-21)
             if v.visibility != "public"
             or v.row_key in OFF_TARGET_EXEMPT_ROWS
+            or cfg.plan[v.row_key].need in ACCOUNT_KEYED_NEEDS
             or on_target(ctx.domain, ctx.account_name, v.url, v.text)
         ]
         if len(kept) < len(views):
@@ -410,18 +461,20 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 extra={"count": len(views) - len(kept), "rows": len(views)},
             )
         views = kept
+        # every source group's findings are graded and saved as soon as that group's last call
+        # returns, so the client sees facts while the rest of the node is still reading
+        # (audit 2026-10-21: every fact used to wait for the slowest call of the whole node)
         try:
             await _extract_steps(ctx, views, consent_ok, drops, candidates, people)
         except Exception:
             # a model failure part-way (credits, usage limit, outage): grade and keep what the
-            # earlier steps found before the run stops, so a stopped run shows its findings
-            # instead of nothing (audit 2026-10-15); a cancelled slice is not this
-            if candidates:
+            # groups still in hand found before the run stops, so a stopped run shows its
+            # findings instead of nothing (audit 2026-10-15); a cancelled slice is not this
+            if candidates or people:
                 # the original failure is what the run reports; a grading error must not hide it
                 with contextlib.suppress(Exception):
                     await _grade_and_record(ctx, candidates, people, drops)
             raise
-        await _grade_and_record(ctx, candidates, people, drops)
         return drops
 
     async def _extract_steps(
@@ -432,6 +485,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         candidates: list[GradingCandidate],
         people: list[Any],
     ) -> None:
+        grading_lock = asyncio.Lock()
         for step in STEPS:
             if step == "people" and not consent_ok:
                 continue
@@ -462,14 +516,36 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                         res.drops["context_too_long"] += 1
                         return res
 
-            # batches are independent calls: run them side by side, keep their order
-            for res in await asyncio.gather(*(one(g) for g in groups(cfg, views, step))):
-                if res is None:
-                    drops[f"{step}_budget_exceeded"] += 1
-                    continue
-                candidates += res.candidates
-                people += res.people
-                drops.update(res.drops)
+            async def need(inputs: list[ExtractionInput], step: str = step) -> None:
+                """One route need's batches side by side (kept in order), then its findings
+                graded and saved at once. A checklist row has exactly one step and one need
+                (``extraction.groups``), so a need holds every candidate of its rows: grading it
+                alone sees the same evidence per attribute as grading the whole node."""
+                found: list[GradingCandidate] = []
+                met: list[Any] = []
+                for res in await _all_or_none(one(g) for g in inputs):
+                    if res is None:
+                        drops[f"{step}_budget_exceeded"] += 1
+                        continue
+                    found += res.candidates
+                    met += res.people
+                    drops.update(res.drops)
+                # held as the node's ungraded findings until saved, so a failure in another
+                # need still salvages them (see _interpret)
+                candidates.extend(found)
+                people.extend(met)
+                async with grading_lock:
+                    # one grading at a time: the engine pins the run's config and reads its
+                    # lead states per batch
+                    await _grade_and_record(ctx, found, met, drops)
+                saved = {id(x) for x in (*found, *met)}
+                candidates[:] = [c for c in candidates if id(c) not in saved]
+                people[:] = [p for p in people if id(p) not in saved]
+
+            by_need: dict[str, list[ExtractionInput]] = {}
+            for g in groups(cfg, views, step):
+                by_need.setdefault(g.group, []).append(g)
+            await _all_or_none(need(inputs) for inputs in by_need.values())
 
     async def _grade_and_record(
         ctx: RunContext,
@@ -790,7 +866,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         ctx = context(state)
         await deps.delivery.release(ctx, state.get("client_files") or [])
         rows = await deps.tracker.rows(ctx)
-        complete = all(r.status in ("done", "none") for r in rows.values())
+        # a stated gap the client chose (internal history not switched on) is not a missing step:
+        # the tracker's completion policy allows it the same way
+        # (config/tracker_v1.yaml high_reasons_allowed_for_completed)
+        complete = all(
+            r.status in ("done", "none") or r.reason in STATED_GAPS for r in rows.values()
+        )
         return {"outcome": "completed" if complete else "partial"}
 
     async def finish(state: AbmState) -> dict[str, Any]:

@@ -24,6 +24,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from account_intelligence.replica.answers import LANE_LABEL, day_month
+from account_intelligence.replica.source_label import source_link
 from account_intelligence.replica.workspace import FACT_CLASS, relative
 from exports.policy import leak_hits
 
@@ -512,6 +513,13 @@ def parse(
     )
 
 
+def link_fields(raw: Any) -> dict[str, str | None]:
+    """A row's source link as the client sees it (``source_label``): ``link`` opens the original
+    page, ``link_label`` reads "6th / LinkedIn"; a data provider's own page has no link."""
+    found = source_link(raw)
+    return {"link": found.href if found else None, "link_label": found.label if found else None}
+
+
 def display(col: Col, value: Any, now: datetime) -> str:
     """The cell as the sheet shows it (and as the export writes it)."""
     if value is None:
@@ -595,7 +603,7 @@ async def read(
             {
                 "n": offset + i + 1,
                 "cells": {c.key: display(c, r.get(c.key), now) for c in q.sheet.cols},
-                "link": r.get("link") if isinstance(r.get("link"), str) else None,
+                **link_fields(r.get("link")),
             }
             for i, r in enumerate(rows)
         ],
@@ -683,18 +691,31 @@ def workbook(sheet: dict[str, Any], account_name: str) -> bytes:
     put(ws, 1, ["#"] + [c["label"] for c in cols])
     for cell in ws[1]:
         cell.font = Font(bold=True)
+    link_font = Font(color="0563C1", underline="single")
     for i, row in enumerate(sheet["rows"], start=2):
+        # a link cell reads "6th / LinkedIn" and opens the original page (source_label)
         put(
             ws,
             i,
             [row["n"]]
-            + [row["link"] if c["kind"] == "link" else row["cells"][c["key"]] for c in cols],
+            + [
+                row.get("link_label") or "" if c["kind"] == "link" else row["cells"].get(c["key"])
+                for c in cols
+            ],
         )
+        for col_no, c in enumerate(cols, start=2):
+            if c["kind"] == "link" and row.get("link"):
+                cell = ws.cell(row=i, column=col_no)
+                cell.hyperlink = row["link"]
+                cell.font = link_font
     ws.freeze_panes = "B2"
     for i, c in enumerate(cols, start=2):
         width = max(
             [len(c["label"])]
-            + [len(str(r["cells"][c["key"]] or r["link"] or "")) for r in sheet["rows"]]
+            + [
+                len(str(r["cells"].get(c["key"]) or r.get("link_label") or ""))
+                for r in sheet["rows"]
+            ]
         )
         ws.column_dimensions[get_column_letter(i)].width = min(60, max(10, width + 2))
     ws.column_dimensions["A"].width = 6

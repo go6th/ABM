@@ -12,15 +12,26 @@ What the archive holds:
 
 Raw provider responses are left out (owner decision default). The archive is written to object
 storage in zip parts of about ``PART_BYTES`` (a part holds whole files, so one very large file
-makes its part larger); nothing holds the archive, a table or a file in memory. A part is fetched
-with a short-lived link: a random token (stored only as its hash) valid ``LINK_TTL_S``, renewed
-each time the status is read, with range requests (``open_part``).
+makes its part larger); nothing holds the archive, a table or a file in memory. Compressing and
+copying into a part run in a worker thread, one file at a time: the archive is CPU and disk work,
+and on the event loop it stalled every other request of the worker, its liveness probe included,
+until Cloud Run killed the instance and a research slice on it (staging, 2026-10-20). A part is
+fetched with a short-lived link: a random token (stored only as its hash) valid ``LINK_TTL_S``,
+renewed each time the status is read, with range requests (``open_part``).
+
+A build that dies with its instance never stays "running" (staging, 2026-10-20: the retry found the
+job running, skipped it with 200 and the page waited for ever). While a build runs it beats every
+``BEAT_S`` (``started_at`` moves forward); a task that finds a running job with a fresh beat answers
+"busy" so the queue retries it, and one whose beat is older than ``STALE_S`` takes the job over and
+builds it again. A job nobody builds any more is ended failed when its status is read
+(``ABANDONED_S``), so the page offers Try again instead of waiting.
 
 GUARANTEE(test_download_everything_builds_parts_with_every_table_and_a_short_lived_link)
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -41,6 +52,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 PART_BYTES = 2 * 1024**3  # about 2 GiB per zip part
 LINK_TTL_S = 3600
 COPY = 1 << 20
+BEAT_S = 30  # a running build moves ``started_at`` forward this often
+STALE_S = 120  # a running build silent this long has died: a retry takes it over
+ABANDONED_S = 900  # queued or running this long with no beat: nobody builds it any more
+STOPPED = "The archive build stopped before it finished. Try again."
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
 
 
@@ -78,7 +93,16 @@ async def start(s: Any, account_id: UUID, request_id: UUID) -> UUID:
 
 
 async def view(s: Any, job_id: UUID, now: datetime) -> dict[str, Any] | None:
-    """The job's status; when ready, its parts with a fresh short-lived link each."""
+    """The job's status; when ready, its parts with a fresh short-lived link each. A job nobody
+    builds any more (no beat for ``ABANDONED_S``) is ended failed here."""
+    await s.execute(
+        text(
+            "UPDATE download_jobs SET status = 'failed', failure = :f, finished_at = :now"
+            " WHERE id = :j AND status IN ('queued', 'running')"
+            " AND coalesce(started_at, created_at) < :cut"
+        ),
+        {"j": job_id, "f": STOPPED, "now": now, "cut": now - timedelta(seconds=ABANDONED_S)},
+    )
     row = (
         await s.execute(
             text(
@@ -158,20 +182,26 @@ class Sources:
 
 
 async def build(tenant_id: UUID, job_id: UUID, src: Sources) -> str:
-    """Build the archive (see the module docstring); the job's end status. Idempotent: a job that
-    is not queued is left as it is."""
+    """Build the archive (see the module docstring); the job's end status. A ready or failed job
+    is left as it is ("skipped"); a running one with a fresh beat is "busy" (the task asks the
+    queue to retry); a running one whose beat is older than ``STALE_S`` is taken over."""
     async with src.txn(tenant_id) as s:
         job = (
             await s.execute(
                 text(
                     "UPDATE download_jobs SET status = 'running', started_at = now()"
-                    " WHERE id = :j AND status = 'queued' RETURNING account_id, owner_user_id"
+                    " WHERE id = :j AND (status = 'queued' OR (status = 'running'"
+                    " AND started_at < now() - make_interval(secs => :stale)))"
+                    " RETURNING account_id, owner_user_id"
                 ),
-                {"j": job_id},
+                {"j": job_id, "stale": STALE_S},
             )
         ).first()
         if job is None:
-            return "skipped"
+            state = await s.scalar(
+                text("SELECT status FROM download_jobs WHERE id = :j"), {"j": job_id}
+            )
+            return "busy" if state == "running" else "skipped"
         account_id, user_id = UUID(str(job.account_id)), str(job.owner_user_id)
         name = str(
             await s.scalar(
@@ -181,11 +211,13 @@ async def build(tenant_id: UUID, job_id: UUID, src: Sources) -> str:
         )
     work = Path(tempfile.mkdtemp(prefix="everything-"))
     writer = _Parts(tenant_id, job_id, name, work, src)
+    beat = asyncio.create_task(_beat(tenant_id, job_id, src))
     try:
         notes = await _fill(tenant_id, account_id, user_id, name, writer, work, src)
-        writer.add_bytes("README.txt", _readme(name, notes).encode("utf-8"))
+        await writer.add_bytes("README.txt", _readme(name, notes).encode("utf-8"))
         parts = await writer.close()
     except Exception as error:  # noqa: BLE001 - the job records why; nothing half-built stays
+        beat.cancel()
         await writer.discard()
         async with src.txn(tenant_id) as s:
             await s.execute(
@@ -197,6 +229,7 @@ async def build(tenant_id: UUID, job_id: UUID, src: Sources) -> str:
             )
         return "failed"
     finally:
+        beat.cancel()
         for left in work.glob("*"):
             left.unlink(missing_ok=True)
         work.rmdir()
@@ -214,6 +247,24 @@ async def build(tenant_id: UUID, job_id: UUID, src: Sources) -> str:
             },
         )
     return "ready"
+
+
+async def _beat(tenant_id: UUID, job_id: UUID, src: Sources) -> None:
+    """Move the running job's ``started_at`` forward every ``BEAT_S`` until cancelled."""
+    # LOOP(archive heartbeat): cap=the build's length / BEAT_S; exit=cancelled when the build ends
+    while True:
+        await asyncio.sleep(BEAT_S)
+        try:
+            async with src.txn(tenant_id) as s:
+                await s.execute(
+                    text(
+                        "UPDATE download_jobs SET started_at = now()"
+                        " WHERE id = :j AND status = 'running'"
+                    ),
+                    {"j": job_id},
+                )
+        except Exception:  # noqa: BLE001 - a missed beat is retried at the next one
+            continue
 
 
 async def _fill(
@@ -263,21 +314,23 @@ async def _fill(
     for d in deliverables:
         key = keys.get(d["id"])
         if key:
-            writer.add_bytes(f"Deliverables/{d['filename']}", await src.payloads.get(key))
+            await writer.add_bytes(f"Deliverables/{d['filename']}", await src.payloads.get(key))
     for sheet in SH.SHEETS:
         q = SH.parse(sheet, None, None, None)
         title = q.sheet.title.replace("/", "-")
         csv_path = work / f"{sheet}.csv"
         async with src.txn(tenant_id) as s:
             with csv_path.open("wb") as out:
-                async for chunk in TX.csv_chunks(q, TX.rows(s, q, account_id, user_id, now)):
+                rows = _yielding(TX.rows(s, q, account_id, user_id, now))
+                async for chunk in TX.csv_chunks(q, rows):
                     out.write(chunk)
-        writer.add_file(f"Tables/{title}.csv", csv_path)
+        await writer.add_file(f"Tables/{title}.csv", csv_path)
         xlsx_path = work / f"{sheet}.xlsx"
         try:
             async with src.txn(tenant_id) as s:
-                await TX.write_xlsx(xlsx_path, q, name, TX.rows(s, q, account_id, user_id, now))
-            writer.add_file(f"Tables/{title}.xlsx", xlsx_path)
+                rows = _yielding(TX.rows(s, q, account_id, user_id, now))
+                await TX.write_xlsx(xlsx_path, q, name, rows)
+            await writer.add_file(f"Tables/{title}.xlsx", xlsx_path)
         except SH.ExportBlocked:
             notes.append(f"Tables/{title}.xlsx was held back by a safety check (the CSV is in).")
         csv_path.unlink(missing_ok=True)
@@ -285,7 +338,7 @@ async def _fill(
     folder = "Internal - your files"
     for n, row in enumerate(internal, start=1):
         stamp = row.created_at.strftime("%Y-%m-%d")
-        writer.add_bytes(
+        await writer.add_bytes(
             f"{folder}/File findings {stamp} ({n}).docx", await src.payloads.get(row.object_key)
         )
     for row in documents:
@@ -295,8 +348,18 @@ async def _fill(
             notes.append(f"{folder}/{row.name} was no longer in storage.")
             continue
         with reader:
-            writer.add_stream(f"{folder}/{row.name}", reader)
+            await writer.add_stream(f"{folder}/{row.name}", reader)
     return notes
+
+
+async def _yielding(source: AsyncIterator[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
+    """The rows, handing the event loop a turn after each: every cell is checked for client-file
+    safety on the loop, so a table of many thousand rows would otherwise hold it between two
+    database pages."""
+    # LOOP(archive table rows): cap=the table's rows; exit=end of the table
+    async for row in source:
+        yield row
+        await asyncio.sleep(0)
 
 
 def _readme(name: str, notes: list[str]) -> str:
@@ -315,7 +378,9 @@ def _readme(name: str, notes: list[str]) -> str:
 
 
 class _Parts:
-    """Zip parts on local disk, each sent to storage when it is full."""
+    """Zip parts on local disk, each sent to storage when it is full. Every write runs in a worker
+    thread (``asyncio.to_thread``) and is awaited before the next, so one thread touches the zip at
+    a time."""
 
     def __init__(self, tenant_id: UUID, job_id: UUID, name: str, work: Path, src: Sources):
         self.tenant_id, self.job_id, self.src, self.work = tenant_id, job_id, src, work
@@ -347,28 +412,31 @@ class _Parts:
         self.pending.append((self.n, self.path))
         self.zip, self.path = None, None
 
-    def add_bytes(self, arcname: str, data: bytes) -> None:
+    async def add_bytes(self, arcname: str, data: bytes) -> None:
         """One small file."""
-        self._current().writestr(arcname, data)
+        await asyncio.to_thread(lambda: self._current().writestr(arcname, data))
         self.files += 1
 
-    def add_file(self, arcname: str, path: Path) -> None:
+    async def add_file(self, arcname: str, path: Path) -> None:
         """One file from local disk (streamed)."""
-        self._current().write(path, arcname)
+        await asyncio.to_thread(lambda: self._current().write(path, arcname))
         self.files += 1
 
-    def add_stream(self, arcname: str, reader: IO[bytes]) -> None:
+    async def add_stream(self, arcname: str, reader: IO[bytes]) -> None:
         """One file from a reader, copied in blocks."""
+        await asyncio.to_thread(self._copy, arcname, reader)
+        self.files += 1
+
+    def _copy(self, arcname: str, reader: IO[bytes]) -> None:
         with self._current().open(arcname, "w", force_zip64=True) as out:
             # LOOP(archive copy): cap=the file's size / 1 MiB; exit=end of file
             while block := reader.read(COPY):
                 out.write(block)
-        self.files += 1
 
     async def close(self) -> list[dict[str, Any]]:
         """Seal the last part and send every part to storage; the parts' list."""
         if self.zip is not None:
-            self._seal()
+            await asyncio.to_thread(self._seal)
         total = len(self.pending)
         for n, path in self.pending:
             key = part_key(self.tenant_id, self.job_id, n)
@@ -390,6 +458,6 @@ class _Parts:
     async def discard(self) -> None:
         """Remove whatever was built (a failed job leaves nothing)."""
         if self.zip is not None:
-            self.zip.close()
+            await asyncio.to_thread(self.zip.close)
         for p in self.done:
             await self.src.blobs.delete(p["key"])

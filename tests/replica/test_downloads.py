@@ -102,3 +102,46 @@ async def test_download_everything_builds_parts_with_every_table_and_a_short_liv
     assert (await _call(colleague, "GET", f"/v1/downloads/{job['job_id']}")).status_code == 404
     async with tenant_txn(world["a"], user="colleague-test", system=False) as s:
         assert await D.view(s, D.UUID(job["job_id"]), D.datetime.now(D.UTC)) is None
+
+
+async def test_a_build_that_died_is_taken_over_and_an_abandoned_job_ends_failed(
+    world: dict[str, Any],
+) -> None:
+    """Staging 2026-10-20: the instance building an archive was killed, the retry found the job
+    running and skipped it, and the page waited for ever. A running job with a fresh beat is busy
+    (the queue retries), one whose beat stopped is taken over, and one nobody builds any more is
+    ended failed when its status is read."""
+    from account_intelligence.api.routes.tasks import sources
+    from account_intelligence.db.session import acting_as
+
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    path = "/v1/accounts/highmark.example/download-everything"
+    job = (await _call(plane, "POST", path, json={"request_id": str(uuid4())})).json()
+    job_id = D.UUID(job["job_id"])
+    src = sources(plane.app.state.container)
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute(
+            "UPDATE download_jobs SET status = 'running', started_at = now() WHERE id = %s",
+            (job["job_id"],),
+        )
+    with acting_as("priya-test"):
+        assert await D.build(world["a"], job_id, src) == "busy"
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute(
+            "UPDATE download_jobs SET started_at = now() - interval '5 minutes' WHERE id = %s",
+            (job["job_id"],),
+        )
+    with acting_as("priya-test"):
+        assert await D.build(world["a"], job_id, src) == "ready"
+    assert (await _call(plane, "GET", f"/v1/downloads/{job_id}")).json()["status"] == "ready"
+
+    left = (await _call(plane, "POST", path, json={"request_id": str(uuid4())})).json()
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute(
+            "UPDATE download_jobs SET created_at = now() - interval '1 hour' WHERE id = %s",
+            (left["job_id"],),
+        )
+    seen = (await _call(plane, "GET", f"/v1/downloads/{left['job_id']}")).json()
+    assert seen["status"] == "failed" and seen["failure"] == D.STOPPED
+    with acting_as("priya-test"):
+        assert await D.build(world["a"], D.UUID(left["job_id"]), src) == "skipped"

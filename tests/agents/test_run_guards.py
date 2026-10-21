@@ -100,7 +100,11 @@ async def test_g7_a_run_with_no_credits_blocks_paid_rows_and_keeps_free_ones(h: 
     rows = manifest(h, record.run_id)
     paid = [r for k, r in rows.items() if h.cfg.plan[k].need in PAID and not h.cfg.plan[k].people]
     free = [
-        r for k, r in rows.items() if h.cfg.plan[k].need not in PAID and not h.cfg.plan[k].people
+        r
+        for k, r in rows.items()
+        if h.cfg.plan[k].need not in PAID
+        and not h.cfg.plan[k].people
+        and not h.cfg.plan[k].internal_history  # skipped without internal access, not paid
     ]
     assert paid and all(r.blocked_reason == "budget_cap" for r in paid)
     assert free and all(r.status == "stored" for r in free)

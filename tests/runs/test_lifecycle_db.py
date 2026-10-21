@@ -294,12 +294,17 @@ async def test_a_run_with_a_high_row_unset_never_ends_completed() -> None:
 
 async def test_the_abm_deliver_step_still_reports_partial_when_rows_are_open() -> None:
     """A guard on the source: the ABM graph's deliver step decides "completed" only when every
-    coverage row is done or none (the replica keeps it; see FIX_LOG decision D1)."""
+    coverage row is done or none, or a stated gap the client chose (internal history not
+    switched on: ``agents.guards.STATED_GAPS``, allowed the same way by the tracker's completion
+    policy) (the replica keeps it; see FIX_LOG decision D1)."""
     import inspect
 
     from agents import graph
 
     source = inspect.getsource(graph.build_abm_graph)
     deliver = source[source.index("async def deliver(") : source.index("async def finish(")]
-    assert 'all(r.status in ("done", "none")' in deliver
+    assert 'r.status in ("done", "none") or r.reason in STATED_GAPS' in deliver
+    from agents.guards import STATED_GAPS
+
+    assert {"no_internal_access"} == STATED_GAPS
     assert '"completed" if complete else "partial"' in deliver

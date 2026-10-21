@@ -75,6 +75,11 @@ def coverage_verdict(
     return CoverageVerdict(not missing and not unproven, tuple(missing), tuple(unproven))
 
 
+# Row reasons that are a gap the client chose, not a missing step: a run whose other rows are all
+# Done or None still completes (config/tracker_v1.yaml high_reasons_allowed_for_completed)
+STATED_GAPS = frozenset({"no_internal_access"})
+
+
 # G1b: a pulled page is about the account --------------------------------------------------------
 
 MIN_NAME_CHARS = 4  # a shorter name ("6th") is in too much text: it must appear twice to count
@@ -88,6 +93,13 @@ OFF_TARGET_EXEMPT_ROWS = frozenset(
         "events_sponsored",
     }
 )
+
+
+# route needs whose calls are keyed by the account's own domain or organization id (feeds, people
+# by technology): their records are about the account by construction, though a record's text (a
+# technology name, a person's title) rarely names it, so they are not checked either (audit
+# 2026-10-21: the check dropped hundreds of such records per run)
+ACCOUNT_KEYED_NEEDS = frozenset({"structured_signals", "people_by_technology", "people_by_title"})
 
 
 def on_target(domain: str, account_name: str, url: str, text: str) -> bool:

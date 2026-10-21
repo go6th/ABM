@@ -1,16 +1,18 @@
 "use client";
-// A research run as the skill's eight steps (done, running, waiting), work counts so far, files
-// as they appear, Stop, and the checkpoint card when the run waits for approval. Progress comes
-// from the run's event stream with polling as the fallback; the run record is polled while the
-// run is open. Continue 5 times and Auto continue are kept by this page: each later pause is
-// approved without asking while it stays open.
+// A research run as its steps (done, running, paused, waiting, stopped, not reached), work counts
+// so far, files as they appear, Stop, Refresh, and the checkpoint card when the run waits for
+// approval. The steps come from the server (``RunProgress.steps``: the research graph's own steps);
+// an older server without them falls back to the stage counts. Progress comes from the run's event
+// stream with polling as the fallback; the run record and its progress are read again every few
+// seconds while the run is open, and once when it has ended. Continue 5 times and Auto continue are
+// kept by this page: each later pause is approved without asking while it stays open.
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { m } from "@/lib/messages";
 import { humanize } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
-import type { RunProgress, RunStatusView, ExportPackages } from "@/lib/gen/api.gen";
+import type { ProgressStep, RunProgress, RunStatusView, ExportPackages } from "@/lib/gen/api.gen";
 import { Notice } from "@/ui/primitives";
 import { TokenMeter } from "./TokenMeter";
 
@@ -27,7 +29,7 @@ const STEP_STAGES: string[][] = [
 ];
 const STAGE_ORDER = STEP_STAGES.flat();
 
-export type StepState = "done" | "running" | "waiting" | "paused";
+export type StepState = "done" | "running" | "waiting" | "paused" | "stopped" | "not_reached";
 
 export function stepStates(progress: RunProgress | null, status: string): StepState[] {
   const paused = status === "AWAITING_APPROVAL";
@@ -70,13 +72,17 @@ export function useRun(runId: string | null) {
     api<RunStatusView>("GET", `/v1/runs/${encodeURIComponent(runId)}`)
       .then((r) => { if (alive) { setRun(r); setError(null); } })
       .catch((e: unknown) => { if (alive) setError(e instanceof ApiError ? e : new ApiError(0, "network", "")); });
+    // the steps as well: an ended run opens no stream, and Refresh reads them again at once
+    api<RunProgress>("GET", `/v1/runs/${encodeURIComponent(runId)}/progress`)
+      .then((p) => { if (alive) setProgress(p); })
+      .catch(() => undefined);
     return () => { alive = false; };
   }, [runId, tick]);
 
   // poll the run record while it is open, and follow progress by event stream or polling
   useEffect(() => {
     if (!runId || terminal) return;
-    const poll = setInterval(reload, 6000);
+    const poll = setInterval(reload, 3000);
     let source: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
@@ -87,19 +93,30 @@ export function useRun(runId: string | null) {
         setProgress(p);
         if (p.finished) reload();
       } catch { /* the next poll tries again */ }
-      if (!closed) timer = setTimeout(() => void read(), 5000);
+      // polling only while no stream is open
+      if (!closed && !source) timer = setTimeout(() => void read(), 5000);
     };
-    if (typeof EventSource !== "undefined") {
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const open = () => {
+      if (closed) return;
       source = new EventSource(`/v1/runs/${encodeURIComponent(runId)}/events`);
       source.addEventListener("progress", (event) => {
         try { const p = JSON.parse((event as MessageEvent<string>).data) as RunProgress; setProgress(p); if (p.finished) reload(); } catch { /* ignore */ }
       });
-      source.addEventListener("reconnect", () => { source?.close(); source = null; void read(); });
-      source.onerror = () => { source?.close(); source = null; void read(); };
-    } else {
-      void read();
-    }
-    return () => { closed = true; clearInterval(poll); source?.close(); if (timer) clearTimeout(timer); };
+      // the server ends each stream at its duration cap; the browser reconnects on its own at
+      // the server's retry (it used to fall back to polling for good after the first minute)
+      source.onerror = () => {
+        if (closed || !source || source.readyState === EventSource.CONNECTING) return;
+        // it could not be opened: poll, and try the stream again a little later
+        source.close();
+        source = null;
+        void read();
+        retry = setTimeout(open, 10000);
+      };
+    };
+    if (typeof EventSource !== "undefined") open();
+    else void read();
+    return () => { closed = true; clearInterval(poll); source?.close(); if (timer) clearTimeout(timer); if (retry) clearTimeout(retry); };
   }, [runId, terminal, reload]);
 
   return { run, progress, error, status, terminal, reload };
@@ -176,24 +193,64 @@ export function Checkpoint({ runId, status, onDecided, auto, setAuto }: { runId:
   );
 }
 
-export function StepList({ progress, status }: { progress: RunProgress | null; status: string }) {
+const STATE_LABEL: Record<StepState, string> = {
+  done: m.run.done, running: m.run.running, waiting: m.run.waiting, paused: m.run.paused, stopped: m.run.stepStopped, not_reached: m.run.notReached,
+};
+
+/** The run's steps: the server's own list, or the stage counts mapped onto the eight steps. */
+export function runSteps(progress: RunProgress | null, status: string): ProgressStep[] {
+  if (progress?.steps?.length) return progress.steps;
   const states = stepStates(progress, status);
-  const label: Record<StepState, string> = { done: m.run.done, running: m.run.running, waiting: m.run.waiting, paused: m.run.paused };
+  return m.run.steps.map((name, i) => ({ id: String(i), name, state: states[i]! }));
+}
+
+export function StepList({ progress, status }: { progress: RunProgress | null; status: string }) {
+  // the steps arrive with the first progress read: no made-up list before it
+  if (!progress) return <p className="mut sm-text" role="status">{m.run.loadingSteps}</p>;
+  const steps = runSteps(progress, status);
   return (
     <ol className="steps" aria-label="Steps">
-      {m.run.steps.map((name, i) => (
-        <li key={name} data-state={states[i]}>
-          <span className="n">{i + 1}</span>
-          <span className="grow">{name}</span>
-          <span className="state">{states[i] === "running" ? <><span className="spinner" aria-hidden="true" /> </> : null}{label[states[i]!]}</span>
-        </li>
-      ))}
+      {steps.map((st, i) => {
+        const state = (st.state in STATE_LABEL ? st.state : "waiting") as StepState;
+        return (
+          <li key={st.id} data-state={state} aria-current={state === "running" || state === "paused" ? "step" : undefined}>
+            <span className="n">{i + 1}</span>
+            <span className="grow">
+              {st.name}
+              {st.rows_total ? <span className="mut sm-text step-rows">{m.run.rowsReported(st.rows_done ?? 0, st.rows_total)}</span> : null}
+            </span>
+            <span className="state">{state === "running" ? <><span className="spinner" aria-hidden="true" /> </> : null}{STATE_LABEL[state]}</span>
+          </li>
+        );
+      })}
     </ol>
   );
 }
 
-export function RunFiles({ domain, runId }: { domain: string | null; runId: string }) {
+/** The step the run is on (running, paused or where it stopped), or null when every step is done. */
+export function currentStep(progress: RunProgress | null, status: string): { index: number; step: ProgressStep; total: number } | null {
+  const steps = runSteps(progress, status);
+  const index = steps.findIndex((st) => st.state === "running" || st.state === "paused" || st.state === "stopped" || st.state === "waiting");
+  return index < 0 ? null : { index, step: steps[index]!, total: steps.length };
+}
+
+/** Stop with one confirmation: the first press asks, the second stops (results so far are kept). */
+export function StopButton({ onStop, label = m.run.stop }: { onStop: () => Promise<void>; label?: string }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!asking) return <button type="button" className="btn danger" onClick={() => setAsking(true)}>{label}</button>;
+  return (
+    <span className="actions" role="group" aria-label={m.run.stopConfirm}>
+      <span className="sm-text">{m.run.stopConfirm}</span>
+      <button type="button" className="btn danger" disabled={busy} onClick={() => { setBusy(true); void onStop().finally(() => { setBusy(false); setAsking(false); }); }}>{busy ? m.run.stopping : m.run.stopNow}</button>
+      <button type="button" className="btn" disabled={busy} onClick={() => setAsking(false)}>{m.run.keepRunning}</button>
+    </span>
+  );
+}
+
+export function RunFiles({ domain, runId, status = "" }: { domain: string | null; runId: string; status?: string }) {
   const [files, setFiles] = useState<{ name: string; href: string; size: number }[]>([]);
+  // read again when the run's status moves (the files are delivered at its end)
   useEffect(() => {
     if (!domain) return;
     let alive = true;
@@ -204,7 +261,7 @@ export function RunFiles({ domain, runId }: { domain: string | null; runId: stri
       setFiles(list);
     }).catch(() => undefined);
     return () => { alive = false; };
-  }, [domain, runId]);
+  }, [domain, runId, status]);
   if (!files.length) return <p className="muted small">{m.run.noFiles}</p>;
   return (
     <ul className="rows">
@@ -213,10 +270,10 @@ export function RunFiles({ domain, runId }: { domain: string | null; runId: stri
   );
 }
 
-export function RunPanel({ runId, compact = false }: { runId: string; compact?: boolean }) {
-  const { run, progress, error, status, terminal, reload } = useRun(runId);
+export function RunPanel({ runId, compact = false, state }: { runId: string; compact?: boolean; state?: ReturnType<typeof useRun> }) {
+  const own = useRun(state ? null : runId);
+  const { run, progress, error, status, terminal, reload } = state ?? own;
   const [auto, setAuto] = useState(0);
-  const [stopping, setStopping] = useState(false);
   const [live, setLive] = useState<LiveSpend | null>(null);
   useEffect(() => {
     if (terminal && !run) return;
@@ -224,10 +281,13 @@ export function RunPanel({ runId, compact = false }: { runId: string; compact?: 
     api<LiveSpend>("GET", `/v1/runs/${encodeURIComponent(runId)}/spend/live`).then((l) => { if (alive) setLive(l); }).catch(() => undefined);
     return () => { alive = false; };
   }, [runId, status, terminal, run]);
+  const [stopError, setStopError] = useState<string | null>(null);
   if (error) return <Notice kind="error">{error.status === 404 ? m.run.notFound : `${m.state.errorTitle} ${m.state.errorBody}`}</Notice>;
   const stop = async () => {
-    setStopping(true);
-    try { await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`); reload(); } catch { /* shown by the next reload */ } finally { setStopping(false); }
+    setStopError(null);
+    try { await api("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`); reload(); } catch (e) {
+      setStopError(e instanceof ApiError && e.status === 403 ? m.run.stopNotAllowed : m.run.stopFailed);
+    }
   };
   return (
     <div className="stack">
@@ -240,12 +300,12 @@ export function RunPanel({ runId, compact = false }: { runId: string; compact?: 
           <Counts counts={live?.calls_by_category ?? {}} />
         </div>
       ) : null}
-      {!terminal && run ? (
-        <div className="actions">
-          <button type="button" className="btn danger" disabled={stopping} onClick={() => void stop()}>{m.run.stop}</button>
-          {compact ? <Link className="link-btn small" href={`/runs/${encodeURIComponent(runId)}`}>{m.ask.openRun}</Link> : null}
-        </div>
-      ) : null}
+      <div className="actions">
+        {!terminal && run ? <StopButton onStop={stop} /> : null}
+        <button type="button" className="btn" onClick={reload}>{m.run.refresh}</button>
+        {compact ? <Link className="link-btn small" href={`/runs/${encodeURIComponent(runId)}`}>{m.ask.openRun}</Link> : null}
+      </div>
+      {stopError ? <p className="sm-text bad-text" role="alert">{stopError}</p> : null}
       {terminal && run ? (
         <p className="small" role="status">
           {status === "COMPLETED" ? <span className="status ok">{m.run.completed}</span>

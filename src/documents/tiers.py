@@ -369,6 +369,7 @@ async def count(session: Any, table: TableInfo, payload: Mapping[str, Any]) -> d
 
     # R5: one row per requisition, the earliest posting kept
     def earliest(row: dict[str, Any], held: dict[str, Any]) -> bool:
+        """Whether ``row`` was posted before ``held`` (dated first, then sheet order)."""
         a = _date(row["cells"].get(cols.date)) if cols.date else None
         b = _date(held["cells"].get(cols.date)) if cols.date else None
         if a is not None and b is not None and a != b:
@@ -390,6 +391,7 @@ async def count(session: Any, table: TableInfo, payload: Mapping[str, Any]) -> d
     errors: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     def error(rule: str, platform: str, kind: str, row: dict[str, Any], proposal: str) -> None:
+        """Count one rule error against its rule, platform and kind, keeping the row."""
         item = errors.setdefault(
             (rule, platform, kind),
             {"rule": rule, "platform": platform, "kind": kind, "count": 0, "rows": []},

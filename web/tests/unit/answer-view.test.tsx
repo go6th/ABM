@@ -52,3 +52,22 @@ test("day and month read plainly and a bad date reads as nothing", () => {
   expect(dayMonth("not a date")).toBe("");
   expect(dayMonth(null)).toBe("");
 });
+
+test("a cited source reads 6th and its site and opens the original page from the answer", () => {
+  const a = answer("https://www.linkedin.com/jobs/view/1");
+  a.sources[0]!.label = "6th / LinkedIn";
+  const { container } = view(a);
+  const inline = container.querySelector(".reply .md a.src-link");
+  expect(inline?.textContent).toBe("6th / LinkedIn");
+  expect(inline?.getAttribute("href")).toBe("https://www.linkedin.com/jobs/view/1");
+  expect(inline?.getAttribute("target")).toBe("_blank");
+  // the source card links the same way
+  expect(screen.getByRole("link", { name: "6th / LinkedIn" }).getAttribute("href")).toBe("https://www.linkedin.com/jobs/view/1");
+});
+
+test("a source with no web page (a provider's own page) has no link in the answer", () => {
+  const a = answer(null);
+  a.sources[0]!.label = "6th agents";
+  const { container } = view(a);
+  expect(container.querySelector("a.src-link")).toBeNull();
+});

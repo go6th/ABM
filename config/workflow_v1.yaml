@@ -10,7 +10,11 @@ settings:
   slice_seconds: 1200
   max_slices: 8
   max_calls: 60
-  max_budget_usd: 5.0
+  # the ceiling over every run's own budget, which is its reserved credits in dollars
+  # (runs.lifecycle.create_run). Owner decision 2026-10-21: a run may spend what its credits
+  # cover, so the ceiling is the largest job's credits (220 x credit_value_usd 0.05); it was
+  # 5.0, which stopped a new research after about 20 paid calls (audit 2026-10-21)
+  max_budget_usd: 11.0
   approval_timeout_hours: 24
   planner_gap_passes: 2
   gate_cycles: 3

@@ -51,6 +51,52 @@ def test_progress_shows_stage_counts_only() -> None:
     )
 
 
+def test_progress_follows_the_research_graph_step_by_step() -> None:
+    """The ABM graph reports every checklist row at once, so its steps come from the graph nodes
+    it has finished: the run screen shows where the research is, step by step."""
+    rows = [("r1", "done"), ("r2", None)]
+
+    def states(p: progress.Progress) -> list[str]:
+        return [st.state for st in p.steps]
+
+    queued = progress.compute("run", "QUEUED", STAGES, OWNERS, [], nodes_done=set())
+    assert states(queued)[:2] == ["waiting", "waiting"] and queued.current_stage == "Set up"
+    p = progress.compute(
+        "run", "RUNNING", STAGES, OWNERS, rows, nodes_done={"setup", "cap_approval", "pull"}
+    )
+    assert states(p)[:3] == ["done", "running", "waiting"]
+    assert (p.text, p.current_stage) == ("1 of 8", "Web research")
+    # an approval nobody needed and follow-up searches that were not run are passed over
+    p = progress.compute(
+        "run",
+        "RUNNING",
+        STAGES,
+        OWNERS,
+        rows,
+        nodes_done={"setup", "pull", "load_manifest", "interpret", "sense_check", "distill"},
+    )
+    assert states(p) == ["done"] * 5 + ["running", "waiting", "waiting"]
+    read = next(st for st in p.steps if st.id == "read")
+    assert (read.rows_done, read.rows_total) == (1, 2)
+    paused = progress.compute(
+        "run", "AWAITING_APPROVAL", STAGES, OWNERS, rows, nodes_done={"setup", "pull"}
+    )
+    assert states(paused)[1] == "paused"
+    stopped = progress.compute(
+        "run", "CANCELED", STAGES, OWNERS, rows, nodes_done={"setup", "cap_approval", "finish"}
+    )
+    assert states(stopped)[:3] == ["done", "stopped", "not_reached"] and stopped.finished
+    done = progress.compute("run", "COMPLETED", STAGES, OWNERS, rows, nodes_done={"finish"})
+    assert states(done) == ["done"] * 8 and done.text == "8 of 8"
+    body = json.dumps(p.as_json())
+    assert_client_safe([body])
+    for word in ("eta", "credit", "cost", "usd", "provider", "p_"):
+        assert word not in body.lower().replace("stages_", ""), word
+    # the older workflow lists its stages as steps too
+    legacy = progress.compute("run", "RUNNING", STAGES, OWNERS, rows)
+    assert [st.state for st in legacy.steps] == ["done", "running", "waiting", "waiting"]
+
+
 async def _admin(plane: Plane, browser: Browser, name: str) -> tuple[UUID, str]:
     t = new_tenant(name)
     slug = f"acme-{uid()}"

@@ -35,6 +35,8 @@ export const NEW_CHAT_EVENT = "ask:new-chat";
 export function isCurrent(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
   if (href === "/research/new") return pathname === href || /^\/accounts\/[^/]+\/files/.test(pathname);
+  // the Research screen only (New research is its own entry)
+  if (href === "/research") return pathname === "/research";
   if (href === "/accounts") return pathname === "/accounts" || (pathname.startsWith("/accounts/") && !/^\/accounts\/[^/]+\/files/.test(pathname));
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -56,6 +58,7 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
   const nav = [
     { href: "/", label: "Ask", icon: "ask" },
     { href: "/accounts", label: "Accounts", icon: "accounts" },
+    { href: "/research", label: "Research", icon: "runs" },
     { href: "/research/new", label: "New research", icon: "research" },
     { href: "/schedules", label: "Schedules", icon: "schedules" },
     ...(user.mailDriveAllowed ? [{ href: "/mail-and-drive", label: "Mail and drive", icon: "mail" }] : []),

@@ -449,12 +449,18 @@ async def get_run(
                 {"r": run_id},
             )
         ).first()
+        # the router's ledger (llm_calls) or the research graph's reply log (model_reply_log,
+        # written while the router is off): the larger is the run's use (audit 2026-10-21: the
+        # meter read llm_calls only and showed 0 for graph runs)
         tokens_used = int(
             (
                 await s.execute(
                     text(
-                        "SELECT COALESCE(sum(input_tokens + output_tokens), 0) FROM llm_calls"
-                        " WHERE run_id = :r"
+                        "SELECT GREATEST("
+                        " (SELECT COALESCE(sum(input_tokens + output_tokens), 0) FROM llm_calls"
+                        "  WHERE run_id = :r),"
+                        " (SELECT COALESCE(sum(input_tokens + output_tokens), 0)"
+                        "  FROM model_reply_log WHERE run_id = :r AND served_from = 'model'))"
                     ),
                     {"r": run_id},
                 )
@@ -711,7 +717,14 @@ register("GET", "/v1/runs/{run_id}/events", tenant_route("read_public", "read"))
 async def _progress(container: Any, tenant_id: UUID, run_id: UUID) -> Progress:
     async with tenant_txn(tenant_id) as s:
         row = (
-            await s.execute(text("SELECT status FROM account_runs WHERE id = :r"), {"r": run_id})
+            await s.execute(
+                text(
+                    "SELECT status, (run_mode IN ('pull', 'build') OR (input_mode = 'company'"
+                    " AND (run_input ? 'job_id' OR run_input ? 'linked_file_run'))) AS abm"
+                    " FROM account_runs WHERE id = :r"
+                ),
+                {"r": run_id},
+            )
         ).first()
         if row is None:
             raise HTTPException(404, "not found")
@@ -721,6 +734,20 @@ async def _progress(container: Any, tenant_id: UUID, run_id: UUID) -> Progress:
                 {"r": run_id},
             )
         ).all()
+        # the graph's finished nodes: the latest checkpoint's versions_seen (thread
+        # '<tenant>:<run>', agents.service; RLS keeps it to the tenant)
+        seen = (
+            await s.execute(
+                text(
+                    "SELECT array(SELECT jsonb_object_keys(checkpoint -> 'versions_seen'))"
+                    " FROM checkpoints WHERE thread_id = :t AND checkpoint_ns = ''"
+                    " ORDER BY checkpoint_id DESC LIMIT 1"
+                ),
+                {"t": f"{tenant_id}:{run_id}"},
+            )
+        ).scalar_one_or_none()
+    nodes: set[str] = set(seen or ()) & progress.ABM_NODES
+    abm = bool(row.abm) or bool(nodes & progress.ABM_ONLY)
     stages = [(st.id, st.name) for st in container.spec.stages]
     return progress.compute(
         str(run_id),
@@ -728,6 +755,7 @@ async def _progress(container: Any, tenant_id: UUID, run_id: UUID) -> Progress:
         stages,
         container.spec.coverage_owners,
         [(r.row_key, r.status) for r in rows],
+        nodes_done=nodes if abm else None,
     )
 
 
@@ -761,6 +789,8 @@ async def run_events(
 
     async def stream() -> AsyncIterator[bytes]:
         """Progress events, heartbeats and a final reconnect hint, within the duration cap."""
+        # the browser reconnects this soon after the stream ends at its duration cap
+        yield f"retry: {int(cfg['sse_poll_s'] * 1000)}\n\n".encode()
         last = last_event_id
         current: Progress | None = first
         started = time.monotonic()

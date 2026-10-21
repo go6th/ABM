@@ -13,6 +13,7 @@ Every start and every part fetched is an audited export.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -136,15 +137,24 @@ async def download_part(
             resource_id=job_id,
         )
     from account_intelligence.api.routes.tasks import sources
+    from research_files.blobstore import BlobMissing
 
     blobs = sources(container).blobs
     size = int(part["bytes"])
     wanted = _range(range_header, size)
     start, end = wanted if wanted is not None else (0, size - 1)
+    # opened before the headers go out: a part no longer stored is a clear 404, not a download
+    # that breaks off after its Content-Length was promised
+    try:
+        reader = await asyncio.to_thread(blobs.open, part["key"])  # GCS asks the bucket first
+    except BlobMissing:
+        raise HTTPException(
+            404, "this part is no longer stored; prepare the download again"
+        ) from None
 
     def body() -> Any:
         """The bytes asked for, read in blocks."""
-        with blobs.open(part["key"]) as reader:
+        with reader:
             reader.seek(start)
             left = end - start + 1
             # LOOP(part download): cap=the range's bytes / 1 MiB; exit=range sent

@@ -12,7 +12,7 @@ const ACCOUNT = "/accounts/highmark.example";
 const CLIENT = [
   "/", "/accounts", "/accounts/add", ACCOUNT, `${ACCOUNT}/people`, `${ACCOUNT}/signals`, `${ACCOUNT}/jobs`,
   `${ACCOUNT}/technology`, `${ACCOUNT}/news`, `${ACCOUNT}/mail-and-drive`, `${ACCOUNT}/sources`, `${ACCOUNT}/coverage`,
-  `${ACCOUNT}/files`, `${ACCOUNT}/refresh`, "/research/new", "/schedules", "/mail-and-drive",
+  `${ACCOUNT}/files`, `${ACCOUNT}/refresh`, "/research", "/research/new", "/schedules", "/mail-and-drive",
 ];
 const OPERATOR = ["/operator", "/operator/clients", "/operator/users", "/operator/library", "/operator/runs", "/operator/defaults", "/operator/view"];
 const PUBLIC = ["/login", "/forgot", "/reset", "/verify-email", "/invite", "/operator/login"];

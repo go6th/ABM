@@ -225,16 +225,25 @@ def session_environment_context(archive: Path | None = None) -> str:
 
 
 def with_skill_context(prompt_text: str, task_kind: str) -> str:
-    """The session appendix, then this step's skill context, follow every ABM agent prompt."""
+    """The session appendix, then this step's skill context, then the agent prompt, as a
+    ``SystemPrompt`` in three cacheable parts ordered from most to least shared: the appendix is
+    identical for every ABM task kind, the skill context for every kind with the same sections
+    (pass 1 and pass 2), the prompt for one kind only. Shared text first is what lets one task
+    kind read the cache another kind wrote (prompt caching matches prefixes)."""
+    from account_intelligence.platform.prompt_cache import SystemPrompt
+
     context = skill_context(task_kind)
     if not context:
         return prompt_text
     session = session_environment_context()
-    assembled = (
-        f"{prompt_text}\n\n{SESSION_ENVIRONMENT_DIRECTIVE}\n\n"
-        f"<!-- references/session-environment.md, verbatim -->\n{session}\n\n"
-        f"The owner's research skill (follow it; it is the standard every file"
-        f" is judged by):\n\n{context}"
+    assembled = SystemPrompt(
+        (
+            f"{SESSION_ENVIRONMENT_DIRECTIVE}\n\n"
+            f"<!-- references/session-environment.md, verbatim -->\n{session}",
+            f"The owner's research skill (follow it; it is the standard every file"
+            f" is judged by):\n\n{context}",
+            f"Your task:\n\n{prompt_text}",
+        )
     )
     if len(assembled) > ASSEMBLED_PROMPT_MAX_CHARS:
         raise ValueError(

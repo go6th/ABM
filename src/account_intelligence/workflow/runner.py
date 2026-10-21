@@ -227,7 +227,9 @@ async def execute_slice(
     return outcome
 
 
-CANCEL_POLL_S = 10.0
+# a Stop reaches the worker within this long (one indexed status read per tick); it was 10 s, and
+# a stopped run could keep paying for calls for that long (audit 2026-10-21)
+CANCEL_POLL_S = 2.0
 
 
 async def _drive(graph: Any, graph_input: Any, config: Mapping[str, Any], deps: RunDeps) -> bool:

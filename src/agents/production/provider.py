@@ -4,6 +4,8 @@
   queries, the account's domain for feeds and people) and validated by the connector's models.
 * A page read or scrape first searches the account's own site and reads the first result on the
   account's domain (page reads are allow-listed to the account's hosts by the connector).
+* A web search reads the account's own pages it found (scrape) and the first pages it found on
+  other sites (page read, that host allowed for that one read; owner decision 2026-10-21).
 * Every record becomes one ``SourceItem`` with the record's link and the same text the grading
   engine re-parses (``grading.adapters.record_text``); a technology detection is a date range.
 * Errors: a credit-gate refusal (``CapRefused``, ``BudgetExceeded``) is ``CapPause``; a retryable
@@ -25,6 +27,7 @@ from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import yaml
@@ -75,6 +78,17 @@ def reason_code(error: BaseException) -> str:
 # full reads of the account's own pages per web search (D-30 allow-list; lifted on the uncapped
 # local stack)
 OWN_PAGE_READS_PER_SEARCH = 3
+# full reads of other sites' pages per web search: news, filings, transcripts, interviews and
+# vendor stories the search found are read, not left as snippets (owner decision 2026-10-21,
+# lifting D-30 for pages a search of this run returned; the skill reads them in full). They stay
+# below Confirmed unless the grading engine ranks the host a primary source.
+OFF_SITE_READS_PER_SEARCH = 2
+# hosts a page read cannot open (sign-in walls): searched for snippets only
+UNREADABLE_HOSTS = frozenset(
+    {"linkedin.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "tiktok.com"}
+)
+# characters kept of one page read (one long page must not fill an extraction call alone)
+MAX_READ_CHARS = 24_000
 
 
 @dataclass(frozen=True)
@@ -99,12 +113,16 @@ def load_routes(path: Path | None = None) -> RoutesConfig:
     )
 
 
-def items_of(records: tuple[Record, ...]) -> tuple[SourceItem, ...]:
-    """One item per record with a link and text (records without a link cannot be cited, G4)."""
+def items_of(records: tuple[Record, ...], max_chars: int | None = None) -> tuple[SourceItem, ...]:
+    """One item per record with a link and text (records without a link cannot be cited, G4);
+    ``max_chars`` keeps the start of a long page (a quote from it is still in the record the
+    grading engine re-reads)."""
     out = []
     for r in records:
         url = r.provenance.source_url
         body = record_text(r)
+        if max_chars is not None and body:
+            body = body[:max_chars]
         if url and body:
             kind = "date_range" if isinstance(r, TechDetectionRecord) else None
             out.append(SourceItem(url, body, kind))
@@ -156,10 +174,16 @@ class ConnectorProvider:
         if blocked and len(blocked) == len(results):
             raise ProviderFailed("route_blocked")  # the route's text names a provider: never used
         records = tuple(rec for r in results for rec in r.records)
+        reads = tuple(
+            rec for r in results if r.operation is Operation.READ_PAGE for rec in r.records
+        )
+        others = tuple(
+            rec for r in results if r.operation is not Operation.READ_PAGE for rec in r.records
+        )
         category = load_grading_config().category_by_operation
         op = next((r.operation for r in results if r.operation), None)
         return ProviderResult(
-            items=items_of(records),
+            items=items_of(others) + items_of(reads, MAX_READ_CHARS),
             result_count=len(records),
             cost_micros=sum(usd_to_micros(Decimal(str(r.charged_usd))) for r in results),
             tool_category=category.get(op.value if op else "", need),
@@ -242,7 +266,8 @@ class ConnectorProvider:
                 )
             return out
         search = await call_need(route, WebSearchArgs(queries=(query[:200],)), cc, self.rt)
-        return [search, *await self._read_own_pages(search, cc, ctx)]
+        own = await self._read_own_pages(search, cc, ctx)
+        return [search, *own, *await self._read_off_site_pages(search, cc, ctx, query)]
 
     async def _read_own_pages(
         self, search: ConnectorResult, cc: CallContext, ctx: RunContext
@@ -280,9 +305,49 @@ class ConnectorProvider:
                 continue
         return reads
 
+    async def _read_off_site_pages(
+        self, search: ConnectorResult, cc: CallContext, ctx: RunContext, query: str
+    ) -> list[ConnectorResult]:
+        """Full reads of the first pages a search found on other sites (see
+        ``OFF_SITE_READS_PER_SEARCH``). Only a page this search returned is opened: its host is
+        allowed for that one read, and the connector's SSRF checks (public addresses, https, the
+        final URL after redirects) still apply. A page that cannot be read keeps its snippet."""
+        from dataclasses import replace
+
+        urls = list(
+            dict.fromkeys(
+                r.url
+                for r in search.records
+                if isinstance(r, WebPageRecord)
+                and not _on_domain(r.url, ctx.domain)
+                and not _unreadable(r.url)
+            )
+        )
+        reads = []
+        for url in urls[:OFF_SITE_READS_PER_SEARCH]:
+            host = (urlsplit(url).hostname or "").lower().rstrip(".")
+            one = replace(cc, extra_allowed_hosts=cc.extra_allowed_hosts | {host})
+            try:
+                reads.append(
+                    await call_need(
+                        "read_known_page",
+                        ReadPageArgs(url=url, objective=query[:2000], full_content=True),
+                        one,
+                        self.rt,
+                    )
+                )
+            except (CapRefused, BudgetExceeded):
+                raise
+            except ConnectorError:
+                continue  # paywalled, refused or slow: the search snippet stays
+        return reads
+
+
+def _unreadable(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower().rstrip(".").removeprefix("www.")
+    return any(host == h or host.endswith("." + h) for h in UNREADABLE_HOSTS)
+
 
 def _on_domain(url: str, domain: str) -> bool:
-    from urllib.parse import urlsplit
-
     host = (urlsplit(url).hostname or "").lower().rstrip(".")
     return host == domain or host.endswith("." + domain)

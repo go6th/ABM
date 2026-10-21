@@ -38,6 +38,14 @@ TYPE_LABEL = {"docx": "Word", "xlsx": "Excel", "zip": "Zip"}
 GRADE_RANK = {"confirmed": 0, "probable": 1, "hypothesis": 2, "lead": 3, "internal": 4}
 
 
+def _original_page(url: Any) -> str | None:
+    """The original page a source opens, never a data provider's own page (``source_label``)."""
+    from account_intelligence.replica.source_label import source_link
+
+    link = source_link(url)
+    return link.href if link else None
+
+
 def file_type(filename: str) -> str:
     """'Word', 'Excel' or 'Zip' from the file's extension."""
     return TYPE_LABEL.get(filename.rsplit(".", 1)[-1], "File")
@@ -219,7 +227,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                     "source_title": found[codes[i]].title
                     if i < len(codes) and codes[i] in found
                     else None,
-                    "source_url": found[codes[i]].url
+                    "source_url": _original_page(found[codes[i]].url)
                     if i < len(codes) and codes[i] in found
                     else None,
                 }
@@ -233,7 +241,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
             "grade": r.product_grade,
             "text": r.v,
             "when": when_label,
-            "source_url": r.url,
+            "source_url": _original_page(r.url),
             "source_code": r.source_ref,
         }
 
@@ -350,7 +358,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
     job = (
         await session.execute(
             text(
-                "SELECT j.id, j.kind, j.scope, j.status, j.topic,"
+                "SELECT j.id, j.kind, j.scope, j.status, j.topic, j.run_id,"
                 " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id) AS total,"
                 " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id"
                 "   AND c.status IS NOT NULL) AS done"
@@ -397,6 +405,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
             "topic": job.topic,
             "steps_done": int(job.done or 0),
             "steps_total": int(job.total or 0),
+            "run_id": str(job.run_id) if job.run_id else None,
         },
         "stopped_run": stopped,
     }

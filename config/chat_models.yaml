@@ -26,7 +26,7 @@ models:
     input_usd_per_million: "2.00"
     output_usd_per_million: "10.00"
     cache_write_usd_per_million: "2.50"
-    cache_read_usd_per_million: "0.20"
+    cache_read_usd_per_million: "0.10"
     context_window: 1000000
     max_output_tokens: 128000
     capabilities: {streaming: true, vision: false, tool_use: false}

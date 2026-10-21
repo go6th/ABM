@@ -18,6 +18,7 @@ GUARANTEE(test_a_table_exports_whole_past_the_page_and_excel_limits)
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 from collections.abc import AsyncIterator
@@ -53,16 +54,34 @@ async def rows(
             yield {
                 "n": n,
                 "cells": {c.key: SH.display(c, r.get(c.key), now) for c in q.sheet.cols},
-                "link": r.get("link") if isinstance(r.get("link"), str) else None,
+                **SH.link_fields(r.get("link")),
             }
         if len(got) < page:
             return
 
 
-def _values(q: SH.Query, row: dict[str, Any]) -> list[Any]:
+def _values(q: SH.Query, row: dict[str, Any], *, excel: bool = False) -> list[Any]:
+    """The row's cells in column order. A link cell is the page's address in a CSV; in Excel it
+    reads "6th / LinkedIn" and opens the page (``_link_cell``)."""
     return [row["n"]] + [
-        row["link"] if c.kind == "link" else row["cells"][c.key] for c in q.sheet.cols
+        (row.get("link_label") or "" if excel else row["link"])
+        if c.kind == "link"
+        else row["cells"][c.key]
+        for c in q.sheet.cols
     ]
+
+
+def _link_cell(ws: Any, label: Any, href: str | None) -> Any:
+    """A write-only cell that shows ``label`` and opens ``href``."""
+    from openpyxl.cell import WriteOnlyCell
+    from openpyxl.styles import Font
+
+    cell = WriteOnlyCell(ws, value=label)
+    cell.data_type = "s"
+    if href:
+        cell.hyperlink = href
+        cell.font = Font(color="0563C1", underline="single")
+    return cell
 
 
 def header(q: SH.Query) -> list[str]:
@@ -123,11 +142,12 @@ async def write_xlsx(
             ws = book.create_sheet(f"{name} {sheet_no}" if sheet_no > 1 or shareable else name)
             ws.append(header(q))
             in_sheet = 1
-        values = []
-        for raw in _values(q, row):
+        values: list[Any] = []
+        kinds = ("num", *(c.kind for c in q.sheet.cols))
+        for raw, kind in zip(_values(q, row, excel=True), kinds, strict=True):
             value, held = SH.safe_cell(raw, shareable=shareable)
             withheld += held
-            values.append(value)
+            values.append(_link_cell(ws, value, row["link"]) if kind == "link" else value)
         ws.append(values)
         in_sheet += 1
         written += 1
@@ -148,7 +168,10 @@ async def write_xlsx(
         lines.append(["Note", "Private to you. Do not share."])
     for line in lines:
         about.append([SH.safe_cell(v, shareable=shareable)[0] for v in line])
-    book.save(str(path))
+    # saving zips every sheet and the check reads the whole file: both run off the event loop, so
+    # a large table never stalls the worker's other requests (or its liveness probe)
+    await asyncio.to_thread(book.save, str(path))
     if shareable:
-        SH.check_finished(path.read_bytes())  # the whole file once more (ExportBlocked)
+        # the whole file once more (ExportBlocked)
+        await asyncio.to_thread(lambda: SH.check_finished(path.read_bytes()))
     return written

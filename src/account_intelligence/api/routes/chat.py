@@ -54,6 +54,7 @@ from account_intelligence.chat.store import (
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.llm import anthropic_api_client, chat_effort
 from account_intelligence.replica import models as M
+from account_intelligence.replica.source_label import relabel_answer
 from agents.errors import GuardViolation
 from agents.naming import sanitize_client_value
 from llm.choice import catalogue
@@ -228,9 +229,13 @@ async def threads(ident: Identity = Depends(authorize)) -> dict[str, Any]:
 async def thread(thread_id: UUID, ident: Identity = Depends(authorize)) -> dict[str, Any]:
     """Load a caller-owned conversation; other tenants and members receive a 404."""
     try:
-        return await get_thread(ident.tenant_id, ident.user_id, thread_id)
+        found = await get_thread(ident.tenant_id, ident.user_id, thread_id)
     except ThreadNotFound:
         raise APIProblem(404, "not_found", "Not found", "not found") from None
+    # saved answers' sources read "6th / <site>" and open the original page (source_label)
+    for turn in found.get("turns") or ():
+        turn["answer"] = relabel_answer(turn.get("answer"))
+    return found
 
 
 @router.delete("/chat/threads/{thread_id}", response_model=C.ChatThreadDeleted)

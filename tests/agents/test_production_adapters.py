@@ -382,12 +382,51 @@ async def test_a_web_search_reads_the_accounts_own_pages_in_full(monkeypatch) ->
     result = await ConnectorProvider(_Runtime(), uuid4()).call(  # type: ignore[arg-type]
         ctx(), "web_search", "acme results", "company_news"
     )
-    reads = [(r, a.url, a.page_kind) for r, a in seen if r != "open_web_search"]
-    # only the account's own hosts are read, each once, as a live scrape (a full page read, G5;
-    # an extract read may be a cached copy); other hosts stay snippets
+    reads = [(r, a.url, a.page_kind) for r, a in seen if r == "job_boards_and_pages"]
+    # the account's own hosts are read, each once, as a live scrape (a full page read, G5; an
+    # extract read may be a cached copy)
     assert reads == [
         ("job_boards_and_pages", "https://www.acme.example/about", "account_page"),
         ("job_boards_and_pages", "https://ir.acme.example/results", "account_page"),
         ("job_boards_and_pages", "https://jobs.acme.example/slow", "account_page"),
     ]
-    assert result.call_refs == ("s1", "r1")
+    # and the other sites' pages it found are read in full too (owner decision 2026-10-21)
+    off_site = [(r, a.url) for r, a in seen if r == "read_known_page"]
+    assert off_site == [("read_known_page", "https://news.example/acme")]
+    assert result.call_refs == ("s1", "r1", "r1")
+
+
+@pytest.mark.asyncio
+async def test_an_off_site_read_opens_only_the_page_the_search_returned(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    allowed: list[frozenset[str]] = []
+    opened: list[str] = []
+
+    async def fake(route: str, args: Any, cc: Any, rt: Any, *, operation: Any = None) -> Any:
+        if route == "open_web_search":
+            return ConnectorResult(
+                status="ok",
+                records=(
+                    page("https://www.linkedin.com/posts/acme"),  # a sign-in wall: not opened
+                    page("https://news.example/a"),
+                    page("https://news.example/a"),
+                    page("https://trade.example/b"),
+                    page("https://third.example/c"),  # past the per-search limit
+                ),
+                call_refs=("s1",),
+            )
+        opened.append(args.url)
+        allowed.append(cc.extra_allowed_hosts)
+        long = page(args.url).model_copy(update={"full_content_text": "x" * 100_000})
+        return ConnectorResult(
+            status="ok", records=(long,), call_refs=("r",), operation=Operation.READ_PAGE
+        )
+
+    monkeypatch.setattr(provider_module, "call_need", fake)
+    result = await ConnectorProvider(_Runtime(), uuid4()).call(  # type: ignore[arg-type]
+        ctx(), "web_search", "acme results", "company_news"
+    )
+    assert opened == ["https://news.example/a", "https://trade.example/b"]
+    # each read allows its own host only, never the others or a lasting allow-list
+    assert allowed == [frozenset({"news.example"}), frozenset({"trade.example"})]
+    reads = [i for i in result.items if "news.example" in i.url or "trade.example" in i.url]
+    assert reads and all(len(i.text) <= provider_module.MAX_READ_CHARS for i in reads)

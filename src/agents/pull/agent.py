@@ -9,6 +9,8 @@ It never reads, summarises, grades or drops content.
 Outcomes per row (visible, never silently absent, G1):
 
 * a people row without valid consent: Blocked ``consent_required`` with no call made (G8);
+* an internal-history row on a run without internal history switched on: Blocked
+  ``no_internal_access`` with no call made (the skill never substitutes the web for it);
 * the run reached the credits confirmed for it (``cap_reached``): the row is Blocked
   ``budget_cap`` when nothing was stored for it; the budget gate refuses every later paid call
   without charging (free calls still run); the run never pauses for this, it ends
@@ -49,6 +51,8 @@ from agents.ports import (
 
 # The provider's reason when the run has used the credits confirmed for it.
 CREDIT_LIMIT = "cap_reached"
+# An internal-history row on a run without the client's mail, notes and files switched on.
+NO_INTERNAL_ACCESS = "no_internal_access"
 
 
 class SpendPause(AgentError):
@@ -65,10 +69,16 @@ class SpendPause(AgentError):
 def phrasings_for(
     cfg: SkillConfig, row: PlanRow, ctx: RunContext, year: int, topic: str | None = None
 ) -> tuple[str, ...]:
-    """The row's queries from the configured phrasings (code-built, never model text). A topic
-    refresh searches with the user's own topic words (whitespace collapsed, at most 200
-    characters) instead of the row's label."""
+    """The row's queries (code-built, never model text): the row's own queries from the skill
+    when it has them, otherwise the generic phrasings around the row's label. A topic refresh
+    searches with the user's own topic words (whitespace collapsed, at most 200 characters) in
+    the generic phrasings instead."""
     words = " ".join((topic or "").split())[:200]
+    if row.queries and not words:
+        return tuple(
+            q.format(account=ctx.account_name, domain=ctx.domain, year=year, prev_year=year - 1)
+            for q in row.queries
+        )
     topic = words or cfg.row_labels[row.row_key]
     return tuple(
         p.format(account=ctx.account_name, domain=ctx.domain, topic=topic, year=year)
@@ -106,12 +116,20 @@ class PullAgent:
         now = self.clock.now()
         if row.people and consent_problem is not None:
             return self.blocked(row, "consent_required")
+        if row.internal_history and not (internal_history and self.internal is not None):
+            # the skill: "Do not try to substitute web sources for internal history"; a web
+            # search for "prior customer status" bought pages about other companies first,
+            # before the rows that matter (audit 2026-10-21)
+            return self.blocked(row, NO_INTERNAL_ACCESS)
         refs: list[str] = []
         calls: list[str] = []
         queries: list[QueryRecord] = []
         cost = 0
         failure: str | None = None
-        for query in phrasings_for(self.cfg, row, ctx, now.year, self.topic):
+        public = (
+            () if row.internal_history else phrasings_for(self.cfg, row, ctx, now.year, self.topic)
+        )
+        for query in public:
             meter.charge_call()
             try:
                 result = await self.provider.call(ctx, row.need, query, row.row_key)

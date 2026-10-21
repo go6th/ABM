@@ -15,7 +15,7 @@ label_sets:
   state: {values: [QUEUED, RUNNING, AWAITING_APPROVAL, DISTILLING, VERIFYING, COMPLETED, PARTIAL, BUDGET_EXCEEDED, FAILED, CANCELED], source: "skill references/04 run states"}
   unit_type: {bound: 30, source: "config/parallel.yaml unit types and bodies"}
   task_kind: {bound: 20, source: "config/model_routing.yaml task kinds"}
-  tier: {values: [planner, extractor, judge], source: "config/model_routing.yaml tiers"}
+  tier: {values: [planner, extractor, classifier, synthesis, narrative, judge], source: "config/model_routing.yaml tiers; platform.llm.TIER_TASK (research tiers, 2026-10-21)"}
   degraded: {values: ["true", "false"], status: proposal}
   token_kind: {values: [input, output, cache_read, cache_write], source: "ARCH caching telemetry"}
   plan_tier: {bound: 5, status: "proposal: plan tiers"}
@@ -52,9 +52,9 @@ metrics:
   queue_age_s: {type: gauge, unit: s, labels: [state], series_bound: 10, owner: workflow, description: "age of the oldest run per state"}
   unit_outcomes_total: {type: counter, unit: "1", labels: [unit_type, outcome], series_bound: 1200, owner: parallel, description: "unit outcomes"}
   lease_wait_s: {type: histogram, unit: s, labels: [provider_code], series_bound: 10, owner: parallel, description: "provider slot waits"}
-  llm_calls_total: {type: counter, unit: "1", labels: [task_kind, tier, outcome, degraded], series_bound: 4800, owner: llm, description: "model calls"}
-  llm_tokens_total: {type: counter, unit: "1", labels: [task_kind, tier, token_kind], series_bound: 240, owner: llm, description: "model tokens by kind"}
-  cache_read_ratio: {type: gauge, unit: "1", labels: [tier], series_bound: 3, owner: llm, description: "cache-read share of cacheable input tokens"}
+  llm_calls_total: {type: counter, unit: "1", labels: [task_kind, tier, outcome, degraded], series_bound: 9600, owner: llm, description: "model calls"}
+  llm_tokens_total: {type: counter, unit: "1", labels: [task_kind, tier, token_kind], series_bound: 480, owner: llm, description: "model tokens by kind"}
+  cache_read_ratio: {type: gauge, unit: "1", labels: [tier], series_bound: 6, owner: llm, description: "cache-read share of cacheable input tokens"}
   verifier_findings_total: {type: counter, unit: "1", labels: [verdict], series_bound: 10, owner: verify, description: "verifier outcomes"}
   cost_micros_total: {type: counter, unit: "1e-6 USD", labels: [provider_code, plan_tier], series_bound: 50, owner: obs, description: "ledger-derived spend (aggregates only)"}
   unknown_cost_calls_total: {type: counter, unit: "1", labels: [provider_code], series_bound: 10, owner: obs, description: "ledger calls with unknown cost"}

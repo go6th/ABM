@@ -216,7 +216,10 @@ async def download_everything(
     await _act_as_owner_of("download", task.tenant_id, task.job_id)
     from account_intelligence.replica import downloads
 
-    return {"outcome": await downloads.build(task.tenant_id, task.job_id, sources(container))}
+    outcome = await downloads.build(task.tenant_id, task.job_id, sources(container))
+    if outcome == "busy":  # another attempt is building it: Cloud Tasks redelivers later
+        raise HTTPException(503, "the archive is being built by another worker")
+    return {"outcome": outcome}
 
 
 def sources(container: Any) -> Any:

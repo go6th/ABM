@@ -127,6 +127,16 @@ batch:
     - abm_sense_check
     - abm_distill
 
+# Prompt-cache warm gate (platform/prompt_cache.py, 2026-10-21): research calls that share a
+# cached prefix and arrive together let one call warm it (streamed; the rest go at its first
+# event and read it) instead of each writing it. A batched call waits `coalesce_seconds` for
+# siblings; alone it keeps its batch, with siblings one call goes standard and leads. A waiting
+# call goes anyway after `max_wait_seconds`. `enabled: false` sends every call as before.
+prompt_cache_gate:
+  enabled: true
+  coalesce_seconds: 0.25
+  max_wait_seconds: 120
+
 # The conversational surfaces' model and effort (owner decision 2026-10-17: every surface reads
 # one layer; the research, Ask and eval surfaces all run on Kimi K3, Claude Fable 5.1 or Claude
 # Opus 5.5 — switching is config here, never code). `chat`: Ask answers and follow-up chat; the
@@ -142,6 +152,8 @@ surfaces:
 models:
   claude-opus-5-5:
     provider: anthropic
+    # the shortest prefix the API caches (prompt caching docs, read 2026-10-21)
+    min_cache_tokens: 512
     display_name: "Claude Opus 5.5"
     responsibility: "Data collection and judgment calls"
     context_window: 1000000
@@ -154,6 +166,8 @@ models:
 
   claude-fable-5-1:
     provider: anthropic
+    # the shortest prefix the API caches (prompt caching docs, read 2026-10-21)
+    min_cache_tokens: 512
     display_name: "Claude Fable 5.1"
     responsibility: "Prediction, analysis, and follow-up chat"
     context_window: 1000000
@@ -179,18 +193,23 @@ models:
 
   claude-sonnet-5-5:
     provider: anthropic
+    # the shortest prefix the API caches (prompt caching docs, read 2026-10-21)
+    min_cache_tokens: 512
     display_name: "Claude Sonnet 5.5"
     responsibility: "Extraction and classification of stored source text (output validated in code)"
     context_window: 1000000
     max_output_tokens: 128000
     pricing:
       input_usd_per_million: 2.00
-      cached_read_usd_per_million: 0.20
+      # 0.05x input on Sonnet 5.5 (prompt caching pricing, read 2026-10-21; was 0.20)
+      cached_read_usd_per_million: 0.10
       cache_write_usd_per_million: 2.50
       output_usd_per_million: 10.00
 
   claude-haiku-5-5:
     provider: anthropic
+    # the shortest prefix the API caches (prompt caching docs, read 2026-10-21)
+    min_cache_tokens: 512
     display_name: "Claude Haiku 5.5"
     responsibility: "Ask route classification; a user's choice for research or analysis"
     context_window: 1000000

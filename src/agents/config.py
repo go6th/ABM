@@ -45,6 +45,8 @@ class PlanRow:
     need: str
     people: bool
     internal_history: bool
+    # the row's own search queries (``pull_plan.yaml`` queries); empty: the generic phrasings
+    queries: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,31 @@ class SkillConfig:
     lessons: tuple[Mapping[str, Any], ...]
     lessons_archive_status: str
     config_version: str
+
+
+# the words a row's query may name (filled in code: never model text, never a user's words)
+QUERY_FIELDS = frozenset({"account", "domain", "year", "prev_year"})
+
+
+def _row_queries(plan_doc: Mapping[str, Any], min_phrasings: int) -> dict[str, tuple[str, ...]]:
+    """``pull_plan.yaml`` queries: per row, at least ``min_phrasings`` templates (a lead is
+    dropped only after three phrasings, G3) naming only ``QUERY_FIELDS``."""
+    import string
+
+    section = plan_doc.get("queries")
+    if section is None:
+        return {}
+    out: dict[str, tuple[str, ...]] = {}
+    for key, templates in _val(section, "queries").items():
+        items = tuple(str(t) for t in templates)
+        if len(set(items)) < min_phrasings:
+            raise AgentConfigInvalid(f"pull_plan.queries.{key}: fewer than {min_phrasings}")
+        for template in items:
+            names = {f for _, f, _, _ in string.Formatter().parse(template) if f is not None}
+            if names - QUERY_FIELDS or not names & {"account", "domain"}:
+                raise AgentConfigInvalid(f"pull_plan.queries.{key}: bad template {template!r}")
+        out[str(key)] = items
+    return out
 
 
 def _read(path: Path) -> Any:
@@ -138,6 +165,8 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
     needs = {str(route["need"]) for route in routing["routes"]}
 
     run, plan_doc = docs["run"], docs["pull_plan"]
+    min_phrasings = int(_val(run["phrasing"]["min_phrasings"], "min_phrasings"))
+    row_queries = _row_queries(plan_doc, min_phrasings)
     plan: dict[str, PlanRow] = {}
     for key, spec in plan_doc["rows"].items():
         if spec["step"] not in STEPS_WITH_PULLS:
@@ -150,6 +179,11 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
             str(spec["need"]),
             bool(spec.get("people", False)),
             bool(spec.get("internal_history", False)),
+            row_queries.get(str(key), ()),
+        )
+    if set(row_queries) - set(plan):
+        raise AgentConfigInvalid(
+            f"pull_plan.queries: unknown rows {sorted(set(row_queries) - set(plan))}"
         )
     if set(plan) != set(labels):
         unplanned, unknown = sorted(set(labels) - set(plan)), sorted(set(plan) - set(labels))
@@ -160,7 +194,6 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
     if _val(versions["in_app_repackaging"], "in_app_repackaging") is not False:
         raise AgentConfigInvalid("skill updates must go through the repository (D-101)")
     consent = docs["consent"]
-    min_phrasings = int(_val(run["phrasing"]["min_phrasings"], "min_phrasings"))
     min_tools = int(_val(run["phrasing"]["min_tool_categories"], "min_tool_categories"))
     if min_phrasings < 3 or min_tools < 1:
         raise AgentConfigInvalid("phrasing minimums below the skill's three phrasings (G3)")

@@ -23,6 +23,7 @@ from account_intelligence.api.routes import (
     internal_view,
     library,
     limits,
+    live,
     maildrive,
     me,
     model_choice,
@@ -52,6 +53,7 @@ v1_router.include_router(chat.router)
 v1_router.include_router(ask.router)
 v1_router.include_router(credits.router)
 v1_router.include_router(research.router)
+v1_router.include_router(live.router)
 v1_router.include_router(library.router)
 v1_router.include_router(maildrive.router)
 v1_router.include_router(schedules.router)

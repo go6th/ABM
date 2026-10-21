@@ -11,6 +11,7 @@ from tests.agents import worlds
 
 pytestmark = pytest.mark.asyncio
 
+INTERNAL_ROWS = {"prior_customer_status", "connections_alumni"}
 PEOPLE_ROWS = {
     "key_contact_profiles_posts",
     "people_by_platform",
@@ -39,7 +40,10 @@ async def test_rich_account(make) -> None:  # type: ignore[no-untyped-def]
         "Sam Ortiz",
     }
     rows = h.tracker.rows_by_run[record.run_id]
-    assert len(rows) == 33 and all(r.status == "done" for r in rows.values())
+    # internal history is off: its rows are skipped with the reason, never web-searched
+    skipped = {k for k, r in rows.items() if r.reason == "no_internal_access"}
+    assert skipped == INTERNAL_ROWS
+    assert len(rows) == 33 and all(r.status == "done" for k, r in rows.items() if k not in skipped)
     assert state["outcome"] == "completed" and state["counters"]["sense_findings"] == 0
     assert state["careers_url"] == "https://northwind-synthetic.example/careers"
 
@@ -54,6 +58,7 @@ async def test_sparse_account(make) -> None:  # type: ignore[no-untyped-def]
     assert blocked == {
         "earnings_filings": "provider_down",
         **{k: "consent_required" for k in PEOPLE_ROWS},
+        **{k: "no_internal_access" for k in INTERNAL_ROWS},
     }
     assert state["outcome"] == "partial" and h.delivery.released
 

@@ -20,8 +20,10 @@ const STATUS_TONE: Record<string, PillTone> = {
 function Cell({ col, row }: { col: Column; row: Row }) {
   const value = row.cells[col.key] ?? "";
   if (col.kind === "link") {
+    // "6th / LinkedIn": who found it and the site, opening the original page (never a connector)
     const href = safeLink(row.link ?? "");
-    return <td>{href ? <a href={href} target="_blank" rel={LINK_REL}>Open</a> : null}</td>;
+    if (href) return <td><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{row.link_label ?? "Open"}</a></td>;
+    return <td>{row.link_label ? <span className="mut">{row.link_label}</span> : null}</td>;
   }
   if (col.kind === "grade") return <td>{value ? <Grade grade={value} /> : null}</td>;
   if (col.kind === "priority") {

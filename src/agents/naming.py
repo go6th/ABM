@@ -75,15 +75,19 @@ def client_hits(text: str, extra_terms: Iterable[str] = ()) -> tuple[tuple[str, 
     return tuple(sorted(set(hits)))
 
 
-def third_party_domain_hits(text: str) -> tuple[str, ...]:
-    """Provider domains named in text, for the output-side and pre-delivery guards."""
+@lru_cache(maxsize=1)
+def _host_patterns() -> tuple[tuple[str, re.Pattern[str]], ...]:
     from documents.gate import provider_hosts
 
     return tuple(
-        host
+        (host, re.compile(r"(?<![\w-])(?:[\w-]+\.)*" + re.escape(host) + r"(?![\w-])", re.I))
         for host in provider_hosts()
-        if re.search(r"(?<![\w-])(?:[\w-]+\.)*" + re.escape(host) + r"(?![\w-])", text, re.I)
     )
+
+
+def third_party_domain_hits(text: str) -> tuple[str, ...]:
+    """Provider domains named in text, for the output-side and pre-delivery guards."""
+    return tuple(host for host, pattern in _host_patterns() if pattern.search(text))
 
 
 def tool_name_hits(text: str) -> tuple[tuple[str, int], ...]:

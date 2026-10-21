@@ -1,4 +1,8 @@
 # Phase 1 pull plan: which step pulls each coverage row and through which route (G1, G5, G15).
+# 2026-10-21: rows carry their own queries (the queries section below) built from the skill's
+# phase1-pull.md steps 2, 10 and 11 and tools.md; the generic phrasings remain for rows without
+# them and for a topic refresh. youtube searches the open web (its pages are read off-site; it
+# used to search only the account's own site and so never reached a video).
 # INTERNAL: routes name a `need` from config/routing.yaml, never a provider; the connector layer
 # resolves the provider and records it as a provider_code.
 #
@@ -43,7 +47,7 @@ rows:
   customers_partners_matched:   {step: pass2,  need: web_search}
   executive_speaking:           {step: pass2,  need: web_search}
   podcasts:                     {step: pass2,  need: web_search}
-  youtube:                      {step: pass2,  need: scrape}
+  youtube:                      {step: pass2,  need: web_search}
   medium_substack:              {step: pass2,  need: web_search}
   review_sites:                 {step: pass2,  need: web_search}
   vendor_communities:           {step: pass2,  need: web_search}
@@ -54,3 +58,105 @@ rows:
   events_sponsored:             {step: pass2,  need: web_search}
   employee_content_github:      {step: pass2,  need: web_search}
   research_papers:              {step: pass2,  need: web_search}
+
+# Each row's own search queries, from the skill (references/phase1-pull.md steps 2, 10 and 11;
+# references/tools.md: plain journalist nouns, vendor names for the lanes, person titles). At
+# least three per row (G3). Fields: {account}, {domain}, {year}, {prev_year}. Feed rows (news,
+# jobs, technology) are fetched by the account's domain and do not use a query; people-step rows
+# and internal-history rows are not searched on the open web.
+queries:
+  source: "config/skill/archive/references/phase1-pull.md, tools.md (owner's skill v1.11)"
+  status: "adopted 2026-10-21 (web research audit)"
+  value:
+    platform_vendor_account_team:
+      - "{account} Salesforce OR ServiceNow OR SAP partnership OR partner OR agreement"
+      - "{account} MuleSoft OR Tableau OR Veeva OR Workday partnership OR partner"
+      - "{account} selects OR deploys OR modernizes platform {year}"
+    key_contact_profiles_posts:
+      - "{account} chief information officer OR CIO"
+      - "{account} chief technology officer OR chief digital officer interview"
+      - "{account} vice president technology OR head of IT OR enterprise applications"
+    basic_fit_check:
+      - "{account} company overview ownership leadership"
+      - "{account} revenue employees headquarters"
+      - "{account} news {prev_year} {year}"
+    earnings_filings:
+      - "{account} earnings call transcript {year}"
+      - "{account} annual report OR 10-K {prev_year}"
+      - "{account} quarterly results investor relations {year}"
+    job_board_by_lane:
+      - "{account} careers"
+      - "{account} jobs Salesforce OR ServiceNow OR SAP OR Workday"
+      - "{account} careers technology engineering data"
+    executive_voice_earnings:
+      - "{account} earnings call CEO technology investment {year}"
+      - "{account} investor day digital transformation"
+      - "{account} earnings call AI data platform {year}"
+    financial_baseline_verified:
+      - "{account} annual revenue {prev_year}"
+      - "{account} financial results fiscal year {year}"
+      - "{account} employees revenue growth"
+    vendor_customer_stories:
+      - "{account} Salesforce customer story"
+      - "{account} ServiceNow OR SAP OR Workday customer story OR case study"
+      - "{account} MuleSoft OR Tableau OR Veeva case study"
+    lead_verification:
+      - "{account} press release {year}"
+      - "{account} newsroom"
+      - "{account} announces {year}"
+    customers_partners_matched:
+      - "{account} partners partnership announcement {year}"
+      - "{account} customers case study"
+      - "{account} alliance OR collaboration {year}"
+    executive_speaking:
+      - "{account} keynote OR speaker {year}"
+      - "{account} executive interview"
+      - "{account} Dreamforce OR Knowledge OR HIMSS OR HLTH speaker {year}"
+    podcasts:
+      - "{account} podcast interview"
+      - "{account} CIO OR CTO podcast"
+      - "{account} executive podcast episode {year}"
+    youtube:
+      - "{account} youtube"
+      - "{account} video keynote OR webinar"
+      - "{account} youtube interview {year}"
+    medium_substack:
+      - "{account} medium.com"
+      - "{account} substack"
+      - "{account} engineering blog"
+    review_sites:
+      - "{account} G2 OR TrustRadius"
+      - "{account} PeerSpot OR Gartner Peer Insights"
+      - "{account} software reviews customers"
+    vendor_communities:
+      - "{account} Trailblazer Salesforce"
+      - "{account} AppExchange"
+      - "{account} ServiceNow community"
+    regulatory_quality_events:
+      - "{account} recall OR warning letter {year}"
+      - "{account} regulatory fine OR settlement"
+      - "{account} data breach OR incident {year}"
+    financial_position_peers:
+      - "{account} competitors market share"
+      - "{account} peers revenue growth {year}"
+      - "{account} industry ranking {year}"
+    competitor_moves:
+      - "{account} competitors {year}"
+      - "{account} competitor acquisition {year}"
+      - "{account} rival launches {year}"
+    major_holders_activists:
+      - "{account} activist investor"
+      - "{account} major shareholders"
+      - "{account} private equity OR acquisition"
+    events_sponsored:
+      - "{account} sponsor conference {year}"
+      - "{account} exhibitor booth {year}"
+      - "{account} event sponsorship"
+    employee_content_github:
+      - "{account} github"
+      - "{account} engineering blog technology"
+      - "{account} open source"
+    research_papers:
+      - "{account} research paper"
+      - "{account} white paper"
+      - "{account} study published {year}"

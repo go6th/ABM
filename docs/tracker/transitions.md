@@ -29,6 +29,7 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 | `hostile_source_dropped` | Hostile source dropped |
 | `lane_not_in_scope` | Lane not in scope for this run |
 | `no_cap` | No approved spending cap |
+| `no_internal_access` | Needs your own mail, notes and files (not switched on) |
 | `not_available_yet` | Not available yet |
 | `not_in_uploaded_data` | Not in uploaded data |
 | `not_planned` | No search was planned for this row in this run |

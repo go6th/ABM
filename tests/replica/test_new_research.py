@@ -89,3 +89,31 @@ async def test_no_research_left_reserves_nothing(world: dict[str, Any]) -> None:
             "UPDATE client_settings SET monthly_credit_pool = 3000 WHERE tenant_id = %s",
             world["b"],
         )
+
+
+async def test_stop_ends_a_research_that_has_not_started_and_releases_its_credits(
+    world: dict[str, Any],
+) -> None:
+    """Stop on the account page: a research waiting or queued (no run yet) ends canceled, its
+    reserved credits go back to the pool, and a second Stop says it has ended."""
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    body = {"request_id": str(uuid4()), "company_name": "Stopco", "domain": "stopco.example"}
+    started = (await _call(plane, "POST", "/v1/research", json=body)).json()
+    job = started["job_id"]
+    assert started["status"] == "queued"
+    stopped = await _call(plane, "POST", f"/v1/research/{job}/stop")
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json() == {"job_id": job, "status": "canceled"}
+    assert _db("SELECT status, credits_used FROM research_jobs WHERE id = %s", job) == [
+        ("canceled", 0)
+    ]
+    held = _db(
+        "SELECT sum(credits) FILTER (WHERE kind = 'reserve') - sum(credits) FILTER"
+        " (WHERE kind = 'release') FROM credit_entries WHERE job_id = %s",
+        job,
+    )
+    assert held == [(0,)]
+    again = await _call(plane, "POST", f"/v1/research/{job}/stop")
+    assert again.status_code == 409 and again.json()["type"].endswith("research_ended")
+    ws = (await _call(plane, "GET", "/v1/accounts/stopco.example/workspace")).json()
+    assert ws["open_job"] is None

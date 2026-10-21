@@ -184,7 +184,11 @@ class Settings(BaseSettings):
     )
 
     # run limits
-    run_budget_usd: float = var(5.0, purpose="Per-run spend ceiling in USD (all phases).")
+    run_budget_usd: float = var(
+        11.0,
+        purpose="Per-run spend ceiling in USD (all phases); each run is also bounded by its"
+        " reserved credits.",
+    )
     run_tool_call_cap: int = var(60, purpose="Per-run connector call ceiling.")
     ask_whole_file_max_chars: int = var(
         300_000,

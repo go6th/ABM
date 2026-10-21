@@ -71,6 +71,7 @@ from account_intelligence.replica import obs as ask_obs
 from account_intelligence.replica import router as R
 from account_intelligence.replica.model_answer import refusal_phrase, stream_with_model
 from account_intelligence.replica.settings import touch_activity
+from account_intelligence.replica.source_label import relabel_answer
 from account_intelligence.replica.tools import AccessTools
 from agents.naming import sanitize_client_value
 from documents import tables as T
@@ -117,7 +118,9 @@ async def _replay(tenant_id: UUID, thread_id: UUID, request_id: UUID) -> dict[st
                 {"t": thread_id, "r": request_id},
             )
         ).first()
-    return None if row is None else {"turn_id": str(row.id), "answer": row.answer_json}
+    if row is None:
+        return None
+    return {"turn_id": str(row.id), "answer": relabel_answer(row.answer_json)}
 
 
 @router.post("/chat/ask")
