@@ -33,7 +33,7 @@ from openpyxl import load_workbook
 
 from account_intelligence.config import CONFIG_DIR
 from exports.policy import leak_hits
-from exports.ports import CheckResult
+from exports.ports import CheckResult, PdfRenderPort
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _TEXT = (".xml", ".rels", ".json", ".md", ".txt")
@@ -248,13 +248,12 @@ def _skill_scripts_dir() -> Path:
     return CONFIG_DIR / "skill" / "archive" / "scripts"
 
 
-def _run_rowcheck(docx: bytes, pdf: object) -> CheckResult:
+def _run_rowcheck(docx: bytes, pdf: PdfRenderPort) -> CheckResult:
     """Run the skill's rowcheck.py on the docx and its PDF rendering.
 
     Fails closed: if LibreOffice or pdftotext is unavailable, the check fails.
     """
-    pdf_port = pdf  # type: ignore[assignment]
-    pdf_bytes = pdf_port.pdf_bytes(docx)
+    pdf_bytes = pdf.pdf_bytes(docx)
     if pdf_bytes is None:
         return CheckResult(
             "docx_rowcheck",
@@ -363,7 +362,7 @@ def _run_doc_checks(
     return CheckResult("doc_checks", "passed")
 
 
-def docx_rowcheck(docx: bytes, pdf: object) -> CheckResult:
+def docx_rowcheck(docx: bytes, pdf: PdfRenderPort) -> CheckResult:
     """Rowcheck gate for a Word deliverable: fails closed without a converter."""
     return _run_rowcheck(docx, pdf)
 

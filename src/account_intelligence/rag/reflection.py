@@ -23,7 +23,7 @@ from account_intelligence.rag.models import (
     ReflectionVerdict,
     RetrievedChunk,
 )
-from account_intelligence.rag.retrieval import tokenize
+from account_intelligence.rag.tokenizer import tokenize
 
 _STOPWORDS = frozenset(
     {

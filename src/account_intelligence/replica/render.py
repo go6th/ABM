@@ -209,7 +209,7 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
     if kind == "table":
         columns = section.get("columns")
         rows = section.get("rows")
-        if not _string_list(columns, 12):
+        if not isinstance(columns, list) or not _string_list(columns, 12):
             return "bad_table", f"table section {i + 1}: columns must be 1-12 strings"
         if not isinstance(rows, list) or not rows or len(rows) > MAX_TABLE_ROWS:
             return "bad_table", f"table section {i + 1}: rows must be 1-{MAX_TABLE_ROWS} arrays"
@@ -231,7 +231,7 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
         return None
     if kind == "prose":
         paragraphs = section.get("paragraphs")
-        if not _string_list(paragraphs, MAX_PROSE_PARAGRAPHS):
+        if not isinstance(paragraphs, list) or not _string_list(paragraphs, MAX_PROSE_PARAGRAPHS):
             return (
                 "bad_prose",
                 f"prose section {i + 1}: paragraphs must be 1-{MAX_PROSE_PARAGRAPHS} strings",

@@ -97,6 +97,10 @@ class PdfRenderPort(Protocol):
         """Text of the PDF rendering, or None when the converter is unavailable."""
         ...
 
+    def pdf_bytes(self, docx: bytes) -> bytes | None:
+        """The PDF rendering itself (the row check reads it), or None without a converter."""
+        ...
+
 
 class RecalcPort(Protocol):
     """Workbook recalculation; ``None`` when no engine is installed."""

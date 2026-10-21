@@ -155,6 +155,9 @@ class SubprocessWordRenderer:
                 _kill(proc)
             for t in threads:
                 t.join(timeout=5)
+            if not any(t.is_alive() for t in threads):
+                proc.stdout.close()
+                proc.stderr.close()
         if over_out.is_set():
             raise RenderError("output too large")
         if over_err.is_set():

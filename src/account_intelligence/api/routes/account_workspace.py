@@ -93,7 +93,8 @@ async def account_workspace(domain: str, ident: Identity = Depends(authorize)) -
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
         out = await W.workspace(s, account_id, ident.user_id, datetime.now(UTC))
-    return _client_value({**out, "latest_run": None})
+    result: dict[str, Any] = _client_value({**out, "latest_run": None})
+    return result
 
 
 @router.get("/{domain}/file-analysis", response_model=C.FileAnalysisRun)

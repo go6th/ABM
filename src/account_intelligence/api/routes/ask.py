@@ -32,7 +32,7 @@ import time
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -164,7 +164,7 @@ async def ask(
         turn_started = time.monotonic()
         if replay is not None:
             try:
-                replay_answer = sanitize_client_value(replay["answer"] or {})
+                replay_answer = cast(dict[str, Any], sanitize_client_value(replay["answer"] or {}))
             except Exception:  # noqa: BLE001 - a stored answer that fails the gate is withheld
                 yield sse(
                     "error",
@@ -372,7 +372,7 @@ async def ask(
             answer["used"]["model_name"] = (
                 (choice.name if choice else model_id) if from_model else None
             )
-            answer = sanitize_client_value(answer)
+            answer = cast(dict[str, Any], sanitize_client_value(answer))
             for index, paragraph in enumerate(answer["paragraphs"]):
                 yield sse("text", {"p": index, "parts": paragraph})
             plain = A.plain_text(answer["paragraphs"])[:100_000] or " "

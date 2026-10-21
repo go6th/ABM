@@ -1462,7 +1462,8 @@ def structured_out(payload: Mapping[str, Any], numbering: dict[str, int]) -> dic
             return {k: swap(v) for k, v in value.items()}
         return value
 
-    return swap(dict(payload))
+    out: dict[str, Any] = swap(dict(payload))
+    return out
 
 
 def plain_text(paragraphs: list[list[dict[str, str]]]) -> str:

@@ -97,6 +97,10 @@ files = ["src"]
 strict = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = ["tiktoken"]  # optional; the runtime falls back when it is absent
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "session"
