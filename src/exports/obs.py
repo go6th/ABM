@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from uuid import UUID
@@ -30,20 +31,41 @@ def span(name: str, run_id: str, **attributes: str | int) -> Iterator[trace.Span
         yield s
 
 
+def withheld_blocks(run_id: str, blocks: tuple[str, ...]) -> None:
+    """Log the authored blocks a content rule kept out of a delivered set: how many, by rule.
+    The set was delivered; this is the gap a reader of the Summary should know about."""
+    by_rule = Counter(b.rsplit(":", 1)[-1] for b in blocks)
+    _logger.info(
+        "exports.withheld",
+        extra={
+            "count": len(blocks),
+            "error_code": ",".join(f"{r}={n}" for r, n in sorted(by_rule.items()))[:200],
+        },
+    )
+
+
 def file_outcome(kind: str, outcome: str) -> None:
     """Count one file by kind and outcome."""
     _files.add(1, {"kind": kind, "outcome": outcome})
 
 
-def build_outcome(run_id: str, outcome: str, codes: tuple[str, ...], rows: dict[str, int]) -> None:
-    """Count the build and log one line: run id, outcome, error codes and row counts only."""
+def build_outcome(
+    run_id: str, outcome: str, codes: tuple[str, ...], rows: dict[str, int], detail: str = ""
+) -> None:
+    """Count the build and log one line: run id, outcome, the rules that failed (with how many
+    items each, in ``detail``) and row counts only; never a row's text."""
     _builds.add(1, {"outcome": outcome})
     if codes:
-        # the codes as a structured field: the JSON message below is reduced to a hash in the
-        # cloud logs, so a failed build was otherwise invisible there (staging 2026-10-15)
+        # the rules as structured fields: the JSON message below is reduced to a hash in the
+        # cloud logs, so a failed build was otherwise invisible there (staging 2026-10-15), and
+        # the bare class ("banned_content") did not say which rule (staging 2026-10-21)
         _logger.warning(
             "exports.build_failed",
-            extra={"outcome": outcome, "error_code": ",".join(sorted(set(codes)))[:200]},
+            extra={
+                "outcome": outcome,
+                "error_code": ",".join(sorted(set(codes)))[:200],
+                "reason": detail[:200],
+            },
         )
     _logger.info(
         json.dumps(

@@ -111,6 +111,17 @@ _ERROR_OF: dict[str, type[ExportError]] = {
     "name_missing": SchemaViolation,
     "text_missing": SchemaViolation,
     "speaker_missing": SchemaViolation,
+    "question_missing": SchemaViolation,
+    "aggregator_not_lead": SchemaViolation,
+    "section_fact_not_rendered": OrphanCitation,
+    # the D-24 prose rules and the number rule, named so a failure never reads as a bare
+    # ``banned_content`` (they withhold a Summary block today; listed for any other caller)
+    "banned_dash": BannedContent,
+    "stale_phrase": BannedContent,
+    "abbreviation_first_use": BannedContent,
+    "partner_framing": BannedContent,
+    "unregistered_number": BannedContent,
+    "unconfirmed_stated": BannedContent,
 }
 EXTENSIONS: dict[FileKind, str] = {
     "summary": "docx",
@@ -129,9 +140,10 @@ class BuildFailed(ExportError, BuildIncomplete):
     def __init__(self, result: BuildResult) -> None:
         self.result = result
         self.reason = result.reason or "build_failed"
-        # why, by error code (missing_narrative, leak...): the research run records these
-        # instead of the bare "build_failed" that told the user nothing (staging 2026-10-15)
-        self.codes = ",".join(sorted(error_codes(result.errors)))[:120]
+        # why, by rule (missing_narrative, banned_dash, leak...): the research run records these
+        # instead of the bare "build_failed" that told the user nothing (staging 2026-10-15), and
+        # the rule rather than the class, which told them little more (staging 2026-10-21)
+        self.codes = ",".join(result.codes or sorted(error_codes(result.errors)))[:120]
         ExportError.__init__(self, self.reason, result.errors)
 
 
@@ -144,8 +156,17 @@ def errors_of(violations: list[Violation]) -> list[ExportError]:
     for code in sorted(grouped):
         cls = _ERROR_OF.get(code, BannedContent)
         items = sorted({f"{v.where}:{v.item}" for v in grouped[code]})
-        out.append(cls(code, items))
+        out.append(cls(code, items, rule=code))
     return out
+
+
+def rules_of(errors: list[ExportError]) -> tuple[str, ...]:
+    """The rules behind a failed build, distinct and sorted: an error's ``rule`` (one or several,
+    comma-joined) when it names one, else its class code."""
+    rules: set[str] = set()
+    for e in errors:
+        rules.update((e.rule or e.code).split(","))
+    return tuple(sorted(rules))
 
 
 @dataclass
@@ -339,6 +360,7 @@ class ExportBuilder:
                 if result.status == "failed":
                     raise SchemaViolation(f"{kind}: workbook recalculation", result.details)
             if kind in ("summary", "evidence"):
+                dashes = self.cfg.rules.banned_dashes
                 result = doc_checks(
                     body,
                     kind,
@@ -348,14 +370,23 @@ class ExportBuilder:
                     if hasattr(self.cfg.rules, "excluded_names")
                     else (),
                     self._verbatim_quotes(kind, model),
+                    self._passthrough_texts(kind, model),
+                    dashes.characters,
+                    dashes.spaced_hyphen_is_punctuation,
                 )
                 out.checks.append(result)
                 if result.status == "failed":
-                    raise BannedContent(f"{kind}: document checks failed", result.details)
+                    rules = sorted({d.split(":", 1)[0] for d in result.details})
+                    cls = OrphanCitation if rules == ["orphan_citation"] else BannedContent
+                    raise cls(
+                        f"{kind}: document checks failed", result.details, rule=",".join(rules)
+                    )
                 result = third_party_scan(body, kind)
                 out.checks.append(result)
                 if result.status == "failed":
-                    raise BannedContent(f"{kind}: third-party scan failed", result.details)
+                    raise BannedContent(
+                        f"{kind}: third-party scan failed", result.details, rule="tool_name"
+                    )
 
     def _expected(self, kind: str, mapped: Mapped[Any]) -> dict[tuple[str, str], int]:
         """Formula cells and the counts computed in code they must equal (B12)."""
@@ -387,6 +418,42 @@ class ExportBuilder:
         return tuple(
             use.sentence for source in model.sources for use in source.uses if not use.withheld
         ) + tuple(item.sentence for item in model.news)
+
+    @staticmethod
+    def _passthrough_texts(kind: str, model: Any) -> tuple[str, ...]:
+        """Stored texts a document prints as they are (titles, names, findings, questions,
+        links): outside the dash rule's scope, authored prose. A job title with a dash is the
+        posting's own, not punctuation the platform wrote (a fifth of stored titles carry one)."""
+        if kind == "summary":
+            rows = [r for table in model.lanes for r in table.rows]
+            return tuple(
+                t
+                for t in (
+                    *(r.finding for r in rows),
+                    *(r.question or "" for r in rows),
+                    *(p.name for p in model.key_people),
+                    *(p.title for p in model.key_people),
+                    *(str(p.profile_url) for p in model.key_people),
+                    *(f.person for f in model.linkedin_findings),
+                    *(str(f.url) for f in model.linkedin_findings),
+                    *(a.text for a in model.absences),
+                    *(a.question for a in model.absences),
+                    *(t.row for t in model.tracker),
+                    *(t.reason or "" for t in model.tracker),
+                    *(t.tools for t in model.tracker),
+                )
+                if t
+            )
+        return tuple(
+            t
+            for t in (
+                *(str(s.url) for s in model.sources),
+                *(j.title for j in model.job_descriptions),
+                *(str(j.url) for j in model.job_descriptions),
+                *(str(n.url) for n in model.news),
+            )
+            if t
+        )
 
     def _manifest(self, out: Assembly, content: SnapshotContent, ctx: MapContext) -> BuildManifest:
         mapped = out.mapped
@@ -421,6 +488,7 @@ class ExportBuilder:
             count_sentences=ctx.registry.sentences(),
             tracker_tally=summary.tracker_tally if summary else (),
             withheld_sentences=ctx.withheld,
+            withheld_blocks=tuple(f"{w}:{row}:{rule}" for w, row, rule in ctx.withheld_blocks),
             long_text_parts=out.long_parts,
             formula_like_cells=ctx.formula_like,
             files=entries,
@@ -541,16 +609,22 @@ class ExportBuilder:
             ),
         )
         obs.build_outcome(run_id, "complete", (), out.manifest.rows_per_file)
+        if out.manifest.withheld_blocks:
+            obs.withheld_blocks(run_id, out.manifest.withheld_blocks)
         return result
 
     def _failed(self, run_id: str, errors: list[ExportError]) -> BuildResult:
-        codes = tuple(e.code for e in errors)
-        obs.build_outcome(run_id, "failed", codes, {})
+        rules = rules_of(errors)
+        # the rule and how many items it fired on, so the log names the cause without text
+        detail = ",".join(f"{e.rule or e.code}={len(e.items) or 1}" for e in errors)
+        obs.build_outcome(run_id, "failed", rules, {}, detail)
         status = (
             "not_configured" if any(isinstance(e, NotConfigured) for e in errors) else ("failed")
         )
         reason = "builders_not_configured" if status == "not_configured" else "build_failed"
-        return BuildResult(status=status, reason=reason, errors=tuple(str(e) for e in errors))
+        return BuildResult(
+            status=status, reason=reason, errors=tuple(str(e) for e in errors), codes=rules
+        )
 
     async def build(self, tenant_id: str, run_id: str) -> list[str]:
         """``BuilderPort``: the stored deliverable ids; ``BuildFailed`` when not complete."""
