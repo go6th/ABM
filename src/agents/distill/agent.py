@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Collection
 from dataclasses import dataclass, field
+from functools import cache
 
 from agents.contracts import AgentContract, BudgetMeter
 from agents.errors import OutputRejected
@@ -30,9 +31,28 @@ from agents.guards import Role, for_audience, restates_grade
 from agents.ports import AgentModel, RunContext
 from agents.runtime import call_agent
 from agents.schemas import Claim, DistillInput, DistillOutput, StoredFact
+from exports.config import ContentRules, load_export_config
+from exports.policy import authored_violations
 
 # the longest narrative made from questions when no narrative sentence survived
 NARRATIVE_FROM_QUESTIONS = 8
+
+
+@cache
+def _content_rules() -> ContentRules:
+    """The export content rules (D-24 prose rules), read once: the same rules the Summary is
+    checked against, so a claim the files would withhold is dropped and re-asked here, while
+    the model is still in the loop (staging 2026-10-21: a dash in finished prose failed the
+    build after the research was paid for)."""
+    return load_export_config().rules
+
+
+def prose_problem(text: str) -> str | None:
+    """The first D-24 prose rule a claim breaks (``banned_dash``, ``stale_phrase``...), or None.
+    Partner framings are not checked here (the run does not know the tenant's partner status);
+    the Summary withholds them."""
+    found = authored_violations(text, _content_rules(), "distill", is_partner=False)
+    return found[0].code if found else None
 
 
 @dataclass
@@ -91,6 +111,8 @@ async def distill(
                 counts["restates_grade"] += 1
             elif narrative and states_unstatable(claim, allowed):
                 counts["unconfirmed_stated"] += 1
+            elif (problem := prose_problem(claim.text)) is not None:
+                counts[problem] += 1
             else:
                 kept.append(claim)
         return tuple(kept)
@@ -123,7 +145,8 @@ async def distill(
                     "Your previous narrative was rejected: " + reasons + ". Write each claim"
                     " without naming a grade or confidence level, cite only the fact_ids given,"
                     " and state only facts in statable_fact_ids; write every other sentence as"
-                    " a question ending with a question mark."
+                    " a question ending with a question mark. Use no em dash, en dash or"
+                    " spaced hyphen as punctuation."
                 )[:600]
             }
         )

@@ -236,9 +236,12 @@ def _block(ctx: MapContext, s: SectionRow) -> AuthoredBlock:
     )
 
 
-def _why_no_narrative(facts: Sequence[FactRow], evidence: Sequence[EvidenceRow]) -> str:
+def _why_no_narrative(
+    facts: Sequence[FactRow], evidence: Sequence[EvidenceRow], withheld_rules: Sequence[str] = ()
+) -> str:
     """A readable reason for a missing narrative: the narrative may only state Confirmed facts,
-    and only a full page read of a primary source this run can make a fact Confirmed (G5)."""
+    and only a full page read of a primary source this run can make a fact Confirmed (G5); or
+    every narrative block distill wrote was withheld by a content rule (named)."""
     grades = Counter(f.product_grade for f in facts)
     confirmed = grades.get("confirmed", 0)
     full = {e.url for e in evidence if e.origin == "full_page_read" and e.url}
@@ -246,7 +249,9 @@ def _why_no_narrative(facts: Sequence[FactRow], evidence: Sequence[EvidenceRow])
     by_grade = ", ".join(f"{g} {n}" for g, n in sorted(grades.items())) or "none"
     by_origin = ", ".join(f"{o} {n}" for o, n in sorted(origins.items())) or "none"
     why = (
-        "no facts were graded"
+        f"every narrative block was withheld ({', '.join(sorted(set(withheld_rules)))})"
+        if withheld_rules
+        else "no facts were graded"
         if not facts
         else "no fact was read in full in a primary source this run"
         if confirmed == 0
@@ -268,7 +273,8 @@ def map_summary(ctx: MapContext, people: PeopleModel | None) -> Mapped[SummaryMo
     tracker, tally = map_tracker(ctx)
     sections = _sections(ctx, by_fact, rendered)
     if not sections.get("narrative"):
-        ctx.fail("missing_narrative", "summary", _why_no_narrative(c.facts, c.evidence))
+        held = [rule for w, _, rule in ctx.withheld_blocks if ".narrative." in w]
+        ctx.fail("missing_narrative", "summary", _why_no_narrative(c.facts, c.evidence, held))
         return Mapped(None)
 
     key_people: list[KeyPersonRow] = []

@@ -46,6 +46,7 @@ from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica.settings import accounts_used, client_settings
 from account_intelligence.replica.usage_estimate import estimate_usage
+from account_intelligence.replica.workspace import PLANNED
 from account_intelligence.runs import lifecycle
 
 router = APIRouter(prefix="/research", tags=["research"])
@@ -273,8 +274,9 @@ async def _resumed(s: Any, job_id: Any, run_id: UUID, domain: str) -> dict[str, 
     row = (
         await s.execute(
             text(
-                "SELECT count(*) AS total, count(*) FILTER (WHERE status IN ('done', 'none'))"
-                " AS done FROM coverage_rows WHERE run_id = :r"
+                # the steps in the research's scope (replica.workspace.PLANNED)
+                "SELECT count(*) AS total, count(*) FILTER (WHERE c.status IN ('done', 'none'))"
+                f" AS done FROM coverage_rows c WHERE c.run_id = :r AND {PLANNED}"
             ),
             {"r": run_id},
         )

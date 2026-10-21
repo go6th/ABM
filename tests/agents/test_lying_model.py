@@ -234,6 +234,36 @@ async def test_distill_lies_are_dropped_or_rejected(h: Harness) -> None:
     assert state["counters"]["distill_client_drop_restates_grade"] == 1
 
 
+async def test_distill_prose_with_a_dash_is_dropped_and_re_asked(h: Harness) -> None:
+    """A claim the Summary would withhold (an em dash, a spaced hyphen) is dropped here, while
+    the model is still in the loop, and the one re-ask names the rule."""
+    calls: list[Mapping[str, Any]] = []
+
+    def dashed(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        calls.append(payload)
+        fid = payload["facts"][0]["fact_id"]
+        if len(calls) == 1:
+            return {
+                "hypotheses": [{"text": "Hiring — a lot of it.", "fact_ids": [fid]}],
+                "questions": [{"text": "Is hiring - the priority?", "fact_ids": [fid]}],
+                "narrative": [{"text": "Hiring grew — fast?", "fact_ids": [fid]}],
+            }
+        return {
+            "hypotheses": [],
+            "questions": [],
+            "narrative": [{"text": "Did hiring grow fast?", "fact_ids": [fid]}],
+        }
+
+    lying(h, "abm_distill", dashed)
+    _, state = await h.run("r")
+    texts = " ".join(line for lines in h.builder.files.values() for line in lines)
+    assert "—" not in texts and " - " not in texts
+    assert "Did hiring grow fast?" in texts
+    assert state["counters"]["distill_client_drop_banned_dash"] == 3
+    assert state["counters"]["distill_client_drop_narrative_reasked"] == 1
+    assert "no em dash" in (calls[1].get("notes") or "")
+
+
 @pytest.mark.parametrize(
     ("bad", "must_be_rejected"),
     [

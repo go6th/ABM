@@ -343,12 +343,14 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
                 "   c.run_id = (SELECT r.id FROM account_runs r WHERE r.account_id = :a"
                 "   AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
                 "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.run_id = r.id)"
-                "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)) AS coverage_done,"
+                "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
+                f"   AND {PLANNED}) AS coverage_done,"
                 " (SELECT count(*) FROM coverage_rows c WHERE"
                 "   c.run_id = (SELECT r.id FROM account_runs r WHERE r.account_id = :a"
                 "   AND r.status IN ('COMPLETED', 'PARTIAL', 'BUDGET_EXCEEDED')"
                 "   AND EXISTS (SELECT 1 FROM coverage_rows x WHERE x.run_id = r.id)"
-                "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)) AS coverage_total"
+                "   ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
+                f"   AND {PLANNED}) AS coverage_total"
             ),
             {"a": account_id, "u": user_id},
         )
@@ -359,9 +361,10 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         await session.execute(
             text(
                 "SELECT j.id, j.kind, j.scope, j.status, j.topic, j.run_id,"
-                " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id) AS total,"
+                f" (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id AND {PLANNED})"
+                " AS total,"
                 " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = j.run_id"
-                "   AND c.status IS NOT NULL) AS done"
+                f"   AND c.status IS NOT NULL AND {PLANNED}) AS done"
                 " FROM research_jobs j WHERE j.account_id = :a"
                 " AND j.status IN ('waiting_credit_limit', 'queued', 'running')"
                 # a job whose run already ended is not running (the sweep settles it)
@@ -479,6 +482,7 @@ async def coverage_gaps(session: Any, account_id: UUID) -> list[dict[str, Any]]:
                 "   'BUDGET_EXCEEDED') AND EXISTS (SELECT 1 FROM coverage_rows x WHERE"
                 "   x.run_id = r.id) ORDER BY r.finished_at DESC NULLS LAST LIMIT 1)"
                 " AND c.status IS DISTINCT FROM 'done' AND c.status IS DISTINCT FROM 'none'"
+                f" AND {PLANNED}"
                 " GROUP BY 1 ORDER BY 2 DESC, 1"
             ),
             {"a": account_id},
@@ -517,8 +521,32 @@ STOP_TEXT = {
     "slice_ceiling": "It ran longer than the platform allows for one research.",
     "budget_cap": "It reached the credits confirmed for it.",
 }
+# A coverage row ``c`` inside its run's scope. A scoped research (job postings, people, one
+# topic) records the rows it pulls in ``account_runs.run_input.scope_rows`` and still writes all
+# 33 rows, marking the others "not planned" at once; counting every row showed "33 of 33 steps"
+# for a 3-step research (owner report 2026-10-21). The steps a research shows, counts and lists
+# as gaps are the rows in its scope; a full research (no scope_rows) keeps all 33.
+PLANNED = (
+    "NOT EXISTS (SELECT 1 FROM account_runs x WHERE x.id = c.run_id"
+    " AND jsonb_typeof(x.run_input->'scope_rows') = 'array'"
+    " AND NOT jsonb_exists(x.run_input->'scope_rows', c.row_key))"
+)
 # "build_failed:<why>": the files could not be built from what was found (audit 2026-10-15)
 BUILD_FAILED_TEXT = "The files could not be built from what was found ({why})."
+# the rules a build fails on (exports.builder), in words; an unknown rule shows as its code
+BUILD_RULE_TEXT = {
+    "missing_narrative": "no opening narrative could be written from the findings",
+    "banned_dash": "a dash used as punctuation in a client file",
+    "orphan_citation": "a citation with no matching source",
+    "unregistered_number": "a number no count or source backs",
+    "leak": "a term a client file may never carry",
+    "tool_name": "a data provider named in a client file",
+    "row_cap": "more rows than a file may hold",
+    "missing_source_code": "a row without a registered source",
+    "missing_url": "a row without a link",
+    "stale_phrase": "a phrase that must no longer appear",
+    "excluded_name": "a name that must not appear",
+}
 
 
 # what each quality-gate check means to the person reading the card (documents.gate)
@@ -559,8 +587,9 @@ def stop_text(reason: str, defects: Sequence[Mapping[str, Any]] = ()) -> str:
     if reason in STOP_TEXT:
         return STOP_TEXT[reason]
     if reason.startswith("build_failed"):
-        why = reason.partition(":")[2].replace("_", " ").replace(",", ", ") or "no detail"
-        return BUILD_FAILED_TEXT.format(why=why)
+        rules = [r for r in reason.partition(":")[2].split(",") if r]
+        why = "; ".join(BUILD_RULE_TEXT.get(r, r.replace("_", " ")) for r in rules)
+        return BUILD_FAILED_TEXT.format(why=why or "no detail")
     return f"It stopped before finishing (reason: {reason.replace('_', ' ')})."
 
 
@@ -572,9 +601,10 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
         await session.execute(
             text(
                 "SELECT r.id, r.status, r.finished_reason, r.stalled_at,"
-                " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = r.id) AS total,"
+                f" (SELECT count(*) FROM coverage_rows c WHERE c.run_id = r.id AND {PLANNED})"
+                " AS total,"
                 " (SELECT count(*) FROM coverage_rows c WHERE c.run_id = r.id"
-                "   AND c.status IN ('done', 'none')) AS done"
+                f"   AND c.status IN ('done', 'none') AND {PLANNED}) AS done"
                 " FROM account_runs r WHERE r.account_id = :a AND coalesce(r.input_mode,"
                 " 'company') = 'company' ORDER BY r.created_at DESC LIMIT 1"
             ),

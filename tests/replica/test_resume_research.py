@@ -37,10 +37,12 @@ def _run(tenant: UUID, user: str, status: str, *, idle_minutes: int = 0) -> tupl
     )[0]
     finished = "now()" if status in ("COMPLETED", "PARTIAL", "FAILED") else "NULL"
     (run,) = _db(
+        # a scoped research: its run records the three rows it plans (research_scopes.yaml)
         "INSERT INTO account_runs (tenant_id, account_id, owner_user_id, status, graph_version,"
         " budget_json, reserved_credits, idempotency_key, budget_usd, finished_at,"
-        f" finished_reason, progress_at) VALUES (%s, %s, %s, %s, 'test', '{{}}', 0, %s, 5,"
-        f" {finished}, %s, now() - make_interval(mins => %s)) RETURNING id",
+        f" finished_reason, progress_at, run_input) VALUES (%s, %s, %s, %s, 'test', '{{}}', 0,"
+        f" %s, 5, {finished}, %s, now() - make_interval(mins => %s),"
+        """ '{"scope_rows": ["company_news", "job_postings", "people"]}') RETURNING id""",
         tenant,
         account,
         user,
@@ -59,15 +61,23 @@ def _run(tenant: UUID, user: str, status: str, *, idle_minutes: int = 0) -> tupl
         account,
         tracked,
     )
-    for key, state in (("company_news", "done"), ("job_postings", "done"), ("people", None)):
+    # three planned rows (two done) and one the research did not plan (a scoped research marks
+    # the rows outside its scope "not planned" at once): the step counts never include it
+    for key, state, reason in (
+        ("company_news", "done", None),
+        ("job_postings", "done", None),
+        ("people", None, None),
+        ("technology_detections", "blocked", "not_planned"),
+    ):
         _db(
             "INSERT INTO coverage_rows (tenant_id, run_id, row_key, priority, status, proof,"
-            " reason_code) VALUES (%s, %s, %s, 'high', %s, %s, NULL)",
+            " reason_code) VALUES (%s, %s, %s, 'high', %s, %s, %s)",
             tenant,
             run,
             key,
             state,
             '{"calls": []}' if state else None,
+            reason,
         )
     return run, domain
 
@@ -188,7 +198,16 @@ async def test_every_stop_reason_is_said_in_words() -> None:
 
     assert "quality check" in stop_text("gate_failed")
     assert stop_text("build_failed:missing_narrative") == (
-        "The files could not be built from what was found (missing narrative)."
+        "The files could not be built from what was found"
+        " (no opening narrative could be written from the findings)."
+    )
+    # the builder's rules, in words, each; an unknown rule shows as its code
+    assert stop_text("build_failed:banned_dash,new_rule") == (
+        "The files could not be built from what was found"
+        " (a dash used as punctuation in a client file; new rule)."
+    )
+    assert stop_text("build_failed") == (
+        "The files could not be built from what was found (no detail)."
     )
     assert stop_text("something_new") == "It stopped before finishing (reason: something new)."
     assert "usage limit" in stop_text("model_credits_exhausted")

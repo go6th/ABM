@@ -64,6 +64,36 @@ def _store_fact(run_id: UUID, value: str) -> None:
         c.commit()
 
 
+async def test_a_scoped_research_counts_only_the_rows_it_planned(world: dict[str, Any]) -> None:
+    """A job-postings research works on three rows; the thirty it marks "not planned" are
+    neither counted nor shown as reported (the screen said "33 of 33" for such a research)."""
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    domain = f"scoped-{uuid4().hex[:6]}.example"
+    job, run_id = await _running(plane, world["a"], domain)
+    # the claim wrote every checklist row; the pull then reports the thirty outside the job
+    # postings scope "not planned" and finishes one of the three it planned
+    jobs_rows = ("job_board_by_lane", "job_postings_12_months", "job_postings_read_classified")
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute(
+            "UPDATE account_runs SET run_input = run_input || jsonb_build_object('scope_rows',"
+            " to_jsonb(%s::text[])) WHERE id = %s",
+            (list(jobs_rows), run_id),
+        )
+        c.execute(
+            "UPDATE coverage_rows SET status = 'blocked', reason_code = 'not_planned',"
+            " proof = '{\"calls\": []}' WHERE run_id = %s AND row_key <> ALL(%s)",
+            (run_id, list(jobs_rows)),
+        )
+        c.execute(
+            "UPDATE coverage_rows SET status = 'done', proof = '{\"calls\": []}'"
+            " WHERE run_id = %s AND row_key = %s",
+            (run_id, jobs_rows[0]),
+        )
+    body = (await _call(plane, "GET", "/v1/research/live", params={"selected": job})).json()
+    read = next(st for st in body["detail"]["steps"] if st["id"] == "read")
+    assert (read["rows_done"], read["rows_total"]) == (1, 3), body["detail"]["steps"]
+
+
 async def test_live_snapshot_shows_a_fact_as_soon_as_it_is_stored(world: dict[str, Any]) -> None:
     plane = _plane(world["a"], "priya-test", world["payloads"])
     domain = f"live-{uuid4().hex[:6]}.example"

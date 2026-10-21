@@ -34,6 +34,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from account_intelligence.replica.workspace import PLANNED
 from account_intelligence.safety.client_output import assert_client_safe, scan_text
 from views import progress as P
 
@@ -400,7 +401,13 @@ async def snapshot(
     if run_ids:
         for c in (
             await s.execute(
-                text("SELECT run_id, row_key, status FROM coverage_rows WHERE run_id = ANY(:ids)"),
+                text(
+                    # the rows in the research's scope (replica.workspace.PLANNED): a scoped
+                    # one marks the rest "not planned" at once, and they used to count as
+                    # reported rows ("33 of 33" for a 3-row research, owner report 2026-10-21)
+                    "SELECT c.run_id, c.row_key, c.status FROM coverage_rows c"
+                    f" WHERE c.run_id = ANY(:ids) AND {PLANNED}"
+                ),
                 {"ids": run_ids},
             )
         ).all():

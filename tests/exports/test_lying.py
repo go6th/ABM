@@ -172,9 +172,27 @@ async def test_b5_narrative_sentence_without_a_code(make_builder: Make) -> None:
 
 
 async def test_b6_number_not_in_the_registry_or_the_cited_rows(make_builder: Make) -> None:
+    # the block is withheld from the Summary, listed, and the set is still delivered
+    c = with_section(account(), "caveat", text="The account has 17 synthetic teams.")
+    result, store = await run(make_builder, c)
+    assert_withheld(result, store, "unregistered_number", "17 synthetic teams")
+    # the only narrative block withheld: no narrative, and the reason names the rule
     c = with_section(account(), "narrative", text="The account has 17 synthetic teams.")
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "unregistered_number")
+    assert_failed(result, store, "missing_narrative")
+    assert any("withheld (unregistered_number)" in e for e in result.errors), result.errors
+
+
+def assert_withheld(result: BuildResult, store: MemoryStore, rule: str, text: str) -> None:
+    """The set was delivered, one authored block is listed as withheld for ``rule`` and its
+    text reached no file."""
+    assert result.status == "complete", result.errors
+    assert any(b.endswith(f":{rule}") for b in result.manifest.withheld_blocks), (
+        result.manifest.withheld_blocks
+    )
+    for d in result.deliverables:
+        if d.kind in ("summary", "evidence"):
+            assert text not in docx_text(store.objects[d.object_key])
 
 
 async def test_b6_number_from_a_registered_count_passes(make_builder: Make) -> None:
@@ -211,11 +229,12 @@ async def test_b7_grade_outside_the_vocabulary(make_builder: Make) -> None:
 
 async def test_b7_hypothesis_without_its_question(make_builder: Make) -> None:
     result, store = await run(make_builder, with_fact(account(), 2, confirming_question=None))
-    assert_failed(result, store, "question_missing")
-    result, store = await run(
-        make_builder, with_section(account(), "hypothesis", confirming_question=" ")
-    )
-    assert_failed(result, store, "question_missing")
+    assert_failed(result, store, "schema_violation", "question_missing")
+    # a stored hypothesis block without its question is withheld, not a failed build
+    c = account()
+    held = next(s.text for s in c.sections if s.kind == "hypothesis")
+    result, store = await run(make_builder, with_section(c, "hypothesis", confirming_question=" "))
+    assert_withheld(result, store, "question_missing", held)
 
 
 async def test_b7_aggregator_only_support_must_be_a_labelled_lead(make_builder: Make) -> None:
@@ -242,7 +261,9 @@ async def test_b7_narrative_stating_an_unconfirmed_fact(make_builder: Make) -> N
         text="The synthetic account is moving platforms.",
     )
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "unconfirmed_stated")
+    # the statement is withheld; it was the only narrative block, so the Summary has none
+    assert_failed(result, store, "missing_narrative")
+    assert any("withheld (unconfirmed_stated)" in e for e in result.errors), result.errors
     question = with_section(
         account(),
         "narrative",
@@ -254,9 +275,11 @@ async def test_b7_narrative_stating_an_unconfirmed_fact(make_builder: Make) -> N
 
 
 async def test_b7_section_fact_must_be_a_rendered_row(make_builder: Make) -> None:
-    c = with_section(account(), "narrative", fact_ids=("00000000-0000-4000-8000-999999999999",))
+    c = account()
+    held = next(s.text for s in c.sections if s.kind == "caveat")
+    c = with_section(c, "caveat", fact_ids=("00000000-0000-4000-8000-999999999999",))
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "section_fact_not_rendered")
+    assert_withheld(result, store, "section_fact_not_rendered", held)
 
 
 # ---- B8 two outputs ----------------------------------------------------------------------------
@@ -310,9 +333,13 @@ async def test_b9_partner_framing_fails_for_a_partner_tenant(make_builder: Make)
     result, store = await run(
         make_builder, with_section(account(partner=True), "caveat", text=text)
     )
-    assert_failed(result, store, "partner_framing")
-    result, _ = await run(make_builder, with_section(account(partner=False), "caveat", text=text))
-    assert result.status == "complete", result.errors
+    assert_withheld(result, store, "partner_framing", "leaving Salesforce")
+    result, store = await run(
+        make_builder, with_section(account(partner=False), "caveat", text=text)
+    )
+    assert result.status == "complete" and not result.manifest.withheld_blocks, result.errors
+    summary = next(d for d in result.deliverables if d.kind == "summary")
+    assert "leaving Salesforce" in docx_text(store.objects[summary.object_key])
 
 
 async def test_b9_restricted_term_in_a_verbatim_quote_is_withheld_counted_listed(
@@ -358,10 +385,29 @@ async def test_b9_sensitive_sentence_is_in_every_summary(
 
 
 async def test_banned_dash_in_authored_text(make_builder: Make) -> None:
+    # withheld and listed; the other files are delivered (one dash held back five files on
+    # staging, 2026-10-21)
     result, store = await run(
         make_builder, with_section(account(), "caveat", text="Public data — only.")
     )
-    assert_failed(result, store, "banned_content", "banned_dash")
+    assert_withheld(result, store, "banned_dash", "Public data")
+    result, store = await run(
+        make_builder, with_section(account(), "caveat", text="Public data - only.")
+    )
+    assert_withheld(result, store, "banned_dash", "Public data")
+
+
+async def test_a_dash_in_a_stored_title_is_not_punctuation(make_builder: Make) -> None:
+    # the posting's own title, printed as it is: outside the rule's scope (a fifth of stored
+    # job titles carry a dash; the archived script failed every such build)
+    c = account()
+    ps = list(c.postings)
+    ps[0] = ps[0].model_copy(update={"title": "Synthetic Developer – Remote (m/f/d)"})
+    result, store = await run(make_builder, c.model_copy(update={"postings": tuple(ps)}))
+    assert result.status == "complete", result.errors
+    assert not result.manifest.withheld_blocks
+    evidence = next(d for d in result.deliverables if d.kind == "evidence")
+    assert "Synthetic Developer – Remote" in docx_text(store.objects[evidence.object_key])
 
 
 async def test_banned_dash_inside_a_quote_stays_verbatim(make_builder: Make) -> None:
@@ -391,9 +437,12 @@ async def test_section_kind_outside_the_vocabulary(make_builder: Make) -> None:
 
 async def test_b15_every_error_is_listed_at_once(make_builder: Make) -> None:
     c = with_fact(account(), 0, read_in_primary_this_run=False)
-    c = with_section(c, "caveat", text="Public data — only.")
+    c = with_section(c, "caveat", visibility="private")
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "confirmed_without_primary_read", "banned_dash")
+    assert_failed(result, store, "confirmed_without_primary_read", "non_public_row")
+    # the rules, not the classes, are what the run records as its stop reason
+    assert result.codes == ("confirmed_without_primary_read", "non_public_row")
+    assert BuildFailed(result).codes == "confirmed_without_primary_read,non_public_row"
 
 
 class FailingRenderer(InProcessRenderer):
@@ -484,5 +533,10 @@ async def test_b11_text_with_nothing_printable_is_refused(make_builder: Make, ta
         ds[0] = ds[0].model_copy(update={"technology": junk})
         c = c.model_copy(update={"detections": tuple(ds)})
     result, store = await run(make_builder, c)
-    expected = "speaker_missing" if target == "speaker" else "text_missing"
-    assert_failed(result, store, "schema_violation", expected)
+    if target == "speaker":
+        # a quote without a printable speaker is withheld from the Summary, never rendered
+        # with an id in the speaker's place
+        held = next(s.text for s in account().sections if s.kind == "executive_voice")
+        assert_withheld(result, store, "speaker_missing", held)
+        return
+    assert_failed(result, store, "schema_violation", "text_missing")

@@ -98,7 +98,7 @@ def test_doc_checks_passes_on_clean_document() -> None:
     result = doc_checks(
         body,
         "summary",
-        [],
+        [s.code for s in content.sources],
         (),
         (),
     )
@@ -119,12 +119,13 @@ def test_doc_checks_blocks_stale_phrase() -> None:
     result = doc_checks(
         body,
         "summary",
-        [],
+        [s.code for s in content.sources],
         stale,
         (),
     )
     assert result.status == "failed"
     assert "stale" in result.reason.lower()
+    assert stale[0] not in result.reason and all(stale[0] not in d for d in result.details)
 
 
 @office
@@ -138,12 +139,40 @@ def test_doc_checks_blocks_excluded_name() -> None:
     result = doc_checks(
         body,
         "summary",
-        [],
+        [s.code for s in content.sources],
         (),
         excluded,
     )
     assert result.status == "failed"
     assert "excluded" in result.reason.lower()
+    assert all(excluded[0] not in d for d in (result.reason, *result.details))  # never the name
+
+
+# The document checks run in process on the file's extracted text (plain text here: the
+# extractor falls back to the bytes as text), so the rules are tested without LibreOffice.
+
+
+def test_doc_checks_dash_rule_covers_authored_prose_only() -> None:
+    title = "Synthetic Developer – Remote"
+    quote = "We grew — a lot."
+    text = f"Findings.\n{title}\n{quote}\nPublic data only.".encode()
+    ok = doc_checks(text, "summary", [], (), (), (quote,), (title,))
+    assert ok.status == "passed", ok
+    bad = doc_checks(f"Public data — only.\n{title}".encode(), "summary", [], (), (), (), (title,))
+    assert bad.status == "failed" and bad.details == ("banned_dash:1",), bad
+    assert "Public data" not in bad.reason
+    spaced = doc_checks(b"Public data - only.", "summary", [], (), ())
+    assert spaced.status == "failed" and spaced.details == ("banned_dash:1",)
+    # removing an exempt passage never creates a spaced hyphen out of its neighbours
+    joined = doc_checks(b"a -x b", "summary", [], (), (), (), ("x",))
+    assert joined.status == "passed", joined
+
+
+def test_doc_checks_citations_are_source_codes_not_product_names() -> None:
+    text = b"Stored on Amazon S3 for the J1 visa team, cited as S-0001 and S-0099."
+    result = doc_checks(text, "summary", ["S-0001"], (), ())
+    assert result.status == "failed" and result.details == ("orphan_citation:S-0099",), result
+    assert doc_checks(text, "summary", ["S-0001", "S-0099"], (), ()).status == "passed"
 
 
 @office
