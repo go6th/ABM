@@ -389,6 +389,11 @@ async def test_categories_count_and_list_what_the_research_graph_found(
             ("jobs.job_postings_read_classified.role", "Data Engineer"),
             ("people.key_contact_profiles_posts.name", "A. Person"),
             ("company.company_news.headline", "Opened a new office"),
+            # not rows: a count fact is not a posting, a company fact is not a person
+            ("jobs.job_board_by_lane.open_roles.engineering.count", "7"),
+            ("people.key_contact_profiles_posts.company.ticker", "Nasdaq: QDEL"),
+            ("people.key_contact_profiles_posts.contact.media_email", "Media@acme.example"),
+            ("people.key_contact_profiles_posts.contact.jo.prior_employer", "Ten years at Roche"),
         ):
             fid = uuid4()
             c.execute(
@@ -427,3 +432,12 @@ async def test_categories_count_and_list_what_the_research_graph_found(
         page = await _call(plane, "GET", f"/v1/accounts/{domain}/sheets/{sheet}")
         assert page.status_code == 200, (sheet, page.text)
         assert any(cell in json.dumps(r["cells"]) for r in page.json()["rows"]), sheet
+    for sheet, noise in (
+        ("jobs", '"title": "7"'),
+        ("people", "Nasdaq: QDEL"),
+        ("people", "Media@acme.example"),
+        ("people", "Ten years at Roche"),
+    ):
+        page = await _call(plane, "GET", f"/v1/accounts/{domain}/sheets/{sheet}")
+        assert page.json()["total"] == 1, sheet
+        assert not any(noise in json.dumps(r["cells"]) for r in page.json()["rows"]), sheet

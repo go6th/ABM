@@ -413,8 +413,19 @@ _FACT_PUBLIC = (
     " OR f.flags @> CAST('[\"from_uploaded_file\"]' AS jsonb))"
 )
 FACT_CLASS = {
-    "people": f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'people.%'",
-    "jobs": f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'jobs.%'",
+    # facts the people step records about a company or a person (ticker, switchboard, media
+    # mailbox, prior employers) are details, not people
+    "people": (
+        f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'people.%'"
+        " AND split_part(f.attribute_key, '.', 3) <> 'company'"
+        " AND f.attribute_key !~ '[.](prior_employers?|[a-z_]*email|[a-z_]*phone)$'"
+    ),
+    # a count fact ("13" openings in a lane) is not a posting: a role needs a letter in it
+    "jobs": (
+        f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'jobs.%'"
+        " AND coalesce(coalesce(f.value_text, f.value_json->>'text'), '')"
+        " !~ '^[0-9.,% ]+$'"
+    ),
     "tech": f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'tech.%'",
     "news": (
         f"{_FACT_PUBLIC} AND (f.attribute_key LIKE 'news.%' OR split_part(f.attribute_key, '.', 2)"

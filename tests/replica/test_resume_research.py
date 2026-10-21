@@ -181,7 +181,7 @@ async def test_a_job_left_running_after_its_run_ended_is_closed_and_not_shown(
     ) == [("done",)]
 
 
-def test_every_stop_reason_is_said_in_words() -> None:
+async def test_every_stop_reason_is_said_in_words() -> None:
     """A stopped research says why (staging 2026-10-15 showed only "It stopped before
     finishing." for a reason the screen did not know)."""
     from account_intelligence.replica.workspace import stop_text
@@ -194,7 +194,7 @@ def test_every_stop_reason_is_said_in_words() -> None:
     assert "usage limit" in stop_text("model_credits_exhausted")
 
 
-def test_the_quality_checks_reasons_are_said_in_words() -> None:
+async def test_the_quality_checks_reasons_are_said_in_words() -> None:
     from account_intelligence.replica.workspace import GATE_CHECK_TEXT, gate_text, stop_text
 
     defects = [
@@ -240,7 +240,7 @@ async def test_the_account_card_names_the_quality_checks_that_held_the_files(
     assert "a step without a status or a reason" in card["reason"]
 
 
-def test_no_new_findings_is_said_as_nothing_found() -> None:
+async def test_no_new_findings_is_said_as_nothing_found() -> None:
     from account_intelligence.replica.workspace import stop_text
 
     assert stop_text("no_new_findings") == "Nothing new was found on the web for this research."
