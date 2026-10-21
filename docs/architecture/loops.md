@@ -114,7 +114,7 @@ unannotated (the generator's check fails otherwise).
 | posts pull | `src/people/posts.py:125` | cost_sample_size, then the budget-approved remainder or unknown_cost_post_cap | converged, budget, cap_reached, deadline |
 | probe monitors | `src/refresh/probe.py:174` | 6 kinds | end |
 | profile batches | `src/people/profiles.py:139` | max_profiles_per_run, profile_batch_size per batch | converged, cap_reached, budget, deadline (one person's failure is isolated) |
-| progress stream | `src/account_intelligence/api/routes/runs.py:800` | sse_max_duration_s seconds, polled every sse_poll_s | finished run, max duration, client gone |
+| progress stream | `src/account_intelligence/api/routes/runs.py:790` | sse_max_duration_s seconds, polled every sse_poll_s | finished run, max duration, client gone |
 | provider job poll | `src/account_intelligence/connectors/paginate.py:154` | max_polls with a bounded interval | succeeded, failed, ProviderJobTimeout |
 | reindex clients | `src/documents/reindex.py:49` | the workspaces in scope once per run, `limit` documents each | last client |
 | reindex documents | `src/documents/reindex.py:53` | `limit` per client per run | rows exhausted |
