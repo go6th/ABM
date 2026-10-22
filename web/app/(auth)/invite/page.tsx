@@ -5,6 +5,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthFrame } from "@/ui/AuthFrame";
+import { ApiError, apiPublic } from "@/lib/api";
+import type { PasswordResetCompleted } from "@/lib/gen/api.gen";
 
 export default function AcceptInvitePage() {
   const [token, setToken] = useState("");
@@ -34,25 +36,19 @@ export default function AcceptInvitePage() {
     }
     setPending(true);
     try {
-      const response = await fetch("/v1/auth/invite/accept", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ token, password }),
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        setError(response.status === 422
-          ? "Choose a password of at least 12 characters that does not contain your email or name."
-          : "This invite link was already used or has expired. Ask 6th for a new one.");
-        return;
-      }
+      await apiPublic<PasswordResetCompleted>("POST", "/v1/auth/invite/accept", { token, password });
       setComplete(true);
       setToken("");
       setPassword("");
       setConfirm("");
-    } catch {
-      setError("Joining is temporarily unavailable. Try again.");
+    } catch (e) {
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+        setError(e.status === 422
+          ? "Choose a password of at least 12 characters that does not contain your email or name."
+          : "This invite link was already used or has expired. Ask 6th for a new one.");
+      } else {
+        setError("Joining is temporarily unavailable. Try again.");
+      }
     } finally {
       setPending(false);
     }

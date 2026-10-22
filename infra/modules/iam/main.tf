@@ -55,12 +55,14 @@ locals {
   sql       = ["roles/cloudsql.client", "roles/cloudsql.instanceUser"]
   model     = var.vertex_ai ? ["roles/aiplatform.user"] : []
   project_roles = {
-    api      = concat(local.sql, local.telemetry, local.model, ["roles/cloudtasks.enqueuer"])
-    worker   = concat(local.sql, local.telemetry, local.model, ["roles/cloudtasks.enqueuer"])
-    job      = concat(local.sql, ["roles/logging.logWriter", "roles/monitoring.metricWriter"])
-    web      = ["roles/logging.logWriter", "roles/monitoring.metricWriter"]
-    migrate  = concat(local.sql, ["roles/logging.logWriter"])
-    deployer = ["roles/run.developer", "roles/artifactregistry.writer"]
+    api     = concat(local.sql, local.telemetry, local.model, ["roles/cloudtasks.enqueuer"])
+    worker  = concat(local.sql, local.telemetry, local.model, ["roles/cloudtasks.enqueuer"])
+    job     = concat(local.sql, ["roles/logging.logWriter", "roles/monitoring.metricWriter"])
+    web     = ["roles/logging.logWriter", "roles/monitoring.metricWriter"]
+    migrate = concat(local.sql, ["roles/logging.logWriter"])
+    # run.developer is granted per service and per job (modules/cloud_run `developers`,
+    # modules/cloud_run_jobs `runners`), never project-wide
+    deployer = ["roles/artifactregistry.writer"]
   }
   bindings = merge([
     for sa, roles in local.project_roles : { for r in roles : "${sa}:${r}" => { sa = sa, role = r } }

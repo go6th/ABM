@@ -18,15 +18,16 @@ unannotated (the generator's check fails otherwise).
 | audit verify tenants | `src/account_intelligence/api/routes/tasks.py:371` | every client once per pass | last client |
 | auto resume clients | `src/account_intelligence/replica/auto_resume.py:302` | every client once per pass, `limit` runs each | last one |
 | auto resume runs | `src/account_intelligence/replica/auto_resume.py:310` | `limit` runs per client per pass | rows exhausted |
-| batch poll | `src/account_intelligence/platform/llm.py:352` | max_wait_seconds from the first submission, then cancel and at most the same wait again for the cancel to land | ended, cancel deadline |
+| batch 429 backoff | `src/account_intelligence/platform/llm.py:681` | RATE_LIMIT_ATTEMPTS requests (~25 minutes of doubling waits) | request accepted, any other error, attempts spent (the 429 is raised) |
+| batch poll | `src/account_intelligence/platform/llm.py:363` | max_wait_seconds from the first submission, then cancel and at most the same wait again for the cancel to land | ended, cancel deadline |
 | blob compose copy | `src/research_files/blobstore.py:143` | the part's size in COPY_BUFFER reads | end of part |
 | cache ratio window | `src/account_intelligence/platform/prompt_cache.py:222` | the calls of one window | oldest call inside it |
 | cache-eviction | `src/account_intelligence/rag/cache.py:103` | max_entries excess | capacity reached. |
-| cancel watch | `src/account_intelligence/workflow/runner.py:249` | the slice timeout around it | graph done, canceled, timeout |
+| cancel watch | `src/account_intelligence/workflow/runner.py:271` | the slice timeout around it | graph done, canceled, timeout |
 | catch-up selection | `src/refresh/schedule.py:66` | len(missed) | per_tick reached or end |
-| cause chain | `src/account_intelligence/workflow/runner.py:335` | the chain length (each exception visited once) | end of chain |
+| cause chain | `src/account_intelligence/workflow/runner.py:357` | the chain length (each exception visited once) | end of chain |
 | clamd stream chunks | `src/documents/scan.py:137` | file size / 1 MiB chunks | end of stream |
-| close ended jobs | `src/account_intelligence/api/main.py:266` | every client once per pass, `limit` jobs each | last client |
+| close ended jobs | `src/account_intelligence/api/main.py:279` | every client once per pass, `limit` jobs each | last client |
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
 | common prefix | `src/documents/deliverables.py:192` | the shorter first part | first differing character |
 | connector token refresh | `src/connectors_client/oauth.py:228` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (the grant is marked broken) |
@@ -97,7 +98,7 @@ unannotated (the generator's check fails otherwise).
 | notification relay clients | `src/account_intelligence/api/routes/tasks.py:420` | every client once per pass | last client |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:76` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:90` | max_pages * batch_size runs per pass | rows exhausted |
-| orphan sweep loop | `src/account_intelligence/api/main.py:299` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
+| orphan sweep loop | `src/account_intelligence/api/main.py:312` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
@@ -132,7 +133,7 @@ unannotated (the generator's check fails otherwise).
 | section split | `src/research_files/parsers/documents.py:50` | len(text) / limit parts | text consumed |
 | signature scan blocks | `src/documents/scan.py:74` | file size / 1 MiB blocks | end of stream, a hit |
 | simulation | `src/parallel/simulate.py:193` | sum of units over runs times 4 plus 1000 steps | all runs drained |
-| slice loop | `src/account_intelligence/workflow/runner.py:160` | max_slices (60) slices of slice_seconds (240) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
+| slice loop | `src/account_intelligence/workflow/runner.py:165` | max_slices slices of slice_seconds (config/workflow_v1.yaml) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
 | stall marking | `src/account_intelligence/runs/sweeper.py:164` | batch_size runs per pass | rows exhausted |
@@ -144,6 +145,7 @@ unannotated (the generator's check fails otherwise).
 | tool rounds | `src/account_intelligence/chat/service.py:573` | MAX_TOOL_ROUNDS tool rounds plus the answer plus MAX_RENDER_NUDGES | the model stops without a tool call (after its nudges), or no tool runner |
 | topological order | `src/parallel/dag.py:48` | number of nodes (each pass removes at least one or raises) | ordered, cycle |
 | topological sort | `src/account_intelligence/workflow/spec.py:58` | number of stages (each pass removes at least one or raises) | ordered, cycle error |
+| trace export drain loop | `src/obs/setup.py:94` | none, one flush per interval for the life of the service | task cancelled at shutdown (the lifespan flushes once more) |
 | tracker downgrade conflict | `src/account_intelligence/tracker/service.py:248` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
 | tracker sweep conflict | `src/account_intelligence/tracker/service.py:325` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
 | tracker version conflict | `src/account_intelligence/tracker/service.py:176` | 3 re-reads, rules re-checked each time | written, unchanged, VersionConflict |
@@ -153,7 +155,7 @@ unannotated (the generator's check fails otherwise).
 | unique column name | `src/documents/chunking.py:246` | the table's columns | a name no column has |
 | unique table name | `src/documents/tables.py:276` | the workspace's tables | a name no table has |
 | verification batch | `src/verify/claims.py:112` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
-| walk to verifying | `src/account_intelligence/runs/lifecycle.py:600` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
+| walk to verifying | `src/account_intelligence/runs/lifecycle.py:609` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |
 | xai stream | `src/llm/adapters/xai_api.py:262` | the server's chunks until [DONE] | [DONE], end |
 | xlsx header row | `src/research_files/parsers/tabular.py:387` | one row | header read |

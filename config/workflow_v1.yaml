@@ -5,9 +5,12 @@ settings:
   concurrency: 1
   # token review item 13 (2026-10-20): a call still running when a slice ends is lost and paid
   # again in the next slice, and 240 s cut off long extraction replies; 1200 s fits a long reply
-  # (and the Cloud Tasks 1800 s dispatch maximum, SLICE_DEADLINE_S 1500). 8 slices keep the run's
-  # wall-clock bound at 2 h 40 min (was 60 x 240 s = 4 h).
-  slice_seconds: 1200
+  # (and the Cloud Tasks 1800 s dispatch maximum, SLICE_DEADLINE_S 1800). 8 slices keep the run's
+  # wall-clock bound at 3 h 40 min (was 60 x 240 s = 4 h). Raised 1200 to 1650 on 2026-10-22: a
+  # large account (Tolmar, 27 extraction calls) did not finish reading inside 1200 s, so the whole
+  # reading step ran twice and the first pass was paid for and lost. 1650 leaves 150 s for the
+  # checkpoint and lease release before the 1800 s dispatch deadline.
+  slice_seconds: 1650
   max_slices: 8
   max_calls: 60
   # the ceiling over every run's own budget, which is its reserved credits in dollars

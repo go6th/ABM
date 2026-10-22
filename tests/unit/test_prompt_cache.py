@@ -144,6 +144,7 @@ def _slot() -> BatchSlot:
 def gate(monkeypatch: pytest.MonkeyPatch) -> WarmGate:
     fresh = WarmGate(coalesce_s=0.02)
     monkeypatch.setattr(llm_mod, "GATE", fresh)
+    monkeypatch.setattr(llm_mod, "BATCH_PACER", llm_mod.RequestPacer(0))  # no spacing here
     return fresh
 
 

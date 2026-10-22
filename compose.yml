@@ -37,13 +37,15 @@ services:
     restart: unless-stopped
 
   gcs:
-    image: fsouza/fake-gcs-server:latest
+    # pinned release (ci.yml runs the same tag); `latest` was 1.56.1 on 2026-10-22
+    image: fsouza/fake-gcs-server:1.56.1
     command: -scheme http -port 4443 -public-host localhost:4443
     ports: ["4443:4443"]
     restart: unless-stopped
 
   tasks:
-    image: ghcr.io/aertje/cloud-tasks-emulator:latest
+    # pinned release (ci.yml runs the same tag; `latest` resolved to 2.0.1 on 2026-10-22)
+    image: ghcr.io/aertje/cloud-tasks-emulator:2.0.1
     command: -host 0.0.0.0 -port 8123 -initial-queue projects/dev/locations/here/queues/runs
     ports: ["8123:8123"]
     restart: unless-stopped
@@ -85,6 +87,12 @@ services:
       # back to the in-process scheduler, which nothing drains, and a run stalls after slice one
       WORKER_URL: http://worker:8081
     ports: ["8081:8081"]
+    # the image's own probe assumes PORT; the local worker listens on 8081
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz',timeout=2).status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
     depends_on: { migrate: { condition: service_completed_successfully } }
     restart: unless-stopped
 
@@ -97,7 +105,14 @@ services:
       FAKE_IDP_AUDIENCE: account-intelligence-local
     volumes: ["./ops/dev:/dev-tools:ro"]
     ports: ["9090:9090"]
-    depends_on: { worker: { condition: service_started } }
+    # the worker image's HEALTHCHECK probes the application port; this container runs the IdP
+    # script instead, so it gets its own probe on the issuer's discovery document
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9090/.well-known/openid-configuration',timeout=2).status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    depends_on: { worker: { condition: service_healthy } }
     restart: unless-stopped
 
   api:
@@ -113,6 +128,12 @@ services:
       PYTHONPATH: /app/src
       SERVICE_ROLE: api
       WORKER_URL: http://worker:8081
+      # uvicorn --proxy-headers trusts X-Forwarded-For from the compose network only (the web BFF
+      # sits there), so the auth limiter throttles per browser address, not per BFF container
+      FORWARDED_ALLOW_IPS: 10.213.0.0/24
+      # the live tabular eval's model and effort (test tooling; moved out of the api image ENV)
+      EVAL_MODEL: kimi-k3
+      EVAL_EFFORT: high
     ports: ["8080:8080"]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -131,3 +152,10 @@ services:
 volumes:
   pgdata:
   payloads:
+
+networks:
+  # a fixed subnet so the api can name the BFF's network in FORWARDED_ALLOW_IPS (a project started
+  # before this was added needs `make down` once so compose recreates the network)
+  default:
+    ipam:
+      config: [{ subnet: 10.213.0.0/24 }]

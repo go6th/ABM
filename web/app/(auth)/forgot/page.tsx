@@ -3,6 +3,8 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { AuthFrame } from "@/ui/AuthFrame";
+import { apiPublic } from "@/lib/api";
+import type { PasswordResetAccepted } from "@/lib/gen/api.gen";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -15,17 +17,7 @@ export default function ForgotPasswordPage() {
     setPending(true);
     setError(null);
     try {
-      const response = await fetch("/v1/auth/password/reset/request", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ email }),
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        setError("Password reset is temporarily unavailable. Try again later.");
-        return;
-      }
+      await apiPublic<PasswordResetAccepted>("POST", "/v1/auth/password/reset/request", { email });
       setSubmitted(true);
     } catch {
       setError("Password reset is temporarily unavailable. Try again later.");

@@ -10,7 +10,8 @@ import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AuthFrame, AuthPitch, KeyIcon, type PitchPoint } from "@/ui/AuthFrame";
-import { clearSession } from "@/lib/api";
+import { ApiError, apiPublic, clearSession } from "@/lib/api";
+import type { EmailVerificationSent, SignedIn, SsoDiscovery } from "@/lib/gen/api.gen";
 
 const POINTS: PitchPoint[] = [
   {
@@ -35,15 +36,14 @@ const TOO_MANY = "Too many attempts, try again in a minute.";
 const UNAVAILABLE = "Sign in is unavailable right now. Try again in a moment.";
 
 type Notice = { text: string; tone: "error" | "info"; resend?: boolean };
+type TenantChoice = { tenant_id: string; role: string };
 
-async function post(path: string, body: unknown): Promise<Response> {
-  return fetch(path, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
+/** The workspaces a 409 "choose a workspace" reply lists; [] for any other error. */
+function workspaceChoices(e: unknown): TenantChoice[] {
+  if (!(e instanceof ApiError) || e.status !== 409 || e.body?.code !== "tenant_selection_required") return [];
+  const tenants = Array.isArray(e.body.tenants) ? e.body.tenants : [];
+  return tenants.filter((t): t is TenantChoice =>
+    typeof t === "object" && t !== null && typeof (t as TenantChoice).tenant_id === "string" && typeof (t as TenantChoice).role === "string");
 }
 
 export default function TenantLoginPage() {
@@ -54,7 +54,7 @@ export default function TenantLoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
-  const [tenants, setTenants] = useState<Array<{ tenant_id: string; role: string }>>([]);
+  const [tenants, setTenants] = useState<TenantChoice[]>([]);
   const [tenantId, setTenantId] = useState("");
   const [pending, setPending] = useState<"password" | "sso" | "resend" | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -66,23 +66,23 @@ export default function TenantLoginPage() {
     setEmailError(null);
     setPending("password");
     try {
-      const response = await post("/v1/auth/login", { email, password, remember, ...(tenantId ? { workspace_id: tenantId } : {}) });
-      const result = (await response.json().catch(() => ({}))) as { code?: string; tenants?: Array<{ tenant_id: string; role: string }> };
-      const firstTenant = result.tenants?.[0];
-      if (response.status === 409 && result.code === "tenant_selection_required" && firstTenant) {
-        setTenants(result.tenants ?? [firstTenant]);
+      await apiPublic<SignedIn>("POST", "/v1/auth/login", { email, password, remember, ...(tenantId ? { workspace_id: tenantId } : {}) });
+      clearSession();
+      router.replace("/");
+    } catch (e) {
+      const choices = workspaceChoices(e);
+      const firstTenant = choices[0];
+      if (firstTenant) {
+        setTenants(choices);
         setTenantId(firstTenant.tenant_id);
         setNotice({ tone: "info", text: "Your email opens more than one workspace. Choose one, then sign in." });
         return;
       }
-      if (response.status === 429) return setNotice({ tone: "error", text: TOO_MANY });
-      if (response.status === 401 || response.status === 422) {
-        return setNotice({ tone: "error", text: "That email and password don't match.", resend: response.status === 401 });
+      const status = e instanceof ApiError ? e.status : 0;
+      if (status === 429) return setNotice({ tone: "error", text: TOO_MANY });
+      if (status === 401 || status === 422) {
+        return setNotice({ tone: "error", text: "That email and password don't match.", resend: status === 401 });
       }
-      if (!response.ok) return setNotice({ tone: "error", text: UNAVAILABLE });
-      clearSession();
-      router.replace("/");
-    } catch {
       setNotice({ tone: "error", text: UNAVAILABLE });
     } finally {
       setPending(null);
@@ -100,18 +100,15 @@ export default function TenantLoginPage() {
     setEmailError(null);
     setPending("sso");
     try {
-      const response = await post("/v1/sso/discover", { email });
-      if (response.status === 429) return setNotice({ tone: "error", text: TOO_MANY });
-      if (!response.ok) return setNotice({ tone: "error", text: UNAVAILABLE });
-      const found = (await response.json()) as { next: "sso" | "password"; start_url: string | null };
+      const found = await apiPublic<SsoDiscovery>("POST", "/v1/sso/discover", { email });
       if (found.next === "sso" && found.start_url?.startsWith("/v1/sso/")) {
         window.location.assign(remember ? found.start_url : `${found.start_url}&remember=false`);
         return;
       }
       setNotice({ tone: "info", text: "Your company signs in with a password here. Enter your password above." });
       passwordRef.current?.focus();
-    } catch {
-      setNotice({ tone: "error", text: UNAVAILABLE });
+    } catch (e) {
+      setNotice({ tone: "error", text: e instanceof ApiError && e.status === 429 ? TOO_MANY : UNAVAILABLE });
     } finally {
       setPending((p) => (p === "sso" ? null : p));
     }
@@ -120,12 +117,10 @@ export default function TenantLoginPage() {
   async function resendVerification() {
     setPending("resend");
     try {
-      const response = await post("/v1/auth/email/resend", { email });
-      setNotice(response.ok
-        ? { tone: "info", text: "If this address is waiting to be verified, a new verification link is on its way." }
-        : { tone: "error", text: response.status === 429 ? TOO_MANY : "A verification link could not be sent right now. Try again later." });
-    } catch {
-      setNotice({ tone: "error", text: "A verification link could not be sent right now. Try again later." });
+      await apiPublic<EmailVerificationSent>("POST", "/v1/auth/email/resend", { email });
+      setNotice({ tone: "info", text: "If this address is waiting to be verified, a new verification link is on its way." });
+    } catch (e) {
+      setNotice({ tone: "error", text: e instanceof ApiError && e.status === 429 ? TOO_MANY : "A verification link could not be sent right now. Try again later." });
     } finally {
       setPending(null);
     }

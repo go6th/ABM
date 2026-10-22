@@ -47,6 +47,7 @@ or a value has the wrong type (errors name the variable, never the value).
 | `STAFF_OPERATOR_EMAILS` | Comma-separated operator allowlist. | no | - | - | api, worker |
 | `STAFF_SUPPORT_EMAILS` | Comma-separated support allowlist. | no | - | - | api, worker |
 | `STAFF_EXTERNAL_EMAILS` | Personal Google accounts (no Workspace) allowed as staff; still need a role. | no | - | - | api, web |
+| `STAFF_IDP_ASSERTS_ROLE` | Set to true only when the staff IdP itself asserts a trusted staff_role claim; otherwise roles come from the allowlists alone. | no | - | - | api |
 | `RUN_BUDGET_USD` | Per-run spend ceiling in USD (all phases); each run is also bounded by its reserved credits. | no | - | - | api, worker |
 | `RUN_TOOL_CALL_CAP` | Per-run connector call ceiling. | no | - | - | api, worker |
 | `ASK_WHOLE_FILE_MAX_CHARS` | Ask: the uploaded file a question is about goes to the model whole when it has at most this many characters (about 75k tokens); a larger file answers through retrieved passages only. | no | - | - | api |

@@ -477,18 +477,27 @@ async def current_status(session: AsyncSession, run_id: UUID) -> RunStatus:
     return RunStatus(status)
 
 
-async def begin_slice(session: AsyncSession, run_id: UUID) -> int:
-    """Count one more slice for the run (the slice ceiling is checked by the runner)."""
-    used: int = (
+async def begin_slice(
+    session: AsyncSession, run_id: UUID, *, expected: int | None = None
+) -> int | None:
+    """Count one more slice for the run (the slice ceiling is checked by the runner). With
+    ``expected`` (the slice number being started, which equals ``slices_used`` while the queue
+    is in order: a run starts at 0, resumes at ``slices_used`` and continues at ``slice_no +
+    1``), a slice that already began is not counted again and None is returned."""
+    where = " AND slices_used = :expected" if expected is not None else ""
+    params: dict[str, Any] = {"r": run_id}
+    if expected is not None:
+        params["expected"] = expected
+    used = (
         await session.execute(
             text(
-                "UPDATE account_runs SET slices_used = slices_used + 1 WHERE id = :r"
+                f"UPDATE account_runs SET slices_used = slices_used + 1 WHERE id = :r{where}"
                 " RETURNING slices_used"
             ),
-            {"r": run_id},
+            params,
         )
-    ).scalar_one()
-    return used
+    ).scalar_one_or_none()
+    return int(used) if used is not None else None
 
 
 async def move(

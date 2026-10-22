@@ -337,12 +337,23 @@ class AnthropicLlm:
         record = await slot.load()
         if not record or not record.get("batch_id"):
             params = request_kwargs(route, system, user, max_tokens, options, ttl="1h")
-            batch = await self.client.messages.batches.create(
-                requests=[{"custom_id": "call", "params": params}]
+            batch = await batch_request(
+                lambda: self.client.messages.batches.create(
+                    requests=[{"custom_id": "call", "params": params}]
+                ),
+                what="create",
+                model=route.model,
+                tier=route.tier,
             )
             record = {"batch_id": str(batch.id), "submitted_at": float(slot.now())}
             await slot.save(record)
             log.info("llm.batch_submitted", extra={"model": route.model, "tier": route.tier})
+        else:
+            # a batch an earlier slice submitted: collected, not paid for again. The count of
+            # these against ``llm.batch_submitted`` tells a resumed slice that re-attached from
+            # one that asked again (staging 2026-10-21: slices 1 to 3 of one run submitted 22 to
+            # 30 batches each for the same 34 calls)
+            log.info("llm.batch_reattached", extra={"model": route.model, "tier": route.tier})
         batch_id = str(record["batch_id"])
         submitted = float(record.get("submitted_at") or slot.now())
         cancelled = False
@@ -350,12 +361,22 @@ class AnthropicLlm:
         # LOOP(batch poll): cap=max_wait_seconds from the first submission, then cancel and at
         # most the same wait again for the cancel to land; exit=ended, cancel deadline
         while True:
-            batch = await self.client.messages.batches.retrieve(batch_id)
+            batch = await batch_request(
+                lambda: self.client.messages.batches.retrieve(batch_id),
+                what="retrieve",
+                model=route.model,
+                tier=route.tier,
+            )
             if str(batch.processing_status) == "ended":
                 break
             waited = float(slot.now()) - submitted
             if not cancelled and waited > slot.max_wait_seconds:
-                await self.client.messages.batches.cancel(batch_id)
+                await batch_request(
+                    lambda: self.client.messages.batches.cancel(batch_id),
+                    what="cancel",
+                    model=route.model,
+                    tier=route.tier,
+                )
                 cancelled = True
                 log.warning(
                     "llm.batch_cancelled",
@@ -602,6 +623,74 @@ class ChoiceLlm:
             self.anthropic.client, {tier: replace(route, model=model)}, self.anthropic.provider
         )
         return await chosen.complete(tier, system, user, max_tokens=max_tokens, options=options)
+
+
+# The provider's lowest request rate on the batch endpoints. One worker process serves several
+# runs at once (Cloud Run concurrency 4), each polling EXTRACT_CONCURRENCY batches, so the
+# per-run poll interval alone cannot hold the rate (review 2026-10-22): every batch request in
+# the process goes through one pacer, and a 429 waits instead of failing the step (a failed
+# extraction cancels its sibling batches and the next slice pays for them again).
+BATCH_REQUESTS_PER_MINUTE = 50.0
+
+
+class RequestPacer:
+    """Spaces requests process-wide to at most ``per_minute``; ``wait`` returns when the caller
+    may send. The lock serialises waiters so a burst is spread, never dropped."""
+
+    def __init__(self, per_minute: float) -> None:
+        import asyncio
+
+        self.interval = 60.0 / per_minute if per_minute > 0 else 0.0
+        self._next = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        """Block until the next request slot."""
+        import asyncio
+
+        if self.interval <= 0:
+            return
+        async with self._lock:
+            loop = asyncio.get_running_loop()
+            now = loop.time()
+            if now < self._next:
+                await asyncio.sleep(self._next - now)
+                now = loop.time()
+            self._next = max(now, self._next) + self.interval
+
+
+BATCH_PACER = RequestPacer(BATCH_REQUESTS_PER_MINUTE)
+# a 429 on a batch request waits this long, doubling each time, at most this cap (seconds)
+RATE_LIMIT_BACKOFF_S = (5.0, 300.0)
+RATE_LIMIT_ATTEMPTS = 10
+
+
+def is_rate_limited(error: BaseException) -> bool:
+    """Whether a provider error is a request-rate refusal (HTTP 429) rather than a failure."""
+    return getattr(error, "status_code", None) == 429 or type(error).__name__ == "RateLimitError"
+
+
+async def batch_request(call: Callable[[], Any], *, what: str, model: str, tier: str) -> Any:
+    """One request to the batch endpoints: paced process-wide, and a 429 waited out with a
+    doubling backoff instead of raised (the deadline logic of the caller still bounds it)."""
+    import asyncio
+
+    wait = RATE_LIMIT_BACKOFF_S[0]
+    # LOOP(batch 429 backoff): cap=RATE_LIMIT_ATTEMPTS requests (~25 minutes of doubling waits);
+    # exit=request accepted, any other error, attempts spent (the 429 is raised)
+    for attempt in range(1, RATE_LIMIT_ATTEMPTS + 1):
+        await BATCH_PACER.wait()
+        try:
+            return await call()
+        except Exception as error:  # noqa: BLE001 - only a 429 is retried, see is_rate_limited
+            if not is_rate_limited(error) or attempt == RATE_LIMIT_ATTEMPTS:
+                raise
+            log.warning(
+                "llm.batch_rate_limited",
+                extra={"model": model, "tier": tier, "request": what, "wait_s": round(wait)},
+            )
+            await asyncio.sleep(wait)
+            wait = min(wait * 2, RATE_LIMIT_BACKOFF_S[1])
 
 
 @dataclass(frozen=True)

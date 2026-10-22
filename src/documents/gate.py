@@ -1,18 +1,34 @@
 """The pre-delivery gate for both input modes (``GatePort.check``: failing checks by name).
 
-Checks, in order; any failure keeps the run from COMPLETED (it ends PARTIAL ``gate_failed`` with
-the defects stored in ``run_gate_results`` for the operator, and Resume reruns the gate):
+Checks, in order. A failing check is run-level (a step without proof, a finding without a
+source, a client file missing) or file-level (``FILE_CHECKS``: its items read
+``<file kind>:<detail>``). A run-level failure holds every file back (PARTIAL ``gate_failed``);
+a file-level failure holds back that file only and the rest are delivered (PARTIAL
+``files_withheld``, ``withheld_files``).
+Both store the defects in ``run_gate_results`` for the operator, and Resume reruns the gate.
+
+One rule has one owner. The export builder enforces the format rules on the files it makes
+(``exports.verify``: the dash rule on authored prose with the titles, names and quotes it prints
+blanked; the client-output denylist; the third-party scan) and records the build in each file's
+manifest. The gate verifies that record by integrity (the stored SHA-256 equals the bytes it
+reads, ``_builder_verified``) and does not re-run those rules on such a file: a second scan
+without the builder's exemptions failed what the builder allowed (staging 2026-10-21: a key
+person's title with an en dash). A file with no builder record is scanned whole.
 
 1. ``tracker_rows``: every one of the run's tracker rows has a status, and every row that is not
    Done or None has a reason code.
 2. ``fact_citations``: every current fact of the run has a grade and either a public link or a
    file citation (document and passage location).
-3. ``client_dashes``: no client file contains an em dash, an en dash or a spaced hyphen used as
-   punctuation (the PRD format rule).
-4. ``client_terms``: no client file names a data broker, a credit count, a provider code or an
-   internal hash (the shared client-output scanner, ``exports.verify.scan_package``).
+3. ``client_dashes`` (file-level, files without a builder record): no client document contains
+   an em dash, an en dash or a spaced hyphen used as punctuation (the PRD format rule). The
+   rule's scope is authored prose: workbooks are tables of stored values and are not scanned.
+4. ``client_terms`` (file-level, files without a builder record): no client file names a data
+   broker, a credit count, a provider code or an internal hash (``exports.verify.scan_package``).
 5. ``leak_check``: no client file carries the account's private uploaded material
-   (``documents.leakcheck``); every check is recorded in ``leak_checks``.
+   (``documents.leakcheck``); every check is recorded in ``leak_checks`` with the ids of the
+   documents it matched. This product's own earlier deliverables that the client uploaded
+   (the previous workspace zip) are not private material, and word runs that the account's
+   public facts and evidence carry are public (``documents.repo.private_passages``).
 6. ``internal_label`` (input mode file): the Internal Only file exists and is labelled
    "Internal: from your uploaded material".
 7. ``deliverable_set`` (company runs): the five client files exist (Summary, Sources and
@@ -32,11 +48,12 @@ GUARANTEE(test_gate_blocks_a_run_with_a_defect_and_passes_a_clean_one)
 
 from __future__ import annotations
 
+import hashlib
 import html
 import io
 import re
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -58,6 +75,60 @@ INTERNAL_LABEL = "Internal: from your uploaded material"
 # prose for both; staging 2026-10-16: every finished run failed this check)
 _DASHES = re.compile("[‒–—―]")
 _XML_TAG = re.compile(r"<[^>]+>")
+
+
+def _strings(value: Any) -> list[str]:
+    """Every string leaf of a JSON value, in document order."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in _strings(v)]
+    if isinstance(value, list | tuple):
+        return [s for v in value for s in _strings(v)]
+    return []
+
+
+# the checks whose items name one client file (``<file kind>:<detail>``): a failure holds back
+# that file only (see the module docstring); every other check is run-level
+FILE_CHECKS = frozenset(
+    {"client_dashes", "client_terms", "third_party_domains", "rows_dropped", "leak_check"}
+)
+
+
+def withheld_files(defects: Iterable[Mapping[str, Any]]) -> dict[str, list[str]]:
+    """The client files a stored verdict's defects hold back, by file kind, each with the checks
+    that failed it (``[{"check": "leak_check", "item": "people:ngram=2,..."}]`` ->
+    ``{"people": ["leak_check"]}``). Run-level defects and items naming no client file count
+    for nothing here."""
+    held: dict[str, list[str]] = {}
+    for d in defects:
+        check, item = str(d.get("check") or ""), str(d.get("item") or "")
+        kind = item.split(":", 1)[0]
+        if check in FILE_CHECKS and kind in CLIENT_FILES and check not in held.setdefault(kind, []):
+            held[kind].append(check)
+    return {k: v for k, v in held.items() if v}
+
+
+def _builder_verified(row: Any, data: bytes) -> bool:
+    """Whether ``data`` is a file the export builder made (its manifest carries the snapshot it
+    was built from) or a copy of a published library account, unchanged since: the stored
+    SHA-256 of the deliverable equals the bytes read back. Such a file passed the builder's own
+    format rules (see the module docstring); any other file is scanned whole."""
+    manifest = row.manifest_json
+    if not isinstance(manifest, dict):
+        return False
+    if not ("snapshot_hash" in manifest or manifest.get("source") == "library"):
+        return False
+    return hashlib.sha256(data).hexdigest() == str(row.sha256 or "")
+
+
+def _is_workbook(data: bytes) -> bool:
+    """Whether the file is an Excel workbook (a table of source values, not authored prose)."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            return "xl/workbook.xml" in z.namelist()
+    except zipfile.BadZipFile:
+        return False
 
 
 def client_text(data: bytes) -> str:
@@ -163,23 +234,29 @@ class PreDeliveryGate:
             files = (
                 await s.execute(
                     text(
-                        "SELECT id, kind, object_key, manifest_json FROM deliverables"
+                        "SELECT id, kind, object_key, manifest_json, sha256 FROM deliverables"
                         " WHERE run_id = :r ORDER BY kind"
                     ),
                     {"r": run},
                 )
             ).all()
-            private = await repo.private_texts(s, meta.account_id)
-            public = [
-                r.supporting_sentence
-                for r in await s.execute(
-                    text(
-                        "SELECT e.supporting_sentence FROM fact_evidence e JOIN facts f"
-                        " ON f.id = e.fact_id WHERE f.run_id = :r AND f.visibility = 'public'"
-                    ),
-                    {"r": run},
-                )
-            ]
+            private = await repo.private_passages(s, meta.account_id)
+            # the account's public material: what the files render comes from its current
+            # public facts (earlier runs included) and their evidence, so a word run shared
+            # with an upload is public when it is in here
+            public = []
+            for r in await s.execute(
+                text(
+                    "SELECT f.value_json, e.supporting_sentence FROM facts f"
+                    " LEFT JOIN fact_evidence e ON e.fact_id = f.id"
+                    " WHERE f.account_id = :a AND f.visibility = 'public'"
+                    " AND f.status = 'current'"
+                ),
+                {"a": meta.account_id},
+            ):
+                if r.supporting_sentence:
+                    public.append(str(r.supporting_sentence))
+                public.append(" ".join(_strings(r.value_json)))
             internal = (
                 await s.execute(
                     text("SELECT label FROM internal_deliverables WHERE run_id = :r"), {"r": run}
@@ -198,8 +275,8 @@ class PreDeliveryGate:
         hosts = provider_hosts()
         account = meta.account_id
 
-        async def nearest(vec: Any) -> float:
-            """The closest private passage's similarity in the account's index."""
+        async def nearest(vec: Any) -> tuple[float, str | None]:
+            """The closest private passage's similarity in the account's index, and its document."""
             async with self.txn(tenant) as s2:
                 return await repo.nearest_private(s2, account, vec)
 
@@ -210,14 +287,20 @@ class PreDeliveryGate:
         for f in files:
             data = await self.payloads.get(str(f.object_key))
             body = client_text(data)
-            if _DASHES.search(body):
-                failing["client_dashes"].append(f"{f.kind}:{len(_DASHES.findall(body))}")
-            try:
-                hits = scan_package(data, ())
-            except zipfile.BadZipFile:
-                hits = ()
-            if hits:
-                failing["client_terms"].append(f"{f.kind}:{len(hits)}")
+            # the dash rule's scope is authored prose (export_rules.yaml banned_dashes.scope): a
+            # workbook's cells are stored job titles, names and labels printed as they are, and
+            # the builder already scans the written documents with those blanked (staging
+            # 2026-10-21: a 896 row job postings run failed here on source titles with a dash)
+            # the builder's format rules, only on a file it did not make and verify itself
+            if not _builder_verified(f, data):
+                if not _is_workbook(data) and _DASHES.search(body):
+                    failing["client_dashes"].append(f"{f.kind}:{len(_DASHES.findall(body))}")
+                try:
+                    hits = scan_package(data, ())
+                except zipfile.BadZipFile:
+                    hits = ()
+                if hits:
+                    failing["client_terms"].append(f"{f.kind}:{len(hits)}")
             lowered = body.lower()
             named = [h for h in hosts if h in lowered]
             if named:
@@ -242,6 +325,7 @@ class PreDeliveryGate:
             if result.verdict == "fail":
                 failing["leak_check"].append(
                     f"{f.kind}:ngram={result.ngram_hits},embedding={result.embedding_hits}"
+                    f",documents={len(result.documents)}"
                 )
         if meta.input_mode == "file":
             failing["internal_label"] = (

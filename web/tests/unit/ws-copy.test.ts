@@ -79,7 +79,6 @@ test("JSX text and quoted labels on every client and sign-in screen pass the cop
     ...tsxUnder(path.join(root, "app/(client)")),
     ...tsxUnder(path.join(root, "app/(auth)")),
     ...tsxUnder(path.join(root, "ui")),
-    path.join(root, "components/ProviderKey.tsx"),
   ];
   const bad: string[] = [];
   for (const file of files) {

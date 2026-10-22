@@ -42,7 +42,7 @@ npm run e2e                 # Playwright (needs the stack: make e2e)
 | `components/accounts/` | the Account workspace pieces: AddAccount, NewResearch, ResearchCompany, RefreshForm, ResumeResearch, SheetView, FilesCard, UploadedFilesCard, WhatWasRead, DownloadEverything, SchedulesView, MailDrive, SupportAccess, AccountAsk |
 | `components/ask/` | Ask, AskComposer, AnswerView |
 | `components/ws/` | the workspace shell, run steps, document drop, drive chooser, file analysis |
-| `components/*.tsx` | Limits, ModelMenu, ModelPreferences, ProviderKey |
+| `components/*.tsx` | Limits, ModelMenu, ModelPreferences, UsageProceed |
 | `lib/` | `api.ts` (the browser's one door to the API), `server-api.ts` (Server Components' door), `api-origin.ts`, `upload.ts` and `upload-store.ts` (resumable uploads straight to object storage), `sse.ts` (the Ask stream), `query.ts`, `render.ts` (safe rendering), `messages.ts` (every user-facing string), pure formatters, `gen/` (the generated API types and labels; never edit by hand) |
 | `ui/` | design tokens and base CSS, primitives, the auth frame, route error |
 | `tests/unit/` | Vitest tests of the pure modules and components |

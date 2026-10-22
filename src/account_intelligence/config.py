@@ -182,6 +182,12 @@ class Settings(BaseSettings):
         purpose="Personal Google accounts (no Workspace) allowed as staff; still need a role.",
         component="api, web",
     )
+    staff_idp_asserts_role: str = var(
+        "",
+        purpose="Set to true only when the staff IdP itself asserts a trusted staff_role claim; "
+        "otherwise roles come from the allowlists alone.",
+        component="api",
+    )
 
     # run limits
     run_budget_usd: float = var(
@@ -526,6 +532,10 @@ class Settings(BaseSettings):
         staff = (self.staff_jwt_issuer, self.staff_jwt_audience, self.staff_jwks_url)
         if any(staff) and not all(staff):
             problems.append("STAFF_JWT_ISSUER, STAFF_JWT_AUDIENCE and STAFF_JWKS_URL go together")
+        if self.app_env in CLOUD and all(staff) and not self.staff_workspace_domain:
+            # without the domain the verifier cannot tell a workspace identity from any other
+            # account the IdP signs for (security review 2026-10-22)
+            problems.append("STAFF_WORKSPACE_DOMAIN is required when the staff IdP is configured")
         if self.app_env in CLOUD and self.connectors == "hermetic":
             problems.append(f"CONNECTORS: synthetic providers refused for APP_ENV={self.app_env}")
         for idp_field in ("jwks_url", "jwt_issuer", "staff_jwks_url", "staff_jwt_issuer"):

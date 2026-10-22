@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiOrigin } from "@/lib/api-origin";
 import { isSameOriginRouteRequest } from "@/lib/same-origin";
+import { tenantCookies } from "@/lib/tenant-cookies";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
   const origin = apiOrigin();
-  const cookie = request.headers.get("cookie") ?? "";
+  const cookie = tenantCookies(request.headers.get("cookie") ?? "");
   try {
     if (!origin) throw new Error("no API configured");
     const session = await fetch(new URL("/v1/sso/session", origin), {

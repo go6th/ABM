@@ -37,19 +37,9 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    ".next-parity/types/**/*.ts",
-    ".next-parity/dev/types/**/*.ts",
-    ".next-srclabel/types/**/*.ts",
-    ".next-srclabel/dev/types/**/*.ts",
-    ".next-live/types/**/*.ts",
-    ".next-live/dev/types/**/*.ts",
-    ".next-livebuild/types/**/*.ts",
-    ".next-livebuild/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules",
-    ".next-parity",
-    "components/ProviderKey.tsx"
+    "node_modules"
   ]
 }

@@ -39,6 +39,11 @@ variable "jobs" {
     memory      = string
   }))
 }
+variable "secret_versions" {
+  type        = map(string)
+  default     = {}
+  description = "Secret id -> the Secret Manager version the job reads; a secret missing here resolves to \"latest\" (pin before production)."
+}
 variable "runners" {
   type        = map(map(string))
   description = "Job name to {workload name = service account email} that may start executions."
@@ -92,7 +97,7 @@ resource "google_cloud_run_v2_job" "job" {
             value_source {
               secret_key_ref {
                 secret  = env.value
-                version = "latest"
+                version = lookup(var.secret_versions, env.value, "latest")
               }
             }
           }

@@ -99,8 +99,21 @@ class CollectingExporter(SpanExporter):
         """Nothing to release."""
 
 
+def cloud_trace_exporter(project_id: str) -> SpanExporter:
+    """The Cloud Trace exporter (D-56, V-OBS-1 resolved 2026-10-22): spans go straight to the
+    Cloud Trace API with ``opentelemetry-exporter-gcp-trace`` (a declared dependency, so no OTLP
+    collector is needed). Wrap it in ``BoundedExporter``; it is never called on a request path."""
+    from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+
+    return CloudTraceSpanExporter(project_id=project_id)  # type: ignore[no-untyped-call]
+
+
 def otlp_exporter(endpoint: str) -> Any:
-    """The OTLP exporter (D-56). Not installed in this image: [VERIFY] V-OBS-1."""
+    """An OTLP exporter is NOT a dependency of this image (no collector runs beside the
+    services); the cloud profiles use ``cloud_trace_exporter``. Refuses so a profile that asks
+    for OTLP fails closed instead of silently exporting nothing."""
     from obs.errors import NotConfigured
 
-    raise NotConfigured(f"OTLP exporter for {endpoint} is not installed")
+    raise NotConfigured(
+        f"OTLP exporter for {endpoint} is not installed; use cloud_trace_exporter (Cloud Trace)"
+    )

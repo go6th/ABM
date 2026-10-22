@@ -34,7 +34,7 @@ environment, not a substitute for an external security assessment.
 | Cross-tenant IDOR | Verified identity, tenant transaction context, forced RLS, route catalog | Run PostgreSQL isolation suite against the release migration set and live grants |
 | Session theft or CSRF | Secure HttpOnly `__Host-` cookie, server-side token hash, expiry/revocation, CSRF | Validate HTTPS/cookie origin and revocation behavior in deployed environment |
 | Tenant/operator privilege crossover | Separate route planes, verified operator token, role/MFA checks | Verify deployed allowlists, Workspace MFA and operator audit coverage |
-| Auth brute force/account enumeration | No first-party password endpoint is currently exposed | Before local auth: distributed IP/account limits, uniform responses, lockout and Argon2id |
+| Auth brute force/account enumeration | First-party login, verify and reset routes: Argon2id with a dummy verify for unknown accounts, one uniform refusal, per-IP and per-account Redis buckets (`config/auth.yaml`), progressive lockout in `local_auth_failure` (5/1 min, 8/5 min, 12/1 h), Cloud Armor rate ban on the sign-in routes (30/min per IP, 10 min ban, `infra/modules/edge`) | Verify the deployed Cloud Armor rule and Redis buckets with a controlled burst on staging; keep self-serve signup off |
 | Stale or malformed UI authorization | `/v1/me` schema validation, no-store server request, API authorization remains authoritative | Add browser E2E for role/capability changes and session expiry |
 | Proxy header/cookie injection | Explicit BFF cookie/header allowlist; no arbitrary Authorization forwarding | Add BFF integration tests for hostile cookies/headers and upstream outage |
 | API data leakage | Tenant/operator schemas and separate route policy | Serializer/export regression tests for provider, cost and broker fields |
@@ -42,21 +42,43 @@ environment, not a substitute for an external security assessment.
 
 ## Auth implementation status
 
-Tenant sign-in currently depends on the existing OIDC/SAML broker and its configured production
-IdP adapter. First-party email/password signup, verification, reset, MFA enrollment and recovery are
-not exposed yet. Migration 0047 adds `local_identities` and single-use hashed auth tokens behind
-forced RLS. `app_rw` has no direct access; its only access is through the reviewed functions owned
-by `identity_authenticator` (`NOLOGIN`, `NOBYPASSRLS`). The role and outputs are covered in
-`tests/isolation/matrix/matrix.yaml` and `tests/phase3/test_ws2_local_auth.py`.
+Tenant sign-in is either the configured SSO broker (OIDC or SAML) or the first-party local
+password flow; both end in the same HttpOnly server-side session (`RUNBOOK.md`, Authentication
+boundary). The local flow is shipped and exposed on these anonymous routes
+(`src/account_intelligence/api/routes/auth.py`): `POST /v1/auth/login`,
+`/v1/auth/email/resend`, `/v1/auth/email/verify`, `/v1/auth/password/reset/request` and
+`/v1/auth/password/reset`; password enrollment (`/v1/auth/password/enroll`) is a tenant route
+for the signed-in member. Self-serve signup stays off; registration happens through invites.
+
+- Passwords are hashed with Argon2id (`src/identity/local_password.py`, parameters in
+  `config/auth.yaml`: time cost 3, 64 MiB, parallelism 2, length 12 to 128, common-password and
+  account-context checks). Unknown accounts and malformed stored hashes are verified against a
+  random-salted dummy digest, so timing and the response do not reveal whether an email exists.
+- Every refusal on login, verify and reset is the same 401 problem; verification and reset tokens
+  are single use, hashed (SHA-256) at rest and expire (migrations 0047 and 0048).
+- Brute force: per-IP and per-account token buckets in Redis (`src/identity/rate_limit.py`,
+  `config/auth.yaml`; per-process in dev and test), progressive lockout recorded atomically by
+  `local_auth_failure` (5 failures lock for 1 minute, 8 for 5 minutes, 12 for 1 hour; events
+  `login_failed`, `login_locked`), and at the edge a Cloud Armor rate-based ban on the sign-in,
+  verify, reset, invite-accept and SSO start routes (30 requests per minute per client, 10 minute
+  ban; `infra/modules/edge/main.tf`).
+- MFA: an admin may not sign in with a local password while MFA is required (local TOTP is not
+  implemented); admins use SSO. There is no MFA enrollment or recovery route yet.
+
+Migration 0047 adds `local_identities` and the single-use hashed auth tokens behind forced RLS;
+0048 adds password reset without widening `app_rw`. `app_rw` has no direct access to the
+credential tables; its only access is through the reviewed `SECURITY DEFINER` functions owned by
+`identity_authenticator` (`NOLOGIN`, `NOBYPASSRLS`, pinned `search_path`). The role and the
+functions are covered in `tests/isolation/matrix/matrix.yaml` and
+`tests/phase3/test_ws2_local_auth.py`.
 
 | Database role | Runtime login | RLS bypass | Credential access | Owner/review |
 |---|---:|---:|---|---|
-| `app_rw` | Yes | No | No direct table grants; calls listed functions only | Normal application role |
-| `identity_authenticator` | No | No | Narrow column grants on local identities, tokens, memberships and tenant lifecycle rows; owns fixed-search-path security-definer functions | `.github/CODEOWNERS`, migration 0047 and isolation matrix |
+| `app_rw` | Yes | No | No direct table grants; calls the listed functions only | Normal application role |
+| `identity_authenticator` | No | No | Narrow column grants on local identities, tokens, memberships and tenant lifecycle rows; owns the fixed-search-path security-definer functions (`local_auth_lookup`, `local_auth_failure`, `local_auth_success`, `local_auth_verify_email`, `local_auth_issue_token`, `local_auth_reset_email`, `local_auth_reset_password`) | `.github/CODEOWNERS`, migrations 0047 and 0048, isolation matrix |
 
-`local_password.py` provides Argon2id hashing/verification, dummy verification for unknown accounts,
-and local common-password and account-context checks. Login, registration orchestration, distributed
-rate limiting, MFA enrollment/recovery, password reset, refresh rotation and a production mail
-adapter still need implementation before local auth may be enabled. Never return credentials or
-tokens to browser JavaScript, or enable self-serve signup before those controls and integration
-tests are in place.
+Still open before local auth is widened: MFA enrollment and recovery (TOTP), refresh rotation
+for long sessions, and a production mail adapter with its SMTP credential in Secret Manager
+(verification and reset mail is refused, not faked, while `SMTP_HOST` is unset). Never return
+credentials or tokens to browser JavaScript, and never enable self-serve signup before those
+controls and their integration tests exist.

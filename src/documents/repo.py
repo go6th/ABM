@@ -7,7 +7,8 @@ inserts take the tenant from ``app_tenant()``, never from an argument.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+import re
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -394,27 +395,98 @@ async def run_passages(s: AsyncSession, run_id: UUID) -> list[Any]:
     return list(rows.all())
 
 
-async def private_texts(s: AsyncSession, account_id: UUID) -> list[str]:
-    """The account's private passage texts (the leak check compares against them)."""
-    rows = await s.execute(
-        text("SELECT content FROM document_passages WHERE account_id = :a ORDER BY id"),
-        {"a": account_id},
+def own_deliverable_name_pattern(delivered: Iterable[str]) -> str:
+    """A case-insensitive POSIX regex over a file name (``documents.name`` or a zip member's
+    path) matching one of the files this product itself delivered for the account
+    (``deliverables.filename``: ``Tolmar_Account_Summary.docx``, ``Tolmar_workspace.zip``),
+    also under the ``name (2).ext`` suffix a browser gives a repeated download. Nothing else
+    matches: a client upload merely named ``People List.xlsx`` is private material and stays
+    checked (review 2026-10-22); an account with no delivery yet excludes nothing."""
+    names = sorted({n.strip().lower() for n in delivered if n and n.strip()})
+    if not names:
+        return "(?!x)x"
+    alternatives = []
+    for name in names:
+        stem, dot, ext = name.rpartition(".")
+        if dot and stem:
+            alternatives.append(re.escape(stem) + r"( \([0-9]+\))?\." + re.escape(ext))
+        else:
+            alternatives.append(re.escape(name) + r"( \([0-9]+\))?")
+    return "(^|/)(" + "|".join(alternatives) + ")$"
+
+
+# The files this product delivered for the account (never the operator-only internal file,
+# whose body IS the client's private material; it lives in ``internal_deliverables`` anyway).
+_DELIVERED_NAMES = (
+    "SELECT filename FROM deliverables WHERE account_id = :a"
+    " AND kind NOT IN ('operator_only', 'internal_only', 'internal')"
+)
+# The account's uploaded documents that are this product's own earlier outputs, not private
+# material. The owner's refresh workflow uploads the previous workspace, and the new files share
+# headings, titles and names with it by design (staging 2026-10-21: seven deliveries held back
+# as "too close to your uploaded files"). Two ways a document (or a zip member) is one:
+# a workbook whose rows ``documents.deliverables`` recognised (its ``file_import`` run), or a
+# file carrying the name of one of the account's deliveries. A workspace zip is one document
+# whose members are only visible in each passage's location (``shapes.member_of``): there the
+# member's own name decides, so a delivered member is skipped while a private memo in the same
+# zip stays checked.
+_IMPORTED = (
+    "SELECT d.id FROM documents d WHERE d.account_id = :a AND EXISTS ("
+    "SELECT 1 FROM account_runs r WHERE r.account_id = :a AND r.finished_reason = 'file_import'"
+    " AND r.idempotency_key = 'file-import-' || d.id::text)"
+)
+_NAMED = "SELECT d.id FROM documents d WHERE d.account_id = :a AND d.name ~* :pat"
+_MEMBER = "COALESCE({loc}->'from'->>'member', {loc}->>'member')"
+
+
+def _own_filter(doc: str, loc: str) -> str:
+    """SQL (``:a`` and ``:pat`` bound) that is true for a passage or chunk of the account's
+    own earlier deliverables: ``doc`` names the document id column, ``loc`` the location."""
+    member = _MEMBER.format(loc=loc)
+    return (
+        f"({doc} IN ({_IMPORTED}) OR CASE WHEN {member} IS NULL"
+        f" THEN {doc} IN ({_NAMED}) ELSE {member} ~* :pat END)"
     )
-    return [r.content for r in rows]
 
 
-async def nearest_private(s: AsyncSession, account_id: UUID, vec: Sequence[float]) -> float:
-    """The highest cosine similarity of ``vec`` to the account's private index (0 when empty)."""
-    value = (
+async def _delivered_names(s: AsyncSession, account_id: UUID) -> list[str]:
+    rows = await s.execute(text(_DELIVERED_NAMES), {"a": account_id})
+    return [str(r.filename) for r in rows]
+
+
+async def private_passages(s: AsyncSession, account_id: UUID) -> list[tuple[str, str]]:
+    """The account's private passages as ``(document id, text)`` (the leak check compares
+    client files against them), without this product's own earlier deliverables."""
+    pat = own_deliverable_name_pattern(await _delivered_names(s, account_id))
+    rows = await s.execute(
+        text(
+            "SELECT document_id, content FROM document_passages p WHERE account_id = :a"
+            f" AND NOT {_own_filter('document_id', 'p.location')} ORDER BY id"
+        ),
+        {"a": account_id, "pat": pat},
+    )
+    return [(str(r.document_id), r.content) for r in rows]
+
+
+async def nearest_private(
+    s: AsyncSession, account_id: UUID, vec: Sequence[float]
+) -> tuple[float, str | None]:
+    """The highest cosine similarity of ``vec`` to the account's private index and the document
+    it is in (``0, None`` when empty), without this product's own earlier deliverables."""
+    pat = own_deliverable_name_pattern(await _delivered_names(s, account_id))
+    row = (
         await s.execute(
             text(
-                "SELECT 1 - (embedding <=> CAST(:v AS halfvec)) AS sim FROM chunks"
-                " WHERE account_id = :a ORDER BY embedding <=> CAST(:v AS halfvec) LIMIT 1"
+                "SELECT 1 - (embedding <=> CAST(:v AS halfvec)) AS sim, doc_id FROM chunks"
+                f" WHERE account_id = :a AND NOT {_own_filter('doc_id', 'location')}"
+                " ORDER BY embedding <=> CAST(:v AS halfvec) LIMIT 1"
             ),
-            {"a": account_id, "v": literal(vec)},
+            {"a": account_id, "v": literal(vec), "pat": pat},
         )
-    ).scalar()
-    return float(value or 0.0)
+    ).first()
+    if row is None:
+        return 0.0, None
+    return float(row.sim or 0.0), str(row.doc_id)
 
 
 async def delete(s: AsyncSession, document_id: UUID, user: str) -> Any:

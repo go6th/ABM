@@ -57,7 +57,7 @@ packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "
 # mounts the driver, CUDA 13; the ``[cuda,cudnn]`` extras ship the runtime libraries as wheels).
 [dependency-groups]
 cpu = ["fastembed==0.8.0"]
-gpu = ["fastembed-gpu==0.8.0", "onnxruntime-gpu[cuda,cudnn]==1.31.0"]
+gpu = ["fastembed-gpu==0.8.0", "onnxruntime-gpu[cuda,cudnn]==1.31.0", "pandas==3.0.6"]  # the worker image pinned pandas ad hoc
 dev = [
     "bandit>=1.7",
     "hypothesis>=6.100",
@@ -91,7 +91,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 "src/account_intelligence/api/**/*.py" = ["B008"]  # FastAPI Depends()/Header() defaults
 
 [tool.mypy]
-python_version = "3.12"  # the images and .python-version run 3.12; numpy stubs need it
+python_version = "3.12"  # the images and .python-version run 3.12; numpy stubs need it (3.11 fails: numpy/__init__.pyi uses the `type` statement)
 mypy_path = "src"
 files = ["src"]
 strict = true
@@ -103,6 +103,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# eval and live tests call the real paid model: a bare `pytest` never runs them. CI passes its
+# own -m (the last -m on the command line wins), so `pytest -m eval` still selects them.
+addopts = "-m 'not eval and not live' --strict-markers"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 markers = [
@@ -116,16 +119,38 @@ markers = [
 # SQLAlchemy's async layer runs on greenlets: without this, lines after an awaited query are
 # reported as never run
 concurrency = ["greenlet", "thread"]
-source_pkgs = ["account_intelligence", "spend", "exports", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot", "refresh", "signals", "alerts", "governance", "crm_writeback", "opendoor", "crosscut", "datamodel", "contracts", "quality", "privacy", "security", "unitcost", "metrics", "registers", "agents"]
+source_pkgs = ["account_intelligence", "jobs", "people", "spend", "exports", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot", "refresh", "signals", "alerts", "governance", "crm_writeback", "opendoor", "crosscut", "datamodel", "contracts", "quality", "privacy", "security", "unitcost", "metrics", "registers", "agents", "documents", "research_files", "devstore"]
 branch = true
 
 [tool.coverage.report]
+# 2026-10-22: source_pkgs gained jobs, people, documents, research_files and devstore (they
+# were measured by import-linter and hatch but never by coverage). The 94 baseline predates
+# them: re-measure in CI on the next run and set fail_under to the measured value, not lower
+# than the real number; expect a few points below 94 until the five packages' uncovered
+# modules (worker-only and CLI paths) are either covered or excluded with reasons.
 fail_under = 94
 show_missing = true
 
 # W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports
 [tool.importlinter]
-root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot", "refresh", "signals", "alerts", "governance", "crm_writeback", "opendoor", "crosscut", "datamodel", "contracts", "quality", "privacy", "security", "unitcost", "metrics", "registers", "agents"]
+root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot", "refresh", "signals", "alerts", "governance", "crm_writeback", "opendoor", "crosscut", "datamodel", "contracts", "quality", "privacy", "security", "unitcost", "metrics", "registers", "agents", "documents", "research_files", "devstore"]
+
+[[tool.importlinter.contracts]]
+name = "runs, identity, metering and app never import the api (ratchet: shrink, never grow)"
+type = "forbidden"
+source_modules = [
+    "account_intelligence.runs", "identity", "metering", "account_intelligence.app",
+]
+forbidden_modules = ["account_intelligence.api"]
+# ratchet: shrink, never grow. Each entry is a violation that exists today; remove the entry
+# when the import is gone and never add one.
+ignore_imports = [
+    "account_intelligence.app.container -> account_intelligence.api.tenant_plane",
+    "identity.rate_limit -> account_intelligence.api.problem",
+    "identity.rate_limit -> account_intelligence.api.ratelimit",
+    "metering.limits -> account_intelligence.api.errors",
+    "account_intelligence.replica.isolation -> account_intelligence.api.policy",
+]
 
 [[tool.importlinter.contracts]]
 name = "nothing below the ABM agent layer imports it (it orchestrates; it never grades, tracks or renders)"

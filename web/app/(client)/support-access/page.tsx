@@ -13,13 +13,18 @@ export default async function SupportAccessPage() {
   let grants: SupportGrants | null = null;
   let events: SupportEvents | null = null;
   let forbidden = false;
-  try {
-    grants = await serverGet<SupportGrants>("/v1/support/grants", "/support-access");
-    events = await serverGet<SupportEvents>("/v1/support/events", "/support-access");
-  } catch (e) {
-    if (!(e instanceof ServerApiError)) throw e;
-    forbidden = e.status === 403;
+  // the two reads are independent: together, and the first API failure decides the message
+  const [grantsRead, eventsRead] = await Promise.allSettled([
+    serverGet<SupportGrants>("/v1/support/grants", "/support-access"),
+    serverGet<SupportEvents>("/v1/support/events", "/support-access"),
+  ]);
+  for (const r of [grantsRead, eventsRead]) {
+    if (r.status !== "rejected") continue;
+    if (!(r.reason instanceof ServerApiError)) throw r.reason;
+    if (!forbidden) forbidden = r.reason.status === 403;
   }
+  if (grantsRead.status === "fulfilled") grants = grantsRead.value;
+  if (eventsRead.status === "fulfilled") events = eventsRead.value;
   return (
     <div className="pg center">
       <div className="col w760">

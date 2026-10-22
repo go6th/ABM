@@ -48,3 +48,6 @@ dist/
 *~
 *.bak
 *.orig
+# working notes and retired files never belong in an image
+projects/
+unwanted-things/

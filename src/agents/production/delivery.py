@@ -157,12 +157,20 @@ class NoteDelivery:
 
     deps: RunDeps
 
-    async def release(self, ctx: RunContext, file_ids: Sequence[str]) -> None:
-        """Write the delivery note once (leak-scanned); files are already stored by the builder."""
+    async def release(
+        self, ctx: RunContext, file_ids: Sequence[str], withheld: Sequence[str] = ()
+    ) -> None:
+        """Write the delivery note once (leak-scanned); files are already stored by the builder.
+        A file kind the gate held back is recorded in the note; the workspace listing reads the
+        stored gate verdict and leaves such a file out (``replica.workspace.deliverables``)."""
         from account_intelligence.workflow.stages.core import deliver
 
         state: Any = {
-            "references": {"build": "built" if file_ids else "unknown", "gate": "passed"},
+            "references": {
+                "build": "built" if file_ids else "unknown",
+                "gate": "passed" if not withheld else "withheld:" + ",".join(withheld),
+                "withheld": list(withheld),
+            },
             "counters": {},
         }
         await deliver(self.deps, state)

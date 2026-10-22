@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET, POST, PUT } from "@/app/v1/[[...path]]/route";
 import { apiOrigin } from "@/lib/api-origin";
-import { bodyLimit, capBody, declaredLength, JSON_BODY_LIMIT } from "@/lib/proxy-body";
+import { bodyLimit, capBody, declaredLength, JSON_BODY_LIMIT, JSON_TIMEOUT_MS, proxyTimeout, TRANSFER_TIMEOUT_MS } from "@/lib/proxy-body";
 
 const fetchMock = vi.fn();
 
@@ -43,6 +43,12 @@ describe("body size", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("forwards the recorded client address for the API's per-client throttle", async () => {
+    await POST(post("/v1/auth/login", { body: "{}", headers: { "x-forwarded-for": "203.0.113.9, 10.0.0.2" } }));
+    const sent = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Headers;
+    expect(sent.get("x-forwarded-for")).toBe("203.0.113.9, 10.0.0.2");
+  });
+
   it("forwards a small body as a stream, with the half-duplex flag", async () => {
     const reply = await POST(post("/v1/chat/ask", { body: '{"q":"hi"}' }));
     expect(reply.status).toBe(200);
@@ -77,6 +83,37 @@ describe("body size", () => {
     const capped = capBody(source, 4);
     await expect(new Response(capped.stream).text()).rejects.toThrow();
     expect(capped.exceeded()).toBe(true);
+  });
+});
+
+describe("deadlines", () => {
+  it("follows the browser's own signal for an event stream, and adds a deadline for everything else", async () => {
+    const sse = new NextRequest("https://app.example/v1/runs/r/events", { headers: { accept: "text/event-stream" } });
+    await GET(sse);
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).signal).toBe(sse.signal);
+
+    const plain = new NextRequest("https://app.example/v1/me", { headers: { accept: "application/json" } });
+    await GET(plain);
+    const signal = (fetchMock.mock.calls[1]![1] as RequestInit).signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal).not.toBe(plain.signal);
+    expect(signal!.aborted).toBe(false);
+  });
+
+  it("answers 504 when the API does not answer in time", async () => {
+    fetchMock.mockRejectedValue(new DOMException("timed out", "TimeoutError"));
+    const reply = await GET(new NextRequest("https://app.example/v1/me"));
+    expect(reply.status).toBe(504);
+  });
+
+  it("gives files going up or down far longer than a JSON call", () => {
+    expect(proxyTimeout("GET", "/v1/me")).toBe(JSON_TIMEOUT_MS);
+    expect(proxyTimeout("POST", "/v1/chat/ask")).toBe(JSON_TIMEOUT_MS);
+    expect(proxyTimeout("PUT", "/v1/documents/abc/content")).toBe(TRANSFER_TIMEOUT_MS);
+    expect(proxyTimeout("GET", "/v1/exports/p/files/1")).toBe(TRANSFER_TIMEOUT_MS);
+    expect(proxyTimeout("GET", "/v1/downloads/j/parts/1")).toBe(TRANSFER_TIMEOUT_MS);
+    expect(proxyTimeout("GET", "/v1/accounts/acme.example/sheets/people/xlsx")).toBe(TRANSFER_TIMEOUT_MS);
+    expect(proxyTimeout("GET", "/v1/exports/p")).toBe(JSON_TIMEOUT_MS);
   });
 });
 

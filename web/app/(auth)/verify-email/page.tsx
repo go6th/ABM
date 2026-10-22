@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthFrame } from "@/ui/AuthFrame";
+import { ApiError, apiPublic } from "@/lib/api";
+import type { EmailVerified } from "@/lib/gen/api.gen";
 
 export default function VerifyEmailPage() {
   const [status, setStatus] = useState("Checking your verification link");
@@ -20,18 +22,14 @@ export default function VerifyEmailPage() {
       return;
     }
 
-    void fetch("/v1/auth/email/verify", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ token }),
-      cache: "no-store",
-    })
-      .then((response) => {
-        setOk(response.ok);
-        setStatus(response.ok ? "Your email is verified. You can now sign in with your password." : "This verification link is invalid or expired. Request a new link from Security settings.");
+    void apiPublic<EmailVerified>("POST", "/v1/auth/email/verify", { token })
+      .then(() => {
+        setOk(true);
+        setStatus("Your email is verified. You can now sign in with your password.");
       })
-      .catch(() => setStatus("Email verification is temporarily unavailable. Try again."))
+      .catch((e: unknown) => setStatus(e instanceof ApiError && e.status >= 400 && e.status < 500
+        ? "This verification link is invalid or expired. Request a new link from Security settings."
+        : "Email verification is temporarily unavailable. Try again."))
       .finally(() => setFinished(true));
   }, []);
 

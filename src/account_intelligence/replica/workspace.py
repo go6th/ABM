@@ -514,6 +514,11 @@ STOP_TEXT = {
         "Some steps could not be finished, so the quality check held the files back."
         " Open Coverage to see which steps and why."
     ),
+    # the gate held back some files and delivered the rest (agents.graph FILES_WITHHELD)
+    "files_withheld": (
+        "The quality check held back some files; the other files are ready."
+        " Open Coverage to see which."
+    ),
     "steps_waiting": "Some steps could not be finished. Open Coverage to see which steps and why.",
     "pull_only": "This run only collected data; nothing was written up yet.",
     # the run graded no new fact (audit 2026-10-20): finished, nothing to resume
@@ -578,12 +583,34 @@ def gate_text(defects: Sequence[Mapping[str, Any]]) -> str:
     return GATE_FAILED_TEXT.format(why="; ".join(parts))
 
 
+WITHHELD_TEXT = "The quality check held back {files}: {why}. The other files are ready."
+
+
+def withheld_text(defects: Sequence[Mapping[str, Any]]) -> str:
+    """Which files the quality check held back and why, in words ("Job postings (text too close
+    to your uploaded files)"), from the stored verdict's defects; the generic text without
+    them."""
+    from documents.gate import withheld_files
+
+    held = withheld_files(defects)
+    if not held:
+        return STOP_TEXT["files_withheld"]
+    parts = []
+    for kind in DELIVERABLE_ORDER:
+        if kind in held:
+            why = "; ".join(GATE_CHECK_TEXT.get(c, c.replace("_", " ")) for c in held[kind])
+            parts.append(f"{DELIVERABLE_LABEL[kind]} ({why})")
+    return WITHHELD_TEXT.format(files=", ".join(parts), why="see Coverage")
+
+
 def stop_text(reason: str, defects: Sequence[Mapping[str, Any]] = ()) -> str:
     """What the user is told about a research that stopped: a known reason in words, a build
     failure with its cause, the quality check's failing checks, anything else with its code so
     it can be reported."""
     if reason == "gate_failed" and defects:
         return gate_text(defects)
+    if reason == "files_withheld" and defects:
+        return withheld_text(defects)
     if reason in STOP_TEXT:
         return STOP_TEXT[reason]
     if reason.startswith("build_failed"):
@@ -626,7 +653,7 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
         return None
     reason = "stalled" if stalled else str(row.finished_reason)
     defects: list[Any] = []
-    if reason == "gate_failed":  # the stored verdict says which checks held the files back
+    if reason in ("gate_failed", "files_withheld"):  # the stored verdict says which checks
         found = await session.scalar(
             text(
                 "SELECT defects FROM run_gate_results WHERE run_id = :r"
@@ -645,17 +672,26 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
 
 
 async def deliverables(session: Any, account_id: UUID) -> list[dict[str, Any]]:
-    """The newest version of each deliverable of the account, in the design's order."""
+    """The newest version of each deliverable of the account, in the design's order, without a
+    file its run's quality check held back (the latest stored verdict's file-level defects,
+    ``documents.gate.withheld_files``): such a file is neither listed nor downloadable, and no
+    older version stands in for it (it would not match the delivered files). The card says
+    which file was held back and why (``withheld_text``)."""
+    from documents.gate import withheld_files
+
     rows = (
         await session.execute(
             text(
-                "SELECT DISTINCT ON (kind) id, kind, filename, size_bytes, built_at FROM"
-                " deliverables"
-                " WHERE account_id = :a AND kind = ANY(:k) ORDER BY kind, version DESC"
+                "SELECT DISTINCT ON (d.kind) d.id, d.kind, d.filename, d.size_bytes, d.built_at,"
+                " (SELECT g.defects FROM run_gate_results g WHERE g.run_id = d.run_id"
+                "   ORDER BY g.created_at DESC, g.id DESC LIMIT 1) AS defects"
+                " FROM deliverables d"
+                " WHERE d.account_id = :a AND d.kind = ANY(:k) ORDER BY d.kind, d.version DESC"
             ),
             {"a": account_id, "k": DELIVERABLE_ORDER},
         )
     ).all()
+    rows = [r for r in rows if r.kind not in withheld_files(list(r.defects or []))]
     rows = sorted(rows, key=lambda r: DELIVERABLE_ORDER.index(r.kind))
     return [
         {

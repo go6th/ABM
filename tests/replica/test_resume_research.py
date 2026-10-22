@@ -5,6 +5,7 @@ researches, and refuses a run that is still moving or finished whole."""
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -257,6 +258,58 @@ async def test_the_account_card_names_the_quality_checks_that_held_the_files(
     assert card is not None and not card["stalled"]
     assert "a data provider named in a client file" in card["reason"]
     assert "a step without a status or a reason" in card["reason"]
+
+
+async def test_withheld_files_are_named_with_their_reason_and_left_out_of_the_listing(
+    world: dict[str, Any],
+) -> None:
+    """A file-level defect holds back that file: the card names it and why, the other files are
+    said to be ready, and the listing (so the download) leaves the held file out."""
+    from account_intelligence.db.session import set_system, tenant_txn
+    from account_intelligence.replica.workspace import deliverables, stop_text, stopped_run
+
+    user = f"hold-{uuid4().hex[:6]}"
+    run, _ = _run(world["a"], user, "PARTIAL")
+    _db("UPDATE account_runs SET finished_reason = 'files_withheld' WHERE id = %s", run)
+    (account,) = _db("SELECT account_id FROM account_runs WHERE id = %s", run)[0]
+    for kind in ("summary", "people", "jobs"):
+        _db(
+            "INSERT INTO deliverables (tenant_id, account_id, run_id, set_hash, kind, version,"
+            " filename, sha256, size_bytes, object_key, manifest_json, content_hash,"
+            " snapshot_hash, theme_hash, rules_hash, built_at) VALUES (%s, %s, %s,"
+            " repeat('a', 64), %s, 1, %s, repeat('a', 64), 10, %s, '{}', repeat('a', 64),"
+            " repeat('a', 64), repeat('a', 64), repeat('a', 64), now())",
+            world["a"],
+            account,
+            run,
+            kind,
+            f"{kind}.docx",
+            f"{world['a']}/{account}/{run}/deliverables/{'a' * 64}.docx",
+        )
+    defects = [
+        {"check": "leak_check", "item": "people:ngram=2,embedding=0,documents=1"},
+        {"check": "rows_dropped", "item": "people:1"},
+    ]
+    _db(
+        "INSERT INTO run_gate_results (tenant_id, account_id, run_id, verdict, defects)"
+        " VALUES (%s, %s, %s, 'fail', %s)",
+        world["a"],
+        account,
+        run,
+        json.dumps(defects),
+    )
+    said = stop_text("files_withheld", defects)
+    assert said == (
+        "The quality check held back People list (text too close to your uploaded files;"
+        " a row lost between the data and a file): see Coverage. The other files are ready."
+    )
+    assert "other files are ready" in stop_text("files_withheld", [])
+    set_system()
+    async with tenant_txn(world["a"]) as s:
+        card = await stopped_run(s, account)
+        files = await deliverables(s, account)
+    assert card is not None and card["reason"] == said
+    assert [f["kind"] for f in files] == ["summary", "jobs"]
 
 
 async def test_no_new_findings_is_said_as_nothing_found() -> None:

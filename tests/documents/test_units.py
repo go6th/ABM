@@ -337,6 +337,32 @@ def test_canary_from_a_private_file_blocks_client_release() -> None:
     assert asyncio.run(empty.check("summary", fixtures.CANARY)).verdict == "pass"
 
 
+def test_a_leak_hit_names_its_document_and_public_fact_values_are_not_leaks() -> None:
+    """Every hit says which uploaded document it matched (an id, never text), by word run and
+    by embedding; a word run the account's public facts carry is public wherever it appears."""
+    e = HashingEmbedder()
+    notes = f"Call notes. {fixtures.CANARY}. The budget renews in April."
+    posting = "Senior Salesforce Developer Bengaluru Karnataka India full time posted last week"
+    private = [("doc-notes", notes), ("doc-old-workbook", posting)]
+
+    async def nearest(vec: list[float]) -> tuple[float, str]:
+        return max((cosine(vec, e.vector(t)), d) for d, t in private)
+
+    # the posting is a public fact's value (what the Job Postings sheet renders from the web)
+    checker = LeakChecker(CFG.leak, e, private, [posting], nearest)
+    leaked = asyncio.run(checker.check("summary", f"Summary.\n\n{fixtures.CANARY}."))
+    assert leaked.verdict == "fail" and leaked.documents == ["doc-notes"]
+    assert all(h["document"] == "doc-notes" for h in leaked.hits)
+    assert "Zebrafinch" not in json.dumps(leaked.hits)
+    sheet = asyncio.run(checker.check("jobs", f"Job postings\n\n{posting}"))
+    assert sheet.ngram_hits == 0  # the shared run is public material
+    assert sheet.verdict == "pass"
+    # bare texts (no document) still work and carry no document key
+    bare = LeakChecker(CFG.leak, e, [notes], [], nearest)
+    hit = asyncio.run(bare.check("summary", fixtures.CANARY))
+    assert hit.verdict == "fail" and hit.documents == []
+
+
 def test_file_mode_gaps_with_reasons_may_complete() -> None:
     from account_intelligence.tracker.completion import RowState, evaluate
     from account_intelligence.tracker.config import load_tracker_config
@@ -676,3 +702,36 @@ def test_a_row_cap_past_max_table_rows_fails_the_member() -> None:
     with pytest.raises(TableIngestTruncated) as cut:
         list(c.passages([unit]))
     assert (cut.value.kept, cut.value.total) == (3, 4)
+
+
+def test_the_own_deliverable_pattern_matches_delivered_names_only() -> None:
+    """The leak check skips only files this product delivered for the account, by name, also
+    under a browser's ``(n)`` suffix and as a member path inside the workspace zip; a client
+    file merely named like a deliverable, or the operator-only file, is never skipped."""
+    import re
+
+    from documents.repo import own_deliverable_name_pattern
+
+    pat = re.compile(
+        own_deliverable_name_pattern(
+            ["Tolmar_Account_Summary.docx", "Tolmar_workspace.zip", "Tolmar_People_List.xlsx"]
+        ),
+        re.IGNORECASE,
+    )
+    for name in (
+        "Tolmar_Account_Summary.docx",
+        "tolmar_account_summary.DOCX",
+        "Tolmar_Account_Summary (1).docx",
+        "Tolmar_workspace (2).zip",
+        "Tolmar_workspace/Tolmar_People_List.xlsx",
+    ):
+        assert pat.search(name), name
+    for name in (
+        "People List.xlsx",
+        "Account Summary.docx",
+        "Tolmar_Internal_Only.docx",
+        "notes/Tolmar_Account_Summary_notes.docx",
+        "HR - Tolmar_Account_Summary.docx",
+    ):
+        assert not pat.search(name), name
+    assert not re.search(own_deliverable_name_pattern([]), "anything.docx")

@@ -3,13 +3,18 @@
 # talks only to this origin; /v1 is rewritten server-side to API_ORIGIN (no model key or secret
 # ever reaches the client bundle). Build context: web/.
 # Cloud Run injects PORT (default 8080); the standalone server respects it.
+# The base image is pinned to the multi-arch index digest of node:22-slim as read from Docker Hub
+# on 2026-10-22 (docker-content-digest of the image index); move it on purpose, with a rebuild.
+ARG NODE_IMAGE=node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
 
-FROM node:22-slim AS deps
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# --ignore-scripts: the only lifecycle scripts in the tree are esbuild's and unrs-resolver's
+# binary checks (vitest and eslint, neither used by `next build`); Next itself has none.
+RUN npm ci --no-audit --no-fund --ignore-scripts
 
-FROM node:22-slim AS build
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG API_ORIGIN=http://api:8080
@@ -20,13 +25,11 @@ RUN npm run build \
   # Next writes server-side source maps into .next/server; the browser bundle has none. No map ships.
   && find .next -name '*.map' -type f -delete
 
-# Runtime: Debian slim with current security updates; npm, npx, corepack and perl (unused by the
-# server, and the source of HIGH/CRITICAL findings) are removed from the final layer.
-FROM node:22-slim AS runtime
-RUN apt-get update && apt-get -y upgrade && apt-get clean && rm -rf /var/lib/apt/lists/* \
- && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+# Runtime: the pinned base as published (security updates arrive by moving the digest, so the
+# image is reproducible); npm, npx and corepack, unused by the server, are removed from the layer.
+FROM ${NODE_IMAGE} AS runtime
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
- && (dpkg --purge --force-remove-essential --force-depends perl-base >/dev/null 2>&1 || true) \
  && useradd --system --uid 10001 --no-create-home web
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0

@@ -78,15 +78,17 @@ up() {
     -p "127.0.0.1:${idp_port}:9090" \
     -e APP_ENV=dev -e FAKE_IDP_ISSUER=http://fake-idp:9090/ \
     -e FAKE_IDP_AUDIENCE=account-intelligence-local \
+    --no-healthcheck \
     -v "$root/ops/dev:/dev-tools:ro" --entrypoint python "$worker_image" /dev-tools/fake_idp.py >/dev/null
+  # PORT tells the image's HEALTHCHECK where this worker listens (the image default is 8080)
   docker run -d --name "${stack}-worker" --network "$net" --network-alias worker \
-    "${app_env[@]}" "${shim[@]}" -e SERVICE_ROLE=worker -e ALLOW_UNAUTHENTICATED_TASKS=1 \
+    "${app_env[@]}" "${shim[@]}" -e SERVICE_ROLE=worker -e ALLOW_UNAUTHENTICATED_TASKS=1 -e PORT=8081 \
     -e WORKER_URL=http://worker:8081 -v "${stack}-payloads:/tmp/payloads" \
     --entrypoint uvicorn "$worker_image" account_intelligence.api.main:app \
     --host 0.0.0.0 --port 8081 >/dev/null
   docker run -d --name "${stack}-objectstore" --network "$net" --network-alias objectstore \
     -e APP_ENV=dev -e DEVSTORE_ROOT=/tmp/payloads/files -e DEVSTORE_PUBLIC_URL=http://localhost:8092 \
-    -e "DEVSTORE_ALLOW_ORIGIN=http://localhost:${web_port}" -v "${stack}-payloads:/tmp/payloads" \
+    -e "DEVSTORE_ALLOW_ORIGIN=http://localhost:${web_port}" -v "${stack}-payloads:/tmp/payloads" --no-healthcheck \
     --entrypoint uvicorn "$worker_image" devstore.server:app --host 0.0.0.0 --port 8092 >/dev/null
   docker run -d --name "${stack}-api" --network "$net" --network-alias api \
     -p "127.0.0.1:${api_port}:8080" "${app_env[@]}" "${shim[@]}" -e SERVICE_ROLE=api \
@@ -128,12 +130,47 @@ check() {
   python3 "$root/docker/ci/hermetic_run.py" --api "http://127.0.0.1:${api_port}" \
     --idp "http://127.0.0.1:${idp_port}" --tenant "$meridian" --sub priya-nair
 
+  echo "== seccomp filter installs in the worker image (V-SANDBOX-1; tests/documents the_kernel_filter_refuses_a_native_socket)"
+  seccomp_check
+
   echo "== cross-tenant isolation probe (read-only)"
   run_b="$(psql_value "select id from account_runs where tenant_id = '$northline' limit 1")"
   [[ -n "$run_b" ]] || { echo "no run seeded for the second tenant" >&2; return 1; }
   TOKEN_A="$(mint priya-nair "$meridian")" TOKEN_B="$(mint lm-northline "$northline")" \
     python3 "$root/docker/ci/probe_isolation.py" --api "http://127.0.0.1:${api_port}" \
     --token-a TOKEN_A --token-b TOKEN_B --resource-b "/v1/runs/${run_b}"
+}
+
+seccomp_check() { # the document sandbox's kernel filter, inside the running worker container
+  # the same probe as tests/documents/test_units.py::test_the_kernel_filter_refuses_a_native_socket
+  # _and_a_process_but_not_a_thread, run as the image's non-root user under the container runtime
+  # the stack uses: the filter installs (no_new_privs, then seccomp with TSYNC), native socket(2)
+  # and fork/exec are refused with EPERM, and a Python thread still starts.
+  local out
+  out="$(docker exec "${stack}-worker" python -I -c '
+import ctypes, os, socket, threading, documents.sandbox_child as c
+libc = ctypes.CDLL(None, use_errno=True)
+assert c.deny_network_and_processes(), "filter did not install"
+print("socket", libc.socket(2, 1, 0), ctypes.get_errno())
+try:
+    socket.create_connection(("169.254.169.254", 80), timeout=1); print("meta ALLOWED")
+except OSError as e:
+    print("meta", e.errno)
+try:
+    os.fork(); print("fork ALLOWED")
+except OSError as e:
+    print("fork", e.errno)
+box = []
+t = threading.Thread(target=lambda: box.append(1)); t.start(); t.join()
+print("thread", len(box))
+print("uid", os.getuid())
+')" || { echo "seccomp probe failed to run" >&2; return 1; }
+  printf '%s\n' "$out"
+  grep -qx 'socket -1 1' <<<"$out" || { echo "native socket was not refused" >&2; return 1; }
+  grep -qx 'meta 1' <<<"$out" || { echo "metadata connection was not refused" >&2; return 1; }
+  grep -qx 'fork 1' <<<"$out" || { echo "fork was not refused" >&2; return 1; }
+  grep -qx 'thread 1' <<<"$out" || { echo "a thread could not start" >&2; return 1; }
+  grep -qx 'uid 10001' <<<"$out" || { echo "probe did not run as the non-root user" >&2; return 1; }
 }
 
 down() {

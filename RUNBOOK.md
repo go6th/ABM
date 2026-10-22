@@ -23,8 +23,12 @@ approval and network policy.
   digests. Promote the same digests through staging and production.
 - Roll back Cloud Run traffic to the previous healthy revision (`docs/deploy/RUNBOOK.md`). Do not
   roll back a schema migration unless its down migration is explicitly safe for the live data.
-- After a release, write the deployed digests into `infra/envs/staging/terraform.tfvars`: Terraform
-  sets the Cloud Run images, and a plan made from stale values would roll the services back.
+- Routine releases go through the gated workflow (`DEPLOYMENT.md` section 2.1): CI builds, scans
+  and exercises the images, `_deploy.yml` deploys them by digest and smoke tests. The hand path
+  (Cloud Build and `gcloud`, section 2.2) is for emergencies only and must pass `make release-check`.
+- After a release, write the deployed digests into `infra/envs/staging/terraform.tfvars` so a
+  rebuilt environment starts from the released images. Terraform does not change a running
+  service's image (`ignore_changes = [image]`); a plan from stale digests rolls nothing back.
 
 ## Operator bootstrap and access
 
@@ -42,7 +46,9 @@ Tenant sign-in is either the configured SSO broker (OIDC or SAML) or the first-p
 password flow (Argon2id, email verification, reset, rate limits), both ending in the same
 HttpOnly server-side session. Local sign-in for an admin is refused while MFA is required and
 local TOTP is not implemented; admins use SSO. Keep self-serve signup disabled until the owner
-decides otherwise.
+decides otherwise. The in-process per-IP login limiter is dev-only: it keys on the socket peer
+(the BFF container unless `FORWARDED_ALLOW_IPS` names the BFF's network, as `compose.yml` does);
+the cloud relies on the shared Redis buckets and the Cloud Armor rate ban on the sign-in routes.
 
 ## Incident notes
 

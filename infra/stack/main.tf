@@ -175,6 +175,11 @@ variable "workload_alerts_enabled" {
   description = "Create the generated alerts on application metrics (needs the OTLP exporter, V-OBS-1)."
   default     = false
 }
+variable "secret_versions" {
+  type        = map(string)
+  description = "Secret id -> the Secret Manager version the services and jobs read (gcloud secrets versions list <id>). Unlisted secrets read \"latest\"; list every secret here before a production apply so a rotation is a reviewed change, not an implicit one."
+  default     = {}
+}
 variable "rate_limit_per_minute" {
   type        = number
   description = "Cloud Armor per-client request limit (one office behind one NAT address shares it)."
@@ -468,13 +473,31 @@ resource "google_secret_manager_secret_version" "redis_ca" {
 }
 
 # Tenant secrets (connector refresh tokens, SSO client secrets) are created by the api and the
-# worker at run time (tenant_plane.SecretManagerStore). The grant is conditioned to secrets whose
+# worker at run time (tenant_plane.SecretManagerStore: create_secret, add_secret_version,
+# access_secret_version, destroy_secret_version; nothing else). A custom role holds exactly those
+# permissions in place of roles/secretmanager.admin, and the grant is conditioned to secrets whose
 # id starts with "tenant-", so the runtime can never read or change the platform's own secrets
-# through it (audit 2026-10-15).
+# through it (audit 2026-10-15). NOTE: secrets.create is checked on the project, whose resource
+# name has no "secrets/tenant-" prefix; confirm on staging that creating a new tenant secret still
+# succeeds under the condition (the previous admin grant carried the same condition).
+resource "google_project_iam_custom_role" "tenant_secrets" {
+  project     = var.project_id
+  role_id     = "${replace(local.name, "-", "_")}_tenant_secrets"
+  title       = "${local.name} tenant secret writer"
+  description = "Create tenant secrets and add, read and destroy their versions; no list, delete or IAM change."
+  permissions = [
+    "secretmanager.secrets.create",
+    "secretmanager.secrets.get",
+    "secretmanager.versions.add",
+    "secretmanager.versions.access",
+    "secretmanager.versions.destroy",
+  ]
+}
+
 resource "google_project_iam_member" "tenant_secrets" {
   for_each = toset(["api", "worker"])
   project  = var.project_id
-  role     = "roles/secretmanager.admin"
+  role     = google_project_iam_custom_role.tenant_secrets.id
   member   = "serviceAccount:${local.sa[each.key]}"
   condition {
     title      = "tenant-secrets-only"
@@ -541,6 +564,10 @@ module "cloud_run" {
         STAFF_OPERATOR_EMAILS  = var.staff.operator_emails
         STAFF_SUPPORT_EMAILS   = var.staff.support_emails
         STAFF_EXTERNAL_EMAILS  = var.staff.external_emails
+        # the live tabular eval's model and effort (test tooling the app never reads; formerly
+        # baked into the api image ENV, moved here 2026-10-22 so behaviour is unchanged)
+        EVAL_MODEL  = "kimi-k3"
+        EVAL_EFFORT = "high"
       })
       secret_env          = merge(local.db_secret, local.maildrive_secret)
       secret_files        = local.redis_ca_file
@@ -627,8 +654,15 @@ module "cloud_run" {
   # it authenticates every business request itself (the web server forwards the session cookie)
   public_invoker = ["api", "web"]
   # worker: only the tasks identity (Cloud Tasks and Cloud Scheduler sign as it)
-  invokers   = { worker = { tasks = local.sa.tasks } }
-  depends_on = [module.secret_manager, google_secret_manager_secret_version.redis_ca]
+  invokers = { worker = { tasks = local.sa.tasks } }
+  # the CI deployer rolls images and traffic on these three services and nothing else
+  developers = {
+    api    = { deployer = local.sa.deployer }
+    worker = { deployer = local.sa.deployer }
+    web    = { deployer = local.sa.deployer }
+  }
+  secret_versions = var.secret_versions
+  depends_on      = [module.secret_manager, google_secret_manager_secret_version.redis_ca]
 }
 
 module "cloud_run_jobs" {
@@ -690,11 +724,13 @@ module "cloud_run_jobs" {
     }
   }
   runners = {
-    spend-invariants = { scheduler = local.sa.scheduler }
+    # the deployer also rolls the spend-invariants job's image on every release (_deploy.yml)
+    spend-invariants = { scheduler = local.sa.scheduler, deployer = local.sa.deployer }
     migrate          = { deployer = local.sa.deployer }
     reingest-tables  = { deployer = local.sa.deployer }
   }
-  depends_on = [module.secret_manager]
+  secret_versions = var.secret_versions
+  depends_on      = [module.secret_manager]
 }
 
 module "scheduler" {

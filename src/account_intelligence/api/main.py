@@ -67,10 +67,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from obs.logging import configure_logging
 
     configure_logging(settings.log_level, service=settings.service_role)
+    trace_flush = None
     if settings.metrics_export == "cloud_monitoring" and settings.gcp_project:
         from obs import export
+        from obs import setup as obs_setup
 
         export.install(settings.gcp_project, f"ai-{settings.service_role}")
+        # spans to Cloud Trace under the same cloud-only guard (hermetic and local profiles keep
+        # the no-op tracer); the queue drains off the event loop and once more at shutdown
+        if obs_setup.install_cloud_trace(settings.gcp_project, f"ai-{settings.service_role}"):
+            trace_flush = asyncio.create_task(obs_setup.trace_flush_loop())
     app.state.draining = False
     container = build_container()
     app.state.container = container
@@ -135,6 +141,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             sweeper.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await sweeper
+        if trace_flush is not None:
+            from obs import setup as obs_setup
+
+            trace_flush.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await trace_flush
+            await obs_setup.flush_traces()
         signal.signal(signal.SIGTERM, previous)
         from identity.rate_limit import close as close_identity_rate_limiter
 

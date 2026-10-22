@@ -434,9 +434,14 @@ class FakeDelivery:
 
     def __init__(self) -> None:
         self.released: list[tuple[UUID, tuple[str, ...]]] = []
+        self.withheld: list[tuple[UUID, tuple[str, ...]]] = []
 
-    async def release(self, ctx: RunContext, file_ids: Sequence[str]) -> None:
+    async def release(
+        self, ctx: RunContext, file_ids: Sequence[str], withheld: Sequence[str] = ()
+    ) -> None:
         self.released.append((ctx.run_id, tuple(file_ids)))
+        if withheld:
+            self.withheld.append((ctx.run_id, tuple(withheld)))
 
 
 class FakeWallet:

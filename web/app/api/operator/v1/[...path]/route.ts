@@ -5,6 +5,7 @@ import { isSameOriginRouteRequest } from "@/lib/same-origin";
 import { operations } from "@/lib/gen/api.gen";
 import { googleOperatorOidcConfig, operatorApiOrigin, operatorOAuthCookieNames } from "@/lib/operator-oidc";
 import { BINARY_LIMIT, isBinaryUpload } from "@/lib/operator-proxy";
+import { capBody, declaredLength, JSON_BODY_LIMIT } from "@/lib/proxy-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,26 +54,25 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
     if (value) headers.set(name, value);
   }
 
-  let body: string | ArrayBuffer | undefined;
+  // The body is streamed, never buffered: the declared length is checked first (a missing one
+  // is not taken as zero), and the bytes are counted as they pass so an unlabelled or falsely
+  // labelled body is cut off at the limit too. A 6th Library package may be BINARY_LIMIT; JSON
+  // calls stay at the JSON limit.
+  let capped: ReturnType<typeof capBody> | null = null;
   if (method !== "GET" && method !== "HEAD") {
     const binary = isBinaryUpload(method, apiPath);
-    const limit = binary ? BINARY_LIMIT : 1_000_000;
-    const size = Number(request.headers.get("content-length") ?? "0");
-    if (Number.isFinite(size) && size > limit) return problem(413, "body_too_large", "Request body is too large.");
+    const limit = binary ? BINARY_LIMIT : JSON_BODY_LIMIT;
+    const declared = declaredLength(request.headers.get("content-length"));
+    if (declared !== null && declared > limit) return problem(413, "body_too_large", "Request body is too large.");
     const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
     if (binary) {
       if (!contentType.startsWith("application/octet-stream") && !contentType.startsWith("application/zip")) {
         return problem(415, "content_type_refused", "Upload the file itself.");
       }
-      body = await request.arrayBuffer();
-      if (body.byteLength > limit) return problem(413, "body_too_large", "Request body is too large.");
-    } else {
-      if (!contentType.startsWith("application/json")) {
-        return problem(415, "content_type_refused", "JSON is required for this operation.");
-      }
-      body = await request.text();
-      if (body.length > limit) return problem(413, "body_too_large", "Request body is too large.");
+    } else if (!contentType.startsWith("application/json")) {
+      return problem(415, "content_type_refused", "JSON is required for this operation.");
     }
+    if (request.body && declared !== 0) capped = capBody(request.body, limit);
   }
 
   if (apiOrigin) {
@@ -80,7 +80,8 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
       const upstream = await fetch(new URL(`${apiPath}${new URL(request.url).search}`, apiOrigin), {
         method,
         headers,
-        body,
+        body: capped?.stream,
+        ...(capped ? { duplex: "half" } : {}),
         cache: "no-store",
         redirect: "manual",
       });
@@ -91,12 +92,13 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
           const value = upstream.headers.get(name);
           if (value) outputHeaders.set(name, value);
         }
-        return new NextResponse(upstream.status === 204 ? null : await upstream.arrayBuffer(), {
+        return new NextResponse(upstream.status === 204 ? null : upstream.body, {
           status: upstream.status,
           headers: outputHeaders,
         });
       }
     } catch {
+      if (capped?.exceeded()) return problem(413, "body_too_large", "Request body is too large.");
       // Upstream failures are returned as 503 below; never fabricate operator state.
     }
   }

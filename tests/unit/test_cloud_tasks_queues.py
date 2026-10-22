@@ -61,7 +61,7 @@ def test_each_task_goes_to_its_queue_with_a_deadline() -> None:
         for parent, task in client.created
     ]
     assert seen == [
-        ("runs", "runs", 1500),
+        ("runs", "runs", 1800),
         ("documents", "documents", 1800),
         ("jobs", "jobs", 600),
         ("jobs", "jobs", 600),

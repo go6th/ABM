@@ -109,12 +109,19 @@ _log = logger(__name__)
 T = TypeVar("T")
 MAX_SPEND_PAUSES = 3
 STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "people")
-# extraction calls in flight at once per step (each call is independent; see _interpret)
-EXTRACT_CONCURRENCY = 8
+# extraction calls in flight at once per step (each call is independent; see _interpret). Each is
+# a one-request Message Batch that takes minutes on the provider's side, so the node's duration is
+# calls / concurrency x the batch time, not compute. Tolmar (staging 2026-10-21) needed 121
+# calls: at 8 at a time and ~285 s a batch that is ~75 minutes, so no 20 minute slice could hold
+# the reading step and it took five slices. At 32 it is ~20 minutes. Polling stays inside the
+# provider's batch request rate (config/models.yaml batch.poll_seconds).
+EXTRACT_CONCURRENCY = 32
 # a run that graded no fact has nothing to build: it ends finished with this reason instead of
 # the builder's missing_content (audit 2026-10-20: five McKesson refreshes ended "stopped before
 # finishing" and offered a Resume that re-paid the same extraction for the same empty result)
 NO_NEW_FINDINGS = "no_new_findings"
+# the gate held back some client files and the rest were delivered (documents.gate FILE_CHECKS)
+FILES_WITHHELD = "files_withheld"
 STEP_ORDER: dict[str, int] = {step: index for index, step in enumerate(STEPS)}
 
 
@@ -175,6 +182,8 @@ class AbmState(TypedDict, total=False):
     topic: str | None
     error_code: str | None
     missing_rows: list[str]
+    # client file kinds the gate held back (the others were delivered)
+    withheld_files: list[str]
     careers_url: str | None
     settled: bool
     counters: Annotated[dict[str, int], sum_counters]
@@ -594,7 +603,14 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         # stops during extraction still shows the steps it pulled (audit 2026-10-15)
         for row in manifest.rows:
             await deps.tracker.report(ctx, row.row_key, row.call_refs, row.blocked_reason)
-        drops = await _interpret(ctx, await _views(ctx, stored), consent_ok)
+        views = await _views(ctx, stored)
+        drops = await _interpret(ctx, views, consent_ok)
+        # the cloud logs carry no message text, so a run that read many pages and kept no fact
+        # said nothing about why (staging 2026-10-21, 27 extraction calls and no facts): one line
+        # per drop reason with its count, never text
+        _log.info("interpret.read", extra={"count": len(views), "rows": len(stored)})
+        for reason, n in sorted(drops.items()):
+            _log.info("interpret.drop", extra={"error_code": reason[:80], "count": n})
         careers = await _careers(ctx, stored)
         return {
             "counters": {f"drop_{k}": v for k, v in drops.items()},
@@ -832,10 +848,26 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         if unreported:
             rows = await deps.tracker.rows(ctx)
         verdict = coverage_verdict(cfg.plan, rows)
-        if failing or not verdict.deliverable:
-            # which checks held the files back (the account card reads the stored verdict; the
-            # log said only "gate_failed" before 2026-10-16); row keys are config names
-            names = sorted(failing)
+        # a run-level failure holds every file back; a file-level one (an item naming a client
+        # file: a leak against an upload, a lost row) holds back that file and the rest are
+        # delivered. Until 2026-10-22 any defect in any file ended the run with nothing
+        # delivered, and each fix moved the stop one check later (staging 2026-10-21).
+        from documents.gate import FILE_CHECKS, withheld_files
+
+        run_level = {k: v for k, v in failing.items() if v and k not in FILE_CHECKS}
+        file_items = [(k, i) for k, v in failing.items() if k in FILE_CHECKS for i in v]
+        held = withheld_files({"check": k, "item": i} for k, i in file_items)
+        # a file-level item that names no client file cannot be held back by file: it is
+        # run-level (fail closed), never ignored
+        if any(i.split(":", 1)[0] not in held for _, i in file_items):
+            run_level = {
+                **run_level,
+                **{k: v for k, v in failing.items() if k in FILE_CHECKS and v},
+            }
+        # each check with its items (file kind and count, never text): the log said only
+        # "client_dashes" on 2026-10-21 and not which of the five files carried them
+        names = [f"{k}[{';'.join(failing[k])[:50]}]" for k in sorted(failing) if failing[k]]
+        if run_level or not verdict.deliverable:
             if not verdict.deliverable:
                 stuck = [*verdict.missing, *verdict.unproven][:6]
                 names.append("coverage_verdict:" + ",".join(stuck))
@@ -852,6 +884,17 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 "error_code": "gate_failed",
                 "missing_rows": [*verdict.missing, *verdict.unproven],
             }
+        if held:
+            _log.warning(
+                "gate.withheld",
+                extra={"error_code": ";".join(names)[:200], "count": len(held), "rows": 0},
+            )
+            return {
+                "outcome": "partial",
+                "error_code": FILES_WITHHELD,
+                "withheld_files": sorted(held),
+                "counters": {"rows_closed_at_gate": len(unreported)} if unreported else {},
+            }
         return {"counters": {"rows_closed_at_gate": len(unreported)}} if unreported else {}
 
     def after_build(state: AbmState) -> str:
@@ -859,17 +902,20 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         return "finish" if done or state.get("error_code") == NO_NEW_FINDINGS else "gate"
 
     def after_gate(state: AbmState) -> str:
-        return "finish" if state.get("error_code") else "deliver"
+        code = state.get("error_code")
+        return "deliver" if code in (None, FILES_WITHHELD) else "finish"
 
     async def deliver(state: AbmState) -> dict[str, Any]:
-        """Step 8 (code): release the client files; never outreach."""
+        """Step 8 (code): release the client files the gate passed; never outreach. A file the
+        gate held back is named to the delivery, which records it; the run stays partial."""
         ctx = context(state)
-        await deps.delivery.release(ctx, state.get("client_files") or [])
+        withheld = list(state.get("withheld_files") or [])
+        await deps.delivery.release(ctx, state.get("client_files") or [], withheld=withheld)
         rows = await deps.tracker.rows(ctx)
         # a stated gap the client chose (internal history not switched on) is not a missing step:
         # the tracker's completion policy allows it the same way
         # (config/tracker_v1.yaml high_reasons_allowed_for_completed)
-        complete = all(
+        complete = not withheld and all(
             r.status in ("done", "none") or r.reason in STATED_GAPS for r in rows.values()
         )
         return {"outcome": "completed" if complete else "partial"}

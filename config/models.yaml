@@ -104,7 +104,9 @@ task_settings:
 # Claude on Vertex have no batches: their calls stay standard.
 batch:
   enabled: true
-  poll_seconds: 20
+  # one retrieve call per waiting batch each interval: 32 calls in flight at 45 s is ~43 requests
+  # a minute, under the lowest batch request limit (EXTRACT_CONCURRENCY in agents/graph.py)
+  poll_seconds: 45
   max_wait_seconds: 1800
   task_kinds:
     - plan_gaps

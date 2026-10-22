@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { apiOrigin } from "@/lib/api-origin";
-import { bodyLimit, capBody, declaredLength } from "@/lib/proxy-body";
+import { bodyLimit, capBody, declaredLength, proxyTimeout } from "@/lib/proxy-body";
 import { isSameOriginRouteRequest } from "@/lib/same-origin";
+import { tenantCookies } from "@/lib/tenant-cookies";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,19 +19,18 @@ const FORWARDED_HEADERS = [
   "range",
   "traceparent",
   "x-csrf-token",
+  // the client address the edge (or Next itself) recorded: the API's auth throttle keys its
+  // per-client bucket on it when uvicorn trusts this service (FORWARDED_ALLOW_IPS)
+  "x-forwarded-for",
 ] as const;
 
-// __Host-ai_preauth_once is the "Keep me signed in = off" marker the API reads when it finishes an
-// SSO sign-in; without it the session would always get the persistent cookie.
-const AUTH_COOKIES = new Set(["__Host-ai_session", "__Host-ai_preauth", "__Host-ai_preauth_once"]);
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-function tenantCookies(raw: string): string {
-  return raw
-    .split(";")
-    .map((part) => part.trim())
-    .filter((part) => AUTH_COOKIES.has(part.split("=", 1)[0] ?? ""))
-    .join("; ");
+/** An event stream follows the browser's own lifetime; everything else also has a deadline. */
+function upstreamSignal(request: NextRequest): AbortSignal {
+  const sse = (request.headers.get("accept") ?? "").includes("text/event-stream");
+  if (sse) return request.signal;
+  return AbortSignal.any([request.signal, AbortSignal.timeout(proxyTimeout(request.method, request.nextUrl.pathname))]);
 }
 
 function problem(status: number, title: string, detail: string): NextResponse {
@@ -75,6 +75,7 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
       ...(capped ? { duplex: "half" } : {}),
       redirect: "manual",
       cache: "no-store",
+      signal: upstreamSignal(request),
     });
 
     const responseHeaders = new Headers();
@@ -99,6 +100,9 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
     });
   } catch (err) {
     if (capped?.exceeded()) return problem(413, "Request too large", "The request body is too large.");
+    if (err instanceof Error && err.name === "TimeoutError") {
+      return problem(504, "Gateway Timeout", "The upstream API service did not answer in time.");
+    }
     // the path only: the query string can carry a one-time token
     console.error(`[API Proxy] Connection to ${request.nextUrl.pathname} failed:`, err instanceof Error ? err.name : "error");
     return problem(503, "Service Unavailable", "The upstream API service is temporarily unavailable.");

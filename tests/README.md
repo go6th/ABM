@@ -11,14 +11,20 @@ PostgreSQL you start yourself.
 docker run --rm -d --name abm-p2-testdb -p 127.0.0.1:55440:5432 \
   -e POSTGRES_HOST_AUTH_METHOD=trust pgvector/pgvector:pg16
 
-PG_CONTAINER=abm-p2-testdb PGPORT=55440 uv run --frozen pytest -m "not eval"      # everything
-PG_CONTAINER=abm-p2-testdb PGPORT=55440 uv run --frozen pytest tests/isolation -x # the hard gate
-uv run --frozen pytest tests/agents                                             # one folder
+PG_CONTAINER=abm-p2-testdb PGPORT=55440 uv run --frozen pytest -m "not eval and not live"  # everything
+PG_CONTAINER=abm-p2-testdb PGPORT=55440 uv run --frozen pytest tests/isolation -x          # the hard gate
+uv run --frozen pytest tests/agents                                                      # one folder
 ```
 
+Always pass `-m "not eval and not live"` locally (it is also the default `addopts` in
+`pyproject.toml`, so a bare `pytest` applies it; an explicit `-m` on the command line replaces
+it). The two markers both reach a paid model: `eval` tests are the golden-set agent evaluations,
+run only in the nightly eval gate (`pytest -m eval tests/evals`); `live` tests call the real
+provider and spend money, run on demand or nightly only (`pytest -m live ...`). A bare
+`-m "not eval"` still selects the `live` tests.
+
 `make test` does the same against the compose database. Tests marked `requires_postgres` skip
-without a database; `eval` tests run only in the nightly eval gate; `large_file` tests need
-`RF_LARGE_FILE=1`.
+without a database; `large_file` tests need `RF_LARGE_FILE=1`.
 
 ## What each folder covers
 

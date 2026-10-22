@@ -67,6 +67,16 @@ variable "services" {
     })), {})
   }))
 }
+variable "secret_versions" {
+  type        = map(string)
+  default     = {}
+  description = "Secret id -> the Secret Manager version the services read (e.g. \"3\"). A secret missing here resolves to \"latest\"; pin every secret_env secret before production. Mounted secret_files (the Redis CA Terraform writes itself) always read latest."
+}
+variable "developers" {
+  type        = map(map(string))
+  default     = {}
+  description = "Service name to {workload name = service account email} granted run.developer on that service only (the CI deployer rolls images and traffic; no project-wide grant)."
+}
 variable "public_invoker" {
   type        = list(string)
   description = "Services whose invoker is allUsers (application-level auth; ingress still limits)."
@@ -130,7 +140,7 @@ resource "google_cloud_run_v2_service" "svc" {
         secret {
           secret = volumes.value.secret
           items {
-            version = "latest"
+            version = "latest" # the one secret Terraform writes itself (Memorystore CA)
             path    = volumes.value.file
           }
         }
@@ -166,7 +176,7 @@ resource "google_cloud_run_v2_service" "svc" {
           value_source {
             secret_key_ref {
               secret  = env.value
-              version = "latest"
+              version = lookup(var.secret_versions, env.value, "latest")
             }
           }
         }
@@ -259,6 +269,17 @@ resource "google_cloud_run_v2_service_iam_member" "invoker" {
   location = var.region
   name     = google_cloud_run_v2_service.svc[each.value.svc].name
   role     = "roles/run.invoker"
+  member   = "serviceAccount:${each.value.sa}"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "developer" {
+  for_each = merge([
+    for svc, sas in var.developers : { for who, sa in sas : "${svc}:${who}" => { svc = svc, sa = sa } }
+  ]...)
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.svc[each.value.svc].name
+  role     = "roles/run.developer"
   member   = "serviceAccount:${each.value.sa}"
 }
 

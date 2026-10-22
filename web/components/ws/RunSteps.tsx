@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { useRunStream } from "@/lib/useRunStream";
 import { m } from "@/lib/messages";
 import { humanize } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
@@ -80,44 +81,8 @@ export function useRun(runId: string | null) {
   }, [runId, tick]);
 
   // poll the run record while it is open, and follow progress by event stream or polling
-  useEffect(() => {
-    if (!runId || terminal) return;
-    const poll = setInterval(reload, 3000);
-    let source: EventSource | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let closed = false;
-    const read = async () => {
-      if (closed) return;
-      try {
-        const p = await api<RunProgress>("GET", `/v1/runs/${encodeURIComponent(runId)}/progress`);
-        setProgress(p);
-        if (p.finished) reload();
-      } catch { /* the next poll tries again */ }
-      // polling only while no stream is open
-      if (!closed && !source) timer = setTimeout(() => void read(), 5000);
-    };
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    const open = () => {
-      if (closed) return;
-      source = new EventSource(`/v1/runs/${encodeURIComponent(runId)}/events`);
-      source.addEventListener("progress", (event) => {
-        try { const p = JSON.parse((event as MessageEvent<string>).data) as RunProgress; setProgress(p); if (p.finished) reload(); } catch { /* ignore */ }
-      });
-      // the server ends each stream at its duration cap; the browser reconnects on its own at
-      // the server's retry (it used to fall back to polling for good after the first minute)
-      source.onerror = () => {
-        if (closed || !source || source.readyState === EventSource.CONNECTING) return;
-        // it could not be opened: poll, and try the stream again a little later
-        source.close();
-        source = null;
-        void read();
-        retry = setTimeout(open, 10000);
-      };
-    };
-    if (typeof EventSource !== "undefined") open();
-    else void read();
-    return () => { closed = true; clearInterval(poll); source?.close(); if (timer) clearTimeout(timer); if (retry) clearTimeout(retry); };
-  }, [runId, terminal, reload]);
+  const onProgress = useCallback((p: RunProgress) => { setProgress(p); if (p.finished) reload(); }, [reload]);
+  useRunStream(runId, !terminal, onProgress, reload);
 
   return { run, progress, error, status, terminal, reload };
 }

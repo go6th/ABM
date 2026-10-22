@@ -75,7 +75,7 @@ class CloudTasksScheduler:
     VERIFY(V-TASKS-1): name-based de-duplication window and dispatch deadline limits are
     service behaviour, not checked here."""
 
-    SLICE_DEADLINE_S = 1500  # slice_seconds 1200 plus checkpoint and lease margin; max 1800
+    SLICE_DEADLINE_S = 1800  # slice_seconds 1650 plus checkpoint and lease margin; the maximum
     JOB_DEADLINE_S = 600
     DOCUMENT_DEADLINE_S = 1800  # the Cloud Tasks maximum
 

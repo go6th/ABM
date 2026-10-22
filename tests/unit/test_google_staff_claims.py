@@ -120,3 +120,16 @@ def test_personal_accounts_need_the_name_a_verified_email_and_no_other_workspace
 ) -> None:
     with pytest.raises(PermissionError):
         _verifier(monkeypatch, _claims(**updates)).verify("header.payload.signature")
+
+
+def test_an_idp_asserted_staff_role_is_ignored_unless_the_deployment_opts_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``staff_role`` claim alone never grants the console: the role comes from the allowlists
+    (security review 2026-10-22). A deployment whose IdP really asserts roles opts in."""
+    outsider = _claims(email="anyone@sixth.example", staff_role="operator")
+    with pytest.raises(PermissionError):
+        _verifier(monkeypatch, outsider).verify("header.payload.signature")
+    trusting = _verifier(monkeypatch, outsider)
+    trusting.idp_asserts_role = True
+    assert trusting.verify("header.payload.signature").role == "operator"

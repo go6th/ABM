@@ -9,18 +9,13 @@ export const dynamic = "force-dynamic";
 export default async function ClientLayout({ children }: { children: React.ReactNode }) {
   const me = await serverGet<Me>("/v1/me");
   if (!me) redirect("/login");
-  let threads: ChatThreads | null = null;
-  try {
-    threads = await serverGet<ChatThreads>("/v1/chat/threads");
-  } catch {
-    threads = null;
-  }
-  let notifications: Notifications | null = null;
-  try {
-    notifications = await serverGet<Notifications>("/v1/notifications");
-  } catch {
-    notifications = null;
-  }
+  // both optional, independent of each other: read together, and a failure of either is shown as none
+  const [threadsRead, notificationsRead] = await Promise.allSettled([
+    serverGet<ChatThreads>("/v1/chat/threads"),
+    serverGet<Notifications>("/v1/notifications"),
+  ]);
+  const threads = threadsRead.status === "fulfilled" ? threadsRead.value : null;
+  const notifications = notificationsRead.status === "fulfilled" ? notificationsRead.value : null;
   const notes = shellNotes(notifications);
   const recent = (threads?.threads ?? [])
     .slice()

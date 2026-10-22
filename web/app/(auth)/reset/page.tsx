@@ -3,6 +3,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthFrame } from "@/ui/AuthFrame";
+import { ApiError, apiPublic } from "@/lib/api";
+import type { PasswordResetCompleted } from "@/lib/gen/api.gen";
 
 export default function ResetPasswordPage() {
   const [token, setToken] = useState("");
@@ -32,25 +34,19 @@ export default function ResetPasswordPage() {
     }
     setPending(true);
     try {
-      const response = await fetch("/v1/auth/password/reset", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ token, password }),
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        setError(response.status === 422
-          ? "Choose a password of at least 12 characters that does not contain your email or name."
-          : "This reset link is invalid or expired. Request a new one.");
-        return;
-      }
+      await apiPublic<PasswordResetCompleted>("POST", "/v1/auth/password/reset", { token, password });
       setComplete(true);
       setToken("");
       setPassword("");
       setConfirm("");
-    } catch {
-      setError("Password reset is temporarily unavailable. Try again.");
+    } catch (e) {
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+        setError(e.status === 422
+          ? "Choose a password of at least 12 characters that does not contain your email or name."
+          : "This reset link is invalid or expired. Request a new one.");
+      } else {
+        setError("Password reset is temporarily unavailable. Try again.");
+      }
     } finally {
       setPending(false);
     }

@@ -17,7 +17,7 @@ MIGRATION_ENV = MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
 .PHONY: help install up replica-up replica-down down reset emulators db-shell migrate migration run fmt lint types test check \
 	test-isolation static infra-fmt infra-validate image build smoke deploy-staging obs-verify \
 	seed e2e contract wiring scan verify doctor up-deps env-check load-smoke backup-restore fuzz \
-	infra-test logs clean verify-wiring smoke-live
+	infra-test logs clean verify-wiring smoke-live release-check load-staging
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -137,6 +137,26 @@ smoke: image ## Run the image against the local database: non-root, /readyz 200,
 deploy-staging: ## PRINT (never run) the commands that deploy staging; needs the owner's project
 	@bash scripts/deploy_staging.sh
 
+# The gates the release workflow applies (ci.yml images job and _deploy.yml smoke), runnable by
+# hand so the emergency Cloud Build path (DEPLOYMENT.md section 2.2) ships nothing unchecked.
+# Images: the local tags `make image` builds, or RELEASE_*_IMAGE=... for pushed digests. The smoke
+# step needs the deployed environment's names in the environment (APP_URL, GCP_PROJECT_ID,
+# GCP_REGION, CLOUD_RUN_{API,WORKER,WEB}_SERVICE, {API,WORKER,WEB}_DIGEST_REF) and runs only when
+# APP_URL is set.
+TRIVY_IMAGE ?= aquasec/trivy:0.75.0
+RELEASE_API_IMAGE ?= account-intelligence-api:local
+RELEASE_WORKER_IMAGE ?= account-intelligence-worker:local
+RELEASE_WEB_IMAGE ?= account-intelligence-web:local
+release-check: ## Image inspection, Trivy (fixable HIGH/CRITICAL) and the deployed smoke test; the emergency release gate
+	bash docker/ci/image_checks.sh api "$(RELEASE_API_IMAGE)"
+	bash docker/ci/image_checks.sh worker "$(RELEASE_WORKER_IMAGE)"
+	bash docker/ci/image_checks.sh web "$(RELEASE_WEB_IMAGE)"
+	for image in "$(RELEASE_API_IMAGE)" "$(RELEASE_WORKER_IMAGE)" "$(RELEASE_WEB_IMAGE)"; do \
+	  docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro $(TRIVY_IMAGE) \
+	    image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$$image" || exit 1; done
+	@if [ -n "$$APP_URL" ]; then bash docker/ci/smoke_deployed.sh; \
+	else echo "APP_URL unset: skipping docker/ci/smoke_deployed.sh (set the deployed environment's names to run it)"; fi
+
 
 build: ## Build every image (the web image runs the Next.js production build)
 	$(MAKE) image
@@ -176,6 +196,11 @@ env-check: ## Validate the current environment against the typed registry (names
 load-smoke: ## k6 load smoke (Docker) against the running local stack; seeds the synthetic member first
 	$(MAKE) doctor >/dev/null || true
 	docker run --rm -i --add-host=host.docker.internal:host-gateway -v "$(CURDIR)/ops/load:/scripts:ro" grafana/k6:0.54.0 run /scripts/smoke.js
+
+load-staging: ## k6 reader profile (ops/load/k6_profile.js) against BASE_URL with a synthetic SESSION_COOKIE; never run unasked
+	@test -n "$$BASE_URL" || { echo "BASE_URL is required (the staging origin)"; exit 2; }
+	@test -n "$$SESSION_COOKIE" || { echo "SESSION_COOKIE is required (a synthetic viewer's session, never a real user's)"; exit 2; }
+	docker run --rm -i -e BASE_URL -e SESSION_COOKIE -v "$(CURDIR)/ops/load:/scripts:ro" grafana/k6:0.54.0 run /scripts/k6_profile.js
 
 backup-restore: ## Backup/restore test: pg_dump -> pg_restore equivalence and isolation
 	$(TEST_ENV) $(UV) run --frozen pytest tests/ops/test_backup_restore.py -q

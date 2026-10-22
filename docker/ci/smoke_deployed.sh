@@ -11,11 +11,12 @@
 # design, so the run happens in CI against the same images before they are deployed
 # (docker/ci/hermetic_stack.sh).
 # Environment (names only): APP_URL, GCP_PROJECT_ID, GCP_REGION, CLOUD_RUN_API_SERVICE,
-#   CLOUD_RUN_WEB_SERVICE, API_DIGEST_REF, WORKER_DIGEST_REF, WEB_DIGEST_REF
+#   CLOUD_RUN_WORKER_SERVICE, CLOUD_RUN_WEB_SERVICE, API_DIGEST_REF, WORKER_DIGEST_REF, WEB_DIGEST_REF
 set -Eeuo pipefail
 
 : "${APP_URL:?}" "${GCP_PROJECT_ID:?}" "${GCP_REGION:?}" "${CLOUD_RUN_API_SERVICE:?}"
-: "${CLOUD_RUN_WEB_SERVICE:?}" "${API_DIGEST_REF:?}" "${WORKER_DIGEST_REF:?}" "${WEB_DIGEST_REF:?}"
+: "${CLOUD_RUN_WORKER_SERVICE:?}" "${CLOUD_RUN_WEB_SERVICE:?}"
+: "${API_DIGEST_REF:?}" "${WORKER_DIGEST_REF:?}" "${WEB_DIGEST_REF:?}"
 app="${APP_URL%/}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fail=0
@@ -45,6 +46,11 @@ if [[ "$(deployed_image "$CLOUD_RUN_API_SERVICE")" == "$API_DIGEST_REF" ]]; then
   ok "api service runs ${API_DIGEST_REF##*@}"
 else
   bad "api service does not run the pushed digest"
+fi
+if [[ "$(deployed_image "$CLOUD_RUN_WORKER_SERVICE")" == "$WORKER_DIGEST_REF" ]]; then
+  ok "worker service runs ${WORKER_DIGEST_REF##*@}"
+else
+  bad "worker service does not run the pushed digest"
 fi
 if [[ "$(deployed_image "$CLOUD_RUN_WEB_SERVICE")" == "$WEB_DIGEST_REF" ]]; then
   ok "web service runs ${WEB_DIGEST_REF##*@}"

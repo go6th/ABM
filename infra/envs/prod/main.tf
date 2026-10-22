@@ -84,6 +84,10 @@ variable "archive_lock" {
   type    = bool
   default = false
 }
+variable "secret_versions" {
+  type    = map(string)
+  default = {}
+}
 variable "workload_alerts_enabled" {
   type    = bool
   default = false
@@ -141,6 +145,7 @@ module "stack" {
   mail                    = var.mail
   archive_lock            = var.archive_lock
   workload_alerts_enabled = var.workload_alerts_enabled
+  secret_versions         = var.secret_versions
   monthly_budget_usd      = var.monthly_budget_usd
   alert_channels          = var.alert_channels
   raw_retention_days      = var.raw_retention_days

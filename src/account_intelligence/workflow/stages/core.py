@@ -288,6 +288,8 @@ async def deliver(deps: RunDeps, state: RunState) -> dict[str, Any]:
         "spend": "reported internally; categories and call counts in the tenant spend view",
         "deliverables": refs.get("build", "unknown"),
         "quality_gate": refs.get("gate", "unknown"),
+        # client file kinds the gate held back (the rest were delivered)
+        "withheld_files": list(refs.get("withheld") or []),
     }
     body = json.dumps(note, sort_keys=True, default=str)
     assert_client_safe([body], others)
@@ -297,6 +299,8 @@ async def deliver(deps: RunDeps, state: RunState) -> dict[str, Any]:
         reason = str(refs["build"])
     elif str(refs.get("gate", "")).startswith("failed"):
         reason = str(refs["gate"])
+    elif str(refs.get("gate", "")).startswith("withheld"):
+        reason = "files_withheld"
     elif refs.get("gate") != "passed":
         # built files that no quality gate checked are never a COMPLETED delivery
         reason = "gate_not_run"

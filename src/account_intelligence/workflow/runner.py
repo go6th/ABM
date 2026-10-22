@@ -78,6 +78,9 @@ PHASE = {
     "build": (RunStatus.DISTILLING, RunStatus.VERIFYING),
 }
 
+# the runs this process is running a slice of right now (``execute_slice``)
+_IN_FLIGHT: set[UUID] = set()
+
 
 @dataclass(frozen=True)
 class SliceOutcome:
@@ -92,6 +95,8 @@ class SliceOutcome:
 class SliceSettings:
     """Slice loop limits (skill: 240 s slices, at most 60) and the approval timeout."""
 
+    # the dataclass defaults are the skill's; the container loads config/workflow_v1.yaml
+    # (slice_seconds 1650, max_slices 8 on 2026-10-22) and passes a SliceSettings of its own
     slice_seconds: float = 240.0
     max_slices: int = 60
     approval_hours: float = 24.0
@@ -147,7 +152,7 @@ def _emit_root(deps: RunDeps, created: Any, status: str) -> None:
     record("run_transitions_total", 1, {"state": status})
 
 
-async def _begin(deps: RunDeps, settings: SliceSettings) -> SliceOutcome | None:
+async def _begin(deps: RunDeps, settings: SliceSettings, slice_no: int) -> SliceOutcome | None:
     """Step 1. Returns an outcome when the slice should not run the graph."""
     async with deps.txn(deps.tenant_id) as s:
         status = await lifecycle.current_status(s, deps.run_id)
@@ -155,9 +160,14 @@ async def _begin(deps: RunDeps, settings: SliceSettings) -> SliceOutcome | None:
             return SliceOutcome("noop", status.value)
         if status is RunStatus.AWAITING_APPROVAL:
             return SliceOutcome("awaiting", status.value)
-        # LOOP(slice loop): cap=max_slices (60) slices of slice_seconds (240); exit=done, awaiting,
-        # canceled, slice ceiling (FAILED, full refund)
-        used = await lifecycle.begin_slice(s, deps.run_id)
+        # LOOP(slice loop): cap=max_slices slices of slice_seconds (config/workflow_v1.yaml);
+        # exit=done, awaiting, canceled, slice ceiling (FAILED, full refund)
+        used = await lifecycle.begin_slice(s, deps.run_id, expected=slice_no)
+        if used is None:
+            # a stale copy of a slice that already began (Cloud Tasks redelivered it after the
+            # first copy finished and enqueued the next): it must not run a graph chunk under the
+            # old name nor count a slice (review 2026-10-22)
+            return SliceOutcome("noop", status.value)
         if status is RunStatus.QUEUED:
             await lifecycle.move(s, deps.run_id, RunStatus.QUEUED, RunStatus.RUNNING)
     if used > settings.max_slices:
@@ -192,34 +202,46 @@ async def execute_slice(
     """Run one slice of one run (see the module docstring). ``graph_factory`` runs another graph
     (the ABM agent layer) under the same slice lifecycle."""
     settings = settings or SliceSettings()
-    deps = await deps_factory(tenant_id, run_id)
-    owner: str | None = None
-    if deps.connectors is not None:
-        # One worker per run (D-18): the run lease is the mutex for the whole slice, not only for
-        # paid calls. A second delivery of a slice (redelivery, overlap) yields; the worker
-        # endpoint answers 503 so Cloud Tasks redelivers it later.
-        try:
-            await deps.connectors.ledger.acquire_lease(
-                deps.call_context(), deps.connectors.worker_id
-            )
-        except LeaseUnavailable:
-            return SliceOutcome("busy", (await _status(deps)).value)
-        owner = deps.connectors.worker_id
+    # One worker per run (D-18). The run lease is the mutex across workers; it is held by the
+    # process, so a redelivery that lands on the SAME process renews it and would run the slice
+    # twice at once (staging 2026-10-21: Cloud Tasks gave up on a 9 minute attempt, redelivered
+    # it to the same instance, and both copies raced to end the run). This set is the mutex
+    # within the process.
+    if run_id in _IN_FLIGHT:
+        deps = await deps_factory(tenant_id, run_id)
+        return SliceOutcome("busy", (await _status(deps)).value)
+    _IN_FLIGHT.add(run_id)
     try:
-        outcome = await _slice(
-            deps,
-            checkpointer,
-            scheduler,
-            tenant_id,
-            run_id,
-            slice_no,
-            settings,
-            retry_policy,
-            graph_factory,
-        )
+        deps = await deps_factory(tenant_id, run_id)
+        owner: str | None = None
+        if deps.connectors is not None:
+            # the run lease is the mutex for the whole slice, not only for paid calls. A second
+            # delivery of a slice (redelivery, overlap) yields; the worker endpoint answers 503
+            # so Cloud Tasks redelivers it later.
+            try:
+                await deps.connectors.ledger.acquire_lease(
+                    deps.call_context(), deps.connectors.worker_id
+                )
+            except LeaseUnavailable:
+                return SliceOutcome("busy", (await _status(deps)).value)
+            owner = deps.connectors.worker_id
+        try:
+            outcome = await _slice(
+                deps,
+                checkpointer,
+                scheduler,
+                tenant_id,
+                run_id,
+                slice_no,
+                settings,
+                retry_policy,
+                graph_factory,
+            )
+        finally:
+            if owner is not None and deps.connectors is not None:
+                await deps.connectors.ledger.release_lease(deps.call_context(), owner)
     finally:
-        if owner is not None and deps.connectors is not None:
-            await deps.connectors.ledger.release_lease(deps.call_context(), owner)
+        _IN_FLIGHT.discard(run_id)
     if outcome.outcome == "continue":
         # only after the release: the next slice takes a fresh lease epoch, so a call this slice's
         # timeout cut off reads as abandoned, never as still in flight
@@ -271,7 +293,7 @@ async def _slice(
     graph_factory: GraphFactory | None = None,
 ) -> SliceOutcome:
     """The slice body, run while holding the run lease."""
-    early = await _begin(deps, settings)
+    early = await _begin(deps, settings, slice_no)
     if early is not None:
         return early
 

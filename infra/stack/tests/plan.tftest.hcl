@@ -63,8 +63,8 @@ run "staging_plan" {
     error_message = "deterministic worker URL (WORKER_URL and the scheduler ticks use it)"
   }
   assert {
-    condition     = toset(keys(output.jobs)) == toset(["migrate", "spend-invariants"])
-    error_message = "research runs are worker requests, not jobs: only migrate and the nightly pass"
+    condition     = toset(keys(output.jobs)) == toset(["migrate", "spend-invariants", "reingest-tables"])
+    error_message = "research runs are worker requests, not jobs: migrate, the nightly pass and the hand-run reingest pass"
   }
   assert {
     condition     = toset(keys(output.services)) == toset(["api", "web", "worker"])

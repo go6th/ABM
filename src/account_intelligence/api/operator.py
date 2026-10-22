@@ -63,6 +63,7 @@ class JwtStaffVerifier:
         operator_emails: frozenset[str] = frozenset(),
         support_emails: frozenset[str] = frozenset(),
         external_emails: frozenset[str] = frozenset(),
+        idp_asserts_role: bool = False,
     ) -> None:
         from jwt import PyJWKClient
 
@@ -73,6 +74,7 @@ class JwtStaffVerifier:
         # personal Google accounts (no Workspace) named one by one by the owner (decision
         # 2026-10-15); they still need a verified email and a role from the lists above
         self.external_emails = frozenset(email.lower().strip() for email in external_emails)
+        self.idp_asserts_role = idp_asserts_role
         self.jwks = PyJWKClient(jwks_url, cache_keys=True)
 
     def verify(self, token: str) -> StaffIdentity:
@@ -94,8 +96,15 @@ class JwtStaffVerifier:
             )
         except jwt.PyJWTError:
             raise PermissionError("invalid staff token") from None
-        role = cast(Literal["operator", "support"], claims.get("staff_role"))
-        # Google Workspace ID tokens do not carry a product-specific staff_role by default.
+        # The role comes from the server-side allowlists. An IdP-asserted ``staff_role`` claim
+        # counts only when the deployment opts in (STAFF_IDP_ASSERTS_ROLE): otherwise any account
+        # an IdP mints the claim for would reach the operator console past the allowlist
+        # (security review 2026-10-22). Google Workspace never issues the claim.
+        role = (
+            cast(Literal["operator", "support"], claims.get("staff_role"))
+            if self.idp_asserts_role
+            else None
+        )
         # Map only verified, workspace-domain identities from explicit server-side allowlists.
         hosted_domain = claims.get("hd")
         hosted_domain = hosted_domain.lower() if isinstance(hosted_domain, str) else ""
@@ -193,6 +202,8 @@ def staff_verifier_from_env() -> Any:
         operator_emails=email_set("STAFF_OPERATOR_EMAILS"),
         support_emails=email_set("STAFF_SUPPORT_EMAILS"),
         external_emails=email_set("STAFF_EXTERNAL_EMAILS"),
+        idp_asserts_role=os.environ.get("STAFF_IDP_ASSERTS_ROLE", "").strip().lower()
+        in ("1", "true", "yes"),
     )
 
 

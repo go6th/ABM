@@ -83,6 +83,7 @@ dev = [
 gpu = [
     { name = "fastembed-gpu" },
     { name = "onnxruntime-gpu", extra = ["cuda", "cudnn"], marker = "extra == 'group-20-account-intelligence-gpu'" },
+    { name = "pandas" },
 ]
 
 [package.metadata]
@@ -148,6 +149,7 @@ dev = [
 gpu = [
     { name = "fastembed-gpu", specifier = "==0.8.0" },
     { name = "onnxruntime-gpu", extras = ["cuda", "cudnn"], specifier = "==1.31.0" },
+    { name = "pandas", specifier = "==3.0.6" },
 ]
 
 [[package]]

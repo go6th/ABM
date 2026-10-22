@@ -334,8 +334,11 @@ class GatePort(Protocol):
 class DeliveryPort(Protocol):
     """Release (step 8, code only). Never sends outreach."""
 
-    async def release(self, ctx: RunContext, file_ids: Sequence[str]) -> None:
-        """Publish the files to the tenant's workspace."""
+    async def release(
+        self, ctx: RunContext, file_ids: Sequence[str], withheld: Sequence[str] = ()
+    ) -> None:
+        """Publish the files to the tenant's workspace; ``withheld`` names the client file kinds
+        the gate held back, which the delivery records (they are not published)."""
         ...
 
 

@@ -11,7 +11,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -24,6 +24,7 @@ permissions:
 jobs:
   lint-ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -40,6 +41,7 @@ jobs:
 
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
     services:
@@ -70,11 +72,16 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - run: uv sync --frozen
-      - name: Cloud Storage and Cloud Tasks emulators (port contract tests)
+      - name: LibreOffice and poppler (the export checks render and read back documents)
         run: |
-          docker run -d -p 4443:4443 fsouza/fake-gcs-server:latest \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer poppler-utils
+      - name: Cloud Storage and Cloud Tasks emulators (port contract tests; same pins as compose.yml)
+        run: |
+          docker run -d -p 4443:4443 fsouza/fake-gcs-server:1.56.1 \
             -scheme http -port 4443 -public-host localhost:4443
-          docker run -d -p 8123:8123 ghcr.io/aertje/cloud-tasks-emulator:latest \
+          docker run -d -p 8123:8123 \
+            ghcr.io/aertje/cloud-tasks-emulator:2.0.1 \
             -host 0.0.0.0 -port 8123 -initial-queue projects/dev/locations/here/queues/runs
       - name: Environment registry (typed, fail fast)
         run: uv run --frozen python -m account_intelligence.config
@@ -91,7 +98,7 @@ jobs:
           uv run --frozen python scripts/check_telemetry.py
           uv run --frozen python scripts/gen_observability.py --check
           uv run --frozen python scripts/check_runbooks.py
-      - name: Migrations (lint, upgrade on a scratch database, models agree), RLS catalog, isolation matrix
+      - name: Migrations (lint, upgrade, one step down and up again, models agree), RLS catalog, isolation matrix
         env:
           MIGRATOR_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai_catalog
           CHECKPOINT_DATABASE_URL: postgresql://postgres:dev@localhost:5432/ai_catalog
@@ -101,6 +108,10 @@ jobs:
           uv run --frozen python "$skill/scripts/validate_assets.py"
           uv run --frozen python "$skill/scripts/lint_migrations.py" migrations
           psql postgresql://postgres:dev@localhost:5432/postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ai_catalog"
+          uv run --frozen alembic upgrade head
+          # the newest migration's down script must work on the schema it produced (every
+          # migrations/NNNN_*.down.sql is run by its revision's downgrade())
+          uv run --frozen alembic downgrade -1
           uv run --frozen alembic upgrade head
           uv run --frozen alembic check
           violations="$(psql "$ADMIN_DSN" -v ON_ERROR_STOP=1 -tA -f "$skill/scripts/check_rls_catalog.sql")"
@@ -119,6 +130,7 @@ jobs:
 
   infra:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -130,6 +142,7 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -157,6 +170,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     needs: [web]
@@ -202,6 +216,7 @@ jobs:
 
   dependency-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -220,6 +235,7 @@ jobs:
 
   secret-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -233,6 +249,7 @@ jobs:
 
   images:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
     strategy:
@@ -281,6 +298,7 @@ jobs:
     # research run happens, before anything is deployed.
     needs: [images]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
