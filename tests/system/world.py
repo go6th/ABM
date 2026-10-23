@@ -517,7 +517,17 @@ async def drive(
         )
 
     scheduler.runner = run_slice
-    await scheduler.enqueue_slice(tenant_id, run_id, 0)
+    # resume where the run stands, as the production entry points do (runs.py, tasks.py): a
+    # slice that already began is counted, so a restart at 0 is a stale redelivery (a no-op)
+    async with tenant_txn(tenant_id) as s:
+        from sqlalchemy import text
+
+        used = (
+            await s.execute(
+                text("SELECT slices_used FROM account_runs WHERE id = :r"), {"r": run_id}
+            )
+        ).scalar_one()
+    await scheduler.enqueue_slice(tenant_id, run_id, int(used))
     await scheduler.drain()
     return scheduler
 

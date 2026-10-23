@@ -13,7 +13,8 @@ blanked; the client-output denylist; the third-party scan) and records the build
 manifest. The gate verifies that record by integrity (the stored SHA-256 equals the bytes it
 reads, ``_builder_verified``) and does not re-run those rules on such a file: a second scan
 without the builder's exemptions failed what the builder allowed (staging 2026-10-21: a key
-person's title with an en dash). A file with no builder record is scanned whole.
+person's title with an en dash). A file whose bytes no longer match its stored hash is scanned
+whole.
 
 1. ``tracker_rows``: every one of the run's tracker rows has a status, and every row that is not
    Done or None has a reason code.
@@ -110,14 +111,16 @@ def withheld_files(defects: Iterable[Mapping[str, Any]]) -> dict[str, list[str]]
 
 
 def _builder_verified(row: Any, data: bytes) -> bool:
-    """Whether ``data`` is a file the export builder made (its manifest carries the snapshot it
-    was built from) or a copy of a published library account, unchanged since: the stored
-    SHA-256 of the deliverable equals the bytes read back. Such a file passed the builder's own
-    format rules (see the module docstring); any other file is scanned whole."""
-    manifest = row.manifest_json
-    if not isinstance(manifest, dict):
-        return False
-    if not ("snapshot_hash" in manifest or manifest.get("source") == "library"):
+    """Whether ``data`` is a file the export builder made, or a copy of a published library
+    account, and is unchanged since: the deliverable carries the snapshot it was built from
+    (its ``snapshot_hash`` column, which every builder row has; the per-file ``manifest_json``
+    of a Word or Excel file holds only its row count and content hash, so it is not the
+    record), or its manifest says ``library``; and the stored SHA-256 equals the bytes read
+    back. Such a file passed the builder's own format rules (see the module docstring); any
+    other file is scanned whole."""
+    manifest = row.manifest_json if isinstance(row.manifest_json, dict) else {}
+    built = bool(str(row.snapshot_hash or "")) or manifest.get("source") == "library"
+    if not built:
         return False
     return hashlib.sha256(data).hexdigest() == str(row.sha256 or "")
 
@@ -234,7 +237,8 @@ class PreDeliveryGate:
             files = (
                 await s.execute(
                     text(
-                        "SELECT id, kind, object_key, manifest_json, sha256 FROM deliverables"
+                        "SELECT id, kind, object_key, manifest_json, sha256, snapshot_hash"
+                        " FROM deliverables"
                         " WHERE run_id = :r ORDER BY kind"
                     ),
                     {"r": run},

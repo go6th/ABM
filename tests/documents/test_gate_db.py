@@ -252,6 +252,9 @@ async def test_gate_blocks_a_run_with_a_defect_and_passes_a_clean_one(tenant_a: 
         " and 40 credits.\n\n" + fixtures.CANARY + "."
     )
     await _deliver(store, tenant_a, other, bad, docx(text), 1)
+    # a file whose bytes changed after the builder stored it is not the builder's file: the gate
+    # scans it whole (the builder vouches for the bytes it stored, see documents.gate)
+    admin("UPDATE deliverables SET sha256 = repeat('b', 64) WHERE run_id = %s", bad)
     failing = await _gate(store).check(str(tenant_a), str(bad))
     assert failing["tracker_rows"] == ["youtube:unset"]
     assert failing["deliverable_set"] == ["evidence", "jobs", "people", "tech"]
@@ -444,6 +447,9 @@ async def test_a_dash_in_a_workbook_cell_is_a_source_title_not_a_dash_error(
     await _deliver(
         store, tenant_a, other, written, docx(f"{CLEAN}\n\nA pilot \u2014 if approved."), 1
     )
+    # a file whose bytes changed after the builder stored it is not the builder's file: the gate
+    # scans it whole (the builder vouches for the bytes it stored, see documents.gate)
+    admin("UPDATE deliverables SET sha256 = repeat('b', 64) WHERE run_id = %s", written)
     failing = await _gate(store).check(str(tenant_a), str(written))
     assert failing["client_dashes"] == ["summary:1"]
 

@@ -18,7 +18,7 @@ unannotated (the generator's check fails otherwise).
 | audit verify tenants | `src/account_intelligence/api/routes/tasks.py:371` | every client once per pass | last client |
 | auto resume clients | `src/account_intelligence/replica/auto_resume.py:302` | every client once per pass, `limit` runs each | last one |
 | auto resume runs | `src/account_intelligence/replica/auto_resume.py:310` | `limit` runs per client per pass | rows exhausted |
-| batch 429 backoff | `src/account_intelligence/platform/llm.py:681` | RATE_LIMIT_ATTEMPTS requests (~25 minutes of doubling waits) | request accepted, any other error, attempts spent (the 429 is raised) |
+| batch 429 backoff | `src/account_intelligence/platform/llm.py:684` | RATE_LIMIT_ATTEMPTS requests (~25 minutes of doubling waits) | request accepted, any other error, attempts spent (the 429 is raised) |
 | batch poll | `src/account_intelligence/platform/llm.py:363` | max_wait_seconds from the first submission, then cancel and at most the same wait again for the cancel to land | ended, cancel deadline |
 | blob compose copy | `src/research_files/blobstore.py:143` | the part's size in COPY_BUFFER reads | end of part |
 | cache ratio window | `src/account_intelligence/platform/prompt_cache.py:222` | the calls of one window | oldest call inside it |

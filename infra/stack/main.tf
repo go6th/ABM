@@ -217,13 +217,14 @@ locals {
   size = {
     api = { cpu = "1", memory = "2Gi", concurrency = 40, timeout = "3600s" } # 2Gi: Ask loads the retrieval model in process (OOM at 1Gi, 2026-10-15); 3600s (Cloud Run's maximum): Ask has no output cap, so a full-table answer may write for many minutes (owner, 2026-10-20)
     web = { cpu = "1", memory = "512Mi", concurrency = 40, timeout = "3600s" }
-    # 6 vCPU: an instance holds 8 at most across its containers, a container gets 1, 2, 4, 6 or 8,
-    # and the clamd sidecar takes one (Cloud Run refused 8 + 1 and 7 + 1 on 2026-10-16). Document
-    # indexing embeds passages on the GPU when
+    # 4 vCPU, 12 GiB (resized from 6 vCPU, 16 GiB on 2026-10-22: observed CPU mostly 5 to 15 percent,
+    # memory near 2 GiB with one 7 GiB peak). An instance holds 8 at most across its containers, a
+    # container gets 1, 2, 4, 6 or 8, and the clamd sidecar takes one (Cloud Run refused 8 + 1 and
+    # 7 + 1 on 2026-10-16). Document indexing embeds passages on the GPU when
     # worker_gpu is set (Cloud Run asks for at least 4 vCPU and 16 GiB next to an L4) and on the
     # vCPUs otherwise (one thread each; about 10 passages a second on 4 threads). The worker
     # scales to zero, so the larger instance costs only while a run or an indexing part is active.
-    worker = { cpu = "6", memory = "16Gi", concurrency = 4, timeout = "3600s" }
+    worker = { cpu = "4", memory = "12Gi", concurrency = 4, timeout = "3600s" }
   }
   # database pool per process the arithmetic assumes (Agent 4 sets the code side; handoff)
   pool = { size = 5, overflow = 5 }

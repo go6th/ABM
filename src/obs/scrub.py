@@ -67,11 +67,53 @@ def message_hash(text: str) -> str:
     return hashlib.sha256(text.encode(errors="replace")).hexdigest()[:16]
 
 
+# the first path segments of this product's own packages (installed under site-packages)
+_OWN_PACKAGES = frozenset(
+    {
+        "account_intelligence", "agents", "documents", "exports", "llm", "obs", "identity",
+        "metering", "jobs", "people", "spend", "views", "signals", "governance", "parallel",
+        "tracker", "grading", "connectors", "verify", "replica", "workflow",
+    }
+)  # fmt: skip
+
+
+def _package_path(filename: str) -> str:
+    """The module path under the package root: the part after ``site-packages/`` (the image)
+    or after ``src/`` (a checkout), with the separators made ``/``."""
+    name = filename.replace("\\", "/")
+    for marker in ("site-packages/", "/src/"):
+        if marker in name:
+            return name.rsplit(marker, 1)[-1]
+    return name.rsplit("/", 1)[-1]
+
+
+def error_where(exc: BaseException) -> str | None:
+    """The innermost frame of this product's own code that raised: ``package/module.py:line:
+    function``. A code location, never the message, so an error whose text must not be logged
+    still says where it came from (2026-10-22: a RuntimeError with only a hash could not be
+    traced)."""
+    import traceback
+
+    own = [
+        f
+        for f in traceback.extract_tb(exc.__traceback__)
+        if _package_path(f.filename).split("/", 1)[0] in _OWN_PACKAGES
+    ]
+    if not own:
+        return None
+    frame = own[-1]
+    return f"{_package_path(frame.filename)}:{frame.lineno}:{frame.name}"[:200]
+
+
 def scrub_exception(exc: BaseException) -> dict[str, str]:
-    """Class, typed code and message hash only (O3)."""
+    """Class, typed code, message hash and the own-code location only (O3)."""
     code = getattr(exc, "code", None) or getattr(exc, "cap_reason", None) or type(exc).__name__
-    return {
+    out = {
         "error_class": type(exc).__name__,
         "error_code": str(code)[:64] if value_ok(str(code), 64) else type(exc).__name__,
         "message_hash": message_hash(str(exc)),
     }
+    where = error_where(exc)
+    if where:
+        out["where"] = where
+    return out

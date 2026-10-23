@@ -75,19 +75,19 @@ class ExportBody(BaseModel):
 
 async def _deliverables(
     request: Request, tenant_id: UUID, run_id: UUID
-) -> tuple[list[Any], tuple[str, ...]]:
+) -> tuple[list[Any], tuple[str, ...], Any]:
     builder = getattr(request.app.state.container, "builder", None)
     if builder is None:
         raise NotConfigured("the export builders are not configured")
     result = await builder.build_all(str(tenant_id), str(run_id))
     if result.status != "complete":
-        return [], ()
+        return [], (), None
     payloads = request.app.state.container.payloads
     deliverables = [
         (d.kind, d.filename, d.object_key, await payloads.get(d.object_key))
         for d in result.deliverables
     ]
-    return deliverables, result.verbatim_quotes
+    return deliverables, result.verbatim_quotes, result.manifest
 
 
 @router.post("", response_model=C.ExportPackage, status_code=201)
@@ -129,7 +129,9 @@ async def create_export(
         assert body.table is not None
         pkg, csv_body = packages.csv_package(ident.tenant_id, run_id, body.table, api[body.table])
     else:
-        produced, verbatim_quotes = await _deliverables(request, ident.tenant_id, run_id)
+        produced, verbatim_quotes, build_manifest = await _deliverables(
+            request, ident.tenant_id, run_id
+        )
         if not produced:
             pkg = packages.blocked(body.kind, "build_failed")
         elif body.kind == "files":
@@ -141,14 +143,11 @@ async def create_export(
             pdf = converter.pdf_bytes(summary) if converter and summary else None
             text_ = converter.text_of_pdf(pdf) if converter and pdf else None
             if pdf is not None and text_ is not None:
-                manifest = None
-                for d in produced:
-                    if d[0] == "summary" and hasattr(builder, "manifest"):
-                        manifest = builder.manifest
-                        break
+                # the sources the build cited (its manifest), so the summary's citations are
+                # checked against them, not reported as orphans
                 account_ids = []
-                if manifest and hasattr(manifest, "source_codes_cited"):
-                    account_ids = list(manifest.source_codes_cited)
+                if build_manifest is not None:
+                    account_ids = list(build_manifest.source_codes_cited)
                 for table in ("facts", "coverage"):
                     for row in api.get(table, []):
                         ref = row.get("ref")

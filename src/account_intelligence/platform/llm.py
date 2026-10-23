@@ -635,28 +635,31 @@ BATCH_REQUESTS_PER_MINUTE = 50.0
 
 class RequestPacer:
     """Spaces requests process-wide to at most ``per_minute``; ``wait`` returns when the caller
-    may send. The lock serialises waiters so a burst is spread, never dropped."""
+    may send. Each caller reserves its own send slot under a thread lock and sleeps until it,
+    so a burst is spread and never dropped. Holds no event-loop primitive: an ``asyncio.Lock``
+    shared across research runs raised "is bound to a different event loop" on the staging
+    worker (2026-10-22, the run's RuntimeError) the moment a second loop used it."""
 
     def __init__(self, per_minute: float) -> None:
-        import asyncio
+        import threading
 
         self.interval = 60.0 / per_minute if per_minute > 0 else 0.0
         self._next = 0.0
-        self._lock = asyncio.Lock()
+        self._guard = threading.Lock()
 
     async def wait(self) -> None:
         """Block until the next request slot."""
         import asyncio
+        import time
 
         if self.interval <= 0:
             return
-        async with self._lock:
-            loop = asyncio.get_running_loop()
-            now = loop.time()
-            if now < self._next:
-                await asyncio.sleep(self._next - now)
-                now = loop.time()
-            self._next = max(now, self._next) + self.interval
+        with self._guard:
+            now = time.monotonic()
+            slot = max(now, self._next)
+            self._next = slot + self.interval
+        if slot > now:
+            await asyncio.sleep(slot - now)
 
 
 BATCH_PACER = RequestPacer(BATCH_REQUESTS_PER_MINUTE)
