@@ -27,7 +27,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 
 from account_intelligence.api import contract as C
@@ -97,6 +97,18 @@ class ResearchBody(BaseModel):
     # the effort beside each model for this run (medium or high; owner decision 2026-10-20)
     research_effort: str | None = Field(default=None, min_length=1, max_length=16)
     analysis_effort: str | None = Field(default=None, min_length=1, max_length=16)
+    # what the research is for, in the user's words (owner decision 2026-10-23): adds a few
+    # searches on top of the plan and steers the summary; never replaces the plan
+    goal: str | None = Field(default=None, max_length=500)
+
+    @field_validator("goal")
+    @classmethod
+    def _goal_words(cls, value: str | None) -> str | None:
+        """Collapse whitespace; empty is no goal; otherwise 3 to 500 characters."""
+        text_ = " ".join((value or "").split())
+        if text_ and not 3 <= len(text_) <= 500:
+            raise ValueError("describe the research goal in 3 to 500 characters")
+        return text_ or None
 
 
 @router.post("", response_model=C.ResearchStarted, status_code=201)
@@ -165,6 +177,7 @@ async def start_research(
                 request_id=body.request_id,
                 models=models.as_json(),
                 enforce_pool=False,
+                goal=body.goal,
             )
         except CR.JobOpen:
             raise APIProblem(

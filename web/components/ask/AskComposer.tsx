@@ -51,13 +51,15 @@ function AddFilesMenu() {
 }
 
 export function AskComposer({
-  variant, draft, onDraft, onSend, busy, accounts, scope, onScope, placeholder, menuDown = false, webHintOpen, onWebHint,
+  variant, draft, onDraft, onSend, onStop, busy, accounts, scope, onScope, placeholder, menuDown = false, webHintOpen, onWebHint,
   models = null, model = null, onModel, effort = null, onEffort, meter = null,
 }: {
   variant: "hero" | "follow" | "account";
   draft: string;
   onDraft: (value: string) => void;
   onSend: () => void;
+  /** ends the answer that is streaming; with it, Ask turns into Stop while busy */
+  onStop?: () => void;
   busy: boolean;
   accounts: ScopeAccount[];
   scope: ScopeAccount | null;
@@ -192,14 +194,18 @@ export function AskComposer({
         ) : null}
         <span className="spacer" />
         {meter}
-        <button
-          type="button"
-          className="btn primary"
-          disabled={busy}
-          onClick={send}
-        >
-          {searchOn ? "Search" : "Ask"}
-        </button>
+        {busy && onStop ? (
+          <button type="button" className="btn" onClick={onStop}>Stop</button>
+        ) : (
+          <button
+            type="button"
+            className="btn primary"
+            disabled={busy || !draft.trim()}
+            onClick={send}
+          >
+            {searchOn ? "Search" : "Ask"}
+          </button>
+        )}
       </div>
       {searchOn || webHintOpen ? (
         <p className="hint" id={`${inputId}-web`} role="status">

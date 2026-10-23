@@ -747,6 +747,7 @@ export const ConsoleClientDetail = z.object({
   "models": z.array(ConsoleModel),
   "pending_invites": z.array(z.string()),
   "settings": ConsoleClientSettings,
+  "suspended": z.boolean().optional(),
   "user_idle_days": z.array(z.number().int()),
 }).strict();
 export type ConsoleClientDetail = z.infer<typeof ConsoleClientDetail>;
@@ -846,12 +847,42 @@ export const ConsoleRun = z.object({
   "client": z.string(),
   "credits": z.number().int(),
   "job_id": z.string(),
+  "run_id": z.string().nullable().optional(),
   "started_at": z.string(),
   "status": z.string(),
   "tenant_id": z.string(),
   "type": z.string(),
 }).strict();
 export type ConsoleRun = z.infer<typeof ConsoleRun>;
+
+export const StepTokens = z.object({
+  "id": z.string(),
+  "name": z.string(),
+  "tokens": z.number().int(),
+}).strict();
+export type StepTokens = z.infer<typeof StepTokens>;
+
+export const TokenUse = z.object({
+  "cost_usd": z.number().optional(),
+  "expected_runs": z.number().int().optional(),
+  "expected_tokens": z.number().int().nullable().optional(),
+  "finished_at": z.string().nullable().optional(),
+  "reused": z.number().int().optional(),
+  "started_at": z.string().nullable().optional(),
+  "steps": z.array(StepTokens).optional(),
+  "total": z.number().int(),
+}).strict();
+export type TokenUse = z.infer<typeof TokenUse>;
+
+export const ConsoleRunDetail = z.object({
+  "client": z.string(),
+  "finished_reason": z.string().nullable(),
+  "run_id": z.string(),
+  "status": z.string(),
+  "tenant_id": z.string(),
+  "token_use": TokenUse,
+}).strict();
+export type ConsoleRunDetail = z.infer<typeof ConsoleRunDetail>;
 
 export const ConsoleRuns = z.object({
   "by_purpose": z.array(ConsolePurpose),
@@ -1368,6 +1399,7 @@ export type Flags = z.infer<typeof Flags>;
 export const FromDrive = z.object({
   "account_id": z.string().nullable().optional(),
   "file_id": z.string(),
+  "source": z.string().optional(),
 }).strict();
 export type FromDrive = z.infer<typeof FromDrive>;
 
@@ -1498,6 +1530,12 @@ export const InternalView = z.object({
   "source_label": z.string(),
 }).strict();
 export type InternalView = z.infer<typeof InternalView>;
+
+export const InviteBody = z.object({
+  "email": z.string(),
+  "role": z.string(),
+}).strict();
+export type InviteBody = z.infer<typeof InviteBody>;
 
 export const KeyAdded = z.object({
   "provider_code": z.string(),
@@ -1659,8 +1697,14 @@ export type MailDriveOption = z.infer<typeof MailDriveOption>;
 
 export const MailDriveFamily = z.object({
   "accounts": z.number().int(),
+  "broken_reason": z.string().nullable().optional(),
   "items": z.number().int(),
   "kind": z.string().nullable(),
+  "last_error": z.string().nullable().optional(),
+  "last_error_at": z.string().nullable().optional(),
+  "last_sync_listed": z.number().int().nullable().optional(),
+  "last_sync_matched": z.number().int().nullable().optional(),
+  "last_sync_status": z.string().nullable().optional(),
   "last_synced_at": z.string().nullable(),
   "options": z.array(MailDriveOption),
   "source": z.string().nullable(),
@@ -1668,10 +1712,30 @@ export const MailDriveFamily = z.object({
 }).strict();
 export type MailDriveFamily = z.infer<typeof MailDriveFamily>;
 
+export const MailDriveSource = z.object({
+  "accounts": z.number().int(),
+  "available": z.boolean(),
+  "broken_reason": z.string().nullable().optional(),
+  "family": z.string(),
+  "group": z.string(),
+  "items": z.number().int(),
+  "kind": z.string(),
+  "label": z.string(),
+  "last_error": z.string().nullable().optional(),
+  "last_error_at": z.string().nullable().optional(),
+  "last_sync_listed": z.number().int().nullable().optional(),
+  "last_sync_matched": z.number().int().nullable().optional(),
+  "last_sync_status": z.string().nullable().optional(),
+  "last_synced_at": z.string().nullable(),
+  "status": z.string(),
+}).strict();
+export type MailDriveSource = z.infer<typeof MailDriveSource>;
+
 export const MailAndDrive = z.object({
   "allowed": z.boolean(),
   "drive": MailDriveFamily,
   "mail": MailDriveFamily,
+  "sources": z.array(MailDriveSource).optional(),
 }).strict();
 export type MailAndDrive = z.infer<typeof MailAndDrive>;
 
@@ -1685,6 +1749,22 @@ export const MailDriveDisconnected = z.object({
   "items_deleted": z.number().int(),
 }).strict();
 export type MailDriveDisconnected = z.infer<typeof MailDriveDisconnected>;
+
+export const MailDriveSyncedSource = z.object({
+  "kind": z.string(),
+  "label": z.string(),
+  "listed": z.number().int(),
+  "matched": z.number().int(),
+  "reason": z.string().nullable(),
+  "state": z.string(),
+}).strict();
+export type MailDriveSyncedSource = z.infer<typeof MailDriveSyncedSource>;
+
+export const MailDriveSynced = z.object({
+  "family": z.string(),
+  "sources": z.array(MailDriveSyncedSource),
+}).strict();
+export type MailDriveSynced = z.infer<typeof MailDriveSynced>;
 
 export const MappingBody = z.object({
   "domain": z.string(),
@@ -1791,6 +1871,12 @@ export const NewClient = z.object({
   "name": z.string(),
 }).strict();
 export type NewClient = z.infer<typeof NewClient>;
+
+export const NewClientUser = z.object({
+  "email": z.string(),
+  "role": z.string().optional(),
+}).strict();
+export type NewClientUser = z.infer<typeof NewClientUser>;
 
 export const NewTenant = z.object({
   "name": z.string(),
@@ -2096,6 +2182,7 @@ export const ResearchBody = z.object({
   "company_name": z.string(),
   "credits": z.number().int().nullable().optional(),
   "domain": z.string(),
+  "goal": z.string().nullable().optional(),
   "request_id": z.string(),
   "research_effort": z.string().nullable().optional(),
   "research_model": z.string().nullable().optional(),
@@ -2141,6 +2228,7 @@ export const ResearchLiveDetail = z.object({
 export type ResearchLiveDetail = z.infer<typeof ResearchLiveDetail>;
 
 export const ResearchLiveItem = z.object({
+  "can_resume": z.boolean().optional(),
   "can_stop": z.boolean(),
   "company": z.string(),
   "created_at": z.string().nullable(),
@@ -2304,26 +2392,8 @@ export const RunState = z.object({
 }).strict();
 export type RunState = z.infer<typeof RunState>;
 
-export const StepTokens = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "tokens": z.number().int(),
-}).strict();
-export type StepTokens = z.infer<typeof StepTokens>;
-
-export const TokenUse = z.object({
-  "cost_usd": z.number().optional(),
-  "expected_runs": z.number().int().optional(),
-  "expected_tokens": z.number().int().nullable().optional(),
-  "finished_at": z.string().nullable().optional(),
-  "reused": z.number().int().optional(),
-  "started_at": z.string().nullable().optional(),
-  "steps": z.array(StepTokens).optional(),
-  "total": z.number().int(),
-}).strict();
-export type TokenUse = z.infer<typeof TokenUse>;
-
 export const RunStatusView = z.object({
+  "can_resume": z.boolean().optional(),
   "coverage": CoverageView,
   "domain": z.string().nullable().optional(),
   "gate": GateSummary.nullable().optional(),
@@ -2635,6 +2705,33 @@ export const Target = z.object({
   "kind": z.string().optional(),
 }).strict();
 export type Target = z.infer<typeof Target>;
+
+export const TeamMember = z.object({
+  "display_name": z.string().nullable(),
+  "email": z.string().nullable(),
+  "pending": z.boolean(),
+  "role": z.string(),
+  "status": z.string(),
+  "user_id": z.string(),
+  "version": z.number().int(),
+  "you": z.boolean(),
+}).strict();
+export type TeamMember = z.infer<typeof TeamMember>;
+
+export const Team = z.object({
+  "members": z.array(TeamMember),
+}).strict();
+export type Team = z.infer<typeof Team>;
+
+export const TeamInvite = z.object({
+  "email": z.string(),
+  "emailed": z.boolean(),
+  "existing_account": z.boolean(),
+  "expires_at": z.string().nullable(),
+  "invite_url": z.string().nullable(),
+  "role": z.string(),
+}).strict();
+export type TeamInvite = z.infer<typeof TeamInvite>;
 
 export const TenantChoice = z.object({
   "role": z.string(),
@@ -3109,15 +3206,60 @@ export const KNOWN_VALUES = {
     "is_empty",
     "not_empty"
   ],
+  "FromDrive.source": [
+    "google_drive",
+    "onedrive"
+  ],
+  "InviteBody.role": [
+    "admin",
+    "analyst",
+    "seller",
+    "viewer"
+  ],
   "LimitRequestSent.kind": [
     "researches",
     "chats"
+  ],
+  "MailDriveFamily.last_sync_status": [
+    "ok",
+    "partial",
+    "failed"
   ],
   "MailDriveFamily.status": [
     "connected",
     "not_connected",
     "not_available",
     "broken"
+  ],
+  "MailDriveSource.family": [
+    "google",
+    "microsoft"
+  ],
+  "MailDriveSource.group": [
+    "mail",
+    "drive"
+  ],
+  "MailDriveSource.last_sync_status": [
+    "ok",
+    "partial",
+    "failed"
+  ],
+  "MailDriveSource.status": [
+    "connected",
+    "not_connected",
+    "not_available",
+    "broken"
+  ],
+  "MailDriveSynced.family": [
+    "google",
+    "microsoft"
+  ],
+  "MailDriveSyncedSource.state": [
+    "ok",
+    "partial",
+    "failed",
+    "broken",
+    "skipped"
   ],
   "Me.role": [
     "admin",
@@ -3132,6 +3274,12 @@ export const KNOWN_VALUES = {
   "MyLimits.reset": [
     "monthly",
     "never"
+  ],
+  "NewClientUser.role": [
+    "admin",
+    "analyst",
+    "seller",
+    "viewer"
   ],
   "OperatorSession.role": [
     "operator",
@@ -3281,6 +3429,7 @@ export const operations = {
   "GET /operator/v1/console/clients/{tenant_id}": { method: "GET", path: "/operator/v1/console/clients/{tenant_id}", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleClientDetail },
   "PUT /operator/v1/console/clients/{tenant_id}": { method: "PUT", path: "/operator/v1/console/clients/{tenant_id}", plane: "operator", status: 200, request: ClientChange, requestRequired: true, response: ConsoleClientDetail },
   "POST /operator/v1/console/clients/{tenant_id}/invite": { method: "POST", path: "/operator/v1/console/clients/{tenant_id}/invite", plane: "operator", status: 200, request: null, requestRequired: false, response: ClientInvite },
+  "POST /operator/v1/console/clients/{tenant_id}/users": { method: "POST", path: "/operator/v1/console/clients/{tenant_id}/users", plane: "operator", status: 201, request: NewClientUser, requestRequired: true, response: TeamInvite },
   "GET /operator/v1/console/defaults": { method: "GET", path: "/operator/v1/console/defaults", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleDefaults },
   "PUT /operator/v1/console/defaults": { method: "PUT", path: "/operator/v1/console/defaults", plane: "operator", status: 200, request: DefaultsChange, requestRequired: true, response: ConsoleDefaults },
   "GET /operator/v1/console/overview": { method: "GET", path: "/operator/v1/console/overview", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleOverview },
@@ -3288,6 +3437,7 @@ export const operations = {
   "POST /operator/v1/console/requests/{tenant_id}/{request_id}/approve": { method: "POST", path: "/operator/v1/console/requests/{tenant_id}/{request_id}/approve", plane: "operator", status: 200, request: Decision, requestRequired: true, response: ConsoleLimitRequests },
   "POST /operator/v1/console/requests/{tenant_id}/{request_id}/decline": { method: "POST", path: "/operator/v1/console/requests/{tenant_id}/{request_id}/decline", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleLimitRequests },
   "GET /operator/v1/console/runs": { method: "GET", path: "/operator/v1/console/runs", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleRuns },
+  "GET /operator/v1/console/runs/{tenant_id}/{run_id}": { method: "GET", path: "/operator/v1/console/runs/{tenant_id}/{run_id}", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleRunDetail },
   "GET /operator/v1/console/users": { method: "GET", path: "/operator/v1/console/users", plane: "operator", status: 200, request: null, requestRequired: false, response: ConsoleUsers },
   "PUT /operator/v1/console/users/{tenant_id}/limits": { method: "PUT", path: "/operator/v1/console/users/{tenant_id}/limits", plane: "operator", status: 200, request: LimitsChange, requestRequired: true, response: LimitsChanged },
   "POST /operator/v1/console/users/{tenant_id}/re-enable": { method: "POST", path: "/operator/v1/console/users/{tenant_id}/re-enable", plane: "operator", status: 200, request: AccessTarget, requestRequired: true, response: AccessChanged },
@@ -3406,6 +3556,7 @@ export const operations = {
   "GET /v1/mail-and-drive": { method: "GET", path: "/v1/mail-and-drive", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailAndDrive },
   "GET /v1/mail-and-drive/callback": { method: "GET", path: "/v1/mail-and-drive/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/mail-and-drive/{family}/disconnect": { method: "POST", path: "/v1/mail-and-drive/{family}/disconnect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveDisconnected },
+  "POST /v1/mail-and-drive/{family}/sync": { method: "POST", path: "/v1/mail-and-drive/{family}/sync", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveSynced },
   "POST /v1/mail-and-drive/{kind}/connect": { method: "POST", path: "/v1/mail-and-drive/{kind}/connect", plane: "tenant", status: 200, request: null, requestRequired: false, response: MailDriveConnect },
   "GET /v1/me": { method: "GET", path: "/v1/me", plane: "tenant", status: 200, request: null, requestRequired: false, response: Me },
   "GET /v1/me/limits": { method: "GET", path: "/v1/me/limits", plane: "tenant", status: 200, request: null, requestRequired: false, response: MyLimits },
@@ -3473,6 +3624,8 @@ export const operations = {
   "GET /v1/users": { method: "GET", path: "/v1/users", plane: "tenant", status: 200, request: null, requestRequired: false, response: Members },
   "PATCH /v1/users": { method: "PATCH", path: "/v1/users", plane: "tenant", status: 200, request: ChangeBody, requestRequired: true, response: Member },
   "POST /v1/users": { method: "POST", path: "/v1/users", plane: "tenant", status: 201, request: AddBody, requestRequired: true, response: Member },
+  "POST /v1/users/invite": { method: "POST", path: "/v1/users/invite", plane: "tenant", status: 201, request: InviteBody, requestRequired: true, response: TeamInvite },
+  "GET /v1/users/team": { method: "GET", path: "/v1/users/team", plane: "tenant", status: 200, request: null, requestRequired: false, response: Team },
   "GET /v1/views": { method: "GET", path: "/v1/views", plane: "tenant", status: 200, request: null, requestRequired: false, response: SavedViews },
   "POST /v1/views": { method: "POST", path: "/v1/views", plane: "tenant", status: 201, request: ViewBody, requestRequired: true, response: SavedView },
   "PUT /v1/views/{view_id}": { method: "PUT", path: "/v1/views/{view_id}", plane: "tenant", status: 200, request: ViewEdit, requestRequired: true, response: SavedView },

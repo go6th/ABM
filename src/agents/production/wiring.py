@@ -289,6 +289,8 @@ class AbmGraphFactory:
             "cap_request_micros": 0,
             "scope_rows": list(run_input.get("scope_rows") or ()) or None,
             "topic": run_input.get("topic") or None,
+            "goal": run_input.get("goal") or None,
+            "goal_rows": list(run_input.get("goal_rows") or ()),
             "counters": {},
             "exits": {},
         }

@@ -105,6 +105,7 @@ async def test_live_snapshot_shows_a_fact_as_soon_as_it_is_stored(world: dict[st
     item = next(i for i in body["running"] if i["job_id"] == job)
     assert item["company"] == "Liveco" and item["kind"] == "New research"
     assert item["can_stop"] is True and item["findings"] == 0 and item["steps_total"] == 8
+    assert item["can_resume"] is False  # moving: nothing to resume
     assert body["detail"]["job_id"] == job and body["detail"]["latest_findings"] == []
 
     _store_fact(run_id, "Liveco is hiring four ServiceNow developers.")
@@ -123,6 +124,7 @@ async def test_live_snapshot_shows_a_fact_as_soon_as_it_is_stored(world: dict[st
     assert all(i["job_id"] != job for i in ended["running"])
     gone = next(i for i in ended["recent"] if i["job_id"] == job)
     assert gone["can_stop"] is False and gone["findings"] == 1  # what it found stays
+    assert gone["can_resume"] is False  # a cancel is the user's choice, not a stop to resume
 
 
 async def test_an_empty_selection_is_none_and_a_bad_one_is_refused(world: dict[str, Any]) -> None:

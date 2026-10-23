@@ -171,6 +171,9 @@ class V2Config:
     upload_intent_ttl_minutes: int
     upload_max_age_days: int | None
     notify_max_attempts: int
+    # a run pauses and asks once its model tokens reach this many times its pre-run estimate
+    # (owner decision 2026-10-23; on while the research caps are off)
+    token_guard_multiple: int = 3
 
 
 def build_v2(data: dict[str, Any]) -> V2Config:
@@ -209,6 +212,9 @@ def build_v2(data: dict[str, Any]) -> V2Config:
             upload_intent_ttl_minutes=_int(v2, "upload_intent_ttl_minutes", 1),
             upload_max_age_days=age,
             notify_max_attempts=_int(v2, "notify_max_attempts", 1),
+            token_guard_multiple=(
+                _int(v2, "token_guard_multiple", 1) if "token_guard_multiple" in v2 else 3
+            ),
         )
     except MoneyError as exc:
         raise ConfigError(f"v2: {exc}") from exc

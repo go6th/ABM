@@ -34,7 +34,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from account_intelligence.replica.workspace import PLANNED
+from account_intelligence.replica.workspace import PLANNED, can_resume, resume_context
 from account_intelligence.safety.client_output import assert_client_safe, scan_text
 from views import progress as P
 
@@ -137,6 +137,7 @@ async def _jobs(s: Any, cfg: LiveSettings) -> list[Any]:
                 "SELECT j.id, j.kind, j.scope, j.status, j.topic, j.run_id, j.created_at,"
                 " j.started_at, j.finished_at, j.stop_reason, j.failure_reason,"
                 " a.domain, a.name, r.status AS run_status, r.finished_reason, r.stop_detail,"
+                " r.stalled_at, " + resume_context("r") + ","
                 " (r.run_mode IN ('pull', 'build') OR (r.input_mode = 'company'"
                 "  AND (r.run_input ? 'job_id' OR r.run_input ? 'linked_file_run'))) AS abm"
                 " FROM research_jobs j JOIN accounts a ON a.id = j.account_id"
@@ -264,6 +265,11 @@ def _item(row: Any, prog: P.Progress | None, counts: Mapping[str, int]) -> dict[
         "label": label,
         "open": open_,
         "can_stop": open_,
+        # the account page's rule (``workspace.can_resume``) on the job's run
+        "can_resume": row.run_id is not None
+        and can_resume(
+            row.run_status, row.finished_reason, row.stalled_at, row.is_latest, row.job_open
+        ),
         "step": at,
         "steps_done": prog.stages_done if prog is not None else 0,
         "steps_total": prog.stages_total if prog is not None else len(P.ABM_STEPS),

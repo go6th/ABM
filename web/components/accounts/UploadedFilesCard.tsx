@@ -6,6 +6,7 @@ import type { DocumentStatus } from "@/lib/gen/api.gen";
 import { STAGE_TEXT, fileSize, filesLine, progressLine, stageOf, stageTone } from "@/lib/documents";
 import { cellText } from "@/lib/render";
 import { Status } from "@/ui/primitives";
+import { DeleteFileButton } from "./DeleteFileButton";
 import { WhatWasRead } from "./WhatWasRead";
 
 export function UploadedFilesCard({ docs }: { docs: DocumentStatus[] }) {
@@ -32,6 +33,7 @@ export function UploadedFilesCard({ docs }: { docs: DocumentStatus[] }) {
                     </details>
                   ) : null}
                   {d.passages ? <WhatWasRead documentId={d.document_id} name={d.name} /> : null}
+                  <DeleteFileButton documentId={d.document_id} name={d.name} />
                 </div>
                 <Status tone={stageTone(stage)}>{STAGE_TEXT[stage]}</Status>
               </li>

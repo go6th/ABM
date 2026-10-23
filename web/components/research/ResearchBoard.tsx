@@ -8,10 +8,11 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ResearchCompany } from "@/components/accounts/ResearchCompany";
+import { ResumeButton, resumingLine } from "@/components/accounts/ResumeResearch";
 import { StopButton } from "@/components/ws/RunSteps";
 import { formatTokens } from "@/components/ws/TokenMeter";
 import { api, ApiError } from "@/lib/api";
-import type { ResearchEstimate, ResearchLive, ResearchStarted } from "@/lib/gen/api.gen";
+import type { ResearchEstimate, ResearchLive, ResearchResumed, ResearchStarted } from "@/lib/gen/api.gen";
 import { m } from "@/lib/messages";
 import { useResearchLive, type LiveState } from "@/lib/useResearchLive";
 import { Grade, StateCard } from "@/ui/design";
@@ -64,6 +65,11 @@ function tone(item: Item): "run" | "ok" | "warn" | "" {
   return "";
 }
 
+/** The run Resume research is offered on for this item (the server's ``can_resume``), or null. */
+export function resumableRun(item: Item | undefined): string | null {
+  return item && !item.open && item.can_resume && item.run_id ? item.run_id : null;
+}
+
 function Connection({ state, asOf, now }: { state: LiveState; asOf: string | null; now: number | null }) {
   const when = ago(asOf, now);
   const text = state === "live" ? m.board.live : state === "polling" ? m.board.polling : m.board.connecting;
@@ -76,13 +82,15 @@ function Connection({ state, asOf, now }: { state: LiveState; asOf: string | nul
   );
 }
 
-function Row({ item, selected, now, onSelect, onStop }: {
+function Row({ item, selected, now, onSelect, onStop, onResumed }: {
   item: Item;
   selected: boolean;
   now: number | null;
   onSelect: (id: string) => void;
   onStop: (item: Item) => Promise<void>;
+  onResumed: (resumed: ResearchResumed) => void;
 }) {
+  const resumeRun = resumableRun(item);
   const when = item.open ? ago(item.started_at ?? item.created_at, now) : ago(item.finished_at, now);
   return (
     <li className="trow cols-research" aria-current={selected ? "true" : undefined}>
@@ -100,10 +108,11 @@ function Row({ item, selected, now, onSelect, onStop }: {
       </span>
       <span className="mut sm-text">{when ? (item.open ? m.board.started(when) : m.board.finished(when)) : null}</span>
       <span className="row-12 wrap end-actions">
-        <button type="button" className="btn sm" aria-pressed={selected} onClick={() => onSelect(item.job_id)}>
+        <button type="button" className="btn sm" aria-pressed={selected} aria-label={`${selected ? m.board.showing : m.board.show} ${item.company}`} onClick={() => onSelect(item.job_id)}>
           {selected ? m.board.showing : m.board.show}
         </button>
         {item.can_stop ? <StopButton onStop={() => onStop(item)} label={m.board.stop} /> : null}
+        {resumeRun ? <ResumeButton runId={resumeRun} compact onResumed={onResumed} /> : null}
       </span>
     </li>
   );
@@ -124,7 +133,13 @@ function Steps({ detail }: { detail: Detail }) {
   );
 }
 
-function DetailPanel({ detail, now }: { detail: Detail; now: number | null }) {
+function DetailPanel({ detail, item, now, onResumed }: {
+  detail: Detail;
+  item: Item | undefined;
+  now: number | null;
+  onResumed: (resumed: ResearchResumed) => void;
+}) {
+  const resumeRun = resumableRun(item);
   return (
     <section className="card pad stack-14" aria-labelledby="research-detail-title">
       <div className="row-12 wrap">
@@ -132,6 +147,7 @@ function DetailPanel({ detail, now }: { detail: Detail; now: number | null }) {
           <h2 id="research-detail-title">{detail.company}</h2>
           <div className="mut sm-text">{detail.label}{detail.reason ? `. ${m.board.reason(detail.reason)}` : ""}</div>
         </div>
+        {resumeRun ? <ResumeButton key={resumeRun} runId={resumeRun} compact onResumed={onResumed} /> : null}
         <Link className="btn sm" href={`/accounts/${encodeURIComponent(detail.domain)}`} prefetch={false}>{m.board.openAccount}</Link>
       </div>
       <dl className="kv-grid live-counts">
@@ -204,6 +220,12 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
     restart();
   }, [restart]);
 
+  const resumed = useCallback((r: ResearchResumed) => {
+    setNote({ text: `${resumingLine(r.steps_done, r.steps_total)}. You will be notified when it finishes.` });
+    select(r.job_id);
+    restart();
+  }, [select, restart]);
+
   const started = useCallback((s: ResearchStarted) => {
     setStarting(false);
     setNote({ text: m.board.startedNote });
@@ -215,6 +237,7 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
     return <StateCard title={m.board.title} body={m.board.loadFailed} action={<Link className="btn" href="/research" prefetch={false}>{m.run.refresh}</Link>} />;
   }
   const shown = data.detail?.job_id ?? null;
+  const shownItem = shown ? [...data.running, ...data.recent].find((i) => i.job_id === shown) : undefined;
 
   return (
     <div className="stack-22">
@@ -249,14 +272,14 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
             </div>
             <ul aria-label={m.board.running}>
               {data.running.map((item) => (
-                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} />
+                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} onResumed={resumed} />
               ))}
             </ul>
           </div>
         ) : <p className="mut sm-text">{m.board.noneRunning}</p>}
       </section>
 
-      {data.detail ? <DetailPanel detail={data.detail} now={now} /> : null}
+      {data.detail ? <DetailPanel detail={data.detail} item={shownItem} now={now} onResumed={resumed} /> : null}
 
       <section className="stack-10" aria-labelledby="research-recent-title">
         <h2 id="research-recent-title">{m.board.recent}</h2>
@@ -264,7 +287,7 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
           <div className="card tscroll">
             <ul aria-label={m.board.recent}>
               {data.recent.map((item) => (
-                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} />
+                <Row key={item.job_id} item={item} selected={item.job_id === shown} now={now} onSelect={select} onStop={stop} onResumed={resumed} />
               ))}
             </ul>
           </div>

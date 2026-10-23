@@ -27,6 +27,9 @@ ALLOWED: frozenset[str] = frozenset(
         "account_intelligence.api.routes.operator_admin",
         "account_intelligence.api.routes.sso",
         "account_intelligence.api.routes.tasks",
+        # reviewed 2026-10-23: only the local_auth_* SECURITY DEFINER functions (look up, create
+        # and invite an identity), never a tenant table
+        "account_intelligence.api.team_invites",
     }
 )
 

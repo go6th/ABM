@@ -45,6 +45,7 @@ export function SupportAccess({ grants, events }: { grants: SupportGrant[]; even
     }
   };
   const revoke = async (id: string) => {
+    if (!window.confirm("Revoke this support access? Support staff lose access to your workspace straight away.")) return;
     setBusy(true);
     try {
       await api("POST", `/v1/support/grants/${id}/revoke`);

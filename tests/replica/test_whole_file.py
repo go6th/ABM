@@ -1,6 +1,7 @@
 """Ask reads the file a question is about whole (owner decision 2026-10-17): the best-matching
 uploaded document's passages travel to the model in order as one citable row, within a character
-budget; and closed postings join the rows only when the question asks about them."""
+budget; inside an uploaded zip the file is the member the best passage came from, not the whole
+archive; and closed postings join the rows only when the question asks about them."""
 
 from __future__ import annotations
 
@@ -30,9 +31,14 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def _upload(tenant: UUID, user: str, name: str) -> UUID:
-    """A parsed and indexed spreadsheet of three passages, as the documents pipeline leaves it."""
+Passage = tuple[str, dict[str, Any], str]  # kind, location, content
+
+
+def _upload(tenant: UUID, user: str, name: str, passages: list[Passage] | None = None) -> UUID:
+    """A parsed and indexed document, as the documents pipeline leaves it: a spreadsheet of
+    three row passages unless ``passages`` says otherwise."""
     doc = uuid4()
+    rows = passages or [("crm_row", {"row": i}, line) for i, line in enumerate(LINES, start=1)]
     with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
         account = c.execute(
             "SELECT id FROM accounts WHERE tenant_id = %s AND domain = 'highmark.example'",
@@ -42,15 +48,15 @@ def _upload(tenant: UUID, user: str, name: str) -> UUID:
             "INSERT INTO documents (id, tenant_id, account_id, name, declared_bytes, declared_type,"
             " quarantine_key, object_key, sha256, status, passages, uploaded_by,"
             " upload_expires_at, owner_user_id) VALUES (%s, %s, %s, %s, 1000, 'application/x',"
-            " 'q/x', 'o/x', %s, 'indexed', 3, %s, now(), %s)",
-            (doc, tenant, account, name, _sha(name), user, user),
+            " 'q/x', 'o/x', %s, 'indexed', %s, %s, now(), %s)",
+            (doc, tenant, account, name, _sha(name), len(rows), user, user),
         )
-        for seq, line in enumerate(LINES, start=1):
+        for seq, (kind, location, line) in enumerate(rows, start=1):
             c.execute(
                 "INSERT INTO document_passages (tenant_id, account_id, document_id, seq, kind,"
                 " location, content, content_sha256, token_count, owner_user_id)"
-                " VALUES (%s, %s, %s, %s, 'crm_row', %s, %s, %s, 12, %s)",
-                (tenant, account, doc, seq, json.dumps({"row": seq}), line, _sha(line), user),
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 12, %s)",
+                (tenant, account, doc, seq, kind, json.dumps(location), line, _sha(line), user),
             )
     return doc
 
@@ -96,6 +102,80 @@ async def test_a_file_over_the_budget_stays_as_retrieved_passages(world: dict[st
         assert ws.whole_files == [] and ws.passages == before
         ws.passages = []
         await A.take_whole_file(session, ws, 300_000)  # nothing retrieved: nothing to read whole
+        assert ws.whole_files == []
+
+
+POSTINGS = [
+    "Req | Title | Platforms named | Status | First seen",
+    "451201 | Veeva CRM Migration Lead | Veeva | Open | 2026-10-02",
+    "451377 | ServiceNow ITSM Architect | ServiceNow | Open | 2026-10-09",
+]
+PEOPLE = ["Name | Title | Platform owned", "Asha Rao | VP Digital Engagement | Salesforce"]
+
+
+async def test_inside_a_zip_only_the_member_file_is_read_whole(world: dict[str, Any]) -> None:
+    """GSK_workspace.zip is one document whose passages span two member files; a question about
+    the postings sheet gets that sheet whole, named after it, and the people sheet stays out."""
+    sheet, people = "GSK_Job_Postings.xlsx", "GSK_People.xlsx"
+    doc = _upload(
+        world["a"],
+        "priya-test",
+        "GSK_workspace.zip",
+        [
+            # rows carry the member at the top level, as chunking leaves a sheet inside a zip
+            *[
+                ("crm_row", {"table": f"{sheet}:Postings", "row": i, "member": sheet}, line)
+                for i, line in enumerate(POSTINGS, start=1)
+            ],
+            # a section merged across units carries it under "from" (documents.chunking.cite)
+            (
+                "section",
+                {"from": {"member": sheet, "section": "Notes"}, "to": {"member": sheet}},
+                "Notes: open requisitions only",
+            ),
+            *[
+                ("crm_row", {"table": f"{people}:People", "row": i, "member": people}, line)
+                for i, line in enumerate(PEOPLE, start=1)
+            ],
+        ],
+    )
+    question = "Veeva CRM Migration Lead Open"
+    async with tenant_txn(world["a"]) as session:
+        ws = await A.load_workspace(session, "priya-test")
+        ws.passages = await A.passage_rows(session, ws, question, {a.id for a in ws.accounts}, None)
+        assert ws.passages[0].key == f"passage:{doc}:2"
+        await A.take_whole_file(session, ws, 300_000)
+    assert len(ws.whole_files) == 1
+    whole = ws.whole_files[0]
+    assert whole.text.split("\n") == [*POSTINGS, "Notes: open requisitions only"]
+    assert all(line not in whole.text for line in PEOPLE)
+    assert (
+        whole.title
+        == "From your files: GSK_Job_Postings.xlsx in GSK_workspace.zip (the whole file)"
+    )
+    assert whole.meta == "Internal · 4 passages, read whole"
+    assert whole.extra == {
+        "whole_file": True,
+        "document": "GSK_Job_Postings.xlsx in GSK_workspace.zip",
+        "lines": 4,
+        "member": sheet,
+    }
+    # only the member's passages leave the retrieved list; the other sheet's would stay
+    assert not any(r.key in {f"passage:{doc}:{i}" for i in (1, 2, 3, 4)} for r in ws.passages)
+    files = file_blocks({"f1": whole})
+    assert files.startswith(f'<file doc="{doc}" name="GSK_Job_Postings.xlsx in GSK_workspace.zip">')
+    # the budget is the member's size, not the archive's: the whole zip is larger than this
+    async with tenant_txn(world["a"]) as session:
+        ws = await A.load_workspace(session, "priya-test")
+        ws.passages = await A.passage_rows(session, ws, question, {a.id for a in ws.accounts}, None)
+        member_chars = sum(len(line) for line in [*POSTINGS, "Notes: open requisitions only"])
+        await A.take_whole_file(session, ws, member_chars)
+        assert len(ws.whole_files) == 1
+        ws.whole_files, ws.passages = (
+            [],
+            await A.passage_rows(session, ws, question, {a.id for a in ws.accounts}, None),
+        )
+        await A.take_whole_file(session, ws, member_chars - 1)
         assert ws.whole_files == []
 
 

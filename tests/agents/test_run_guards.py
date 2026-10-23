@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
@@ -140,6 +141,63 @@ async def test_declined_sense_pulls_leave_rows_partial(make) -> None:  # type: i
     row = h.tracker.rows_by_run[record.run_id]["leadership_changes"]
     assert (row.status, row.reason) == ("partial", "pull_not_approved")
     assert h.credit.spent[record.run_id] == 0 and state["outcome"] == "partial"
+
+
+# Token guard (owner decision 2026-10-23) -------------------------------------------------------
+
+
+def _guard_on(h: Harness, kind: str, nth: int) -> dict[str, list[str]]:
+    """The model raises the token guard once, on the ``nth`` call of ``kind``; every call is
+    slowed a little so extraction calls overlap, and their starts and ends are recorded."""
+    from account_intelligence.connectors.spend_guard import TokenGuardReached
+
+    assert h.llm is not None
+    real = h.llm.call
+    seen: dict[str, list[str]] = {"started": [], "ended": [], "kinds": []}
+
+    async def call(task_kind, *args, **kw):  # type: ignore[no-untyped-def]
+        seen["kinds"].append(task_kind)
+        if task_kind == kind and seen["kinds"].count(kind) == nth:
+            raise TokenGuardReached(300, 300)
+        seen["started"].append(task_kind)
+        await asyncio.sleep(0.01)
+        out = await real(task_kind, *args, **kw)
+        seen["ended"].append(task_kind)
+        return out
+
+    h.llm.call = call  # type: ignore[method-assign]
+    return seen
+
+
+@pytest.mark.parametrize(
+    "kind", ["abm_pass2_extract", "abm_setup", "abm_sense_check", "abm_distill"]
+)
+async def test_the_token_guard_pauses_any_run_and_continuing_finishes_it(
+    h: Harness, kind: str
+) -> None:
+    seen = _guard_on(h, kind, 2 if kind == "abm_pass2_extract" else 1)
+    record = await h.start("r")  # unattended runs pause on it too
+    await h.service.execute(h.tenant, record.run_id)
+    (pending,) = await h.service.pending(h.tenant, record.run_id)
+    assert (pending["awaiting"], pending["reason"]) == ("cap", "tokens")
+    # the calls already in flight finished (and were kept), none was cancelled to be paid again
+    assert len(seen["started"]) == len(seen["ended"])
+    assert not h.delivery.released and not getattr(h.credit, "tokens_accepted", 0)
+    state = await h.service.resume(h.tenant, record.run_id, True)
+    assert h.credit.tokens_accepted == 1
+    assert state["outcome"] in ("completed", "partial") and h.delivery.released
+    assert not state.get("token_pause_node") and state["token_pauses"] == 1
+    assert not await h.service.pending(h.tenant, record.run_id)
+
+
+async def test_stopping_at_the_token_guard_ends_the_run_with_what_it_found(h: Harness) -> None:
+    _guard_on(h, "abm_distill", 1)
+    record = await h.start("r")
+    await h.service.execute(h.tenant, record.run_id)
+    state = await h.service.resume(h.tenant, record.run_id, False)
+    assert (state["outcome"], state["error_code"]) == ("failed", "token_guard_stopped")
+    assert state["settled"] and not h.delivery.released
+    assert not getattr(h.credit, "tokens_accepted", 0)
 
 
 # G8 --------------------------------------------------------------------------------------------

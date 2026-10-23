@@ -62,6 +62,7 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
     { href: "/research/new", label: "New research", icon: "research" },
     { href: "/schedules", label: "Schedules", icon: "schedules" },
     ...(user.mailDriveAllowed ? [{ href: "/mail-and-drive", label: "Mail and drive", icon: "mail" }] : []),
+    ...(user.isAdmin ? [{ href: "/team", label: "Teammates", icon: "accounts" }] : []),
     ...(user.isAdmin ? [{ href: "/support-access", label: "Support access", icon: "support" }] : []),
   ];
 
@@ -168,6 +169,7 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
                 {t.title || "Untitled chat"}
               </Link>
             ))}
+            <Link className="all" href="/chats" prefetch={false} aria-current={pathname === "/chats" ? "page" : undefined} onClick={() => setOpen(false)}>All chats</Link>
           </nav>
         ) : null}
         <div className="side-foot">

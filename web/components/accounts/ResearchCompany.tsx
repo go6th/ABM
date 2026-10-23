@@ -13,6 +13,9 @@ import { api, ApiError } from "@/lib/api";
 import { DOMAIN_RE, cleanDomain } from "@/lib/documents";
 import type { ResearchEstimate, ResearchStarted } from "@/lib/gen/api.gen";
 
+// the research goal is optional; the API takes 3 to 500 characters once whitespace is collapsed
+const GOAL_MAX = 500;
+
 function duration(minutes: number): string {
   if (minutes >= 240) return "about a working day";
   if (minutes >= 60) return `about ${Math.round(minutes / 60)} hours`;
@@ -28,6 +31,7 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
   const router = useRouter();
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
+  const [goal, setGoal] = useState("");
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -36,7 +40,8 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
   const models = useResearchModels();
   const { limits } = useMyLimits();
   const domain = cleanDomain(site);
-  const valid = name.trim().length > 0 && DOMAIN_RE.test(domain);
+  const goalOk = goal.trim().length === 0 || goal.trim().length >= 3;
+  const valid = name.trim().length > 0 && DOMAIN_RE.test(domain) && goalOk;
   const none = limits !== null && limits.researches.left === 0;
 
   if (!estimate) {
@@ -52,6 +57,7 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
         request_id: requestId.current,
         company_name: name.trim(),
         domain,
+        ...(goal.trim() ? { goal: goal.trim() } : {}),
         ...models.body,
       });
       if (onStarted) {
@@ -59,6 +65,7 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
         requestId.current = crypto.randomUUID();
         setName("");
         setSite("");
+        setGoal("");
         setAsking(false);
         setBusy(false);
         onStarted(started);
@@ -95,6 +102,17 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
           <input id={`${idPrefix}-site`} className="f" placeholder="company.com" value={site} maxLength={253}
             aria-invalid={site.length > 0 && !DOMAIN_RE.test(domain)}
             onChange={(e) => { setSite(e.target.value); setAsking(false); }} />
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor={`${idPrefix}-goal`}>Research goal (optional)</label>
+        <textarea id={`${idPrefix}-goal`} className="textarea" rows={2} maxLength={GOAL_MAX} value={goal}
+          placeholder="For example: we sell payroll software, so focus on their HR systems and hiring"
+          aria-describedby={`${idPrefix}-goal-hint`}
+          onChange={(e) => { setGoal(e.target.value); setAsking(false); }} />
+        <div className="topic-hint mut" id={`${idPrefix}-goal-hint`}>
+          <span>{goal.trim().length > 0 && goal.trim().length < 3 ? "Describe the goal in a few words." : "Adds a few searches and leads the summary with what matters to you."}</span>
+          <span className="count">{goal.length}/{GOAL_MAX}</span>
         </div>
       </div>
       <ResearchModelChips state={models} />

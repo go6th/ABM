@@ -79,7 +79,7 @@ export function ResearchProgress({ job, scopeName }: { job: OpenJob; scopeName: 
         </details>
       )}
 
-      {job.run_id ? <Checkpoint runId={job.run_id} status={status} onDecided={reload} auto={auto} setAuto={setAuto} /> : null}
+      {job.run_id ? <Checkpoint runId={job.run_id} status={status} onDecided={reload} auto={auto} setAuto={setAuto} tokens={run?.token_use ?? null} /> : null}
       {run ? <TokenMeter run={run} steps={progress ? runSteps(progress, status) : []} at={at} status={status} /> : null}
 
       {message ? <p className="sm-text bad-text" role="alert">{message}</p> : null}

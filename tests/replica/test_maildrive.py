@@ -14,59 +14,16 @@ import json
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
 import psycopg
 import pytest
 
 from connectors_client.maildrive import HttpMailDriveReader, HttpOAuthClient, Item, matches
 from tests.conftest import ADMIN_DSN
+from tests.fakes.maildrive_fakes import GMAIL_SCOPE, FakeGoogle
 from tests.replica.conftest import _call, _plane
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
-SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-
-
-class FakeGoogle:
-    """The token, revoke and Gmail endpoints, recording what they were asked."""
-
-    def __init__(self) -> None:
-        self.revoked: list[str] = []
-        self.transport = httpx.MockTransport(self.handle)
-
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        url = str(request.url)
-        if url.startswith("https://oauth2.googleapis.com/token"):
-            return httpx.Response(
-                200,
-                json={
-                    "access_token": "access-1",
-                    "refresh_token": "refresh-1",
-                    "scope": SCOPE,
-                    "expires_in": 3600,
-                },
-            )
-        if url.startswith("https://oauth2.googleapis.com/revoke"):
-            self.revoked.append(parse_qs(request.content.decode())["token"][0])
-            return httpx.Response(200)
-        assert request.headers["authorization"] == "Bearer access-1"
-        if request.url.path.endswith("/messages"):
-            return httpx.Response(200, json={"messages": [{"id": "m1"}, {"id": "m2"}]})
-        if request.url.path.endswith("/messages/m1"):
-            heads = [
-                {"name": "Subject", "value": "Pilot scope"},
-                {"name": "From", "value": "Ann <ann@highmark.example>"},
-                {"name": "Date", "value": "Mon, 12 Oct 2026 09:00:00 +0000"},
-            ]
-            return httpx.Response(
-                200, json={"threadId": "t1", "snippet": "Next steps", "payload": {"headers": heads}}
-            )
-        heads = [
-            {"name": "Subject", "value": "Lunch"},
-            {"name": "From", "value": "bob@unrelated.example"},
-        ]
-        return httpx.Response(
-            200, json={"threadId": "t2", "snippet": "Friday?", "payload": {"headers": heads}}
-        )
+SCOPE = GMAIL_SCOPE
 
 
 def _wire(plane: Any, google: FakeGoogle, apps: dict[str, tuple[str, str]]) -> None:
@@ -106,7 +63,11 @@ async def test_mail_and_drive_connects_syncs_and_disconnects_per_user(
     stolen = await _call(
         priya, "GET", f"/v1/mail-and-drive/callback?state={state}&code=c1", follow_redirects=False
     )
-    assert stolen.headers["location"] == "/mail-and-drive?error=consent"  # bound to maya
+    # bound to maya: priya cannot finish it (she cannot even see maya's consent state)
+    assert stolen.headers["location"] in (
+        "/mail-and-drive?error=consent",
+        "/mail-and-drive?error=expired",
+    )
     done = await _call(
         maya, "GET", f"/v1/mail-and-drive/callback?state={state}&code=c1", follow_redirects=False
     )
@@ -189,6 +150,8 @@ async def test_one_broken_connection_never_stops_the_sync_of_the_others(
     from uuid import uuid4
 
     bad = uuid4()
+    # an earlier test of this module turned the feature off for client b (the tick would purge)
+    _db("UPDATE client_settings SET mail_drive_allowed = true WHERE tenant_id = %s", world["b"])
     _db(
         "INSERT INTO connector_connections (id, tenant_id, kind, provider, status,"
         " owner_user_id, scopes, created_by, created_at) VALUES (%s, %s, 'gmail', 'google',"

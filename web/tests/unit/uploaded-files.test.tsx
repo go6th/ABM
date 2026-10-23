@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 // The account page lists the files uploaded for it (they were stored but shown nowhere).
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
 import type { DocumentStatus } from "@/lib/gen/api.gen";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 afterEach(cleanup);
 
@@ -21,6 +23,8 @@ test("each uploaded file shows its name, size, passages and status", () => {
   expect(screen.getByText("Ready")).toBeTruthy();
   expect(screen.getByText("Indexing")).toBeTruthy(); // bound to the account, on its way to Ready
   expect(screen.getByRole("link", { name: "Add files" }).getAttribute("href")).toBe("/research/new?tab=file");
+  // each file can be deleted on its own (it asks first)
+  expect(screen.getByRole("button", { name: "Delete Workday_People_List.xlsx" })).toBeTruthy();
 });
 
 test("with no uploads the card says where they will appear", () => {

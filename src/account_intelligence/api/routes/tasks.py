@@ -40,6 +40,8 @@ from obs.logging import logger
 
 log = logger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+# the Mail and drive tick starts no new connection after this many seconds (inside the deadline)
+MAILDRIVE_BUDGET_S = 800.0
 
 
 class SliceTask(BaseModel):
@@ -254,19 +256,21 @@ async def maildrive_sync(
 ) -> dict[str, int]:
     """Sync the per-user Mail and drive connections not synced in the last hour (Cloud
     Scheduler; identifiers from ``maildrive_connections_due``, then each tenant's own
-    transaction). Only items matching the user's accounts are kept."""
+    transaction). Only items matching the user's accounts are kept. A connection whose client
+    turned the feature off, or whose owner's access ended, is purged instead (revoked, token
+    destroyed, items deleted). No new connection is started after ``MAILDRIVE_BUDGET_S``; the
+    rest are ``deferred`` to the next tick."""
     _authorise(request, authorization)
     from datetime import UTC, datetime, timedelta
 
     from account_intelligence.api.tenant_plane import plane_of
     from account_intelligence.db.session import tenant_txn, untenanted_session
-    from connectors_client import maildrive
+    from connectors_client import lifecycle
 
-    container = request.app.state.container
     now = datetime.now(UTC)
-    apps = dict(container.extras.get("maildrive_apps") or {})
-    oauth = container.extras.get("maildrive_oauth") or maildrive.HttpOAuthClient(apps)
-    reader = container.extras.get("maildrive_reader") or maildrive.HttpMailDriveReader()
+    wired = lifecycle.wiring(request.app.state.container.extras)
+    store = plane_of(request).secrets
+    budget = lifecycle.Budget(MAILDRIVE_BUDGET_S)
     async with untenanted_session() as plain:
         due = (
             await plain.execute(
@@ -274,41 +278,55 @@ async def maildrive_sync(
                 {"b": now - timedelta(hours=1)},
             )
         ).all()
-    synced = matched = broken = 0
-    # LOOP(mail and drive sync): cap=500 connections per tick (the lookup's limit); exit=end
-    failed = skipped = 0
-    for tenant_id, connection_id in due:
+    counts = dict.fromkeys(
+        ("connections", "matched", "ok", "partial", "failed", "broken", "skipped", "purged"), 0
+    )
+    deferred = 0
+    # LOOP(mail and drive sync): cap=500 connections per tick (the lookup's limit) and
+    # MAILDRIVE_BUDGET_S of wall clock; exit=end of the list or budget spent (the rest deferred)
+    for index, (tenant_id, connection_id) in enumerate(due):
+        if budget.spent():
+            deferred = len(due) - index
+            break
         try:
-            result = await maildrive.sync_connection(
+            async with tenant_txn(tenant_id) as s:
+                blocked = await lifecycle.sync_blocker(s, connection_id)
+                if blocked is not None:
+                    owner = await lifecycle.connection_owner(s, connection_id)
+                    await lifecycle.purge_connections(
+                        s,
+                        [(connection_id, owner)] if owner else [],
+                        oauth=wired.oauth,
+                        store=store,
+                        now=now,
+                        reason=blocked,
+                        actor="system:maildrive_sync",
+                    )
+            if blocked is not None:
+                counts["purged"] += 1
+                continue
+            [done] = await lifecycle.sync_sources(
                 tenant_txn,
                 tenant_id,
-                connection_id,
-                oauth=oauth,
-                reader=reader,
-                store=plane_of(request).secrets,
+                [(connection_id, "")],
+                wired=wired,
+                store=store,
                 now=now,
-                apps=apps,
             )
-        except Exception as error:  # one connection's failure never stops the others
-            failed += 1
+        except Exception as error:  # one connection's failure never stops the others; logged
+            counts["failed"] += 1
             log.warning(
                 "maildrive_sync_failed",
                 extra={"connection_id": str(connection_id), "error": type(error).__name__},
             )
             continue
-        if result.skipped:
-            skipped += 1
-            continue
-        synced += 1
-        matched += result.matched
-        broken += result.broken is not None
-    return {
-        "connections": synced,
-        "matched": matched,
-        "broken": broken,
-        "failed": failed,
-        "skipped": skipped,
-    }
+        counts[done.state] += 1
+        if done.state != "skipped":
+            counts["connections"] += 1
+            counts["matched"] += done.matched
+    if deferred:
+        log.info("maildrive_sync_deferred", extra={"deferred": deferred})
+    return {**counts, "deferred": deferred}
 
 
 @router.post("/access-expiry")
@@ -321,10 +339,27 @@ async def access_expiry(
     _authorise(request, authorization)
     from datetime import UTC, datetime
 
+    from account_intelligence.api.tenant_plane import plane_of
     from account_intelligence.db.session import untenanted_session
     from account_intelligence.replica import access
+    from connectors_client import lifecycle
 
-    done = await access.expire_everywhere(untenanted_session, tenant_txn, datetime.now(UTC))
+    wired = lifecycle.wiring(request.app.state.container.extras)
+    store = plane_of(request).secrets
+
+    async def purge(s: Any, user_id: str, now: datetime) -> object:
+        """An expired user's Mail and drive goes with their access (revoked, items deleted)."""
+        return await lifecycle.purge_owner(
+            s,
+            owner_user_id=user_id,
+            oauth=wired.oauth,
+            store=store,
+            now=now,
+            reason="access_expired",
+            actor=access.ACTOR,
+        )
+
+    done = await access.expire_everywhere(untenanted_session, tenant_txn, datetime.now(UTC), purge)
     return {
         "clients": done.clients,
         "warned": done.warned,

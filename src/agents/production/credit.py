@@ -143,6 +143,13 @@ class CreditAdapter:
             return 0, True
         return total, known
 
+    async def accept_tokens(self, ctx: RunContext) -> None:
+        """Record the run's tokens now as accepted by the user (``spend_guard.accept_tokens``)."""
+        from account_intelligence.connectors import spend_guard
+
+        async with self.txn(ctx.tenant_id) as s:
+            await spend_guard.accept_tokens(s, ctx.run_id)
+
     async def request_approval(
         self, ctx: RunContext, proposals: Sequence[Mapping[str, Any]], total_micros: int
     ) -> str:

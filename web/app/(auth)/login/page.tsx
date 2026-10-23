@@ -38,6 +38,14 @@ const UNAVAILABLE = "Sign in is unavailable right now. Try again in a moment.";
 type Notice = { text: string; tone: "error" | "info"; resend?: boolean };
 type TenantChoice = { tenant_id: string; role: string };
 
+/** Where to go after signing in: ?next= when it is a page of this site (never another origin or
+ *  back to sign-in), else Ask. */
+function returnPath(): string {
+  const next = new URLSearchParams(window.location.search).get("next") ?? "";
+  if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\") || next.startsWith("/login")) return "/";
+  return next;
+}
+
 /** The workspaces a 409 "choose a workspace" reply lists; [] for any other error. */
 function workspaceChoices(e: unknown): TenantChoice[] {
   if (!(e instanceof ApiError) || e.status !== 409 || e.body?.code !== "tenant_selection_required") return [];
@@ -68,7 +76,7 @@ export default function TenantLoginPage() {
     try {
       await apiPublic<SignedIn>("POST", "/v1/auth/login", { email, password, remember, ...(tenantId ? { workspace_id: tenantId } : {}) });
       clearSession();
-      router.replace("/");
+      router.replace(returnPath());
     } catch (e) {
       const choices = workspaceChoices(e);
       const firstTenant = choices[0];
@@ -230,6 +238,7 @@ export default function TenantLoginPage() {
       </div>
 
       <p className="auth-foot">Don&apos;t have access? Ask your 6th contact to send you an invite.</p>
+      <p className="auth-foot"><Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link></p>
     </AuthFrame>
   );
 }

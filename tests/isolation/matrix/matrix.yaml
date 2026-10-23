@@ -409,6 +409,7 @@ routes:
   GET /v1/mail-and-drive/callback:
     probe: tenant
     query: {state: matrix-state-0000000000, code: matrix-code}
+  POST /v1/mail-and-drive/{family}/sync: {probe: tenant, params: {family: google}}
   POST /v1/mail-and-drive/{family}/disconnect: {probe: tenant, params: {family: mail}}
   POST /v1/accounts/from-library:
     probe: tenant
@@ -456,8 +457,10 @@ routes:
   GET /v1/runs/{run_id}: {probe: tenant, params: {run_id: account_runs.id}}
   GET /v1/runs/{run_id}/collected: {probe: tenant, params: {run_id: account_runs.id}}
   POST /v1/documents/uploads: {probe: tenant, body: {name: synthetic-b.pdf, size_bytes: 10, account_id: accounts.id}}
-  GET /v1/documents/drive-files: {probe: tenant}
-  POST /v1/documents/from-drive: {probe: tenant, body: {file_id: matrix-drive-file-0000, account_id: accounts.id}}
+  GET /v1/documents/drive-files: {probe: tenant, query: {source: onedrive}}
+  POST /v1/documents/from-drive:
+    probe: tenant
+    body: {file_id: matrix-drive-file-0000, account_id: accounts.id, source: onedrive}
   PUT /v1/documents/{document_id}/content:
     probe: tenant
     params: {document_id: documents.id}
@@ -653,6 +656,14 @@ routes:
     probe: staff
     params: {tenant_id: owner}
     allow_service_unavailable: true
+  GET /operator/v1/console/runs/{tenant_id}/{run_id}:
+    probe: staff
+    params: {tenant_id: owner, run_id: account_runs.id}
+  POST /operator/v1/console/clients/{tenant_id}/users:
+    probe: staff
+    params: {tenant_id: owner}
+    body: {email: "matrix-op-probe@example.com", role: viewer}
+    allow_service_unavailable: true
   GET /operator/v1/console/users:
     probe: staff
     public: [owner, memberships.user_id]
@@ -751,6 +762,8 @@ routes:
   PATCH /v1/users:
     probe: tenant
     body: {user_id: memberships.user_id, expected_version: 1, role: viewer}
+  GET /v1/users/team: {probe: tenant}
+  POST /v1/users/invite: {probe: tenant, body: {email: "matrix-probe@example.com", role: viewer}}
   GET /v1/sso/session: {probe: tenant}
   GET /v1/me: {probe: tenant, allow_service_unavailable: true}
   GET /v1/sso/sessions: {probe: tenant}

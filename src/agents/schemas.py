@@ -210,6 +210,9 @@ class DistillInput(_Strict):
     statable_fact_ids: tuple[str, ...] = ()
     # code-written feedback for the one bounded re-ask after a narrative was dropped whole
     notes: str | None = Field(default=None, max_length=600)
+    # New research's optional goal, in the user's words (data, never an order): the narrative
+    # leads with the facts relevant to it
+    focus: str | None = Field(default=None, max_length=500)
 
 
 class Claim(_Strict):

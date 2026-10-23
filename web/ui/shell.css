@@ -1,4 +1,6 @@
-/* Shells: the user workspace (248px light sidebar) and the admin console (232px navy sidebar).
+/* Shells: the user workspace and the admin console, both on the pale periwinkle sidebar (pastel
+   palette, 2026-10-23): each menu item has a lavender icon tile; the page you are on is a white
+   raised pill with a solid blue tile.
    Below 760px the sidebar becomes an overlay menu opened from a top bar (Escape closes it and
    focus returns to the Menu button; the page behind is inert while it is open). */
 
@@ -8,8 +10,8 @@
 
 /* ---------- User sidebar ---------- */
 .side {
-  flex: 0 0 var(--sidebar); width: var(--sidebar); padding: 20px 16px; display: flex; flex-direction: column; gap: 18px;
-  background: var(--bg);
+  flex: 0 0 var(--sidebar); width: var(--sidebar); padding: 20px 14px; display: flex; flex-direction: column; gap: 18px;
+  background: var(--side-bg); border-right: 1px solid var(--side-line);
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
 .logo { display: flex; align-items: center; gap: 10px; padding: 0 4px; color: var(--ink); }
@@ -21,15 +23,18 @@
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav a {
-  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border-radius: var(--r-field);
-  font-size: 14px; color: var(--text-nav); transition: background var(--ease), color var(--ease);
+  display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 10px; border-radius: var(--r-btn);
+  font-size: 14px; font-weight: 600; color: var(--text-nav); transition: background var(--ease), color var(--ease), box-shadow var(--ease);
 }
-.nav a:hover { background: var(--hover); }
-.nav a[aria-current="page"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--sh-ring); }
+.nav a:hover { background: var(--hover); color: var(--ink); }
+.nav a[aria-current="page"] { background: var(--surface); color: var(--ink); font-weight: 700; box-shadow: var(--sh-raised); }
+.ni { width: 30px; height: 30px; flex: none; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: var(--lav-bg); color: var(--lav-ink); transition: background var(--ease), color var(--ease); }
+[aria-current="page"] > .ni { background: var(--accent); color: #fff; }
 .nav a .badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 
 .rec { display: flex; flex-direction: column; }
 .rec .lbl { font-size: 11px; padding: 0 12px 6px; }
+.rec a.all { color: var(--accent); font-weight: 600; }
 .rec a { display: block; padding: 9px 12px; border-radius: var(--r-seg); font-size: 13px; color: var(--text-nav); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background var(--ease); }
 .rec a:hover { background: var(--hover); }
 .rec a[aria-current="page"] { background: var(--hover); color: var(--ink); }
@@ -42,8 +47,8 @@
 .note.warn { border-color: var(--warn-card-line); background: var(--warn-card); }
 
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
-.me { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; min-width: 0; }
-.avatar { width: 32px; height: 32px; border-radius: 99px; background: var(--accent-tint); color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+.me { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; min-width: 0; padding: 10px; border-radius: var(--r-btn); background: var(--surface); border: 1px solid var(--side-line); }
+.avatar { width: 34px; height: 34px; border-radius: 99px; background: var(--lav-bg); color: var(--lav-ink); display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
 .me .who { min-width: 0; }
 .me .nm { font-weight: 600; }
 .me .em { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -51,7 +56,7 @@
 .me .out:hover { color: var(--accent); text-decoration: underline; }
 
 .model-missing { margin: 0; padding: 8px 24px; font-size: 13px; line-height: 1.4; color: var(--warn-ink); background: var(--warn-card); border-bottom: 1px solid var(--warn-card-line); }
-.main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+.main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; }
 .aside-admin + .main, .aside-admin ~ .main { border-left: 0; }
 .main.fill { height: 100vh; }
 
@@ -81,27 +86,27 @@
 .head .ttl { flex: 1 1 220px; min-width: 0; }
 .head .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .head h1 { margin-top: 4px; }
-.intro { font-size: 15px; color: var(--muted); line-height: 1.5; margin-top: 6px; }
+.intro { font-size: 15px; color: var(--muted); line-height: 1.55; margin-top: 6px; }
 .intro.lg { font-size: 16px; line-height: 1.55; margin-top: 8px; }
 
 /* ---------- Admin console ---------- */
 .aside-admin {
   flex: 0 0 var(--admin-sidebar); width: var(--admin-sidebar); padding: 20px 14px; display: flex; flex-direction: column; gap: 20px;
-  background: var(--admin-bg); position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  background: var(--admin-bg); border-right: 1px solid var(--side-line); position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
-.aside-admin .logo { color: #fff; padding: 0 6px; }
+.aside-admin .logo { color: var(--ink); padding: 0 6px; }
 .aside-admin .logo .by { color: var(--admin-faint); }
 .an { display: flex; flex-direction: column; gap: 2px; }
-.an a { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: var(--r-field); font-size: 14px; color: var(--admin-text); transition: background var(--ease), color var(--ease); }
-.an a:hover { background: var(--admin-hover); color: #fff; }
-.an a[aria-current="page"] { background: var(--admin-on); color: #fff; font-weight: 600; }
+.an a { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: var(--r-btn); font-size: 14px; font-weight: 600; color: var(--admin-text); transition: background var(--ease), color var(--ease); }
+.an a:hover { background: var(--admin-hover); color: var(--ink); }
+.an a[aria-current="page"] { background: var(--admin-on); color: var(--ink); font-weight: 700; box-shadow: var(--sh-raised); }
 .aside-admin .foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
-.viewas { display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: var(--r-field); border: 1px solid var(--admin-line); color: #fff; font-size: 13px; font-weight: 600; background: transparent; }
+.viewas { display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: var(--r-btn); border: 1px solid var(--admin-line); color: var(--accent); font-size: 13px; font-weight: 700; background: var(--surface); }
 .viewas:hover { background: var(--admin-hover); }
 .aside-admin .who { color: var(--admin-text); font-size: 13px; padding: 0 6px; }
 .aside-admin .who .em { color: var(--admin-faint); font-size: 12px; }
 .aside-admin .who button { color: var(--admin-text); background: none; border: 0; padding: 0; font-size: 12px; font-weight: 600; min-height: 24px; }
-.aside-admin .who button:hover { color: #fff; text-decoration: underline; }
+.aside-admin .who button:hover { color: var(--accent); text-decoration: underline; }
 .pg.admin { padding: 36px 44px; }
 .split.admin { padding: 36px 44px; }
 
@@ -114,8 +119,8 @@
 @media (max-width: 759px) {
   .app { flex-direction: column; }
   .main { border-left: 0; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 0; z-index: 20; }
-  .topbar.dark { background: var(--admin-bg); color: #fff; border-bottom-color: var(--admin-line); }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--side-line); background: var(--side-bg); position: sticky; top: 0; z-index: 20; }
+  .topbar.dark { background: var(--admin-bg); color: var(--ink); border-bottom-color: var(--admin-line); }
   .side, .aside-admin {
     position: fixed; top: 0; left: 0; bottom: 0; z-index: 50; width: min(300px, 86vw); height: 100vh;
     transform: translateX(-105%); transition: transform var(--ease); box-shadow: var(--sh-composer); visibility: hidden;

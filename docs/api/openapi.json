@@ -3490,6 +3490,11 @@
           "settings": {
             "$ref": "#/components/schemas/ConsoleClientSettings"
           },
+          "suspended": {
+            "default": false,
+            "title": "Suspended",
+            "type": "boolean"
+          },
           "user_idle_days": {
             "items": {
               "type": "integer"
@@ -4109,6 +4114,17 @@
             "title": "Job Id",
             "type": "string"
           },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
           "started_at": {
             "title": "Started At",
             "type": "string"
@@ -4137,6 +4153,52 @@
           "status"
         ],
         "title": "ConsoleRun",
+        "type": "object"
+      },
+      "ConsoleRunDetail": {
+        "additionalProperties": false,
+        "description": "One run for the operator (A6 detail): what it was, and its token card.",
+        "properties": {
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "finished_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished Reason"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "token_use": {
+            "$ref": "#/components/schemas/TokenUse"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "client",
+          "run_id",
+          "status",
+          "finished_reason",
+          "token_use"
+        ],
+        "title": "ConsoleRunDetail",
         "type": "object"
       },
       "ConsoleRuns": {
@@ -5871,7 +5933,7 @@
       },
       "DriveFile": {
         "additionalProperties": false,
-        "description": "One file of the caller's Google Drive that a research can read (metadata only).",
+        "description": "One file of the caller's Google Drive or OneDrive that a research can read (metadata only;\n``google_native``: a Google Doc, Sheet or Slides file, added as its export).",
         "properties": {
           "google_native": {
             "title": "Google Native",
@@ -5925,7 +5987,7 @@
       },
       "DriveFileList": {
         "additionalProperties": false,
-        "description": "Response body: the caller's newest readable Drive files.",
+        "description": "Response body: the caller's newest readable files in the chosen source (Google Drive or\nOneDrive).",
         "properties": {
           "files": {
             "items": {
@@ -6898,7 +6960,7 @@
       },
       "FromDrive": {
         "additionalProperties": false,
-        "description": "A file from the caller's own Google Drive. No tenant field.",
+        "description": "A file from the caller's own Google Drive or OneDrive. No tenant field.",
         "properties": {
           "account_id": {
             "anyOf": [
@@ -6915,8 +6977,17 @@
           "file_id": {
             "maxLength": 200,
             "minLength": 10,
-            "pattern": "^[A-Za-z0-9_-]+$",
+            "pattern": "^[A-Za-z0-9!_-]+$",
             "title": "File Id",
+            "type": "string"
+          },
+          "source": {
+            "default": "google_drive",
+            "enum": [
+              "google_drive",
+              "onedrive"
+            ],
+            "title": "Source",
             "type": "string"
           }
         },
@@ -7463,6 +7534,35 @@
           "file_available"
         ],
         "title": "InternalView",
+        "type": "object"
+      },
+      "InviteBody": {
+        "additionalProperties": false,
+        "description": "A teammate to invite: their work email and role. No tenant field.",
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "analyst",
+              "seller",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "title": "InviteBody",
         "type": "object"
       },
       "KeyAdded": {
@@ -8134,6 +8234,14 @@
           },
           "mail": {
             "$ref": "#/components/schemas/MailDriveFamily"
+          },
+          "sources": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MailDriveSource"
+            },
+            "title": "Sources",
+            "type": "array"
           }
         },
         "required": [
@@ -8187,6 +8295,17 @@
             "title": "Accounts",
             "type": "integer"
           },
+          "broken_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broken Reason"
+          },
           "items": {
             "title": "Items",
             "type": "integer"
@@ -8201,6 +8320,66 @@
               }
             ],
             "title": "Kind"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_sync_listed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Listed"
+          },
+          "last_sync_matched": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Matched"
+          },
+          "last_sync_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Status"
           },
           "last_synced_at": {
             "anyOf": [
@@ -8277,6 +8456,234 @@
           "available"
         ],
         "title": "MailDriveOption",
+        "type": "object"
+      },
+      "MailDriveSource": {
+        "additionalProperties": false,
+        "description": "One source (Gmail, Google Drive, Outlook, OneDrive or SharePoint) of the signed-in user:\nits status, last sync outcome and error code (never provider text), and what was matched.",
+        "properties": {
+          "accounts": {
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "broken_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broken Reason"
+          },
+          "family": {
+            "enum": [
+              "google",
+              "microsoft"
+            ],
+            "title": "Family",
+            "type": "string"
+          },
+          "group": {
+            "enum": [
+              "mail",
+              "drive"
+            ],
+            "title": "Group",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_sync_listed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Listed"
+          },
+          "last_sync_matched": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Matched"
+          },
+          "last_sync_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Status"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "status": {
+            "enum": [
+              "connected",
+              "not_connected",
+              "not_available",
+              "broken"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "family",
+          "group",
+          "available",
+          "status",
+          "accounts",
+          "items",
+          "last_synced_at"
+        ],
+        "title": "MailDriveSource",
+        "type": "object"
+      },
+      "MailDriveSynced": {
+        "additionalProperties": false,
+        "description": "What \"Sync now\" did for one family.",
+        "properties": {
+          "family": {
+            "enum": [
+              "google",
+              "microsoft"
+            ],
+            "title": "Family",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/MailDriveSyncedSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "family",
+          "sources"
+        ],
+        "title": "MailDriveSynced",
+        "type": "object"
+      },
+      "MailDriveSyncedSource": {
+        "additionalProperties": false,
+        "description": "One source's \"Sync now\" outcome (counts and a code only).",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "listed": {
+            "title": "Listed",
+            "type": "integer"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "state": {
+            "enum": [
+              "ok",
+              "partial",
+              "failed",
+              "broken",
+              "skipped"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "state",
+          "listed",
+          "matched",
+          "reason"
+        ],
+        "title": "MailDriveSyncedSource",
         "type": "object"
       },
       "MappingBody": {
@@ -8852,6 +9259,35 @@
           "admin_email"
         ],
         "title": "NewClient",
+        "type": "object"
+      },
+      "NewClientUser": {
+        "additionalProperties": false,
+        "description": "Invite user: one more person for a client, by work email and role.",
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "default": "analyst",
+            "enum": [
+              "admin",
+              "analyst",
+              "seller",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "NewClientUser",
         "type": "object"
       },
       "NewTenant": {
@@ -10325,6 +10761,18 @@
             "title": "Domain",
             "type": "string"
           },
+          "goal": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
           "request_id": {
             "format": "uuid",
             "title": "Request Id",
@@ -10592,6 +11040,11 @@
         "additionalProperties": false,
         "description": "One web research on the Research screen (running or finished recently).",
         "properties": {
+          "can_resume": {
+            "default": false,
+            "title": "Can Resume",
+            "type": "boolean"
+          },
           "can_stop": {
             "title": "Can Stop",
             "type": "boolean"
@@ -11351,6 +11804,11 @@
         "additionalProperties": false,
         "description": "Response body: run status view.",
         "properties": {
+          "can_resume": {
+            "default": false,
+            "title": "Can Resume",
+            "type": "boolean"
+          },
           "coverage": {
             "$ref": "#/components/schemas/CoverageView"
           },
@@ -12934,6 +13392,142 @@
           "domain"
         ],
         "title": "Target",
+        "type": "object"
+      },
+      "Team": {
+        "additionalProperties": false,
+        "description": "Response body: the workspace's teammates.",
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/TeamMember"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "title": "Team",
+        "type": "object"
+      },
+      "TeamInvite": {
+        "additionalProperties": false,
+        "description": "A teammate invite. ``invite_url`` is only set for a new address (to copy when not emailed);\nan existing account is added and signs in with its own password.",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "emailed": {
+            "title": "Emailed",
+            "type": "boolean"
+          },
+          "existing_account": {
+            "title": "Existing Account",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "invite_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invite Url"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role",
+          "existing_account",
+          "invite_url",
+          "expires_at",
+          "emailed"
+        ],
+        "title": "TeamInvite",
+        "type": "object"
+      },
+      "TeamMember": {
+        "additionalProperties": false,
+        "description": "One teammate as the Teammates page shows them.",
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "you": {
+            "title": "You",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "display_name",
+          "role",
+          "status",
+          "version",
+          "pending",
+          "you"
+        ],
+        "title": "TeamMember",
         "type": "object"
       },
       "TenantChoice": {
@@ -14596,6 +15190,76 @@
         ]
       }
     },
+    "/operator/v1/console/clients/{tenant_id}/users": {
+      "post": {
+        "description": "A3 Invite user: add one more person to a client (the rules: api.team_invites; an existing\naccount is added without a link).",
+        "operationId": "invite_client_user_operator_v1_console_clients__tenant_id__users_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewClientUser"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamInvite"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Invite Client User",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
     "/operator/v1/console/defaults": {
       "get": {
         "description": "A7: the platform defaults.",
@@ -15016,6 +15680,76 @@
           }
         },
         "summary": "Runs",
+        "tags": [
+          "admin-console"
+        ]
+      }
+    },
+    "/operator/v1/console/runs/{tenant_id}/{run_id}": {
+      "get": {
+        "description": "A6 detail: one run of one client, with the same token card the client sees.",
+        "operationId": "run_detail_operator_v1_console_runs__tenant_id___run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleRunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Detail",
         "tags": [
           "admin-console"
         ]
@@ -21156,7 +21890,7 @@
     },
     "/v1/documents/drive-files": {
       "get": {
-        "description": "The caller's newest Drive files a research can read, optionally by name.",
+        "description": "The caller's newest files a research can read in ``source``, optionally by name.",
         "operationId": "drive_files_v1_documents_drive_files_get",
         "parameters": [
           {
@@ -21167,6 +21901,20 @@
               "default": "",
               "maxLength": 100,
               "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "default": "google_drive",
+              "enum": [
+                "google_drive",
+                "onedrive"
+              ],
+              "title": "Source",
               "type": "string"
             }
           },
@@ -21277,7 +22025,7 @@
     },
     "/v1/documents/from-drive": {
       "post": {
-        "description": "Fetch one of the caller's Drive files on the server into quarantine and enqueue its scan.",
+        "description": "Fetch one of the caller's Google Drive or OneDrive files on the server into quarantine and\nenqueue its scan.",
         "operationId": "import_from_drive_v1_documents_from_drive_post",
         "parameters": [
           {
@@ -22615,7 +23363,7 @@
     },
     "/v1/mail-and-drive": {
       "get": {
-        "description": "The caller's Mail and Drive cards.",
+        "description": "The caller's sources, grouped by family, and the Mail and Drive cards.",
         "operationId": "mail_and_drive_v1_mail_and_drive_get",
         "parameters": [
           {
@@ -22671,23 +23419,65 @@
           {
             "in": "query",
             "name": "state",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 16,
-              "title": "State",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
             }
           },
           {
             "in": "query",
             "name": "code",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 2000,
-              "minLength": 1,
-              "title": "Code",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error_description",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error Description"
             }
           },
           {
@@ -22735,7 +23525,7 @@
     },
     "/v1/mail-and-drive/{family}/disconnect": {
       "post": {
-        "description": "Revoke, destroy the token and delete what the caller's connection synced.",
+        "description": "Revoke, destroy the token and delete what the caller's connection synced (``mail``,\n``drive`` or one source kind).",
         "operationId": "disconnect_v1_mail_and_drive__family__disconnect_post",
         "parameters": [
           {
@@ -22745,7 +23535,12 @@
             "schema": {
               "enum": [
                 "mail",
-                "drive"
+                "drive",
+                "gmail",
+                "outlook",
+                "google_drive",
+                "onedrive",
+                "sharepoint"
               ],
               "title": "Family",
               "type": "string"
@@ -22791,6 +23586,69 @@
           }
         },
         "summary": "Disconnect",
+        "tags": [
+          "mail-and-drive"
+        ]
+      }
+    },
+    "/v1/mail-and-drive/{family}/sync": {
+      "post": {
+        "description": "Sync the caller's own active connections of one family now.",
+        "operationId": "sync_now_v1_mail_and_drive__family__sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "family",
+            "required": true,
+            "schema": {
+              "enum": [
+                "google",
+                "microsoft"
+              ],
+              "title": "Family",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailDriveSynced"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Now",
         "tags": [
           "mail-and-drive"
         ]
@@ -26740,6 +27598,116 @@
           }
         },
         "summary": "Add User",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/invite": {
+      "post": {
+        "description": "Invite a teammate (see account_intelligence.api.team_invites for when a link is made).",
+        "operationId": "invite_v1_users_invite_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamInvite"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Invite",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/team": {
+      "get": {
+        "description": "The members with email and name; ``pending`` while an invited person has not accepted.",
+        "operationId": "team_v1_users_team_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Team",
         "tags": [
           "users"
         ]

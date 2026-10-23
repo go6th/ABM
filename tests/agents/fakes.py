@@ -124,6 +124,9 @@ class FakeCredit:
         self.proposals = getattr(self, "proposals", 0) + 1
         return ctx.run_id in self.budgets
 
+    async def accept_tokens(self, ctx: RunContext) -> None:
+        self.tokens_accepted = getattr(self, "tokens_accepted", 0) + 1
+
     async def request_approval(
         self, ctx: RunContext, proposals: Sequence[Mapping[str, Any]], total_micros: int
     ) -> str:

@@ -1,10 +1,14 @@
 /* Ask: the empty state, the thread, the composers and the "What this answer used" panel. */
 .ask { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-.ask-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 48px; gap: 28px; }
+.ask-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 48px; gap: 24px; }
+/* the soft blue band holding the greeting, the composer and the limit line (pastel, 2026-10-23) */
+.ask-band { width: 100%; max-width: calc(var(--chat) + 80px); display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 40px; border-radius: 24px; background: var(--hero-bg); border: 1px solid var(--hero-line); }
 .ask-empty .hero { text-align: center; }
-.ask-empty h1 { font-size: 36px; }
-.ask-empty .lead { margin-top: 10px; font-size: 16px; color: var(--muted); }
+.ask-empty .hero .hi { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 6px 12px; border-radius: var(--r-pill); background: var(--surface); color: var(--lav-ink); font-size: 13px; font-weight: 700; }
+.ask-empty h1 { font-size: 40px; }
+.ask-empty .lead { margin-top: 10px; font-size: 16px; color: var(--text-3); }
+@media (max-width: 759px) { .ask-band { padding: 24px 16px; } .ask-empty { padding: 24px 16px; } .ask-empty h1 { font-size: 30px; } }
 
 .composer {
   position: relative; width: 100%; max-width: var(--chat); background: var(--surface); border: 1px solid var(--line);
@@ -46,7 +50,7 @@
 .ask-dock .ask-side { visibility: hidden; height: 0; }
 @media (min-width: 1240px) { .ask-side { display: block; } .used-inline { display: none; } }
 
-.bubble { align-self: flex-end; max-width: 80%; background: var(--ink); color: #fff; padding: 14px 18px; border-radius: 18px 18px 4px 18px; font-size: 16px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble { align-self: flex-end; max-width: 80%; background: var(--hero-bg); color: var(--ink); border: 1px solid var(--hero-line); padding: 14px 18px; border-radius: 18px 18px 4px 18px; font-size: 16px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reply { display: flex; flex-direction: column; gap: 14px; }
 .searching { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
 .searching .pdot { width: 8px; height: 8px; border-radius: 9px; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }

@@ -215,6 +215,37 @@ class Members(Out):
     members: list[Member]
 
 
+class TeamMember(Out):
+    """One teammate as the Teammates page shows them."""
+
+    user_id: str
+    email: str | None
+    display_name: str | None
+    role: str
+    status: str
+    version: int
+    pending: bool
+    you: bool
+
+
+class Team(Out):
+    """Response body: the workspace's teammates."""
+
+    members: list[TeamMember]
+
+
+class TeamInvite(Out):
+    """A teammate invite. ``invite_url`` is only set for a new address (to copy when not emailed);
+    an existing account is added and signs in with its own password."""
+
+    email: str
+    role: str
+    existing_account: bool
+    invite_url: str | None
+    expires_at: str | None
+    emailed: bool
+
+
 # ---- accounts, runs, progress ---------------------------------------------------------------
 
 
@@ -587,6 +618,8 @@ class ResearchLiveItem(Out):
     label: str
     open: bool
     can_stop: bool
+    # Resume research is offered: the account page's rule on this run (workspace.can_resume)
+    can_resume: bool = False
     step: LiveStepAt | None
     steps_done: int
     steps_total: int
@@ -914,6 +947,8 @@ class RunStatusView(Out):
     # the models the run used, in words ("Research: Opus 5.5 · Analysis: Fable 5.1"), and any
     # step a fallback served (owner decision 2026-10-14); None for a run from before the choice
     models_line: str | None = None
+    # Resume research is offered: the account page's rule on this run (workspace.can_resume)
+    can_resume: bool = False
     # input plus output tokens of every model call the run has stored so far (the token meter)
     tokens_used: int = 0
     # the token card (None for a status read that did not compute it)
@@ -2226,7 +2261,8 @@ class DocumentPassages(Out):
 
 
 class DriveFile(Out):
-    """One file of the caller's Google Drive that a research can read (metadata only)."""
+    """One file of the caller's Google Drive or OneDrive that a research can read (metadata only;
+    ``google_native``: a Google Doc, Sheet or Slides file, added as its export)."""
 
     id: str
     name: str
@@ -2237,7 +2273,8 @@ class DriveFile(Out):
 
 
 class DriveFileList(Out):
-    """Response body: the caller's newest readable Drive files."""
+    """Response body: the caller's newest readable files in the chosen source (Google Drive or
+    OneDrive)."""
 
     files: list[DriveFile]
 
@@ -2326,6 +2363,33 @@ class MailDriveFamily(Out):
     accounts: int
     items: int
     last_synced_at: str | None
+    broken_reason: str | None = None
+    last_sync_status: Literal["ok", "partial", "failed"] | None = None
+    last_error: str | None = None
+    last_error_at: str | None = None
+    last_sync_listed: int | None = None
+    last_sync_matched: int | None = None
+
+
+class MailDriveSource(Out):
+    """One source (Gmail, Google Drive, Outlook, OneDrive or SharePoint) of the signed-in user:
+    its status, last sync outcome and error code (never provider text), and what was matched."""
+
+    kind: str
+    label: str
+    family: Literal["google", "microsoft"]
+    group: Literal["mail", "drive"]
+    available: bool
+    status: Literal["connected", "not_connected", "not_available", "broken"]
+    accounts: int
+    items: int
+    last_synced_at: str | None
+    broken_reason: str | None = None
+    last_sync_status: Literal["ok", "partial", "failed"] | None = None
+    last_error: str | None = None
+    last_error_at: str | None = None
+    last_sync_listed: int | None = None
+    last_sync_matched: int | None = None
 
 
 class MailAndDrive(Out):
@@ -2334,6 +2398,25 @@ class MailAndDrive(Out):
     allowed: bool
     mail: MailDriveFamily
     drive: MailDriveFamily
+    sources: list[MailDriveSource] = []
+
+
+class MailDriveSyncedSource(Out):
+    """One source's "Sync now" outcome (counts and a code only)."""
+
+    kind: str
+    label: str
+    state: Literal["ok", "partial", "failed", "broken", "skipped"]
+    listed: int
+    matched: int
+    reason: str | None
+
+
+class MailDriveSynced(Out):
+    """What "Sync now" did for one family."""
+
+    family: Literal["google", "microsoft"]
+    sources: list[MailDriveSyncedSource]
 
 
 class MailDriveConnect(Out):
@@ -2501,6 +2584,7 @@ class ConsoleClientDetail(Out):
     user_idle_days: list[int]
     pending_invites: list[str]
     isolation: ConsoleIsolation
+    suspended: bool = False
 
 
 class ConsoleUser(Out):
@@ -2589,6 +2673,19 @@ class ConsoleRun(Out):
     credits: int
     started_at: str
     status: str
+    # the run behind the job once it started (opens the run detail); None while queued
+    run_id: str | None = None
+
+
+class ConsoleRunDetail(Out):
+    """One run for the operator (A6 detail): what it was, and its token card."""
+
+    tenant_id: str
+    client: str
+    run_id: str
+    status: str
+    finished_reason: str | None
+    token_use: TokenUse
 
 
 class ConsoleRuns(Out):

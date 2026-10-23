@@ -1,6 +1,7 @@
 "use client";
 // Runs and spend (A6): credits used this month by purpose, the nightly isolation check, and every
-// research run and refresh across clients (newest first).
+// research run and refresh across clients (newest first); a started run opens its detail.
+import Link from "next/link";
 import { Fragment } from "react";
 import { useOperatorApi } from "../useOperatorApi";
 import { ConsoleLoad } from "../ConsoleLoad";
@@ -34,7 +35,7 @@ export default function Runs() {
         {d.runs.map((r) => (
           <div key={r.job_id} className="trow cols-runs">
             <span>{r.client}</span>
-            <b>{r.account}</b>
+            <b>{r.run_id ? <Link href={`/operator/runs/${r.tenant_id}/${r.run_id}`}>{r.account}</Link> : r.account}</b>
             <span>{r.type}</span>
             <span>{num(r.credits)}</span>
             <span>{started(r.started_at)}</span>

@@ -5,7 +5,8 @@ an admin can re-enable them in one click (``identity.membership.reenable``).
 Activity is any signed-in use (``replica.settings.touch_activity``: each page load and each
 question). A member who never signed in has no activity yet and is not expired: they are still an
 invite. Ending access goes through ``identity.membership.end_access`` (so every sign-in method and
-every API call refuses them) and ends their sessions.
+every API call refuses them) and ends their sessions; ``on_expired`` (the access-expiry task
+passes the Mail and drive purge) runs for each expired user in the same transaction.
 
 ``expire_idle`` runs in one client's transaction; ``expire_everywhere`` loops over the clients,
 each in its own transaction, and one client's failure never stops the others.
@@ -15,6 +16,7 @@ GUARANTEE(test_idle_users_are_warned_then_expired_and_history_is_kept)
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -48,7 +50,12 @@ class ExpiryReport:
         )
 
 
-async def expire_idle(s: Any, now: datetime) -> tuple[int, int]:
+OnExpired = Callable[[Any, str, datetime], Awaitable[object]]
+
+
+async def expire_idle(
+    s: Any, now: datetime, on_expired: OnExpired | None = None
+) -> tuple[int, int]:
     """Warn and expire the idle users of the caller's client; returns (warned, expired)."""
     days = (await client_settings(s)).idle_expiry_days
     rows = (
@@ -68,6 +75,8 @@ async def expire_idle(s: Any, now: datetime) -> tuple[int, int]:
         if idle >= days:
             if await membership.end_access(s, r.user_id, "expired", ACTOR, now):
                 await sessions.revoke_all(s, r.user_id, "access_expired", now)
+                if on_expired is not None:
+                    await on_expired(s, r.user_id, now)
                 expired += 1
         elif idle >= days - WARN_DAYS and not r.warned:
             await notify(s, user_id=r.user_id, kind="access_expiring")
@@ -75,7 +84,9 @@ async def expire_idle(s: Any, now: datetime) -> tuple[int, int]:
     return warned, expired
 
 
-async def expire_everywhere(plain_factory: Any, txn: Any, now: datetime) -> ExpiryReport:
+async def expire_everywhere(
+    plain_factory: Any, txn: Any, now: datetime, on_expired: OnExpired | None = None
+) -> ExpiryReport:
     """One pass over every client (identifiers from ``operator_tenant_overview``)."""
     report = ExpiryReport()
     async with plain_factory() as plain:
@@ -89,7 +100,7 @@ async def expire_everywhere(plain_factory: Any, txn: Any, now: datetime) -> Expi
     for tid in ids:
         try:
             async with txn(tid) as s:
-                warned, expired = await expire_idle(s, now)
+                warned, expired = await expire_idle(s, now, on_expired)
         except Exception:  # one client's failure never stops the others; reported by id
             report.failed.append(str(tid))
             continue

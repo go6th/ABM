@@ -15,8 +15,12 @@
   delivery (G5, G15).
 * The build node requires a stored sense check over the same manifest and facts (G6).
 * Spending beyond the approved cap pauses through an interrupt in attended runs and is recorded in
-  unattended ones (G7, D-96); the only approval points are ``cap_approval``, ``spend_gate`` and
-  ``sense_approval``.
+  unattended ones (G7, D-96); the approval points are ``cap_approval``, ``spend_gate``,
+  ``sense_approval`` and ``token_gate``.
+* ``token_gate``: a model node whose next paid call would pass the run's token guard (a multiple
+  of its pre-run token estimate, ``connectors.spend_guard.check_tokens``; on while the research
+  caps are off) pauses every run, attended or not, and asks; continuing re-runs that node (its
+  finished replies replay free), declining ends the run with what it found.
 * ``finish`` is the only node that settles, and the wallet settles once per run.
 * The state holds ids, counters and small references only.
 * Interrupt values follow the runner's convention: ``awaiting: approval`` for the first cap
@@ -42,6 +46,7 @@ from uuid import UUID
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from account_intelligence.connectors.spend_guard import TokenGuardReached
 from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 from account_intelligence.workflow.ports import BuildIncomplete
 from account_intelligence.workflow.state import merge_maps, sum_counters
@@ -168,6 +173,10 @@ class AbmState(TypedDict, total=False):
     spend_declined: bool
     spend_pauses: int
     pending_spend_row: str | None
+    # the model node the token guard paused (token_gate re-runs it once the user continues)
+    token_pause_node: str | None
+    token_resume_node: str | None
+    token_pauses: int
     manifest_digest: str
     sense_pass: int
     to_run: list[dict[str, str]]
@@ -180,6 +189,10 @@ class AbmState(TypedDict, total=False):
     # row. ``topic`` is the user's own words for a topic refresh (a search phrase, never an order)
     scope_rows: list[str] | None
     topic: str | None
+    # New research's optional goal (the user's words, data never an order): adds one search to
+    # each ``goal_rows`` row on top of its own queries and steers the distill summary
+    goal: str | None
+    goal_rows: list[str]
     error_code: str | None
     missing_rows: list[str]
     # client file kinds the gate held back (the others were delivered)
@@ -332,6 +345,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         internal = internal_history_allowed(settings.internal_history, cfg.internal_history_default)
         agent = PullAgent(reg["pull"], cfg, deps.provider, deps.payloads, deps.clock, deps.internal)
         agent.topic = state.get("topic")
+        agent.goal = state.get("goal")
+        agent.goal_rows = frozenset(state.get("goal_rows") or ())
         in_scope = _in_scope(state, cfg)
         agent.record_refusals = bool(
             state.get("cap_declined")
@@ -495,7 +510,13 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         people: list[Any],
     ) -> None:
         grading_lock = asyncio.Lock()
+        # the token guard reached during a step: calls already in flight finish and are kept
+        # (a cancelled call would be paid again after the user continues), no new one starts,
+        # and the node pauses once the step's calls are done
+        guard: list[TokenGuardReached] = []
         for step in STEPS:
+            if guard:
+                raise guard[0]
             if step == "people" and not consent_ok:
                 continue
             if step == "people" and not getattr(deps.grading, "records_people", True):
@@ -513,8 +534,13 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 agent: AgentContract = reg[step],
             ) -> ExtractionResult | None:
                 async with gate:
+                    if guard:
+                        return ExtractionResult()
                     try:
                         return await extract(agent, deps.model, m, ctx, group, cfg)
+                    except TokenGuardReached as reached:
+                        guard.append(reached)
+                        return ExtractionResult()
                     except BudgetExceeded:
                         return None
                     except ContextTooLong:
@@ -555,6 +581,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             for g in groups(cfg, views, step):
                 by_need.setdefault(g.group, []).append(g)
             await _all_or_none(need(inputs) for inputs in by_need.values())
+        if guard:
+            raise guard[0]
 
     async def _grade_and_record(
         ctx: RunContext,
@@ -575,14 +603,21 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             except NotConfigured:
                 drops["people_not_recorded"] += len(people)
 
-    def model_guarded(fn: Any) -> Any:
-        """A model node whose terminal model failure ends the run partial (see MODEL_FAILURES)."""
+    def model_guarded(name: str, fn: Any) -> Any:
+        """A model node whose terminal model failure ends the run partial (see MODEL_FAILURES)
+        and whose token guard pauses it at ``token_gate`` (which re-runs node ``name``)."""
 
         async def guarded(state: AbmState) -> dict[str, Any]:
             """Run the node; a terminal model failure becomes a partial outcome."""
             try:
                 out: dict[str, Any] = await fn(state)
                 return out
+            except TokenGuardReached as reached:
+                _log.info(
+                    "token_guard.reached",
+                    extra={"count": reached.tokens, "rows": reached.threshold},
+                )
+                return {"token_pause_node": name}
             except Exception as error:  # noqa: BLE001 - re-raised unless it is a model failure
                 code = model_failure_code(error)
                 if code is None:
@@ -591,6 +626,28 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
 
         guarded.__name__ = fn.__name__
         return guarded
+
+    async def token_gate(state: AbmState) -> dict[str, Any]:
+        """Pause and ask once the run's tokens reached its token guard (owner decision
+        2026-10-23). Continuing raises the guard by its multiple of the estimate again and re-runs
+        the paused node; stopping ends the run with what it found."""
+        decision = interrupt(
+            {"awaiting": "cap", "reason": "tokens", "node": state.get("token_pause_node")}
+        )
+        pauses = state.get("token_pauses", 0) + 1
+        if not decision:
+            return _fail("token_guard_stopped", token_pause_node=None, token_pauses=pauses)
+        await deps.credit.accept_tokens(context(state))
+        return {
+            "token_pause_node": None,
+            "token_resume_node": state.get("token_pause_node"),
+            "token_pauses": pauses,
+        }
+
+    def after_token_gate(state: AbmState) -> str:
+        if state.get("outcome") == "failed":
+            return "finish"
+        return str(state.get("token_resume_node") or "finish")
 
     async def interpret(state: AbmState) -> dict[str, Any]:
         """Steps 2 to 4, interpretation: extract, grade and report every row to the tracker."""
@@ -779,7 +836,14 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         statable = frozenset(f.fact_id for f in facts if may_state(f.grade))
         try:
             res = await distill(
-                reg["distill"], deps.model, meter("distill"), ctx, facts, "public", statable
+                reg["distill"],
+                deps.model,
+                meter("distill"),
+                ctx,
+                facts,
+                "public",
+                statable,
+                focus=state.get("goal"),
             )
         except BudgetExceeded:
             return _fail("distill_budget_exceeded")
@@ -930,8 +994,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             outcome = "completed"
         return {"settled": True, "outcome": outcome}
 
+    def token_paused(route: Any) -> Any:
+        """A model node's edge: to ``token_gate`` when the token guard paused it."""
+        return lambda state: "token_gate" if state.get("token_pause_node") else route(state)
+
     def ok_or_finish(target: str) -> Any:
-        return lambda state: "finish" if state.get("outcome") == "failed" else target
+        return token_paused(lambda state: "finish" if state.get("outcome") == "failed" else target)
 
     g: StateGraph[AbmState] = StateGraph(AbmState)
     for name, fn in (
@@ -940,11 +1008,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         ("pull", pull),
         ("spend_gate", spend_gate),
         ("load_manifest", load_manifest),
-        ("interpret", model_guarded(interpret)),
-        ("sense_check", model_guarded(sense)),
+        ("interpret", model_guarded("interpret", interpret)),
+        ("sense_check", model_guarded("sense_check", sense)),
         ("sense_approval", sense_approval),
-        ("targeted_pulls", model_guarded(targeted_pulls)),
-        ("distill", model_guarded(distill_node)),
+        ("targeted_pulls", model_guarded("targeted_pulls", targeted_pulls)),
+        ("distill", model_guarded("distill", distill_node)),
+        ("token_gate", token_gate),
         ("build", build),
         ("gate", gate),
         ("deliver", deliver),
@@ -969,7 +1038,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
     g.add_edge("spend_gate", "pull")
     g.add_conditional_edges("load_manifest", ok_or_finish("interpret"))
     g.add_conditional_edges("interpret", ok_or_finish("sense_check"))
-    g.add_conditional_edges("sense_check", after_sense)
+    g.add_conditional_edges("sense_check", token_paused(after_sense))
+    g.add_conditional_edges(
+        "token_gate",
+        after_token_gate,
+        ["interpret", "sense_check", "targeted_pulls", "distill", "finish"],
+    )
     g.add_edge("sense_approval", "targeted_pulls")
     g.add_conditional_edges("targeted_pulls", ok_or_finish("sense_check"))
     g.add_conditional_edges("distill", ok_or_finish("build"))

@@ -1,6 +1,7 @@
 """The connector scope table (CN1): which scopes each source may hold, and the CRM object and
-field allow-lists. A grant whose scopes differ from the table (wider, or changed on refresh) is
-refused. ``config/connectors.yaml`` (status: proposal, scopes [VERIFY]).
+field allow-lists. A grant whose data scopes differ from the table (wider, or changed on refresh)
+is refused; sign-in scopes (openid, profile, email, offline_access, User.Read) are ignored.
+``config/connectors.yaml`` (status: proposal, scopes [VERIFY]).
 
 GUARANTEE(test_scopes_are_exactly_the_table_and_crm_fields_are_allow_listed)
 """
@@ -86,9 +87,40 @@ def spec(kind: str) -> ConnectorSpec:
     return load()[0][kind]
 
 
+# Sign-in scopes an identity platform adds to (or reports with) a grant. They read no mail and
+# no files, so a grant may carry them or leave them out; ``offline_access`` is Microsoft's
+# refresh-token scope (the refresh token's presence is checked separately).
+IDENTITY_SCOPES = frozenset(
+    {
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "user.read",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+    }
+)
+_GRAPH = "https://graph.microsoft.com/"
+
+
+def normalise_scope(scope: str) -> str:
+    """One scope in a comparable form: Microsoft returns Graph scopes either as full URLs
+    (``https://graph.microsoft.com/Mail.Read``) or short names, case-insensitively; Google
+    scopes are URLs. Lower-cased, with the Graph resource prefix removed."""
+    value = scope.strip().lower()
+    return value[len(_GRAPH) :] if value.startswith(_GRAPH) else value
+
+
+def _resource_scopes(scopes: tuple[str, ...] | frozenset[str]) -> frozenset[str]:
+    return frozenset(normalise_scope(s) for s in scopes if s.strip()) - IDENTITY_SCOPES
+
+
 def scopes_ok(kind: str, granted: tuple[str, ...] | frozenset[str]) -> bool:
-    """True only when the granted scopes are exactly the table's (never wider, never other)."""
-    return frozenset(granted) == spec(kind).scopes
+    """True when every scope the table requires is granted and nothing wider is: the granted
+    scopes, normalised and without sign-in scopes (``IDENTITY_SCOPES``), are exactly the table's
+    (a wider or other data scope is refused)."""
+    return _resource_scopes(granted) == _resource_scopes(spec(kind).scopes)
 
 
 def allowed_fields(

@@ -478,6 +478,52 @@ async def mark_synced(s: Any, connection_id: UUID, now: datetime) -> None:
     )
 
 
+async def record_sync(
+    s: Any,
+    connection_id: UUID,
+    *,
+    now: datetime,
+    status: str,
+    listed: int,
+    matched: int,
+    cursor: str | None,
+    complete: bool,
+    error: str | None,
+) -> None:
+    """Record one Mail and drive sync (migration 0082). ``ok``: the cursor and
+    ``last_synced_at`` advance; ``partial``: only the cursor (the next sync resumes, and the
+    connection stays due); ``failed``: neither, and the fixed error code and its time are kept.
+    The counts are always written; a sync that did not fail clears the last error."""
+    if status not in ("ok", "partial", "failed"):
+        raise ValueError("unknown sync status")
+    if status == "failed":
+        await s.execute(
+            text(
+                "UPDATE connector_connections SET last_sync_status = 'failed',"
+                " last_sync_listed = :l, last_sync_matched = :m, last_error = :e,"
+                " last_error_at = :now WHERE id = :c"
+            ),
+            {"l": listed, "m": matched, "e": error or "sync_error", "now": now, "c": connection_id},
+        )
+        return
+    await s.execute(
+        text(
+            "UPDATE connector_connections SET last_sync_status = :st, last_sync_listed = :l,"
+            " last_sync_matched = :m, last_error = NULL, last_error_at = NULL, cursor = :cur,"
+            " last_synced_at = CASE WHEN :done THEN :now ELSE last_synced_at END WHERE id = :c"
+        ),
+        {
+            "st": status,
+            "l": listed,
+            "m": matched,
+            "cur": cursor,
+            "done": complete and status == "ok",
+            "now": now,
+            "c": connection_id,
+        },
+    )
+
+
 async def delete_connection_items(s: Any, connection_id: UUID) -> int:
     """Delete everything a connection synced (Disconnect). Returns how many rows went."""
     gone = await s.execute(

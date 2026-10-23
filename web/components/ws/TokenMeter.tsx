@@ -58,7 +58,8 @@ function pill(state: MeterState, at: { index: number; total: number } | null) {
 }
 
 export function TokenMeter({ run, steps = [], at = null, status }: {
-  run: RunStatusView;
+  /** the run's token figures (the whole run view, or just its token card) */
+  run: Pick<RunStatusView, "token_use"> & Partial<Pick<RunStatusView, "tokens_used">>;
   /** the run's steps with their states (``RunProgress.steps`` or the mapped list) */
   steps?: MeterStep[];
   /** the step the run is at, for the "step 4 of 8" pill */

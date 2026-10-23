@@ -82,7 +82,8 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
     # uploaded documents for input mode "file": admins and sellers upload, viewers never do
     ("POST", "/v1/documents/uploads"): _tenant(_UPLOADERS, "run"),
     ("PUT", "/v1/documents/{document_id}/content"): _tenant(_UPLOADERS, "run"),
-    # the caller's own Google Drive files (Mail and drive connection), fetched on the server
+    # the caller's own Google Drive or OneDrive files (Mail and drive connection, ``source``
+    # query or body field; never another user's connection), fetched on the server
     ("GET", "/v1/documents/drive-files"): _tenant(_UPLOADERS, "read"),
     ("POST", "/v1/documents/from-drive"): _tenant(_UPLOADERS, "run"),
     ("POST", "/v1/documents/{document_id}/complete"): _tenant(_UPLOADERS, "run"),

@@ -69,6 +69,19 @@ def scope_rows() -> dict[str, tuple[str, ...]]:
     return out
 
 
+@lru_cache(maxsize=1)
+def goal_rows() -> tuple[str, ...]:
+    """The rows a research goal adds searches to (``research_scopes.yaml`` goal_rows),
+    validated against the plan once."""
+    from agents.config import skill_config
+
+    rows = tuple(yaml.safe_load(SCOPES_FILE.read_text()).get("goal_rows") or ())
+    unknown = set(rows) - set(skill_config().plan)
+    if unknown:
+        raise ValueError(f"research_scopes.yaml: goal_rows names unknown rows {sorted(unknown)}")
+    return rows
+
+
 @dataclass(frozen=True)
 class Job:
     """A claimed job, as the engine sees it."""
@@ -85,6 +98,8 @@ class Job:
     models: dict[str, Any] | None = None
     # the stopped run this job continues (its finished pulls and replies are reused at no cost)
     resume_from: UUID | None = None
+    # what the research is for, in the user's words (adds searches and steers the summary)
+    goal: str | None = None
 
 
 @dataclass(frozen=True)
@@ -126,7 +141,12 @@ class HermeticEngine:
                 job.account_id,
                 reserved_credits=job.credits_reserved,
                 idempotency_key=f"job-{job.id}",
-                run_input={"scope": job.scope, "job_id": str(job.id), "topic": job.topic},
+                run_input={
+                    "scope": job.scope,
+                    "job_id": str(job.id),
+                    "topic": job.topic,
+                    **({"goal": job.goal} if job.goal else {}),
+                },
                 grading_config_hash=GRADING_PLACEHOLDER,
                 now=now,
             )
@@ -181,8 +201,16 @@ class GraphEngine:
             }
             if rows:
                 run_input["scope_rows"] = list(rows)
+            # the pre-run token estimate the user saw: the run pauses and asks at a multiple of it
+            # (``connectors.spend_guard.check_tokens``, on while the research caps are off)
+            expected = await _expected_tokens(s, job)
+            if expected:
+                run_input["expected_tokens"] = expected
             if job.topic:
                 run_input["topic"] = job.topic
+            if job.goal:
+                run_input["goal"] = job.goal
+                run_input["goal_rows"] = list(goal_rows())
             if job.models:
                 run_input["models"] = dict(job.models)
             if job.resume_from is not None:
@@ -222,6 +250,15 @@ class GraphEngine:
         if not created.replayed:
             await self.container.scheduler.enqueue_slice(job.tenant_id, created.run_id, 0)
         return EngineResult(created.run_id, Decimal(0), pending=True)
+
+
+async def _expected_tokens(s: Any, job: Job) -> int | None:
+    """The job's pre-run token estimate (``usage_estimate``), None when no estimate applies."""
+    from account_intelligence.replica.usage_estimate import estimate_usage
+    from views.token_use import estimate_key
+
+    key = estimate_key(job.kind, job.scope)
+    return (await estimate_usage(s, key)).tokens if key is not None else None
 
 
 def job_limits(limits: Any, rows: tuple[str, ...]) -> Any:
@@ -312,6 +349,7 @@ async def claim(tenant_id: UUID, job_id: UUID, now: datetime) -> Job | None:
         row.topic,
         dict(row.models) if row.models else None,
         UUID(str(row.resume_from)) if row.resume_from else None,
+        row.goal or None,
     )
 
 

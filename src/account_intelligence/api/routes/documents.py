@@ -7,11 +7,12 @@
   quarantine; a file never passes through the web app.
 * ``POST /v1/documents/{id}/complete``: size checked; the scan is enqueued. Nothing is parsed
   before the scan passed.
-* ``GET /v1/documents/drive-files?q=``: the caller's own Google Drive files a research can read
-  (Mail and drive connection; listed on the server, the token never reaches the browser).
-* ``POST /v1/documents/from-drive``: one of those files, downloaded (or exported, for Google
-  Docs, Sheets and Slides) on the server into quarantine and completed: from there it is scanned
-  and read exactly like an upload.
+* ``GET /v1/documents/drive-files?source=&q=``: the caller's own Google Drive (``source``
+  ``google_drive``, the default) or OneDrive (``onedrive``) files a research can read (Mail and
+  drive connection; listed on the server, the token never reaches the browser).
+* ``POST /v1/documents/from-drive``: one of those files (``source`` as above), downloaded (or
+  exported, for Google Docs, Sheets and Slides) on the server into quarantine and completed: from
+  there it is scanned and read exactly like an upload.
 * ``GET /v1/documents/{id}/status``, ``GET /v1/documents``: scanning, reading (parts done of
   parts total), indexed or failed, with the detected company and each failed part's reason.
 * ``POST /v1/documents/{id}/parts/{n}/retry``: "Try again" on a failed part (n from 1).
@@ -63,12 +64,17 @@ class UploadStart(BaseModel):
     account_id: UUID | None = None
 
 
+DriveSource = Literal["google_drive", "onedrive"]
+
+
 class FromDrive(BaseModel):
-    """A file from the caller's own Google Drive. No tenant field."""
+    """A file from the caller's own Google Drive or OneDrive. No tenant field."""
 
     model_config = ConfigDict(extra="forbid")
-    file_id: str = Field(min_length=10, max_length=200, pattern=r"^[A-Za-z0-9_-]+$")
+    # OneDrive personal ids carry a "!"; each source checks its own id shape again
+    file_id: str = Field(min_length=10, max_length=200, pattern=r"^[A-Za-z0-9!_-]+$")
     account_id: UUID | None = None
+    source: DriveSource = "google_drive"
 
 
 class ConfirmCompany(BaseModel):
@@ -168,11 +174,12 @@ async def start_upload(
 _DRIVE_STATUS = {
     "not_available": 409, "not_allowed": 403, "drive_not_connected": 409, "drive_broken": 409,
     "drive_file_not_found": 404, "too_large": 422, "wrong_type": 422, "empty": 422,
+    "drive_unreachable": 502,
 }  # fmt: skip
 
 
-async def _drive_token(request: Request, ident: Identity) -> str:
-    """The caller's own fresh Drive access token (server side only)."""
+async def _drive_token(request: Request, ident: Identity, source: str) -> str:
+    """The caller's own fresh access token for ``source`` (server side only)."""
     from account_intelligence.api.routes.maildrive import _apps, _oauth
     from account_intelligence.api.tenant_plane import plane_of
     from connectors_client.drive_files import DriveUnavailable, user_drive_token
@@ -185,20 +192,35 @@ async def _drive_token(request: Request, ident: Identity) -> str:
             oauth=_oauth(request),
             store=plane_of(request).secrets,
             apps=_apps(request),
+            kind=source,
         )
     except DriveUnavailable as refused:
-        raise _drive_problem(refused) from None
+        raise _drive_problem(refused, source) from None
 
 
-def _drive_problem(refused: Any) -> APIProblem:
+def _drive_problem(refused: Any, source: str) -> APIProblem:
+    from connectors_client.drive_files import LABEL
+
     status = _DRIVE_STATUS.get(refused.code, 422)
-    return APIProblem(status, refused.code, "Google Drive", str(refused))
+    return APIProblem(status, refused.code, LABEL[source], str(refused))
 
 
-def _drive_files(request: Request) -> Any:
-    from connectors_client.drive_files import HttpDriveFiles
+def _drive_unreachable(source: str) -> APIProblem:
+    from connectors_client.drive_files import LABEL
 
-    found = request.app.state.container.extras.get("drive_files")
+    label = LABEL[source]
+    return APIProblem(502, "drive_unreachable", label, f"{label} did not answer. Try again.")
+
+
+def _drive_files(request: Request, source: str) -> Any:
+    """The reader for ``source`` (a test fake from the container's extras, if one is set)."""
+    from connectors_client.drive_files import HttpDriveFiles, HttpOneDriveFiles
+
+    extras = request.app.state.container.extras
+    if source == "onedrive":
+        found = extras.get("onedrive_files")
+        return found if found is not None else HttpOneDriveFiles()
+    found = extras.get("drive_files")
     return found if found is not None else HttpDriveFiles()
 
 
@@ -206,17 +228,16 @@ def _drive_files(request: Request) -> Any:
 async def drive_files(
     request: Request,
     q: str = Query(default="", max_length=100),
+    source: DriveSource = Query(default="google_drive"),
     ident: Identity = Depends(require_role(*UPLOADERS)),
 ) -> dict[str, Any]:
-    """The caller's newest Drive files a research can read, optionally by name."""
+    """The caller's newest files a research can read in ``source``, optionally by name."""
     await limit_user(ident, "drive_list")
-    token = await _drive_token(request, ident)
+    token = await _drive_token(request, ident, source)
     try:
-        files = await _drive_files(request).list(token, q)
-    except Exception as error:  # noqa: BLE001 - Google's failure is shown, never its detail
-        raise APIProblem(
-            502, "drive_unreachable", "Google Drive", "Google Drive did not answer. Try again."
-        ) from error
+        files = await _drive_files(request, source).list(token, q)
+    except Exception as error:  # noqa: BLE001 - the source's failure is shown, never its detail
+        raise _drive_unreachable(source) from error
     return {
         "files": [
             {
@@ -236,14 +257,15 @@ async def drive_files(
 async def import_from_drive(
     body: FromDrive, request: Request, ident: Identity = Depends(require_role(*UPLOADERS))
 ) -> dict[str, Any]:
-    """Fetch one of the caller's Drive files on the server into quarantine and enqueue its scan."""
+    """Fetch one of the caller's Google Drive or OneDrive files on the server into quarantine and
+    enqueue its scan."""
     await limit_user(ident, "document_upload")
     from connectors_client.drive_files import DriveUnavailable
     from documents.service import DocumentError
 
     docs = _docs(request)
-    token = await _drive_token(request, ident)
-    reader = _drive_files(request)
+    token = await _drive_token(request, ident, body.source)
+    reader = _drive_files(request, body.source)
     spool = None
     try:
         file = await reader.get(token, body.file_id)
@@ -257,15 +279,13 @@ async def import_from_drive(
             body.account_id,
         )
     except DriveUnavailable as refused:
-        raise _drive_problem(refused) from None
+        raise _drive_problem(refused, body.source) from None
     except DocumentError as error:
         raise _problem(error) from None
     except APIProblem:
         raise
-    except Exception as error:  # noqa: BLE001 - Google's failure is shown, never its detail
-        raise APIProblem(
-            502, "drive_unreachable", "Google Drive", "Google Drive did not answer. Try again."
-        ) from error
+    except Exception as error:  # noqa: BLE001 - the source's failure is shown, never its detail
+        raise _drive_unreachable(body.source) from error
     finally:
         if spool is not None:
             spool.unlink(missing_ok=True)
@@ -274,7 +294,10 @@ async def import_from_drive(
             s,
             request,
             audit_class="run",
-            action="document_drive_import",
+            # the source is part of the action: Google Drive keeps the name it always had
+            action="document_drive_import"
+            if body.source == "google_drive"
+            else f"document_drive_import_{body.source}",
             resource_type="document",
             resource_id=out["document_id"],
         )

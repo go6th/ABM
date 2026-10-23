@@ -228,7 +228,8 @@ async def runs(s: Any, limit: int) -> list[dict[str, Any]]:
     """The newest research jobs (new research, refreshes, file analysis) with their credits."""
     rows = await s.execute(
         text(
-            "SELECT j.id, coalesce(a.name, a.domain) AS account, j.kind, j.scope, j.status,"
+            "SELECT j.id, j.run_id, coalesce(a.name, a.domain) AS account, j.kind, j.scope,"
+            " j.status,"
             " CASE WHEN j.status IN ('done', 'failed', 'canceled') THEN j.credits_used"
             "   ELSE j.credits_estimated END AS credits,"
             " coalesce(j.started_at, j.created_at) AS started"
@@ -240,6 +241,7 @@ async def runs(s: Any, limit: int) -> list[dict[str, Any]]:
     return [
         {
             "job_id": str(r.id),
+            "run_id": str(r.run_id) if r.run_id else None,
             "account": str(r.account),
             "type": KIND_LABEL.get(r.kind, r.kind)
             + (f", {r.scope}" if r.kind == "web_refresh" and r.scope != "full" else ""),
@@ -261,3 +263,20 @@ async def credits_by_purpose(s: Any, now: datetime) -> dict[str, int]:
         {"p": period_of(now)},
     )
     return {str(r.purpose): int(r.n) for r in rows}
+
+
+async def run_header(s: Any, run_id: Any) -> dict[str, Any] | None:
+    """One run of the context tenant for the operator's run detail: its status, why it ended and
+    the client's name; None when the run is not this tenant's."""
+    row = (
+        await s.execute(
+            text(
+                "SELECT r.status, r.finished_reason, t.name FROM account_runs r"
+                " JOIN tenants t ON t.id = r.tenant_id WHERE r.id = :r"
+            ),
+            {"r": run_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    return {"status": str(row.status), "finished_reason": row.finished_reason, "client": row.name}

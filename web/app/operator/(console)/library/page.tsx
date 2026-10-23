@@ -113,6 +113,55 @@ function PublishPassed({ ids, onDone }: { ids: string[]; onDone: () => void }) {
   );
 }
 
+/** Unpublish one account from the clients chosen (it disappears from their workspace). */
+function UnpublishOne({ id, name, onDone }: { id: string; name: string; onDone: () => void }) {
+  const clients = useOperatorApi("GET /operator/v1/console/clients");
+  const [open, setOpen] = useState(false);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const unpublish = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await operatorRequest("POST /operator/v1/library/{library_account_id}/unpublish", { params: { library_account_id: id }, body: { tenant_ids: [...chosen] } });
+      setOpen(false);
+      setChosen(new Set());
+      onDone();
+    } catch {
+      setError("Unpublishing did not finish. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger className="link-danger sm-text">Unpublish<span className="sr-only"> {name}</span></Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="overlay" />
+        <Dialog.Content className="dialog">
+          <Dialog.Title>Unpublish {name}</Dialog.Title>
+          <Dialog.Description>The account disappears from the workspaces of the clients you choose.</Dialog.Description>
+          <fieldset className="stack-6">
+            <legend className="sr-only">Clients</legend>
+            {(clients.data?.clients ?? []).map((c) => (
+              <label key={c.tenant_id} className="check">
+                <input type="checkbox" checked={chosen.has(c.tenant_id)} onChange={(e) => setChosen((prev) => { const next = new Set(prev); if (e.target.checked) next.add(c.tenant_id); else next.delete(c.tenant_id); return next; })} />
+                {c.name}
+              </label>
+            ))}
+          </fieldset>
+          {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
+          <div className="row-12 wrap">
+            <button type="button" className="btn danger" disabled={busy || !chosen.size} onClick={() => void unpublish()}>{busy ? "Unpublishing" : `Unpublish from ${chosen.size} client${chosen.size === 1 ? "" : "s"}`}</button>
+            <Dialog.Close className="btn">Cancel</Dialog.Close>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 export default function Library() {
   const data = useOperatorApi("GET /operator/v1/library");
   if (!data.data) return <ConsoleLoad title="6th Library" state={data} />;
@@ -130,7 +179,7 @@ export default function Library() {
             <span>{a.deliverables_found} of 5</span>
             <span>{a.internal_left_out ? "Left out" : "None found"}</span>
             <span>{a.check_passed ? <Pill tone="ok" small>Passed</Pill> : <Pill tone="warn" small>{a.issues.length} issue{a.issues.length === 1 ? "" : "s"}</Pill>}</span>
-            <span>{a.clients ? `${a.clients} client${a.clients === 1 ? "" : "s"}` : "Not published"}</span>
+            <span>{a.clients ? <>{`${a.clients} client${a.clients === 1 ? "" : "s"}`} <UnpublishOne id={a.id} name={a.name} onDone={data.reload} /></> : "Not published"}</span>
           </div>
         ))}
         {!rows.length ? <div className="state"><h2>The library is empty</h2><p>Upload a finished account workspace to start.</p></div> : null}

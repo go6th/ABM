@@ -103,6 +103,36 @@ The SQL private IP is shown by `gcloud sql instances describe ai-ENV-pg --format
 - **Tenant sign-in** uses Identity Platform (created by Terraform); per-client SSO connections
   are configured in the product.
 
+#### Mail and drive go-live (Gmail, Google Drive, Outlook, OneDrive, SharePoint)
+
+Per user, read-only; matched items are private to their owner (owner decision 2026-10-14).
+
+1. **Domain.** Use a domain you own for `PUBLIC_BASE_URL` (https). Google does not verify apps on
+   wildcard DNS such as `*.sslip.io`.
+2. **Google.** In the environment's Google Cloud project: OAuth consent screen (External), scopes
+   `gmail.readonly` and `drive.readonly`; an OAuth client of type "Web application" with redirect
+   URI `https://DOMAIN/v1/mail-and-drive/callback`. Both scopes are *restricted*: until the app
+   passes Google verification (including the CASA security assessment), only listed test users
+   can connect and their refresh tokens expire after 7 days.
+3. **Microsoft.** Entra ID app registration, "Accounts in any organizational directory and
+   personal Microsoft accounts", Web redirect URI as above, delegated Graph permissions
+   `Mail.Read`, `Files.Read`, `Sites.Read.All` and `offline_access`; a client secret (note its
+   expiry date). `Sites.Read.All` needs admin consent in most customer tenants.
+4. **Configure.** The guided way: `uv run --frozen python scripts/maildrive_setup.py configure
+   --env staging` (domain and ids into terraform.tfvars, prints the DNS record and redirect URI),
+   deploy, then `... secrets --env staging` (hidden input, straight into Secret Manager) and
+   `... check --env staging` (must print READY). Google verification material:
+   docs/deploy/google-oauth-verification.md. By hand: client ids into the `maildrive` Terraform variable
+   (`google_client_id`, `microsoft_client_id`), secrets into `maildrive-google-client-secret` and
+   `maildrive-microsoft-client-secret`, then apply. The `maildrive-sync` Cloud Scheduler job runs
+   hourly (`5 * * * *`).
+5. **Check before telling anyone.** From an operator machine with the same environment:
+   `uv run --frozen python scripts/maildrive_selfcheck.py --cloud --network`, then with a test
+   user's session cookie `--api https://DOMAIN --cookie "<cookie>"`. It must print READY.
+6. **Smoke test.** As a test user: Mail and drive → Connect Gmail → consent → back on the page as
+   Connected → Sync now → "items matched" appears for an account whose domain you emailed →
+   Ask about that account cites the email → Disconnect (asks first) → the items are gone.
+
 ### 1.6 Database users (once per environment)
 
 Connect as the built-in `postgres` user through Cloud SQL Studio or the Cloud SQL Auth Proxy from

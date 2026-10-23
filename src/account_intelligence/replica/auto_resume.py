@@ -196,7 +196,7 @@ async def continue_run(
     job = (
         await s.execute(
             text(
-                "SELECT kind, scope, topic, models, requested_by FROM research_jobs"
+                "SELECT kind, scope, topic, models, requested_by, goal FROM research_jobs"
                 " WHERE run_id = :r ORDER BY created_at DESC LIMIT 1"
             ),
             {"r": run_id},
@@ -247,6 +247,7 @@ async def continue_run(
         models=dict(job.models) if job is not None and job.models else None,
         enforce_pool=False,
         resume_from=run_id,
+        goal=job.goal if job is not None else None,
     )
     return Continued(job_id, status, True, requester, UUID(str(run.account_id)))
 

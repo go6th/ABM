@@ -653,6 +653,11 @@ def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
     return out
 
 
+# the member file a passage of an uploaded archive came from (``documents.chunking.cite``):
+# ``member`` on a row or a plain section, ``from.member`` on a section merged across units
+_MEMBER = "coalesce(p.location->>'member', p.location->'from'->>'member')"
+
+
 async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
     """Give the model the whole of the file the question is about (owner decision 2026-10-17:
     an answer over a spreadsheet must count every row, as a file attached to a chat does).
@@ -660,7 +665,14 @@ async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
     The file is the one the best-ranked retrieved passage came from. Its passages, in order,
     become one ``whole_file`` row (cited as one source) and leave ``ws.passages``; a file above
     ``max_chars`` stays as retrieved passages only, so a question never ships more than the
-    budget to the model. Same tenant scope as retrieval (row level security)."""
+    budget to the model. Same tenant scope as retrieval (row level security).
+
+    An uploaded archive is one document whose passages span every member file; each passage
+    names its member in ``location`` (``member`` on a row, ``from.member`` on a merged section,
+    see ``documents.chunking.cite``). There the file is the member the best passage came from:
+    only its passages are loaded, measured against the budget and dropped from the retrieved
+    list, and the row is named "<member> in <archive>". A document that is not an archive has
+    no member and is read whole as before."""
     if not ws.passages or max_chars <= 0:
         return
     best = ws.passages[0].key  # passage:<document id>:<seq>
@@ -668,17 +680,21 @@ async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
     if len(parts) != 3:
         return
     try:
-        doc_id = UUID(parts[1])
+        doc_id, seq = UUID(parts[1]), int(parts[2])
     except ValueError:
         return
     head = (
         await session.execute(
             text(
-                "SELECT d.name, d.account_id, count(p.id) AS n, coalesce(sum(length(p.content)), 0)"
-                " AS chars FROM documents d JOIN document_passages p ON p.document_id = d.id"
-                " WHERE d.id = :d GROUP BY d.id, d.name, d.account_id"
+                "WITH best AS (SELECT " + _MEMBER + " AS member FROM document_passages p"
+                " WHERE p.document_id = :d AND p.seq = :s)"
+                " SELECT d.name, d.account_id, best.member, count(p.id) AS n,"
+                " coalesce(sum(length(p.content)), 0) AS chars"
+                " FROM documents d JOIN best ON true JOIN document_passages p"
+                " ON p.document_id = d.id AND " + _MEMBER + " IS NOT DISTINCT FROM best.member"
+                " WHERE d.id = :d GROUP BY d.id, d.name, d.account_id, best.member"
             ),
-            {"d": doc_id},
+            {"d": doc_id, "s": seq},
         )
     ).first()
     if head is None or not head.n or int(head.chars) > max_chars:
@@ -686,16 +702,21 @@ async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
     acct = next((a for a in ws.accounts if a.id == head.account_id), None)
     if acct is None:
         return
-    contents = (
+    member = str(head.member) if head.member else None
+    rows = (
         await session.execute(
-            text("SELECT content FROM document_passages WHERE document_id = :d ORDER BY seq"),
-            {"d": doc_id},
+            text(
+                "SELECT p.seq, p.content FROM document_passages p WHERE p.document_id = :d"
+                " AND " + _MEMBER + " IS NOT DISTINCT FROM CAST(:m AS text) ORDER BY p.seq"
+            ),
+            {"d": doc_id, "m": member},
         )
-    ).scalars()
-    body = "\n".join(str(c).strip() for c in contents if c)
+    ).all()
+    body = "\n".join(str(r.content).strip() for r in rows if r.content)
     if not body.strip():
         return
-    name = str(head.name or "an uploaded file")
+    archive = str(head.name or "an uploaded file")
+    name = f"{member} in {archive}" if member else archive
     ws.whole_files = [
         Row(
             key=f"whole:{doc_id}",
@@ -707,11 +728,16 @@ async def take_whole_file(session: Any, ws: Workspace, max_chars: int) -> None:
             when=None,
             url=None,
             grade="internal",
-            extra={"whole_file": True, "document": name, "lines": body.count("\n") + 1},
+            extra={
+                "whole_file": True,
+                "document": name,
+                "lines": body.count("\n") + 1,
+                **({"member": member} if member else {}),
+            },
         )
     ]
-    prefix = f"passage:{doc_id}:"
-    ws.passages = [r for r in ws.passages if not r.key.startswith(prefix)]
+    taken = {f"passage:{doc_id}:{r.seq}" for r in rows}
+    ws.passages = [r for r in ws.passages if r.key not in taken]
 
 
 async def _tracker_rows(session: Any, by_id: dict[UUID, Acct], scope: set[UUID]) -> list[Row]:

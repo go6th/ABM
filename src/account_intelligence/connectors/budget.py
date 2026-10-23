@@ -102,3 +102,15 @@ async def touch(session: AsyncSession, run_id: UUID) -> None:
     await session.execute(
         text("UPDATE account_runs SET progress_at = now() WHERE id = :r"), {"r": run_id}
     )
+
+
+async def accept_tokens(session: AsyncSession, run_id: UUID, tokens: int) -> None:
+    """The user let the run go on past its token guard at ``tokens`` (the next pause is that
+    many tokens plus the guard's multiple of the estimate; ``spend_guard.check_tokens``)."""
+    await session.execute(
+        text(
+            "UPDATE account_runs SET run_input = jsonb_set(COALESCE(run_input, '{}'::jsonb),"
+            " '{token_guard_ok}', to_jsonb(CAST(:t AS bigint))) WHERE id = :r"
+        ),
+        {"r": run_id, "t": int(tokens)},
+    )

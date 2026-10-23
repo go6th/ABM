@@ -96,6 +96,28 @@ def test_a_topic_refresh_still_searches_the_users_words() -> None:
     assert phrasings_for(CFG, row, ctx, 2026)[0] == "Acme podcast interview"
 
 
+def test_a_research_goal_adds_searches_and_keeps_the_rows_own() -> None:
+    """Owner decision 2026-10-23: a goal ADDS one search per goal row after the row's own
+    queries, never replacing them; the goal rows come from research_scopes.yaml."""
+    from uuid import uuid4
+
+    from account_intelligence.replica.jobs import goal_rows, scope_rows
+    from agents.ports import RunContext
+    from agents.pull.agent import GOAL_PHRASINGS, phrasings_for
+
+    ctx = RunContext(uuid4(), uuid4(), "k", "Acme", "acme.example", False, CFG.config_version)
+    assert goal_rows() == scope_rows()["topic"]
+    for key in goal_rows():
+        row = CFG.plan[key]
+        own = phrasings_for(CFG, row, ctx, 2026)
+        aimed = phrasings_for(CFG, row, ctx, 2026, goal="  their   HR stack ")
+        assert aimed[: len(own)] == own
+        assert aimed[len(own) :] == ("Acme their HR stack",)
+        assert len(aimed) - len(own) == len(GOAL_PHRASINGS)
+    long = phrasings_for(CFG, CFG.plan["company_news"], ctx, 2026, goal="y" * 500)
+    assert len(long[-1]) == len("Acme ") + 200
+
+
 @pytest.mark.asyncio
 async def test_people_rows_are_not_paid_for_while_people_cannot_be_saved(h: Harness) -> None:
     """With consent, a people-step row is skipped (no call) while grading cannot record people;

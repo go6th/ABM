@@ -13,3 +13,5 @@ user_buckets:
   research_resume:     {capacity: 20,  refill_per_second: 0.05}      # 20 at once, then 3 a minute
   download_everything: {capacity: 10,  refill_per_second: 0.0028}    # 10 at once, then 10 an hour
   export:              {capacity: 30,  refill_per_second: 0.05}      # 30 at once, then 3 a minute
+  maildrive_sync_google:    {capacity: 1, refill_per_second: 0.0084}  # Sync now: once per 2 minutes per user
+  maildrive_sync_microsoft: {capacity: 1, refill_per_second: 0.0084}  # Sync now: once per 2 minutes per user

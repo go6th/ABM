@@ -11,7 +11,21 @@ export function resumingLine(done: number, total: number): string {
   return total > 0 ? `Resuming: ${done} of ${total} steps already done` : "Resuming";
 }
 
-export function ResumeResearch({ stopped }: { stopped: StoppedRun }) {
+/** What a resumed research says: how much it already holds and that the user will be told. */
+export function ResumingNote({ resumed, compact = false }: { resumed: ResearchResumed; compact?: boolean }) {
+  const text = `${resumingLine(resumed.steps_done, resumed.steps_total)}. You will be notified when it finishes.`;
+  if (compact) return <span className="sm-text" role="status">{text}</span>;
+  return <div className="banner" role="status"><span className="pdot" aria-hidden="true" />{text}</div>;
+}
+
+/** "Resume research" for one run the server offers it on (``can_resume``, or the account's
+ * ``stopped_run``): continues it with what it holds; a retried click is the same request. Used on
+ * the account page, the Research board and the run page. */
+export function ResumeButton({ runId, compact = false, onResumed }: {
+  runId: string;
+  compact?: boolean;
+  onResumed?: (resumed: ResearchResumed) => void;
+}) {
   const router = useRouter();
   const requestId = useRef(crypto.randomUUID());
   const [busy, setBusy] = useState(false);
@@ -22,7 +36,9 @@ export function ResumeResearch({ stopped }: { stopped: StoppedRun }) {
     setBusy(true);
     setMessage(null);
     try {
-      setDone(await api<ResearchResumed>("POST", "/v1/research/resume", { run_id: stopped.run_id, request_id: requestId.current }));
+      const resumed = await api<ResearchResumed>("POST", "/v1/research/resume", { run_id: runId, request_id: requestId.current });
+      setDone(resumed);
+      onResumed?.(resumed);
       router.refresh();
     } catch (cause) {
       requestId.current = crypto.randomUUID();
@@ -31,17 +47,25 @@ export function ResumeResearch({ stopped }: { stopped: StoppedRun }) {
     }
   };
 
-  if (done) {
-    return <div className="banner" role="status"><span className="pdot" aria-hidden="true" />{resumingLine(done.steps_done, done.steps_total)}. You will be notified when it finishes.</div>;
-  }
+  if (done) return <ResumingNote resumed={done} compact={compact} />;
+  return (
+    <>
+      {message ? <span className="sm-text bad-text" role="alert">{message}</span> : null}
+      <button type="button" className={`btn primary${compact ? " sm" : " align-start"}`} disabled={busy} onClick={() => void resume()}>{busy ? "Resuming…" : "Resume research"}</button>
+    </>
+  );
+}
+
+export function ResumeResearch({ stopped }: { stopped: StoppedRun }) {
+  const [done, setDone] = useState<ResearchResumed | null>(null);
+  if (done) return <ResumingNote resumed={done} />;
   return (
     <section className="card pad stack-10" aria-labelledby="stopped-title">
       <div className="strong" id="stopped-title">{stopped.stalled ? "This research stalled" : "This research stopped before finishing"}</div>
       <p className="mut sm-text">
         {stopped.reason} Everything found so far is kept{stopped.steps_total ? ` (${stopped.steps_done} of ${stopped.steps_total} steps done)` : ""}. Resuming reuses it at no cost.
       </p>
-      {message ? <p className="sm-text bad-text" role="alert">{message}</p> : null}
-      <button type="button" className="btn primary align-start" disabled={busy} onClick={() => void resume()}>{busy ? "Resuming…" : "Resume research"}</button>
+      <ResumeButton runId={stopped.run_id} onResumed={setDone} />
     </section>
   );
 }

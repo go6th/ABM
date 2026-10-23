@@ -78,9 +78,11 @@ async def distill(
     facts: tuple[StoredFact, ...],
     audience: Role,
     statable: Collection[str] | None = None,
+    focus: str | None = None,
 ) -> DistillResult:
     """See the module docstring. ``statable`` is the fact ids a narrative may state; None means
-    the facts graded ``confirmed``."""
+    the facts graded ``confirmed``. ``focus`` is the research goal the user wrote (the narrative
+    leads with the facts relevant to it)."""
     visible = for_audience(facts, audience)
     allowed = (
         frozenset(statable)
@@ -92,6 +94,7 @@ async def distill(
         audience="client" if audience == "public" else "internal",
         facts=visible,
         statable_fact_ids=tuple(sorted(allowed & {f.fact_id for f in visible})),
+        focus=" ".join((focus or "").split())[:500] or None,
     )
     drops: Counter[str] = Counter()
     if not visible:

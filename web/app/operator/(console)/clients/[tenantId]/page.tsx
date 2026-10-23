@@ -2,13 +2,14 @@
 // Client detail (A3): limits per user (account cap, idle expiry, monthly credit pool), the 6th
 // Library accounts published to this client, features (mail and drive, web refresh by users,
 // fastest schedule), and THIS CLIENT NOW with Save changes, See users and the isolation status.
-// While the invited user has not accepted, a new invite link can be made here.
+// While the invited user has not accepted, a new invite link can be made here. Invite user adds
+// one more person (an existing account without a link).
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import { operatorRequest } from "@/lib/operator-api";
-import type { ClientInvite, ConsoleClientDetail, ConsoleClientSettings } from "@/lib/gen/api.gen";
+import type { ClientInvite, ConsoleClientDetail, ConsoleClientSettings, TeamInvite } from "@/lib/gen/api.gen";
 import { useOperatorApi } from "../../useOperatorApi";
 import { ConsoleLoad } from "../../ConsoleLoad";
 import { Pill } from "@/ui/design";
@@ -24,6 +25,92 @@ function Seg<T extends string | number | boolean>({ label, value, options, onCha
         <button key={String(v)} type="button" aria-pressed={value === v} onClick={() => onChange(v)}>{text}</button>
       ))}
     </div>
+  );
+}
+
+/** Invite user: one more person for this client. An existing account is added without a link
+ *  (they sign in with their own password); a new person gets a link to copy. */
+function InviteUser({ tenantId, onDone }: { tenantId: string; onDone: () => void }) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("analyst");
+  const [busy, setBusy] = useState(false);
+  const [made, setMade] = useState<TeamInvite | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const send = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setMade(null);
+    try {
+      setMade(await operatorRequest("POST /operator/v1/console/clients/{tenant_id}/users", { params: { tenant_id: tenantId }, body: { email: email.trim().toLowerCase(), role } }));
+      setEmail("");
+      onDone();
+    } catch (cause) {
+      setError(cause instanceof ApiError && cause.status === 409
+        ? (cause.type.endsWith("invite_pending_elsewhere") ? "This person has an invitation waiting. Once they accept it, invite them again." : cause.detail === "already_member" ? "This person is already a user of this client." : "This address cannot be invited.")
+        : cause instanceof ApiError && cause.status === 402 ? "This client has no free seats." : "The user could not be invited. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="card pad stack-14" onSubmit={(e) => void send(e)} aria-labelledby="invite-user-title">
+      <h2 id="invite-user-title" className="card-title">Invite user</h2>
+      <div className="row-12 wrap align-top">
+        <div className="field grow-220"><label htmlFor="iu-email">Work email</label><input id="iu-email" className="input" type="email" required maxLength={320} autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+        <div className="field grow-220"><label htmlFor="iu-role">Role</label><select id="iu-role" className="input" value={role} onChange={(e) => setRole(e.target.value)}><option value="analyst">Analyst</option><option value="seller">Seller</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></div>
+      </div>
+      {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
+      {made ? (
+        <div className="stack-8" role="status">
+          {made.existing_account ? <p className="sm-text">{made.email} is added. They already have an account and sign in with their own password.</p> : <>
+            <div className="invite-link">{made.invite_url}</div>
+            <p className="xs-text mut">{made.emailed ? `Emailed to ${made.email}. You can also copy it and send it yourself.` : "Copy it and send it yourself (no email was sent)."} It works once and expires in 24 hours.</p>
+          </>}
+        </div>
+      ) : null}
+      <button type="submit" className="btn primary align-start" disabled={busy}>{busy ? "Inviting" : "Invite user"}</button>
+    </form>
+  );
+}
+
+const SUSPEND_REASONS = [
+  ["client_request", "The client asked"],
+  ["unpaid", "Unpaid"],
+  ["security_review", "Security review"],
+  ["contract_ended", "Contract ended"],
+] as const;
+
+/** Suspend stops the client's sign-ins and research straight away; Reactivate lifts it. */
+function SuspendClient({ tenantId, name, suspended, onDone }: { tenantId: string; name: string; suspended: boolean; onDone: () => void }) {
+  const [reason, setReason] = useState<string>(SUSPEND_REASONS[0][0]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const act = async () => {
+    const ask = suspended
+      ? `Reactivate ${name}? Its users can sign in and research again.`
+      : `Suspend ${name}? Its users are signed out and its research stops until you reactivate it.`;
+    if (!window.confirm(ask)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (suspended) await operatorRequest("POST /operator/v1/tenants/{tenant_id}/reactivate", { params: { tenant_id: tenantId }, body: { reason_code: reason } });
+      else await operatorRequest("POST /operator/v1/tenants/{tenant_id}/suspend", { params: { tenant_id: tenantId }, body: { reason_code: reason } });
+      onDone();
+    } catch (cause) {
+      setError(cause instanceof ApiError && cause.detail ? cause.detail : "That did not work. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card pad stack-14" aria-labelledby="suspend-title">
+      <h2 id="suspend-title" className="lbl">{suspended ? "SUSPENDED" : "SUSPEND CLIENT"}</h2>
+      <p className="sm-text mut">{suspended ? "This client cannot sign in or research." : "Stops every user's sign-in and research for this client."}</p>
+      <div className="field"><label htmlFor="suspend-reason">Reason</label><select id="suspend-reason" className="input" value={reason} onChange={(e) => setReason(e.target.value)}>{SUSPEND_REASONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+      {error ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
+      <button type="button" className={suspended ? "btn block" : "btn danger block"} disabled={busy} onClick={() => void act()}>{busy ? "Working" : suspended ? "Reactivate client" : "Suspend client"}</button>
+    </section>
   );
 }
 
@@ -81,6 +168,7 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
             )}
           </div>
         ) : null}
+        <InviteUser tenantId={c.tenant_id} onDone={reload} />
         <section className="card pad stack-20" aria-labelledby="limits-title">
           <h2 id="limits-title" className="card-title">Limits per user</h2>
           <div className="row-16 wrap">
@@ -165,6 +253,7 @@ function Editor({ detail, reload }: { detail: ConsoleClientDetail; reload: () =>
           <Link className="btn block" href="/operator/users">See users</Link>
           <Pill tone={pill.tone} small>{pill.text}</Pill>
         </section>
+        <SuspendClient tenantId={c.tenant_id} name={c.name} suspended={detail.suspended ?? false} onDone={reload} />
       </div>
     </div>
   );

@@ -328,12 +328,14 @@ class RunDeps:
     async def _spend_check(self) -> None:
         """The run's hard dollar cap before a paid model call: provider and model spend
         together (``connectors.spend_guard``; ``DollarCapReached`` ends the run PARTIAL). Moves
-        the heartbeat."""
+        the heartbeat. The token guard comes first and applies with the caps off too
+        (``TokenGuardReached``: the research graph pauses and asks the user)."""
         from account_intelligence.connectors import spend_guard
 
         if self.txn is None:  # a unit test's deps: no database, no ledger to measure
             return
         async with self.txn(self.tenant_id) as s:
+            await spend_guard.check_tokens(s, self.run_id)
             await spend_guard.check_cap(s, self.run_id)
 
     async def _log_started(

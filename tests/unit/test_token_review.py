@@ -76,9 +76,15 @@ class _Message:
 
 
 @dataclass
+class _Counts:
+    processing: int = 1
+
+
+@dataclass
 class _Batch:
     id: str
     processing_status: str
+    request_counts: _Counts = field(default_factory=_Counts)
 
 
 @dataclass
@@ -228,6 +234,101 @@ async def test_a_batch_past_its_wait_is_cancelled_and_asked_once_at_the_standard
     assert batches.cancelled == ["batch_1"]
     assert len(messages.calls) == 1 and result.extra["batch"] is False
     assert store["record"] == {}  # the next attempt submits afresh
+
+
+# a real Message Batches id shape: it must survive the log scrubber's token filter
+BATCH_ID = "msgbatch_013Zva2CMHLNnXjNJJKqJ2EF"
+
+
+def _scrubbed(caplog: pytest.LogCaptureFixture, event: str) -> list[dict[str, Any]]:
+    """The JSON lines of one event as the production formatter writes them (allow-list and
+    shape filter applied)."""
+    import json
+
+    from obs.catalog import load_catalog
+    from obs.exporters import DropCounter
+    from obs.logging import JsonFormatter
+
+    fmt = JsonFormatter(load_catalog(), DropCounter(), "worker")
+    lines = [json.loads(fmt.format(r)) for r in caplog.records if r.getMessage() == event]
+    return lines
+
+
+@pytest.fixture
+def _fast_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+    from account_intelligence.platform import llm as llm_module
+
+    monkeypatch.setattr(llm_module, "BATCH_PACER", llm_module.RequestPacer(0))
+    monkeypatch.setattr(llm_module, "WAIT_LOG_S", 0.0)  # a waiting line on every poll
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_fast_batches")
+async def test_a_batch_wait_logs_its_progress_and_its_finish(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store: dict[str, Any] = {"record": {"batch_id": BATCH_ID, "submitted_at": 900.0}}
+    batches = _Batches(
+        ["in_progress", "in_progress", "ended"], _Outcome("succeeded", _Message("x"))
+    )
+    llm = AnthropicLlm(_Client(_Messages(batches)), {"extractor": ROUTE}, "anthropic_api")
+    caplog.set_level("INFO", logger="platform.llm")
+    await llm.complete(
+        "extractor", "s", "u", max_tokens=10, options=CallOptions(batch=_slot(store, _Clock()))
+    )
+    assert _scrubbed(caplog, "llm.batch_reattached")[0]["batch_id"] == BATCH_ID
+    waiting = _scrubbed(caplog, "llm.batch_waiting")
+    assert [w["polls"] for w in waiting] == [1, 2]
+    first = waiting[0]
+    assert first["batch_id"] == BATCH_ID and first["waited_s"] == 100
+    assert first["state"] == "in_progress" and first["count"] == 1
+    assert first["model"] == SONNET and first["tier"] == "extractor"
+    (done,) = _scrubbed(caplog, "llm.batch_finished")
+    assert done["batch_id"] == BATCH_ID and done["outcome"] == "succeeded" and done["polls"] == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_fast_batches")
+async def test_a_failed_poll_is_logged_and_raised(caplog: pytest.LogCaptureFixture) -> None:
+    class Broken(_Batches):
+        async def retrieve(self, batch_id: str) -> _Batch:
+            if not self.statuses:
+                raise ConnectionError("reset by peer")
+            return await super().retrieve(batch_id)
+
+    store: dict[str, Any] = {"record": {"batch_id": BATCH_ID, "submitted_at": 1000.0}}
+    batches = Broken(["in_progress"], _Outcome("succeeded", _Message("x")))
+    llm = AnthropicLlm(_Client(_Messages(batches)), {"extractor": ROUTE}, "anthropic_api")
+    with pytest.raises(ConnectionError):
+        await llm.complete(
+            "extractor", "s", "u", max_tokens=10, options=CallOptions(batch=_slot(store, _Clock()))
+        )
+    (failed,) = _scrubbed(caplog, "llm.batch_poll_failed")
+    assert failed["batch_id"] == BATCH_ID and failed["polls"] == 1
+    assert failed["error_class"] == "ConnectionError" and failed["operation"] == "retrieve"
+    assert failed["level"] == "WARNING" and _scrubbed(caplog, "llm.batch_finished") == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_fast_batches")
+async def test_a_cancelled_batch_wait_is_logged_and_raised(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import asyncio
+
+    store: dict[str, Any] = {"record": {"batch_id": BATCH_ID, "submitted_at": 1000.0}}
+    batches = _Batches(["in_progress"] * 100_000, _Outcome("succeeded", _Message("x")))
+    llm = AnthropicLlm(_Client(_Messages(batches)), {"extractor": ROUTE}, "anthropic_api")
+    slot = _slot(store, _Clock())
+    task = asyncio.ensure_future(
+        llm.complete("extractor", "s", "u", max_tokens=10, options=CallOptions(batch=slot))
+    )
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    (gone,) = _scrubbed(caplog, "llm.batch_wait_cancelled")
+    assert gone["batch_id"] == BATCH_ID and gone["polls"] >= 1
 
 
 @pytest.mark.asyncio

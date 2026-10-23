@@ -42,7 +42,9 @@ STATUS_LABELS: Mapping[str, str] = {
 
 
 # The ABM research graph's nodes as the client's eight steps, in order (``finish`` settles and ends
-# every run, whatever happened before it, so it belongs to no step).
+# every run, whatever happened before it, so it belongs to no step; ``token_gate``, the token
+# guard's pause, can follow any model step, so it belongs to none either: the run shows "Waiting for
+# approval" while it waits).
 ABM_STEPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("setup", "Set up", ("setup", "cap_approval")),
     ("search", "Web research", ("pull", "spend_gate", "load_manifest")),
@@ -53,7 +55,10 @@ ABM_STEPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("gate", "Quality check", ("gate",)),
     ("deliver", "Delivery", ("deliver",)),
 )
-ABM_NODES: frozenset[str] = frozenset(n for _, _, nodes in ABM_STEPS for n in nodes) | {"finish"}
+ABM_NODES: frozenset[str] = frozenset(n for _, _, nodes in ABM_STEPS for n in nodes) | {
+    "finish",
+    "token_gate",
+}
 # Nodes only the ABM graph has (the older workflow graph also has setup, build, gate, deliver).
 ABM_ONLY: frozenset[str] = frozenset({"cap_approval", "pull", "load_manifest", "interpret"})
 WORKING = {"RUNNING", "DISTILLING", "VERIFYING"}

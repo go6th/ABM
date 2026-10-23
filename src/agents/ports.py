@@ -259,6 +259,11 @@ class CreditPort(Protocol):
         """Open an approval request (the cap-pause path); its id."""
         ...
 
+    async def accept_tokens(self, ctx: RunContext) -> None:
+        """The user continued the run past its token guard: the next pause is the guard's
+        multiple of the estimate on top of the tokens used now."""
+        ...
+
 
 @dataclass(frozen=True)
 class SenseCheckRecord:

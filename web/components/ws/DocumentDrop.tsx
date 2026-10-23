@@ -1,7 +1,7 @@
 "use client";
 // Add the files a "From a file" research reads (owner decision 2026-10-14): drop them or "Add
-// files", or "Connect Google Drive" (DriveChooser: the server fetches the chosen files from the
-// user's own Drive into the same path). Each file goes straight to storage in resumable chunks (the
+// files", or "Choose from your drive" (DriveChooser: the server fetches the chosen files from the
+// user's own Google Drive or OneDrive into the same path). Each file goes straight to storage in resumable chunks (the
 // bar shows the bytes sent; a reload keeps the place: choose the same file again to continue),
 // is completed, then followed through scanning and reading. A large file is read in parts
 // ("Reading part 3 of 12"); a part that could not be read shows its reason and "Try again".
@@ -14,9 +14,9 @@ import { forgetPaused, pausedUploads, type Saved } from "@/lib/upload-store";
 import { Status } from "@/ui/primitives";
 import { cellText } from "@/lib/render";
 import type { DocumentStatus, DriveFile } from "@/lib/gen/api.gen";
-import { DriveChooser } from "./DriveChooser";
+import { DRIVE_LABEL, DriveChooser, type DriveSource } from "./DriveChooser";
 
-export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number; driveId?: string }
+export interface DropItem { key: string; name: string; size: number; stage: Stage; message: string | null; doc: DocumentStatus | null; sent: number; driveId?: string; driveSource?: DriveSource }
 
 const POLL_MS = 2000;
 
@@ -107,22 +107,33 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
     }
   }, [accountId, update]);
 
-  const addFromDrive = useCallback(async (file: DriveFile) => {
+  const addFromDrive = useCallback(async (file: DriveFile, source: DriveSource) => {
     counter.current += 1;
     const key = `${counter.current}-drive-${file.id}`;
-    setItems((prev) => [...prev, { key, name: file.name, size: file.size_bytes ?? 0, stage: "uploading", message: null, doc: null, sent: 0, driveId: file.id }]);
+    setItems((prev) => [...prev, { key, name: file.name, size: file.size_bytes ?? 0, stage: "uploading", message: null, doc: null, sent: 0, driveId: file.id, driveSource: source }]);
     try {
-      const doc = await api<DocumentStatus>("POST", "/v1/documents/from-drive", { file_id: file.id, account_id: accountId });
+      // Google Drive is the server's default source, so its request stays as it always was
+      const body = source === "google_drive" ? { file_id: file.id, account_id: accountId } : { file_id: file.id, account_id: accountId, source };
+      const doc = await api<DocumentStatus>("POST", "/v1/documents/from-drive", body);
       update(key, { doc, size: doc.size_bytes, stage: stageOf(doc), message: doc.message ?? null });
     } catch (error) {
-      update(key, { stage: "failed", message: error instanceof ApiError ? error.detail : m.research.driveError });
+      update(key, { stage: "failed", message: error instanceof ApiError ? error.detail : m.research.driveErrorOf(DRIVE_LABEL[source]) });
     }
   }, [accountId, update]);
 
   const remove = async (it: DropItem) => {
+    // a file already saved in the workspace is deleted there too: ask first
+    if (it.doc && !window.confirm(`Remove ${it.name}? It is deleted from your workspace.`)) return;
     aborts.current.get(it.key)?.abort();
     if (it.doc) {
-      try { await api("DELETE", `/v1/documents/${it.doc.document_id}`); } catch { /* already gone */ }
+      try {
+        await api("DELETE", `/v1/documents/${it.doc.document_id}`);
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) { // 404: already gone
+          update(it.key, { message: "It could not be removed. Try again." });
+          return;
+        }
+      }
     }
     setItems((prev) => prev.filter((p) => p.key !== it.key));
   };
@@ -184,7 +195,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
       ) : null}
       {drive ? (
         <DriveChooser
-          onPick={(f) => void addFromDrive(f)}
+          onPick={(files, source) => { for (const f of files) void addFromDrive(f, source); }}
           picked={new Set(items.filter((i) => i.driveId && i.stage !== "failed").map((i) => i.driveId!))}
           disabled={disabled}
         />
@@ -213,7 +224,7 @@ export function DocumentDrop({ accountId = null, onChange, disabled = false, ini
                     <p>{cellText(it.name)}</p>
                     <span className="sub">
                       {it.stage === "uploading"
-                        ? it.driveId ? m.research.driveFetching : `${fileSize(it.sent)} of ${fileSize(it.size)} sent`
+                        ? it.driveSource ? m.research.driveFetching(DRIVE_LABEL[it.driveSource]) : `${fileSize(it.sent)} of ${fileSize(it.size)} sent`
                         : fileSize(it.size)}
                       {reading ? `. ${reading}` : ""}
                       {it.doc?.passages ? `. ${it.doc.passages.toLocaleString()} passages` : ""}

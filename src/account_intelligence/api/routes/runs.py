@@ -35,6 +35,7 @@ from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.accounts import exclusion_rule
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.replica.workspace import can_resume, resume_context
 from account_intelligence.runs import lifecycle
 from account_intelligence.runs.lifecycle import (
     IdempotencyConflict,
@@ -428,7 +429,7 @@ async def get_run(
             await s.execute(
                 text(
                     "SELECT r.status, r.finished_reason, r.stop_detail, r.input_mode, a.domain,"
-                    " r.models,"
+                    " r.models, r.stalled_at, " + resume_context("r") + ","
                     " coalesce(r.run_input->>'linked_file_run', (SELECT c.id::text FROM"
                     " account_runs c WHERE c.run_input->>'linked_file_run' = r.id::text"
                     " LIMIT 1)) AS linked"
@@ -468,6 +469,9 @@ async def get_run(
         "source_label": SOURCE_LABELS[row.input_mode],
         "linked_run_id": row.linked,
         "models_line": models_line(row.models),
+        "can_resume": can_resume(
+            row.status, row.finished_reason, row.stalled_at, row.is_latest, row.job_open
+        ),
         "tokens_used": tokens_used,
         "token_use": use,
         "gate": (

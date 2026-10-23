@@ -17,6 +17,15 @@ paid call, in the transaction that starts it:
   marks a run with no progress for ``stall_after_s`` as stalled and tells its owner, who can
   resume it.
 
+* **Token guard** (owner decision 2026-10-23, kept on while the research caps are off). A run
+  whose model tokens (input + output of the replies the model really served, the larger of the
+  router's ledger and the reply log, as the token card counts them) reach ``token_guard_multiple``
+  (``spend.yaml`` v2, default 3) times its pre-run estimate (``run_input.expected_tokens``) plus
+  what the user already let it use (``run_input.token_guard_ok``) raises ``TokenGuardReached``
+  before the next paid model call. The research graph pauses on it and asks the user; continuing
+  records the current tokens as ``token_guard_ok`` (the next pause is the multiple again on top).
+  A run with no estimate is never paused by it.
+
 Neither stop is a connector error: it is not turned into one failed row, it ends the run, and the
 runner keeps everything as PARTIAL with the reason (``workflow.runner._stop_unexpected``).
 
@@ -40,6 +49,15 @@ from account_intelligence.dev_limits import research_uncapped
 
 PAGING = frozenset({"cursor", "page", "page_token", "offset", "limit", "per_page", "max_results"})
 _SPACE = re.compile(r"\s+")
+
+
+class TokenGuardReached(Exception):
+    """The run's model tokens reached the guard's multiple of its estimate: pause and ask."""
+
+    def __init__(self, tokens: int, threshold: int) -> None:
+        super().__init__(f"run tokens {tokens} reached the token guard at {threshold}")
+        self.tokens = tokens
+        self.threshold = threshold
 
 
 class DollarCapReached(Exception):
@@ -116,6 +134,52 @@ async def check_cap(s: Any, run_id: UUID, estimate_usd: float | Decimal = 0) -> 
     if spent + Decimal(str(estimate_usd)) > cap or spent >= cap:
         raise DollarCapReached(cap, spent)
     await touch(s, run_id)
+
+
+RUN_TOKENS = text(
+    "SELECT GREATEST("
+    " (SELECT COALESCE(sum(input_tokens + output_tokens), 0) FROM llm_calls WHERE run_id = :r),"
+    " (SELECT COALESCE(sum(input_tokens + output_tokens), 0) FROM model_reply_log"
+    "  WHERE run_id = :r AND served_from = 'model')) AS tokens"
+)
+TOKEN_GUARD = text(
+    "SELECT run_input->>'expected_tokens' AS expected, run_input->>'token_guard_ok' AS ok"
+    " FROM account_runs WHERE id = :r"
+)
+
+
+def token_guard_multiple() -> int:
+    """How many times its estimate a run's tokens may reach before it pauses (``spend.yaml``)."""
+    from spend.config import load_v2_config
+
+    return load_v2_config().token_guard_multiple
+
+
+async def run_tokens(s: Any, run_id: UUID) -> int:
+    """The run's model tokens so far, counted as its token card counts them."""
+    return int(await s.scalar(RUN_TOKENS, {"r": run_id}) or 0)
+
+
+async def check_tokens(s: Any, run_id: UUID) -> None:
+    """``TokenGuardReached`` when the run's tokens reached its guard (see the module docstring).
+    Applies with the research caps off too; a run without an estimate is never stopped by it."""
+    row = (await s.execute(TOKEN_GUARD, {"r": run_id})).first()
+    if row is None or not row.expected or int(row.expected) <= 0:
+        return
+    threshold = int(row.ok or 0) + token_guard_multiple() * int(row.expected)
+    used = await run_tokens(s, run_id)
+    if used >= threshold:
+        raise TokenGuardReached(used, threshold)
+
+
+async def accept_tokens(s: Any, run_id: UUID) -> int:
+    """The user continued the run past its token guard: the next pause is the guard's multiple of
+    the estimate on top of the tokens used now. Returns those tokens."""
+    from account_intelligence.connectors import budget
+
+    used = await run_tokens(s, run_id)
+    await budget.accept_tokens(s, run_id, used)
+    return used
 
 
 def query_key(provider: str, operation: str, args: dict[str, Any]) -> str:

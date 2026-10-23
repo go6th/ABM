@@ -111,6 +111,41 @@ def _providers(engine: Any) -> list[str]:
     return list(session.get_providers()) if session is not None else []
 
 
+def cpu_limit() -> int:
+    """The CPUs this container may really use: the cgroup quota (Cloud Run sets one, e.g. 4 vCPU)
+    capped by the cores the host shows. ``os.cpu_count()`` alone reports the host, so a 4 vCPU
+    worker sized its embedding pool at 8 threads (staging 2026-10-22), which starves the event
+    loop and the virus-scan sidecar and fails the health check. Reads cgroup v2 ``cpu.max`` then
+    v1 ``cfs_quota_us``; any failure returns the host count."""
+    import math
+    import os
+    from pathlib import Path
+
+    host = os.cpu_count() or 2
+    quota = None
+    try:
+        text = Path("/sys/fs/cgroup/cpu.max").read_text().split()
+        if text and text[0] != "max":
+            quota = int(text[0]) / int(text[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    if quota is None:
+        try:
+            raw = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+            period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+            if raw > 0 and period > 0:
+                quota = raw / period
+        except (OSError, ValueError):
+            pass
+    return max(1, min(host, math.ceil(quota))) if quota else host
+
+
+def embed_threads() -> int:
+    """Threads for the CPU embedding pool: the container's CPUs less one (the event loop and the
+    scan sidecar keep a core), at least one and at most eight."""
+    return max(1, min(cpu_limit() - 1, 8))
+
+
 class FastEmbedder:
     """Meaning-based vectors from a small transformer run on the server itself (owner decision
     2026-10-15: on-server, no per-use cost, no private text leaves the system): BAAI
@@ -143,14 +178,12 @@ class FastEmbedder:
 
     def _load(self) -> Any:
         if self._engine is None:
-            import os
-
             import onnxruntime as ort  # type: ignore[import-untyped]
             from fastembed import TextEmbedding
 
-            # one thread per core up to eight (the worker has eight since 2026-10-16; before, two
-            # threads indexed a 37,000-passage file at half the speed the instance could give)
-            threads = max(1, min(os.cpu_count() or 2, 8))
+            # the container's real CPUs less one, up to eight (see ``cpu_limit``: the count the
+            # host reports is not the quota, and the loop and the scan sidecar need a core)
+            threads = embed_threads()
             engine = None
             if "CUDAExecutionProvider" in ort.get_available_providers():
                 try:

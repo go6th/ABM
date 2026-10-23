@@ -120,3 +120,30 @@ async def test_stop_ends_a_research_that_has_not_started_and_releases_its_credit
     assert again.status_code == 409 and again.json()["type"].endswith("research_ended")
     ws = (await _call(plane, "GET", "/v1/accounts/stopco.example/workspace")).json()
     assert ws["open_job"] is None
+
+
+async def test_a_research_goal_is_optional_stored_and_checked(world: dict[str, Any]) -> None:
+    """Owner decision 2026-10-23: New research takes an optional goal in the user's words
+    (whitespace collapsed, 3 to 500 characters, empty is none); the body still refuses fields it
+    does not know."""
+    plane = _plane(world["a"], f"goal-{uuid4().hex[:6]}", world["payloads"])
+
+    def body(**extra: object) -> dict[str, object]:
+        domain = f"goal-{uuid4().hex[:6]}.example"
+        return {"request_id": str(uuid4()), "company_name": "Goalco", "domain": domain, **extra}
+
+    for bad in ("ab", "  a \n ", "x" * 501):
+        refused = await _call(plane, "POST", "/v1/research", json=body(goal=bad))
+        assert refused.status_code == 422, (bad, refused.text)
+    unknown = await _call(plane, "POST", "/v1/research", json=body(aim="anything"))
+    assert unknown.status_code == 422
+    r = await _call(
+        plane, "POST", "/v1/research", json=body(goal="  we sell payroll:\n their HR stack ")
+    )
+    assert r.status_code == 201, r.text
+    assert _db("SELECT goal FROM research_jobs WHERE id = %s", r.json()["job_id"]) == [
+        ("we sell payroll: their HR stack",)
+    ]
+    blank = await _call(plane, "POST", "/v1/research", json=body(goal="   "))
+    assert blank.status_code == 201, blank.text
+    assert _db("SELECT goal FROM research_jobs WHERE id = %s", blank.json()["job_id"]) == [(None,)]

@@ -347,56 +347,116 @@ class AnthropicLlm:
             )
             record = {"batch_id": str(batch.id), "submitted_at": float(slot.now())}
             await slot.save(record)
-            log.info("llm.batch_submitted", extra={"model": route.model, "tier": route.tier})
+            log.info(
+                "llm.batch_submitted",
+                extra={"model": route.model, "tier": route.tier, "batch_id": record["batch_id"]},
+            )
         else:
             # a batch an earlier slice submitted: collected, not paid for again. The count of
             # these against ``llm.batch_submitted`` tells a resumed slice that re-attached from
             # one that asked again (staging 2026-10-21: slices 1 to 3 of one run submitted 22 to
             # 30 batches each for the same 34 calls)
-            log.info("llm.batch_reattached", extra={"model": route.model, "tier": route.tier})
+            log.info(
+                "llm.batch_reattached",
+                extra={
+                    "model": route.model,
+                    "tier": route.tier,
+                    "batch_id": str(record["batch_id"]),
+                },
+            )
         batch_id = str(record["batch_id"])
         submitted = float(record.get("submitted_at") or slot.now())
         cancelled = False
         beat = float(slot.now())
-        # LOOP(batch poll): cap=max_wait_seconds from the first submission, then cancel and at
-        # most the same wait again for the cancel to land; exit=ended, cancel deadline
-        while True:
-            batch = await batch_request(
-                lambda: self.client.messages.batches.retrieve(batch_id),
-                what="retrieve",
-                model=route.model,
-                tier=route.tier,
-            )
-            if str(batch.processing_status) == "ended":
-                break
-            waited = float(slot.now()) - submitted
-            if not cancelled and waited > slot.max_wait_seconds:
-                await batch_request(
-                    lambda: self.client.messages.batches.cancel(batch_id),
-                    what="cancel",
+        noted = float(slot.now())
+        polls = 0
+        operation = "retrieve"
+
+        def evidence() -> dict[str, Any]:
+            """What every wait line carries (2026-10-22: a worker died ten minutes into a wait
+            and only the submit and re-attach lines were left to say where it was)."""
+            return {
+                "model": route.model,
+                "tier": route.tier,
+                "batch_id": batch_id,
+                "waited_s": round(float(slot.now()) - submitted),
+                "polls": polls,
+            }
+
+        try:
+            # LOOP(batch poll): cap=max_wait_seconds from the first submission, then cancel and
+            # at most the same wait again for the cancel to land; exit=ended, cancel deadline
+            while True:
+                operation = "retrieve"
+                batch = await batch_request(
+                    lambda: self.client.messages.batches.retrieve(batch_id),
+                    what="retrieve",
                     model=route.model,
                     tier=route.tier,
                 )
-                cancelled = True
+                polls += 1
+                status = str(batch.processing_status)
+                if status == "ended":
+                    break
+                if float(slot.now()) - noted >= WAIT_LOG_S:
+                    noted = float(slot.now())
+                    log.info(
+                        "llm.batch_waiting",
+                        extra={**evidence(), "state": status, "count": _processing(batch)},
+                    )
+                waited = float(slot.now()) - submitted
+                if not cancelled and waited > slot.max_wait_seconds:
+                    operation = "cancel"
+                    await batch_request(
+                        lambda: self.client.messages.batches.cancel(batch_id),
+                        what="cancel",
+                        model=route.model,
+                        tier=route.tier,
+                    )
+                    cancelled = True
+                    log.warning("llm.batch_cancelled", extra=evidence())
+                elif cancelled and waited > 2 * slot.max_wait_seconds:
+                    log.warning(
+                        "llm.batch_finished", extra={**evidence(), "outcome": "cancel_deadline"}
+                    )
+                    return None
+                if (
+                    slot.heartbeat is not None
+                    and float(slot.now()) - beat >= slot.heartbeat_seconds
+                ):
+                    operation = "heartbeat"
+                    beat = float(slot.now())
+                    await slot.heartbeat()
+                operation = "sleep"
+                await asyncio.sleep(slot.poll_seconds)
+            operation = "results"
+            results = await self.client.messages.batches.results(batch_id)
+            outcome_type = "empty"
+            async for item in results:
+                outcome = item.result
+                outcome_type = str(outcome.type)
+                if outcome_type == "succeeded":
+                    log.info("llm.batch_finished", extra={**evidence(), "outcome": outcome_type})
+                    return self._result(outcome.message, batch=True)
                 log.warning(
-                    "llm.batch_cancelled",
-                    extra={"model": route.model, "tier": route.tier, "waited_s": round(waited)},
+                    "llm.batch_unsuccessful",
+                    extra={"model": route.model, "tier": route.tier, "result": outcome_type},
                 )
-            elif cancelled and waited > 2 * slot.max_wait_seconds:
-                return None
-            if slot.heartbeat is not None and float(slot.now()) - beat >= slot.heartbeat_seconds:
-                beat = float(slot.now())
-                await slot.heartbeat()
-            await asyncio.sleep(slot.poll_seconds)
-        results = await self.client.messages.batches.results(batch_id)
-        async for item in results:
-            outcome = item.result
-            if str(outcome.type) == "succeeded":
-                return self._result(outcome.message, batch=True)
+        except asyncio.CancelledError:
+            # the task was cancelled (shutdown, a stopped run): say so, never swallow it
+            log.warning("llm.batch_wait_cancelled", extra={**evidence(), "operation": operation})
+            raise
+        except Exception as error:  # logged as evidence of the failed poll, then re-raised
             log.warning(
-                "llm.batch_unsuccessful",
-                extra={"model": route.model, "tier": route.tier, "result": str(outcome.type)},
+                "llm.batch_poll_failed",
+                extra={
+                    **evidence(),
+                    "operation": operation,
+                    "error_class": type(error).__name__,
+                },
             )
+            raise
+        log.warning("llm.batch_finished", extra={**evidence(), "outcome": outcome_type})
         await slot.save({})  # the next attempt submits afresh
         return None
 
@@ -666,6 +726,15 @@ BATCH_PACER = RequestPacer(BATCH_REQUESTS_PER_MINUTE)
 # a 429 on a batch request waits this long, doubling each time, at most this cap (seconds)
 RATE_LIMIT_BACKOFF_S = (5.0, 300.0)
 RATE_LIMIT_ATTEMPTS = 10
+# a batch wait logs ``llm.batch_waiting`` once per this many seconds (evidence while it waits)
+WAIT_LOG_S = 60.0
+
+
+def _processing(batch: Any) -> int | None:
+    """The requests still processing in a retrieved batch (``request_counts.processing``), when
+    the response carries it."""
+    value = getattr(getattr(batch, "request_counts", None), "processing", None)
+    return value if isinstance(value, int) else None
 
 
 def is_rate_limited(error: BaseException) -> bool:

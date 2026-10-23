@@ -35,6 +35,7 @@ export interface AskTurn {
 }
 
 const PLACEHOLDER = "Ask about your accounts";
+const STOPPED = "You stopped this answer. Ask it again with Retry.";
 
 function failureText(cause: unknown): string {
   if (cause instanceof ApiError) {
@@ -194,6 +195,12 @@ export function Ask({
     }
   }, [busy, threadId, scope, router, model, effort, reload]);
 
+  // Stop: end the stream; the question stays on screen with Retry.
+  const stop = useCallback(() => {
+    abort.current?.abort();
+    setTurns((all) => all.map((t) => (t.status === "searching" ? { ...t, status: "failed", error: STOPPED, partial: undefined } : t)));
+  }, []);
+
   // ?q= from an account page: ask once on arrival.
   useEffect(() => {
     if (initialQuestion && !asked.current) {
@@ -211,13 +218,14 @@ export function Ask({
     draft, onDraft: setDraft, busy, accounts, scope, onScope: setScope,
     models: choices, model: model ?? choices?.analysis ?? null, onModel: setModel,
     effort: effort ?? choices?.analysis_effort ?? null, onEffort: setEffort,
-    webHintOpen: webHint, onWebHint: setWebHint, onSend: () => void send(draft),
+    webHintOpen: webHint, onWebHint: setWebHint, onSend: () => void send(draft), onStop: stop,
   };
 
   if (!turns.length) {
     return (
       <div className="ask">
         <div className="ask-empty">
+          <div className="ask-band">
           <div className="hero">
             <h1>What do you want to know?</h1>
             <p className="lead">
@@ -228,6 +236,7 @@ export function Ask({
           </div>
           <AskComposer variant="hero" placeholder={PLACEHOLDER} menuDown {...composerProps} />
           {limitLine}
+          </div>
           {accounts.length ? null : (
             <nav className="first-steps" aria-label="First steps">
               <Link className="btn primary" href="/accounts/add" prefetch={false}>Add your first account</Link>
@@ -241,6 +250,7 @@ export function Ask({
 
   return (
     <div className="ask">
+      <h1 className="sr-only">Chat</h1>
       <div className="ask-scroll" ref={scroller}>
         <div className="ask-cols">
           <div className="ask-msgs" aria-live="polite">

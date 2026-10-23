@@ -192,6 +192,97 @@ async def test_a_job_left_running_after_its_run_ended_is_closed_and_not_shown(
     ) == [("done",)]
 
 
+async def test_one_rule_says_which_runs_resume_research_is_offered_on() -> None:
+    from account_intelligence.replica.workspace import can_resume, resumable
+
+    assert resumable("PARTIAL", "worker_lost", None)
+    assert resumable("FAILED", "gate_failed", None)
+    assert resumable("BUDGET_EXCEEDED", "budget_exceeded", None)
+    assert resumable("RUNNING", None, "2026-10-23T09:00:00Z")  # stalled
+    assert not resumable("RUNNING", None, None)  # moving
+    assert not resumable("COMPLETED", "completed", None)
+    assert not resumable("CANCELED", "user_canceled", "2026-10-23T09:00:00Z")
+    for finished in (None, "canceled", "user_canceled", "steps_waiting", "no_new_findings"):
+        assert not resumable("PARTIAL", finished, None), finished
+    assert can_resume("PARTIAL", "worker_lost", None, True, False)
+    assert not can_resume("PARTIAL", "worker_lost", None, False, False)  # not the latest
+    assert not can_resume("PARTIAL", "worker_lost", None, True, True)  # a job is open
+    assert not can_resume("PARTIAL", "worker_lost", None, None, None)  # no run
+
+
+def _job(tenant: UUID, run: UUID, user: str, status: str) -> UUID:
+    (account,) = _db("SELECT account_id FROM account_runs WHERE id = %s", run)[0]
+    ended = "NULL" if status in ("waiting_credit_limit", "queued", "running") else "now()"
+    (job,) = _db(
+        "INSERT INTO research_jobs (tenant_id, account_id, kind, scope, status, period,"
+        " credits_estimated, requested_by, run_id, started_at, finished_at) VALUES (%s, %s,"
+        f" 'new_research', 'full', %s, to_char(now(), 'YYYY-MM'), 0, %s, %s, now(), {ended})"
+        " RETURNING id",
+        tenant,
+        account,
+        status,
+        user,
+        run,
+    )[0]
+    return UUID(str(job))
+
+
+async def test_resume_is_offered_on_the_board_and_the_run_page_by_the_account_rule(
+    world: dict[str, Any],
+) -> None:
+    """The Research board and the run page offer Resume research exactly when the account page
+    does: the account's latest company run stopped early or stalled, and no job of the account
+    is open (Resume would be refused with JobOpen)."""
+    user = f"offer-{uuid4().hex[:6]}"
+    plane = _plane(world["a"], user, world["payloads"])
+
+    async def offered(run: UUID, job: UUID) -> tuple[bool, bool]:
+        board = (await _call(plane, "GET", "/v1/research/live")).json()
+        item = next(i for i in [*board["running"], *board["recent"]] if i["job_id"] == str(job))
+        page = await _call(plane, "GET", f"/v1/runs/{run}")
+        assert page.status_code == 200, page.text
+        return item["can_resume"], page.json()["can_resume"]
+
+    stopped, domain = _run(world["a"], user, "PARTIAL")  # worker_lost
+    job = _job(world["a"], stopped, user, "done")
+    assert await offered(stopped, job) == (True, True)
+    ws = (await _call(plane, "GET", f"/v1/accounts/{domain}/workspace")).json()
+    assert ws["stopped_run"]["run_id"] == str(stopped)  # the account page agrees
+
+    # another job of the account is open: Resume would be refused, so it is not offered
+    (account,) = _db("SELECT account_id FROM account_runs WHERE id = %s", stopped)[0]
+    (waiting,) = _db(
+        "INSERT INTO research_jobs (tenant_id, account_id, kind, scope, status, period,"
+        " credits_estimated, requested_by) VALUES (%s, %s, 'web_refresh', 'full', 'queued',"
+        " to_char(now(), 'YYYY-MM'), 0, %s) RETURNING id",
+        world["a"],
+        account,
+        user,
+    )[0]
+    assert await offered(stopped, job) == (False, False)
+    _db("UPDATE research_jobs SET status = 'canceled', finished_at = now() WHERE id = %s", waiting)
+    assert await offered(stopped, job) == (True, True)
+
+    # a run that finished whole, or that its user cancelled, is never offered
+    done, _ = _run(world["a"], user, "COMPLETED")
+    assert await offered(done, _job(world["a"], done, user, "done")) == (False, False)
+    canceled, _ = _run(world["a"], user, "PARTIAL")
+    _db("UPDATE account_runs SET finished_reason = 'user_canceled' WHERE id = %s", canceled)
+    assert await offered(canceled, _job(world["a"], canceled, user, "canceled")) == (False, False)
+
+    # a newer company run of the account: the older stop is no longer the one to resume
+    _db(
+        "INSERT INTO account_runs (tenant_id, account_id, owner_user_id, status, graph_version,"
+        " budget_json, reserved_credits, idempotency_key, budget_usd, finished_at,"
+        " finished_reason, created_at) SELECT tenant_id, account_id, owner_user_id, 'COMPLETED',"
+        " 'test', '{}', 0, %s, 5, now(), 'completed', created_at + interval '1 minute'"
+        " FROM account_runs WHERE id = %s RETURNING id",
+        uuid4().hex,
+        stopped,
+    )
+    assert await offered(stopped, job) == (False, False)
+
+
 async def test_every_stop_reason_is_said_in_words() -> None:
     """A stopped research says why (staging 2026-10-15 showed only "It stopped before
     finishing." for a reason the screen did not know)."""
@@ -316,3 +407,26 @@ async def test_no_new_findings_is_said_as_nothing_found() -> None:
     from account_intelligence.replica.workspace import stop_text
 
     assert stop_text("no_new_findings") == "Nothing new was found on the web for this research."
+
+
+async def test_a_resume_keeps_the_research_goal(world: dict[str, Any]) -> None:
+    """The continuation job carries the stopped job's research goal, and the claimed job hands
+    it to the engine's run input (owner decision 2026-10-23)."""
+    from account_intelligence.replica.jobs import HermeticEngine, claim
+
+    user = f"goal-{uuid4().hex[:6]}"
+    plane = _plane(world["a"], user, world["payloads"])
+    run, _ = _run(world["a"], user, "PARTIAL")
+    stopped = _job(world["a"], run, user, "done")
+    _db("UPDATE research_jobs SET goal = 'their HR systems' WHERE id = %s", stopped)
+    out = await _call(
+        plane, "POST", "/v1/research/resume", json={"run_id": str(run), "request_id": str(uuid4())}
+    )
+    assert out.status_code == 201, out.text
+    job_id = out.json()["job_id"]
+    assert _db("SELECT goal FROM research_jobs WHERE id = %s", job_id) == [("their HR systems",)]
+    job = await claim(world["a"], UUID(job_id), datetime.now(UTC))
+    assert job is not None and job.goal == "their HR systems"
+    result = await HermeticEngine().run(job)
+    (run_input,) = _db("SELECT run_input FROM account_runs WHERE id = %s", result.run_id)[0]
+    assert run_input["goal"] == "their HR systems"

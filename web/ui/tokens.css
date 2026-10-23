@@ -1,5 +1,7 @@
-/* Design tokens of the Claude Design prototype (docs/design/claude-design, owner decision
-   2026-10-14, REPLICA_PROMPT.md). Every colour, size, radius and shadow the screens use is here;
+/* Design tokens: the pastel palette (owner decision 2026-10-23, Claude Design canvas "Account
+   Intelligence — Pastel UI"): white and soft blue-grey surfaces, one strong blue for actions,
+   lavender highlights, and mint, butter and rose kept for status only. Earlier: the Claude Design
+   prototype (docs/design/claude-design, owner decision 2026-10-14, REPLICA_PROMPT.md). Every colour, size, radius and shadow the screens use is here;
    the other style files use only these names. Light only, as designed. */
 
 @font-face {
@@ -35,63 +37,69 @@
   color-scheme: light;
 
   /* Surfaces and text */
-  --bg: #F5F6F8;
+  --bg: #F7F8FD;
   --surface: #FFFFFF;
-  --ink: #101828;
-  --ink-2: #1D2939;
-  --text-3: #344054;
-  --text-nav: #475467;
-  --muted: #667085;
+  --ink: #1B2140;
+  --ink-2: #141A38;
+  --text-3: #3A4363;
+  --text-nav: #3A4363;
+  --muted: #5F6782;
 
   /* Lines and fills */
-  --line: #E4E7EC;
-  --line-soft: #EEF0F3;
-  --line-input: #D0D5DD;
-  --line-input-hover: #98A2B3;
-  --hover: #ECEEF2;
-  --hover-soft: #F2F4F7;
-  --row-hover: #F9FAFB;
-  --track: #E9ECF1;
-  --xl-head-line: #D9DDE4;
-  --xl-row-hover: #F7F9FF;
-  --quiet-card: #F9FAFB;
+  --line: #E7EAF3;
+  --line-soft: #EEF0F6;
+  --line-input: #DDE3F5;
+  --line-input-hover: #B8C1F5;
+  --hover: #E6EBFD;
+  --hover-soft: #F2F4FC;
+  --row-hover: #F7F8FD;
+  --track: #E6E9F4;
+  --xl-head-line: #DDE1EC;
+  --xl-row-hover: #F5F7FF;
+  --quiet-card: #F7F8FD;
 
   /* Accent */
-  --accent: #2F4BE0;
-  --accent-soft: #EEF1FF;
-  --accent-wash: #F7F8FF;
-  --accent-line: #C9D2FF;
-  --accent-tint: #DDE3FF;
+  --accent: #3F5AE0;
+  --accent-soft: #E9EDFF;
+  --accent-wash: #F5F7FF;
+  --accent-line: #D3DBFB;
+  --accent-tint: #E3E9FF;
   --accent-drop: #B8C1F5;
-  --logo-dot: #7C93FF;
+  --logo-dot: #8B6CF0;
 
   /* Admin console */
-  --admin-bg: #101828;
-  --admin-on: #232F45;
-  --admin-hover: #1B2638;
-  --admin-text: #B6BDCB;
-  --admin-faint: #8A94A8;
-  --admin-line: #33415C;
-  --admin-card: #1B2638;
+  --admin-bg: #EEF1FE;
+  --admin-on: #FFFFFF;
+  --admin-hover: #E3E8FD;
+  --admin-text: #3A4363;
+  --admin-faint: #5F6782;
+  --admin-line: #DDE3F5;
+  --admin-card: #FFFFFF;
 
   /* Sign-in pages (PDF page 1, owner decision 2026-10-14): the lavender right column and its
      fine dot grid, and the admin sign-in's navy version of both */
   --auth-col: 552px;
-  --auth-pitch: #DFE5FB;
-  --auth-dot: #B7C1F0;
-  --admin-dot: #2A3650;
+  --auth-pitch: #E3E8FD;
+  --auth-dot: #C7D0F7;
+  --admin-dot: #D6CCFA;
+
+  /* Pastel decoration (never status): the sidebar, the soft blue hero band, lavender highlights */
+  --side-bg: #EEF1FE;     --side-line: #E1E6FA;
+  --hero-bg: #E9EDFF;     --hero-line: #D9E0FC;
+  --lav-bg: #F0EAFF;      --lav-ink: #5B3FC4;     --lav-line: #E2D7FF;
+  --accent-hover: #2E47C2;
 
   /* Pills: fill and text, always with the word written in the pill */
-  --ok-bg: #DCF5E8;       --ok-ink: #137A4B;
-  --probable-bg: #E6F0FF; --probable-ink: #1D5FC4;
-  --warn-bg: #FFF1D6;     --warn-ink: #8A5200;
-  --run-bg: #E0E7FF;      --run-ink: #2F4BE0;
-  --internal-bg: #EDE9FE; --internal-ink: #5B3FC4;
-  --neutral-bg: #F2F4F7;  --neutral-ink: #475467;
-  --bad-bg: #FEE4E2;      --bad-ink: #B42318;
-  --lead-bg: #FCE7F6;     --lead-ink: #9E1F6D;
-  --warn-bar: #B26A00;
-  --warn-card: #FFFAF0;   --warn-card-line: #F3D9A6;
+  --ok-bg: #E3F5EE;       --ok-ink: #17694A;
+  --probable-bg: #E7EEFF; --probable-ink: #2747C7;
+  --warn-bg: #FFF4D6;     --warn-ink: #7A5A00;
+  --run-bg: #E7EEFF;      --run-ink: #2747C7;
+  --internal-bg: #F0EAFF; --internal-ink: #5B3FC4;
+  --neutral-bg: #F2F4FA;  --neutral-ink: #4A5270;
+  --bad-bg: #FFE8EE;      --bad-ink: #A3294B;
+  --lead-bg: #FBE9F3;     --lead-ink: #93245F;
+  --warn-bar: #C79A1E;
+  --warn-card: #FFFAEB;   --warn-card-line: #F3E2A8;
 
   /* Type */
   --font: "Hanken Grotesk", system-ui, sans-serif;
@@ -99,30 +107,30 @@
   /* Shape */
   --r-composer: 22px;
   --r-follow: 20px;
-  --r-card: 16px;
+  --r-card: 20px;
   --r-btn: 12px;
-  --r-field: 10px;
+  --r-field: 12px;
   --r-seg: 8px;
   --r-cite: 6px;
   --r-pill: 999px;
 
   /* Depth (only these) */
-  --sh-composer: 0 10px 32px rgba(16, 24, 40, 0.07);
-  --sh-follow: 0 8px 26px rgba(16, 24, 40, 0.06);
-  --sh-raised: 0 6px 22px rgba(16, 24, 40, 0.05);
-  --sh-ring: 0 0 0 1px #E4E7EC;
+  --sh-composer: 0 14px 34px rgba(63, 90, 224, 0.12);
+  --sh-follow: 0 10px 28px rgba(63, 90, 224, 0.10);
+  --sh-raised: 0 1px 2px rgba(27, 33, 64, 0.04), 0 8px 24px rgba(27, 33, 64, 0.05);
+  --sh-ring: 0 0 0 1px #E1E6FA;
   --sh-seg: 0 1px 2px rgba(16, 24, 40, 0.12);
   --sh-knob: 0 1px 3px rgba(16, 24, 40, 0.3);
   /* Sign-in pages: the primary button's pressed edge and glow, the secondary button's edge, the
      icon tiles and the right column's card */
-  --sh-primary: inset 0 -3px 0 #2236B8, 0 10px 22px -6px rgba(47, 75, 224, 0.45);
+  --sh-primary: 0 8px 20px rgba(63, 90, 224, 0.25);
   --sh-secondary: inset 0 -2px 0 #D9DDE4;
   --sh-tile: 0 4px 12px rgba(16, 24, 40, 0.09);
   --sh-pitch: 0 12px 36px rgba(16, 24, 40, 0.08);
 
   /* Layout */
-  --sidebar: 248px;
-  --admin-sidebar: 232px;
+  --sidebar: 264px;
+  --admin-sidebar: 248px;
   --chat: 780px;
   --page: 1100px;
 

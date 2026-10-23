@@ -133,6 +133,8 @@ export function AnswerMarkdown({
     table: Table,
     td: Td,
     th: Th,
+    // a code block scrolls sideways: focusable, so it scrolls from the keyboard too
+    pre: ({ children }: PlainProps) => <pre tabIndex={0}>{children}</pre>,
     ...(inline ? { p: ({ children }: PlainProps) => <>{children}</> } : {}),
   };
   const markdown = renderTabularText(toMarkdown(parts));

@@ -7,12 +7,16 @@
 * ``GET /clients`` and ``POST /clients``: A2, every client with users, accounts, this month's
   credits, last activity and status; Add client creates the client and its first user and
   returns an invite link to copy (nothing is sent).
+* ``POST /clients/{tenant_id}/users``: A3 Invite user, one more person for a client (rules in
+  api.team_invites).
 * ``GET /clients/{tenant_id}``, ``PUT /clients/{tenant_id}`` and ``POST
   /clients/{tenant_id}/invite``: A3, limits per user, features, 6th Library publications, and a
   new invite link while the client's admin has not accepted.
 * ``GET /users`` and ``POST /users/{tenant_id}/terminate`` or ``/re-enable``: A4, every user's
   counts and access; ending access keeps history and signs the user out everywhere.
 * ``GET /runs``: A6, credits by purpose this month, the isolation check and the newest jobs.
+* ``GET /runs/{tenant_id}/{run_id}``: A6 detail, one run's status and token card (per-step
+  tokens, model cost in dollars, the expectation); counts only, never question or answer text.
 * ``GET /defaults`` and ``PUT /defaults``: A7, the defaults new clients start from, the credit
   cap per pull, the model split, the research skill version and the admins.
 
@@ -39,6 +43,7 @@ from account_intelligence.api import contract as C
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.operator import StaffIdentity, require_staff
 from account_intelligence.api.policy import OperatorRole, operator_route, register
+from account_intelligence.api.team_invites import invite_member
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.config import CONFIG_DIR, SKILL_PACKAGE_DIR
 from account_intelligence.db.session import tenant_txn, untenanted_session
@@ -50,6 +55,7 @@ from account_intelligence.replica import models as M
 from account_intelligence.replica import settings as S
 from admin import tenants
 from audit.events import AuditEvent, record
+from connectors_client import lifecycle as maildrive_lifecycle
 from identity import local_password, membership, sessions
 from llm.choice import catalogue
 from tenancy import lifecycle
@@ -64,6 +70,7 @@ for _m, _p, _audit, _tenant in (
     ("GET", "/clients/{tenant_id}", "read", "operator_target"),
     ("PUT", "/clients/{tenant_id}", "admin", "operator_target"),
     ("POST", "/clients/{tenant_id}/invite", "admin", "operator_target"),
+    ("POST", "/clients/{tenant_id}/users", "admin", "operator_target"),
     ("GET", "/users", "read", "none"),
     ("POST", "/users/{tenant_id}/terminate", "admin", "operator_target"),
     ("POST", "/users/{tenant_id}/re-enable", "admin", "operator_target"),
@@ -72,6 +79,7 @@ for _m, _p, _audit, _tenant in (
     ("POST", "/requests/{tenant_id}/{request_id}/approve", "admin", "operator_target"),
     ("POST", "/requests/{tenant_id}/{request_id}/decline", "admin", "operator_target"),
     ("GET", "/runs", "read", "none"),
+    ("GET", "/runs/{tenant_id}/{run_id}", "read", "operator_target"),
     ("GET", "/defaults", "read", "none"),
     ("PUT", "/defaults", "admin", "none"),
 ):
@@ -358,6 +366,41 @@ async def renew_invite(
     }
 
 
+class NewClientUser(BaseModel):
+    """Invite user: one more person for a client, by work email and role."""
+
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    role: Literal["admin", "analyst", "seller", "viewer"] = "analyst"
+
+
+@router.post("/clients/{tenant_id}/users", response_model=C.TeamInvite, status_code=201)
+async def invite_client_user(
+    tenant_id: UUID,
+    body: NewClientUser,
+    request: Request,
+    who: StaffIdentity = Depends(require_staff),
+) -> dict[str, Any]:
+    """A3 Invite user: add one more person to a client (the rules: api.team_invites; an existing
+    account is added without a link)."""
+    await _known(tenant_id)
+
+    async def audit(s: Any, member: str) -> None:
+        """The client's own audit entry for the invite (customer-visible)."""
+        await _client_audit(s, request, who, "client.user_invite")
+
+    made = await invite_member(
+        plane_of(request),
+        tenant_id,
+        email=body.email,
+        role=body.role,
+        actor=who.staff_id,
+        audit=audit,
+    )
+    await _op_audit(request, who, "client.user_invite", str(tenant_id))
+    return made
+
+
 async def _detail(tenant_id: UUID, now: Any) -> dict[str, Any]:
     async with untenanted_session() as plain:
         library = [a for a in await L.library_list(plain) if a["check_passed"]]
@@ -376,6 +419,7 @@ async def _detail(tenant_id: UUID, now: Any) -> dict[str, Any]:
         ]
         pending = await _pending(s)
         allowed = await s.scalar(text("SELECT allowed_models FROM client_settings"))
+        suspended = (await lifecycle.state(s)).suspended
     async with untenanted_session() as plain:
         enabled, _, _ = await M.platform_policy(plain)
     if allowed is None:
@@ -397,6 +441,7 @@ async def _detail(tenant_id: UUID, now: Any) -> dict[str, Any]:
         "user_idle_days": idle,
         "pending_invites": pending,
         "isolation": await _isolation(),
+        "suspended": suspended,
     }
 
 
@@ -460,6 +505,18 @@ async def change_client(
         ) from None
     async with tenant_txn(tenant_id) as s:
         await S.update_client(s, values, who.staff_id, now)
+        if body.mail_drive_allowed is False:
+            # turning mail and drive off ends every user's connection and deletes what it synced
+            wired = maildrive_lifecycle.wiring(request.app.state.container.extras)
+            await maildrive_lifecycle.purge_tenant(
+                s,
+                oauth=wired.oauth,
+                store=plane_of(request).secrets,
+                now=now,
+                reason="mail_drive_off",
+                actor=who.staff_id,
+                actor_kind="operator",
+            )
         if allowed is not None:
             await S.set_allowed_models(s, allowed, who.staff_id, now)
         if wanted is not None:
@@ -504,6 +561,18 @@ async def _access(
             changed = await membership.end_access(s, body.user_id, "terminated", who.staff_id, now)
             if changed:
                 await sessions.revoke_all(s, body.user_id, "access_terminated", now)
+            # the user's own mail and drive goes with their access (owner rules 2026-10-14)
+            wired = maildrive_lifecycle.wiring(request.app.state.container.extras)
+            await maildrive_lifecycle.purge_owner(
+                s,
+                owner_user_id=body.user_id,
+                oauth=wired.oauth,
+                store=plane_of(request).secrets,
+                now=now,
+                reason="access_terminated",
+                actor=who.staff_id,
+                actor_kind="operator",
+            )
         else:
             changed = await membership.reenable(s, body.user_id, who.staff_id, now)
         state = await s.scalar(
@@ -809,3 +878,26 @@ async def change_defaults(
         await S.update_defaults(plain, values, who.staff_id, plane_of(request).clock.now())
     await _op_audit(request, who, "platform.defaults", "platform")
     return await _defaults(request)
+
+
+@router.get("/runs/{tenant_id}/{run_id}", response_model=C.ConsoleRunDetail)
+async def run_detail(
+    tenant_id: UUID, run_id: UUID, request: Request, who: StaffIdentity = Depends(require_staff)
+) -> dict[str, Any]:
+    """A6 detail: one run of one client, with the same token card the client sees."""
+    from views.token_use import token_use
+
+    await _known(tenant_id)
+    async with tenant_txn(tenant_id) as s:
+        head = await A.run_header(s, run_id)
+        if head is None:
+            raise APIProblem(404, "not_found", "Not found", "No such run for this client.")
+        tokens = await token_use(s, run_id)
+    return {
+        "tenant_id": str(tenant_id),
+        "client": str(head["client"] or ""),
+        "run_id": str(run_id),
+        "status": head["status"],
+        "finished_reason": head["finished_reason"],
+        "token_use": tokens,
+    }

@@ -90,9 +90,10 @@ test("Google Drive: files are listed by the server and an added one is fetched i
   render(<DocumentDrop onChange={() => undefined} initialDrive />);
   expect(await screen.findByText("Plan.docx")).toBeTruthy();
   expect(screen.getByText(/Google file, added as DOCX/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Plan.docx" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add 1 file" }));
   await waitFor(() => expect(apiMock).toHaveBeenCalledWith("POST", "/v1/documents/from-drive", { file_id: "drive-file-0001", account_id: null }));
-  expect(await screen.findByRole("button", { name: "Added" })).toBeTruthy();
+  expect(await screen.findByText("Added")).toBeTruthy();
 });
 
 test("Google Drive not connected: a link to the Mail and drive page, no file list", async () => {
@@ -116,7 +117,8 @@ test("after the company is confirmed the files are read again, so they reach Rea
   });
   const seen: DocumentStatus[][] = [];
   const { rerender } = render(<DocumentDrop onChange={(d) => seen.push(d)} initialDrive refresh={0} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Add" }));
+  fireEvent.click(await screen.findByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: "Add 1 file" }));
   expect(await screen.findByText("Read, waiting for the company")).toBeTruthy();
   indexed = true; // the company was confirmed: the server indexes the file
   rerender(<DocumentDrop onChange={(d) => seen.push(d)} initialDrive refresh={1} />);
@@ -138,7 +140,8 @@ test("a file bound to its company but still at parsed keeps being followed to Re
     return doc({});
   });
   render(<DocumentDrop onChange={() => undefined} initialDrive />);
-  fireEvent.click(await screen.findByRole("button", { name: "Add" }));
+  fireEvent.click(await screen.findByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: "Add 1 file" }));
   expect(await screen.findByText("Ready", {}, { timeout: 5000 })).toBeTruthy();
   expect(polls).toBeGreaterThan(0);
 });

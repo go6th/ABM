@@ -8,12 +8,13 @@
 // kept by this page: each later pause is approved without asking while it stays open.
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ResumeButton, ResumingNote } from "@/components/accounts/ResumeResearch";
 import { api, ApiError } from "@/lib/api";
 import { useRunStream } from "@/lib/useRunStream";
 import { m } from "@/lib/messages";
 import { humanize } from "@/lib/ws-format";
 import { cellText } from "@/lib/render";
-import type { ProgressStep, RunProgress, RunStatusView, ExportPackages } from "@/lib/gen/api.gen";
+import type { ProgressStep, RunProgress, RunStatusView, ExportPackages, ResearchResumed, TokenUse } from "@/lib/gen/api.gen";
 import { Notice } from "@/ui/primitives";
 import { TokenMeter } from "./TokenMeter";
 
@@ -93,7 +94,16 @@ function Counts({ counts }: { counts: Record<string, number> }) {
   return <dl className="dl">{entries.map(([k, n]) => <div key={k} className="contents"><dt>{humanize(k)}</dt><dd className="num">{n}</dd></div>)}</dl>;
 }
 
-export function Checkpoint({ runId, status, onDecided, auto, setAuto }: { runId: string; status: string; onDecided: () => void; auto: number; setAuto: (n: number) => void }) {
+/** How many times its estimate a run's tokens are, when it is at or past the token guard (3x);
+ *  null otherwise. The guard pauses the run there even with spend caps off (2026-10-23). */
+export function overEstimate(tokens: TokenUse | null | undefined, multiple = 3): number | null {
+  const expected = tokens?.expected_tokens ?? null;
+  if (!tokens || !expected || expected <= 0) return null;
+  const times = tokens.total / expected;
+  return times >= multiple ? times : null;
+}
+
+export function Checkpoint({ runId, status, onDecided, auto, setAuto, tokens = null }: { runId: string; status: string; onDecided: () => void; auto: number; setAuto: (n: number) => void; tokens?: TokenUse | null }) {
   const [cap, setCap] = useState<CapProposal | null>(null);
   const [live, setLive] = useState<LiveSpend | null>(null);
   const [busy, setBusy] = useState(false);
@@ -140,6 +150,21 @@ export function Checkpoint({ runId, status, onDecided, auto, setAuto }: { runId:
   };
 
   if (!paused) return null;
+  const over = overEstimate(tokens);
+  if (over !== null) {
+    // the token guard: one decision at a time, never continued automatically
+    return (
+      <div className="notice warn" role="status" aria-live="polite">
+        <h2>This run is well over its estimate</h2>
+        <p className="small">It has used {over.toFixed(1)}× the tokens a research like this usually takes, so it paused to ask you. Continue lets it carry on until it reaches 3× more, or stop it now and keep what it has found.</p>
+        {message ? <p className="error-text small" role="alert">{message}</p> : null}
+        <div className="actions">
+          <button type="button" className="btn primary" disabled={busy} onClick={() => { setAuto(0); void approve(); }}>{m.run.continueOne}</button>
+          <button type="button" className="btn danger" disabled={busy} onClick={() => void stop()}>{m.run.stop}</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="notice" role="status" aria-live="polite">
       <h2>{m.run.checkpointTitle}</h2>
@@ -247,6 +272,10 @@ export function RunPanel({ runId, compact = false, state }: { runId: string; com
     return () => { alive = false; };
   }, [runId, status, terminal, run]);
   const [stopError, setStopError] = useState<string | null>(null);
+  // Resume research when the server offers it on this run (``can_resume``: the account page's
+  // rule); the note stays after the offer goes (the account then has a job open)
+  const [resumed, setResumed] = useState<ResearchResumed | null>(null);
+  const onResumed = useCallback((r: ResearchResumed) => { setResumed(r); reload(); }, [reload]);
   if (error) return <Notice kind="error">{error.status === 404 ? m.run.notFound : `${m.state.errorTitle} ${m.state.errorBody}`}</Notice>;
   const stop = async () => {
     setStopError(null);
@@ -257,7 +286,7 @@ export function RunPanel({ runId, compact = false, state }: { runId: string; com
   return (
     <div className="stack">
       <StepList progress={progress} status={status} />
-      <Checkpoint runId={runId} status={status} onDecided={reload} auto={auto} setAuto={setAuto} />
+      <Checkpoint runId={runId} status={status} onDecided={reload} auto={auto} setAuto={setAuto} tokens={run?.token_use ?? null} />
       {run ? <TokenMeter run={run} steps={progress ? runSteps(progress, status) : []} at={currentStep(progress, status)} status={status} /> : null}
       {!compact ? (
         <div className="section">
@@ -279,6 +308,8 @@ export function RunPanel({ runId, compact = false, state }: { runId: string; com
             : <span className="status warn">{m.run.partial}</span>}
         </p>
       ) : null}
+      {resumed ? <ResumingNote resumed={resumed} />
+        : run?.can_resume ? <div className="actions"><ResumeButton runId={runId} onResumed={onResumed} /></div> : null}
     </div>
   );
 }

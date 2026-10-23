@@ -187,3 +187,72 @@ async def test_the_dollar_cap_ends_the_run_partial_and_keeps_what_it_holds(
         ("PARTIAL", "DollarCapReached")
     ]
     assert _sql("SELECT count(*) FROM tool_calls WHERE run_id = %s", run) == [(1,)]  # kept
+
+
+def _tokens(tenant: UUID, run: UUID, key: str, tokens: int) -> None:
+    _sql(
+        "INSERT INTO model_reply_log (tenant_id, run_id, cache_key, task_kind, tier, model,"
+        " served_from, input_tokens, output_tokens, cost_usd, cost_known) VALUES (%s, %s, %s,"
+        " 'extract', 'extractor', 'fake-model', 'model', %s, 0, 0.001, true)",
+        tenant,
+        run,
+        key,
+        tokens,
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_token_guard_pauses_at_three_times_the_estimate_with_the_caps_off(
+    tenant_a: UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner decision 2026-10-23: the caps stay off, but a run whose model tokens reach 3x its
+    pre-run estimate is stopped before its next paid model call; continuing moves the next stop
+    3x the estimate further on; a reply the run already holds replays without the check."""
+    from account_intelligence.connectors import spend_guard
+    from account_intelligence.connectors.spend_guard import TokenGuardReached
+    from account_intelligence.db.session import tenant_txn
+    from account_intelligence.platform.hermetic import MemoryPayloadStore, ScriptedLlm
+    from account_intelligence.workflow.deps import RunDeps
+    from account_intelligence.workflow.spec import load_spec
+    from tests.connectors.conftest import FakeClock
+
+    monkeypatch.setenv("RESEARCH_CAPS", "off")
+    assert spend_guard.token_guard_multiple() == 3
+    account, run, domain = make_run(tenant_a)
+    _sql("UPDATE account_runs SET run_input = '{\"expected_tokens\": 100}' WHERE id = %s", run)
+    deps = RunDeps(
+        tenant_a, run, account, domain, tenant_txn, ScriptedLlm(lambda *a: "{}"),
+        MemoryPayloadStore(), FakeClock(), load_spec(),
+    )  # fmt: skip
+    _tokens(tenant_a, run, "k1", 299)
+    assert (await deps.model("abm_pass2_extract", "sys", "under the guard")).text == "{}"
+    _tokens(tenant_a, run, "k2", 1)  # 300 tokens: 3 x 100
+    with pytest.raises(TokenGuardReached) as reached:
+        await deps.model("abm_pass2_extract", "sys", "a new question")
+    assert (reached.value.tokens, reached.value.threshold) == (300, 300)
+    # the reply the run already holds is not paid again, so it is not stopped either
+    assert (await deps.model("abm_pass2_extract", "sys", "under the guard")).text == "{}"
+
+    async with tenant_txn(tenant_a) as s:
+        assert await spend_guard.accept_tokens(s, run) == 300
+    assert (await deps.model("abm_pass2_extract", "sys", "a new question")).text == "{}"
+    _tokens(tenant_a, run, "k3", 299)
+    assert (await deps.model("abm_pass2_extract", "sys", "one more")).text == "{}"
+    _tokens(tenant_a, run, "k4", 1)  # 600: the guard moved 3 x 100 past the accepted 300
+    with pytest.raises(TokenGuardReached) as again:
+        await deps.model("abm_pass2_extract", "sys", "and another")
+    assert again.value.threshold == 600
+
+
+@pytest.mark.asyncio
+async def test_a_run_without_an_estimate_is_never_stopped_by_the_token_guard(
+    tenant_a: UUID,
+) -> None:
+    from account_intelligence.connectors import spend_guard
+    from account_intelligence.db.session import tenant_txn
+
+    _, run, _ = make_run(tenant_a)
+    _tokens(tenant_a, run, "k", 10_000_000)
+    async with tenant_txn(tenant_a) as s:
+        await spend_guard.check_tokens(s, run)  # no expected_tokens: no guard
+        assert await spend_guard.run_tokens(s, run) == 10_000_000

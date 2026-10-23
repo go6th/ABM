@@ -620,6 +620,59 @@ def stop_text(reason: str, defects: Sequence[Mapping[str, Any]] = ()) -> str:
     return f"It stopped before finishing (reason: {reason.replace('_', ' ')})."
 
 
+_ENDED = ("COMPLETED", "PARTIAL", "FAILED", "CANCELED", "BUDGET_EXCEEDED")
+# a research that delivered its files with steps it could not finish (consent, waiting on the
+# owner, not approved) is finished, not stopped: Coverage says which steps and why
+_FINISHED_REASONS = (
+    None,
+    "completed",
+    "canceled",
+    "user_canceled",
+    "steps_waiting",
+    "no_new_findings",
+)
+OPEN_JOB_STATUSES = ("waiting_credit_limit", "queued", "running")
+
+
+def stalled(status: str | None, stalled_at: Any) -> bool:
+    """A run the platform marked as making no progress and that has not ended."""
+    return stalled_at is not None and status not in _ENDED
+
+
+def resumable(status: str | None, finished_reason: str | None, stalled_at: Any) -> bool:
+    """The one rule for offering Resume research on a run (account page, Research board, run
+    page): it stalled, or it ended early (PARTIAL, FAILED, BUDGET_EXCEEDED) for a reason other
+    than a cancel or a finish with waiting steps. The caller adds the account checks
+    (``can_resume``): only the account's latest company run, and only with no job open."""
+    ended_early = status in ("PARTIAL", "FAILED", "BUDGET_EXCEEDED")
+    return stalled(status, stalled_at) or (ended_early and finished_reason not in _FINISHED_REASONS)
+
+
+def resume_context(run: str) -> str:
+    """Select-list SQL for a run aliased ``run`` (which must expose ``id`` and ``account_id``):
+    ``is_latest`` (it is the account's latest company run) and ``job_open`` (the account has a
+    job waiting, queued or running, which Resume would refuse with ``credits.JobOpen``)."""
+    statuses = ", ".join(f"'{s}'" for s in OPEN_JOB_STATUSES)
+    return (
+        f"({run}.id = (SELECT l.id FROM account_runs l WHERE l.account_id = {run}.account_id"
+        " AND coalesce(l.input_mode, 'company') = 'company' ORDER BY l.created_at DESC LIMIT 1))"
+        " AS is_latest,"
+        f" EXISTS (SELECT 1 FROM research_jobs o WHERE o.account_id = {run}.account_id"
+        f" AND o.status IN ({statuses})) AS job_open"
+    )
+
+
+def can_resume(
+    status: str | None,
+    finished_reason: str | None,
+    stalled_at: Any,
+    is_latest: bool | None,
+    job_open: bool | None,
+) -> bool:
+    """Resume is offered on a run: ``resumable`` plus the ``resume_context`` columns."""
+    return resumable(status, finished_reason, stalled_at) and bool(is_latest) and not job_open
+
+
 async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
     """The account's latest research when it stopped before finishing (PARTIAL or FAILED with a
     reason other than a cancel) or stalled, with what it holds: the screen offers Resume research
@@ -640,18 +693,10 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
     ).first()
     if row is None:
         return None
-    stalled = row.stalled_at is not None and row.status not in (
-        "COMPLETED", "PARTIAL", "FAILED", "CANCELED", "BUDGET_EXCEEDED"
-    )  # fmt: skip
-    ended_early = row.status in ("PARTIAL", "FAILED", "BUDGET_EXCEEDED")
-    # a research that delivered its files with steps it could not finish (consent, waiting on
-    # the owner, not approved) is finished, not stopped: Coverage says which steps and why
-    stopped = ended_early and row.finished_reason not in (
-        None, "completed", "canceled", "user_canceled", "steps_waiting", "no_new_findings"
-    )  # fmt: skip
-    if not (stalled or stopped):
+    if not resumable(row.status, row.finished_reason, row.stalled_at):
         return None
-    reason = "stalled" if stalled else str(row.finished_reason)
+    is_stalled = stalled(row.status, row.stalled_at)
+    reason = "stalled" if is_stalled else str(row.finished_reason)
     defects: list[Any] = []
     if reason in ("gate_failed", "files_withheld"):  # the stored verdict says which checks
         found = await session.scalar(
@@ -664,7 +709,7 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
         defects = list(found or [])
     return {
         "run_id": str(row.id),
-        "stalled": stalled,
+        "stalled": is_stalled,
         "reason": stop_text(reason, defects),
         "steps_done": int(row.done),
         "steps_total": int(row.total),

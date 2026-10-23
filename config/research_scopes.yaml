@@ -16,9 +16,12 @@ scopes:
     - key_contact_profiles_posts
     - leadership_changes
   # the user's topic words replace the row labels in these rows' search phrasings
-  topic:
+  topic: &topic_rows
     - company_news
     - competitor_moves
     - technology_detections
     - vendor_customer_stories
     - executive_speaking
+# New research's optional goal (the user's words) ADDS one search to each of these rows, on top
+# of the row's own queries; every other row searches only its own queries.
+goal_rows: *topic_rows

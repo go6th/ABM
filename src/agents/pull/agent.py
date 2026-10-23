@@ -66,24 +66,42 @@ class SpendPause(AgentError):
         super().__init__(f"{row_key}: {reason}")
 
 
+# The searches a research goal adds to each goal row, on top of the row's own queries (one per
+# row keeps the extra spend small: a goal on the five goal rows is five more searches).
+GOAL_PHRASINGS = ("{account} {goal}",)
+
+
 def phrasings_for(
-    cfg: SkillConfig, row: PlanRow, ctx: RunContext, year: int, topic: str | None = None
+    cfg: SkillConfig,
+    row: PlanRow,
+    ctx: RunContext,
+    year: int,
+    topic: str | None = None,
+    goal: str | None = None,
 ) -> tuple[str, ...]:
     """The row's queries (code-built, never model text): the row's own queries from the skill
     when it has them, otherwise the generic phrasings around the row's label. A topic refresh
     searches with the user's own topic words (whitespace collapsed, at most 200 characters) in
-    the generic phrasings instead."""
+    the generic phrasings instead. A research ``goal`` (the user's words, whitespace collapsed,
+    at most 200 characters) ADDS ``GOAL_PHRASINGS`` after those queries and never replaces them;
+    the caller passes it only for the configured goal rows."""
     words = " ".join((topic or "").split())[:200]
     if row.queries and not words:
-        return tuple(
+        own = tuple(
             q.format(account=ctx.account_name, domain=ctx.domain, year=year, prev_year=year - 1)
             for q in row.queries
         )
-    topic = words or cfg.row_labels[row.row_key]
-    return tuple(
-        p.format(account=ctx.account_name, domain=ctx.domain, topic=topic, year=year)
-        for p in cfg.phrasings
-    )
+    else:
+        label = words or cfg.row_labels[row.row_key]
+        own = tuple(
+            p.format(account=ctx.account_name, domain=ctx.domain, topic=label, year=year)
+            for p in cfg.phrasings
+        )
+    aim = " ".join((goal or "").split())[:200]
+    if not aim:
+        return own
+    extra = (p.format(account=ctx.account_name, goal=aim) for p in GOAL_PHRASINGS)
+    return own + tuple(q for q in dict.fromkeys(extra) if q not in own)
 
 
 @dataclass
@@ -102,6 +120,10 @@ class PullAgent:
     capped: bool = field(default=False)
     # a topic refresh: the user's topic words replace the row label in the search phrasings
     topic: str | None = field(default=None)
+    # a research goal (the user's words) and the rows it adds searches to (config
+    # ``research_scopes.yaml`` goal_rows); every other row searches only its own queries
+    goal: str | None = field(default=None)
+    goal_rows: frozenset[str] = field(default_factory=frozenset)
 
     async def pull_row(
         self,
@@ -127,7 +149,16 @@ class PullAgent:
         cost = 0
         failure: str | None = None
         public = (
-            () if row.internal_history else phrasings_for(self.cfg, row, ctx, now.year, self.topic)
+            ()
+            if row.internal_history
+            else phrasings_for(
+                self.cfg,
+                row,
+                ctx,
+                now.year,
+                self.topic,
+                self.goal if row.row_key in self.goal_rows else None,
+            )
         )
         for query in public:
             meter.charge_call()

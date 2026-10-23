@@ -10,9 +10,9 @@
   background: var(--surface); border: 1px solid var(--line-input); color: var(--text-3);
   transition: border-color var(--ease), color var(--ease), background var(--ease), opacity var(--ease);
 }
-.btn:hover { border-color: var(--accent); color: var(--accent); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 0 18px; }
-.btn.primary:hover { color: #fff; background: #2740c4; border-color: #2740c4; }
+.btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 0 18px; box-shadow: var(--sh-primary); }
+.btn.primary:hover { color: #fff; background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; pointer-events: none; }
 .btn.sm { min-height: 40px; padding: 0 14px; border-radius: var(--r-field); font-size: 13px; }
 .btn.block { width: 100%; }
@@ -60,11 +60,12 @@ a.chipa:hover, button.chipa:hover { color: var(--accent); }
 .fc[aria-pressed="true"], .fc[aria-current="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
 
 /* ---------- Cards ---------- */
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--sh-raised); }
 .card.clip { overflow: hidden; }
 .card.raised { box-shadow: var(--sh-raised); }
 .card.quiet { background: var(--quiet-card); }
-.card.wash { background: var(--accent-wash); border-color: var(--accent-line); }
+.card.wash { background: var(--hero-bg); border-color: var(--hero-line); box-shadow: none; }
+.card.lav { background: var(--lav-bg); border-color: var(--lav-line); box-shadow: none; }
 .card.warn { background: var(--warn-card); border-color: var(--warn-card-line); }
 .card.pad { padding: 22px 24px; }
 .card.pad-sm { padding: 14px 18px; }
@@ -621,3 +622,33 @@ table.xl th span.th { color: var(--text-3); }
   .tk-legend { grid-template-columns: 1fr; }
   .tk-marks span:nth-child(even):not(:last-child) { visibility: hidden; }
 }
+
+/* ---------- Mail and drive (screen 8): sources grouped by provider ---------- */
+.md-groups { display: flex; flex-direction: column; gap: 28px; }
+.md-group { display: flex; flex-direction: column; gap: 12px; }
+.md-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.md-card { display: flex; flex-direction: column; gap: 12px; }
+.md-head { display: flex; align-items: center; gap: 12px; }
+.md-icon { width: 40px; height: 40px; border-radius: var(--r-btn); display: grid; place-items: center; flex: none; background: var(--accent-soft); color: var(--accent); }
+.md-icon.microsoft { background: var(--lav-bg); color: var(--lav-ink); }
+.md-name { flex: 1; min-width: 0; font-weight: 600; font-size: 16px; }
+.md-facts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.md-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+.md-privacy { display: flex; align-items: center; gap: 10px; }
+.md-ok { color: var(--ok-ink); }
+@media (max-width: 759px) {
+  .md-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- Public legal pages (privacy, terms) ---------- */
+.legal { min-height: 100vh; background: var(--bg); }
+.legal-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 18px 32px; background: var(--side-bg); border-bottom: 1px solid var(--side-line); }
+.legal-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.legal-nav a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: var(--r-btn); font-size: 14px; font-weight: 600; color: var(--text-3); }
+.legal-nav a:hover { background: var(--hover); color: var(--ink); }
+.legal-body { max-width: 760px; margin: 0 auto; padding: 48px 24px 72px; display: flex; flex-direction: column; gap: 14px; font-size: 15.5px; line-height: 1.7; color: var(--ink-2); }
+.legal-body h2 { margin-top: 18px; font-size: 19px; font-weight: 800; color: var(--ink-2); }
+.legal-body ul { display: flex; flex-direction: column; gap: 8px; padding-left: 20px; list-style: disc; }
+.legal-body a { color: var(--accent); font-weight: 600; text-decoration: underline; }
+.legal-updated { font-size: 13px; color: var(--muted); }
+@media (max-width: 759px) { .legal-head { padding: 14px 16px; } .legal-body { padding: 32px 16px 56px; } }

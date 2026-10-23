@@ -1,6 +1,6 @@
 /* Sign-in pages as PDF page 1 draws them (owner decision 2026-10-14): a light grey left column
    with the logo, one white card and a line under it, and a lavender right column with a fine dot
-   grid. The admin sign-in is the same shape with a navy right column. */
+   grid. The admin sign-in is the same shape with a lavender right column. */
 .auth { min-height: 100vh; display: grid; grid-template-columns: var(--auth-col) minmax(0, 1fr); background: var(--bg); }
 .auth.auth-solo { grid-template-columns: minmax(0, 1fr); justify-items: center; }
 
@@ -87,14 +87,14 @@
 .pitch-text p { margin-top: 6px; font-size: 14.5px; line-height: 1.7; color: var(--text-nav); }
 .pitch-grades { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
-/* Admin sign-in: the right column in the admin sidebar's navy, the dot grid in a lighter navy. */
-.auth.auth-admin .auth-pitch { background-color: var(--admin-bg); background-image: radial-gradient(circle, var(--admin-dot) 1.1px, transparent 1.6px); }
-.auth.auth-admin .auth-pitch h2 { color: #fff; }
+/* Admin sign-in: the right column in lavender (the operator console's own pastel). */
+.auth.auth-admin .auth-pitch { background-color: var(--lav-bg); background-image: radial-gradient(circle, var(--admin-dot) 1.1px, transparent 1.6px); }
+.auth.auth-admin .auth-pitch h2 { color: var(--ink-2); }
 .auth.auth-admin .pitch-lead { color: var(--admin-text); }
 .auth.auth-admin .pitch-card { background: var(--admin-card); border-color: var(--admin-line); box-shadow: none; }
 .auth.auth-admin .pitch-card li + li { border-top-color: var(--admin-line); }
 .auth.auth-admin .pitch-tile { background: var(--admin-on); color: var(--logo-dot); border-color: var(--admin-line); box-shadow: none; }
-.auth.auth-admin .pitch-text h3 { color: #fff; }
+.auth.auth-admin .pitch-text h3 { color: var(--ink); }
 .auth.auth-admin .pitch-text p { color: var(--admin-text); }
 
 /* Below 1024px the right column moves under the card; at phone width the gutters are 16px. */

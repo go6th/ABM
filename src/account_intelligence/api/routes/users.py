@@ -6,6 +6,8 @@
 * ``PATCH /v1/users``: change one member's role and/or status, conditional on the version read;
   refused for the caller's own membership and for the last active admin. A role change or
   suspension ends the member's sessions (privilege change rotates: they sign in again).
+* ``GET /v1/users/team``: the members with their email and name, and whether each has accepted.
+* ``POST /v1/users/invite``: invite a teammate by email (the rules: api.team_invites).
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.team_invites import invite_member, team_members
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
 from identity import membership, sessions
@@ -29,6 +32,8 @@ router = APIRouter(prefix="/users", tags=["users"])
 register("GET", "/v1/users", tenant_route("manage_users", "read", step_up=False))
 register("POST", "/v1/users", tenant_route("manage_users", "admin"))
 register("PATCH", "/v1/users", tenant_route("manage_users", "admin"))
+register("GET", "/v1/users/team", tenant_route("manage_users", "read", step_up=False))
+register("POST", "/v1/users/invite", tenant_route("manage_users", "admin"))
 
 Role = Literal["admin", "analyst", "seller", "viewer"]
 
@@ -52,6 +57,14 @@ class ChangeBody(BaseModel):
     role: Role | None = None
     status: Literal["active", "suspended", "removed"] | None = None
     reason: str | None = Field(default=None, max_length=300)
+
+
+class InviteBody(BaseModel):
+    """A teammate to invite: their work email and role. No tenant field."""
+
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    role: Role
 
 
 def _json(m: membership.Member) -> dict[str, Any]:
@@ -143,3 +156,36 @@ async def change_user(
     except membership.MembershipConflict:
         raise HTTPException(409, "membership changed since it was read") from None
     return _json(changed)
+
+
+@router.get("/team", response_model=C.Team)
+async def team(request: Request, ident: Identity = Depends(authorize)) -> dict[str, Any]:
+    """The members with email and name; ``pending`` while an invited person has not accepted."""
+    return {"members": await team_members(ident.tenant_id, ident.user_id)}
+
+
+@router.post("/invite", response_model=C.TeamInvite, status_code=201)
+async def invite(
+    body: InviteBody, request: Request, ident: Identity = Depends(authorize)
+) -> dict[str, Any]:
+    """Invite a teammate (see account_intelligence.api.team_invites for when a link is made)."""
+
+    async def audit(s: Any, member: str) -> None:
+        """The invite in the tenant's audit log (admin class)."""
+        await audit_action(
+            s,
+            request,
+            audit_class="admin",
+            action="member_invite",
+            resource_type="member",
+            resource_id=member,
+        )
+
+    return await invite_member(
+        plane_of(request),
+        ident.tenant_id,
+        email=body.email,
+        role=body.role,
+        actor=ident.user_id,
+        audit=audit,
+    )
