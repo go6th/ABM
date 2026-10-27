@@ -71,6 +71,8 @@ COPY --from=build /opt/abm-render-tools /opt/abm-render-tools
 COPY --from=build /opt/render-docx/dist /opt/render-docx/dist
 COPY --from=build /opt/render-docx/node_modules /opt/render-docx/node_modules
 COPY --from=build /opt/render-docx/package.json /opt/render-docx/package.json
+# source maps are not shipped: the release gate rejects them (node packages from apt and npm)
+RUN find /usr/share/nodejs /opt/abm-render-tools /opt/render-docx -name '*.map' -delete
 COPY config ./config
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 CONFIG_DIR=/app/config FASTEMBED_CACHE_PATH=/app/models HF_HUB_OFFLINE=1 SERVICE_ROLE=job \
     NODE_PATH=/opt/abm-render-tools/node_modules PARITY_DOCX_CLI=/opt/render-docx/dist/cli.js PORT=8080

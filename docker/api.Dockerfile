@@ -51,6 +51,8 @@ COPY --from=build /opt/abm-render-tools /opt/abm-render-tools
 COPY --from=build /opt/render-docx/dist /opt/render-docx/dist
 COPY --from=build /opt/render-docx/node_modules /opt/render-docx/node_modules
 COPY --from=build /opt/render-docx/package.json /opt/render-docx/package.json
+# source maps are not shipped: the release gate rejects them (node packages from apt and npm)
+RUN find /usr/share/nodejs /opt/abm-render-tools /opt/render-docx -name '*.map' -delete
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY config ./config

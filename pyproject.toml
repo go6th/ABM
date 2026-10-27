@@ -56,8 +56,8 @@ packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "
 # the worker image syncs ``--no-group cpu --group gpu`` and embeds on its NVIDIA L4 (Cloud Run
 # mounts the driver, CUDA 13; the ``[cuda,cudnn]`` extras ship the runtime libraries as wheels).
 [dependency-groups]
-cpu = ["fastembed==0.8.0"]
-gpu = ["fastembed-gpu==0.8.0", "onnxruntime-gpu[cuda,cudnn]==1.31.0", "pandas==3.0.6"]  # the worker image pinned pandas ad hoc
+cpu = ["fastembed==0.9.1"]
+gpu = ["fastembed-gpu==0.9.1", "onnxruntime-gpu[cuda,cudnn]==1.31.0", "pandas==3.0.6"]  # the worker image pinned pandas ad hoc
 dev = [
     "bandit>=1.7",
     "hypothesis>=6.100",
