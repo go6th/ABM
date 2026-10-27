@@ -122,6 +122,30 @@ async def test_stop_ends_a_research_that_has_not_started_and_releases_its_credit
     assert ws["open_job"] is None
 
 
+async def test_stop_says_busy_instead_of_hanging_when_the_job_row_is_locked(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Stop that cannot take the job's row lock inside its wait answers 503 research_busy
+    (staging 2026-10-27: one hung past the web relay's 120 s and the person saw a bare 504);
+    once the lock is gone the same Stop ends the research."""
+    from account_intelligence.api.routes import research
+
+    plane = _plane(world["a"], "priya-test", world["payloads"])
+    body = {"request_id": str(uuid4()), "company_name": "Lockco", "domain": "lockco.example"}
+    job = (await _call(plane, "POST", "/v1/research", json=body)).json()["job_id"]
+    monkeypatch.setattr(research, "STOP_LOCK_WAIT_S", 1)
+    with psycopg.connect(ADMIN_DSN) as holder:  # another transaction holds the job row
+        holder.execute("SELECT 1 FROM research_jobs WHERE id = %s FOR UPDATE", (job,))
+        busy = await _call(plane, "POST", f"/v1/research/{job}/stop")
+        assert busy.status_code == 503, busy.text
+        assert busy.json()["type"].endswith("research_busy")
+        assert _db("SELECT status FROM research_jobs WHERE id = %s", job) == [("queued",)]
+        holder.rollback()
+    stopped = await _call(plane, "POST", f"/v1/research/{job}/stop")
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()["status"] == "canceled"
+
+
 async def test_a_research_goal_is_optional_stored_and_checked(world: dict[str, Any]) -> None:
     """Owner decision 2026-10-23: New research takes an optional goal in the user's words
     (whitespace collapsed, 3 to 500 characters, empty is none); the body still refuses fields it

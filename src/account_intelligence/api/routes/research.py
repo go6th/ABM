@@ -29,6 +29,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
@@ -39,7 +40,7 @@ from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.ratelimit import limit_user
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
-from account_intelligence.db.session import tenant_txn
+from account_intelligence.db.session import bound_waits, tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica import jobs
 from account_intelligence.replica import limits as LIM
@@ -48,8 +49,10 @@ from account_intelligence.replica.settings import accounts_used, client_settings
 from account_intelligence.replica.usage_estimate import estimate_usage
 from account_intelligence.replica.workspace import PLANNED
 from account_intelligence.runs import lifecycle
+from obs.logging import logger
 
 router = APIRouter(prefix="/research", tags=["research"])
+_log = logger(__name__)
 register("GET", "/v1/research/estimate", tenant_route("read_public", "read", step_up=False))
 register("POST", "/v1/research", tenant_route("start_run", "run", step_up=False))
 
@@ -318,48 +321,92 @@ async def stop_research(
 
     now = datetime.now(UTC)
     container = request.app.state.container
-    async with tenant_txn(ident.tenant_id) as s:
-        job = (
-            await s.execute(
-                text("SELECT id, status, run_id FROM research_jobs WHERE id = :j FOR UPDATE"),
-                {"j": job_id},
-            )
-        ).first()
-        if job is None:
-            raise APIProblem(404, "not_found", "Not found", "This research was not found.")
-        if job.status not in ("waiting_credit_limit", "queued", "running"):
-            raise APIProblem(
-                409, "research_ended", "Research has ended", "This research has already ended."
-            )
-        if job.run_id is not None:
-            try:
-                await lifecycle.finish(
-                    s,
-                    await _tracker_for(container, s),
-                    UUID(str(job.run_id)),
-                    RunStatus.CANCELED,
-                    reason="canceled_by_user",
+    try:
+        async with tenant_txn(ident.tenant_id) as s:
+            # a Stop answers within the web's wait or says it could not: on 2026-10-27 one
+            # waited on a row lock past the relay's 120 s and the person saw a bare 504 while
+            # the research ran on. A lock held longer than STOP_LOCK_WAIT_S (the job row, the
+            # run row, the settlement) or a statement past STOP_STATEMENT_S ends the attempt as
+            # research_busy (503): try again in a moment, nothing changed.
+            await bound_waits(s, lock_s=STOP_LOCK_WAIT_S, statement_s=STOP_STATEMENT_S)
+            job = (
+                await s.execute(
+                    text("SELECT id, status, run_id FROM research_jobs WHERE id = :j FOR UPDATE"),
+                    {"j": job_id},
                 )
-            except ValueError:
+            ).first()
+            if job is None:
+                raise APIProblem(404, "not_found", "Not found", "This research was not found.")
+            if job.status not in ("waiting_credit_limit", "queued", "running"):
                 raise APIProblem(
                     409,
-                    "research_not_stoppable",
-                    "Research cannot be stopped now",
-                    "This research cannot be stopped from where it is. Try again in a moment.",
-                ) from None
-        # a job no run carries yet (or one its run's settlement left open) ends here
-        await CR.settle(
-            s, job_id, spent_usd=Decimal(0), now=now, status="canceled", reason="Stopped by you."
-        )
-        await audit_action(
-            s,
-            request,
-            audit_class="run",
-            action="stop_research",
-            resource_type="research_job",
-            resource_id=job_id,
-        )
-        status = await s.scalar(
-            text("SELECT status FROM research_jobs WHERE id = :j"), {"j": job_id}
-        )
+                    "research_ended",
+                    "Research has ended",
+                    "This research has already ended.",
+                )
+            if job.run_id is not None:
+                try:
+                    await lifecycle.finish(
+                        s,
+                        await _tracker_for(container, s),
+                        UUID(str(job.run_id)),
+                        RunStatus.CANCELED,
+                        reason="canceled_by_user",
+                    )
+                except ValueError:
+                    raise APIProblem(
+                        409,
+                        "research_not_stoppable",
+                        "Research cannot be stopped now",
+                        "This research cannot be stopped from where it is. Try again in a moment.",
+                    ) from None
+            # a job no run carries yet (or one its run's settlement left open) ends here
+            await CR.settle(
+                s,
+                job_id,
+                spent_usd=Decimal(0),
+                now=now,
+                status="canceled",
+                reason="Stopped by you.",
+            )
+            await audit_action(
+                s,
+                request,
+                audit_class="run",
+                action="stop_research",
+                resource_type="research_job",
+                resource_id=job_id,
+            )
+            status = await s.scalar(
+                text("SELECT status FROM research_jobs WHERE id = :j"), {"j": job_id}
+            )
+    except DBAPIError as error:
+        code = _pgcode(error)
+        if code not in _TIMED_OUT:
+            raise
+        _log.warning("research.stop_busy", extra={"error_code": code, "where": "stop_research"})
+        raise APIProblem(
+            503,
+            "research_busy",
+            "Research is busy",
+            "The research is being worked on right now. Try again in a moment.",
+        ) from None
     return {"job_id": str(job_id), "status": str(status)}
+
+
+# a Stop waits this long for a row lock, and this long for any one statement, before it says
+# research_busy instead of holding the relay (web proxy: 120 s) open
+STOP_LOCK_WAIT_S = 15
+STOP_STATEMENT_S = 60
+# PostgreSQL: lock_not_available, query_canceled (a statement_timeout)
+_TIMED_OUT = frozenset({"55P03", "57014"})
+
+
+def _pgcode(error: DBAPIError) -> str | None:
+    """The SQLSTATE of a driver error (the asyncpg adapter carries it as ``pgcode``)."""
+    orig = getattr(error, "orig", None)
+    for candidate in (orig, getattr(orig, "__cause__", None)):
+        code = getattr(candidate, "pgcode", None) or getattr(candidate, "sqlstate", None)
+        if code:
+            return str(code)
+    return None

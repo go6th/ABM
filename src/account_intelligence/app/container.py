@@ -450,6 +450,8 @@ def _slices(spec: WorkflowSpec) -> SliceSettings:
         # research needs
         max_slices=UNCAPPED if research_uncapped() else int(s.get("max_slices", 60)),
         approval_hours=float(s.get("approval_timeout_hours", 24)),
+        # never off: a run whose checkpoint does not move is not researching, caps or no caps
+        max_no_progress_slices=int(s.get("max_no_progress_slices", 3)),
     )
 
 

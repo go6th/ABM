@@ -185,6 +185,14 @@ async def tenant_txn(
         yield session
 
 
+async def bound_waits(session: AsyncSession, *, lock_s: int, statement_s: int) -> None:
+    """Bound this transaction's waits: a row lock not taken within ``lock_s`` seconds and a
+    statement running past ``statement_s`` seconds fail (SQLSTATE 55P03 and 57014) instead of
+    holding the caller open. Transaction-local, like the tenant context."""
+    await session.execute(text(f"SET LOCAL lock_timeout = '{int(lock_s)}s'"))
+    await session.execute(text(f"SET LOCAL statement_timeout = '{int(statement_s)}s'"))
+
+
 @asynccontextmanager
 async def untenanted_session() -> AsyncIterator[AsyncSession]:
     """A transaction with NO tenant context, for the definer-rights identity lookups only

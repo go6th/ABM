@@ -118,7 +118,12 @@ batch:
     - synthesise_hypotheses
     - write_narrative
     - distill
-    - support_judge
+    # support_judge is not listed: the grading step asks the judge one short question at a time
+    # (about 170 tokens in, 100 out) and waits for each answer before the next, so a batch per
+    # question put minutes to half an hour of batch latency in front of every verdict. On
+    # 2026-10-26 one staging research spent 20 hours in that loop (most judge batches ran past
+    # max_wait_seconds, were cancelled and re-asked as standard calls at 2 s each) for a discount
+    # of cents. Standard calls keep the judge at seconds per verdict.
     - source_reread
     - narrative_reread
     - file_extract_facts

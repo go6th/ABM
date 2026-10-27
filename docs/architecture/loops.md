@@ -25,9 +25,9 @@ unannotated (the generator's check fails otherwise).
 | cache ratio window | `src/account_intelligence/platform/prompt_cache.py:222` | the calls of one window | oldest call inside it |
 | cache-eviction | `src/account_intelligence/rag/cache.py:103` | max_entries excess | capacity reached. |
 | call arguments | `src/account_intelligence/replica/workbook_formulas.py:600` | the formula's tokens (_take raises at the end) | ")" |
-| cancel watch | `src/account_intelligence/workflow/runner.py:271` | the slice timeout around it | graph done, canceled, timeout |
+| cancel watch | `src/account_intelligence/workflow/runner.py:306` | the slice timeout around it | graph done, canceled, timeout |
 | catch-up selection | `src/refresh/schedule.py:66` | len(missed) | per_tick reached or end |
-| cause chain | `src/account_intelligence/workflow/runner.py:357` | the chain length (each exception visited once) | end of chain |
+| cause chain | `src/account_intelligence/workflow/runner.py:479` | the chain length (each exception visited once) | end of chain |
 | clamd stream chunks | `src/documents/scan.py:137` | file size / 1 MiB chunks | end of stream |
 | close ended jobs | `src/account_intelligence/api/main.py:279` | every client once per pass, `limit` jobs each | last client |
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
@@ -148,7 +148,7 @@ unannotated (the generator's check fails otherwise).
 | section split | `src/research_files/parsers/documents.py:50` | len(text) / limit parts | text consumed |
 | signature scan blocks | `src/documents/scan.py:74` | file size / 1 MiB blocks | end of stream, a hit |
 | simulation | `src/parallel/simulate.py:193` | sum of units over runs times 4 plus 1000 steps | all runs drained |
-| slice loop | `src/account_intelligence/workflow/runner.py:165` | max_slices slices of slice_seconds (config/workflow_v1.yaml) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
+| slice loop | `src/account_intelligence/workflow/runner.py:177` | max_slices slices of slice_seconds (config/workflow_v1.yaml) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
 | stall marking | `src/account_intelligence/runs/sweeper.py:164` | batch_size runs per pass | rows exhausted |
@@ -173,7 +173,7 @@ unannotated (the generator's check fails otherwise).
 | unique column name | `src/documents/chunking.py:246` | the table's columns | a name no column has |
 | unique table name | `src/documents/tables.py:276` | the workspace's tables | a name no table has |
 | verification batch | `src/verify/claims.py:112` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
-| walk to verifying | `src/account_intelligence/runs/lifecycle.py:609` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
+| walk to verifying | `src/account_intelligence/runs/lifecycle.py:641` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |
 | workbook sheets for links | `src/research_files/parsers/tabular.py:570` | the workbook's sheets | last sheet |
 | xai stream | `src/llm/adapters/xai_api.py:262` | the server's chunks until [DONE] | [DONE], end |

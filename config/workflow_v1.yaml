@@ -12,6 +12,11 @@ settings:
   # checkpoint and lease release before the 1800 s dispatch deadline.
   slice_seconds: 1650
   max_slices: 8
+  # a slice that ends on its timer without moving the run's checkpoint counts here; this many in
+  # a row end the run PARTIAL (reason no_progress, everything found is kept). It stays on while
+  # the research caps are off: on 2026-10-26 a staging research ran 43 such slices (20 hours)
+  # with the same node pending and nothing stopped it.
+  max_no_progress_slices: 3
   max_calls: 60
   # the ceiling over every run's own budget, which is its reserved credits in dollars
   # (runs.lifecycle.create_run). Owner decision 2026-10-21: a run may spend what its credits

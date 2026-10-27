@@ -500,6 +500,38 @@ async def begin_slice(
     return int(used) if used is not None else None
 
 
+async def slices_used(session: AsyncSession, run_id: UUID) -> int:
+    """How many slices the run has begun (``RunNotFound`` if invisible to this tenant)."""
+    used = (
+        await session.execute(
+            text("SELECT slices_used FROM account_runs WHERE id = :r"), {"r": run_id}
+        )
+    ).scalar_one_or_none()
+    if used is None:
+        raise RunNotFound(str(run_id))
+    return int(used)
+
+
+async def count_no_progress(session: AsyncSession, run_id: UUID, *, progressed: bool) -> int:
+    """Count a slice that ended on its timer: the run of slices that moved nothing grows by one,
+    or starts again at zero when this slice moved the checkpoint. Returns the run's length (the
+    runner ends the research past ``max_no_progress_slices``; staging 2026-10-26: 43 slices in
+    a row with the same node pending, nothing counted them)."""
+    count = (
+        await session.execute(
+            text(
+                "UPDATE account_runs SET no_progress_slices ="
+                " CASE WHEN :p THEN 0 ELSE no_progress_slices + 1 END"
+                " WHERE id = :r RETURNING no_progress_slices"
+            ),
+            {"r": run_id, "p": progressed},
+        )
+    ).scalar_one_or_none()
+    if count is None:
+        raise RunNotFound(str(run_id))
+    return int(count)
+
+
 async def move(
     session: AsyncSession,
     run_id: UUID,

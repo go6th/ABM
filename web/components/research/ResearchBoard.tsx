@@ -229,7 +229,9 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
       await api("POST", `/v1/research/${encodeURIComponent(item.job_id)}/stop`);
       setNote({ text: m.board.stopped });
     } catch (cause) {
-      setNote({ text: cause instanceof ApiError && cause.status === 409 ? reasonOr(cause, m.board.stopFailed) : m.board.stopFailed, bad: true });
+      // 409: the research has ended or cannot stop from here; 503: a worker holds it right now
+      const explained = cause instanceof ApiError && (cause.status === 409 || cause.status === 503);
+      setNote({ text: explained ? reasonOr(cause, m.board.stopFailed) : m.board.stopFailed, bad: true });
     }
     restart();
   }, [restart]);

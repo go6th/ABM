@@ -1307,3 +1307,56 @@ sheet by sheet as tabs, with the LinkedIn profile links; some table screens did 
   passed; all repository gates green. Owner decisions left: the title search source (the active
   people source has no people_by_title; BitScale needs its grid), name-to-profile matching
   beyond this run's records, profile enrichment.
+
+## 2026-10-27: the research that ran 20 hours in one step
+
+Staging audit of the "merge" refresh (run f8fbe5b2, resumed 2026-10-26 11:15 UTC). The Research
+page showed step 5 "Writing up" running for 20 hours with 666 findings; the run queue held its
+slice-0 task at 240 delivery attempts, every one answered 503, and a Stop from the page came back
+504 after 120 s. Read from Cloud Logging (worker, api, web, Cloud Tasks):
+
+* The run was in the grading loop (`interpret`, judge tier). Every judge question (about 170
+  tokens in, 100 out, asked one at a time) went through the Message Batches API because
+  `support_judge` was in `batch.task_kinds`: each verdict waited 90 s to 30 min of batch latency,
+  most ran past `max_wait_seconds`, were cancelled and asked again as standard calls (2 s). About
+  60 verdicts in 20 hours. From 18:36 UTC the slices logged nothing at all for 13 hours: the same
+  node pending, each slice the full 1650 s, then the next.
+* Nothing counted that. `max_slices` is off with the research caps off (owner 2026-10-21), the
+  stall sweeper only marks and notifies (and auto-resume continues a stalled run), so a node that
+  never finishes inside a slice re-ran forever: 43 slices.
+* Cloud Tasks reported slice 0's first attempt INTERNAL after 959 s (the dispatch deadline is
+  1800 s; the worker finished it at 1651 s with 200), then redelivered it every five minutes.
+  The live queue has unlimited attempts (Terraform says 5). Each redelivery found the run's lease
+  held by a later slice and was answered busy (503) although it had nothing left to run.
+* The Stop never reached the api's request log: the handler waited on a row lock past the
+  web relay's 120 s. Which lock is not in the logs.
+
+Changes (worker, api, web; migration 0085):
+
+* `workflow.runner`: a slice that ends on its timer with the checkpoint where it found it (same
+  checkpoint id, same pending node: `_mark`) counts on `account_runs.no_progress_slices`; a slice
+  that moved it resets the count. `max_no_progress_slices` (workflow_v1.yaml, 3) of them in a row
+  end the run PARTIAL with reason `no_progress` and the node named in the stop detail (FAILED
+  with a full refund when the run holds nothing usable). It is never off: a limit of zero still
+  ends the run at the first empty slice. Every slice logs `slice.started` and `slice.ended`
+  (slice number, pending node, outcome, seconds, the no-progress count), so the next stall names
+  its node without a database.
+* `workflow.runner`: a redelivered copy of a slice the run has moved past answers `noop` (200,
+  Cloud Tasks drops it) instead of `busy`, whether this process or another worker holds the run;
+  a copy of a slice not yet begun stays `busy`.
+* `config/models.yaml`: `support_judge` is no longer batched (the comment there records why).
+* `api.routes.research` Stop: the transaction sets `lock_timeout` 15 s and `statement_timeout`
+  60 s; a lock it cannot take answers 503 `research_busy` ("try again in a moment") and logs
+  `research.stop_busy` with the SQLSTATE, instead of hanging the relay. The Research board shows
+  that text.
+* Not changed: the queue's retry policy (owner's infrastructure; the noop answer ends the storm
+  from the worker side), the 959 s Cloud Tasks INTERNAL (a platform limit below the documented
+  1800 s; the slice body already survives it).
+* Tests: `tests/workflow/test_slice_drive.py` (stale copy is a noop while busy; three empty
+  slices end the run, a moving slice resets the count, the limit is never off),
+  `tests/runs/test_lifecycle_db.py` (the counter), `tests/replica/test_new_research.py` (Stop says
+  busy under a held row lock, then stops). Readiness now expects schema 0085; the Stop's wait
+  bounds live in `db.session.bound_waits` (the raw-SQL baseline of the routes is unchanged).
+* Full suite 5087 passed after the two gate fixes above; web tsc, eslint and vitest green.
+  Rolled out as rel-b8be0b8 (api 00089, worker 00068, web 00050; migrate job ran 0085), then the
+  gate fixes as the tag recorded in the staging memory note.

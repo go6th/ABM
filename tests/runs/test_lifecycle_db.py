@@ -24,6 +24,7 @@ from account_intelligence.runs.lifecycle import (
     IdempotencyConflict,
     InsufficientCredits,
     RunLimits,
+    RunNotFound,
     RunRequest,
     RunStateConflict,
     create_run,
@@ -341,3 +342,24 @@ async def test_the_abm_deliver_step_still_reports_partial_when_rows_are_open() -
 
     assert {"no_internal_access"} == STATED_GAPS
     assert '"completed" if complete else "partial"' in deliver
+
+
+async def test_no_progress_slices_count_up_and_start_again_on_progress() -> None:
+    """The counter behind the runner's stall cut-off (migration 0085): empty slices add up,
+    one slice that moved the checkpoint takes the count back to zero, and the count never goes
+    below it."""
+    from account_intelligence.runs.lifecycle import count_no_progress, slices_used
+
+    t = tenant()
+    run = (await _create(t, req())).run_id
+    async with tenant_txn(t) as s:
+        assert await slices_used(s, run) == 0
+        assert await count_no_progress(s, run, progressed=False) == 1
+        assert await count_no_progress(s, run, progressed=False) == 2
+        assert await count_no_progress(s, run, progressed=True) == 0
+        assert await count_no_progress(s, run, progressed=True) == 0
+        assert await count_no_progress(s, run, progressed=False) == 1
+    assert fetch("SELECT no_progress_slices FROM account_runs WHERE id = %s", run) == [(1,)]
+    with pytest.raises(RunNotFound):
+        async with tenant_txn(tenant()) as other:
+            await count_no_progress(other, run, progressed=False)  # another client's run
