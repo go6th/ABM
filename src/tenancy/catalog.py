@@ -84,6 +84,12 @@ STORAGE_LAYOUTS: dict[str, StorageLayout] = {
         "documents.graph.internal_document",
         lambda t: f"tenants/{t}/internal/{_id(t, 'run')}/{'a' * 64}.docx",
     ),
+    "parity_version": StorageLayout(
+        "parity.service.version_prefix (the bundle, its rendered files and manifest)",
+        lambda t: (
+            f"tenants/{t}/accounts/{_id(t, 'account')}/runs/{_id(t, 'run')}/parity/v1/bundle.json"
+        ),
+    ),
 }
 
 # Cache and rate-limit key purposes. Keys are built by ``tenancy.keys.cache_key`` and always start

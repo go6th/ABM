@@ -58,6 +58,15 @@ async def test_save_and_load_round_trip_and_reentry_makes_no_call() -> None:
     assert n == len(result.postings)  # type: ignore[attr-defined]
     s = fetch("SELECT count(*) FROM job_posting_platform_sentences WHERE run_id = %s", w.run)
     assert s[0][0] == sum(len(p.sentences) for p in result.postings)  # type: ignore[attr-defined]
+    # every posting whose text was stored is archived under its link (format text: the stored
+    # text itself is the copy)
+    archived = fetch(
+        "SELECT url, payload_ref, format, kind FROM link_archive WHERE run_id = %s ORDER BY url",
+        w.run,
+    )
+    with_text = {(p.url, p.text_ref) for p in result.postings if p.text_ref}  # type: ignore[attr-defined]
+    assert {(row[0], row[1]) for row in archived} == with_text and with_text
+    assert {(row[2], row[3]) for row in archived} == {("text", "posting")}
     seen = await repo.first_and_last_seen("id:j1")
     assert seen is not None
 

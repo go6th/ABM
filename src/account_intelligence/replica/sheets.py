@@ -134,8 +134,13 @@ SHEETS: dict[str, Sheet] = {
                 # profile page the research cited (never the page that merely named them), or
                 # the profile the people search found for the same name on this account
                 " coalesce(nullif(f.value_json->>'link', ''), nullif(f.value_json->>'profile_url',"
-                "   ''), CASE WHEN e.url ~* '^https?://([a-z]+[.])?linkedin[.]com/(in|pub)/'"
-                "   THEN e.url END,"
+                "   ''),"
+                # any evidence of the fact that is the person's own profile page, not only the
+                # newest (a fact quoted from a release and from the profile lost the profile
+                # when the release was dated later; link archive 2026-10-27)
+                "   (SELECT x.url FROM fact_evidence x WHERE x.fact_id = f.id"
+                "     AND x.url ~* '^https?://([a-z]+[.])?linkedin[.]com/(in|pub)/'"
+                "     ORDER BY x.evidence_date DESC NULLS LAST, x.id LIMIT 1),"
                 "   (SELECT p2.profile_url FROM people p2 WHERE p2.account_id = f.account_id"
                 "     AND p2.profile_url IS NOT NULL AND NOT p2.excluded AND p2.merged_into IS NULL"
                 "     AND p2.erased_at IS NULL AND lower(p2.name) = lower(trim(split_part("
@@ -853,6 +858,35 @@ def row_out(q: Query, n: int, r: Any, now: datetime) -> dict[str, Any]:
             value = c.link_text or value
         cells[c.key] = value
     return {"n": n, "cells": cells, "links": links, **link_fields(r.get("link"))}
+
+
+async def attach_archives(
+    session: Any, account_id: UUID, rows: list[dict[str, Any]], domain: str
+) -> None:
+    """Give each row the archived copy behind its links (``row["archives"]``: column key, or
+    ``link`` for the row's source link, to the address of the archived copy and when it was
+    captured), so a link that died still opens what the research captured."""
+    from urllib.parse import quote
+
+    from account_intelligence.archive import lookup
+
+    wanted: set[str] = set()
+    for row in rows:
+        wanted.update(v for v in (row.get("links") or {}).values() if v)
+        if row.get("link"):
+            wanted.add(str(row["link"]))
+    found = await lookup(session, account_id, sorted(wanted)) if wanted else {}
+    base = f"/v1/accounts/{domain}/archive?url="
+    for row in rows:
+        archives: dict[str, dict[str, str]] = {}
+        for key, url in (*(row.get("links") or {}).items(), ("link", row.get("link"))):
+            hit = found.get(str(url)) if url else None
+            if hit is not None:
+                archives[key] = {
+                    "href": base + quote(str(url), safe=""),
+                    "archived_at": hit.archived_at.isoformat(),
+                }
+        row["archives"] = archives
 
 
 def link_fields(raw: Any) -> dict[str, str | None]:

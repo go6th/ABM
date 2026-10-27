@@ -6,6 +6,10 @@ candidates belongs to a person whose normalised name equals the mentioned name; 
 leave it ``unresolved`` with its mention URL and sentence (never a guess). A resolved mention
 becomes the candidate's record (identity data from the connector record, P1) carrying the mention
 URL and sentence as evidence.
+
+``resolve_unlinked`` serves the other gap: a record the people source returned WITHOUT a profile
+link (it would end "unresolved" and off the list, P2). One resolver query per such record, the
+same one-exact-match rule, and the record keeps everything it had with the profile link added.
 """
 
 from __future__ import annotations
@@ -115,4 +119,74 @@ async def resolve_mentions(
         else:
             out.unresolved += 1
             out.records.append(_unresolved(mention, max_chars))
+    return out
+
+
+@dataclass
+class UnlinkedOutcome:
+    """The records with profile links filled in where one page matched, and the counts."""
+
+    records: list[RawPerson] = field(default_factory=list)
+    call_refs: list[str] = field(default_factory=list)
+    linked: int = 0
+    ambiguous: int = 0
+    exit_reason: str = "converged"
+
+
+async def resolve_unlinked(
+    records: Sequence[RawPerson],
+    resolver: MentionResolverPort,
+    cfg: PeopleConfig,
+    out_of_time: Callable[[], bool],
+) -> UnlinkedOutcome:
+    """Give a record without a profile link the one profile page the resolver finds for its
+    name (see the module docstring); records with a link, or with no name, pass unchanged."""
+    out = UnlinkedOutcome()
+    run_cap = cfg.cap("mention_run_cap")
+    queries = 0
+    for record in records:
+        if record.profile_url or not record.name or out.exit_reason != "converged":
+            out.records.append(record)
+            continue
+        if queries >= run_cap:
+            out.exit_reason = "cap_reached"
+            out.records.append(record)
+            continue
+        if out_of_time():
+            out.exit_reason = "deadline"
+            out.records.append(record)
+            continue
+        queries += 1
+        try:
+            page = await resolver.resolve(record.name, 0)
+        except SourceUnavailable as error:
+            if error.reason in BUDGET_REASONS:
+                out.exit_reason = "budget"
+            out.records.append(record)
+            continue
+        if page.call_ref:
+            out.call_refs.append(page.call_ref)
+        matches: dict[str, RawPerson] = {}
+        for found in page.records:
+            url = canonical_profile_url(found.profile_url, cfg.profile_url)
+            if url and names_equal(found.name, record.name):
+                matches.setdefault(url, found)
+        if len(matches) == 1:
+            found = next(iter(matches.values()))
+            out.linked += 1
+            out.records.append(
+                record.model_copy(
+                    update={
+                        "profile_url": found.profile_url,
+                        "employer_domain": record.employer_domain or found.employer_domain,
+                        "is_current": record.is_current
+                        if record.is_current is not None
+                        else found.is_current,
+                    }
+                )
+            )
+        else:
+            if len(matches) > 1:
+                out.ambiguous += 1
+            out.records.append(record)
     return out

@@ -98,9 +98,10 @@ _ACCOUNTS = text(
       (SELECT j.finished_at FROM research_jobs j WHERE j.account_id = a.id AND j.status = 'done'
         ORDER BY j.finished_at DESC LIMIT 1) AS job_done
     FROM accounts a
+    WHERE a.deleted_at IS NULL
     """
 )
-_ONE_ACCOUNT = text(_ACCOUNTS.text + " WHERE a.id = :account")
+_ONE_ACCOUNT = text(_ACCOUNTS.text + " AND a.id = :account")
 
 
 def _state(row: Any, new_signals: int) -> str:

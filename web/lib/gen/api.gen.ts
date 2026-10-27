@@ -25,6 +25,17 @@ export const AccountBody = z.object({
 }).strict();
 export type AccountBody = z.infer<typeof AccountBody>;
 
+export const AccountDeleteBody = z.object({
+  "confirm": z.string(),
+}).strict();
+export type AccountDeleteBody = z.infer<typeof AccountDeleteBody>;
+
+export const AccountDeleted = z.object({
+  "deleted_at": z.string(),
+  "domain": z.string(),
+}).strict();
+export type AccountDeleted = z.infer<typeof AccountDeleted>;
+
 export const AccountRun = z.object({
   "created_at": z.string(),
   "finished_at": z.string().nullable(),
@@ -304,6 +315,21 @@ export const Archive = z.object({
   "expected_version": z.number().int(),
 }).strict();
 export type Archive = z.infer<typeof Archive>;
+
+export const ArchivedCopy = z.object({
+  "archived_at": z.string(),
+  "kind": z.string(),
+  "text": z.string(),
+  "title": z.string().nullable().optional(),
+  "url": z.string(),
+}).strict();
+export type ArchivedCopy = z.infer<typeof ArchivedCopy>;
+
+export const ArchivedLinkRef = z.object({
+  "archived_at": z.string(),
+  "href": z.string(),
+}).strict();
+export type ArchivedLinkRef = z.infer<typeof ArchivedLinkRef>;
 
 export const AskBody = z.object({
   "account_id": z.string().nullable().optional(),
@@ -1943,6 +1969,125 @@ export const OperatorSession = z.object({
 }).strict();
 export type OperatorSession = z.infer<typeof OperatorSession>;
 
+export const ParityBundle = z.object({
+  "bundle": z.record(z.string(), z.unknown()),
+  "created_at": z.string(),
+  "run_id": z.string(),
+  "status": z.string(),
+  "version": z.number().int(),
+}).strict();
+export type ParityBundle = z.infer<typeof ParityBundle>;
+
+export const ParityCell = z.object({
+  "href": z.string().nullable().optional(),
+  "text": z.string(),
+}).strict();
+export type ParityCell = z.infer<typeof ParityCell>;
+
+export const ParityColumn = z.object({
+  "fills": z.record(z.string(), z.string()).nullable().optional(),
+  "header": z.string(),
+  "key": z.string(),
+  "kind": z.string(),
+  "link_label": z.string().nullable().optional(),
+}).strict();
+export type ParityColumn = z.infer<typeof ParityColumn>;
+
+export const ParityCountRows = z.object({
+  "jobs_rows": z.array(z.record(z.string(), z.unknown())),
+  "people_rows": z.array(z.record(z.string(), z.unknown())),
+}).strict();
+export type ParityCountRows = z.infer<typeof ParityCountRows>;
+
+export const ParityOverride = z.object({
+  "lane": z.string().nullable().optional(),
+  "name": z.string(),
+  "note": z.string().nullable().optional(),
+  "priority": z.string().nullable().optional(),
+}).strict();
+export type ParityOverride = z.infer<typeof ParityOverride>;
+
+export const ParityEdit = z.object({
+  "overrides": z.array(ParityOverride),
+  "version": z.number().int().nullable().optional(),
+}).strict();
+export type ParityEdit = z.infer<typeof ParityEdit>;
+
+export const ParityFile = z.object({
+  "file": z.string().nullable().optional(),
+  "mime": z.string(),
+  "name": z.string(),
+  "sha256": z.string(),
+  "size": z.number().int(),
+}).strict();
+export type ParityFile = z.infer<typeof ParityFile>;
+
+export const ParityManifest = z.object({
+  "bundle_version": z.string(),
+  "created_at": z.string(),
+  "files": z.array(ParityFile),
+  "run_id": z.string(),
+  "status": z.string(),
+  "summary": z.record(z.string(), z.record(z.string(), z.unknown())),
+  "version": z.number().int(),
+}).strict();
+export type ParityManifest = z.infer<typeof ParityManifest>;
+
+export const ParityTableRef = z.object({
+  "columns": z.array(ParityColumn),
+  "file": z.string(),
+  "id": z.string(),
+  "paginated": z.boolean(),
+  "sheet": z.string().nullable().optional(),
+  "title": z.string(),
+  "total": z.number().int(),
+}).strict();
+export type ParityTableRef = z.infer<typeof ParityTableRef>;
+
+export const ParityScreen = z.object({
+  "computed": z.record(z.string(), z.unknown()),
+  "count_rows": ParityCountRows,
+  "created_at": z.string(),
+  "download_all": z.string().nullable().optional(),
+  "files": z.array(ParityFile),
+  "meta": z.record(z.string(), z.unknown()),
+  "prose": z.record(z.string(), z.unknown()),
+  "ranking": z.record(z.string(), z.unknown()),
+  "run_id": z.string(),
+  "status": z.string(),
+  "summary": z.record(z.string(), z.record(z.string(), z.unknown())),
+  "tables": z.array(ParityTableRef),
+  "version": z.number().int(),
+}).strict();
+export type ParityScreen = z.infer<typeof ParityScreen>;
+
+export const ParityTablePage = z.object({
+  "columns": z.array(ParityColumn),
+  "file": z.string(),
+  "id": z.string(),
+  "limit": z.number().int(),
+  "offset": z.number().int(),
+  "rows": z.array(z.array(ParityCell)),
+  "title": z.string(),
+  "total": z.number().int(),
+}).strict();
+export type ParityTablePage = z.infer<typeof ParityTablePage>;
+
+export const ParityVersionInfo = z.object({
+  "created_at": z.string(),
+  "gate_failures": z.array(z.string()).optional(),
+  "gate_passed": z.boolean(),
+  "run_id": z.string(),
+  "status": z.string(),
+  "version": z.number().int(),
+}).strict();
+export type ParityVersionInfo = z.infer<typeof ParityVersionInfo>;
+
+export const ParityVersions = z.object({
+  "versions": z.array(ParityVersionInfo),
+}).strict();
+export type ParityVersions = z.infer<typeof ParityVersions>;
+
 export const PasswordResetAccepted = z.object({
   "accepted": z.boolean(),
 }).strict();
@@ -2558,6 +2703,7 @@ export const SheetFilter = z.object({
 export type SheetFilter = z.infer<typeof SheetFilter>;
 
 export const SheetRow = z.object({
+  "archives": z.record(z.string(), ArchivedLinkRef).optional(),
   "cells": z.record(z.string(), z.string()),
   "link": z.string().nullable(),
   "link_label": z.string().nullable().optional(),
@@ -3344,6 +3490,11 @@ export const KNOWN_VALUES = {
     "operator",
     "support"
   ],
+  "ParityOverride.priority": [
+    "A",
+    "B",
+    "C"
+  ],
   "PolicyBody.redaction_tier": [
     "strict",
     "standard",
@@ -3540,12 +3691,21 @@ export const operations = {
   "GET /v1/accounts": { method: "GET", path: "/v1/accounts", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountPage },
   "POST /v1/accounts": { method: "POST", path: "/v1/accounts", plane: "tenant", status: 201, request: AccountBody, requestRequired: true, response: AccountAdded },
   "POST /v1/accounts/from-library": { method: "POST", path: "/v1/accounts/from-library", plane: "tenant", status: 201, request: FromLibrary, requestRequired: true, response: LibraryAdded },
+  "DELETE /v1/accounts/{domain}": { method: "DELETE", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: AccountDeleteBody, requestRequired: true, response: AccountDeleted },
   "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountDetail },
+  "GET /v1/accounts/{domain}/archive": { method: "GET", path: "/v1/accounts/{domain}/archive", plane: "tenant", status: 200, request: null, requestRequired: false, response: ArchivedCopy },
   "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
   "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/accounts/{domain}/download-everything": { method: "POST", path: "/v1/accounts/{domain}/download-everything", plane: "tenant", status: 202, request: EverythingBody, requestRequired: true, response: DownloadJob },
   "GET /v1/accounts/{domain}/file-analysis": { method: "GET", path: "/v1/accounts/{domain}/file-analysis", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAnalysisRun },
   "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, request: null, requestRequired: false, response: History },
+  "GET /v1/accounts/{domain}/parity/bundle": { method: "GET", path: "/v1/accounts/{domain}/parity/bundle", plane: "tenant", status: 200, request: null, requestRequired: false, response: ParityBundle },
+  "POST /v1/accounts/{domain}/parity/edits": { method: "POST", path: "/v1/accounts/{domain}/parity/edits", plane: "tenant", status: 201, request: ParityEdit, requestRequired: true, response: ParityVersionInfo },
+  "GET /v1/accounts/{domain}/parity/files/{name}": { method: "GET", path: "/v1/accounts/{domain}/parity/files/{name}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "GET /v1/accounts/{domain}/parity/manifest": { method: "GET", path: "/v1/accounts/{domain}/parity/manifest", plane: "tenant", status: 200, request: null, requestRequired: false, response: ParityManifest },
+  "GET /v1/accounts/{domain}/parity/screen": { method: "GET", path: "/v1/accounts/{domain}/parity/screen", plane: "tenant", status: 200, request: null, requestRequired: false, response: ParityScreen },
+  "GET /v1/accounts/{domain}/parity/tables/{table}": { method: "GET", path: "/v1/accounts/{domain}/parity/tables/{table}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ParityTablePage },
+  "GET /v1/accounts/{domain}/parity/versions": { method: "GET", path: "/v1/accounts/{domain}/parity/versions", plane: "tenant", status: 200, request: null, requestRequired: false, response: ParityVersions },
   "GET /v1/accounts/{domain}/refresh": { method: "GET", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 200, request: null, requestRequired: false, response: RefreshOptions },
   "POST /v1/accounts/{domain}/refresh": { method: "POST", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 201, request: RefreshBody, requestRequired: true, response: RefreshStarted },
   "GET /v1/accounts/{domain}/sheets/{sheet}": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}", plane: "tenant", status: 200, request: null, requestRequired: false, response: Sheet },

@@ -128,6 +128,12 @@ def _seed_alert(tenant: UUID, user: str) -> None:
         ).fetchone()[0]
 
     async def go() -> None:
+        # the seed acts as a system job (private workspaces, migration 0063): rows it inserts
+        # are owned by the admin it alerts, as the test fixtures' scope does
+        from account_intelligence.db.session import _ACTOR, _SYSTEM
+
+        _SYSTEM.set(True)
+        _ACTOR.set(user)
         try:
             ev = await make_event(
                 tenant, account, signal="build_role_posting", title="Platform owner role posted"
@@ -212,8 +218,16 @@ def build() -> Any:
 
         run_id = UUID((await request.json())["run_id"])
         with psycopg.connect(ADMIN_DSN) as c:
-            row = c.execute("SELECT tenant_id FROM account_runs WHERE id = %s", (run_id,))
-            tenant_id = row.fetchone()[0]
+            row = c.execute(
+                "SELECT tenant_id, owner_user_id FROM account_runs WHERE id = %s", (run_id,)
+            )
+            tenant_id, owner = row.fetchone()
+        # the drive acts as a system job for the run's owner (private workspaces, migration
+        # 0063): the slices see the account and the run rows the browser's user created
+        from account_intelligence.db.session import _ACTOR, _SYSTEM
+
+        _SYSTEM.set(True)
+        _ACTOR.set(str(owner))
         from account_intelligence.connectors.base import ProviderCode
 
         clock = FakeClock()

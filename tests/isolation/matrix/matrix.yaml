@@ -103,8 +103,15 @@ tables:
     plant: {start_offset: 0, end_offset: 5}
   job_postings:
     plant: {url: "https://jobs.example/{canary}"}
+  link_archive:
+    plant: {url: "https://tn1.example/canary", url_normalized: "https://tn1.example/canary",
+            url_hash: 4187a99b7a74361632f63d41a714fe66180164220722b7a9ab1ce373e2d899af,
+            kind: page, format: json, payload_ref: "t/archive/{canary}"}
   lead_verification_queries:
     plant: {accepted: true}
+  account_bundles:
+    plant: {version: 1, status: built,
+            bundle_key: "tenants/{tenant}/accounts/{uuid}/runs/{uuid}/parity/v1/bundle.json"}
   lead_verifications: {}
   llm_call_attempts: {}
   llm_calls: {}
@@ -429,6 +436,35 @@ routes:
   GET /v1/accounts/{domain}/sheets/{sheet}:
     probe: tenant
     params: {domain: accounts.domain, sheet: people}
+  GET /v1/accounts/{domain}/archive:
+    probe: tenant
+    params: {domain: accounts.domain}
+    query: {url: "https://tn1.example/canary"}
+  GET /v1/accounts/{domain}/parity/versions: {probe: tenant, params: {domain: accounts.domain}}
+  GET /v1/accounts/{domain}/parity/bundle:
+    probe: tenant
+    params: {domain: accounts.domain}
+    query: {version: account_bundles.version}
+  GET /v1/accounts/{domain}/parity/manifest:
+    probe: tenant
+    params: {domain: accounts.domain}
+    query: {version: account_bundles.version}
+  GET /v1/accounts/{domain}/parity/screen:
+    probe: tenant
+    params: {domain: accounts.domain}
+    query: {version: account_bundles.version}
+  GET /v1/accounts/{domain}/parity/tables/{table}:
+    probe: tenant
+    params: {domain: accounts.domain, table: people}
+    query: {version: account_bundles.version}
+  GET /v1/accounts/{domain}/parity/files/{name}:
+    probe: tenant
+    params: {domain: accounts.domain, name: Canary_People_List.xlsx}
+    query: {version: account_bundles.version}
+  POST /v1/accounts/{domain}/parity/edits:
+    probe: tenant
+    params: {domain: accounts.domain}
+    body: {overrides: [{name: "Matrix Person", priority: A}]}
   GET /v1/accounts/{domain}/sheets/{sheet}/xlsx:
     probe: tenant
     params: {domain: accounts.domain, sheet: people}
@@ -550,6 +586,10 @@ routes:
   GET /v1/exports: {probe: tenant, query: {domain: accounts.domain}}
   GET /v1/runs/pull-option: {probe: tenant, query: {domain: pull_manifests.account_key}}
   POST /v1/accounts: {probe: tenant, body: {domain: accounts.domain}}
+  DELETE /v1/accounts/{domain}:
+    probe: tenant
+    params: {domain: accounts.domain}
+    body: {confirm: accounts.domain}
   GET /v1/accounts/{domain}/tables/{table}:
     probe: tenant
     params: {domain: accounts.domain, table: people}
@@ -863,6 +903,7 @@ storage:
   document_quarantine: {layout: "quarantine/tenants/<tenant>/<document>/raw"}
   document: {layout: "tenants/<tenant>/documents/<document>/raw"}
   internal_file: {layout: "tenants/<tenant>/internal/<run>/<sha256>.docx"}
+  parity_version: {layout: "tenants/<tenant>/accounts/<account>/runs/<run>/parity/v<version>/<name>"}
 # Cache purposes (tenancy.catalog.CACHE_PURPOSES): keys start with t:<tenant>:<purpose>:.
 cache:
   membership: {}

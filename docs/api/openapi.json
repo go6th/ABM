@@ -85,6 +85,42 @@
         "title": "AccountBody",
         "type": "object"
       },
+      "AccountDeleteBody": {
+        "additionalProperties": false,
+        "description": "The confirmation: the domain typed back. No tenant field.",
+        "properties": {
+          "confirm": {
+            "maxLength": 253,
+            "title": "Confirm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "AccountDeleteBody",
+        "type": "object"
+      },
+      "AccountDeleted": {
+        "additionalProperties": false,
+        "description": "An account removed from the workspace: it is hidden from then on, its research kept.",
+        "properties": {
+          "deleted_at": {
+            "title": "Deleted At",
+            "type": "string"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "deleted_at"
+        ],
+        "title": "AccountDeleted",
+        "type": "object"
+      },
       "AccountDetail": {
         "additionalProperties": false,
         "description": "Response body: account detail.",
@@ -1174,6 +1210,67 @@
           "expected_version"
         ],
         "title": "Archive",
+        "type": "object"
+      },
+      "ArchivedCopy": {
+        "additionalProperties": false,
+        "description": "One archived copy of an address the research stored: the original address, the kind of\nlink, when it was captured, its title and the text captured (never a data provider's own\nrecord).",
+        "properties": {
+          "archived_at": {
+            "title": "Archived At",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "kind",
+          "archived_at",
+          "text"
+        ],
+        "title": "ArchivedCopy",
+        "type": "object"
+      },
+      "ArchivedLinkRef": {
+        "additionalProperties": false,
+        "description": "Where a row opens the archived copy of one of its links, and when it was captured.",
+        "properties": {
+          "archived_at": {
+            "title": "Archived At",
+            "type": "string"
+          },
+          "href": {
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": [
+          "href",
+          "archived_at"
+        ],
+        "title": "ArchivedLinkRef",
         "type": "object"
       },
       "AskBody": {
@@ -9694,6 +9791,535 @@
         "title": "OperatorSession",
         "type": "object"
       },
+      "ParityBundle": {
+        "additionalProperties": false,
+        "description": "The bundle document of a version (``prose.internal_only`` and the pursuing client's real\nname only for an admin).",
+        "properties": {
+          "bundle": {
+            "additionalProperties": true,
+            "title": "Bundle",
+            "type": "object"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "status",
+          "run_id",
+          "created_at",
+          "bundle"
+        ],
+        "title": "ParityBundle",
+        "type": "object"
+      },
+      "ParityCell": {
+        "additionalProperties": false,
+        "description": "One cell: its text as the file prints it and, for a link, the address.",
+        "properties": {
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Href"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ParityCell",
+        "type": "object"
+      },
+      "ParityColumn": {
+        "additionalProperties": false,
+        "description": "One column of a parity table: key, header, kind (text, long, num, link, priority, rank,\ngrade, status, id), the link label of a link column and the chip fills of a priority or rank\ncolumn (the workbook's own colours).",
+        "properties": {
+          "fills": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fills"
+          },
+          "header": {
+            "title": "Header",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
+          }
+        },
+        "required": [
+          "key",
+          "header",
+          "kind"
+        ],
+        "title": "ParityColumn",
+        "type": "object"
+      },
+      "ParityCountRows": {
+        "additionalProperties": false,
+        "description": "The row fields the web's count module needs (``web/lib/parity/counts.ts``): every job\nrow's platforms, entity, status, class and title, every person's level, seniority, lane and\npriority.",
+        "properties": {
+          "jobs_rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Jobs Rows",
+            "type": "array"
+          },
+          "people_rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "People Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs_rows",
+          "people_rows"
+        ],
+        "title": "ParityCountRows",
+        "type": "object"
+      },
+      "ParityEdit": {
+        "additionalProperties": false,
+        "description": "An edit request: the version it corrects (the newest built one when absent) and the\ncorrections; the reply is the new version.",
+        "properties": {
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/ParityOverride"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Overrides",
+            "type": "array"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "overrides"
+        ],
+        "title": "ParityEdit",
+        "type": "object"
+      },
+      "ParityFile": {
+        "additionalProperties": false,
+        "description": "One stored file of a built version (the manifest entry).",
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          },
+          "mime": {
+            "title": "Mime",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "size",
+          "sha256",
+          "mime"
+        ],
+        "title": "ParityFile",
+        "type": "object"
+      },
+      "ParityManifest": {
+        "additionalProperties": false,
+        "description": "The manifest of a built version: the files with their sizes and digests and the\nrecalculated Summary values per workbook.",
+        "properties": {
+          "bundle_version": {
+            "title": "Bundle Version",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ParityFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Summary",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "status",
+          "run_id",
+          "created_at",
+          "bundle_version",
+          "files",
+          "summary"
+        ],
+        "title": "ParityManifest",
+        "type": "object"
+      },
+      "ParityOverride": {
+        "additionalProperties": false,
+        "description": "One analyst correction to a person: by name; priority, lane or note.",
+        "properties": {
+          "lane": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ParityOverride",
+        "type": "object"
+      },
+      "ParityScreen": {
+        "additionalProperties": false,
+        "description": "Everything the account workspace draws from a version in one read: the meta block\n(client view), the computed numbers, the manifest summary, the tables of every file in\ndocument order, the prose (client view), the rows the count module needs and the files.",
+        "properties": {
+          "computed": {
+            "additionalProperties": true,
+            "title": "Computed",
+            "type": "object"
+          },
+          "count_rows": {
+            "$ref": "#/components/schemas/ParityCountRows"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "download_all": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download All"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ParityFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "title": "Meta",
+            "type": "object"
+          },
+          "prose": {
+            "additionalProperties": true,
+            "title": "Prose",
+            "type": "object"
+          },
+          "ranking": {
+            "additionalProperties": true,
+            "title": "Ranking",
+            "type": "object"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Summary",
+            "type": "object"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/ParityTableRef"
+            },
+            "title": "Tables",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "status",
+          "run_id",
+          "created_at",
+          "meta",
+          "computed",
+          "ranking",
+          "summary",
+          "tables",
+          "prose",
+          "count_rows",
+          "files"
+        ],
+        "title": "ParityScreen",
+        "type": "object"
+      },
+      "ParityTablePage": {
+        "additionalProperties": false,
+        "description": "A page of one table's rows, in the file's order.",
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ParityColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/ParityCell"
+              },
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "file",
+          "title",
+          "columns",
+          "total",
+          "offset",
+          "limit",
+          "rows"
+        ],
+        "title": "ParityTablePage",
+        "type": "object"
+      },
+      "ParityTableRef": {
+        "additionalProperties": false,
+        "description": "One table of a delivered file: its id, file, sheet (workbooks) or title (Word files), the\ncolumns and how many rows it holds; ``paginated`` tables (Jobs, People) page on the server.",
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ParityColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "paginated": {
+            "title": "Paginated",
+            "type": "boolean"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "file",
+          "title",
+          "paginated",
+          "columns",
+          "total"
+        ],
+        "title": "ParityTableRef",
+        "type": "object"
+      },
       "ParityVerdict": {
         "additionalProperties": false,
         "description": "Response body: parity verdict.",
@@ -9717,6 +10343,67 @@
           "problems"
         ],
         "title": "ParityVerdict",
+        "type": "object"
+      },
+      "ParityVersionInfo": {
+        "additionalProperties": false,
+        "description": "One version of an account's bundle: built (served) or failed (the gate report says why).",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "gate_failures": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Gate Failures",
+            "type": "array"
+          },
+          "gate_passed": {
+            "title": "Gate Passed",
+            "type": "boolean"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "status",
+          "run_id",
+          "created_at",
+          "gate_passed"
+        ],
+        "title": "ParityVersionInfo",
+        "type": "object"
+      },
+      "ParityVersions": {
+        "additionalProperties": false,
+        "description": "Every version of the account, newest first.",
+        "properties": {
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/ParityVersionInfo"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions"
+        ],
+        "title": "ParityVersions",
         "type": "object"
       },
       "PasswordResetAccepted": {
@@ -12777,6 +13464,13 @@
         "additionalProperties": false,
         "description": "One row: its absolute number, its cells as shown, and its link if it has one (the\noriginal page; ``link_label`` reads \"6th / LinkedIn\", never a data connector's name).",
         "properties": {
+          "archives": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ArchivedLinkRef"
+            },
+            "title": "Archives",
+            "type": "object"
+          },
           "cells": {
             "additionalProperties": {
               "type": "string"
@@ -18649,6 +19343,73 @@
       }
     },
     "/v1/accounts/{domain}": {
+      "delete": {
+        "description": "Remove an account from the workspace. The user confirms by sending the domain back; a\nconfirmation that does not match is refused before anything happens. The account's research\nstays stored and hidden; a research still running on it must be stopped first.",
+        "operationId": "delete_account_v1_accounts__domain__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountDeleteBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Account",
+        "tags": [
+          "accounts"
+        ]
+      },
       "get": {
         "description": "One account of the tenant with its newest runs (status labels as the client sees them).\nAn unknown or excluded domain is simply not found.",
         "operationId": "read_account_v1_accounts__domain__get",
@@ -18702,6 +19463,76 @@
           }
         },
         "summary": "Read Account",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/archive": {
+      "get": {
+        "description": "The archived copy of one address the research stored for this account (the newest\ncapture): the text the research read, with the original address and when it was captured.\nA browser gets a readable page; a client asking for JSON gets the same as JSON. 404 when the\naddress was never stored for the account (another tenant's looks the same).",
+        "operationId": "account_archive_v1_accounts__domain__archive_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 8,
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchivedCopy"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Archive",
         "tags": [
           "accounts"
         ]
@@ -19036,6 +19867,553 @@
         "summary": "Account History",
         "tags": [
           "signals"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/parity/bundle": {
+      "get": {
+        "description": "The bundle document of a built version (the newest when no version is given).",
+        "operationId": "parity_bundle_v1_accounts__domain__parity_bundle_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParityBundle"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parity Bundle",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/parity/edits": {
+      "post": {
+        "description": "Apply analyst corrections (priority, lane, note by person) to a built version: the\ncorrections are recorded as overrides, every number is recomputed and the files are\nrendered again as the account's next version (built or failed).",
+        "operationId": "parity_edit_v1_accounts__domain__parity_edits_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParityEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParityVersionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parity Edit",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/parity/files/{name}": {
+      "get": {
+        "description": "One stored file of a built version as an attachment, with the right MIME type; the\ninternal-only file only for an admin (anyone else sees 404).",
+        "operationId": "parity_file_v1_accounts__domain__parity_files__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parity File",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/parity/manifest": {
+      "get": {
+        "description": "The manifest of a built version: its files and the recalculated Summary values.",
+        "operationId": "parity_manifest_v1_accounts__domain__parity_manifest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParityManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parity Manifest",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/parity/screen": {
+      "get": {
+        "description": "What the account workspace draws from a built version in one read.",
+        "operationId": "parity_screen_v1_accounts__domain__parity_screen_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParityScreen"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parity Screen",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/parity/tables/{table}": {
+      "get": {
+        "description": "A page of one table's rows, in the file's order and with the file's cell text.",
+        "operationId": "parity_table_v1_accounts__domain__parity_tables__table__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "title": "Table",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParityTablePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parity Table",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/parity/versions": {
+      "get": {
+        "description": "Every version of the account's bundle, newest first, built or failed.",
+        "operationId": "parity_versions_v1_accounts__domain__parity_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParityVersions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parity Versions",
+        "tags": [
+          "accounts"
         ]
       }
     },

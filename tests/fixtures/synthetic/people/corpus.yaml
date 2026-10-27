@@ -25,7 +25,8 @@ search:
         records:
           - {id: r05, name: Omar Ali, title: "VP, Salesforce Field Service", url: "https://www.linkedin.com/in/omar-ali"}
           - {id: r06, name: Kim Park, title: "Manager, Salesforce", url: "https://www.linkedin.com/in/kim-park"}
-          - {id: r19, name: Omar Ali, title: "VP, Salesforce Field Service"}
+          - {id: r19, name: Omar Ali, title: "VP, Salesforce Field Service"}   # no URL: linked from the resolver's page before the merge
+          - {id: r21, name: Kim Park, title: "Manager, Salesforce"}            # no URL and no page to link: merged by name
   "title:salesforce:2":
     cursor_pages: {d1: 1}
     pages:

@@ -5,7 +5,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import type { AccountWorkspace, DocumentList } from "@/lib/gen/api.gen";
+import type { AccountWorkspace, DocumentList, ParityScreen } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { LINK_REL, safeLink } from "@/lib/render";
 import { Grade, Pill, StateCard, type PillTone } from "@/ui/design";
@@ -14,6 +14,8 @@ import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
 import { ResumeResearch } from "@/components/accounts/ResumeResearch";
 import { ResearchProgress } from "@/components/accounts/ResearchProgress";
+import { DeleteAccount } from "@/components/accounts/DeleteAccount";
+import { ParityWorkspace } from "@/components/accounts/ParityWorkspace";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,19 @@ function gapTone(reason: string): PillTone {
   if (r.includes("failed") || r.includes("error")) return "bad";
   if (r.includes("only you") || r.includes("limit") || r.includes("waiting") || r.includes("waits")) return "warn";
   return "neutral";
+}
+
+/** The delivered files from the account's parity bundle, when a built version exists (404
+ *  otherwise: nothing is drawn). Its own Suspense boundary, like the uploads. */
+async function Delivered({ domain, here }: { domain: string; here: string }) {
+  let screen: ParityScreen | null = null;
+  try {
+    screen = await serverGet<ParityScreen>(`/v1/accounts/${encodeURIComponent(domain)}/parity/screen`, here, [404]);
+  } catch (e) {
+    if (!(e instanceof ServerApiError)) throw e;
+    return null;
+  }
+  return screen ? <ParityWorkspace domain={domain} screen={screen} /> : null;
 }
 
 /** The client's own uploads for this account (viewers may not list documents: none shown). Read
@@ -126,6 +141,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
           </div>
           <Link className="btn" href={`/schedules?account=${d}#${d}`} prefetch={false}>Schedule</Link>
           <Link className="btn primary" href={`${here}/refresh`} prefetch={false}>Refresh from web</Link>
+          <DeleteAccount domain={ws.domain} name={name} />
         </div>
 
         <nav className="kpi-tiles" aria-label="At a glance">
@@ -216,6 +232,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
         )}
 
         <AccountAsk account={{ id: ws.id ?? "", domain: ws.domain, name }} />
+        <Suspense fallback={null}><Delivered domain={ws.domain} here={here} /></Suspense>
       </div>
 
       <div className="side-col">

@@ -61,3 +61,10 @@ test-results/
 # Parked local junk (unwanted-things/README.md lists what is in it and why)
 unwanted-things/local-junk/
 unwanted-things/web/.next-*/
+
+# generated workspace bundles hold real people data from research runs: never committed
+fixtures/workspaces/
+# a symlinked node_modules (a worktree sharing the main checkout's install) is ignored like the folder
+web/node_modules
+# rendered deliverables of real workspaces (parity replay output): never committed
+out/

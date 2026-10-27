@@ -28,6 +28,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_intelligence import archive as LA
 from account_intelligence.grading.schema import ProposedSourced
 from people.merge import MergeEvent
 from people.models import Classification, Finding, PartialDate, Person, PersonPage, Post, Profile
@@ -296,6 +297,38 @@ class PgPeopleRepo:
 
     # ---- the run ------------------------------------------------------------------------------
 
+    async def _archive_entries(self, people: Sequence[Person]) -> list[LA.ArchiveEntry]:
+        """The archived copy of every person's profile page: the record the source returned
+        (name, title, headline, location), stored as a small body so the People List row can
+        open what was captured once the live profile link dies (never erased people, never
+        internal-only rows)."""
+        out: list[LA.ArchiveEntry] = []
+        now = datetime.now(UTC)
+        for p in people:
+            url = p.profile_url_raw or p.profile_url
+            if not url or p.internal_only or LA.normalized(url) is None:
+                continue
+            lines = [p.name, p.title, p.headline, p.location]
+            body_text = "\n".join(x for x in lines if x)
+            if not body_text:
+                continue
+            body = LA.archive_body(
+                url, body_text, title=p.name, captured_at=now, kind="profile", source_ref=p.raw_ref
+            )
+            key = LA.archive_key(self.tenant_id, self.account_id, body)
+            ref = await self.payloads.put(key, body)
+            out.append(
+                LA.ArchiveEntry(
+                    url=url,
+                    kind="profile",
+                    payload_ref=ref,
+                    archived_at=now,
+                    title=p.name,
+                    source_ref=p.raw_ref,
+                )
+            )
+        return out
+
     async def _insert_person(
         self, s: AsyncSession, run: UUID, p: Person, into: UUID | None
     ) -> UUID:
@@ -423,6 +456,7 @@ class PgPeopleRepo:
         ).encode()
         claims_ref = await self.payloads.put(self.key_for("people", "claims.json"), claims_body)
         merge_rule = {e.key: e.rule_id for e in record.merge_events}
+        archived = await self._archive_entries(record.people)
         async with self.txn(self.tenant_id) as s:
             ids: dict[str, UUID] = {}
             ordered = sorted(record.people, key=lambda p: (p.merged_into is not None, p.person_key))
@@ -436,6 +470,7 @@ class PgPeopleRepo:
                     await self._event(
                         s, run, p.person_key, "scope", None, p.classification.rule_id or "scope"
                     )
+            await LA.record(s, self.tenant_id, self.account_id, run, archived)
             await s.execute(
                 text(
                     "INSERT INTO people_pipeline_runs (run_id, tenant_id, account_id, as_of,"

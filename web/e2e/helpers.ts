@@ -21,19 +21,12 @@ export async function signIn(page: Page, slug: string, subject: string, role: st
     expect(answer.status(), "the synthetic IdP must accept the authorization request").toBe(302);
     await route.fulfill({ status: 302, headers: { location: answer.headers()["location"]! } });
   });
-  await page.goto("/login");
+  // The sign-in page finds a company's SSO from the work email's domain, which the seeded
+  // tenants share; the harness opens the tenant's own sign-in start through the web proxy
+  // (same cookie jar), which the route above answers with the fake IdP's redirect.
+  await page.goto(`/v1/sso/${encodeURIComponent(slug)}/start?return_to=%2F`);
   await page.waitForLoadState("networkidle");
-  // The form's handler is attached after hydration; on a cold server the first click can land
-  // before it. Retry the submit (bounded) until the signed-in page shows.
-  await expect(async () => {
-    if (!page.url().includes("/login")) return;
-    // The sign-in page opens on email and password; SSO is the second tab.
-    await page.getByRole("tab", { name: "Enterprise SSO" }).click();
-    await page.getByLabel("Organization sign-in ID").fill(slug);
-    await page.getByRole("button", { name: "Continue with SSO" }).click();
-    await expect(page.getByRole("navigation", { name: "Workspace" })).toBeVisible({ timeout: 3_000 });
-  }).toPass({ timeout: 30_000 });
-  await expect(page.getByRole("navigation", { name: "Workspace" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
 }
 
 export async function noSeriousA11y(page: Page) {

@@ -17,6 +17,7 @@ GUARANTEE(test_full_runs_stay_on_workflow_v1_unless_the_flag_is_on)
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -26,6 +27,7 @@ from uuid import UUID
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from account_intelligence.archive import LinkArchive
 from account_intelligence.grading.adapters import LedgerAdapter
 from account_intelligence.grading.config import load_grading_config
 from account_intelligence.platform.ports import NotConfigured
@@ -40,6 +42,7 @@ from agents.ports import RunContext
 from agents.production.credit import CreditAdapter
 from agents.production.delivery import ExportBuilderPort, GateAdapter, NoteDelivery, RunnerSettles
 from agents.production.grading import EngineGrading, InheritedLedger
+from agents.production.parity_build import parity_port
 from agents.production.payloads import StorePayloads
 from agents.production.provider import ConnectorProvider
 from agents.production.state import PgRunRecords, SettingsAdapter
@@ -211,7 +214,13 @@ def abm_deps(
         clock=deps.clock,
         model=RunDepsModel(deps),
         provider=provider,
-        payloads=StorePayloads(deps.payloads, deps.account_id),
+        payloads=StorePayloads(
+            deps.payloads,
+            deps.account_id,
+            archive=LinkArchive(
+                deps.txn, deps.tenant_id, deps.account_id, deps.run_id, deps.payloads, deps.clock
+            ),
+        ),
         manifests=PgManifestStore(),
         consent=PgConsentStore(),
         settings=SettingsAdapter(deps.txn, deps.run_id, cfg),
@@ -226,6 +235,7 @@ def abm_deps(
         internal=None,  # D-98: no connector search binding yet; internal history stays off
         free_operations=frozenset(load_spend_config().free_operations),
         pipelines=RunPipelines(deps, grading) if deps.connectors is not None else None,
+        parity=parity_port(deps, os.environ),
     )
 
 

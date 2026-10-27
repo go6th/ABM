@@ -17,24 +17,33 @@ const STATUS_TONE: Record<string, PillTone> = {
   Done: "ok", Partial: "warn", "None found": "neutral", "Not done": "bad", Blocked: "bad", "Not checked": "neutral",
 };
 
+// The archived copy behind a link (the research keeps what it read): a same-origin address the
+// API serves as a readable page, so a link that has died still opens the captured text.
+function Archived({ row, k }: { row: Row; k: string }) {
+  const found = row.archives?.[k];
+  if (!found || !found.href.startsWith("/v1/")) return null;
+  const when = found.archived_at.slice(0, 10);
+  return <a className="arc-link" href={found.href} target="_blank" rel={LINK_REL} title={`Archived copy, captured ${when}`}>archived</a>;
+}
+
 function Cell({ col, row }: { col: Column; row: Row }) {
   const raw = row.cells?.[col.key];
   const value = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
   if (col.kind === "url") {
     // a link column of the delivered file: the file's own text ("Open profile", or the address)
-    // opening the address the file links to
+    // opening the address the file links to, and the archived copy beside it
     const href = safeLink(row.links?.[col.key] ?? "");
-    return <td>{href ? <a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value || "Open"}</a> : value}</td>;
+    return <td>{href ? <><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value || "Open"}</a><Archived row={row} k={col.key} /></> : value}</td>;
   }
   if (col.kind === "code") {
     // the file's source code, opening the source it names when the registry links it
     const href = safeLink(row.link ?? "");
-    return <td>{href && value ? <a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value}</a> : value}</td>;
+    return <td>{href && value ? <><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value}</a><Archived row={row} k="link" /></> : value}</td>;
   }
   if (col.kind === "link") {
     // "6th / LinkedIn": who found it and the site, opening the original page (never a connector)
     const href = safeLink(row.link ?? "");
-    if (href) return <td><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{row.link_label ?? "Open"}</a></td>;
+    if (href) return <td><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{row.link_label ?? "Open"}</a><Archived row={row} k="link" /></td>;
     return <td>{row.link_label ? <span className="mut">{row.link_label}</span> : null}</td>;
   }
   if (col.kind === "grade") return <td>{value ? <Grade grade={value} /> : null}</td>;

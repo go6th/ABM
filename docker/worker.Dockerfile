@@ -31,6 +31,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 COPY runtime/abm-render-tools/package.json runtime/abm-render-tools/package-lock.json /opt/abm-render-tools/
 RUN npm ci --prefix /opt/abm-render-tools --ignore-scripts
+# The output parity Word renderer (render/docx, TypeScript on the docx package): installed and
+# compiled here, then only its build and runtime dependencies are copied into the image.
+COPY render/docx/package.json render/docx/package-lock.json render/docx/tsconfig.json /opt/render-docx/
+COPY render/docx/src /opt/render-docx/src
+RUN npm ci --prefix /opt/render-docx --ignore-scripts \
+ && npm run build --prefix /opt/render-docx \
+ && npm prune --omit=dev --prefix /opt/render-docx
 COPY src ./src
 # hadolint ignore=SC2086
 RUN case "$UV_GROUP" in gpu) groups="--no-group cpu --group gpu" ;; *) groups="" ;; esac \
@@ -51,7 +58,7 @@ FROM python:3.12-slim@sha256:cb33f7f771ecec2ef1225cf39b159591a040391bd73e4c01f00
 # apt versions are deliberately unpinned so the upgrade can move (DL3008).
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get -y upgrade \
- && apt-get install -y --no-install-recommends nodejs poppler-utils libreoffice-writer \
+ && apt-get install -y --no-install-recommends nodejs poppler-utils libreoffice-writer libreoffice-calc \
  && apt-get clean && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --no-create-home app
 # Local payload store (compose mounts the shared `payloads` volume here; it inherits this owner).
@@ -60,9 +67,12 @@ WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
 COPY --from=build /app/models /app/models
 COPY --from=build /opt/abm-render-tools /opt/abm-render-tools
+COPY --from=build /opt/render-docx/dist /opt/render-docx/dist
+COPY --from=build /opt/render-docx/node_modules /opt/render-docx/node_modules
+COPY --from=build /opt/render-docx/package.json /opt/render-docx/package.json
 COPY config ./config
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 CONFIG_DIR=/app/config FASTEMBED_CACHE_PATH=/app/models HF_HUB_OFFLINE=1 SERVICE_ROLE=job \
-    NODE_PATH=/opt/abm-render-tools/node_modules PORT=8080
+    NODE_PATH=/opt/abm-render-tools/node_modules PARITY_DOCX_CLI=/opt/render-docx/dist/cli.js PORT=8080
 USER 10001
 # Same probe as the api image. It is meaningful when the image serves (the `serve` command or the
 # uvicorn command Cloud Run and compose give it); compose overrides the port for the local worker

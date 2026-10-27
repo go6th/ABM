@@ -21,6 +21,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_intelligence import archive as LA
 from jobs.models import Classification, PlatformSentence
 from jobs.pipeline import PipelineResult, result_from_json, result_to_json
 
@@ -163,6 +164,27 @@ class PgPostingRepo:
         transaction."""
         run = UUID(run_id)
         async with self.txn(self.tenant_id) as s:
+            # every posting whose text was stored is archived under its link, so the Job
+            # Postings row opens the captured text once the posting closes (link archive)
+            await LA.record(
+                s,
+                self.tenant_id,
+                self.account_id,
+                run,
+                [
+                    LA.ArchiveEntry(
+                        url=p.url,
+                        kind="posting",
+                        payload_ref=p.text_ref,
+                        archived_at=_when(p.retrieved_at),
+                        format="text",
+                        title=p.title,
+                        source_ref=p.raw_ref,
+                    )
+                    for p in record.postings
+                    if p.text_ref
+                ],
+            )
             for p in record.postings:
                 await s.execute(
                     text(_POSTING),

@@ -1,0 +1,62 @@
+# The platform dictionary shared by the rules, the ranking and the count module.
+# lanes: the lane keyword patterns of the Job Postings workbook, in the order the Jobs Summary,
+#   Part C and the Summary section 5 table print them. SAP is matched case sensitively (the
+#   capitalized word SAP, S/4HANA, Ariba, SuccessFactors, Concur); every other lane ignores case.
+# ranking: the Platform Ranking dictionary (platform, category, lane, pattern). A blank lane
+#   prints as "Outside the lanes". Patterns are searched ignoring case; a (?-i:...) group turns
+#   case sensitivity back on for its content.
+# out_of_scope: never searched, never listed, on any account.
+lanes:
+  - name: Salesforce
+    pattern: 'salesforce|\bsfdc\b|sales cloud|service cloud|marketing cloud|health cloud|experience cloud|commerce cloud|field service lightning|agentforce|salesforce cpq'
+  - name: MuleSoft
+    pattern: 'mulesoft|anypoint'
+  - name: ServiceNow
+    pattern: 'servicenow|service now\b'
+  - name: SAP
+    pattern: '\bSAP\b|S/4 ?HANA|S4HANA|\bAriba\b|SuccessFactors|\bConcur\b'
+    case_sensitive: true
+  - name: Tableau
+    pattern: 'tableau'
+  - name: Veeva
+    pattern: '\bveeva\b|vault crm|promomats|medcomms|vault clinical|vault rim|vault quality|vault safety|veeva vault|\betmf\b|\bctms\b'
+  - name: Workday
+    pattern: '\bworkday\b'
+
+ranking:
+  - {name: Salesforce, category: CRM, lane: Salesforce, pattern: 'salesforce|\bsfdc\b|sales cloud|service cloud|marketing cloud|health cloud|experience cloud|commerce cloud|field service lightning|agentforce|salesforce cpq'}
+  - {name: MuleSoft, category: Integration, lane: Salesforce, pattern: 'mulesoft|anypoint'}
+  - {name: Tableau, category: Analytics and BI, lane: Tableau and analytics, pattern: 'tableau'}
+  - {name: SAP, category: ERP, lane: SAP, pattern: '(?-i:\bSAP\b|S/4 ?HANA|S4HANA|\bAriba\b|SuccessFactors|\bConcur\b)'}
+  - {name: ServiceNow, category: IT service management, lane: ServiceNow, pattern: 'servicenow|service now\b'}
+  - {name: Veeva, category: Life sciences CRM and content, lane: Veeva, pattern: '\bveeva\b|vault crm|promomats|medcomms|vault clinical|vault rim|vault quality|vault safety|veeva vault|\betmf\b|\bctms\b'}
+  - {name: Workday, category: HR and finance, lane: '', pattern: '\bworkday\b'}
+  - {name: Oracle ERP and EBS, category: ERP, lane: '', pattern: 'oracle (?:ebs|e-business|fusion|cloud erp|erp)|\bnetsuite\b|peoplesoft'}
+  - {name: Microsoft Dynamics 365, category: CRM and ERP, lane: '', pattern: 'dynamics 365|\bd365\b|dynamics crm'}
+  - {name: Snowflake, category: Data platform, lane: Data and AI, pattern: 'snowflake'}
+  - {name: Amazon Web Services, category: Cloud, lane: Data and AI, pattern: '\baws\b|amazon web services|redshift|sagemaker|bedrock'}
+  - {name: Microsoft Azure, category: Cloud, lane: Data and AI, pattern: '\bazure\b|synapse|microsoft fabric'}
+  - {name: Google Cloud, category: Cloud, lane: Data and AI, pattern: 'google cloud|\bgcp\b|bigquery|vertex ai'}
+  - {name: Power BI, category: Analytics and BI, lane: Data and AI, pattern: 'power ?bi'}
+  - {name: Qlik, category: Analytics and BI, lane: Data and AI, pattern: '\bqlik'}
+  - {name: Looker, category: Analytics and BI, lane: Data and AI, pattern: '\blooker\b'}
+  - {name: Informatica, category: Data integration, lane: Data and AI, pattern: 'informatica'}
+  - {name: dbt, category: Data transformation, lane: Data and AI, pattern: '\bdbt\b'}
+  - {name: Kafka, category: Data streaming, lane: Data and AI, pattern: '\bkafka\b|confluent'}
+  - {name: Alteryx, category: Analytics, lane: Data and AI, pattern: 'alteryx'}
+  - {name: SAS, category: Analytics, lane: Data and AI, pattern: '\bSAS\b'}
+  - {name: OpenAI and Azure OpenAI, category: Generative AI, lane: Data and AI, pattern: 'openai|chatgpt|\bgpt-?4'}
+  - {name: Boomi, category: Integration, lane: '', pattern: '\bboomi\b'}
+  - {name: Epic, category: Electronic health record, lane: '', pattern: '\bepic (?:systems|ehr|emr|certified|certification)|\bepic\b(?= (?:clarity|caboodle|tapestry|beaker|cadence))'}
+  - {name: Oracle Health (Cerner), category: Electronic health record, lane: '', pattern: 'cerner|oracle health'}
+  - {name: Adobe Experience Cloud and Marketo, category: Marketing, lane: '', pattern: 'adobe experience|\bmarketo\b|adobe campaign'}
+  - {name: HubSpot, category: Marketing and CRM, lane: '', pattern: 'hubspot'}
+  - {name: Genesys and Five9, category: Contact center, lane: '', pattern: 'genesys|five9'}
+  - {name: Zendesk, category: Service desk, lane: '', pattern: 'zendesk'}
+  - {name: UiPath, category: Automation, lane: '', pattern: 'uipath'}
+  - {name: Jira and Confluence, category: Delivery tooling, lane: '', pattern: '\bjira\b|confluence(?! kafka)'}
+
+out_of_scope:
+  - Databricks
+  - Siebel
+  - ServiceMax

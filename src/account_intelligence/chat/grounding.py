@@ -58,7 +58,7 @@ async def workspace_context(
             await session.execute(
                 text(
                     "SELECT id, domain, name FROM accounts WHERE tenant_id = :t"
-                    " ORDER BY domain LIMIT 500"
+                    " AND deleted_at IS NULL ORDER BY domain LIMIT 500"
                 ),
                 {"t": tenant_id},
             )

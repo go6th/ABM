@@ -36,6 +36,7 @@ from urllib.parse import urlsplit
 
 from sqlalchemy import text
 
+from account_intelligence import archive as LA
 from account_intelligence.connectors.base import Operation
 from account_intelligence.connectors.errors import ConnectorError, RetryableProviderError
 from account_intelligence.connectors.models import FeedArgs, TechDetectionRecord
@@ -184,11 +185,11 @@ class RunPipelines:
 
         from account_intelligence.workflow.handlers import people_operations
         from account_intelligence.workflow.stages.people import _is_hostile
+        from agents.production.people_links import ArchiveResolver, FactMentions
         from people.adapters import (
             ConnectorPeopleSearch,
             LedgerCosts,
             LlmPeopleExtractor,
-            NoMentions,
             PeopleTrackerEvidence,
             RunPeopleInput,
             SourceRegistry,
@@ -221,13 +222,17 @@ class RunPipelines:
         repo = PgPeopleRepo(
             deps.txn, deps.tenant_id, deps.account_id, deps.payloads, deps.payload_key
         )
-        mentions = NoMentions()
+        # people named in the graded facts, and the archived profile pages of the research's
+        # own searches, so a named executive or a person returned without a link gets the
+        # profile page the research already holds (no paid call; link archive 2026-10-27)
+        from agents.config import skill_config
+
         deadline = deps.deadline
         pipeline = PeoplePipeline(
             cfg,
             ConnectorPeopleSearch(deps, people_operations(), cfg),
-            mentions,
-            mentions,
+            FactMentions(deps),
+            ArchiveResolver(deps, ctx.account_name, tuple(skill_config().scope.name_stopwords)),
             UnavailableProfiles(),
             UnavailablePosts(),
             LedgerCosts(deps),
@@ -387,6 +392,38 @@ class RunPipelines:
                         await s.run_sync(register)
                     except Exception:  # noqa: BLE001 - an unregistrable page keeps its date range
                         source_ref = None
+                    # the detection as the feed reported it is the archived copy of its page
+                    body_text = (
+                        f"{name}\nFirst seen {key[1]}\nLast seen {key[2]}\n"
+                        f"Sources {int(rec.source_count)}"
+                    )
+                    body = LA.archive_body(
+                        url,
+                        body_text,
+                        title=name[:200],
+                        captured_at=datetime.now(UTC),
+                        kind="detection",
+                        source_ref=rec.provenance.raw_ref,
+                    )
+                    ref = await deps.payloads.put(
+                        LA.archive_key(deps.tenant_id, deps.account_id, body), body
+                    )
+                    await LA.record(
+                        s,
+                        deps.tenant_id,
+                        deps.account_id,
+                        deps.run_id,
+                        [
+                            LA.ArchiveEntry(
+                                url=url,
+                                kind="detection",
+                                payload_ref=ref,
+                                archived_at=datetime.now(UTC),
+                                title=name[:200],
+                                source_ref=rec.provenance.raw_ref,
+                            )
+                        ],
+                    )
                 await s.execute(
                     text(
                         "INSERT INTO tech_detections (tenant_id, account_id, run_id, technology,"

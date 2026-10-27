@@ -105,6 +105,7 @@ from agents.ports import (
     RunRecordStore,
     SenseCheckRecord,
     SettingsPort,
+    SourceItem,
     TrackerPort,
     WalletPort,
 )
@@ -135,6 +136,10 @@ STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "peo
 # (models.yaml batch.mode) the calls are standard requests that answer in seconds, and the three
 # steps run side by side on this one gate.
 EXTRACT_CONCURRENCY = 32
+# payload reads and stores in flight at once (one object store round trip each; a run reads
+# hundreds of payloads back before its first extraction call, one after another until
+# 2026-10-27)
+STORE_CONCURRENCY = 16
 # a run that graded no fact has nothing to build: it ends finished with this reason instead of
 # the builder's missing_content (audit 2026-10-20: five McKesson refreshes ended "stopped before
 # finishing" and offered a Resume that re-paid the same extraction for the same empty result)
@@ -169,6 +174,8 @@ class AbmDeps:
     free_operations: frozenset[str] = frozenset()
     # the code pipelines after the reading step (None: the node records "not available yet")
     pipelines: PipelinePort | None = None
+    # the output parity bundle built beside the export build (None: the switch is off)
+    parity: Any | None = None
 
 
 class AbmState(TypedDict, total=False):
@@ -278,6 +285,12 @@ def model_failure_code(error: BaseException) -> str | None:
         if isinstance(error, cls):
             return code
     return None
+
+
+async def _awaited(coro: Coroutine[Any, Any, T]) -> T:
+    """Await one coroutine (``fan_out_all`` over coroutines: every one finishes, none is
+    cancelled for a sibling's failure, the first failure is raised afterwards)."""
+    return await coro
 
 
 async def _all_or_none(coros: Iterable[Coroutine[Any, Any, T]]) -> list[T]:
@@ -544,8 +557,27 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         # a row stores one payload per item per phrasing: a feed returns the same records for
         # each of its phrasings, and two searches often return the same page. Each payload is
         # read once (audit 2026-10-21: news records reached the extractor six times)
-        refs = dict.fromkeys(ref for r in rows for ref in r.payload_refs)
-        return [await deps.payloads.view(ctx.tenant_id, ref) for ref in refs]
+        refs = list(dict.fromkeys(ref for r in rows for ref in r.payload_refs))
+
+        async def view(ref: str) -> PayloadView:
+            """One payload read back as a view."""
+            return await deps.payloads.view(ctx.tenant_id, ref)
+
+        return await fan_out_all(refs, view, limit=STORE_CONCURRENCY)
+
+    async def _store_views(
+        ctx: RunContext, items: list[tuple[str, SourceItem]]
+    ) -> list[PayloadView]:
+        """Store the items (row key, source item) side by side and read them back as views, in
+        the items' order."""
+
+        async def one(item: tuple[str, SourceItem]) -> PayloadView:
+            """Store one item and read it back."""
+            row_key, source = item
+            ref = await deps.payloads.put(ctx, row_key, source, "public")
+            return await deps.payloads.view(ctx.tenant_id, ref)
+
+        return await fan_out_all(items, one, limit=STORE_CONCURRENCY)
 
     async def _interpret(
         ctx: RunContext,
@@ -781,14 +813,23 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 continue  # the pipelines node reports these rows with its own evidence
             await deps.tracker.report(ctx, row.row_key, row.call_refs, row.blocked_reason)
         views = await _views(ctx, stored)
-        drops = await _interpret(ctx, views, consent_ok, _lock(state))
+        # the careers page choice (one small model call over the pages visited) runs beside the
+        # extraction instead of after its slowest call (speed audit 2026-10-27)
+        # settled, never cancelled: a token guard raised by the careers call must not cancel
+        # extraction calls in flight (they would be paid again after the user continues)
+        outcome: list[Any] = await fan_out_all(
+            [_interpret(ctx, views, consent_ok, _lock(state)), _careers(ctx, stored)],
+            _awaited,
+            limit=2,
+        )
+        drops: Counter[str] = outcome[0]
+        careers: str | None = outcome[1]
         # the cloud logs carry no message text, so a run that read many pages and kept no fact
         # said nothing about why (staging 2026-10-21, 27 extraction calls and no facts): one line
         # per drop reason with its count, never text
         _log.info("interpret.read", extra={"count": len(views), "rows": len(stored)})
         for reason, n in sorted(drops.items()):
             _log.info("interpret.drop", extra={"error_code": reason[:80], "count": n})
-        careers = await _careers(ctx, stored)
         return {
             "counters": {f"drop_{k}": v for k, v in drops.items()},
             "careers_url": careers,
@@ -801,6 +842,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         ctx = context(state)
         if deps.pipelines is None:
             return {"exits": {"pipelines": "not_available_yet"}}
+        pipelines = deps.pipelines
         # a build run runs the pipelines too (G14: full equals pull then build); their feed and
         # search calls replay from the ledger or the research cache when the parent made them
         in_scope = _in_scope(state, cfg)
@@ -809,9 +851,17 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         jobs_rows = {k for k, row in cfg.plan.items() if row.pipeline == "jobs"}
         manifest = await _manifest(state)
         pulled = {r.row_key: r for r in manifest.rows}
-        if jobs_rows & in_scope:
+
+        async def jobs_part() -> None:
+            if not jobs_rows & in_scope:
+                for key in sorted(jobs_rows):
+                    row = pulled.get(key)
+                    if row is not None:
+                        await deps.tracker.report(ctx, key, row.call_refs, row.blocked_reason)
+                exits["jobs"] = "not_planned"
+                return
             try:
-                out = await deps.pipelines.run_jobs(ctx, state.get("careers_url"))
+                out = await pipelines.run_jobs(ctx, state.get("careers_url"))
             except TokenGuardReached:
                 raise
             except Exception as error:  # noqa: BLE001 - a model failure ends the run partial
@@ -832,16 +882,15 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             else:
                 counters.update(out.counters)
                 exits.update(out.exits)
-        else:
-            for key in sorted(jobs_rows):
-                row = pulled.get(key)
-                if row is not None:
-                    await deps.tracker.report(ctx, key, row.call_refs, row.blocked_reason)
-            exits["jobs"] = "not_planned"
+
         tech_rows = {k for k, row in cfg.plan.items() if row.pipeline == "tech"}
-        if tech_rows & in_scope:
+
+        async def tech_part() -> None:
+            if not tech_rows & in_scope:
+                exits["tech"] = "not_planned"
+                return
             try:
-                out = await deps.pipelines.write_detections(ctx)
+                out = await pipelines.write_detections(ctx)
             except TokenGuardReached:
                 raise
             except Exception as error:  # noqa: BLE001 - a store or feed error never ends the run
@@ -857,8 +906,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             else:
                 counters.update(out.counters)
                 exits.update(out.exits)
-        else:
-            exits["tech"] = "not_planned"
+
+        # the job pipeline (postings read and classified, minutes) and the technology detections
+        # (one feed, seconds) are independent and run side by side; the people pipeline follows,
+        # because it grades its claims through the same engine as the job pipeline and reads the
+        # executive facts the reading step recorded (speed audit 2026-10-27)
+        await fan_out_all([jobs_part(), tech_part()], _awaited, limit=2)
         # the people list (skill step 8), under the tenant's people data consent (G8): without
         # it the three rows end Blocked consent_required and nothing is pulled
         people_rows = {k for k, row in cfg.plan.items() if row.pipeline == "people"}
@@ -906,7 +959,6 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             return {"exits": {"person_searches": "not_planned"}}
         names = people_named(await deps.grading.facts(ctx))
         queries = person_queries(names, ctx.account_name, sorted(in_scope))
-        views: list[PayloadView] = []
         calls: dict[str, list[str]] = {}
         failed = 0
 
@@ -919,6 +971,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 return None
 
         # side by side, then stored and read back in the order of the queries
+        found: list[tuple[str, SourceItem]] = []
         for (row_key, _query), result in zip(
             queries, await fan_out_all(queries, search_one), strict=True
         ):
@@ -926,9 +979,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 failed += 1
                 continue
             calls.setdefault(row_key, []).extend(result.call_refs)
-            for source in result.items:
-                ref = await deps.payloads.put(ctx, row_key, source, "public")
-                views.append(await deps.payloads.view(ctx.tenant_id, ref))
+            found.extend((row_key, source) for source in result.items)
+        views = await _store_views(ctx, found)
         for row_key, refs in calls.items():
             await deps.tracker.report(ctx, row_key, refs, None)
         consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
@@ -1068,7 +1120,6 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
     async def targeted_pulls(state: AbmState) -> dict[str, Any]:
         """Run approved or covered pulls, then interpret and grade what they returned."""
         ctx = context(state)
-        views: list[PayloadView] = []
         capped = False
         pulls: list[dict[str, str]] = list(state.get("to_run") or [])
 
@@ -1079,16 +1130,16 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             except (CapPause, ProviderFailed) as error:
                 return error
 
+        found: list[tuple[str, SourceItem]] = []
         for item, result in zip(pulls, await fan_out_all(pulls, pull_one), strict=True):
             if isinstance(result, (CapPause, ProviderFailed)):
                 # the true reason (a failed source is not an unapproved pull)
                 await deps.tracker.mark_partial(ctx, item["row_key"], result.reason)
                 capped |= isinstance(result, CapPause) and result.reason == CREDIT_LIMIT
                 continue
-            for source in result.items:
-                ref = await deps.payloads.put(ctx, item["row_key"], source, "public")
-                views.append(await deps.payloads.view(ctx.tenant_id, ref))
+            found.extend((item["row_key"], source) for source in result.items)
             await deps.tracker.report(ctx, item["row_key"], result.call_refs, None)
+        views = await _store_views(ctx, found)
         consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
         ok = consent_decision(consent, cfg.consent_scope, cfg.consent_text_version) is None
         drops = await _interpret(ctx, views, ok) if views else Counter[str]()
@@ -1152,8 +1203,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         except GuardViolation as missing:
             return _fail(missing.code)
         try:
-            client = await deps.builder.build(ctx, "client")
-            internal = await deps.builder.build(ctx, "internal")
+            # the client set and the Internal Only file are built side by side (each renders
+            # its documents through the renderer process; speed audit 2026-10-27)
+            built: list[tuple[str, ...]] = await _all_or_none(
+                [deps.builder.build(ctx, "client"), deps.builder.build(ctx, "internal")]
+            )
+            client, internal = built
         except BuildIncomplete as incomplete:
             # the builder refused the set (missing narrative, an unconfirmed statement in the
             # Summary): the research stands and the run ends partial with the builder's reason,
@@ -1170,7 +1225,23 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 assert_client_clean(await deps.builder.texts(ctx, file_id))
         except GuardViolation as leak:
             return _fail(leak.code)
-        return {"client_files": list(client), "internal_files": list(internal)}
+        out: dict[str, Any] = {"client_files": list(client), "internal_files": list(internal)}
+        if deps.parity is not None:
+            # the parity bundle version (PARITY_BUNDLE=on): its own gate, its own record; a
+            # failure there never changes the run's outcome, the legacy files still deliver
+            try:
+                parity = await deps.parity.build(ctx)
+            except Exception as error:  # noqa: BLE001 - recorded, never the run's failure
+                _log.warning("build.parity_failed", extra={"error": type(error).__name__})
+                parity = {"skipped": type(error).__name__}
+            # counters are integers summed across slices: the version built (0 when none)
+            # and whether its gate passed; the reason for a skip is in the log
+            out["counters"] = {
+                "parity_version": int(parity.get("version") or 0),
+                "parity_built": 1 if parity.get("status") == "built" else 0,
+                "parity_skipped": 1 if parity.get("skipped") else 0,
+            }
+        return out
 
     async def gate(state: AbmState) -> dict[str, Any]:
         """Step 7 (code): the quality gate and the coverage verdict (G1)."""

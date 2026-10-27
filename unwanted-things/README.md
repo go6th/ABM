@@ -15,6 +15,7 @@ build folders) are written into `cleanup.sh` for the owner to run; nothing in it
 | `web/app-design/gallery.tsx`, `web/app-design/page.dev.tsx` | the `/__design` gallery route, already emptied to stubs (`export {}`, a page returning null) | nothing links to it and the route rendered nothing (audit 2026-10-27) | yes (moved with `git mv`) |
 | `local-junk/abm-account-research-v1.11-session-installed.zip` | a copy of the ABM skill package (v1.11) that sat in the repository root | no file reads it; the skill the research follows lives in `config/skill/` | no (ignored) |
 | `local-junk/projects/plugins/` | 43 Claude Code plugin checkouts (16 MB) | editor tooling, not product code; nothing references `projects/` | no (ignored) |
+| `render-docx-scratch/` | two throwaway comparison scripts written while bringing `render/docx/` to parity with the reference Word files (2026-10-27) | one-off diagnostics; the parity checker `scripts/parity/parity_check.py` is the maintained check | no |
 
 `next.config.ts` still lists `dev.tsx` as a development-only page extension; with the gallery
 parked no such page exists, and the setting is harmless.

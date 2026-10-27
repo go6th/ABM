@@ -69,6 +69,7 @@ from account_intelligence.grading.config import load_grading_config
 from agents.config import SkillConfig, skill_config
 from agents.entity import EntityLock, brand_token, build_lock
 from agents.ports import CapPause, ProviderFailed, ProviderResult, RunContext, SourceItem
+from crosscut.fanout import fan_out_all
 from jobs.window import months_before
 from people.config import load_people_config
 from people.technology import technologies_by_lane
@@ -96,6 +97,9 @@ OFF_SITE_READS_PER_SEARCH = 2
 UNREADABLE_HOSTS = frozenset(
     {"linkedin.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "tiktok.com"}
 )
+# page reads of one search in flight at once (a read takes two to seventeen seconds; with the
+# caps off every page a search returned is read, one after another until 2026-10-27)
+READ_CONCURRENCY = 4
 # characters kept of one page read (one long page must not fill an extraction call alone); with
 # the research caps off the whole page is kept up to the extraction call's size
 MAX_READ_CHARS = 24_000
@@ -422,24 +426,25 @@ class ConnectorProvider:
             )
         )
         limit = UNCAPPED if research_uncapped() else OWN_PAGE_READS_PER_SEARCH
-        reads = []
-        for url in own[:limit]:
+
+        async def read(url: str) -> ConnectorResult | None:
             try:
-                reads.append(
-                    await call_need(
-                        "job_boards_and_pages",
-                        ScrapeJobPageArgs(url=url, page_kind="account_page"),
-                        cc,
-                        self.rt,
-                    )
+                return await call_need(
+                    "job_boards_and_pages",
+                    ScrapeJobPageArgs(url=url, page_kind="account_page"),
+                    cc,
+                    self.rt,
                 )
             except (CapRefused, BudgetExceeded):
                 raise
             except ConnectorError:
                 # one unreadable or slow page (a timeout after the connector's own retries)
                 # never loses the search it came from, nor fails the slice and replays the pull
-                continue
-        return reads
+                return None
+
+        # side by side, in the search's order (a cap refusal is raised once every read is done)
+        reads = await fan_out_all(own[:limit], read, limit=READ_CONCURRENCY)
+        return [r for r in reads if r is not None]
 
     async def _read_off_site_pages(
         self, search: ConnectorResult, cc: CallContext, ctx: RunContext, query: str
@@ -461,9 +466,9 @@ class ConnectorProvider:
         )
         from account_intelligence.dev_limits import UNCAPPED, research_uncapped
 
-        reads = []
         limit = UNCAPPED if research_uncapped() else OFF_SITE_READS_PER_SEARCH
-        for url in urls[:limit]:
+
+        async def read(url: str) -> ConnectorResult | None:
             host = (urlsplit(url).hostname or "").lower().rstrip(".")
             one = replace(cc, extra_allowed_hosts=cc.extra_allowed_hosts | {host})
             try:
@@ -471,28 +476,26 @@ class ConnectorProvider:
                     # a filing or release on a first-tier register (sec.gov) is scraped live,
                     # the one read the engine counts as a primary read this run, so a figure
                     # read there can be Confirmed (2026-10-24); an extract read is a cached copy
-                    reads.append(
-                        await call_need(
-                            "job_boards_and_pages",
-                            ScrapeJobPageArgs(url=url, page_kind="account_page"),
-                            one,
-                            self.rt,
-                        )
-                    )
-                    continue
-                reads.append(
-                    await call_need(
-                        "read_known_page",
-                        ReadPageArgs(url=url, objective=query[:2000], full_content=True),
+                    return await call_need(
+                        "job_boards_and_pages",
+                        ScrapeJobPageArgs(url=url, page_kind="account_page"),
                         one,
                         self.rt,
                     )
+                return await call_need(
+                    "read_known_page",
+                    ReadPageArgs(url=url, objective=query[:2000], full_content=True),
+                    one,
+                    self.rt,
                 )
             except (CapRefused, BudgetExceeded):
                 raise
             except ConnectorError:
-                continue  # paywalled, refused or slow: the search snippet stays
-        return reads
+                return None  # paywalled, refused or slow: the search snippet stays
+
+        # side by side, in the search's order (a cap refusal is raised once every read is done)
+        reads = await fan_out_all(urls[:limit], read, limit=READ_CONCURRENCY)
+        return [r for r in reads if r is not None]
 
 
 def feed_since(feed: Operation, anchor: date, scope: Any) -> date | None:

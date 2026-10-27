@@ -83,7 +83,7 @@ async def test_round_trip_and_reentry_makes_no_paid_call() -> None:
         "SELECT kind, count(*) FROM person_events WHERE run_id = %s GROUP BY kind ORDER BY kind",
         w.run,
     )
-    assert dict(events) == {"merge": 5, "scope": len(result.people) - 5}  # type: ignore[arg-type]
+    assert dict(events) == {"merge": 6, "scope": len(result.people) - 6}  # type: ignore[arg-type]
     record = fetch("SELECT record_json::text FROM people_pipeline_runs WHERE run_id = %s", w.run)[
         0
     ][0]
@@ -91,6 +91,18 @@ async def test_round_trip_and_reentry_makes_no_paid_call() -> None:
         for value in (p.name, p.title):
             if value:
                 assert value not in str(record)
+    # every profile link the run stored has an archived copy (the record the source returned)
+    archived = fetch(
+        "SELECT url, kind, format, title FROM link_archive WHERE run_id = %s ORDER BY url", w.run
+    )
+    linked = {
+        (p.profile_url_raw or p.profile_url)
+        for p in result.people
+        if p.profile_url and not p.internal_only
+    }
+    assert {row[0] for row in archived} == linked and linked
+    assert {(row[1], row[2]) for row in archived} == {("profile", "json")}
+    assert all(row[3] for row in archived)
 
 
 @pytest.mark.asyncio
@@ -378,7 +390,9 @@ async def test_unmerge_is_recorded_and_reversible() -> None:
     w = make_world()
     repo = _repo(w)
     result, _ = await _run(w, repo)
-    merged = next(p for p in result.people if p.status == "merged")
+    # a member merged by name (no profile link of its own) can be unmerged; a URL duplicate is
+    # the same person by identity and stays merged
+    merged = next(p for p in result.people if p.status == "merged" and p.profile_url is None)
     await repo.unmerge(
         str(w.run),
         merged.person_key,

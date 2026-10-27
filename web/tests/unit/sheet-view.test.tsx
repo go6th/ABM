@@ -54,3 +54,27 @@ test("a delivered file's table shows its headers, link text and source links", (
   expect(screen.getByText(/People list\.xlsx · People · 1 rows/)).toBeTruthy();
   expect(screen.getByText(/In the file's order\./)).toBeTruthy();
 });
+
+test("a link with an archived copy shows the copy beside it, a link without one does not", () => {
+  const archived: Sheet = {
+    ...sheet,
+    rows: [
+      {
+        ...sheet.rows[0]!,
+        archives: {
+          profile_url: { href: "/v1/accounts/synthetic.example/archive?url=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fsynthetic-director", archived_at: "2026-10-27T09:00:00+00:00" },
+          link: { href: "https://evil.example/not-ours", archived_at: "2026-10-27T09:00:00+00:00" },
+        },
+      },
+    ],
+  };
+  render(<SheetView sheet={archived} domain="synthetic.example" base="/accounts/synthetic.example/people" moreHref={null} />);
+  const table = screen.getByRole("table");
+  const copies = within(table).getAllByRole("link", { name: "archived" });
+  // the profile's copy opens the API's same-origin page; the source link's copy pointed off
+  // the origin and is not shown
+  expect(copies).toHaveLength(1);
+  expect(copies[0]!.getAttribute("href")).toBe("/v1/accounts/synthetic.example/archive?url=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fsynthetic-director");
+  expect(copies[0]!.getAttribute("title")).toBe("Archived copy, captured 2026-10-27");
+  expect(within(table).getByRole("link", { name: "Open profile" })).toBeTruthy();
+});

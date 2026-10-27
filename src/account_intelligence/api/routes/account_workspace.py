@@ -43,6 +43,7 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 register(
     "GET", "/v1/accounts/{domain}/workspace", tenant_route("read_public", "read", step_up=False)
 )
+register("GET", "/v1/accounts/{domain}/archive", tenant_route("read_public", "read", step_up=False))
 register(
     "GET",
     "/v1/accounts/{domain}/file-analysis",
@@ -89,7 +90,9 @@ async def account_id_of(session: Any, domain: str) -> UUID:
     """The account of this tenant with that domain, or 404 (another tenant's looks the same)."""
     if not re.fullmatch(DOMAIN, domain):
         raise HTTPException(404, "not found")
-    found = await session.scalar(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+    found = await session.scalar(
+        text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"), {"d": domain}
+    )
     if found is None:
         raise HTTPException(404, "not found")
     return UUID(str(found))
@@ -426,12 +429,79 @@ async def account_sheet(
         q = _sheet_query(sheet, filter, sort, dir, offset, limit, run)
         async with tenant_txn(ident.tenant_id) as s:
             out = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC))
+    async with tenant_txn(ident.tenant_id) as s:
+        # the archived copy behind each link of the page (link archive): a dead link still
+        # opens what the research captured
+        await SH.attach_archives(s, account_id, out["rows"], domain)
     response = {**out, "account_name": name}
     if delivered is not None and (main is not None or q.sheet.table is not None):
         # the delivered workbook's sheets, as tabs, and the file itself
         response["tabs"] = FT.tab_refs(delivered[0])
         response["file_id"] = delivered[1].id
     return response if q.sheet.private else _client_value(response)
+
+
+@router.get("/{domain}/archive", response_model=C.ArchivedCopy)
+async def account_archive(
+    domain: str,
+    request: Request,
+    url: str = Query(min_length=8, max_length=2048),
+    ident: Identity = Depends(authorize),
+) -> Any:
+    """The archived copy of one address the research stored for this account (the newest
+    capture): the text the research read, with the original address and when it was captured.
+    A browser gets a readable page; a client asking for JSON gets the same as JSON. 404 when the
+    address was never stored for the account (another tenant's looks the same)."""
+    from html import escape
+
+    from fastapi.responses import HTMLResponse
+
+    from account_intelligence import archive as LA
+
+    async with tenant_txn(ident.tenant_id) as s:
+        account_id = await account_id_of(s, domain)
+        found = await LA.lookup(s, account_id, [url])
+    link = found.get(url)
+    if link is None:
+        raise HTTPException(404, "not found")
+    try:
+        require_owned(ident.tenant_id, link.payload_ref)
+        copy = await LA.archived_copy(request.app.state.container.payloads, link)
+    except (PathRefused, ValueError, LookupError):
+        raise HTTPException(404, "not found") from None
+    except Exception:  # noqa: BLE001 - a missing or unreadable body reads as not found
+        raise HTTPException(404, "not found") from None
+    body = _client_value(
+        {
+            "url": copy.url,
+            "kind": copy.kind,
+            "archived_at": copy.archived_at.isoformat(),
+            "title": copy.title,
+            "text": copy.text,
+        }
+    )
+    if "text/html" not in (request.headers.get("accept") or "") or "json" in (
+        request.headers.get("accept") or ""
+    ):
+        return body
+    when = copy.archived_at.strftime("%d %B %Y")
+    title = escape(body.get("title") or body["url"])
+    page = (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{title}</title>"
+        "<style>body{margin:0;padding:24px 16px;font:15px/1.5 system-ui,sans-serif;color:#1d1d1f;"
+        "background:#fff}main{max-width:820px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}"
+        "p.meta{color:#5f6368;margin:0 0 20px;font-size:13px}pre{white-space:pre-wrap;"
+        "word-wrap:break-word;font:inherit;border-top:1px solid #e5e7eb;padding-top:16px}"
+        "</style></head><body><main>"
+        f"<h1>{title}</h1>"
+        f'<p class="meta">Archived copy captured on {escape(when)}. Original address:'
+        f' <a href="{escape(body["url"], quote=True)}" rel="noopener noreferrer">'
+        f"{escape(body['url'])}</a></p>"
+        f"<pre>{escape(body['text'])}</pre></main></body></html>"
+    )
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/{domain}/sheets/{sheet}/tabs/{tab}", response_model=C.SheetTab)

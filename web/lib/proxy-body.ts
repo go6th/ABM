@@ -19,7 +19,7 @@ export const JSON_TIMEOUT_MS = 120_000;
 /** A file going up or down (uploads, downloads, exports, workbooks) may take far longer. */
 export const TRANSFER_TIMEOUT_MS = 60 * 60_000;
 
-const TRANSFER_PATH = /^\/v1\/(downloads\/|exports\/[^/]+\/files\/|audit\/export$|accounts\/[^/]+\/sheets\/[^/]+\/xlsx$)/;
+const TRANSFER_PATH = /^\/v1\/(downloads\/|exports\/[^/]+\/files\/|audit\/export$|accounts\/[^/]+\/sheets\/[^/]+\/xlsx$|accounts\/[^/]+\/parity\/files\/)/;
 
 export function proxyTimeout(method: string, pathname: string): number {
   if (bodyLimit(method, pathname) === UPLOAD_BODY_LIMIT) return TRANSFER_TIMEOUT_MS;

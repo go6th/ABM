@@ -261,7 +261,10 @@ async def account_history(
         if rule.excludes_company(domain):
             raise HTTPException(404, "not found")
         acc = (
-            await s.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+            await s.execute(
+                text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"),
+                {"d": domain},
+            )
         ).first()
         if acc is None:
             raise HTTPException(404, "not found")

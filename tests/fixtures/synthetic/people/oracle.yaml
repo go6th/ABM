@@ -7,7 +7,7 @@ groups:
   - {members: [r03], status: excluded, reason: security}
   - {members: [r04, r07, r08], status: in_scope, level: senior_manager, lanes: [salesforce], priority: B}
   - {members: [r05, r18, r19], status: in_scope, level: vp, lanes: [salesforce], priority: A}
-  - {members: [r06], status: out_of_scope, reason: below_scope}
+  - {members: [r06, r21], status: out_of_scope, reason: below_scope}
   - {members: [r20], status: in_scope, level: senior_manager, lanes: [salesforce], priority: B}
   - {members: [r09], status: in_scope, level: c_level, lanes: [servicenow], priority: A}
   - {members: [r10], status: excluded, reason: it_audit}
@@ -22,9 +22,9 @@ groups:
   - {members: ["mention:Sam Roe"], status: unresolved}
   - {members: ["mention:Raj Patel"], status: unresolved, possible_duplicate: true}
 counts:
-  found: 23
+  found: 24
   distinct: 18
-  merged_away: 5
+  merged_away: 6
   possible_duplicate: 3
   in_scope: 7
   out_of_scope: {below_scope: 1, not_current: 2}
@@ -52,7 +52,7 @@ counts:
   by_priority: {A: 5, B: 2, C: 0}
 # Mei's email is redacted at the boundary, so the extractor's sentence quoting it is not in her
 # stored text.
-drops: {sentence_not_in_text: 2, claim_not_in_sentence: 1, schema_invalid: 1, mentions_ambiguous: 1}
+drops: {sentence_not_in_text: 2, claim_not_in_sentence: 1, schema_invalid: 1, mentions_ambiguous: 1, unlinked_resolved: 1}
 findings: 1
 claims: 8
 lanes_not_searched: {veeva: lane_not_in_scope, data_ai: not_available_yet}

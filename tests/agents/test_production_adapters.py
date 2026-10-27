@@ -182,6 +182,49 @@ async def test_page_reads_search_the_account_site_and_read_only_on_domain(monkey
 
 
 @pytest.mark.asyncio
+async def test_the_pages_a_search_found_are_read_side_by_side(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """With the caps off every page a search returned is read; the reads overlap instead of
+    waiting on each other (speed audit 2026-10-27), and a page that cannot be read is skipped
+    while the others still arrive in the search's order."""
+    import asyncio
+    import time
+
+    from account_intelligence.connectors.errors import ConnectorError
+
+    delay = 0.05
+    own = [f"https://acme.example/p{i}" for i in range(6)]
+    off = [f"https://news{i}.example/a" for i in range(6)]
+    reads: list[str] = []
+
+    async def fake(route: str, args: Any, cc: Any, rt: Any, *, operation: Any = None) -> Any:
+        if route == "open_web_search":
+            return ConnectorResult(
+                status="ok", records=tuple(page(u) for u in (*off, *own)), call_refs=("s1",)
+            )
+        await asyncio.sleep(delay)
+        reads.append(args.url)
+        if args.url.endswith("p3") or args.url.startswith("https://news2"):
+            raise ConnectorError("unreadable")
+        return ConnectorResult(status="ok", records=(page(args.url),), call_refs=(args.url,))
+
+    monkeypatch.setattr(provider_module, "call_need", fake)
+    monkeypatch.setenv("RESEARCH_CAPS", "off")
+    started = time.monotonic()
+    result = await ConnectorProvider(_Runtime(), uuid4()).call(  # type: ignore[arg-type]
+        ctx(), "web_search", "acme cio", "key_contact_profiles_posts"
+    )
+    elapsed = time.monotonic() - started
+    assert len(reads) == 12  # a row without an own-site search: each page read once
+    # one after another the reads alone take 12 x delay; four at a time they take about a
+    # quarter of that
+    assert elapsed < 12 * delay * 0.6, elapsed
+    got = [r for r in result.call_refs if r != "s1"]
+    assert got == [
+        u for u in (*own, *off) if u not in ("https://acme.example/p3", "https://news2.example/a")
+    ]
+
+
+@pytest.mark.asyncio
 async def test_feeds_use_the_row_operation(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     ops: list[Any] = []
 
@@ -234,6 +277,50 @@ async def test_store_payloads_round_trip_and_refuse_other_tenants() -> None:
     )
     with pytest.raises(KeyError):
         await store.view(uuid4(), ref)
+
+
+class _Archive:
+    """A link archive that keeps what it was asked to record."""
+
+    def __init__(self) -> None:
+        self.entries: list[Any] = []
+
+    def now(self) -> datetime:
+        return T0
+
+    async def record(self, entries: Any) -> int:
+        self.entries.extend(entries)
+        return len(self.entries)
+
+
+@pytest.mark.asyncio
+async def test_public_items_are_archived_under_their_address_and_private_ones_are_not() -> None:
+    archive = _Archive()
+    store = StorePayloads(MemoryPayloadStore(), uuid4(), archive=archive)  # type: ignore[arg-type]
+    c = ctx()
+    text = "Jane Doe - CIO - Acme | LinkedIn\nA search result."
+    ref = await store.put(
+        c,
+        "key_contact_profiles_posts",
+        SourceItem("https://www.linkedin.com/in/jane-doe", text),
+        "public",
+    )
+    await store.put(
+        c, "company_news", SourceItem("https://acme.example/n", "feed", "date_range"), "public"
+    )
+    await store.put(
+        c, "prior_customer_status", SourceItem("https://mail.example/1", "private"), "private"
+    )
+    assert [(e.url, e.kind, e.payload_ref, e.title, e.archived_at) for e in archive.entries] == [
+        (
+            "https://www.linkedin.com/in/jane-doe",
+            "profile",
+            ref,
+            "Jane Doe - CIO - Acme | LinkedIn",
+            T0,
+        ),
+        ("https://acme.example/n", "feed_item", archive.entries[1].payload_ref, "feed", T0),
+    ]
 
 
 # credit -----------------------------------------------------------------------------------------

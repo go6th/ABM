@@ -48,9 +48,13 @@ from agents.ports import (
     ProviderResult,
     RunContext,
 )
+from crosscut.fanout import fan_out
 
 # The provider's reason when the run has used the credits confirmed for it.
 CREDIT_LIMIT = "cap_reached"
+# a row's queries in flight at once (the rows themselves run eight at a time in the graph; the
+# connectors' token buckets and the governor still hold each provider to its rate)
+QUERY_CONCURRENCY = 4
 # An internal-history row on a run without the client's mail, notes and files switched on.
 NO_INTERNAL_ACCESS = "no_internal_access"
 
@@ -160,21 +164,36 @@ class PullAgent:
                 self.goal if row.row_key in self.goal_rows else None,
             )
         )
-        for query in public:
+        # the row's queries run side by side (each is a search and its page reads, seconds
+        # each); a cap refusal stops new queries from starting while the ones in flight finish
+        # (they are paid for, so their items are stored), and the outcomes are read in query
+        # order so the manifest is the one the one-at-a-time loop made (speed audit 2026-10-27)
+        stopped: list[str] = []
+
+        async def one(query: str) -> tuple[ProviderResult | None, str | None]:
+            """One query: its result, or the reason it brought nothing."""
             meter.charge_call()
             try:
-                result = await self.provider.call(ctx, row.need, query, row.row_key)
+                return await self.provider.call(ctx, row.need, query, row.row_key), None
             except CapPause as pause:
+                stopped.append(query)
                 if pause.reason == CREDIT_LIMIT:
                     self.capped = True
-                    failure = "budget_cap"
-                    break
+                    return None, "budget_cap"
                 if ctx.attended and not self.record_refusals:
                     raise SpendPause(row.row_key, pause.reason) from pause
-                failure = "spend_not_approved"
-                break
+                return None, "spend_not_approved"
             except ProviderFailed as error:
-                failure = error.reason
+                return None, error.reason
+
+        outcomes = await fan_out(public, one, limit=QUERY_CONCURRENCY, stop=lambda: bool(stopped))
+        for query, outcome in zip(public, outcomes, strict=True):
+            if outcome is None:
+                continue  # never started: a cap refusal came first
+            result, reason = outcome
+            if result is None:
+                if reason in ("budget_cap", "spend_not_approved") or failure is None:
+                    failure = reason
                 continue
             refs += await self._store(ctx, row, result, "public")
             calls += result.call_refs
