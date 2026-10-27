@@ -77,6 +77,8 @@ ABM Generator/
 ├── docker/                   The api and worker Dockerfiles and the CI image/stack scripts.
 ├── ops/                      Local fake IdP, load and restore drills, status page generator.
 ├── evals/                    Golden accounts and offline benchmark harnesses (nightly eval gate).
+├── unwanted-things/          Parked files that are not the product (moved, never deleted): its
+│                             README lists each one and why; cleanup.sh holds the irreversible steps.
 └── docs/                     Living documentation: architecture, decisions (ADRs), runbooks,
                               provider contracts, security, privacy, the generated reference docs.
 ```

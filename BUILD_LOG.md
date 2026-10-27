@@ -989,3 +989,321 @@ hyperlinks.
 * Left as is: the research agents' prompt carries the companion reference verbatim (owner rule
   2026-10-19), which names the connectors to the model only; every client output is still
   scrubbed and scanned.
+
+## Web research rebuilt to follow the owner's skill (2026-10-24)
+
+The owner reported "many problems in web research" and asked for a production-grade rebuild that
+follows the ABM account research skill, an architecture audit with graphs, and a staging deploy.
+Audit: `docs/audit/2026-10-24-web-research-architecture.md` (defects with evidence, the graph
+after the rebuild, what stays open).
+
+### What the audit found (local run 2dab4361, quidelortho.com, 185 facts)
+
+* No fact of any run was ever Confirmed: evidence origins were feed items (138), search snippets
+  (35) and cached copies (12); a live read of a primary host never happened, so the narrative
+  could state nothing and the Summary opened with questions.
+* The model named attributes freely and filed facts under the row the page was pulled for: the
+  same headquarters fact four times under four rows, the CEO under "lead verification".
+* `facts.lane` was NULL for every fact (nothing wrote it): every Summary lane table row sat under
+  "Unassigned lane".
+* The job pipeline and the detections table were never fed by the ABM graph: empty Job Postings
+  and Tech Stack workbooks; postings became "count" facts; most reading calls went to job text.
+* The lane lexicon (`config/job_lanes.yaml`) had bare names and no keywords: MuleSoft, S/4HANA,
+  Vault and Power BI never matched a posting.
+
+### What changed
+
+* `config/skill/pull_plan.yaml` (1.1.0): `own_site` rows (own-site search per query and live
+  full reads, the path to Confirmed), `pipeline: jobs|tech` rows, newsroom and leadership
+  queries beside the feeds. `agents/production/provider.py`: `_own_site_search`, month-anchored
+  posting window (`as_of`), the skill config injected.
+* `config/skill/attributes.yaml` (new, 68 attributes with one canonical row, meaning and
+  signal tier each) + `agents/config.py` loader (`AttributeSpec`, `PlanRow.own_site`,
+  `PlanRow.pipeline`). `agents/extraction.py`: attribute decides the row (refiling), repeats
+  merged within a call, lane inferred from platform names (`agents/lanes.py`, the job lexicon),
+  `event_date` on candidates, the vocabulary sent with every call, pipeline rows skipped.
+  `agents/graph.py`: cross-group dedupe (a repeat is graded again only when it brings a full
+  read), the run's lanes passed to extraction.
+* `agents/production/pipelines.py` (new) and the `pipelines` graph node (interpret ->
+  pipelines -> sense_check): `jobs.stage.run_jobs` inside the ABM run with the engine grading its
+  claims (`EngineGrading.grade_raw`, lane of the platform), the chosen careers page recorded for
+  the board search, `tech_detections` rows written from the feed with the evidence page
+  registered as a source. `jobs/adapters.py`: the feed window anchored to the month.
+* `agents/production/grading.py`: `facts.lane` and `value_json.event_date` written after the
+  engine records a fact; `StoredFact` carries lane, tier and event_date to the sense check and
+  distill. Prompts: pass 1 and pass 2 (version 4: vocabulary, one candidate per fact, dates,
+  lanes), distill (version 3: the Summary's section order, tiers, fingerprint questions).
+* `config/job_lanes.yaml` (2026-10-24.1): the lexicon from the skill (aliases per lane, board
+  keywords; ServiceMax, Siebel and Databricks never terms). The golden job tests pin the frozen
+  2026-10-02 copy (`tests/fixtures/synthetic/jobs/config/`); `tests/jobs/test_lexicon.py` checks
+  the production one. `docs/jobs/rubric.md` regenerated.
+
+### Tests (2026-10-24, private scratch databases, `-m "not eval and not live"`)
+
+* `tests/agents`: 318 passed, 1 xfailed (new: `tests/agents/test_research_core.py`, 13 tests).
+* `tests/jobs tests/exports tests/grading`: 662 passed.
+* ruff and mypy clean on `src/agents`, `src/jobs`, the touched tests.
+* The rest of the suite: see the end of this entry.
+
+
+### Second pass the same day: the uploaded workspaces as the benchmark
+
+The owner uploaded two skill-built workspaces (Vizient; McKesson phase 1) and two platform
+outputs (QuidelOrtho export; Tolmar deliverables). The comparison is section 9 of the audit.
+Changes from it:
+
+* `person_searches` graph node (after `pipelines`): speaking, podcasts and video searched by the
+  names of the executives the reading step found (`agents/people_names.py`: names parsed from
+  `executive_role`, `appointment` and `departure` facts, two to five name words, at most ten
+  people, a fixed query template per row), the pages read, the findings graded, the rows
+  reported with their calls. The skill's step 9 without the people step.
+* `config/source_registry.yaml`: sec.gov is a first-tier source (the skill reads results
+  releases as SEC exhibits); the provider scrapes first-tier register pages live so a figure
+  read there can be Confirmed (`_primary_registry_host`).
+* `config/skill/pull_plan.yaml`: the vendor account team row searches one query per lane vendor
+  (Salesforce, MuleSoft, ServiceNow, SAP, Tableau, Veeva, Workday), as phase1-pull.md step 2.5.
+* Summary: the same finding from the same sources is one lane row; a Confirmed row carries no
+  confirming question; the question of any other row names the finding in plain words
+  (`grading/repo.annotate_fact` holds the lane and event date writes: facts keep one writer).
+* `documents/deliverables.py`: an uploaded workbook row whose key cell is a number, a JSON or
+  list literal or a long comma list is skipped and counted (the QuidelOrtho export carried 5,900
+  such "people" and "1", "3", "6" as technologies).
+* Tests: `tests/agents/test_research_core.py` (person names, first-tier scrape), the people and
+  job pipeline tests pinned to the frozen 2026-10-02 lexicon, `tech_detections` declared with
+  its one writer in the single-write-path register.
+
+
+### Third pass: the people step switched on (owner decision, 2026-10-24)
+
+The owner asked for the people step on, with the consent gate kept. The consent text (version
+pdc-1) was already approved on 2026-10-12; what was missing was the pipeline in the graph and a
+way for a tenant to grant the consent.
+
+* `pull_plan.yaml`: `people_by_platform`, `full_profiles_senior_people` and
+  `posts_priority_people` are `pipeline: people`. Phase 1 marks them `owned_by_pipeline` and
+  makes no people call. The `pipelines` node checks the tenant's consent (G8): with it, the
+  people pipeline runs (`agents/production/pipelines.py run_people`, the Workflow v1 people stage
+  body over the connector adapters, claims graded through the engine); without it the three
+  rows end Blocked `consent_required` and nothing is pulled. A pipeline failure that is not a
+  model failure ends the rows `source_failed` and the run goes on.
+* What the active people source can pull today (`config/people_sources.yaml`: p_org): the
+  association search per lane on the resolved organisation (people by lane technology), merge,
+  scope, level, lane, priority, exclusions, counts, the People List workbook. The title search
+  (the skill's first source) stays "not available yet": the BitScale connector is a stub, and
+  BitScale's external API runs pre-built grids only (`docs/providers/sources/p_people`), so a
+  grid the owner configures and its id are needed before people by title can run. Profiles and
+  posts have no connector operation yet.
+* Consent API: `GET /v1/settings/people-consent` (any member) and `POST` with `{accept}`
+  (admin, audited `people_consent_granted` or `people_consent_withdrawn`); the Team page shows
+  the text, its version and a Grant or Withdraw button (`web/components/accounts/PeopleConsent.tsx`).
+* Tests: `tests/replica/test_people_consent.py`; the agent suite's G8 tests follow the new
+  ownership (321 passed); web type check and unit tests pass; OpenAPI snapshot and the web
+  client regenerated.
+
+
+### Fourth pass: no caps anywhere while the caps are off (owner order, 2026-10-24)
+
+The owner asked that nothing the platform controls stop a research: no spend cap, no count cap,
+no timeout, no token pause. `RESEARCH_CAPS=off` (set on staging since 2026-10-21) already lifted
+the credit and tool-call caps, pagination, posting read caps, agent budgets, people caps, the
+slice count, the credit pool and the plan limits. The same switch now also lifts:
+
+* the token-guard pause (`connectors/spend_guard.check_tokens`: off with the caps off unless
+  `TOKEN_GUARD=on`), superseding the 2026-10-23 decision;
+* the provider layer (`connectors/settings.uncapped_config`, applied in `app/container
+  .build_connectors`): HTTP read 900 s and total 1200 s, rate-limit wait 1800 s, asynchronous
+  job polls 10,000 within 7200 s, ledger stale and in-flight waits to match, retries 10 (the
+  config's ceiling); nothing lowered, routes and costs untouched;
+* off-site reads per search (every page a search returned is read, not two) and the page text
+  kept per read (120,000 characters, the extraction call's own size, instead of 24,000);
+* person-name searches for every executive found (the skill's ten with the caps on);
+* the export row caps, ten times higher (sanity bounds on a file, not research caps).
+
+What stays, because the platform does not own it: a Cloud Run request ends at 3600 s (set on
+all three services) and a Cloud Tasks dispatch at 1800 s, so a run is sliced at 1650 s and
+resumes from its checkpoint for as many slices as it needs; the Cloud Tasks queue retries a
+failed slice five times (`gcloud tasks queues update ai-staging-runs --max-attempts=unlimited`
+lifts that; the sweeper's auto-resume covers a lost worker either way); the model provider's
+own request timeout (ten minutes non-streamed) bounds one reply at 21,000 tokens and the
+re-ask continues from there.
+
+
+### Fifth pass: what the complete suite caught (2026-10-24, late)
+
+* Facts are append-only (migration 0009 trigger). The lane and event date written after the
+  insert failed every production run at the reading step; they now travel with the insert
+  (`grading/repo.record_graded_fact(..., lane=, event_date=)`), and `annotate_fact` is gone.
+  Caught by `tests/system/test_abm_production.py`; the agent suite's fakes could not see it.
+* A build run (Phase 2 on a stored pull) runs the pipelines and the person searches too, so
+  full equals pull then build (G14); its own calls are those nodes', never the manifest rows'
+  searches (the production test now asserts that instead of zero calls).
+* The consent text is read through `agents.config.skill_config()` (one YAML reader); the two
+  consent routes are in the isolation matrix; the people golden kit and the config hash test
+  pin the frozen lexicon; the export, grading, jobs, people and loop documents are regenerated.
+* Images: rel-7f0c8c6 carried the append-only defect and must not be deployed; the fixed tree
+  is built as the tag the build log prints (`scratchpad/build6.log`).
+
+### Sixth pass: every stop of the day's live runs, closed (2026-10-24, run 0e2e3e52)
+
+The owner's order: the next research ends on no runtime, build or store error of the platform's
+own making. Each stop or error class seen on staging that day, and what closed it:
+
+* `exports.build_failed missing_url` (08:38 UTC): one detection whose only evidence was a feed
+  record failed the whole five-file set. The mappers now withhold a data row without a public
+  link, or with a link the source registry never saw, and list it in the manifest
+  (`MapContext.code_or_withhold`; `jobs:<key>:missing_url`, `tech:<id>:missing_source_code`);
+  each workbook's Counts sheet states how many rows are not listed and why. A stored code the
+  registry does not know still fails the build (corrupt provenance is never hidden).
+* The detections writer is guarded like the job pipeline: a store or feed error ends the tech
+  row `source_failed` and the run goes on (`pipelines.tech_failed`); test added.
+* `NotOwner` in the sense check (07:25) and the facts append-only violation (05:42 to 06:11)
+  were closed earlier the same day (`mark_partial` leaves unowned rows alone; lane and event
+  date travel with the insert).
+* Four bare `RuntimeError` lines (07:58, 08:02, 08:17, 08:20; hash fea6ef69b1a6ca5a) are
+  Python's "aclose(): asynchronous generator is already running": one coincided with a batch
+  result read, two with the metrics task. The batch results stream is now read to its end and
+  closed before any return; the log scrubber names the innermost library frame (`ext:` prefix)
+  and the logger when no own frame raised, so the next one says where it came from.
+* `llm.batch_wait_cancelled` x30 at 08:15:05 is the slice boundary (1650 s): every cancelled
+  batch was re-attached by the next slice (`llm.batch_reattached` x26, then `batch_finished
+  succeeded` x26); nothing was paid twice. Expected, not an error.
+* `pipelines.jobs count=12 rows=0`: twelve feed postings, none matched the lexicon in their feed
+  text, so none was read (an unmatched posting is never escalated). With the caps off an
+  in-window posting whose feed text is shorter than the minimum is now read even when unmatched
+  (`JobsConfig.read_excerpts`), a read needs a posting link, and the event carries `matched`,
+  `read` (escalations) and the pipeline's exit reasons.
+* `value_not_in_sentence` drops (62 of 154 candidates in one call): the grader's G4 rule stands;
+  both extraction prompts now say the value is copied from inside the quoted sentence, word for
+  word and in order.
+* Providers probed with the staging secrets (`scratchpad/probe_providers.py`, no values
+  printed): Parallel search, Firecrawl, PredictLeads, BitScale, Sumble, the Anthropic API and
+  Kimi K3 through Ollama Cloud all answered 200.
+
+### Seventh pass: the owner's master prompt v2 and helper zip as the reference (2026-10-24)
+
+The owner's "Madrid ABM account research master prompt v2 (gap closing)" and
+`madrid_abm_helpers.zip` (rowcheck, doc checks, third-party scan, workbook and ranking helpers,
+the reference build scripts) are the specification for the research path and the five files.
+What the platform now does that it did not:
+
+* `config/skill/scope.yaml` (new, read through `SkillConfig.scope`): the six lanes, the platforms
+  also tracked (Workday, Dynamics, Power BI, Snowflake), the never-report list (ServiceMax,
+  Siebel, Databricks) with its mask, the windows (news 18, postings 12, detections 24 months),
+  the seniority rule, the excluded title patterns, the look-alike edit distance, the lead rule
+  (3 queries, 2 tools). The Salesforce lane label no longer names ServiceMax (the prompt
+  supersedes D-100).
+* The entity lock (prompt section 3), `agents/entity.py` and the graph node `entity_lock` right
+  after `setup`: the account's home page is read live and one brand search is run before any
+  other pull; a home page that was read and does not name the account ends the run
+  `entity_mismatch` unpaid (the 2026-10-24 vizent.co case); the host the site redirects to and
+  subsidiaries become the account's own domains (own-site searches, live reads, T1 grading,
+  the people scope, the careers check, the SSRF allow list all read them from the lock through
+  `RunContext.allowed_domains`); look-alike brands (edit distance 2 on another host) are blocked
+  (a page on one is dropped in the reading step, a posting on one never stored). The lock is
+  stored on `accounts.entity_lock` (migration 0083) and a build run reuses its parent's.
+* Windows: the three p_signals feeds take their window from the scope, counted back from the
+  run's month anchor (`provider.feed_since`); detections were pulled for all time before.
+* Dates: a scraped page now carries its own publish date (Firecrawl metadata
+  `publishedTime`, `article:published_time`, `datePublished`) and grading dates the source by
+  it; a calendar date alone is a dateline; a time without a zone is still not trusted; the day a
+  page was read never becomes its date.
+* People: a row whose name is a title, a fragment or a quote is excluded
+  (`people.names.looks_like_person`, reason `not_a_person_name`); privacy titles join security,
+  IT compliance and IT audit in the exclusion rules.
+* Leads: every Lead's verification state is derived from the run's own ledger
+  (`grading.leads.lead_states_from_fetches`): the queries that named the value, offered in
+  ledger order under the distinct-query and two-category rules; a value searched once stays
+  "verification pending", never "unverified".
+* Builds never fail on a `p_` token in a posting: the provider-code leak pattern matches the
+  configured provider codes only (`exports.config.provider_codes`).
+* The five files are being rebuilt to the prompt's output specification (sections 9.1 to 9.5,
+  7.3 and 11): the workbook columns, labels, the Platform Ranking sheet, the masking of the
+  never-report names, the third-party scan on every file, the Summary's twelve sections, the
+  Evidence parts A to I and the tracker consistency rules. What landed:
+  * People List: columns No., Name, Title as reported, Level, Meets seniority rule, Lane,
+    Priority, Former SI employers, Found by, LinkedIn, Second profile, Note, Source; level,
+    lane and found-by wording in `export_rules.yaml` `labels`; the Summary sheet names the
+    excluded people with their reason and carries formula tables (Level x People and Priority
+    A, Meets seniority rule, Lane x A/B/C/Total).
+  * Job Postings: sheet Jobs with Posting id, Entity, the read type as Source ("Live board,
+    read", "Job feed, 12 months, description read", "Job feed, 12 months, title only"), the
+    classes "No lane platform named" and "Not read (title only)", and a Platform x Class
+    formula matrix. The read type is derived from the status source (a proxy, not stored).
+  * Tech Stack: first sheet Platform Ranking from `config/platform_dictionary.yaml` (31
+    platforms; rank, share and the rank counts are formulas), then Detections, Summary, Teams
+    and Counts. Every formula cell is registered in the recalculation check, which now
+    compares text and decimal results too.
+  * Client files mask ServiceMax, Siebel and Databricks (`masked_terms` in the manifest); the
+    third-party scan runs on all five files and the workspace zip, fails on the word
+    "credits", and records the domains in four groups.
+  * Summary: title block, grades legend, plain-words narrative, recent news, baseline, the
+    four signal tables, lanes, people (method, key people, findings from profiles, status
+    changed), numbered hypotheses with the caution, first-call questions, a tracker with
+    decisions waiting, Pass 1 and Pass 2 and a tally computed from the rows, and source links.
+    Evidence: parts A to I. Status changed, and C (live board) until a careers host is stored,
+    print "None found" until their data exists.
+  * Tracker rules (`tracker/consistency.py`): news None becomes Partial when dated news facts
+    exist; leadership None becomes Partial on a recent appointment; private-company financial
+    rows read None with the reason (dormant until `is_public` is set); customer references are
+    Blocked; pass 1 without internal access reads "Not done: needs account owner".
+  * Not done: priority colour coding on the People sheet (needs theme colours); `is_public`
+    is not set by anything yet.
+
+### Open (owner decisions)
+
+People by title needs a BitScale grid the owner configures (its id in config) or the grid
+contract in the connector; profiles and posts need a connector operation; the Salesforce lane
+label still names ServiceMax (D-100); wire hosts are not T1 and an extract read is a cached copy
+(D-15, D-14); Workday is not a lane; Phase B internal history (D-98).
+
+## 2026-10-27: web research tables as the BD workspace prints them
+
+Owner request: the web tables must be built the way the BD zip (skill-built reference) has them,
+sheet by sheet as tabs, with the LinkedIn profile links; some table screens did not render well.
+
+* Tabs: People, Job postings and Tech stack show every sheet of the delivered workbook as a tab,
+  in the file's order (`replica/file_tabs.py`, `GET /v1/accounts/{domain}/sheets/{sheet}/tabs/{tab}`).
+  The workbook is read back from the stored file (cached by SHA-256); formula cells show the
+  value the formula computes (`replica/workbook_formulas.py`: COUNTA, COUNTIF(S), SUM, IF, AND,
+  OR; every formula of the three workbooks matches the builder's own expected value). A
+  "Download the file" button opens the delivered file itself.
+* A stored table that cannot be shown (materialised under an earlier column set) no longer falls
+  back to the live research table with other columns: the screen, counts and exports use the
+  builder's file's own main table (only a file whose manifest counts exactly its rows and whose
+  headers are the configured ones; the demo seed's stand-in files keep the live sheet).
+* LinkedIn: the live People table has a LinkedIn column ("Open profile", the person's own
+  profile; never a provider page, never the page that merely named them). An uploaded People
+  List keeps each "Open profile" cell's address (`tabular.sheet_links`: the read-only reader
+  dropped hyperlinks), and the import keeps Second profile, Meets seniority rule, Location,
+  Note and the posting Entity.
+* Table rendering: long text (a full job description) shows four lines and Expand shows it all,
+  so a Jobs row is a row again; rows with long text align to the top. Paging continues past 500
+  rows (Previous rows, Next rows). The live People column "Role" reads "Title as reported".
+* Clean-up: parked in `unwanted-things/` (README inventory, `cleanup.sh` for irreversible steps):
+  the empty `/__design` gallery stubs, a stray skill zip in the root, 43 editor plugin checkouts.
+* Tests: `tests/replica/test_file_tabs.py` (formulas, tabs, file table sort and paging, upload
+  links, the tabs API, the stale-table fallback); web vitest 234 passed.
+
+### Hardening pass the same day (four parallel reviewers, then one combined check)
+
+* Tables API: the formula evaluator now evaluates only the chosen IF branch (a zero base left
+  the share and rank cells empty), follows Excel on the edges, and bounds chains and huge
+  ranges; the workbook cache is keyed by tenant and object and checked after ownership; size
+  and cell caps before a workbook is opened; one parse per book under concurrency; blank cells
+  sort last; tab responses are capped.
+* Web screens: a retried start keeps its request id after a network error or 5xx (a lost reply
+  could otherwise start a second paid research); double clicks post once; pages survive missing
+  fields and malformed addresses; export links encode the domain once; keyboard tabs on New
+  research; quieter live region on the Research board.
+* Uploads: hyperlink reading bounded against zip bombs, DTDs, huge ranges and path traversal,
+  only http(s) addresses kept; a People List is no longer read as job postings; emails and
+  phones scrubbed from free text; names with credentials kept; Platform teams sheet read.
+* People: LinkedIn profile URLs canonicalised (country hosts, no scheme, locale suffixes,
+  encoded names; company pages are never a person's profile); non-Latin and particle names
+  accepted; a people fact that is only a title is dropped at extraction and kept off the People
+  table (`workspace.title_only`); a person named on a page borrows the profile the people search
+  found for the same name.
+* Results: backend 5083 passed, 1 skipped, 1 xfailed (`-m "not eval and not live"`); web 248
+  passed; all repository gates green. Owner decisions left: the title search source (the active
+  people source has no people_by_title; BitScale needs its grid), name-to-profile matching
+  beyond this run's records, profile enrichment.

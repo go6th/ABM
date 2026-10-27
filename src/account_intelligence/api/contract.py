@@ -354,6 +354,8 @@ class DeepDiveCounts(Out):
     searches: int = 0
     coverage_done: int = 0
     coverage_total: int = 0
+    # the rows of the Account Summary's Platform picture by lane (delivered files only)
+    facts: int = 0
 
 
 class DeliverableFile(Out):
@@ -430,6 +432,18 @@ class SheetRow(Out):
     cells: dict[str, str]
     link: str | None
     link_label: str | None = None
+    # a file-shaped sheet's link columns: column key -> the address the cell opens (the cell
+    # shows the file's own text, such as "Open profile")
+    links: dict[str, str] = Field(default_factory=dict)
+
+
+class SheetTabRef(Out):
+    """One sheet of the delivered workbook, shown as a tab (``replica.file_tabs``); ``main`` is
+    the sheet the sortable table shows."""
+
+    key: str
+    label: str
+    main: bool = False
 
 
 class Sheet(Out):
@@ -442,6 +456,10 @@ class Sheet(Out):
     footnote: str
     private: bool
     account_name: str
+    # true when the sheet is the table of the delivered files (their columns, headers, order and
+    # cells); ``sheet_name`` is the file's sheet or table it matches
+    from_file: bool = False
+    sheet_name: str = "Sheet 1"
     columns: list[SheetColumn]
     filters: list[SheetFilter]
     filter: str
@@ -450,6 +468,42 @@ class Sheet(Out):
     total: int
     offset: int
     rows: list[SheetRow]
+    # the delivered workbook's sheets (empty before a delivery) and the delivered file itself
+    tabs: list[SheetTabRef] = Field(default_factory=list)
+    file_id: str | None = None
+
+
+class SheetCell(Out):
+    """One cell of a workbook tab as the file shows it, and the address its link opens."""
+
+    text: str
+    href: str | None = None
+
+
+class SheetBlock(Out):
+    """A text line or a table of a workbook tab, in the sheet's row order; ``cut`` counts rows
+    left out on screen (the file holds them)."""
+
+    kind: Literal["text", "table"]
+    text: str = ""
+    header: list[str] = Field(default_factory=list)
+    rows: list[list[SheetCell]] = Field(default_factory=list)
+    cut: int = 0
+
+
+class SheetTab(Out):
+    """One sheet of a delivered workbook (Summary, Platform Ranking, Platform teams, Counts),
+    shown as the file prints it."""
+
+    key: str
+    title: str
+    file: str
+    account_name: str
+    tab: str
+    tab_label: str
+    tabs: list[SheetTabRef]
+    file_id: str | None = None
+    blocks: list[SheetBlock]
 
 
 class Credits(Out):
@@ -1164,6 +1218,20 @@ class TenantSettings(Out):
     version: int
     hash: str | None
     settings: JsonObject
+
+
+class PeopleConsent(Out):
+    """Response body: the workspace's people data consent (G8, D-97)."""
+
+    scope: str
+    label: str
+    text: str
+    text_version: str
+    granted: bool
+    current: bool
+    granted_by: str | None
+    granted_at: datetime | None
+    revoked_at: datetime | None
 
 
 class Branding(Out):

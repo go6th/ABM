@@ -31,6 +31,9 @@ from obs.logging import logger
 from tenancy import settings as tenant_settings
 
 _log = logger(__name__)
+# section kinds whose sentences state facts: one resting on a fact a client file may not state
+# is withheld here, as the Summary reader would withhold it (``exports.readers.summary``)
+_STATING_KINDS = ("narrative", "stands_out", "lane_meaning", "decision_change")
 
 
 class PgRunRecords(PgSenseChecks):
@@ -80,7 +83,15 @@ class PgRunRecords(PgSenseChecks):
             fact_ids = sorted(
                 {
                     fact_id
-                    for claim in (*output.narrative, *output.hypotheses, *output.questions)
+                    for claim in (
+                        *output.narrative,
+                        *output.hypotheses,
+                        *output.questions,
+                        *output.stands_out,
+                        *output.lane_meanings,
+                        *output.could_be_wrong,
+                        *output.sharpen,
+                    )
                     for fact_id in claim.fact_ids
                 }
             )
@@ -116,6 +127,7 @@ class PgRunRecords(PgSenseChecks):
                 *,
                 question: str | None = None,
                 require_citation: bool = False,
+                lane: str | None = None,
             ) -> bool:
                 """Persist one checked section; uncited narrative is withheld from the renderer, and
                 so is narrative that states a fact the grading policy does not let a client file
@@ -127,7 +139,7 @@ class PgRunRecords(PgSenseChecks):
                 if require_citation and not codes:
                     withheld[f"{kind}_uncited"] += 1
                     return False
-                states = kind == "narrative" and not claim.text.rstrip().endswith("?")
+                states = kind in _STATING_KINDS and not claim.text.rstrip().endswith("?")
                 if states and any(
                     not statement_policy(grade_by_fact[fid], grading)
                     for fid in ids
@@ -141,8 +153,8 @@ class PgRunRecords(PgSenseChecks):
                     text(
                         "INSERT INTO report_sections (tenant_id, account_id, run_id, version,"
                         " kind, position, text, cited_source_codes, fact_ids, confirming_question,"
-                        " visibility) VALUES (:t, :a, :r, 1, :k, :p, :body, :codes,"
-                        " CAST(:ids AS uuid[]), :question, 'public')"
+                        " lane, visibility) VALUES (:t, :a, :r, 1, :k, :p, :body, :codes,"
+                        " CAST(:ids AS uuid[]), :question, :lane, 'public')"
                         " ON CONFLICT (tenant_id, run_id, version, kind, position) DO NOTHING"
                     ),
                     {
@@ -155,6 +167,7 @@ class PgRunRecords(PgSenseChecks):
                         "codes": codes,
                         "ids": ids,
                         "question": question,
+                        "lane": lane,
                     },
                 )
                 return True
@@ -185,6 +198,18 @@ class PgRunRecords(PgSenseChecks):
                         hypothesis,
                         question=confirmation.text,
                     )
+            # the rest of the Summary's section 1 (the reference Summary, 2026-10-26): what
+            # stands out, what it likely means per lane, how this could be wrong, how to sharpen
+            for position, claim in enumerate(output.stands_out):
+                await project("stands_out", position, claim, require_citation=True)
+            for position, meaning in enumerate(output.lane_meanings):
+                await project(
+                    "lane_meaning", position, meaning, require_citation=True, lane=meaning.lane
+                )
+            for position, claim in enumerate(output.could_be_wrong):
+                await project("caveat", position, claim)
+            for position, claim in enumerate(output.sharpen):
+                await project("decision_change", position, claim, require_citation=True)
             _log.info(
                 "distill.projected",
                 extra={"count": kept, "dropped": sum(withheld.values()), "kind": "narrative"},

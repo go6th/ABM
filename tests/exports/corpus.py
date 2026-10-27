@@ -295,6 +295,7 @@ def account(
         account_name=name,
         as_of=AS_OF,
         is_salesforce_partner=partner,
+        domain=host,
         forbidden_terms=("Synthetic Other Account Inc", "other.example"),
         facts=tuple(facts),
         evidence=tuple(evidence),

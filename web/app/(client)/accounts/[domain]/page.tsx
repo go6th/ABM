@@ -7,7 +7,7 @@ import Link from "next/link";
 import type { AccountWorkspace, DocumentList } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { LINK_REL, safeLink } from "@/lib/render";
-import { Grade, Pill, StateCard } from "@/ui/design";
+import { Grade, Pill, StateCard, type PillTone } from "@/ui/design";
 import { FilesCard } from "@/components/accounts/FilesCard";
 import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
@@ -18,8 +18,17 @@ export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ domain: string }> };
 
+/** A path segment as text: a malformed escape ("%zz") is kept as typed instead of crashing. */
+function segment(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const domain = decodeURIComponent((await params).domain);
+  const domain = segment((await params).domain);
   return { title: `${domain} · Account Intelligence` };
 }
 
@@ -29,8 +38,22 @@ function joinAnd(items: string[]): string {
 
 const SCOPE_NAME: Record<string, string> = { jobs: "Job postings only", people: "People and teams", full: "Full research", topic: "a specific topic", file: "your files" };
 
+/** The first letter of a company, for its tile. */
+function initialOf(name: string): string {
+  return (name.replace(/^www\./i, "").match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
+}
+
+/** A gap reason's colour: something the user can act on is yellow, a failure rose, the rest
+ *  (not available yet, outside this research's scope) neutral. */
+function gapTone(reason: string): PillTone {
+  const r = reason.toLowerCase();
+  if (r.includes("failed") || r.includes("error")) return "bad";
+  if (r.includes("only you") || r.includes("limit") || r.includes("waiting") || r.includes("waits")) return "warn";
+  return "neutral";
+}
+
 export default async function AccountWorkspacePage({ params }: Params) {
-  const domain = decodeURIComponent((await params).domain);
+  const domain = segment((await params).domain);
   const here = `/accounts/${encodeURIComponent(domain)}`;
   let ws: AccountWorkspace | null = null;
   let failed = false;
@@ -60,6 +83,8 @@ export default async function AccountWorkspacePage({ params }: Params) {
     }
   }
   const name = ws.name ?? ws.domain;
+  const findings = ws.findings ?? [];
+  const sentences = ws.narrative?.sentences ?? [];
   const d = encodeURIComponent(ws.domain);
   const coverage = ws.counts.coverage_total ? `${ws.counts.coverage_done} of ${ws.counts.coverage_total} done` : "Not run yet";
   const rail: Array<[string, string, number | string]> = [
@@ -71,7 +96,14 @@ export default async function AccountWorkspacePage({ params }: Params) {
     ["From your mail and drive", `${here}/mail-and-drive`, ws.counts.mail_drive],
     ["Sources", `${here}/sources`, ws.counts.sources],
     ["Web searches", `${here}/searches`, ws.counts.searches ?? 0],
+    ["Platform picture by lane", `${here}/facts`, ws.counts.facts ?? 0],
     ["Coverage", `${here}/coverage`, coverage],
+  ];
+  const glance: Array<[string, string, number]> = [
+    ["Signals", `${here}/signals`, ws.counts.signals],
+    ["People", `${here}/people`, ws.counts.people],
+    ["Job postings", `${here}/jobs`, ws.counts.jobs],
+    ["News", `${here}/news`, ws.counts.news],
   ];
   return (
     <div className="split">
@@ -79,21 +111,41 @@ export default async function AccountWorkspacePage({ params }: Params) {
         <div className="head">
           <div className="ttl">
             <Link className="back" href="/accounts" prefetch={false}>‹ Accounts</Link>
-            <h1 className="big">{name}</h1>
-            <div className="sub">{ws.subline}</div>
+            <div className="title-row">
+              <span className="ti lg" aria-hidden="true">{initialOf(name)}</span>
+              <div>
+                <h1 className="big">{name}</h1>
+                <div className="sub">{ws.subline}</div>
+              </div>
+            </div>
           </div>
           <Link className="btn" href={`/schedules?account=${d}#${d}`} prefetch={false}>Schedule</Link>
-          <Link className="btn" href={`${here}/refresh`} prefetch={false}>Refresh from web</Link>
+          <Link className="btn primary" href={`${here}/refresh`} prefetch={false}>Refresh from web</Link>
         </div>
+
+        <nav className="kpi-tiles" aria-label="At a glance">
+          {glance.map(([label, href, n], i) => (
+            <Link key={label} className={i === 0 && Number(n) > 0 ? "kpi-tile hl" : "kpi-tile"} href={href} prefetch={false}>
+              <span className="v">{n}</span>
+              <span className="k">{label}</span>
+            </Link>
+          ))}
+        </nav>
 
         {ws.open_job ? (
           <ResearchProgress key={`${ws.open_job.id}:${ws.open_job.run_id ?? ""}`} job={ws.open_job} scopeName={SCOPE_NAME[ws.open_job.scope] ?? "research"} />
         ) : ws.stopped_run ? <ResumeResearch stopped={ws.stopped_run} /> : (ws.gaps ?? []).length ? (
-          <section className="card pad stack-10" aria-labelledby="gaps-title">
-            <div className="strong" id="gaps-title">Research finished · {coverage}</div>
-            <ul className="mut sm-text stack-4">
+          <section className="card pad stack-14" aria-labelledby="gaps-title">
+            <div className="summary-head">
+              <h2 id="gaps-title">Research finished</h2>
+              <span className="big-n">{coverage}</span>
+            </div>
+            {ws.counts.coverage_total ? (
+              <progress className="pbar" max={ws.counts.coverage_total} value={ws.counts.coverage_done} aria-label={`${coverage} steps`} />
+            ) : null}
+            <ul className="chips" aria-label="Steps not done">
               {(ws.gaps ?? []).map((g) => (
-                <li key={g.reason}>{g.count} {g.count === 1 ? "step" : "steps"}: {g.reason}</li>
+                <li key={g.reason}><Pill tone={gapTone(g.reason)}><b>{g.count}</b>&nbsp;·&nbsp;{g.reason}</Pill></li>
               ))}
             </ul>
             <Link className="btn align-start" href={`${here}/coverage`} prefetch={false}>See each step in Coverage</Link>
@@ -102,10 +154,10 @@ export default async function AccountWorkspacePage({ params }: Params) {
 
         <section className="card pad-lg stack-10" aria-labelledby="omv">
           <div className="lbl" id="omv">The one minute version</div>
-          {ws.narrative ? (
+          {sentences.length ? (
             <>
               <p className="narr">
-                {ws.narrative.sentences.map((s, i) => {
+                {sentences.map((s, i) => {
                   const href = safeLink(s.source_url ?? "");
                   return (
                     <span key={i}>
@@ -113,7 +165,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
                       {href ? (
                         <a className="cite" href={href} target="_blank" rel={LINK_REL} aria-label={`Source ${i + 1}: ${s.source_title ?? "source"}`}>{i + 1}</a>
                       ) : null}
-                      {i < ws.narrative!.sentences.length - 1 ? " " : ""}
+                      {i < sentences.length - 1 ? " " : ""}
                     </span>
                   );
                 })}
@@ -129,13 +181,13 @@ export default async function AccountWorkspacePage({ params }: Params) {
           <section className="stack-10" aria-labelledby="changed">
             <h2 id="changed">What changed since {ws.changes.since}</h2>
             <div className="card list">
-              {ws.changes.rows.map((r, i) => (
+              {(ws.changes.rows ?? []).map((r, i) => (
                 <div key={i} className="lrow"><Grade grade={r.grade} /><span className="grow">{r.text}</span><span className="when">{r.when}</span></div>
               ))}
-              {ws.changes.quiet_lanes.length ? (
+              {ws.changes.quiet_lanes?.length ? (
                 <div className="lrow"><Pill tone="neutral" small>No change</Pill><span className="grow">{joinAnd(ws.changes.quiet_lanes)} lanes</span><span className="when">This week</span></div>
               ) : null}
-              {!ws.changes.rows.length && !ws.changes.quiet_lanes.length ? (
+              {!ws.changes.rows?.length && !ws.changes.quiet_lanes?.length ? (
                 <div className="lrow"><Pill tone="neutral" small>No change</Pill><span className="grow">Nothing material changed in the latest refresh</span></div>
               ) : null}
             </div>
@@ -143,9 +195,9 @@ export default async function AccountWorkspacePage({ params }: Params) {
         ) : (
           <section className="stack-10" aria-labelledby="findings">
             <h2 id="findings">Key findings</h2>
-            {ws.findings.length ? (
+            {findings.length ? (
               <div className="card list">
-                {ws.findings.map((r, i) => (
+                {findings.map((r, i) => (
                   <div key={i} className="lrow"><Grade grade={r.grade} /><span className="grow">{r.text}</span><span className="when">{r.when}</span></div>
                 ))}
               </div>

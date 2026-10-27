@@ -1,15 +1,23 @@
 // Accounts as designed: every account with its latest news in a sub-line (new signals, first
 // scan complete, no change, researching, waiting to start), its lanes, when it was last
-// researched and its refresh schedule. The whole row opens the account.
+// researched and its refresh schedule. The whole row opens the account; each company has an
+// initial tile and its news as a status pill.
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { AccountPage } from "@/lib/gen/api.gen";
 import { orderAccounts, subline } from "@/lib/accounts-list";
 import { serverGet, ServerApiError } from "@/lib/server-api";
-import { StateCard } from "@/ui/design";
+import { Pill, StateCard, type PillTone } from "@/ui/design";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Accounts · Account Intelligence" };
+
+const TONE: Record<string, PillTone> = { ok: "ok", run: "run", warn: "warn", neutral: "neutral", "": "neutral" };
+
+/** The first letter of a company, for its tile. */
+function initialOf(name: string): string {
+  return (name.replace(/^www\./i, "").match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
+}
 
 export default async function AccountsPage() {
   let page: AccountPage | null = null;
@@ -44,14 +52,18 @@ export default async function AccountsPage() {
             <span>Account</span><span>Lanes</span><span>Last researched</span><span>Refresh</span><span />
           </div>
           <ul aria-label="Accounts">
-            {accounts.map((a) => {
+            {accounts.map((a, i) => {
               const sub = subline(a);
+              const label = a.name ?? a.domain;
               return (
                 <li key={a.domain}>
                   <Link className="trow cols-accounts" href={`/accounts/${encodeURIComponent(a.domain)}`} prefetch={false}>
-                    <span className="strong">
-                      {a.name ?? a.domain}
-                      <span className={`sub ${sub.tone}`}>{sub.text}</span>
+                    <span className="acct-cell">
+                      <span className={i % 2 ? "ti lav" : "ti"} aria-hidden="true">{initialOf(label)}</span>
+                      <span className="nm">
+                        <b>{label}</b>
+                        <span><Pill tone={TONE[sub.tone] ?? "neutral"} small>{sub.text}</Pill></span>
+                      </span>
                     </span>
                     <span className="mut">{a.lanes?.length ? a.lanes.join(", ") : "No lanes yet"}</span>
                     <span>{a.last_researched_label}</span>

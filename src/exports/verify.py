@@ -13,6 +13,9 @@
   when LibreOffice or pdftotext is unavailable.
 * ``doc_checks``: no orphan citations, banned dashes, stale phrases, or excluded names in the
   rendered document; runs on the real built file's extracted text.
+* ``third_party_scan``: every member of a client file (the five files and the workspace zip)
+  scanned for a data tool name or host and for the word "credits"; every external host sorted
+  into account and press, data tools (always empty), aggregators and other (spec 12).
 """
 
 from __future__ import annotations
@@ -26,12 +29,15 @@ import sys
 import tempfile
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from lxml import etree
 from openpyxl import load_workbook
 
 from account_intelligence.config import CONFIG_DIR
+from account_intelligence.safety.client_output import load_patterns
+from exports.config import provider_hosts, registrable
 from exports.policy import leak_hits
 from exports.ports import CheckResult, PdfRenderPort
 
@@ -101,16 +107,18 @@ def docx_row_keys(data: bytes) -> tuple[str, ...]:
     return tuple(keys)
 
 
-def xlsx_row_keys(data: bytes, sheet: str) -> tuple[str, ...]:
-    """Column A (Ref) of the data rows of ``sheet``, in row order."""
+def xlsx_row_keys(data: bytes, sheet: str, column: int = 1) -> tuple[str, ...]:
+    """The row keys (the Ref column, ``column`` 1-based) of the data rows of ``sheet``, in row
+    order."""
     wb = load_workbook(io.BytesIO(data), read_only=True)
     try:
         ws = wb[sheet]
-        return tuple(
-            str(row[0])
-            for row in ws.iter_rows(min_row=2, max_col=1, values_only=True)
-            if row and isinstance(row[0], str) and _REF.match(row[0])
-        )
+        keys = []
+        for row in ws.iter_rows(min_row=2, max_col=column, values_only=True):
+            value = row[column - 1] if row and len(row) >= column else None
+            if isinstance(value, str) and _REF.match(value):
+                keys.append(value)
+        return tuple(keys)
     finally:
         wb.close()
 
@@ -221,9 +229,10 @@ def pdf_row_presence(docx: bytes, keys: Sequence[str], pdf: object) -> CheckResu
 
 
 def recalc_check(
-    xlsx: bytes, expected: Mapping[tuple[str, str], int], recalc: object
+    xlsx: bytes, expected: Mapping[tuple[str, str], int | str | float], recalc: object
 ) -> CheckResult:
-    """Zero error values and each formula cell (sheet, cell) equal to its code-computed count."""
+    """Zero error values and each formula cell (sheet, cell) equal to its code-computed value:
+    a count, a share (within rounding) or a rank letter."""
     done = recalc.recalculated(xlsx)  # type: ignore[attr-defined]
     if done is None:
         return CheckResult("workbook_recalc", "not_run", "no spreadsheet engine installed")
@@ -236,7 +245,10 @@ def recalc_check(
                     problems.append(f"{ws.title}!{cell.coordinate}: {cell.value}")
     for (sheet, coord), value in expected.items():
         got = wb[sheet][coord].value
-        if got != value:
+        if isinstance(value, float) and isinstance(got, int | float) and not isinstance(got, bool):
+            if abs(float(got) - value) > 1e-9:
+                problems.append(f"{sheet}!{coord}: {got!r} != {value}")
+        elif got != value:
             problems.append(f"{sheet}!{coord}: {got!r} != {value}")
     return CheckResult(
         "workbook_recalc", "failed" if problems else "passed", details=tuple(problems)
@@ -300,7 +312,14 @@ def _extract_doc_text(data: bytes) -> str:
                     ("word/", "ppt/slides/", "ppt/notesSlides/")
                 ) and name.endswith(".xml"):
                     root = etree.fromstring(z.read(name), parser=_PARSER)
-                    parts.append("".join(t.text or "" for t in root.iter(f"{W}t")))
+                    # one line per paragraph: joined without a break, a cell ending "S-0002"
+                    # and the heading "6. People" read as the citation S-00026 (2026-10-25)
+                    parts.append(
+                        "\n".join(
+                            "".join(t.text or "" for t in p.iter(f"{W}t"))
+                            for p in root.iter(f"{W}p")
+                        )
+                    )
                 elif name in ("docProps/core.xml", "docProps/app.xml"):
                     root = etree.fromstring(z.read(name), parser=_PARSER)
                     parts.append("".join(t.text or "" for t in root.iter()))
@@ -399,26 +418,71 @@ def doc_checks(
     )
 
 
-def third_party_scan(data: bytes, kind: str) -> CheckResult:
-    """Third-party domain and tool-name scan on final deliverable (docx, pptx, pdf, xlsx)."""
-    script = _skill_scripts_dir() / "third_party_scan.py"
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        file_path = tmp_path / f"scan.{kind}"
-        file_path.write_bytes(data)
-        try:
-            result = subprocess.run(  # nosec B603 - fixed argv, no shell
-                [sys.executable, str(script), str(file_path)],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except (subprocess.SubprocessError, OSError) as e:
-            return CheckResult(
-                "third_party_scan", "failed", f"third_party_scan execution failed: {e}"
-            )
-    if result.returncode != 0:
-        return CheckResult(
-            "third_party_scan", "failed", result.stdout.strip() or result.stderr.strip()
+# every external host a client file links or names: the URL form in text and relationships
+_DOMAIN = re.compile(r"https?://([a-z0-9.-]+\.[a-z]{2,})", re.IGNORECASE)
+# the word itself, any case: a client file never talks about tool credits (spec 12)
+_CREDITS = re.compile(r"\bcredits\b", re.IGNORECASE)
+# the schema and namespace hosts every Office package carries
+_SCHEMA_HOSTS = ("openxmlformats.org", "microsoft.com", "w3.org", "purl.org")
+GROUPS = ("account_and_press", "data_tools", "aggregators", "other")
+
+
+@dataclass(frozen=True)
+class ThirdPartyReport:
+    """What the third-party scan found: the check and every external host by group."""
+
+    result: CheckResult
+    domains: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+def _in(host: str, hosts: Iterable[str]) -> bool:
+    return any(host == h or host.endswith("." + h) for h in hosts if h)
+
+
+def third_party_scan(
+    data: bytes,
+    kind: str,
+    *,
+    account_hosts: Sequence[str] = (),
+    aggregator_hosts: Sequence[str] = (),
+) -> ThirdPartyReport:
+    """Spec 12 on one client file (docx, xlsx or the workspace zip): every member's text is
+    scanned for a data tool name (the client-output denylist), a data tool host
+    (``config/providers.yaml``) and the word "credits"; any hit fails. Every external host is
+    sorted into account and press (``account_hosts``: the account domain, its subdomains, the
+    verified careers host and the hosts of its primary sources), data tools, aggregators
+    (``aggregator_hosts``) and other. Details name patterns and hosts, never text."""
+    tools = provider_hosts()
+    patterns = load_patterns()
+    hits: list[str] = []
+    found: dict[str, set[str]] = {g: set() for g in GROUPS}
+    for where, body in _members(data):
+        text = body.decode("utf-8", "ignore")
+        if where.endswith(" (name)"):
+            continue
+        for p in patterns:
+            if p.search(text):
+                hits.append(f"{where}: tool_name")
+                break
+        if _CREDITS.search(text):
+            hits.append(f"{where}: credits")
+        for m in _DOMAIN.finditer(text):
+            host = m.group(1).casefold().removeprefix("www.")
+            if _in(host, _SCHEMA_HOSTS):
+                continue
+            if _in(host, tools) or registrable(host) in tools:
+                found["data_tools"].add(host)
+            elif _in(host, account_hosts):
+                found["account_and_press"].add(host)
+            elif _in(host, aggregator_hosts):
+                found["aggregators"].add(host)
+            else:
+                found["other"].add(host)
+    hits.extend(f"data_tool_host: {h}" for h in sorted(found["data_tools"]))
+    domains = {g: tuple(sorted(found[g])) for g in GROUPS}
+    if hits:
+        return ThirdPartyReport(
+            CheckResult("third_party_scan", "failed", f"{kind}: {len(hits)} hits", tuple(hits)),
+            domains,
         )
-    return CheckResult("third_party_scan", "passed")
+    return ThirdPartyReport(CheckResult("third_party_scan", "passed"), domains)

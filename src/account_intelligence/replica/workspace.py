@@ -420,6 +420,26 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
 # 2026-10-15: every category showed 0 after a finished research).
 # public facts, and the client's own rows imported from an uploaded deliverable workbook
 # (private, Internal; documents.deliverables, 2026-10-16): the client sees its own material
+# the words a job title opens with (a people fact whose value opens with one and names nobody
+# after a comma is a title, not a person)
+_TITLE_WORDS = (
+    "vice|senior|sr|chief|head|director|principal|executive|general|global|group|associate"
+    "|assistant|svp|evp|vp|avp|cto|cio|ceo|cfo|coo|cmo|cdo|ciso|manager|lead|president|managing"
+)
+
+
+def title_only(value_sql: str) -> str:
+    """SQL that is true when ``value_sql`` is only a job title ("Vice President of Technology
+    Product Management", "Principal Product Manager, Merge by Merative"): it opens with a title
+    word and names nobody after a comma. New runs drop such people facts at extraction
+    (``agents.people_names.names_a_person``); this keeps the ones stored before off the People
+    table. A title followed by a name ("Chief Information Officer, Jane Doe") is a person."""
+    return (
+        f"({value_sql} ~* '^({_TITLE_WORDS})\\M'"
+        f" AND {value_sql} !~ ',\\s*[A-Z][A-Za-z.''-]+(\\s+[A-Z][A-Za-z.''-]+){{1,3}}\\s*$')"
+    )
+
+
 _FACT_PUBLIC = (
     "f.account_id = :a AND f.status = 'current' AND (f.visibility = 'public'"
     " OR f.flags @> CAST('[\"from_uploaded_file\"]' AS jsonb))"
@@ -431,6 +451,8 @@ FACT_CLASS = {
         f"{_FACT_PUBLIC} AND f.attribute_key LIKE 'people.%'"
         " AND split_part(f.attribute_key, '.', 3) <> 'company'"
         " AND f.attribute_key !~ '[.](prior_employers?|[a-z_]*email|[a-z_]*phone)$'"
+        # a value that is only a title names nobody: it is not a person (``title_only``)
+        " AND NOT " + title_only("coalesce(f.value_text, f.value_json->>'text', '')")
     ),
     # a count fact ("13" openings in a lane) is not a posting: a role needs a letter in it
     "jobs": (

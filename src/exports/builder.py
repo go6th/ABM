@@ -27,13 +27,15 @@ import json
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from account_intelligence.grading.config import GradingConfig
+from account_intelligence.tracker.config import load_tracker_config
 from account_intelligence.workflow.ports import BuildIncomplete
 from exports import obs
 from exports.change_note import change_note
 from exports.citations import orphans
-from exports.config import ExportConfig
+from exports.config import ExportConfig, JobsBook, PeopleBook, TechBook
 from exports.content import FILE_KINDS, SnapshotContent
 from exports.errors import (
     BannedContent,
@@ -48,9 +50,9 @@ from exports.errors import (
     SchemaViolation,
     UnsafePackage,
 )
-from exports.excel.jobs import render_jobs
-from exports.excel.people import render_people
-from exports.excel.tech import render_tech
+from exports.excel.jobs import expected_jobs, render_jobs
+from exports.excel.people import expected_people, render_people
+from exports.excel.tech import expected_tech, render_tech
 from exports.models import (
     BuildManifest,
     BuildResult,
@@ -58,7 +60,7 @@ from exports.models import (
     FileKind,
 )
 from exports.ooxml import normalise_package
-from exports.policy import Violation
+from exports.policy import Violation, sanitise
 from exports.ports import (
     CheckResult,
     ContentReader,
@@ -86,6 +88,7 @@ from exports.verify import (
 )
 from exports.word.compose import compose_evidence, compose_summary
 from exports.workspace import account_slug, build_workspace, check_zip
+from exports.workspace_files import RestoreInputs, workspace_members
 
 _ERROR_OF: dict[str, type[ExportError]] = {
     "missing_url": MissingProvenance,
@@ -110,10 +113,12 @@ _ERROR_OF: dict[str, type[ExportError]] = {
     "source_kind_vocabulary": SchemaViolation,
     "name_missing": SchemaViolation,
     "text_missing": SchemaViolation,
+    "origin_vocabulary": SchemaViolation,
     "speaker_missing": SchemaViolation,
     "question_missing": SchemaViolation,
     "aggregator_not_lead": SchemaViolation,
     "section_fact_not_rendered": OrphanCitation,
+    "lane_unknown": SchemaViolation,  # a lane meaning naming no configured lane (withheld)
     # the D-24 prose rules and the number rule, named so a failure never reads as a bare
     # ``banned_content`` (they withhold a Summary block today; listed for any other caller)
     "banned_dash": BannedContent,
@@ -183,6 +188,8 @@ class Assembly:
     errors: list[ExportError] = field(default_factory=list)
     checks: list[CheckResult] = field(default_factory=list)
     long_parts: int = 0
+    # external hosts of the five files by third-party group (spec 12), for the manifest
+    domains: dict[str, set[str]] = field(default_factory=dict)
 
 
 def _filename(cfg: ExportConfig, kind: str, account: str, ext: str) -> str:
@@ -204,12 +211,14 @@ def map_snapshot(
     people = map_people(ctx)
     jobs = map_jobs(ctx)
     tech = map_tech(ctx)
-    summary = map_summary(ctx, people.model)
+    summary = map_summary(ctx, people.model, jobs.model)
     rendered_facts = frozenset(
         r.row_id for t in (summary.model.lanes if summary.model else ()) for r in t.rows
     )
     cited = set().union(people.cited, jobs.cited, tech.cited, summary.cited)
-    evidence = map_evidence(ctx, cited, rendered_facts, jobs.model)
+    evidence = map_evidence(
+        ctx, cited, rendered_facts, jobs.model, tech.model, people.model, summary.model
+    )
     mapped: dict[str, Mapped[Any]] = {
         "summary": summary,
         "evidence": evidence,
@@ -229,6 +238,17 @@ def map_snapshot(
         )
     )
     return mapped, ctx
+
+
+def _mask_tools(text: str, mask: str) -> str:
+    """A query or term that names a data tool (an account called "Parallel", say) shows the scope
+    mask in the workspace's pull log instead of failing the whole zip: the name of a data tool
+    never reaches a client file, and one account's name must not stop the delivery."""
+    from account_intelligence.safety.client_output import load_patterns
+
+    for pattern in load_patterns():
+        text = pattern.sub(mask, text)
+    return text
 
 
 class ExportBuilder:
@@ -334,12 +354,13 @@ class ExportBuilder:
             if kind in ("summary", "evidence"):
                 keys = docx_row_keys(body)
             else:
-                sheet = {
-                    "people": books.people.sheet,
-                    "jobs": books.jobs.sheet,
-                    "tech": books.tech.sheet,
-                }[kind]
-                keys = xlsx_row_keys(body, sheet)
+                by_kind: dict[str, PeopleBook | JobsBook | TechBook] = {
+                    "people": books.people,
+                    "jobs": books.jobs,
+                    "tech": books.tech,
+                }
+                book = by_kind[kind]
+                keys = xlsx_row_keys(body, book.sheet, books.ref_column(book))
             if keys != mapped.refs:
                 raise RowConservation(
                     f"{kind}: rows in the file differ from the rows selected",
@@ -381,28 +402,55 @@ class ExportBuilder:
                     raise cls(
                         f"{kind}: document checks failed", result.details, rule=",".join(rules)
                     )
-                result = third_party_scan(body, kind)
-                out.checks.append(result)
-                if result.status == "failed":
-                    raise BannedContent(
-                        f"{kind}: third-party scan failed", result.details, rule="tool_name"
-                    )
+            self._third_party(kind, body, ctx, out)
 
-    def _expected(self, kind: str, mapped: Mapped[Any]) -> dict[tuple[str, str], int]:
-        """Formula cells and the counts computed in code they must equal (B12)."""
-        books = self.cfg.rules.workbooks
+    def _third_party(self, kind: str, body: bytes, ctx: MapContext, out: Assembly) -> None:
+        """Spec 12 on one file: a data tool name or host or the word "credits" fails it; the
+        external hosts join the manifest's four groups."""
+        report = third_party_scan(
+            body,
+            kind,
+            account_hosts=self._account_hosts(ctx.content),
+            aggregator_hosts=self._source_hosts(ctx.content, "aggregator"),
+        )
+        out.checks.append(report.result)
+        for group, hosts in report.domains.items():
+            out.domains.setdefault(group, set()).update(hosts)
+        if report.result.status == "failed":
+            raise BannedContent(
+                f"{kind}: third-party scan failed", report.result.details, rule="tool_name"
+            )
+
+    @staticmethod
+    def _source_hosts(content: SnapshotContent, kind: str) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    (urlsplit(s.url).hostname or "").casefold()
+                    for s in content.sources
+                    if s.kind == kind and urlsplit(s.url).hostname
+                }
+            )
+        )
+
+    def _account_hosts(self, content: SnapshotContent) -> tuple[str, ...]:
+        """The account domain (and its subdomains, matched by suffix), the verified careers host
+        and the hosts of the registered primary sources."""
+        own = [h for h in (content.domain, content.careers_host) if h]
+        return tuple(
+            sorted({*(h.casefold() for h in own), *self._source_hosts(content, "primary")})
+        )
+
+    def _expected(self, kind: str, mapped: Mapped[Any]) -> dict[tuple[str, str], int | str | float]:
+        """Formula cells and the values computed in code they must equal (B12): the planners of
+        the workbook renderers, so a cell is checked exactly where it was written."""
         model = mapped.model
         assert model is not None
         if kind == "people":
-            return {
-                (books.people.summary_sheet, f"C{len(model.summary) + 2}"): model.in_scope_listed
-            }
-        sheet = books.jobs.counts_sheet if kind == "jobs" else books.tech.counts_sheet
-        return {
-            (sheet, f"B{i}"): line.value
-            for i, line in enumerate(model.counts, start=2)
-            if line.formula != "none"
-        }
+            return expected_people(model, self.cfg)
+        if kind == "jobs":
+            return expected_jobs(model, self.cfg)
+        return expected_tech(model, self.cfg)
 
     def _account_source_ids(self, ctx: MapContext) -> tuple[str, ...]:
         """Valid source IDs for the account (keys of the URL map) for doc_checks."""
@@ -415,9 +463,13 @@ class ExportBuilder:
             return tuple(q.text for q in model.executive_voice) + tuple(
                 finding.sentence for finding in model.linkedin_findings if not finding.withheld
             )
-        return tuple(
-            use.sentence for source in model.sources for use in source.uses if not use.withheld
-        ) + tuple(item.sentence for item in model.news)
+        return (
+            tuple(
+                use.sentence for source in model.sources for use in source.uses if not use.withheld
+            )
+            + tuple(item.sentence for item in model.news)
+            + tuple(q.text for g in model.extracts for q in g.quotes if not q.withheld)
+        )
 
     @staticmethod
     def _passthrough_texts(kind: str, model: Any) -> tuple[str, ...]:
@@ -441,6 +493,17 @@ class ExportBuilder:
                     *(t.row for t in model.tracker),
                     *(t.reason or "" for t in model.tracker),
                     *(t.tools for t in model.tracker),
+                    *(t.needs for t in model.tracker),
+                    *(t.done for t in model.tracker),
+                    *(n.why for n in model.news),
+                    *(b.item for b in model.baseline),
+                    *(g.meaning for g in model.grade_legend),
+                    *model.people_intro,
+                    *model.file_names,
+                    *(str(s.url) for s in model.source_links),
+                    *(s.domain for s in model.source_links),
+                    model.version or "",
+                    model.domain or "",
                 )
                 if t
             )
@@ -448,9 +511,39 @@ class ExportBuilder:
             t
             for t in (
                 *(str(s.url) for s in model.sources),
+                *(s.title for s in model.sources),
+                *(u.finding for s in model.sources for u in s.uses),
+                model.account,
+                model.doc_title,
                 *(j.title for j in model.job_descriptions),
+                *(j.platforms for j in model.job_descriptions),
+                *(j.entity for j in model.job_descriptions),
                 *(str(j.url) for j in model.job_descriptions),
+                *(j.sentences for j in model.job_descriptions),
                 *(str(n.url) for n in model.news),
+                *(g.heading for g in model.lane_reads),
+                *(str(r.url) for g in model.lane_reads for r in g.rows),
+                *(r.title for g in model.lane_reads for r in g.rows),
+                *(r.reasoning for g in model.lane_reads for r in g.rows),
+                *(g.heading for g in model.extracts),
+                *(str(g.url) for g in model.extracts if g.url),
+                *(q.speaker or "" for g in model.extracts for q in g.quotes),
+                *(q.supports or "" for g in model.extracts for q in g.quotes),
+                *(b.keyword for b in model.board_captures),
+                *(b.read for b in model.board_captures),
+                *(x.lead for x in model.leads),
+                *(x.queries for x in model.leads),
+                *(x.settle for x in model.leads),
+                *(d.pull for d in model.data_pulls),
+                *(d.base for d in model.data_pulls),
+                *(p.posting for p in model.live_postings),
+                *(p.platforms for p in model.live_postings),
+                *(p.entity for p in model.live_postings),
+                *(d.technology for d in model.detections),
+                *(d.first_seen for d in model.detections),
+                *(d.last_seen for d in model.detections),
+                *(e.entity for e in model.entity_split),
+                *(str(u.url) for u in model.urls),
             )
             if t
         )
@@ -491,6 +584,9 @@ class ExportBuilder:
             withheld_blocks=tuple(f"{w}:{row}:{rule}" for w, row, rule in ctx.withheld_blocks),
             long_text_parts=out.long_parts,
             formula_like_cells=ctx.formula_like,
+            masked_terms=ctx.masked_terms,
+            leaks_withheld=ctx.leaks_withheld,
+            third_party_domains={g: tuple(sorted(h)) for g, h in sorted(out.domains.items())},
             files=entries,
             loop_exits={
                 "renderer": getattr(self.renderer, "last_exit", "not_run"),
@@ -501,7 +597,9 @@ class ExportBuilder:
     def _package(self, out: Assembly, content: SnapshotContent, ctx: MapContext) -> None:
         assert out.manifest is not None
         name = _filename(self.cfg, "workspace", content.account_name, "zip")
+        records: dict[str, bytes] = {}
         try:
+            records = self._run_records(content, ctx, out)
             body = build_workspace(
                 deliverables=out.files,
                 data=out.data,
@@ -510,6 +608,7 @@ class ExportBuilder:
                 theme=self.cfg.theme.zip,
                 account=content.account_name,
                 as_of=content.as_of,
+                extras=records,
             )
             problems = check_zip(body, self.cfg.rules)
             if problems:
@@ -518,14 +617,80 @@ class ExportBuilder:
             hits = scan_package(body, ctx.restricted, scanned=done)
             if hits:
                 raise LeakError("workspace zip: forbidden content", hits)
+            report = third_party_scan(
+                body,
+                "workspace",
+                account_hosts=self._account_hosts(content),
+                aggregator_hosts=self._source_hosts(content, "aggregator"),
+            )
+            out.checks.append(report.result)
+            if report.result.status == "failed":
+                raise BannedContent(
+                    "workspace: third-party scan failed", report.result.details, rule="tool_name"
+                )
         except ExportError as error:
             out.errors.append(error)
             return
         out.workspace = body
+        # the zip also holds the run's own records, so they are part of what its hash covers
         out.content_hashes["workspace"] = hashlib.sha256(
-            "".join(out.content_hashes[k] for k in FILE_KINDS).encode()
+            (
+                "".join(out.content_hashes[k] for k in FILE_KINDS)
+                + "".join(hashlib.sha256(records[n]).hexdigest() for n in sorted(records))
+            ).encode()
         ).hexdigest()
         out.workspace_name = name
+
+    def _run_records(
+        self, content: SnapshotContent, ctx: MapContext, out: Assembly
+    ) -> dict[str, bytes]:
+        """The workspace's own members (entity lock, web searches, pull log, sense check, pass 1
+        note, URL map) from the snapshot's stored rows; text is sanitised and masked like any
+        other client text."""
+        ws = self.cfg.rules.workspace
+        tracker = load_tracker_config()
+        reasons = frozenset(
+            {
+                *(
+                    tracker.reason_codes[c]
+                    for c in ws.pass1.reason_codes
+                    if c in tracker.reason_codes
+                ),
+                *(
+                    [str(tracker.consistency["no_internal_access_needs"])]
+                    if "no_internal_access_needs" in tracker.consistency
+                    else []
+                ),
+            }
+        )
+
+        def label_of(key: str) -> str:
+            spec = ctx.attribute(key)
+            if spec is None:
+                return key.rsplit(".", 1)[-1].replace("_", " ")
+            return spec.meaning.split(",")[0].split(" (")[0].strip() or key
+
+        filenames = {kind: name for kind, (name, _body) in out.files.items()}
+
+        def render_model(kind: str) -> Any:
+            mapped = out.mapped.get(kind)
+            return mapped.model if mapped is not None else None
+
+        return workspace_members(
+            content,
+            ws,
+            filenames=filenames,
+            label_of=label_of,
+            clean=lambda t: _mask_tools(ctx.mask(sanitise(t)), ctx.cfg.scope.mask),
+            internal_reason_texts=reasons,
+            restore=RestoreInputs(
+                cfg=self.cfg,
+                filenames=filenames,
+                tech=render_model("tech"),
+                jobs=render_model("jobs"),
+                people=render_model("people"),
+            ),
+        )
 
     # ---- the port ------------------------------------------------------------------------------
 
@@ -611,6 +776,8 @@ class ExportBuilder:
         obs.build_outcome(run_id, "complete", (), out.manifest.rows_per_file)
         if out.manifest.withheld_blocks:
             obs.withheld_blocks(run_id, out.manifest.withheld_blocks)
+        if out.manifest.leaks_withheld:
+            obs.leaks_withheld(out.manifest.leaks_withheld)
         return result
 
     def _failed(self, run_id: str, errors: list[ExportError]) -> BuildResult:

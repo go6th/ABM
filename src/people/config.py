@@ -85,11 +85,14 @@ class TenureBucket:
 
 @dataclass(frozen=True)
 class ProfileUrlRule:
-    """How profile URLs are made canonical (proposal)."""
+    """How profile URLs are made canonical (proposal). ``person_paths`` are the first path
+    segments of a person's own page on the profile host (``/in/<slug>`` and the older public
+    ``/pub/<name>/..`` form); any other page there (a company, a post, a job) identifies nobody."""
 
     canonical_host: str
     host_suffix: str
     fold_path_case: bool
+    person_paths: tuple[str, ...] = ("in", "pub")
 
 
 @dataclass(frozen=True)
@@ -304,6 +307,7 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
             str(url["canonical_host"]).lower(),
             str(url["host_suffix"]).lower(),
             str(url.get("path_case", "keep")) == "fold",
+            tuple(str(p).strip("/").casefold() for p in url.get("person_paths") or ("in", "pub")),
         ),
         allowed_profile_fields=frozenset(str(f) for f in fields["allowed"]),
         internal_only_providers=frozenset(str(p) for p in internal["value"]),

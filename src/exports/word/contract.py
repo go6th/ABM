@@ -52,10 +52,20 @@ class ParagraphBlock(_Spec):
 
 
 class BulletsBlock(_Spec):
-    """A bulleted list."""
+    """A bulleted list, or a numbered one starting at 1 (``numbered``). ``notes``, when given,
+    holds one line per item (empty for none), printed as an indented note paragraph under its
+    item without breaking the numbering (a hypothesis and its confirming question)."""
 
     type: Literal["bullets"]
     items: tuple[SpecText, ...] = Field(min_length=1)
+    numbered: bool = False
+    notes: tuple[SpecText, ...] = ()
+
+    @model_validator(mode="after")
+    def _notes(self) -> BulletsBlock:
+        if self.notes and len(self.notes) != len(self.items):
+            raise ValueError("one note per item, or none")
+        return self
 
 
 class TableBlock(_Spec):

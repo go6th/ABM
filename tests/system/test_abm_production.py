@@ -364,8 +364,12 @@ async def test_phase_two_on_a_stored_pull_inherits_its_ledger(harness: Harness) 
     build = await run_abm(harness, mode="build", parent=pull.run, tenant_id=t, key="b1")
     st, _ = status(build.run)
     assert st in ("PARTIAL", "COMPLETED")
-    assert admin("SELECT count(*) FROM tool_calls WHERE run_id = %s", build.run)[0][0] == 0
-    assert admin("SELECT count(*) FROM tool_calls")[0][0] == calls_after_pull  # G16: no Phase 1
+    # G16: no Phase 1 of its own (no manifest, no pull of the parent's rows); the calls a build
+    # run does make are the code pipelines' and the person searches' (Phase 2 work since
+    # 2026-10-24), never the manifest rows' searches
+    assert not admin("SELECT 1 FROM pull_manifests WHERE run_id = %s", build.run)
+    own = admin("SELECT count(*) FROM tool_calls WHERE run_id = %s", build.run)[0][0]
+    assert admin("SELECT count(*) FROM tool_calls")[0][0] == calls_after_pull + own
     assert facts(build.run), "facts graded from the inherited pull"
     tracked = rows(build.run)
     assert len(tracked) == 33 and all(s is not None for s, _ in tracked.values())

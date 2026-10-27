@@ -8,11 +8,11 @@
     "tech": "Synthetic_Oracle_Ltd_Tech_Stack_and_Teams.xlsx",
     "workspace": "Synthetic_Oracle_Ltd_workspace.zip"
   },
-  "rows_per_file": {"summary": 45, "evidence": 10, "people": 2, "jobs": 2, "tech": 2},
+  "rows_per_file": {"summary": 53,"evidence": 30, "people": 2, "jobs": 2, "tech": 2},
   "lanes": [
-    {"lane": "Salesforce (including field service such as ServiceMax)", "rows": [
+    {"lane": "Salesforce and commercial systems", "rows": [
       {"ref": "L-0001", "row_id": "00000000-0000-4000-8000-0000000000f1", "grade_label": "Confirmed", "use": "May be stated", "codes": ["S-0001"], "question": null}]},
-    {"lane": "SAP", "rows": [
+    {"lane": "ERP and business systems", "rows": [
       {"ref": "L-0002", "row_id": "00000000-0000-4000-8000-0000000000f3", "grade_label": "Lead (aggregator source)", "use": "Ask, do not state", "codes": ["S-0003"], "question": "Is SAP being evaluated?"}]},
     {"lane": "Findings not assigned to a lane", "rows": [
       {"ref": "L-0003", "row_id": "00000000-0000-4000-8000-0000000000f2", "grade_label": "Probable", "use": "Ask, do not state", "codes": ["S-0002"], "question": "When did the CIO join?"}]}
@@ -20,7 +20,7 @@
   "absences": [{"row_id": "00000000-0000-4000-8000-0000000000f4", "question": "Is there an in-house data team?"}],
   "key_people": [{"ref": "K-0001", "row_id": "pk-ann", "source_code": "S-0004"}],
   "linkedin_findings": [{"ref": "F-0001", "person": "Ann Synthetic", "source_code": "S-0010", "withheld": false}],
-  "summary_ref_prefix": ["L-0001", "L-0002", "L-0003", "K-0001", "F-0001", "T-0001"],
+  "summary_ref_prefix": ["L-0001", "L-0002", "L-0003", "PH-0001", "PH-0002", "K-0001"],
   "tracker_rows": 33,
   "people": [
     {"ref": "P-0001", "row_id": "pk-ann", "source_code": "S-0004"},
@@ -28,14 +28,14 @@
   ],
   "jobs": [
     {"ref": "J-0001", "row_id": "post-1", "status": "Open", "posting_class": "Admin and owner role", "source_code": "S-0006", "description": "Administer Salesforce. Contact [redacted] for details."},
-    {"ref": "J-0002", "row_id": "post-2", "status": "Closed", "posting_class": "User role", "source_code": "S-0007", "description": "Uses SAP daily."}
+    {"ref": "J-0002", "row_id": "post-2", "status": "Open or closed in the last 12 months", "posting_class": "User role", "source_code": "S-0007", "description": ""}
   ],
   "tech": [
-    {"ref": "D-0001", "row_id": "d-1", "cross_check": "Named in 1 of 2 postings in the Job Postings file", "source_code": "S-0008"},
-    {"ref": "D-0002", "row_id": "d-2", "cross_check": "Named in 0 of 2 postings in the Job Postings file", "source_code": "S-0008", "first_seen": "Not given"}
+    {"ref": "D-0001", "row_id": "d-1", "postings": 1, "source_code": "S-0008"},
+    {"ref": "D-0002", "row_id": "d-2", "postings": 0, "source_code": "S-0008", "first_seen": "Not given"}
   ],
   "evidence_codes": ["S-0001", "S-0002", "S-0003", "S-0004", "S-0005", "S-0006", "S-0007", "S-0008", "S-0010"],
-  "evidence_refs": ["E-0001", "E-0002", "E-0003", "E-0004", "E-0005", "E-0006", "E-0007", "E-0008", "E-0009", "JD-0001"],
+  "evidence_refs": ["E-0001", "E-0002", "E-0003", "E-0004", "E-0005", "E-0006", "E-0007", "E-0008", "E-0009", "JD-0001", "LP-0001", "BC-0001", "LD-0001", "DP-0001", "DP-0002", "DP-0003", "DP-0004", "TD-0001", "PP-0001", "PP-0002", "ES-0001", "U-0001", "U-0002", "U-0003", "U-0004", "U-0005", "U-0006", "U-0007", "U-0008", "U-0009"],
   "evidence_uses": {
     "S-0001": [["Confirmed", "We run Salesforce Service Cloud."]],
     "S-0002": [["Probable", "The CIO joined in 2025."]],

@@ -1,0 +1,57 @@
+# The fixed research scope: what every account research covers, never covers, and the windows it
+# reads. From the owner's Madrid ABM master prompt v2 (2026-10-24, section 0 "fixed scope" and
+# section 1 rules 1, 2, 9) and the skill checklist 1.11. Code reads this file through
+# ``agents.config.SkillConfig.scope``; nothing here is retyped in code. Every value carries its
+# source or status (agents.config.unsourced_values).
+version: "2026-10-24.1"
+status: proposal
+
+lanes:
+  # the six lanes (ids as in config/job_lanes.yaml); MuleSoft belongs to the Salesforce lane
+  value: [salesforce, servicenow, sap, tableau_analytics, veeva, data_ai]
+  source: "master prompt v2 section 0; checklist 1.11 section 5 (lanes)"
+
+also_tracked:
+  # platforms outside the lanes that are still searched, ranked and reported
+  value: [Workday, Microsoft Dynamics, Power BI, Snowflake]
+  source: "master prompt v2 section 0: also track Workday, Microsoft Dynamics, Power BI and Snowflake"
+
+never_report:
+  # never a search term, a technology filter, a ranked platform or a word in a client file; a raw
+  # pull that returns one keeps the raw row and the deliverables mask the name
+  value: [ServiceMax, Siebel, Databricks]
+  mask: "[platform outside scope]"
+  source: "master prompt v2 section 0; lessons 2026-09-29 (ServiceMax) and 2026-10-06 (Databricks)"
+
+windows_months:
+  news: {value: 18, source: "master prompt v2 section 0 windows: news 18 months"}
+  postings: {value: 12, source: "master prompt v2 section 0 windows: job postings 12 months, open and closed"}
+  detections: {value: 24, source: "master prompt v2 section 0 windows: technology detections 24 months"}
+
+seniority:
+  # the levels that meet the seniority rule (people module labels); anyone below is kept only
+  # when they confirm a stack fact
+  rule: {value: "Director and above, Head, Senior Manager", source: "master prompt v2 section 0 seniority rule"}
+
+people_exclusions:
+  # titles never listed as people (their stack evidence stays); matched case-insensitively as
+  # whole words or phrases in the title
+  title_patterns:
+    value: ["chief information security officer", "ciso", "security", "it compliance", "compliance", "it audit", "audit", "privacy"]
+    source: "master prompt v2 section 0: exclude CISO, security, IT compliance, IT audit, privacy titles"
+
+entity:
+  # section 3: the entity lock before any pull; a look-alike brand is within this edit distance
+  lookalike_edit_distance: {value: 2, source: "master prompt v2 section 3 step 3"}
+  # tokens of a legal name that never identify the company (the brand token is the first other one)
+  name_stopwords:
+    value: [the, inc, incorporated, corp, corporation, co, company, ltd, limited, llc, plc, group, holdings, holding, sa, ag, nv, se, gmbh, bv, pty, llp, lp, international, global, worldwide, enterprises, industries, systems, solutions, services, technologies, health, healthcare]
+    status: proposal
+  # a third-party page (news, a profile) is accepted when its text names the brand this many
+  # times or more and names no blocked look-alike
+  min_brand_mentions: {value: 1, source: "master prompt v2 section 3 accept(): text names legal_name or a subsidiary"}
+
+lead_verification:
+  # section 1 rule 8: a lead is not dead after one search
+  min_queries: {value: 3, source: "master prompt v2 section 1 rule 8: at least 3 differently worded queries"}
+  min_tools: {value: 2, source: "master prompt v2 section 1 rule 8: across at least 2 tools"}

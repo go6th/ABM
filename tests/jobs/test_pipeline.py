@@ -6,11 +6,10 @@ from dataclasses import replace
 
 import pytest
 
-from jobs.config import load_jobs_config
 from jobs.pipeline import ROW_BOARD, ROW_PULL, ROW_READ
 from jobs.stage import run_jobs
 from tests.fakes.jobs import Corpus, FakeRunInput, Recorder
-from tests.jobs.conftest import build
+from tests.jobs.conftest import build, frozen_config
 
 pytestmark = pytest.mark.asyncio
 
@@ -59,7 +58,7 @@ async def test_board_keyword_failure_is_cited_not_hidden(corpus: Corpus) -> None
 
 
 async def test_all_lanes_off_is_not_searched_never_zero(corpus: Corpus) -> None:
-    lanes = frozenset(lane.id for lane in load_jobs_config().lanes)
+    lanes = frozenset(lane.id for lane in frozen_config().lanes)
     result, rec, source, *_ = await _run(corpus, lanes_off=lanes)
     board = {e[0]: e for e in rec.evidence}[ROW_BOARD]
     assert board[1] == () and board[4] == "lane_not_in_scope"
@@ -72,7 +71,7 @@ async def test_all_lanes_off_is_not_searched_never_zero(corpus: Corpus) -> None:
 
 
 async def test_caps_bound_escalation_and_extractor_calls(corpus: Corpus) -> None:
-    cfg = load_jobs_config()
+    cfg = frozen_config()
     tight = replace(cfg, caps={**cfg.caps, "max_page_reads": 0, "max_extractor_calls": 1})
     result, rec, source, pages, first = await _run(corpus, cfg=tight)
     assert pages.calls == []  # no read past the cap
@@ -86,7 +85,7 @@ async def test_caps_bound_escalation_and_extractor_calls(corpus: Corpus) -> None
 
 
 async def test_minimum_text_length_makes_short_text_unread(corpus: Corpus) -> None:
-    cfg = load_jobs_config()
+    cfg = frozen_config()
     strict = replace(cfg, caps={**cfg.caps, "minimum_text_length": 10_000_000})
     result, *_ = await _run(corpus, cfg=strict)
     assert result.counts is not None and result.counts.distinct.read == 0

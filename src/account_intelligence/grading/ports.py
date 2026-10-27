@@ -24,6 +24,9 @@ class RunInfo:
     account_name: str | None = None
     # Verified careers host and other run-derived primary hosts (T1, same lineage group).
     primary_hosts: frozenset[str] = frozenset()
+    # The entity lock's registrable domains (the account's own, the host its site redirects to,
+    # subsidiaries): the company's own pages, so T1 like the account domain (2026-10-24).
+    allowed_domains: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)

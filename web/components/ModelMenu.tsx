@@ -7,18 +7,23 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { ModelChoices } from "@/lib/gen/api.gen";
+import { useSharedModelChoices } from "@/lib/model-choices";
 
-/** The model menus' data, loaded once per screen: null until it arrives, "failed" when it cannot. */
+/** The model menus' data: the copy the workspace layout loaded (the user's saved models, at
+ * first paint), else fetched once; null until it arrives, "failed" when it cannot. */
 export function useModelChoicesState(): ModelChoices | null | "failed" {
-  const [choices, setChoices] = useState<ModelChoices | null | "failed">(null);
+  const shared = useSharedModelChoices();
+  const [fetched, setFetched] = useState<ModelChoices | null | "failed">(null);
+  const need = !shared?.choices;
   useEffect(() => {
+    if (!need) return;
     let live = true;
     api<ModelChoices>("GET", "/v1/models/choices")
-      .then((c) => { if (live) setChoices(c); })
-      .catch(() => { if (live) setChoices("failed"); });
+      .then((c) => { if (live) { setFetched(c); shared?.setChoices(c); } })
+      .catch(() => { if (live) setFetched("failed"); });
     return () => { live = false; };
-  }, []);
-  return choices;
+  }, [need, shared]);
+  return shared?.choices ?? fetched;
 }
 
 /** The same data for menus that simply stay hidden until it arrives (null when loading or failed). */

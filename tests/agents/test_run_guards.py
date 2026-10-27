@@ -207,7 +207,13 @@ async def test_g8_people_rows_blocked_without_consent(h: Harness) -> None:
     record, _ = await h.run("r")
     people = [k for k, r in h.cfg.plan.items() if r.people]
     rows = manifest(h, record.run_id)
-    assert all(rows[k].blocked_reason == "consent_required" for k in people)
+    # a people row Phase 1 searches says consent_required; a row the people pipeline owns is
+    # left to the pipeline, which the graph does not run without consent (same tracker reason)
+    assert all(
+        rows[k].blocked_reason
+        == ("owned_by_pipeline" if h.cfg.plan[k].pipeline == "people" else "consent_required")
+        for k in people
+    )
     assert not any(
         need in ("people_by_technology", "profile_enrichment") for (_, need, _) in h.provider.calls
     )
@@ -218,7 +224,8 @@ async def test_g8_people_rows_blocked_without_consent(h: Harness) -> None:
 async def test_g8_people_pull_runs_with_consent(h: Harness) -> None:
     h.grant_consent()
     record, _ = await h.run("r")
-    assert manifest(h, record.run_id)["people_by_platform"].status == "stored"
+    assert h.tracker.rows_by_run[record.run_id]["people_by_platform"].status == "done"
+    assert h.pipelines.people_runs == 1
     assert {p.name for p in h.grading.people[record.run_id]} == {
         "Avery Quinn",
         "Rowan Hale",
@@ -229,10 +236,11 @@ async def test_g8_people_pull_runs_with_consent(h: Harness) -> None:
 async def test_g8_without_approved_consent_text_no_record_is_valid(make) -> None:  # type: ignore[no-untyped-def]
     from agents.config import load_skill_config
 
-    h = make(cfg=load_skill_config())  # the real config: consent text is TODO (D-97)
-    h.grant_consent("anything")
+    h = make(cfg=load_skill_config())  # the real config: text version pdc-1 (D-97)
+    h.grant_consent("anything")  # a grant of another text version is not consent to this one
     record, _ = await h.run("r")
-    assert manifest(h, record.run_id)["people_by_platform"].blocked_reason == "consent_required"
+    assert h.tracker.rows_by_run[record.run_id]["people_by_platform"].reason == "consent_required"
+    assert getattr(h.pipelines, "people_runs", 0) == 0
 
 
 # G9 --------------------------------------------------------------------------------------------

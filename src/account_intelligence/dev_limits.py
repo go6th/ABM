@@ -38,3 +38,11 @@ def research_uncapped(env: Mapping[str, str] | None = None) -> bool:
     ``RESEARCH_CAPS=off`` in any environment."""
     e = os.environ if env is None else env
     return dev_uncapped(e) or e.get("RESEARCH_CAPS", "").strip().lower() == "off"
+
+
+def token_guard_forced(env: Mapping[str, str] | None = None) -> bool:
+    """True when ``TOKEN_GUARD=on`` keeps the token-guard pause while the research caps are off
+    (owner decision 2026-10-24: with the caps off a research is never paused for tokens unless
+    this is set)."""
+    e = os.environ if env is None else env
+    return e.get("TOKEN_GUARD", "").strip().lower() == "on"

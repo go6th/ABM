@@ -6,9 +6,9 @@
 // the address (?r=<job id>), so a reload or a shared link shows the same one.
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ResearchCompany } from "@/components/accounts/ResearchCompany";
-import { ResumeButton, resumingLine } from "@/components/accounts/ResumeResearch";
+import { reasonOr, ResumeButton, resumingLine } from "@/components/accounts/ResumeResearch";
 import { StopButton } from "@/components/ws/RunSteps";
 import { formatTokens } from "@/components/ws/TokenMeter";
 import { api, ApiError } from "@/lib/api";
@@ -73,10 +73,12 @@ export function resumableRun(item: Item | undefined): string | null {
 function Connection({ state, asOf, now }: { state: LiveState; asOf: string | null; now: number | null }) {
   const when = ago(asOf, now);
   const text = state === "live" ? m.board.live : state === "polling" ? m.board.polling : m.board.connecting;
+  // only the connection state is a live region: the "updated 5 s ago" clock changes every few
+  // seconds and would be read out each time
   return (
-    <span className="live-state" data-state={state} role="status" aria-live="polite">
+    <span className="live-state" data-state={state}>
       <span className="pdot" aria-hidden="true" />
-      {text}
+      <span role="status" aria-live="polite">{text}</span>
       {when && state !== "polling" ? <span className="mut">{` (${m.board.updated(when)})`}</span> : null}
     </span>
   );
@@ -140,6 +142,8 @@ function DetailPanel({ detail, item, now, onResumed }: {
   onResumed: (resumed: ResearchResumed) => void;
 }) {
   const resumeRun = resumableRun(item);
+  // finished with nothing counted on the board: the live sections would only say "nothing yet"
+  const quietDone = Boolean(item && !item.open && !detail.findings && !detail.searches && !detail.pages_read);
   return (
     <section className="card pad stack-14" aria-labelledby="research-detail-title">
       <div className="row-12 wrap">
@@ -150,27 +154,35 @@ function DetailPanel({ detail, item, now, onResumed }: {
         {resumeRun ? <ResumeButton key={resumeRun} runId={resumeRun} compact onResumed={onResumed} /> : null}
         <Link className="btn sm" href={`/accounts/${encodeURIComponent(detail.domain)}`} prefetch={false}>{m.board.openAccount}</Link>
       </div>
-      <dl className="kv-grid live-counts">
-        <div><dt>{m.board.findings}</dt><dd className="num">{detail.findings}</dd></div>
-        <div><dt>{m.board.sources}</dt><dd className="num">{detail.searches}</dd></div>
-        <div><dt>{m.board.pages}</dt><dd className="num">{detail.pages_read}</dd></div>
-        <div><dt>{m.board.tokens}</dt><dd className="num">{formatTokens(detail.tokens)}</dd></div>
-      </dl>
+      {quietDone ? (
+        // a finished research with nothing counted here (an older run, or one that only rebuilt
+        // files): say where its results are instead of a row of zeros
+        <p className="notice info sm-text">This research has finished and its results are on the account page.</p>
+      ) : (
+        <dl className="kpi-tiles">
+          <div className="kpi-tile hl"><dt className="k">{m.board.findings}</dt><dd className="v">{detail.findings}</dd></div>
+          <div className="kpi-tile"><dt className="k">{m.board.sources}</dt><dd className="v">{detail.searches}</dd></div>
+          <div className="kpi-tile"><dt className="k">{m.board.pages}</dt><dd className="v">{detail.pages_read}</dd></div>
+          <div className="kpi-tile"><dt className="k">{m.board.tokens}</dt><dd className="v">{formatTokens(detail.tokens)}</dd></div>
+        </dl>
+      )}
       <div className="live-split">
         <div className="stack-8">
           <h3>{m.board.steps}</h3>
           <Steps detail={detail} />
         </div>
-        <div className="stack-8">
-          <h3>{m.board.byKind}</h3>
-          {detail.findings_by_kind.length ? (
-            <ul className="rows">
-              {detail.findings_by_kind.map((k) => <li key={k.kind}><span>{k.kind}</span><span className="end num">{k.count}</span></li>)}
-            </ul>
-          ) : <p className="mut sm-text">{m.board.noFindings}</p>}
-        </div>
+        {quietDone ? null : (
+          <div className="stack-8">
+            <h3>{m.board.byKind}</h3>
+            {detail.findings_by_kind.length ? (
+              <ul className="rows">
+                {detail.findings_by_kind.map((k) => <li key={k.kind}><span>{k.kind}</span><span className="end num">{k.count}</span></li>)}
+              </ul>
+            ) : <p className="mut sm-text">{m.board.noFindings}</p>}
+          </div>
+        )}
       </div>
-      <div className="stack-8">
+      {quietDone ? null : <div className="stack-8">
         <h3>{m.board.newest}</h3>
         {detail.latest_findings.length ? (
           <ul className="live-findings" aria-live="polite" aria-relevant="additions">
@@ -190,7 +202,7 @@ function DetailPanel({ detail, item, now, onResumed }: {
           </ul>
         ) : <p className="mut sm-text">{m.board.noFindings}</p>}
         {detail.withheld ? <p className="fine">{m.board.withheld(detail.withheld)}</p> : null}
-      </div>
+      </div>}
     </section>
   );
 }
@@ -204,6 +216,8 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
   const now = useNow(state === "live" ? 5000 : 15000);
   const [starting, setStarting] = useState(false);
   const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
+  // where focus goes once the start form closes after a start (the form's button is gone)
+  const startToggle = useRef<HTMLButtonElement>(null);
 
   const select = useCallback((id: string) => {
     router.replace(`${pathname}?r=${encodeURIComponent(id)}`, { scroll: false });
@@ -215,7 +229,7 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
       await api("POST", `/v1/research/${encodeURIComponent(item.job_id)}/stop`);
       setNote({ text: m.board.stopped });
     } catch (cause) {
-      setNote({ text: cause instanceof ApiError && cause.status === 409 ? cause.detail : m.board.stopFailed, bad: true });
+      setNote({ text: cause instanceof ApiError && cause.status === 409 ? reasonOr(cause, m.board.stopFailed) : m.board.stopFailed, bad: true });
     }
     restart();
   }, [restart]);
@@ -231,10 +245,14 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
     setNote({ text: m.board.startedNote });
     select(s.job_id);
     restart();
+    // after the form unmounts, focus the Start button again instead of losing it to the page
+    setTimeout(() => startToggle.current?.focus(), 0);
   }, [select, restart]);
 
   if (!data) {
-    return <StateCard title={m.board.title} body={m.board.loadFailed} action={<Link className="btn" href="/research" prefetch={false}>{m.run.refresh}</Link>} />;
+    // a full reload: a client navigation to the same address keeps this board (and its empty
+    // state), so the button would seem to do nothing
+    return <StateCard title={m.board.title} body={m.board.loadFailed} action={<a className="btn" href={selected ? `/research?r=${encodeURIComponent(selected)}` : "/research"}>{m.run.refresh}</a>} />;
   }
   const shown = data.detail?.job_id ?? null;
   const shownItem = shown ? [...data.running, ...data.recent].find((i) => i.job_id === shown) : undefined;
@@ -248,14 +266,14 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
         </div>
         <div className="row-12 wrap">
           <Connection state={state} asOf={data.as_of} now={now} />
-          <button type="button" className="btn primary" aria-expanded={starting} onClick={() => setStarting((v) => !v)}>
+          <button ref={startToggle} type="button" className="btn primary" aria-expanded={starting} aria-controls={starting ? "research-start" : undefined} onClick={() => setStarting((v) => !v)}>
             {starting ? m.board.hideStart : m.board.start}
           </button>
         </div>
       </div>
 
       {starting ? (
-        <section className="card pad stack-14" aria-labelledby="research-start-title">
+        <section id="research-start" className="card pad stack-14" aria-labelledby="research-start-title">
           <h2 id="research-start-title">{m.board.startTitle}</h2>
           <ResearchCompany estimate={estimate} idPrefix="rb" onStarted={started} />
         </section>
@@ -276,7 +294,22 @@ export function ResearchBoard({ initial, estimate }: { initial: ResearchLive | n
               ))}
             </ul>
           </div>
-        ) : <p className="mut sm-text">{m.board.noneRunning}</p>}
+        ) : (
+          <div className="empty-card">
+            <span className="ti" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14M20 20l-4-4M8 11h6M11 8v6" /></svg>
+            </span>
+            <h3>Nothing is running right now</h3>
+            <p>Start a new research and it shows here as it works, step by step, with what it finds.</p>
+            {!starting ? (
+              <button type="button" className="btn primary" onClick={() => {
+                setStarting(true);
+                // the form opens above: bring its first field to the keyboard
+                setTimeout(() => document.getElementById("rb-name")?.focus(), 0);
+              }}>{m.board.start}</button>
+            ) : null}
+          </div>
+        )}
       </section>
 
       {data.detail ? <DetailPanel detail={data.detail} item={shownItem} now={now} onResumed={resumed} /> : null}

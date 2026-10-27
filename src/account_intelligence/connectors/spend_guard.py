@@ -45,7 +45,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from account_intelligence.dev_limits import research_uncapped
+from account_intelligence.dev_limits import research_uncapped, token_guard_forced
 
 PAGING = frozenset({"cursor", "page", "page_token", "offset", "limit", "per_page", "max_results"})
 _SPACE = re.compile(r"\s+")
@@ -162,7 +162,11 @@ async def run_tokens(s: Any, run_id: UUID) -> int:
 
 async def check_tokens(s: Any, run_id: UUID) -> None:
     """``TokenGuardReached`` when the run's tokens reached its guard (see the module docstring).
-    Applies with the research caps off too; a run without an estimate is never stopped by it."""
+    With the research caps off the guard is off too (owner decision 2026-10-24: a research is
+    never paused for tokens; ``TOKEN_GUARD=on`` keeps it while the caps are off); a run without
+    an estimate is never stopped by it."""
+    if research_uncapped() and not token_guard_forced():
+        return
     row = (await s.execute(TOKEN_GUARD, {"r": run_id})).first()
     if row is None or not row.expected or int(row.expected) <= 0:
         return

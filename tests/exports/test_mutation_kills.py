@@ -34,7 +34,7 @@ from exports.workspace import (
     safe_name,
 )
 from tests.exports.test_pure_rules import _manifest
-from tests.exports.test_workspace import KINDS, _inputs
+from tests.exports.test_workspace import EXTRAS, KINDS, _inputs
 
 
 def _fact(**kw: object) -> FactRow:
@@ -184,6 +184,7 @@ def test_manifest_shape_and_error_messages(cfg: ExportConfig) -> None:
         theme=cfg.theme.zip,
         account="Synthetic",
         as_of=date(2026, 9, 30),
+        extras=EXTRAS,
     )
     with zipfile.ZipFile(io.BytesIO(body)) as z:
         raw = z.read("MANIFEST.json").decode()
@@ -206,6 +207,7 @@ def test_manifest_shape_and_error_messages(cfg: ExportConfig) -> None:
             theme=cfg.theme.zip,
             account="S",
             as_of=date(2026, 9, 30),
+            extras=EXTRAS,
         )
     files["evidence"] = files["summary"]
     with pytest.raises(UnsafePackage, match="duplicate member names"):
@@ -217,6 +219,7 @@ def test_manifest_shape_and_error_messages(cfg: ExportConfig) -> None:
             theme=cfg.theme.zip,
             account="S",
             as_of=date(2026, 9, 30),
+            extras=EXTRAS,
         )
 
 
@@ -235,6 +238,7 @@ def _sizes(cfg: ExportConfig) -> tuple[int, int, int]:
         theme=cfg.theme.zip,
         account="Synthetic",
         as_of=date(2026, 9, 30),
+        extras=EXTRAS,
     )
     with zipfile.ZipFile(io.BytesIO(body)) as z:
         sizes = [i.file_size for i in z.infolist()]
@@ -254,6 +258,7 @@ def test_caps_are_inclusive_at_the_boundary_and_name_the_offender(cfg: ExportCon
             theme=cfg.theme.zip,
             account="Synthetic",
             as_of=date(2026, 9, 30),
+            extras=EXTRAS,
         )
 
     build(_ws(cfg, max_members=members, max_member_bytes=largest, max_total_bytes=total))
@@ -287,6 +292,7 @@ def _std(cfg: ExportConfig) -> bytes:
         theme=cfg.theme.zip,
         account="Synthetic",
         as_of=date(2026, 9, 30),
+        extras=EXTRAS,
     )
 
 
@@ -305,10 +311,10 @@ def test_check_zip_verifies_every_member_after_the_restore_note(cfg: ExportConfi
     with zipfile.ZipFile(io.BytesIO(good)) as src, zipfile.ZipFile(out, "w") as dst:
         for info in src.infolist():
             body = src.read(info)
-            if info.filename == "data/tech.json":
+            if info.filename == "build/tech.json":
                 body = b'{"tampered": true}'
             dst.writestr(info, body)
-    assert check_zip(out.getvalue(), cfg.rules) == ("hash mismatch 'data/tech.json'",)
+    assert check_zip(out.getvalue(), cfg.rules) == ("hash mismatch 'build/tech.json'",)
 
 
 def test_check_zip_caps_are_inclusive_and_sum_every_member(cfg: ExportConfig) -> None:

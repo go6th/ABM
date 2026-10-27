@@ -105,7 +105,7 @@ export const ALERT_RULES = {
 export const LANES = {
   "data_ai": "Data and AI",
   "other": "Other",
-  "salesforce": "Salesforce (including field service such as ServiceMax)",
+  "salesforce": "Salesforce (including MuleSoft)",
   "sap": "SAP",
   "servicenow": "ServiceNow",
   "tableau_analytics": "Tableau and analytics",

@@ -79,6 +79,36 @@ def _append_run(p: Any, text: str, spec: Font) -> None:
     p.append(run)
 
 
+def _fresh_numbering(doc: Any) -> int:
+    """A new numbering instance of the List Number style's definition that starts at 1: every
+    numbered list of the document counts from 1, not on from the previous list."""
+    style_num = doc.styles["List Number"].element.pPr.numPr.numId.val
+    numbering = doc.part.numbering_part.element
+    abstract = next(n.abstractNumId.val for n in numbering.num_lst if n.numId == style_num)
+    num = numbering.add_num(abstract)
+    num.add_lvlOverride(ilvl=0).add_startOverride(1)
+    return int(num.numId)
+
+
+def _bullets(doc: Any, block: BulletsBlock, theme: WordTheme) -> None:
+    """A bulleted or numbered list; a note goes under its item, indented like the item text."""
+    sp = theme.spacing
+    num_id = _fresh_numbering(doc) if block.numbered else None
+    for i, item in enumerate(block.items):
+        p = doc.add_paragraph(style="List Number" if block.numbered else "List Bullet")
+        if num_id is not None:
+            num_pr = p._p.get_or_add_pPr().get_or_add_numPr()
+            num_pr.get_or_add_ilvl().val = 0
+            num_pr.get_or_add_numId().val = num_id
+        _text(p, item, theme.fonts.body)
+        _spacing(p, 0, sp.paragraph_after_pt)
+        note = block.notes[i] if block.notes else ""
+        if note:
+            q = doc.add_paragraph(style="List Continue")  # indented like the item text
+            _text(q, note, theme.fonts.note)
+            _spacing(q, 0, sp.paragraph_after_pt)
+
+
 def _spacing(paragraph: Paragraph, before: float, after: float) -> None:
     fmt = paragraph.paragraph_format
     fmt.space_before = Pt(before)
@@ -204,10 +234,7 @@ def render(spec: DocumentSpec) -> bytes:
             _text(p, block.text, font)
             _spacing(p, 0, sp.paragraph_after_pt)
         elif isinstance(block, BulletsBlock):
-            for item in block.items:
-                p = doc.add_paragraph(style="List Bullet")
-                _text(p, item, theme.fonts.body)
-                _spacing(p, 0, sp.paragraph_after_pt)
+            _bullets(doc, block, theme)
         else:
             _table(doc, block, theme)
             _spacing(doc.add_paragraph(), 0, sp.paragraph_after_pt)

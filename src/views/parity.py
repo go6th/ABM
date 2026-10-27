@@ -4,8 +4,8 @@ The check reads the produced bytes back (it never trusts the model that rendered
 
 * workbooks: the table's sheet, header to column key through the table spec; a long text split
   onto the Long text sheet is rejoined (the parts join back exactly, ``exports.policy``);
-* Word documents: every table whose header row is the table's headers (the lane tables of the
-  Account Summary, its tracker table), rows in document order, paragraphs joined;
+* Word documents: every table whose header row is the table's headers (the Account Summary's
+  Platform picture by lane, its tracker table), rows in document order, paragraphs joined;
 * CSV: the file's rows, with the one leading apostrophe that neutralises a formula removed.
 
 Values are compared after the documented formatting (``normalise``): empty for None, ISO dates,
@@ -81,33 +81,70 @@ def _long_parts(wb: Any, sheet: str) -> dict[tuple[str, str], dict[int, str]]:
     return out
 
 
+def _header_at(rows: Sequence[Sequence[Any]], headers: Sequence[str]) -> int | None:
+    """The index of the sheet's header row: the first row that holds every one of the table's
+    headers (a sheet may open with a title line and a note above its table, as the Stack
+    detections sheet does); else the first row, as before."""
+    want = set(headers)
+    for i, row in enumerate(rows):
+        if want <= {normalise(v) for v in row}:
+            return i
+    return 0 if rows else None
+
+
+def _cell_value(cell: Any, kind: str) -> Any:
+    """A cell's value; a link column's value is the address it opens (the People sheet shows
+    "Open profile" and links to the profile)."""
+    link = getattr(cell, "hyperlink", None)
+    if kind == "url" and link is not None and getattr(link, "target", None):
+        return link.target
+    return cell.value
+
+
 def xlsx_rows(data: bytes, spec: TableSpec, long_sheet: str = "Long text") -> list[dict[str, str]]:
     """The data rows of the table's sheet, as {column key: text}, long text rejoined."""
-    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    # not read-only: a read-only sheet does not carry the cells' hyperlinks
+    wb = load_workbook(io.BytesIO(data), data_only=True)
     try:
         if spec.sheet is None or spec.sheet not in wb.sheetnames:
             raise ValueError(f"sheet {spec.sheet!r} is missing")
-        rows = list(wb[spec.sheet].iter_rows(values_only=True))
+        kinds = {c.header: c.kind for c in spec.exported_columns}
+        grid = list(wb[spec.sheet].iter_rows())
         long = _long_parts(wb, long_sheet)
     finally:
         wb.close()
-    if not rows:
+    head = _header_at(
+        [[c.value for c in row] for row in grid], [c.header for c in spec.exported_columns]
+    )
+    if head is None:
         return []
+    header_row = [c.value for c in grid[head]]
+    rows = [
+        [
+            _cell_value(c, kinds.get(str(h), "")) if h is not None else c.value
+            for c, h in zip(row, header_row + [None] * (len(row) - len(header_row)), strict=False)
+        ]
+        for row in grid[head + 1 :]
+    ]
     header_to_key = {c.header: c.key for c in spec.exported_columns}
-    keys = [header_to_key.get(str(h)) if h is not None else None for h in rows[0]]
+    keys = [header_to_key.get(str(h)) if h is not None else None for h in header_row]
+    # the reference is the column keyed ``ref`` (the People sheet leads with a running number and
+    # carries its reference further right); a sheet with no such column keeps the first one
+    ref_at = keys.index("ref") if "ref" in keys else 0
     out: list[dict[str, str]] = []
-    for row in rows[1:]:
-        if not row or not isinstance(row[0], str) or not _REF.match(row[0]):
+    for row in rows:
+        ref = row[ref_at] if row and len(row) > ref_at else None
+        if not isinstance(ref, str) or not _REF.match(ref):
             continue
         record: dict[str, str] = {}
-        for key, header, value in zip(keys, rows[0], row, strict=False):
+        for key, header, value in zip(keys, header_row, row, strict=False):
             if key is None:
                 continue
             text = value if not isinstance(value, str) else value
             if isinstance(text, str):
                 m = _POINTER.search(text)
                 if m:
-                    parts = long.get((row[0], str(header)), {})
+                    parts = long.get((ref, str(header)), {})
                     text = text[: m.start()] + "".join(
                         parts.get(k, "") for k in range(2, int(m.group(1)) + 1)
                     )

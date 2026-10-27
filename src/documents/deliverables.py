@@ -15,12 +15,20 @@ counts, sheets and the Sources list then show them, attributed to the uploaded f
 called and nothing leaves the system; the import runs when indexing finishes, so the data is on
 the page as soon as the file is processed.
 
-Rules: a work email, phone or address column is never stored (minimisation); a row without its
-key cell (title, name, technology, team) is skipped and counted; the import is idempotent per
-document and row (``write_key``); a sheet no kind matches (a Summary sheet, prose) yields nothing.
+Rules: a work email, phone or address column is never stored, and an email address or phone
+number written inside any other cell (a Note, a Location) is removed from the stored fields and
+quote (minimisation); a link field (``link``, ``second_link``, ``url``) keeps only a safe http(s)
+address (``tabular.safe_url``: a cell still showing its label, "Open profile", or a ``mailto:``
+or ``javascript:`` target is no link) and every other field is bounded (``FIELD_CHARS``); a row
+without its key cell (title, name, technology, team) is skipped and counted; the import is
+idempotent per document and row (``write_key``); a sheet no kind matches (a Summary sheet, prose)
+yields nothing.
 
 GUARANTEE(test_uploaded_deliverable_workbooks_show_as_job_postings_people_and_tech)
 GUARANTEE(test_a_title_block_sheet_is_read_from_its_header_row)
+GUARANTEE(test_people_fields_never_keep_a_work_email_or_phone)
+GUARANTEE(test_a_link_field_keeps_only_a_safe_web_address)
+GUARANTEE(test_a_people_list_with_a_location_column_is_read_as_people)
 """
 
 from __future__ import annotations
@@ -39,6 +47,8 @@ from sqlalchemy import text
 
 from documents import repo
 from documents.extract import slug
+from research_files.checks import _PII
+from research_files.parsers.tabular import MAX_URL_CHARS, safe_url
 
 IMPORT_VERSION = "deliverables-import-v1"
 PAGE = 500
@@ -51,6 +61,11 @@ ROW_KEY = {
     "tech": ("tech", "technology_detections"),
 }
 NEVER_STORED = re.compile(r"(?i)\b(e-?mail|phone|mobile|address)\b")
+# fields that hold a web address: kept only when the cell is one (``safe_url``), up to its length
+URL_FIELDS = frozenset({"link", "second_link", "url"})
+# the longest value a field keeps; a free-text cell longer than this is cut
+FIELD_CHARS = {"meets_seniority": 40, "location": 200, "entity": 200}
+DEFAULT_FIELD_CHARS = 500
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 _COLUMN_N = re.compile(r"^column (\d+)$")
 
@@ -80,6 +95,7 @@ KINDS: tuple[SheetKind, ...] = (
             "status": ("status",),
             "requisition": ("requisition", "requisition id", "req id"),
             "seniority": ("seniority",),
+            "entity": ("entity",),
             "side": ("side of the company", "side"),
             "class": ("class",),
             "url": ("url", "link", "posting link", "posting url"),
@@ -96,6 +112,10 @@ KINDS: tuple[SheetKind, ...] = (
             "priority": ("priority",),
             "side": ("side of the company", "side"),
             "link": ("linkedin link", "linkedin url", "linkedin", "profile link"),
+            "second_link": ("second profile",),
+            "meets_seniority": ("meets seniority rule",),
+            "location": ("location",),
+            "note": ("note",),
             "found_by": ("found by",),
         },
     ),
@@ -125,13 +145,22 @@ KINDS: tuple[SheetKind, ...] = (
     SheetKind(
         "tech",
         ("team",),
-        (("team path", "postings since", "lane platforms named"),),
+        # the second names of each column are the Platform teams sheet of the 2026-10-26 zip
+        (
+            (
+                "team path",
+                "postings since",
+                "lane platforms named",
+                "postings count",
+                "lane technologies named",
+            ),
+        ),
         {
-            "function": ("team path",),
-            "sources": ("postings since",),
-            "lanes": ("lane platforms named",),
-            "technologies": ("most named technologies",),
-            "locations": ("top locations",),
+            "function": ("team path", "job functions"),
+            "sources": ("postings since", "postings count"),
+            "lanes": ("lane platforms named", "lane technologies named"),
+            "technologies": ("most named technologies", "team technologies"),
+            "locations": ("top locations", "team locations"),
         },
         note="team",
     ),
@@ -158,13 +187,23 @@ def _find(columns: Sequence[str], alternatives: Sequence[str]) -> str | None:
 
 
 def match(columns: Sequence[str]) -> SheetKind | None:
-    """The sheet kind these column names belong to, or None."""
+    """The sheet kind these column names belong to, or None: of the kinds whose key and required
+    columns are all present, the one whose fields name the most columns (the first on a tie). A
+    People List has a Title and a Location column too, so the first kind that fits is not
+    enough: it would read every person as a job posting titled with the person's title."""
+    best: SheetKind | None = None
+    best_score = -1
     for kind in KINDS:
         if _find(columns, kind.key) is None:
             continue
-        if all(_find(columns, group) is not None for group in kind.required):
-            return kind
-    return None
+        if not all(_find(columns, group) is not None for group in kind.required):
+            continue
+        score = sum(
+            _find(columns, alternatives) is not None for alternatives in kind.fields.values()
+        )
+        if score > best_score:
+            best, best_score = kind, score
+    return best
 
 
 def segments(content: str, prefix: str | None = None) -> list[tuple[str, str]]:
@@ -303,6 +342,12 @@ class SheetReader:
         if not value or value.lower() in ("n/a", "none", "-", "null"):
             self.skipped[f"{kind.kind}_no_key"] += 1
             return None
+        if not plausible_key(kind.kind, value):
+            # a cell that is not a name or a technology: a number from a ranking sheet, a JSON
+            # blob of schools or skills from a profile export, a long comma list (the QuidelOrtho
+            # export of 2026-10-21 listed 5,900 such "people" and "1", "3", "6" as technologies)
+            self.skipped[f"{kind.kind}_key_not_plausible"] += 1
+            return None
         fields: dict[str, str] = {}
         for stored, alternatives in kind.fields.items():
             col = _find(list(record), alternatives)
@@ -311,19 +356,26 @@ class SheetReader:
                 continue
             if NEVER_STORED.search(col or ""):
                 continue
+            if stored in URL_FIELDS:
+                url = safe_url(raw)  # "Open profile" (a link label), mailto:, javascript: are not
+                if url is not None:
+                    fields[stored] = url[:MAX_URL_CHARS]
+                continue
+            raw = scrub(raw)
             if stored in ("posted", "last_seen"):
                 raw = raw[:10] if _DATE.match(raw) else raw[:40]
             if stored == "status":
                 raw = raw[:1].upper() + raw[1:].lower()
-            fields[stored] = raw[:500]
+            fields[stored] = raw[: FIELD_CHARS.get(stored, DEFAULT_FIELD_CHARS)]
         if kind.note:
             fields["category"] = kind.note
         quote = "; ".join(
-            f"{c}: {v}"
+            f"{c}: {v if safe_url(v) else scrub(v)}"
             for c, v in zip(record, record.values(), strict=True)
             if v and not NEVER_STORED.search(c)
         )
         location = dict(passage.location or {})
+        value = scrub(value)
         return Found(kind.kind, value[:500], fields, quote[:600], int(passage.seq), location)
 
     @staticmethod
@@ -338,6 +390,50 @@ class SheetReader:
             if 0 <= position < len(table.header):
                 out[table.header[position]] = val
         return out
+
+
+_NUMERIC = re.compile(r"^[\d.,%\s-]+$")
+
+
+def scrub(text: str) -> str:
+    """The text with every email address and phone number removed: a Note or Location cell can
+    hold a person's work contact, which the import never stores (see the module docstring)."""
+    if "@" in text:
+        text = _PII["email"].sub("[email removed]", text)
+    return _PII["phone"].sub("[phone removed]", text)
+
+
+def _credential(part: str) -> bool:
+    """Whether a comma-separated part after a name is a credential: short, at most two words,
+    mostly capitals (PhD, MSc, PMP, SHRM-SCP, PRINCE 2)."""
+    text = part.strip()
+    letters = [c for c in text if c.isalpha()]
+    return (
+        0 < len(text) <= 15
+        and len(text.split()) <= 2
+        and bool(letters)
+        and 2 * sum(c.isupper() for c in letters) >= len(letters)
+    )
+
+
+def plausible_key(kind: str, value: str) -> bool:
+    """Whether a key cell can be what its column says: a person's name or a technology is
+    short prose, never a number, a JSON or list literal, or a long comma-separated list."""
+    text = value.strip()
+    if not text or _NUMERIC.match(text):
+        return False
+    if text[0] in "[{" or text.endswith(("]", "}")):
+        return False
+    if kind == "people":
+        if len(text) > 80 or not any(c.isalpha() for c in text):
+            return False
+        # a name may carry its credentials ("Synthetic Person, PhD, PMP, CSM": ten such rows in
+        # the BD People List of 2026-10-27); a list of skills or schools does not look like that
+        name, *after = text.split(",")
+        return len(after) <= 2 or (len(name.split()) >= 2 and all(map(_credential, after)))
+    if kind == "tech":
+        return len(text) <= 120 and text.count(",") <= 3 and any(c.isalpha() for c in text)
+    return True
 
 
 def attribute_key(found: Found) -> str:

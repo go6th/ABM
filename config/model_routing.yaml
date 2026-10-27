@@ -47,7 +47,7 @@ task_kinds:
     abm_pass2_extract:      {tier: extractor, max_tokens: 16000, temperature: null, cacheable: true}
     abm_people_extract:     {tier: extractor, max_tokens: 16000, temperature: null, cacheable: true}
     abm_sense_check:        {tier: planner,   max_tokens: 8000, temperature: null, cacheable: true}
-    abm_distill:            {tier: planner,   max_tokens: 8000, temperature: null, cacheable: true}
+    abm_distill:            {tier: planner,   max_tokens: 16000, temperature: null, cacheable: true}
 
 # Tiers: a fallback chain within a tier before degrading quality (ARCH). The stale Haiku "fast"
 # candidate was removed (owner decision 2026-10-14); on the live (legacy) path each run uses the

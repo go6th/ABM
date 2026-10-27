@@ -4,7 +4,8 @@
 
     setup -> cap_approval -> pull <-> spend_gate          (Phase 1 slice: modes full, pull)
           -> [pull: finish]
-          -> load_manifest -> interpret -> sense_check     (Phase 2 slice: modes full, build)
+          -> load_manifest -> interpret -> pipelines -> person_searches -> sense_check
+                                                                 (Phase 2: modes full, build)
              -> [sense_approval] -> [targeted_pulls -> sense_check (second, record only)]
              -> distill -> build -> gate -> deliver -> finish
 
@@ -13,6 +14,13 @@
   reads the manifest from the store in every mode, so ``full`` is exactly ``pull`` then ``build``.
 * Phase 1 stores payloads and a manifest and nothing else: no grading, tracker verdict, files or
   delivery (G5, G15).
+* ``pipelines`` (2026-10-24) runs the skill's code steps after the reading step: the job pipeline
+  (every posting of the last 12 months read, classified and counted; one graded claim per
+  classified posting and platform) and the technology detections as dated rows. Rows a pipeline
+  owns are not read by the extractor (``pull_plan.yaml`` ``pipeline``).
+* ``person_searches`` (2026-10-24) runs the skill's step 9: the speaking, podcast and video rows
+  are searched by the names of the executives the reading step found (code-built queries from a
+  fixed template, at most ten people), the pages read, the findings graded.
 * The build node requires a stored sense check over the same manifest and facts (G6).
 * Spending beyond the approved cap pauses through an interrupt in attended runs and is recorded in
   unattended ones (G7, D-96); the approval points are ``cap_approval``, ``spend_gate``,
@@ -53,8 +61,9 @@ from account_intelligence.workflow.state import merge_maps, sum_counters
 from agents.config import SkillConfig
 from agents.contracts import AgentContract, BudgetMeter
 from agents.distill.agent import distill
+from agents.entity import EntityLock, accept
 from agents.errors import BudgetExceeded, GuardViolation, NoPulledData, StalePullsNeedDecision
-from agents.extraction import ExtractionResult, extract, groups
+from agents.extraction import ExtractionResult, extract, groups, value_key
 from agents.guards import (
     ACCOUNT_KEYED_NEEDS,
     OFF_TARGET_EXEMPT_ROWS,
@@ -73,6 +82,7 @@ from agents.guards import (
 )
 from agents.manifest import ManifestRow, PullManifest, check_build_precondition
 from agents.naming import assert_client_clean
+from agents.people_names import PERSON_ROWS, people_named, person_queries
 from agents.ports import (
     AgentModel,
     BuilderPort,
@@ -88,6 +98,7 @@ from agents.ports import (
     ManifestStore,
     NotConfigured,
     PayloadPort,
+    PipelinePort,
     ProviderFailed,
     ProviderPort,
     RunContext,
@@ -153,6 +164,8 @@ class AbmDeps:
     wallet: WalletPort
     internal: InternalSourcePort | None = None
     free_operations: frozenset[str] = frozenset()
+    # the code pipelines after the reading step (None: the node records "not available yet")
+    pipelines: PipelinePort | None = None
 
 
 class AbmState(TypedDict, total=False):
@@ -198,6 +211,9 @@ class AbmState(TypedDict, total=False):
     # client file kinds the gate held back (the others were delivered)
     withheld_files: list[str]
     careers_url: str | None
+    # the entity lock (master prompt v2 section 3), ``EntityLock.as_dict()``: set by the
+    # entity_lock node before any pull; every later node reads the account's domains from it
+    entity_lock: dict[str, Any] | None
     settled: bool
     counters: Annotated[dict[str, int], sum_counters]
     exits: Annotated[dict[str, str], merge_maps]
@@ -205,6 +221,10 @@ class AbmState(TypedDict, total=False):
 
 def context(state: AbmState) -> RunContext:
     """The run context from the trusted run row fields the runner put in the state."""
+    lock = state.get("entity_lock") or {}
+    own = tuple(str(d) for d in lock.get("allowed_domains") or () if str(d) != state["domain"])
+    looks = lock.get("blocked_lookalikes") or ()
+    blocked = tuple(str(x.get("host")) for x in looks if x.get("host"))
     return RunContext(
         tenant_id=UUID(state["tenant_id"]),
         run_id=UUID(state["run_id"]),
@@ -213,7 +233,14 @@ def context(state: AbmState) -> RunContext:
         domain=state["domain"],
         attended=bool(state.get("attended")),
         config_version=state["config_version"],
+        allowed_domains=own,
+        blocked_hosts=blocked,
     )
+
+
+def _lock(state: AbmState) -> EntityLock | None:
+    raw = state.get("entity_lock")
+    return EntityLock.from_dict(raw) if raw else None
 
 
 def _fail(code: str, **extra: Any) -> dict[str, Any]:
@@ -294,7 +321,17 @@ def _plan_order(cfg: SkillConfig) -> list[str]:
 
 
 RETRIED_NODES = frozenset(
-    {"setup", "pull", "interpret", "sense_check", "targeted_pulls", "distill"}
+    {
+        "setup",
+        "entity_lock",
+        "pull",
+        "interpret",
+        "pipelines",
+        "person_searches",
+        "sense_check",
+        "targeted_pulls",
+        "distill",
+    }
 )
 
 
@@ -314,6 +351,36 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         if set(settings.lanes) - set(cfg.lanes):
             return _fail("invalid_setup")
         return {"scope": state["mode"], "outcome": "running", "exits": {"setup": "validated"}}
+
+    async def entity_lock(state: AbmState) -> dict[str, Any]:
+        """Master prompt v2 section 3, the blocking gate before any pull: the account is locked
+        from its own home page and one brand search. A home page that was read and does not name
+        the account ends the run ``entity_mismatch`` before a credit is spent on it (2026-10-24:
+        a run researched vizent.co, a 3D studio, for an account named Vizient). A build run
+        reuses the lock its parent stored."""
+        if state.get("outcome") == "failed":
+            return {}
+        ctx = context(state)
+        stored = await deps.records.entity_lock(ctx) if state["mode"] == "build" else None
+        if stored:
+            lock = EntityLock.from_dict(dict(stored))
+        else:
+            lock = await deps.provider.entity_lock(ctx)
+            await deps.records.save_entity_lock(ctx, lock.as_dict())
+        outcome = "confirmed" if lock.confirmed else ("mismatch" if lock.mismatch else "unverified")
+        _log.info(
+            "entity.locked",
+            extra={
+                "outcome": outcome,
+                "count": len(lock.allowed_domains),
+                "dropped": len(lock.blocked_lookalikes),
+            },
+        )
+        if outcome == "mismatch":
+            return _fail(
+                "entity_mismatch", entity_lock=lock.as_dict(), exits={"entity_lock": outcome}
+            )
+        return {"entity_lock": lock.as_dict(), "exits": {"entity_lock": outcome}}
 
     async def cap_approval(state: AbmState) -> dict[str, Any]:
         """G7 / S16: the cap request is confirmed before any paid call of Phase 1."""
@@ -360,14 +427,19 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 # outside this job's scope: reported "not planned for this run", never silent
                 rows.append(agent.blocked(cfg.plan[key], "not_planned"))
                 continue
+            if cfg.plan[key].pipeline == "people" and deps.pipelines is not None:
+                # the people pipeline pulls, merges and records the senior people list itself
+                # after the reading step, under the tenant's consent (switched on 2026-10-24);
+                # Phase 1 does not pay for a pull the pipeline would repeat
+                rows.append(agent.blocked(cfg.plan[key], "owned_by_pipeline"))
+                continue
             if (
                 cfg.plan[key].step == "people"
                 and problem is None
                 and not getattr(deps.grading, "records_people", True)
+                and deps.pipelines is None
             ):
-                # the people step's findings cannot be saved yet, so its pulls are not paid for
-                # only to be thrown away (OI-ABM-4; audit 2026-10-21). Missing consent is the
-                # reason the client can act on, so it is reported first (the agent's own check)
+                # no pipeline to record people: the pull is not paid for only to be thrown away
                 rows.append(agent.blocked(cfg.plan[key], "people_not_recorded"))
                 continue
             try:
@@ -459,11 +531,15 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         return [await deps.payloads.view(ctx.tenant_id, ref) for ref in refs]
 
     async def _interpret(
-        ctx: RunContext, views: list[PayloadView], consent_ok: bool
+        ctx: RunContext,
+        views: list[PayloadView],
+        consent_ok: bool,
+        lock: EntityLock | None = None,
     ) -> Counter[str]:
         drops: Counter[str] = Counter()
         candidates: list[GradingCandidate] = []
         people: list[Any] = []
+        lanes = (await deps.settings.get(ctx.tenant_id)).lanes or cfg.lanes
         # a page that is not about the account is never read for facts (staging 2026-10-16: a
         # run on one company summarised another whose page a search had returned)
         kept = [
@@ -476,7 +552,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             if v.visibility != "public"
             or v.row_key in OFF_TARGET_EXEMPT_ROWS
             or cfg.plan[v.row_key].need in ACCOUNT_KEYED_NEEDS
-            or on_target(ctx.domain, ctx.account_name, v.url, v.text)
+            or (
+                on_target(ctx.domain, ctx.account_name, v.url, v.text)
+                # the entity lock (section 3): a look-alike's host or a page that names only
+                # the look-alike is another company's, however often it says the brand
+                and (lock is None or accept(lock, v.url, v.text)[0])
+            )
         ]
         if len(kept) < len(views):
             drops["off_target"] += len(views) - len(kept)
@@ -489,7 +570,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         # returns, so the client sees facts while the rest of the node is still reading
         # (audit 2026-10-21: every fact used to wait for the slowest call of the whole node)
         try:
-            await _extract_steps(ctx, views, consent_ok, drops, candidates, people)
+            await _extract_steps(ctx, views, consent_ok, drops, candidates, people, lanes)
         except Exception:
             # a model failure part-way (credits, usage limit, outage): grade and keep what the
             # groups still in hand found before the run stops, so a stopped run shows its
@@ -508,8 +589,12 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         drops: Counter[str],
         candidates: list[GradingCandidate],
         people: list[Any],
+        lanes: tuple[str, ...] = (),
     ) -> None:
         grading_lock = asyncio.Lock()
+        # the same (row, attribute, value) found by two source groups is one fact: the second
+        # is graded only when it brings a full-page read the first lacked (a Confirmed upgrade)
+        seen: dict[tuple[str, str, str], bool] = {}
         # the token guard reached during a step: calls already in flight finish and are kept
         # (a cancelled call would be paid again after the user continues), no new one starts,
         # and the node pauses once the step's calls are done
@@ -537,7 +622,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                     if guard:
                         return ExtractionResult()
                     try:
-                        return await extract(agent, deps.model, m, ctx, group, cfg)
+                        return await extract(agent, deps.model, m, ctx, group, cfg, lanes)
                     except TokenGuardReached as reached:
                         guard.append(reached)
                         return ExtractionResult()
@@ -562,7 +647,14 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                     if res is None:
                         drops[f"{step}_budget_exceeded"] += 1
                         continue
-                    found += res.candidates
+                    for item in res.candidates:
+                        c = item.candidate
+                        key = (c.row_key, c.attribute, value_key(c.value))
+                        if key in seen and (seen[key] or not item.read_this_run):
+                            drops["duplicate_across_groups"] += 1
+                            continue
+                        seen[key] = item.read_this_run
+                        found.append(item)
                     met += res.people
                     drops.update(res.drops)
                 # held as the node's ungraded findings until saved, so a failure in another
@@ -657,11 +749,16 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         consent_ok = consent_decision(consent, cfg.consent_scope, cfg.consent_text_version) is None
         stored = [r for r in manifest.rows if r.status == "stored"]
         # report every row first: the tracker needs only the pull's call refs, so a run that
-        # stops during extraction still shows the steps it pulled (audit 2026-10-15)
+        # stops during extraction still shows the steps it pulled (audit 2026-10-15). The
+        # posting rows are the job pipeline's: it reports them itself with its own evidence
+        # (board searches, feed, reads) in the ``pipelines`` node; a second report from here
+        # would be a refused transition (done to partial)
         for row in manifest.rows:
+            if cfg.plan[row.row_key].pipeline in ("jobs", "people") and deps.pipelines is not None:
+                continue  # the pipelines node reports these rows with its own evidence
             await deps.tracker.report(ctx, row.row_key, row.call_refs, row.blocked_reason)
         views = await _views(ctx, stored)
-        drops = await _interpret(ctx, views, consent_ok)
+        drops = await _interpret(ctx, views, consent_ok, _lock(state))
         # the cloud logs carry no message text, so a run that read many pages and kept no fact
         # said nothing about why (staging 2026-10-21, 27 extraction calls and no facts): one line
         # per drop reason with its count, never text
@@ -673,6 +770,145 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             "counters": {f"drop_{k}": v for k, v in drops.items()},
             "careers_url": careers,
             "exits": {"interpret": "extracted"},
+        }
+
+    async def pipelines(state: AbmState) -> dict[str, Any]:
+        """The code pipelines after the reading step (skill steps 6 and 7): postings read,
+        classified and counted by the job pipeline; technology detections as dated rows."""
+        ctx = context(state)
+        if deps.pipelines is None:
+            return {"exits": {"pipelines": "not_available_yet"}}
+        # a build run runs the pipelines too (G14: full equals pull then build); their feed and
+        # search calls replay from the ledger or the research cache when the parent made them
+        in_scope = _in_scope(state, cfg)
+        counters: dict[str, int] = {}
+        exits: dict[str, str] = {}
+        jobs_rows = {k for k, row in cfg.plan.items() if row.pipeline == "jobs"}
+        manifest = await _manifest(state)
+        pulled = {r.row_key: r for r in manifest.rows}
+        if jobs_rows & in_scope:
+            try:
+                out = await deps.pipelines.run_jobs(ctx, state.get("careers_url"))
+            except TokenGuardReached:
+                raise
+            except Exception as error:  # noqa: BLE001 - a model failure ends the run partial
+                if model_failure_code(error) is not None:
+                    raise
+                # the pipeline failed for another reason: the run goes on and the posting rows
+                # keep what Phase 1 pulled, with the failure as their reason (never silent, G1)
+                _log.warning(
+                    "pipelines.jobs_failed", extra={"error_code": type(error).__name__[:80]}
+                )
+                for key in sorted(jobs_rows & in_scope):
+                    row = pulled.get(key)
+                    await deps.tracker.report(
+                        ctx, key, row.call_refs if row else [], "source_failed"
+                    )
+                counters["pipelines_jobs_failed"] = 1
+                exits["jobs"] = "failed"
+            else:
+                counters.update(out.counters)
+                exits.update(out.exits)
+        else:
+            for key in sorted(jobs_rows):
+                row = pulled.get(key)
+                if row is not None:
+                    await deps.tracker.report(ctx, key, row.call_refs, row.blocked_reason)
+            exits["jobs"] = "not_planned"
+        tech_rows = {k for k, row in cfg.plan.items() if row.pipeline == "tech"}
+        if tech_rows & in_scope:
+            try:
+                out = await deps.pipelines.write_detections(ctx)
+            except TokenGuardReached:
+                raise
+            except Exception as error:  # noqa: BLE001 - a store or feed error never ends the run
+                if model_failure_code(error) is not None:
+                    raise
+                _log.warning(
+                    "pipelines.tech_failed", extra={"error_code": type(error).__name__[:80]}
+                )
+                for key in sorted(tech_rows & in_scope):
+                    await deps.tracker.report(ctx, key, [], "source_failed")
+                counters["pipelines_tech_failed"] = 1
+                exits["tech"] = "failed"
+            else:
+                counters.update(out.counters)
+                exits.update(out.exits)
+        else:
+            exits["tech"] = "not_planned"
+        # the people list (skill step 8), under the tenant's people data consent (G8): without
+        # it the three rows end Blocked consent_required and nothing is pulled
+        people_rows = {k for k, row in cfg.plan.items() if row.pipeline == "people"}
+        if people_rows & in_scope:
+            consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
+            problem = consent_decision(consent, cfg.consent_scope, cfg.consent_text_version)
+            if problem is not None:
+                for key in sorted(people_rows & in_scope):
+                    await deps.tracker.report(ctx, key, [], "consent_required")
+                exits["people"] = "consent_required"
+            else:
+                try:
+                    out = await deps.pipelines.run_people(ctx)
+                except TokenGuardReached:
+                    raise
+                except Exception as error:  # noqa: BLE001 - a model failure ends the run partial
+                    if model_failure_code(error) is not None:
+                        raise
+                    _log.warning(
+                        "pipelines.people_failed",
+                        extra={"error_code": type(error).__name__[:80]},
+                    )
+                    for key in sorted(people_rows & in_scope):
+                        await deps.tracker.report(ctx, key, [], "source_failed")
+                    counters["pipelines_people_failed"] = 1
+                    exits["people"] = "failed"
+                else:
+                    counters.update(out.counters)
+                    exits.update(out.exits)
+        else:
+            for key in sorted(people_rows):
+                row = pulled.get(key)
+                if row is not None:
+                    await deps.tracker.report(ctx, key, row.call_refs, row.blocked_reason)
+            exits["people"] = "not_planned"
+        return {"counters": counters, "exits": {**exits, "pipelines": "run"}}
+
+    async def person_searches(state: AbmState) -> dict[str, Any]:
+        """Step 9 (checklist): speaking, podcasts and video searched by person name, never by
+        company name, for the executives the reading step found. Free searches with their page
+        reads; a credit refusal or a failed source ends the step, never the run."""
+        ctx = context(state)
+        in_scope = _in_scope(state, cfg) & set(PERSON_ROWS)
+        if not in_scope:
+            return {"exits": {"person_searches": "not_planned"}}
+        names = people_named(await deps.grading.facts(ctx))
+        queries = person_queries(names, ctx.account_name, sorted(in_scope))
+        views: list[PayloadView] = []
+        calls: dict[str, list[str]] = {}
+        failed = 0
+        for row_key, query in queries:
+            try:
+                result = await deps.provider.call(ctx, "web_search", query, row_key)
+            except (CapPause, ProviderFailed):
+                failed += 1
+                continue
+            calls.setdefault(row_key, []).extend(result.call_refs)
+            for source in result.items:
+                ref = await deps.payloads.put(ctx, row_key, source, "public")
+                views.append(await deps.payloads.view(ctx.tenant_id, ref))
+        for row_key, refs in calls.items():
+            await deps.tracker.report(ctx, row_key, refs, None)
+        consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
+        ok = consent_decision(consent, cfg.consent_scope, cfg.consent_text_version) is None
+        drops = await _interpret(ctx, views, ok) if views else Counter[str]()
+        return {
+            "counters": {
+                "people_named": len(names),
+                "person_searches": len(queries) - failed,
+                **({"person_searches_failed": failed} if failed else {}),
+                **{f"drop_{k}": v for k, v in drops.items()},
+            },
+            "exits": {"person_searches": "searched" if queries else "no_names"},
         }
 
     async def _careers(ctx: RunContext, stored: list[ManifestRow]) -> str | None:
@@ -1004,11 +1240,14 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
     g: StateGraph[AbmState] = StateGraph(AbmState)
     for name, fn in (
         ("setup", setup),
+        ("entity_lock", entity_lock),
         ("cap_approval", cap_approval),
         ("pull", pull),
         ("spend_gate", spend_gate),
         ("load_manifest", load_manifest),
         ("interpret", model_guarded("interpret", interpret)),
+        ("pipelines", model_guarded("pipelines", pipelines)),
+        ("person_searches", model_guarded("person_searches", person_searches)),
         ("sense_check", model_guarded("sense_check", sense)),
         ("sense_approval", sense_approval),
         ("targeted_pulls", model_guarded("targeted_pulls", targeted_pulls)),
@@ -1026,7 +1265,10 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         g.add_node(name, cast(Any, fn), retry_policy=policy)
     g.add_edge(START, "setup")
     g.add_conditional_edges(
-        "setup",
+        "setup", lambda s: "finish" if s.get("outcome") == "failed" else "entity_lock"
+    )
+    g.add_conditional_edges(
+        "entity_lock",
         lambda s: (
             "finish"
             if s.get("outcome") == "failed"
@@ -1037,12 +1279,22 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
     g.add_conditional_edges("pull", after_pull)
     g.add_edge("spend_gate", "pull")
     g.add_conditional_edges("load_manifest", ok_or_finish("interpret"))
-    g.add_conditional_edges("interpret", ok_or_finish("sense_check"))
+    g.add_conditional_edges("interpret", ok_or_finish("pipelines"))
+    g.add_conditional_edges("pipelines", ok_or_finish("person_searches"))
+    g.add_conditional_edges("person_searches", ok_or_finish("sense_check"))
     g.add_conditional_edges("sense_check", token_paused(after_sense))
     g.add_conditional_edges(
         "token_gate",
         after_token_gate,
-        ["interpret", "sense_check", "targeted_pulls", "distill", "finish"],
+        [
+            "interpret",
+            "pipelines",
+            "person_searches",
+            "sense_check",
+            "targeted_pulls",
+            "distill",
+            "finish",
+        ],
     )
     g.add_edge("sense_approval", "targeted_pulls")
     g.add_conditional_edges("targeted_pulls", ok_or_finish("sense_check"))

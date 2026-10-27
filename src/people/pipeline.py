@@ -46,7 +46,7 @@ from people.models import (
     Profile,
     RawPerson,
 )
-from people.names import normalise_name, title_tokens
+from people.names import looks_like_person, normalise_name, title_tokens
 from people.ports import (
     CostPort,
     ExtractorPort,
@@ -93,6 +93,9 @@ class RunInputs:
     reference_employers: tuple[str, ...] | None = None
     budget_usd: float | None = None
     excluded_people: tuple[str, ...] = ()
+    # the entity lock's other domains of the account (redirect host, subsidiaries): an employer
+    # there is the account, not another company (2026-10-24)
+    allowed_domains: tuple[str, ...] = ()
 
 
 def tenant_excludes(inputs: RunInputs, name: str | None, profile_url: str | None) -> bool:
@@ -248,7 +251,21 @@ class PeoplePipeline:
                 search_domain=record.search_domain,
                 location=record.location,
             )
-            cls = classify(scope_input, self.cfg, inputs.account_domain, inputs.regions)
+            cls = classify(
+                scope_input,
+                self.cfg,
+                inputs.account_domain,
+                inputs.regions,
+                inputs.allowed_domains,
+            )
+            if cls.status != "merged" and not looks_like_person(record.name):
+                # a title or a quote the source called a person (master prompt v2 section 5)
+                cls = Classification(
+                    status="excluded",
+                    reason="not_a_person_name",
+                    rule_id="scope.person_name",
+                    evidence="name is a title or a fragment",
+                )
             if cls.status != "merged" and tenant_excludes(inputs, record.name, item.url):
                 # TN5 pull time: the tenant's exclusion beats every inclusion rule
                 cls = Classification(

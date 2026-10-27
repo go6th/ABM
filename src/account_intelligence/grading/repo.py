@@ -44,8 +44,21 @@ def write_key(run: RunInfo, claim: GradedClaim) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-async def _insert_fact(s: AsyncSession, run: RunInfo, claim: GradedClaim) -> tuple[UUID, bool]:
+async def _insert_fact(
+    s: AsyncSession,
+    run: RunInfo,
+    claim: GradedClaim,
+    *,
+    lane: str | None = None,
+    event_date: str | None = None,
+) -> tuple[UUID, bool]:
+    """The one INSERT into ``facts`` (append-only: the trigger refuses any later change). The
+    fact's lane and the date its sentence states, both decided by code, travel with the insert
+    (``lane`` column, ``value_json.event_date``), never as an UPDATE."""
     key = write_key(run, claim)
+    value_json: dict[str, Any] = {"value": claim.value, "normalised": claim.normalised_value}
+    if event_date:
+        value_json["event_date"] = event_date
     row = (
         await s.execute(
             text(
@@ -54,21 +67,20 @@ async def _insert_fact(s: AsyncSession, run: RunInfo, claim: GradedClaim) -> tup
                 " run_id, claim_hash, write_key, claim_kind, value_text, confirming_question,"
                 " reasoning,"
                 " flags, precedence_rule, config_hash, schema_version, lead_status,"
-                " may_state_to_prospect)"
+                " may_state_to_prospect, lane)"
                 " VALUES (:account, (SELECT app_tenant()), :key, CAST(:value_json AS jsonb), :fp,"
                 " :eg, :pg,"
                 " :conf, :prim, :vis, :run, :ch, :wk, :kind, :value, :q, :reasoning, CAST(:flags"
                 " AS jsonb),"
-                " :rule, :cfg, :sv, :lead, :may)"
+                " :rule, :cfg, :sv, :lead, :may, :lane)"
                 " ON CONFLICT (tenant_id, write_key) WHERE write_key IS NOT NULL DO NOTHING"
                 " RETURNING id"
             ),
             {
                 "account": run.account_id,
                 "key": claim.attribute_key,
-                "value_json": json.dumps(
-                    {"value": claim.value, "normalised": claim.normalised_value}
-                ),
+                "value_json": json.dumps(value_json),
+                "lane": lane,
                 "fp": fingerprint(run.account_id, claim.attribute_key, claim.normalised_value),
                 "eg": claim.engine_grade,
                 "pg": claim.product_grade,
@@ -209,11 +221,18 @@ async def _grade_event(
 
 
 async def record_graded_fact(
-    txn: TxnFactory, run: RunInfo, claim: GradedClaim, *, actor: str = "grading_engine"
+    txn: TxnFactory,
+    run: RunInfo,
+    claim: GradedClaim,
+    *,
+    actor: str = "grading_engine",
+    lane: str | None = None,
+    event_date: str | None = None,
 ) -> UUID:
-    """Insert fact, evidence and an initial grade event atomically; idempotent per content."""
+    """Insert fact, evidence and an initial grade event atomically; idempotent per content.
+    ``lane`` and ``event_date`` are code-decided annotations written with the fact."""
     async with txn(run.tenant_id) as s:
-        fact_id, created = await _insert_fact(s, run, claim)
+        fact_id, created = await _insert_fact(s, run, claim, lane=lane, event_date=event_date)
         if created:
             await _insert_evidence(s, fact_id, run, claim)
             await _grade_event(s, fact_id, run, claim, actor, "initial")

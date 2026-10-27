@@ -296,8 +296,19 @@ class PeopleProposalSink:
 class RunPeopleInput:
     """``RunInputPort`` from the run row (``run_input`` JSON and the creation date)."""
 
-    def __init__(self, run_input: dict[str, Any], as_of: date, budget_usd: float | None) -> None:
+    def __init__(
+        self,
+        run_input: dict[str, Any],
+        as_of: date,
+        budget_usd: float | None,
+        allowed_domains: tuple[str, ...] = (),
+    ) -> None:
         self.data, self._as_of, self._budget = run_input, as_of, budget_usd
+        self._allowed = tuple(allowed_domains)
+
+    async def allowed_domains(self) -> tuple[str, ...]:
+        """The entity lock's other domains of the account."""
+        return self._allowed
 
     async def lanes_off(self) -> frozenset[str]:
         """Lanes switched off in the run input."""

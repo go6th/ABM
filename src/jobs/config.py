@@ -68,6 +68,10 @@ class JobsConfig:
     caps: dict[str, int]
     count_sentence: str
     config_hash: str
+    # read an in-window posting whose feed text is an excerpt (shorter than the minimum) even
+    # when no lexicon term matched it: a truncated or empty description cannot match anything,
+    # so without the read the posting stays unread (staging 2026-10-24: 12 postings, none read)
+    read_excerpts: bool = False
 
     @property
     def lexicon(self) -> dict[str, tuple[str, ...]]:
@@ -135,7 +139,8 @@ def load_jobs_config(directory: Path | None = None) -> JobsConfig:
         for name, cap in jobs["caps"].items():
             _need_provenance(cap, f"cap {name}")
             caps[name] = int(cap["value"])
-        if research_uncapped():  # caps off: read and extract every posting (dev_limits)
+        uncapped = research_uncapped()
+        if uncapped:  # caps off: read and extract every posting (dev_limits)
             caps.update({k: UNCAPPED for k in ("max_page_reads", "max_extractor_calls")})
         template = jobs["templates"]["count_sentence"]
         _need_provenance(template, "count_sentence template")
@@ -146,6 +151,7 @@ def load_jobs_config(directory: Path | None = None) -> JobsConfig:
             caps=caps,
             count_sentence=str(template["value"]),
             config_hash=hashlib.sha256((h1 + h2 + h3).encode()).hexdigest(),
+            read_excerpts=uncapped,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ConfigError(f"invalid job pipeline configuration: {exc}") from exc

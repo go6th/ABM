@@ -54,6 +54,9 @@ exclusion_rules:
      source: "PRD s3.3 exclusion name", positive: "Head of IT Compliance", negative: "Head of IT Operations"}
   - {rule_id: excl.it_audit, reason: it_audit, cues: [it audit], status: proposal,
      source: "PRD s3.3 exclusion name", positive: "Director, IT Audit", negative: "Director, IT Architecture"}
+  - {rule_id: excl.privacy, reason: privacy, cues: [privacy], status: proposal,
+     source: "master prompt v2 section 0 (2026-10-24): exclude CISO, security, IT compliance, IT audit, privacy titles",
+     positive: "Director, Data Privacy", negative: "Director, Data Platform"}
 # A title that names part of an exclusion without the IT qualifier is ambiguous: review, never a
 # silent include or exclude.
 review_rules:

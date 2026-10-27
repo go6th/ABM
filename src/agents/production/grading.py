@@ -9,6 +9,13 @@
 * ``InheritedLedger`` is the engine's source and fetch view of a run plus its declared parent
   pull run (a Phase 2 run grades the pull it was built on, G16; same tenant by FK): the parent's
   real records, presented as this run's inputs. Never another account's or tenant's run.
+* ``grade_raw`` grades proposals a code pipeline templated (the job pipeline's one claim per
+  classified posting and named platform) through the same engine path, with the lane of the
+  platform's lane (``jobs.config``).
+* A fact's ``lane`` (the Summary groups graded rows by it) and ``event_date`` are written with
+  the fact itself (``repo.record_graded_fact``; facts are append-only): the candidate's lane,
+  inferred by code from the platforms its quotes name or named by the model from the skill's
+  lanes. Until 2026-10-24 no fact carried a lane (every Summary row sat under "Unassigned lane").
 * ``mark_conflicting`` supersedes each named fact with the same claim capped at the engine's
   configured Conflicting maximum (never raised) and flagged ``conflicting``; already-flagged or
   superseded facts are skipped. The write goes through ``repo.supersede``.
@@ -23,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -34,6 +42,7 @@ from account_intelligence.grading import repo
 from account_intelligence.grading.adapters import LedgerAdapter
 from account_intelligence.grading.config import GradingConfig
 from account_intelligence.grading.integration import judge_profile_ok, load_run_info
+from account_intelligence.grading.leads import LeadVerification, lead_states_from_fetches
 from account_intelligence.grading.pipeline import _hash, grade_claims, load_inputs
 from account_intelligence.grading.ports import FetchRecord, RunInfo, RunSource, SupportJudgePort
 from account_intelligence.grading.product import statement_policy
@@ -86,8 +95,18 @@ class InheritedLedger:
         return out
 
 
-def _question(attribute: str) -> str:
-    return f"What would confirm the {attribute.replace('_', ' ')} for this account?"
+def _question(attribute: str, value: str | None = None) -> str:
+    """The question a seller asks to confirm a fact (the skill: every line below Confirmed
+    becomes a question). Plain words, the finding named, no attribute key."""
+    from agents.config import skill_config
+
+    spec = skill_config().attributes.get(attribute)
+    what = (
+        spec.meaning.split(",")[0].split(" (")[0].strip() if spec else attribute.replace("_", " ")
+    )
+    what = what[0].lower() + what[1:] if what else attribute
+    shown = f" ({value.strip()})" if value and len(value.strip()) <= 80 else ""
+    return f"Can the account confirm the {what}{shown} as current?"
 
 
 def attribute_key(row_key: str, attribute: str) -> str:
@@ -121,15 +140,29 @@ def proposal(index: int, item: GradingCandidate) -> dict[str, Any]:
             {"url": url, "supporting_sentence": e.quote}
             for url, e in zip(item.urls, c.evidence, strict=True)
         ],
-        "confirming_question": _question(c.attribute),
+        "confirming_question": _question(c.attribute, c.value),
     }
     if c.origin in MATCHES:
         raw["match_origin"] = c.origin
     return raw
 
 
+def _tier(row: str, attribute: str) -> int | None:
+    """The signal tier of an attribute of the vocabulary (None outside it)."""
+    from agents.config import skill_config
+
+    spec = skill_config().attributes.get(attribute)
+    return spec.tier if spec is not None and spec.row_key == row else None
+
+
 def _stored(
-    fact_id: UUID | str, claim_key: str, value: str, grade: str, flags: Sequence[str]
+    fact_id: UUID | str,
+    claim_key: str,
+    value: str,
+    grade: str,
+    flags: Sequence[str],
+    lane: str | None = None,
+    event_date: str | None = None,
 ) -> StoredFact:
     row, attribute = split_key(claim_key)
     return StoredFact(
@@ -140,7 +173,39 @@ def _stored(
         grade=grade,
         visibility="private" if grade == "internal" else "public",
         flags=tuple(flags),
+        lane=lane,
+        tier=_tier(row, attribute),
+        event_date=event_date,
     )
+
+
+# where a fact keeps the date its sentence states (``facts.value_json``, beside the engine's
+# normalised value)
+EVENT_DATE_KEY = "event_date"
+
+
+def _lead_states(
+    raws: Sequence[Mapping[str, Any]], run: RunInfo, inputs: Any, cfg: GradingConfig
+) -> dict[str, LeadVerification]:
+    """Every claim's Lead verification state from the run's own ledger (rule 8 of the master
+    prompt): the queries that named the value, offered in ledger order. The key is the one
+    ``grade_claims`` uses, ``attribute=normalised value``."""
+    from account_intelligence.grading.engine import normaliser_for
+    from account_intelligence.grading.spans import normalise_value
+
+    leads: dict[str, tuple[str, ...]] = {}
+    for raw in raws:
+        key = str(raw.get("attribute_key") or "")
+        value = str(raw.get("value") or "")
+        if not key or not value:
+            continue
+        try:
+            norm = normalise_value(value, normaliser_for(key, cfg))
+        except Exception:  # noqa: BLE001 - an unknown attribute has no lead key to verify
+            continue
+        leads.setdefault(f"{key}={norm}", tuple(re.findall(r"\w+", norm.lower())))
+    terms = tuple(re.findall(r"\w+", (run.account_name or "").lower()))
+    return lead_states_from_fetches(leads, inputs.fetches, terms, cfg)
 
 
 @dataclass(frozen=True)
@@ -177,13 +242,27 @@ class EngineGrading:
             internal_only_keys=private,
             judge=self.judge,
             judge_profile_ok=judge_profile_ok(self.cfg),
+            lead_states=_lead_states(raws, run, inputs, self.cfg),
         )
         by_hash = {_hash(r): i for i, r in enumerate(raws)}
         facts, index, read = [], [], []
         for claim in result.graded:
-            fact_id = await repo.record_graded_fact(self.txn, run, claim)
+            item = items[by_hash[claim.claim_hash]]
+            lane = item.candidate.lane
+            when = item.candidate.event_date
+            fact_id = await repo.record_graded_fact(
+                self.txn, run, claim, lane=lane, event_date=when
+            )
             facts.append(
-                _stored(fact_id, claim.attribute_key, claim.value, claim.product_grade, claim.flags)
+                _stored(
+                    fact_id,
+                    claim.attribute_key,
+                    claim.value,
+                    claim.product_grade,
+                    claim.flags,
+                    lane,
+                    when,
+                )
             )
             index.append(by_hash[claim.claim_hash])
             read.append(claim.read_in_primary_this_run)
@@ -192,20 +271,61 @@ class EngineGrading:
             await repo.record_lead(self.txn, run, lead)
         return GradeBatch(tuple(facts), tuple(index), dict(result.drop_counts), tuple(read))
 
+    async def grade_raw(
+        self, ctx: RunContext, raws: Sequence[Mapping[str, Any]], lane_of: Mapping[str, str]
+    ) -> dict[str, int]:
+        """Grade and record proposals a code pipeline templated (the engine's own schema);
+        ``lane_of`` maps a proposal's ``local_id`` to its lane. Returns the drop counts plus
+        ``graded``."""
+        if not raws:
+            return {"graded": 0}
+        run = await load_run_info(self.txn, ctx.tenant_id, ctx.run_id)
+        await repo.pin_config(self.txn, run, self.cfg.content_hash)
+        inputs = await load_inputs(run, self.ledger, self.ledger)
+        result = await grade_claims(
+            list(raws),
+            run,
+            inputs,
+            self.cfg,
+            self.clock.now(),
+            judge=self.judge,
+            judge_profile_ok=judge_profile_ok(self.cfg),
+        )
+        by_hash = {_hash(r): str(r.get("local_id") or "") for r in raws}
+        graded = 0
+        for claim in result.graded:
+            await repo.record_graded_fact(
+                self.txn, run, claim, lane=lane_of.get(by_hash[claim.claim_hash])
+            )
+            graded += 1
+        await repo.record_drops(self.txn, run, result.dropped)
+        for lead in result.leads.values():
+            await repo.record_lead(self.txn, run, lead)
+        return {"graded": graded, **dict(result.drop_counts)}
+
     async def facts(self, ctx: RunContext) -> tuple[StoredFact, ...]:
         """The run's current facts (not superseded), ordered by id."""
         async with self.txn(ctx.tenant_id) as s:
             rows = (
                 await s.execute(
                     text(
-                        "SELECT id, attribute_key, value_text, product_grade, flags FROM facts"
+                        "SELECT id, attribute_key, value_text, product_grade, flags, lane,"
+                        " value_json->>:k AS event_date FROM facts"
                         " WHERE run_id = :r AND superseded_at IS NULL ORDER BY id"
                     ),
-                    {"r": ctx.run_id},
+                    {"r": ctx.run_id, "k": EVENT_DATE_KEY},
                 )
             ).all()
         return tuple(
-            _stored(r.id, r.attribute_key, r.value_text or "", r.product_grade, r.flags or ())
+            _stored(
+                r.id,
+                r.attribute_key,
+                r.value_text or "",
+                r.product_grade,
+                r.flags or (),
+                r.lane,
+                r.event_date,
+            )
             for r in rows
         )
 
@@ -234,7 +354,7 @@ class EngineGrading:
                     "flags": tuple(sorted({*claim.flags, "conflicting"})),
                     "reasoning": claim.reasoning or "Sources disagree on this value.",
                     "confirming_question": claim.confirming_question
-                    or _question(split_key(claim.attribute_key)[1]),
+                    or _question(split_key(claim.attribute_key)[1], claim.value),
                 }
             )
             new = GradedClaim.model_validate_json(new.model_dump_json())  # every rule re-checked

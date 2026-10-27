@@ -35,6 +35,13 @@ def lying(h: Harness, task: str, script: Any) -> None:
     h.llm.scripts[task] = script
 
 
+def extracted_facts(h: Harness, run_id: Any) -> list[Any]:
+    """The run's facts that came from the extraction step (not from the code pipelines, which
+    grade the job and detection rows themselves since 2026-10-24)."""
+    pipeline_rows = {k for k, row in h.cfg.plan.items() if row.pipeline}
+    return [f for f in h.grading.facts_by_run[run_id].values() if f.row_key not in pipeline_rows]
+
+
 def every_extract(h: Harness, script: Any) -> None:
     for task in ("abm_pass1_extract", "abm_pass2_extract"):
         lying(h, task, script)
@@ -104,7 +111,7 @@ async def test_inflated_grades_and_tool_requests_reject_the_output(h: Harness, e
 
     every_extract(h, inflate)
     record, state = await h.run("r")
-    assert not h.grading.facts_by_run[record.run_id]
+    assert not extracted_facts(h, record.run_id)  # the pipelines' own facts are not the model's
     assert state["counters"]["drop_output_schema_invalid"] >= 1
 
 
@@ -148,21 +155,42 @@ async def test_lying_engine_that_promotes_unread_matches_fails_closed(make) -> N
 
 
 async def test_invented_titles_names_and_tenure_are_dropped(h: Harness) -> None:
-    h.grant_consent()
+    """The people extractor's guards, exercised directly: the research graph leaves the people
+    rows to the people pipeline since 2026-10-24, so the extraction call is made here."""
+    from uuid import uuid4
+
+    from agents.contracts import BudgetMeter, load_registry
+    from agents.extraction import extract
+    from agents.ports import RunContext
+    from agents.schemas import ExtractionInput, PayloadView
+
+    quote = "Avery Quinn, Chief Information Officer at Northwind."
+    view = PayloadView(
+        payload_ref="pl/people",
+        row_key="people_by_platform",
+        url="https://northwind-synthetic.example/people",
+        text=f"person: {quote}",
+    )
 
     def invent(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-        p = first_payload(payload)
-        quote = p["text"].splitlines()[0].split(": ", 1)[1]  # "Name, Title at Account."
-        name, _, rest = quote.partition(",")
-        title = rest.split(" at ")[0].strip()
-        ev = [{"payload_ref": p["payload_ref"], "quote": quote}]
+        ev = [{"payload_ref": "pl/people", "quote": quote}]
         return {
             "people": [
-                {"name": name, "title": "Chief Executive Officer", "priority": "A", "evidence": ev},
-                {"name": "Morgan Vale", "title": title, "priority": "A", "evidence": ev},
                 {
-                    "name": name,
-                    "title": title,
+                    "name": "Avery Quinn",
+                    "title": "Chief Executive Officer",
+                    "priority": "A",
+                    "evidence": ev,
+                },
+                {
+                    "name": "Morgan Vale",
+                    "title": "Chief Information Officer",
+                    "priority": "A",
+                    "evidence": ev,
+                },
+                {
+                    "name": "Avery Quinn",
+                    "title": "Chief Information Officer",
                     "priority": "A",
                     "tenure_text": "12 years",
                     "evidence": ev,
@@ -171,15 +199,27 @@ async def test_invented_titles_names_and_tenure_are_dropped(h: Harness) -> None:
         }
 
     lying(h, "abm_people_extract", invent)
-    record, state = await h.run("r")
-    assert not h.grading.people[record.run_id]
-    c = state["counters"]
-    calls = h.llm.calls["abm_people_extract"] if h.llm else 0
-    assert calls >= 1
-    expected = (calls, calls, calls)  # one of each lie per call, every one dropped
-    assert (c["drop_invented_title"], c["drop_invented_name"], c["drop_invented_tenure"]) == (
-        expected
+    assert h.llm is not None
+    contract = load_registry()["people"]
+    ctx = RunContext(
+        h.tenant,
+        uuid4(),
+        "northwind-synthetic.example",
+        "Northwind Synthetic",
+        "northwind-synthetic.example",
+        False,
+        h.cfg.config_version,
     )
+    inp = ExtractionInput(step="people", group="web_search", payloads=(view,))
+    result = await extract(
+        contract, h.llm, BudgetMeter(contract, started_at=h.clock.now()), ctx, inp, h.cfg
+    )
+    assert result.people == []
+    assert (
+        result.drops["invented_title"],
+        result.drops["invented_name"],
+        result.drops["invented_tenure"],
+    ) == (1, 1, 1)
 
 
 async def test_injection_echo_and_canary_reject_the_output(make) -> None:  # type: ignore[no-untyped-def]
@@ -428,4 +468,4 @@ async def test_candidates_for_other_rows_or_lanes_are_dropped(make) -> None:  # 
         1,
         1,
     )
-    assert not h.grading.facts_by_run[record.run_id]
+    assert not extracted_facts(h, record.run_id)

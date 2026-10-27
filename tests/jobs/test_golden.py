@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from jobs.config import load_jobs_config
 from jobs.counts import render_count_sentence
 from jobs.models import CountBlock, NotSearched
 from jobs.pipeline import ROW_BOARD, ROW_PULL, ROW_READ
 from jobs.stage import run_jobs
 from tests.fakes.jobs import Corpus, FakeRunInput, Recorder, oracle
-from tests.jobs.conftest import build
+from tests.jobs.conftest import build, frozen_config
 
 pytestmark = pytest.mark.asyncio
 
@@ -70,7 +69,7 @@ async def test_counts_classes_sentences_and_status_equal_the_oracle(corpus: Corp
     assert sum(1 for kind, _ in source.calls if kind == "feed") == 1  # pulled once
     assert len(set(first.calls)) == want["extractor_first_pass"]
     assert len(pages.calls) == want["page_reads"]
-    template = load_jobs_config().count_sentence
+    template = frozen_config().count_sentence
     assert render_count_sentence(d, template) == want["count_sentence"]
 
 
@@ -138,7 +137,7 @@ async def test_export_and_count_sentence_are_client_safe(corpus: Corpus) -> None
     assert "p_signals" not in blob and "synthetic/raw" not in blob
     assert "jane.doe@example.com" not in blob and "555 010 9999" not in blob
     assert not any(ref in blob for e in rec.evidence for ref in e[1])
-    sentence = render_count_sentence(result.counts.distinct, load_jobs_config().count_sentence)
+    sentence = render_count_sentence(result.counts.distinct, frozen_config().count_sentence)
     numbers = {int(n) for n in re.findall(r"\d+", sentence)}
     d = result.counts.distinct
     assert numbers <= {d.read, d.matched, d.read_status.open, d.read_status.closed}

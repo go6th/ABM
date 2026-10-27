@@ -58,9 +58,24 @@ function TurnUsageLine({ usage }: { usage: TurnUsage }) {
   );
 }
 
+/** Starter questions for the empty screen, from the workspace's own accounts (no invented names). */
+export function starterQuestions(accounts: ScopeAccount[]): string[] {
+  const [a, b] = accounts;
+  if (!a) return [];
+  const out = [
+    `What changed at ${a.name} recently?`,
+    `Who are the senior people at ${(b ?? a).name}?`,
+    "Which of my accounts are hiring right now?",
+    `What should I open with on a call with ${a.name}?`,
+  ];
+  return out;
+}
+
 export function Ask({
-  accounts, threadId: initialThread, initialTurns, initialScope, initialQuestion,
+  accounts, threadId: initialThread, initialTurns, initialScope, initialQuestion, userName = null,
 }: {
+  /** the signed-in person's display name, for the greeting */
+  userName?: string | null;
   accounts: ScopeAccount[];
   threadId: string | null;
   initialTurns: AskTurn[];
@@ -221,12 +236,21 @@ export function Ask({
     webHintOpen: webHint, onWebHint: setWebHint, onSend: () => void send(draft), onStop: stop,
   };
 
+  const first = (userName ?? "").trim().split(/\s+/)[0] ?? "";
+  const starters = starterQuestions(accounts);
+  // a starter fills the box (it is not sent): the person reads it, edits it if they like, asks
+  const pickStarter = (q: string) => {
+    setDraft(q);
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".ask-band .composer input")?.focus());
+  };
+
   if (!turns.length) {
     return (
       <div className="ask">
         <div className="ask-empty">
           <div className="ask-band">
           <div className="hero">
+            {first ? <span className="hi">Welcome back, {first}</span> : null}
             <h1>What do you want to know?</h1>
             <p className="lead">
               {accounts.length
@@ -236,6 +260,16 @@ export function Ask({
           </div>
           <AskComposer variant="hero" placeholder={PLACEHOLDER} menuDown {...composerProps} />
           {limitLine}
+          {starters.length ? (
+            <div className="starters">
+              <span className="lbl">Try asking</span>
+              <div className="row">
+                {starters.map((q, i) => (
+                  <button key={q} type="button" className={i % 2 ? "starter lav" : "starter"} onClick={() => pickStarter(q)}>{q}</button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           </div>
           {accounts.length ? null : (
             <nav className="first-steps" aria-label="First steps">

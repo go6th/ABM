@@ -2,7 +2,7 @@
 // that question on arrival (the account page's composer sends people here).
 import Link from "next/link";
 import type { Metadata } from "next";
-import type { AccountPage, ChatThread } from "@/lib/gen/api.gen";
+import type { AccountPage, ChatThread, Me } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { Ask, type AskTurn } from "@/components/ask/Ask";
 import { usageFromTurn } from "@/lib/chat-usage";
@@ -15,11 +15,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
   const { thread, account, q } = await searchParams;
   let accounts: AccountPage | null = null;
   let opened: ChatThread | null = null;
+  let me: Me | null = null;
   let failed = false;
   try {
-    [accounts, opened] = await Promise.all([
+    [accounts, opened, me] = await Promise.all([
       serverGet<AccountPage>("/v1/accounts?limit=200"),
       thread ? serverGet<ChatThread>(`/v1/chat/threads/${encodeURIComponent(thread)}`, "/") : Promise.resolve(null),
+      serverGet<Me>("/v1/me").catch(() => null), // the greeting only: never blocks Ask
     ]);
   } catch (e) {
     if (!(e instanceof ServerApiError)) throw e;
@@ -52,6 +54,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
       initialTurns={turns}
       initialScope={scope}
       initialQuestion={q && q.trim() ? q.trim().slice(0, 4000) : null}
+      userName={me?.display_name ?? null}
     />
   );
 }

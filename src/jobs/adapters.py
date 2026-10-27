@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import date
 from typing import Any
 
@@ -54,11 +54,28 @@ class _Calls:
 class ConnectorPostingSource(_Calls):
     """``PostingSourcePort`` over ``call_operation``."""
 
-    def __init__(self, deps: Any, careers_host: str | None) -> None:
+    def __init__(
+        self, deps: Any, careers_host: str | None, blocked_hosts: Iterable[str] = ()
+    ) -> None:
         super().__init__(deps)
         # a verified host is often "www.<domain>"; search filters take the bare lowercase host
         host = (careers_host or "").strip().lower().removeprefix("www.")
         self.careers_host = host or None
+        # the entity lock's look-alike hosts (master prompt v2 section 3): a posting there is
+        # another company's and is dropped before it is stored, counted in ``dropped``
+        self.blocked_hosts = frozenset(h.lower() for h in blocked_hosts if h)
+        self.dropped = 0
+
+    def _lookalike(self, url: str | None) -> bool:
+        if not self.blocked_hosts or not url:
+            return False
+        from datamodel.hosts import host_of, registrable
+
+        host = host_of(url)
+        bad = registrable(host) in self.blocked_hosts or host in self.blocked_hosts
+        if bad:
+            self.dropped += 1
+        return bad
 
     async def search_board(self, lane: str, keyword: str) -> SourceBatch:
         """One live board search for a lane keyword on the verified careers host."""
@@ -70,7 +87,7 @@ class ConnectorPostingSource(_Calls):
         )
         hits = []
         for record in result.records:
-            if not isinstance(record, WebPageRecord):
+            if not isinstance(record, WebPageRecord) or self._lookalike(record.url):
                 continue
             hits.append(
                 RawPosting(
@@ -96,13 +113,17 @@ class ConnectorPostingSource(_Calls):
     async def pull_window(self, start: date, end: date) -> SourceBatch:
         """The job openings feed for the window, pulled once (replayed from the ledger on
         re-entry). Postings first seen before ``start`` are not asked for: without the bound the
-        feed pages through the account's whole history and stops at the page cap."""
+        feed pages through the account's whole history and stops at the page cap. The bound is
+        anchored to the first day of ``start``'s month, the same key the research graph's Phase 1
+        pull uses (``agents.production.provider``): the pull is paid once a month per account,
+        and a posting the anchor adds before ``start`` is classified out of window by date."""
+        since = start.replace(day=1)
         result = await self.call(
-            Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain, since=start)
+            Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain, since=since)
         )
         rows = []
         for record in result.records:
-            if not isinstance(record, JobOpeningRecord):
+            if not isinstance(record, JobOpeningRecord) or self._lookalike(record.url):
                 continue
             rows.append(
                 RawPosting(

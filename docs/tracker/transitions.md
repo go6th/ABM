@@ -18,11 +18,11 @@ Actor rules apply before any cell (T7): a stage must own the row, the verifier o
 
 | Code | Client text |
 | --- | --- |
-| `budget_cap` | Stopped at the credits confirmed for this research |
+| `budget_cap` | Stopped at the spending limit confirmed for this research |
 | `cap_reached` | Execution cap reached |
 | `claims_dropped` | Claims dropped by verification |
 | `consent_required` | People data consent is needed |
-| `credits_exhausted` | Provider credits exhausted |
+| `credits_exhausted` | Data provider allowance used up |
 | `deadline` | Deadline reached |
 | `dependency_failed` | A step this row depends on did not finish |
 | `fewer_than_expected` | Fewer results than expected |

@@ -39,9 +39,7 @@ async def rows(
     session: Any, q: SH.Query, account_id: UUID, user_id: str, now: datetime, page: int = PAGE
 ) -> AsyncIterator[dict[str, Any]]:
     """Every row of the filtered, sorted table, as the sheet shows it (``n``, cells, link)."""
-    params: dict[str, Any] = {"a": account_id, "u": user_id, "now": now}
-    if q.sheet.key == "coverage":
-        params["tracker"] = SH.tracker_labels()
+    params = SH.params(q, account_id, user_id, now)
     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
     where = f"({q.filter.where}) AND ({q.sheet.export_where})"
     sql = f"SELECT * FROM ({q.sheet.base}) s WHERE {where} ORDER BY {order} OFFSET :o LIMIT :l"  # nosec B608 -- allow-listed sheet SQL; values are bound.
@@ -51,21 +49,21 @@ async def rows(
         got = (await session.execute(text(sql), {**params, "o": n, "l": page})).mappings().all()
         for r in got:
             n += 1
-            yield {
-                "n": n,
-                "cells": {c.key: SH.display(c, r.get(c.key), now) for c in q.sheet.cols},
-                **SH.link_fields(r.get("link")),
-            }
+            yield SH.row_out(q, n, r, now)
         if len(got) < page:
             return
 
 
 def _values(q: SH.Query, row: dict[str, Any], *, excel: bool = False) -> list[Any]:
     """The row's cells in column order. A link cell is the page's address in a CSV; in Excel it
-    reads "6th / LinkedIn" and opens the page (``_link_cell``)."""
+    reads "6th / LinkedIn" and opens the page (``_link_cell``). A file-shaped sheet's link
+    column is its address in a CSV and the file's link text in Excel."""
+    links = row.get("links") or {}
     return [row["n"]] + [
         (row.get("link_label") or "" if excel else row["link"])
         if c.kind == "link"
+        else (row["cells"][c.key] if excel else links.get(c.key, row["cells"][c.key]))
+        if c.kind == "url"
         else row["cells"][c.key]
         for c in q.sheet.cols
     ]
@@ -143,11 +141,17 @@ async def write_xlsx(
             ws.append(header(q))
             in_sheet = 1
         values: list[Any] = []
-        kinds = ("num", *(c.kind for c in q.sheet.cols))
-        for raw, kind in zip(_values(q, row, excel=True), kinds, strict=True):
+        cols = (None, *q.sheet.cols)
+        links = row.get("links") or {}
+        for raw, col in zip(_values(q, row, excel=True), cols, strict=True):
             value, held = SH.safe_cell(raw, shareable=shareable)
             withheld += held
-            values.append(_link_cell(ws, value, row["link"]) if kind == "link" else value)
+            if col is not None and col.kind == "link":
+                values.append(_link_cell(ws, value, row["link"]))
+            elif col is not None and col.kind == "url" and links.get(col.key):
+                values.append(_link_cell(ws, value, links[col.key]))
+            else:
+                values.append(value)
         ws.append(values)
         in_sheet += 1
         written += 1

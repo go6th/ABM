@@ -205,9 +205,10 @@ def _tokens(tenant: UUID, run: UUID, key: str, tokens: int) -> None:
 async def test_the_token_guard_pauses_at_three_times_the_estimate_with_the_caps_off(
     tenant_a: UUID, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Owner decision 2026-10-23: the caps stay off, but a run whose model tokens reach 3x its
+    """Owner decision 2026-10-23: with ``TOKEN_GUARD=on`` a run whose model tokens reach 3x its
     pre-run estimate is stopped before its next paid model call; continuing moves the next stop
-    3x the estimate further on; a reply the run already holds replays without the check."""
+    3x the estimate further on; a reply the run already holds replays without the check. Since
+    2026-10-24 the caps-off switch turns this guard off unless TOKEN_GUARD=on is set."""
     from account_intelligence.connectors import spend_guard
     from account_intelligence.connectors.spend_guard import TokenGuardReached
     from account_intelligence.db.session import tenant_txn
@@ -217,6 +218,7 @@ async def test_the_token_guard_pauses_at_three_times_the_estimate_with_the_caps_
     from tests.connectors.conftest import FakeClock
 
     monkeypatch.setenv("RESEARCH_CAPS", "off")
+    monkeypatch.setenv("TOKEN_GUARD", "on")
     assert spend_guard.token_guard_multiple() == 3
     account, run, domain = make_run(tenant_a)
     _sql("UPDATE account_runs SET run_input = '{\"expected_tokens\": 100}' WHERE id = %s", run)
@@ -242,6 +244,24 @@ async def test_the_token_guard_pauses_at_three_times_the_estimate_with_the_caps_
     with pytest.raises(TokenGuardReached) as again:
         await deps.model("abm_pass2_extract", "sys", "and another")
     assert again.value.threshold == 600
+
+
+@pytest.mark.asyncio
+async def test_with_the_caps_off_the_token_guard_never_pauses_a_run(
+    tenant_a: UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner decision 2026-10-24: no cap anywhere while the caps are off, the token pause
+    included; the user pays for the tokens a research needs."""
+    from account_intelligence.connectors import spend_guard
+    from account_intelligence.db.session import tenant_txn
+
+    monkeypatch.setenv("RESEARCH_CAPS", "off")
+    monkeypatch.delenv("TOKEN_GUARD", raising=False)
+    account, run, domain = make_run(tenant_a)
+    _sql("UPDATE account_runs SET run_input = '{\"expected_tokens\": 10}' WHERE id = %s", run)
+    _tokens(tenant_a, run, "k1", 10_000)
+    async with tenant_txn(tenant_a) as s:
+        await spend_guard.check_tokens(s, run)  # far past 3x the estimate: no pause
 
 
 @pytest.mark.asyncio

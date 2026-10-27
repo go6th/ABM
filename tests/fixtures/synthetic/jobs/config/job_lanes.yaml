@@ -1,0 +1,49 @@
+# FROZEN copy of the 2026-10-02 production lane config: the job pipeline golden oracle
+# (tests/fixtures/synthetic/jobs/oracle.yaml) was written by hand against this lexicon. The
+# production lexicon (config/job_lanes.yaml) carries the owner skill terms since 2026-10-24.
+# Research lanes and the platform lexicon for the job pipeline (PRD 3.3, 4.2; D-17 proposals).
+version: "2026-10-02.1"
+source: PRD section 3.3 inputs and section 4.2 jobs
+# D-17: lane keywords and aliases are not in any source. Until the product owner supplies them,
+# the live board search uses the lane's PRD-named platform names as its keywords (a proposal,
+# so the High row job_board_by_lane is searchable rather than blocked). Set keyword_fallback to
+# "none" to make lanes without keywords end Not done with reason not_available_yet.
+keyword_fallback:
+  value: platform_names
+  status: proposal
+  source: "D-17 proposal; platform names are from PRD section 3.3"
+lanes:
+  - id: salesforce
+    label: Salesforce including field service such as ServiceMax
+    platforms: [{name: Salesforce, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: servicenow
+    label: ServiceNow
+    platforms: [{name: ServiceNow, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: sap
+    label: SAP
+    platforms: [{name: SAP, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: tableau_analytics
+    label: Tableau and analytics
+    platforms: [{name: Tableau, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: veeva
+    label: Veeva
+    platforms: [{name: Veeva, aliases: [], source: PRD section 3.3}]
+    keywords: []
+    keyword_source: TODO, needs product owner
+  - id: data_ai
+    label: Data and AI
+    # "Data and AI" is a category in the PRD, not a platform name; matching the words "Data" or "AI"
+    # would match nearly every posting. No platform terms until the product owner supplies them
+    # (D-17); the lane's counts show "not searched" with a reason, never 0.
+    platforms: []
+    platforms_source: "TODO, needs product owner (D-17)"
+    keywords: []
+    keyword_source: TODO, needs product owner

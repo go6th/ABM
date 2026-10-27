@@ -47,6 +47,8 @@ class JsonFormatter(std_logging.Formatter):
             }
             if record.exc_info and record.exc_info[1] is not None:
                 extra.update(scrub_exception(record.exc_info[1]))
+            if "logger" not in extra and record.name and record.name != "root":
+                extra["logger"] = record.name[:64]  # which library or module spoke
             request_id = REQUEST_ID.get()
             if request_id and "request_id" not in extra:
                 extra["request_id"] = request_id

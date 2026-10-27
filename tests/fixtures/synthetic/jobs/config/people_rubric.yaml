@@ -1,0 +1,189 @@
+# People pipeline rubric (PRD s4.2 step 7). INTERNAL configuration.
+# The PRD names the scope (Director and above, Head, Senior Manager; global; security, IT compliance
+# and IT audit excluded), the merge order, the profile fields, "posts for priority A only" and the
+# counts rule. It does NOT define: title-to-level mapping, search titles, what separates the two
+# seniority passes, lane or priority assignment, exclusion cues beyond the three names, "top ten",
+# "gap", "recent activity", tenure buckets, alumni, or certification matching. Those are below,
+# each with `source` (where the sources say it) or `status: proposal` (this build's default, open
+# decisions D-21 to D-23 in docs/decisions/open-decisions.md). The product owner extends them.
+version: "2026-10-03.1"
+status: proposal
+decisions: [D-21, D-22, D-23]
+
+# ---- level (people.level) -------------------------------------------------------------------
+# Most senior first. When a title matches cues of several levels, the most senior level wins.
+level_order: [c_level, evp, svp, vp, head, director, senior_manager, manager]
+level_order_status: proposal
+level_rules:
+  - {rule_id: level.director, level: director, cues: [director], status: proposal,
+     source: "PRD s3.3 names Director", positive: "Director of Field Service Systems", negative: "Directory Services Analyst"}
+  - {rule_id: level.head, level: head, cues: [head], status: proposal,
+     source: "PRD s3.3 names Head", positive: "Head of Enterprise Applications", negative: "Headcount Planning Analyst"}
+  - {rule_id: level.senior_manager, level: senior_manager, cues: [senior manager], status: proposal,
+     source: "PRD s3.3 names Senior Manager", positive: "Senior Manager, CRM Platforms", negative: "Manager, CRM Platforms"}
+  - {rule_id: level.manager, level: manager, cues: [manager], status: proposal,
+     source: "proposal (D-21): Senior Manager is the lowest level in scope, so Manager without Senior is below it",
+     positive: "Manager, CRM Platforms", negative: "Program Lead"}
+  - {rule_id: level.vp, level: vp, cues: [vice president, vp], status: proposal,
+     source: "proposal (D-21): reading of 'and above' in PRD s3.3", positive: "VP, Business Applications", negative: "Valve Planner"}
+  - {rule_id: level.svp, level: svp, cues: [senior vice president, svp], status: proposal,
+     source: "proposal (D-21): reading of 'and above' in PRD s3.3", positive: "SVP Digital", negative: "Vice President Digital"}
+  - {rule_id: level.evp, level: evp, cues: [executive vice president, evp], status: proposal,
+     source: "proposal (D-21): reading of 'and above' in PRD s3.3", positive: "EVP Operations", negative: "Vice President Operations"}
+  - {rule_id: level.c_level, level: c_level, cues: [chief], status: proposal,
+     source: "proposal (D-21): reading of 'and above' in PRD s3.3", positive: "Chief Information Officer", negative: "Mischief Analyst"}
+
+# Seniority bands and the two search passes (D-21 proposal: pass 1 Director and above plus Head,
+# pass 2 Senior Manager). Levels outside every band (manager) are out of scope.
+level_bands:
+  status: proposal
+  senior: [c_level, evp, svp, vp, head, director]
+  manager: [senior_manager]
+passes:
+  status: proposal
+  list:
+    - {pass: 1, band: senior}
+    - {pass: 2, band: manager}
+
+# ---- exclusion and review (people.exclusion) ------------------------------------------------
+# Whole-word, case-insensitive cues on the title. Exclusion beats inclusion.
+exclusion_rules:
+  - {rule_id: excl.security, reason: security, cues: [security], status: proposal,
+     source: "PRD s3.3 exclusion name", positive: "Director, Information Security", negative: "Director, Salesforce Platform"}
+  - {rule_id: excl.it_compliance, reason: it_compliance, cues: [it compliance], status: proposal,
+     source: "PRD s3.3 exclusion name", positive: "Head of IT Compliance", negative: "Head of IT Operations"}
+  - {rule_id: excl.it_audit, reason: it_audit, cues: [it audit], status: proposal,
+     source: "PRD s3.3 exclusion name", positive: "Director, IT Audit", negative: "Director, IT Architecture"}
+# A title that names part of an exclusion without the IT qualifier is ambiguous: review, never a
+# silent include or exclude.
+review_rules:
+  - {rule_id: review.compliance, reason: exclusion_ambiguous, cues: [compliance], status: proposal,
+     source: "proposal (D-21): 'compliance' without 'IT' may or may not be IT compliance",
+     positive: "Director, Compliance Systems", negative: "Director, CRM Systems"}
+  - {rule_id: review.audit, reason: exclusion_ambiguous, cues: [audit], status: proposal,
+     source: "proposal (D-21): 'audit' without 'IT' may or may not be IT audit",
+     positive: "Head of Audit Technology", negative: "Head of Analytics Technology"}
+
+# ---- lane (people.lane) ---------------------------------------------------------------------
+# Lanes and platform names come from config/job_lanes.yaml (one lexicon for jobs and people).
+# A person's lanes are the lanes whose platform names or aliases appear as whole words in the
+# title or the headline the source returned.
+lanes:
+  lexicon: config/job_lanes.yaml
+  match_fields: [title, headline]
+  status: proposal
+
+# ---- priority (people.priority), first matching rule wins ----------------------------------
+priority_rules:
+  - {rule_id: prio.a.senior_lane, priority: A, band: senior, lane_required: true, status: proposal,
+     positive: "Director of Salesforce Platform", negative: "Director of Finance"}
+  - {rule_id: prio.b.senior_no_lane, priority: B, band: senior, lane_required: false, status: proposal,
+     positive: "Director of Finance", negative: "Senior Manager, Finance"}
+  - {rule_id: prio.b.manager_lane, priority: B, band: manager, lane_required: true, status: proposal,
+     positive: "Senior Manager, Salesforce", negative: "Senior Manager, Finance"}
+  - {rule_id: prio.c.manager_no_lane, priority: C, band: manager, lane_required: false, status: proposal,
+     positive: "Senior Manager, Finance", negative: "Director of Salesforce Platform"}
+
+# "Top ten" for the name-searches stage: priority, then level (level_order), then the stable key.
+top_people:
+  n: 10
+  order: [priority, level, person_key]
+  status: proposal
+
+# Full profiles for these in-scope people (default: every in-scope person).
+profile_levels:
+  value: all_in_scope
+  status: proposal
+
+# ---- search titles (people.search) ----------------------------------------------------------
+# Platform ownership and leadership titles per lane: NOT in the sources.
+search_titles:
+  platform_ownership: {}
+  leadership: {}
+  source: "TODO, needs product owner"
+# Until supplied: each (lane, pass) search asks for "<platform> <level>" for the lane's platform
+# names and the pass band's level words (proposal; set to none to end those rows Not done).
+title_fallback:
+  value: platform_and_level
+  status: proposal
+level_words:
+  status: proposal
+  c_level: [Chief]
+  evp: [EVP]
+  svp: [SVP]
+  vp: [VP]
+  head: [Head]
+  director: [Director]
+  senior_manager: [Senior Manager]
+
+# ---- gap rule and association search (people.gaps) ------------------------------------------
+gap_rule:
+  value: lane_on_without_in_scope_person
+  status: proposal
+association:
+  functions: [IT, engineering, product]
+  functions_source: "PRD s4.2 step 7: association search only to fill gaps (IT, engineering, product functions)"
+  # technologies come from the account's own stack, matched to each lane by the lane's name
+  # (people.technology); no lane is mapped to a technology by hand
+  technologies_per_lane: 10
+  technologies_per_lane_source: "proposal: most used first; bounds people credits per lane"
+
+# ---- counts definitions (D-22) --------------------------------------------------------------
+tenure_buckets:
+  status: proposal
+  list:
+    - {id: under_1y, min_months: 0, max_months: 12}
+    - {id: 1_to_3y, min_months: 12, max_months: 36}
+    - {id: 3_to_5y, min_months: 36, max_months: 60}
+    - {id: 5y_plus, min_months: 60, max_months: null}
+alumni:
+  reference_employers: run_input
+  status: proposal
+  aliases: {}
+  aliases_source: "TODO, needs product owner"
+certifications:
+  match: lane_lexicon
+  status: proposal
+
+# ---- profile URLs (people.urls) -------------------------------------------------------------
+# Hosts treated as profile hosts: locale subdomains fold to the canonical host and the query is
+# dropped (identity is in the path). Proposal; the PRD names the profile site in "Findings from
+# LinkedIn" (s3.4).
+profile_url:
+  status: proposal
+  canonical_host: www.linkedin.com
+  host_suffix: linkedin.com
+  path_case: fold
+
+# ---- data minimisation (D-23, pending counsel D-06) -----------------------------------------
+profile_fields:
+  status: proposal
+  allowed: [name, current_title, employer, prior_employers, join_date, role_start, certifications,
+            location, own_description, headline, last_activity_at]
+
+# ---- distribution rules (adapter rules, config/routing.yaml) --------------------------------
+internal_only_providers:
+  value: [p_org]
+  source: "routing.yaml adapter rule: the organisation provider's output is never routed to a hosted file"
+
+# ---- caps and thresholds (proposal) ---------------------------------------------------------
+caps:
+  max_people_per_run: {value: 400, status: proposal}
+  max_pages_per_source: {value: 10, status: proposal}
+  profile_batch_size: {value: 20, status: proposal}
+  max_profiles_per_run: {value: 150, status: proposal}
+  cost_sample_size: {value: 3, status: proposal}
+  posts_budget_share: {value: 0.25, status: proposal}
+  unknown_cost_post_cap: {value: 3, status: proposal}
+  max_posts_per_person: {value: 20, status: proposal}
+  recent_activity_days: {value: 90, status: proposal}
+  mention_queries_per_person: {value: 2, status: proposal}
+  mention_run_cap: {value: 20, status: proposal}
+  max_gap_passes: {value: 2, source: "ARCH 6: gap-finding loops back at most 2 times"}
+  merge_fixpoint_cap: {value: 2, status: proposal}
+  max_extractor_calls: {value: 60, status: proposal}
+  max_text_chars: {value: 4000, status: proposal}
+  max_excerpt_chars: {value: 500, status: proposal}
+  max_title_chars: {value: 200, status: proposal}
+  max_findings_per_person: {value: 3, status: proposal}
+  title_similarity_threshold: {value: 0.5, status: proposal}

@@ -9,8 +9,24 @@
 # Coverage rows are the platform's 33 (config/checklist.yaml). The archive's checklist rows could
 # not be compared (archive absent, C31). Query wording: the archive's tools.md "query patterns that
 # worked" (guide S11) is TODO, so the phrasings are generic proposals built from the row label.
-version: "1.0.0"
-status: "proposal (tools.md query patterns TODO, C31)"
+version: "1.1.0"
+status: "adopted 2026-10-24 (web research rebuild: own_site reads, pipeline rows, newsroom queries)"
+
+# own_site: true  the row's queries are also searched on the account's own site and the pages
+#                 found there are read in full (a live scrape), so the company's own releases,
+#                 investor pages and leadership page can make a fact Confirmed (G5: read in a
+#                 primary source this run). Until 2026-10-24 no fact of a run was ever Confirmed:
+#                 the open web searches rarely returned the company's own pages (audit 2026-10-24).
+# pipeline: jobs  the three posting rows are read, classified and counted by the job pipeline
+#                 (jobs.stage) after Phase 1, as the skill's step 6 does; the extractor does not
+#                 read them (their feed text made noisy "count" facts and most of a run's reading
+#                 calls: 121 on Tolmar, staging 2026-10-21).
+# pipeline: tech  technology detections are written as dated rows by code (first seen, last seen,
+#                 lane), never asked of the model: a date range is a lead by rule.
+# pipeline: people  the senior people list is the people pipeline's (people.stage: searches,
+#                 merge, level, lane, priority, exclusions, profiles and posts where a source
+#                 exists), run after the reading step under the tenant's people data consent
+#                 (G8); switched on 2026-10-24 at the owner's request.
 
 phrasings:
   status: proposal
@@ -27,24 +43,24 @@ phrasings:
 rows:
   prior_customer_status:        {step: pass1,  need: web_search, internal_history: true}
   connections_alumni:           {step: pass1,  need: web_search, internal_history: true}
-  platform_vendor_account_team: {step: pass1,  need: web_search}
+  platform_vendor_account_team: {step: pass1,  need: web_search, own_site: true}
   key_contact_profiles_posts:   {step: pass1,  need: web_search, people: true}
-  basic_fit_check:              {step: pass1,  need: web_search}
-  company_news:                 {step: pass2,  need: structured_signals}
-  earnings_filings:             {step: pass2,  need: web_search}
-  leadership_changes:           {step: pass2,  need: structured_signals}
-  job_board_by_lane:            {step: pass2,  need: scrape}
-  job_postings_read_classified: {step: pass2,  need: structured_signals}
-  job_postings_12_months:       {step: pass2,  need: structured_signals}
-  technology_detections:        {step: pass2,  need: structured_signals}
-  people_by_platform:           {step: people, need: people_by_technology, people: true}
-  full_profiles_senior_people:  {step: people, need: web_search, people: true}
-  posts_priority_people:        {step: people, need: web_search, people: true}
-  executive_voice_earnings:     {step: pass2,  need: web_search}
-  financial_baseline_verified:  {step: pass2,  need: web_search}
+  basic_fit_check:              {step: pass1,  need: web_search, own_site: true}
+  company_news:                 {step: pass2,  need: structured_signals, own_site: true}
+  earnings_filings:             {step: pass2,  need: web_search, own_site: true}
+  leadership_changes:           {step: pass2,  need: structured_signals, own_site: true}
+  job_board_by_lane:            {step: pass2,  need: scrape, pipeline: jobs}
+  job_postings_read_classified: {step: pass2,  need: structured_signals, pipeline: jobs}
+  job_postings_12_months:       {step: pass2,  need: structured_signals, pipeline: jobs}
+  technology_detections:        {step: pass2,  need: structured_signals, pipeline: tech}
+  people_by_platform:           {step: people, need: people_by_technology, people: true, pipeline: people}
+  full_profiles_senior_people:  {step: people, need: web_search, people: true, pipeline: people}
+  posts_priority_people:        {step: people, need: web_search, people: true, pipeline: people}
+  executive_voice_earnings:     {step: pass2,  need: web_search, own_site: true}
+  financial_baseline_verified:  {step: pass2,  need: web_search, own_site: true}
   vendor_customer_stories:      {step: pass2,  need: web_search}
-  lead_verification:            {step: pass2,  need: page_read}
-  customers_partners_matched:   {step: pass2,  need: web_search}
+  lead_verification:            {step: pass2,  need: page_read, own_site: true}
+  customers_partners_matched:   {step: pass2,  need: web_search, own_site: true}
   executive_speaking:           {step: pass2,  need: web_search}
   podcasts:                     {step: pass2,  need: web_search}
   youtube:                      {step: pass2,  need: web_search}
@@ -61,17 +77,36 @@ rows:
 
 # Each row's own search queries, from the skill (references/phase1-pull.md steps 2, 10 and 11;
 # references/tools.md: plain journalist nouns, vendor names for the lanes, person titles). At
-# least three per row (G3). Fields: {account}, {domain}, {year}, {prev_year}. Feed rows (news,
-# jobs, technology) are fetched by the account's domain and do not use a query; people-step rows
-# and internal-history rows are not searched on the open web.
+# least three per row (G3). Fields: {account}, {domain}, {year}, {prev_year}. Feed rows (jobs,
+# technology) are fetched by the account's domain and do not use a query; the news and leadership
+# feeds are joined by own-site searches of the newsroom and leadership pages (phase1-pull.md step
+# 2: the newsroom list read, releases of the last 18 months, the leadership page); people-step
+# rows and internal-history rows are not searched on the open web.
 queries:
   source: "config/skill/archive/references/phase1-pull.md, tools.md (owner's skill v1.11)"
   status: "adopted 2026-10-21 (web research audit)"
   value:
+    company_news:
+      - "{account} press release {year}"
+      - "{account} announces"
+      - "{account} news release {prev_year}"
+    leadership_changes:
+      - "{account} appoints OR names OR joins {year}"
+      - "{account} leadership team executive officers"
+      - "{account} chief officer appointed {prev_year}"
+    # phase1-pull.md step 2.5: the lane vendor partnership search is mandatory, one query per
+    # vendor, logged even when it returns nothing
     platform_vendor_account_team:
-      - "{account} Salesforce OR ServiceNow OR SAP partnership OR partner OR agreement"
-      - "{account} MuleSoft OR Tableau OR Veeva OR Workday partnership OR partner"
+      - "{account} Salesforce partnership OR partner OR agreement"
+      - "{account} MuleSoft partnership OR partner OR integration"
+      - "{account} ServiceNow partnership OR partner OR agreement"
+      - "{account} SAP partnership OR partner OR agreement"
+      - "{account} Tableau partnership OR partner OR agreement"
+      - "{account} Veeva partnership OR partner OR agreement"
+      - "{account} Workday partnership OR partner OR agreement"
+      - "{account} Microsoft Dynamics partnership OR agreement OR migration"
       - "{account} selects OR deploys OR modernizes platform {year}"
+      - "{account} invests OR launches platform program {year}"
     key_contact_profiles_posts:
       - "{account} chief information officer OR CIO"
       - "{account} chief technology officer OR chief digital officer interview"

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import text
@@ -68,15 +68,20 @@ def record_published(r: Record) -> datetime | None:
         raw = r.article_published_at or r.found_at
     elif isinstance(r, WebPageRecord):
         raw = r.publish_date
+    elif isinstance(r, ScrapedPageRecord):
+        raw = r.publish_date  # the article's own metadata (never the day it was read)
     elif isinstance(r, JobOpeningRecord):
         raw = r.posted_at or r.first_seen_at
     if not raw:
         return None
+    raw = raw.strip()
     try:
+        if len(raw) == 10:  # a calendar date alone (a dateline): midnight UTC
+            return datetime.fromisoformat(raw).replace(tzinfo=UTC)
         when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return when if when.tzinfo is not None else None  # a date without a zone is not trusted
+    return when if when.tzinfo is not None else None  # a time without a zone is not trusted
 
 
 def call_queries(operation: str, args: Mapping[str, Any]) -> tuple[str, ...]:

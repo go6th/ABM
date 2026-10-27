@@ -12,15 +12,21 @@ Inside ``open_snapshot`` (``REPEATABLE READ, READ ONLY`` under ``tenant_txn``):
 * the tracker rows and tally are the tracker's client view (``tracker.render``);
 * posting descriptions come from the payload store and are checked against their stored hash.
 
-No provider code, call reference, cost figure or raw payload is selected.
+No provider code or raw payload is put into the content. The workspace zip's own records are
+read here too (``datamodel.entity_lock``, ``datamodel.run_ledger``): the stored entity lock, the
+run's connector calls (operation, query texts, domain, result count, dollars charged; the hosts of
+a web search's results come from its stored payload) and the latest sense check. The call
+reference and the provider code stay in the database.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Awaitable, Callable
 from datetime import date
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 from sqlalchemy import text
@@ -32,6 +38,14 @@ from account_intelligence.tracker.adapters import RunInputAdapter
 from account_intelligence.tracker.render import render_client_view
 from account_intelligence.tracker.repo import CoverageRepo
 from account_intelligence.tracker.tally import sort_for_rendering
+from datamodel.entity_lock import load_entity_lock
+from datamodel.hosts import host_of
+from datamodel.run_ledger import (
+    LedgerCall,
+    load_failed_call_count,
+    load_ledger_calls,
+    load_sense_check,
+)
 from exports.content import (
     DetectionRow,
     EvidenceRow,
@@ -41,14 +55,18 @@ from exports.content import (
     PeopleCounts,
     PersonRow,
     PostingRow,
+    PullCall,
     SectionRow,
+    SenseCheckRow,
     SnapshotContent,
     SourceRow,
     TrackerLine,
+    WebHit,
 )
 from exports.errors import LeakError, MissingContent, RowConservation
 from exports.readers.exclusions import apply_exclusions
 from exports.snapshot import open_snapshot, session_factory
+from exports.workspace_files import text_names_account
 from jobs.config import load_jobs_config
 from jobs.counts import render_count_sentence
 from jobs.export import is_exported
@@ -62,7 +80,8 @@ _OTHER_ACCOUNTS = "SELECT name FROM accounts WHERE id <> :a AND name IS NOT NULL
 _FACT_COLS = (
     "id, attribute_key, coalesce(value_text, value_json #>> '{}') AS value_text, lane, claim_kind,"
     " product_grade, engine_grade, read_in_primary_this_run, may_state_to_prospect,"
-    " confirming_question, flags, lead_status, visibility"
+    " confirming_question, flags, lead_status, visibility,"
+    " value_json ->> 'event_date' AS event_date"
 )
 
 
@@ -130,6 +149,31 @@ def _jobs_counts(counts: PostingCounts | None) -> JobsCounts | None:
     return JobsCounts(lines=lines, sentences=tuple(sentences))
 
 
+def _web_hits(body: bytes, lock: dict[str, Any] | None) -> tuple[WebHit, ...]:
+    """The result hosts of a stored web search payload (``results[].url``), each with whether the
+    result's own title and excerpts name the account (None without a lock or without text). A
+    payload that is not the expected shape yields no hits: the pull log then shows the call's
+    count and the search list judges nothing it cannot see."""
+    try:
+        results = json.loads(body).get("results") or []
+    except (ValueError, AttributeError):
+        return ()
+    hits = []
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        host = host_of(r.get("url") if isinstance(r.get("url"), str) else None)
+        if not host:
+            continue
+        text = " ".join(
+            [str(r.get("title") or ""), *(str(e) for e in r.get("excerpts") or ())]
+        ).strip()
+        hits.append(
+            WebHit(host=host, names_account=text_names_account(lock, text) if lock else None)
+        )
+    return tuple(hits)
+
+
 class PgContentReader:
     """``ContentReader`` over PostgreSQL and the payload store (see the module docstring)."""
 
@@ -154,7 +198,9 @@ class PgContentReader:
                 await s.execute(
                     text(
                         "SELECT r.account_id, coalesce(ar.created_at, r.created_at) AS created_at,"
-                        " coalesce(ar.run_input, '{}'::jsonb) AS run_input, a.name, a.domain"
+                        " coalesce(ar.run_input, '{}'::jsonb) AS run_input, a.name, a.domain,"
+                        " CASE WHEN a.careers_url_verified_at IS NOT NULL THEN a.careers_url END"
+                        " AS careers_url"
                         " FROM runs r JOIN accounts a ON a.id = r.account_id"
                         " LEFT JOIN account_runs ar ON ar.id = r.id WHERE r.id = :r"
                     ),
@@ -233,7 +279,7 @@ class PgContentReader:
             )
             sources = await _keyset(
                 s,
-                "SELECT id, source_code, url, published_at, kind FROM sources"
+                "SELECT id, source_code, url, published_at, kind, title, publisher FROM sources"
                 " WHERE account_id = :a AND id::text > :after ORDER BY id::text LIMIT :batch",
                 p,
                 self.batch,
@@ -246,7 +292,7 @@ class PgContentReader:
                 await s.execute(
                     text(
                         "SELECT id, kind, position, text, cited_source_codes, fact_ids,"
-                        " confirming_question, speaker, visibility FROM report_sections"
+                        " confirming_question, speaker, visibility, lane FROM report_sections"
                         " WHERE run_id = :r AND account_id = :a AND version = (SELECT max(version)"
                         " FROM report_sections WHERE run_id = :r AND account_id = :a)"
                         " ORDER BY kind, position, id"
@@ -274,6 +320,11 @@ class PgContentReader:
             people_part = await self._people(factory, tid, account_id, run_id, s)
             jobs_part = await self._jobs(factory, tid, account_id, run_id)
             tracker, tally = await self._tracker(s, rid)
+            lock = await load_entity_lock(s, run_id=rid)
+            ledger = await load_ledger_calls(s, run_id=rid)
+            failed = await load_failed_call_count(s, run_id=rid)
+            sense = await load_sense_check(s, run_id=rid)
+        pulls = await self._pull_calls(ledger, lock)
 
         def src_code(source_id: Any) -> str | None:
             """The registry code of an evidence row's source id (None when it has none)."""
@@ -284,6 +335,8 @@ class PgContentReader:
             account_id=str(account_id),
             run_id=run_id,
             account_name=head.name or head.domain,
+            domain=head.domain,
+            careers_host=urlparse(head.careers_url).hostname if head.careers_url else None,
             as_of=as_of,
             is_salesforce_partner=partner,
             forbidden_terms=tuple(sorted(set(others))),
@@ -302,6 +355,7 @@ class PgContentReader:
                     flags=tuple(sorted(f.flags or ())),
                     lead_status=f.lead_status,
                     visibility=f.visibility,
+                    event_date=str(f.event_date) if f.event_date else None,
                 )
                 for f in facts
             ),
@@ -320,7 +374,14 @@ class PgContentReader:
                 for e in evidence
             ),
             sources=tuple(
-                SourceRow(code=x.source_code, url=x.url, published=x.published_at, kind=x.kind)
+                SourceRow(
+                    code=x.source_code,
+                    url=x.url,
+                    published=x.published_at,
+                    kind=x.kind,
+                    title=x.title,
+                    publisher=x.publisher,
+                )
                 for x in sorted(sources, key=lambda x: x.source_code)
             ),
             sections=tuple(
@@ -334,6 +395,7 @@ class PgContentReader:
                     confirming_question=x.confirming_question,
                     speaker=x.speaker,
                     visibility=x.visibility,
+                    lane=x.lane,
                 )
                 for x in sections
             ),
@@ -352,6 +414,12 @@ class PgContentReader:
             ),
             tracker=tracker,
             tracker_tally=tally,
+            entity_lock=lock,
+            pull_calls=pulls,
+            pull_failed=failed,
+            sense_check=SenseCheckRow(findings=sense.findings, proposals=sense.proposals)
+            if sense
+            else None,
             snapshot_counts=counts,
             **people_part,
             **jobs_part,
@@ -367,6 +435,35 @@ class PgContentReader:
                     update={"brand_name": tenant_settings.branding.display_name}
                 )
         return content
+
+    async def _pull_calls(
+        self, ledger: list[LedgerCall], lock: dict[str, Any] | None
+    ) -> tuple[PullCall, ...]:
+        """The ledger's calls as content; a web search also lists its result hosts, read from its
+        stored payload (a missing payload leaves the call without hosts, never fails the build)."""
+        out = []
+        for c in ledger:
+            hits: tuple[WebHit, ...] = ()
+            if c.operation == "web_search" and c.response_ref:
+                try:
+                    hits = _web_hits(await self.payloads.get(c.response_ref), lock)
+                except (LookupError, OSError, ValueError):
+                    hits = ()
+            out.append(
+                PullCall(
+                    at=c.at,
+                    operation=c.operation,
+                    step=c.step,
+                    queries=c.queries,
+                    terms=c.terms,
+                    domain=c.domain,
+                    since=c.since,
+                    result_count=c.result_count,
+                    cost_usd=c.cost_usd,
+                    hits=hits,
+                )
+            )
+        return tuple(out)
 
     async def _people(
         self, factory: Any, tid: UUID, account_id: UUID, run_id: str, s: AsyncSession
@@ -392,7 +489,12 @@ class PgContentReader:
             raise MissingContent("the people record has no counts (invariant error)", (run_id,))
         try:
             export = build_export(
-                result.people, result.counts, result.count_sentences, result.source_codes, erased
+                result.people,
+                result.counts,
+                result.count_sentences,
+                result.source_codes,
+                erased,
+                result.profiles,
             )
         except ClientOutputLeak as leak:
             raise LeakError("people export", tuple(h.pattern for h in leak.hits)) from None
@@ -402,6 +504,8 @@ class PgContentReader:
             if p.status == "in_scope" and p.profile_url and p.person_key not in erased
         }
         listed = {by_url[r.profile_url].person_key for r in export.rows}
+        # the current title of each pulled profile (the Summary's status changes)
+        profile_titles = {pr.profile_url: pr.current_title for pr in result.profiles}
         rows = tuple(
             PersonRow(
                 id=by_url[r.profile_url].person_key,
@@ -412,6 +516,11 @@ class PgContentReader:
                 priority=r.priority,
                 profile_url=r.profile_url,
                 source_code=r.source_code or None,
+                origin=r.origin,
+                former_employers=r.former_employers,
+                second_profile_url=r.second_profile_url,
+                profile_title=profile_titles.get(r.profile_url),
+                location=r.location,
             )
             for r in export.rows
         )
@@ -421,7 +530,10 @@ class PgContentReader:
                 sorted((p.name, p.person_key in listed) for p in result.people if p.name)
             ),
             "people_counts": PeopleCounts(
-                summary=export.summary, sentences=export.sentences, in_scope=result.counts.in_scope
+                summary=export.summary,
+                sentences=export.sentences,
+                in_scope=result.counts.in_scope,
+                excluded=export.excluded,
             ),
             "findings": tuple(
                 FindingRow(person_id=f.person_key, claim=f.claim, sentence=f.sentence, url=f.url)
@@ -459,6 +571,11 @@ class PgContentReader:
                     full_text_read=p.full_text_read,
                     hostile=p.hostile,
                     window_bucket=p.window_bucket,
+                    origin="live_board" if p.status_source == "live_board" else "feed",
+                    class_sentence=(
+                        (p.classification.evidence_sentence or "") if p.classification else ""
+                    ),
+                    location=p.location or "",
                 )
             )
         return {"postings": tuple(rows), "jobs_counts": _jobs_counts(record.counts)}

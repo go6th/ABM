@@ -301,7 +301,9 @@ class JobsPipeline:
         matches = match_platforms(posting.title, text, lexicon)
         matched = bool(matches.description or matches.title_only)
         unread = not self._is_read(posting.text_complete, text, False)
-        if matched and not hostile and unread and posting.escalation == "none":
+        excerpt = self.cfg.read_excerpts and len(text) < self.cfg.caps["minimum_text_length"]
+        wanted = (matched or excerpt) and bool(posting.url)
+        if wanted and not hostile and unread and posting.escalation == "none":
             posting, text = await self._escalate(posting, text, w)
             hostile = bool(text) and self.is_hostile(text)
             matches = match_platforms(posting.title, text, lexicon)

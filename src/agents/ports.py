@@ -39,6 +39,11 @@ class RunContext:
     domain: str
     attended: bool
     config_version: str
+    # the entity lock (master prompt v2 section 3): the registrable domains that belong to the
+    # account (its own, the host its site redirects to, subsidiaries) and the look-alike hosts
+    # that never do; empty until the graph's entity_lock node ran
+    allowed_domains: tuple[str, ...] = ()
+    blocked_hosts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -85,6 +90,38 @@ class ProviderPort(Protocol):
     async def call(self, ctx: RunContext, need: str, query: str, row_key: str) -> ProviderResult:
         """One routed call for a coverage row; replays are free (pull once). Raises CapPause or
         ProviderFailed."""
+        ...
+
+    async def entity_lock(self, ctx: RunContext) -> Any:
+        """The entity lock built from the account's own home page and one brand search (an
+        ``agents.entity.EntityLock``): run before any other pull. Raises CapPause."""
+        ...
+
+
+@dataclass(frozen=True)
+class PipelineOutcome:
+    """What the code pipelines did after the pulls: counts only (never text)."""
+
+    counters: Mapping[str, int] = field(default_factory=dict)
+    exits: Mapping[str, str] = field(default_factory=dict)
+
+
+class PipelinePort(Protocol):
+    """The skill's code-run steps after Phase 1: the job pipeline (step 6: every posting of the
+    last 12 months read, classified and counted; templated claims graded) and the technology
+    detections written as dated rows (step 7). Both pull once (ledger replay) and report their
+    coverage rows to the tracker themselves."""
+
+    async def run_jobs(self, ctx: RunContext, careers_url: str | None) -> PipelineOutcome:
+        """Run the job pipeline for the run (a replay makes no paid call)."""
+        ...
+
+    async def write_detections(self, ctx: RunContext) -> PipelineOutcome:
+        """Write the run's technology detections as rows (insert-only, idempotent)."""
+        ...
+
+    async def run_people(self, ctx: RunContext) -> PipelineOutcome:
+        """Run the people pipeline for the run (the caller has checked consent, G8)."""
         ...
 
 
@@ -289,6 +326,14 @@ class RunRecordStore(Protocol):
 
     async def save_distill(self, ctx: RunContext, audience: str, output: BaseModel) -> None:
         """Store a distill output for the builders (idempotent per run and audience)."""
+        ...
+
+    async def save_entity_lock(self, ctx: RunContext, lock: Mapping[str, Any]) -> None:
+        """Store the run's entity lock on the account (the latest research wins)."""
+        ...
+
+    async def entity_lock(self, ctx: RunContext) -> Mapping[str, Any] | None:
+        """The account's stored entity lock, if a research locked it."""
         ...
 
 

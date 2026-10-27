@@ -15,6 +15,7 @@ levels_in_scope_source: "PRD s3.3; the levels above Director are a proposal (D-2
 # (people.exclusion; rule ids in config/people_rubric.yaml).
 excluded_title_terms:
   - security
+  - privacy  # master prompt v2 section 0 (2026-10-24)
   - it compliance
   - it audit
 excluded_title_terms_source: "PRD s3.3: exclude security, IT compliance, IT audit"

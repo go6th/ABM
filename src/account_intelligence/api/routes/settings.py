@@ -33,6 +33,88 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 branding_router = APIRouter(tags=["settings"])
 register("GET", "/v1/settings", tenant_route("read_public", "read"))
 register("PUT", "/v1/settings", tenant_route("manage_settings", "admin"))
+# People data consent (G8, D-97): any member reads it; an admin grants or withdraws it. A
+# research run pulls people only while the newest record grants the current text version.
+register("GET", "/v1/settings/people-consent", tenant_route("read_public", "read"))
+register("POST", "/v1/settings/people-consent", tenant_route("manage_settings", "admin"))
+
+
+class PeopleConsentBody(BaseModel):
+    """Grant (``accept`` true) or withdraw (false) the people data consent. No tenant field."""
+
+    model_config = ConfigDict(extra="forbid")
+    accept: bool
+
+
+def _consent_text() -> tuple[str, str, str, str]:
+    """``(scope, label, text, version)`` from the skill config (one source, one reader)."""
+    from agents.config import skill_config
+
+    cfg = skill_config()
+    return cfg.consent_scope, cfg.consent_label, cfg.consent_text, cfg.consent_text_version or ""
+
+
+async def _consent_json(tenant_id: Any) -> dict[str, Any]:
+    from agents.adapters import PgConsentStore
+
+    scope, label, body, version = _consent_text()
+    record = await PgConsentStore().current(tenant_id, scope)
+    granted = record is not None and record.revoked_at is None
+    return {
+        "scope": scope,
+        "label": label,
+        "text": body,
+        "text_version": version,
+        "granted": granted,
+        "current": bool(granted and record is not None and record.text_version == version),
+        "granted_by": record.granted_by if record is not None else None,
+        "granted_at": record.granted_at if record is not None else None,
+        "revoked_at": record.revoked_at if record is not None else None,
+    }
+
+
+@router.get("/people-consent", response_model=C.PeopleConsent)
+async def read_people_consent(
+    request: Request, ident: Identity = Depends(authorize)
+) -> dict[str, Any]:
+    """The consent text, its version, and whether this workspace has granted it."""
+    return await _consent_json(ident.tenant_id)
+
+
+@router.post("/people-consent", response_model=C.PeopleConsent)
+async def set_people_consent(
+    body: PeopleConsentBody, request: Request, ident: Identity = Depends(authorize)
+) -> dict[str, Any]:
+    """Grant or withdraw the consent (insert-only rows; a withdrawal is a newer row)."""
+    from agents.adapters import PgConsentStore
+
+    scope, _, _, version = _consent_text()
+    if not version:
+        raise APIProblem(
+            409,
+            "consent_text_not_approved",
+            "No consent text to accept",
+            "The people data consent text has no approved version yet.",
+        )
+    now = plane_of(request).clock.now()
+    await PgConsentStore().record(
+        ident.tenant_id,
+        ident.user_id,
+        version,
+        frozenset({scope}),
+        now,
+        revoked=not body.accept,
+    )
+    async with tenant_txn(ident.tenant_id) as s:
+        await audit_action(
+            s,
+            request,
+            audit_class="admin",
+            action="people_consent_granted" if body.accept else "people_consent_withdrawn",
+            resource_type="people_consent",
+            resource_id=version,
+        )
+    return await _consent_json(ident.tenant_id)
 
 
 class SettingsBody(BaseModel):

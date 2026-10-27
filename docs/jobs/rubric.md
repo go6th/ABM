@@ -15,9 +15,9 @@ Full text required for: build, admin_owner (proposal; D-16; spec default is the 
 
 | Lane | Platforms | Aliases | Keywords |
 | --- | --- | --- | --- |
-| Salesforce including field service such as ServiceMax | Salesforce | none | fallback: platform_names (proposal) |
-| ServiceNow | ServiceNow | none | fallback: platform_names (proposal) |
-| SAP | SAP | none | fallback: platform_names (proposal) |
-| Tableau and analytics | Tableau | none | fallback: platform_names (proposal) |
-| Veeva | Veeva | none | fallback: platform_names (proposal) |
-| Data and AI | none (needs product owner) | none | fallback: platform_names (proposal) |
+| Salesforce (including MuleSoft) | Salesforce, MuleSoft | SFDC, Sales Cloud, Service Cloud, Marketing Cloud, Experience Cloud, Salesforce CPQ, Salesforce Field Service, Field Service Lightning, Agentforce, Salesforce Data Cloud, Einstein, Apex, Visualforce, Lightning Web Components, Salesforce Lightning, Salesforce Flow, Mulesoft Anypoint, Anypoint Platform, Anypoint, Mule ESB | Salesforce, MuleSoft |
+| ServiceNow | ServiceNow | Service Now, Now Platform, ServiceNow ITSM, ServiceNow ITOM, ServiceNow HRSD, ServiceNow CSM, ServiceNow IRM, ServiceNow SecOps, ServiceNow GRC | ServiceNow |
+| SAP | SAP | S/4HANA, S4HANA, S/4 HANA, SAP S4, SAP ECC, SAP HANA, SAP Ariba, SAP IBP, SAP MDG, SAP Datasphere, SAP Analytics Cloud, SAP EWM, SAP Signavio, SAP SuccessFactors, SuccessFactors, SAP BTP, SAP Fiori, ABAP, SAP BW, SAP Concur, SAP Central Finance | SAP |
+| Tableau and analytics | Tableau, Power BI, Qlik, Looker, MicroStrategy | Tableau Server, Tableau Cloud, Tableau Prep, Tableau Desktop, CRM Analytics, Einstein Analytics, Tableau Pulse, PowerBI, Microsoft Power BI, QlikView, Qlik Sense, Looker Studio | Tableau |
+| Veeva | Veeva | Veeva CRM, Vault CRM, Veeva Vault, Vault PromoMats, PromoMats, Vault MedComms, MedComms, Veeva OpenData, Crossix, Vault Clinical, Vault RIM, Vault Quality, Vault QMS, Vault QualityDocs, Vault Safety, Veeva Network, Veeva Align, Veeva Nitro, Veeva Compass, Vault Submissions | Veeva |
+| Data and AI | Snowflake, Microsoft Fabric, Azure Synapse, Azure Data Factory, BigQuery, Redshift, Informatica, dbt, Apache Spark, Kafka, Airflow, Palantir, AWS, Azure, Google Cloud, Azure OpenAI, OpenAI, SageMaker, Vertex AI, MLflow, LangChain, Generative AI | Fabric Lakehouse, OneLake, Synapse Analytics, Azure Synapse Analytics, Data Factory, Google BigQuery, Amazon Redshift, IICS, PowerCenter, Informatica Cloud, dbt Cloud, dbt Core, PySpark, Apache Kafka, Confluent, Apache Airflow, Palantir Foundry, Foundry AIP, Amazon Web Services, Microsoft Azure, Google Cloud Platform, GCP, Azure OpenAI Service, ChatGPT Enterprise, GPT-4, Amazon SageMaker, AWS Bedrock, Amazon Bedrock, Google Vertex, Gemini API, LangGraph, LlamaIndex, GenAI, Gen AI, Large Language Models, LLMs, LLM, Agentic AI | Snowflake, data engineering, machine learning |

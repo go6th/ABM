@@ -70,7 +70,11 @@ def test_people_without_any_registered_code(cfg: ExportConfig, grading: GradingC
         for p in c.people
     )
     ctx = ctx_of(c.model_copy(update={"people": people}), cfg, grading)
-    assert map_people(ctx).model is None and codes(ctx) == {"missing_source_code"}
+    mapped = map_people(ctx)
+    # every person is withheld (no registered link), the file is still mapped, nothing fails
+    assert mapped.model is not None and mapped.model.rows == () and not ctx.violations
+    assert len(ctx.withheld_blocks) == len(people)
+    assert {rule for _w, _row, rule in ctx.withheld_blocks} == {"missing_source_code"}
 
 
 def test_posting_vocabularies(cfg: ExportConfig, grading: GradingConfig) -> None:
@@ -87,9 +91,9 @@ def test_tech_without_postings_says_so(cfg: ExportConfig, grading: GradingConfig
     ctx = ctx_of(account(n_postings=0), cfg, grading)
     model = map_tech(ctx).model
     assert model is not None
-    assert {r.cross_check for r in model.rows} == {
-        "No postings in the Job Postings file to cross check"
-    }
+    assert model.rows and {r.postings for r in model.rows} == {0}
+    registered = {n.key: n.sentence for n in ctx.registry.items() if n.key.startswith("tech.cross")}
+    assert set(registered.values()) == {"No postings in the Job Postings file to cross check"}
 
 
 def test_missing_tracker_is_refused(cfg: ExportConfig, grading: GradingConfig) -> None:

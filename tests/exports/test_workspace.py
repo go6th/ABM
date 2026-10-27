@@ -21,6 +21,17 @@ from exports.workspace import (
 )
 
 KINDS = ("summary", "evidence", "people", "jobs", "tech")
+# the run records the owner's layout requires (workspace.required_members), pinned by name here
+EXTRAS = {
+    "RESTORE.md": b"# Synthetic workspace\n",
+    "data/entity_lock.json": b'{"recorded": false}',
+    "data/web_searches.json": b"[]",
+    "data/techstack_detections.json": b"{}",
+    "build/urls.json": b"{}",
+    "notes/pull_log.md": b"# Pull log\n",
+    "notes/pass1.md": b"none\n",
+    "notes/sense_check.md": b"none\n",
+}
 
 
 def _inputs() -> tuple[dict, dict]:  # type: ignore[type-arg]
@@ -45,6 +56,7 @@ def _zip(cfg: ExportConfig, rules: ContentRules | None = None, **kw: object) -> 
         theme=cfg.theme.zip,
         account="Synthetic",
         as_of=date(2026, 9, 30),
+        extras=EXTRAS,
     )
     args.update(kw)
     return build_workspace(**args)  # type: ignore[arg-type]
@@ -108,12 +120,28 @@ def test_contents_order_manifest_and_determinism(cfg: ExportConfig) -> None:
     assert a == _zip(cfg, raw=[("p_search", b"raw")])
     with zipfile.ZipFile(io.BytesIO(a)) as z:
         names = z.namelist()
-        assert names[:3] == ["RESTORE.md", "MANIFEST.json", "NOTES.md"]
-        assert all(n.startswith(("deliverables/", "data/")) for n in names[3:])
+        # the reference workspace's layout: RESTORE.md, then deliverables, data, build, notes
+        assert names[:2] == ["RESTORE.md", "MANIFEST.json"]
+        assert z.read("RESTORE.md") == EXTRAS["RESTORE.md"]
+        assert names[2:] == [
+            *(n for n in names[2:] if n.startswith("deliverables/")),
+            "data/entity_lock.json",
+            "data/web_searches.json",
+            "data/techstack_detections.json",
+            *(f"build/{k}.json" for k in KINDS),
+            "build/urls.json",
+            "notes/pull_log.md",
+            "notes/pass1.md",
+            "notes/sense_check.md",
+        ]
+        assert [f.split("/", 1)[0] for f in names[2:]] == sorted(
+            (f.split("/", 1)[0] for f in names[2:]), key=cfg.rules.workspace.folders.index
+        )
+        assert len([n for n in names if n.startswith("deliverables/")]) == len(KINDS)
         assert not any(n.startswith("data/raw/") for n in names)  # D-25 default: excluded
         assert {i.date_time for i in z.infolist()} == {tuple(cfg.theme.zip.entry_time)}
         listing = json.loads(z.read("MANIFEST.json"))["members"]
-        assert {m["name"] for m in listing} == set(names) - {"RESTORE.md", "MANIFEST.json"}
+        assert {m["name"] for m in listing} == set(names) - {"MANIFEST.json"}
     assert check_zip(a, cfg.rules) == ()
 
 
@@ -180,15 +208,16 @@ def _raw_zip(entries: list[tuple[zipfile.ZipInfo | str, bytes]]) -> bytes:
 def test_check_zip_finds_every_problem(cfg: ExportConfig) -> None:
     link = zipfile.ZipInfo("data/link")
     link.external_attr = 0o120777 << 16
-    manifest = json.dumps({"members": [{"name": "NOTES.md", "sha256": "0" * 64}]}).encode()
+    manifest = json.dumps({"members": [{"name": "RESTORE.md", "sha256": "0" * 64}]}).encode()
     bad = _raw_zip(
-        [("../evil", b"x"), (link, b"target"), ("NOTES.md", b"n"), ("MANIFEST.json", manifest)]
+        [("../evil", b"x"), (link, b"target"), ("RESTORE.md", b"n"), ("MANIFEST.json", manifest)]
     )
     problems = check_zip(bad, cfg.rules)
     assert any(p.startswith("unsafe name") for p in problems)
     assert any(p.startswith("symlink") for p in problems)
     assert any(p.startswith("hash mismatch") for p in problems)
-    assert check_zip(_raw_zip([("a.md", b"x")]), cfg.rules) == ("no MANIFEST.json",)
+    bare = check_zip(_raw_zip([("a.md", b"x")]), cfg.rules)
+    assert bare == (*(f"missing member {n}" for n in EXTRAS), "no MANIFEST.json")
     ws = cfg.rules.workspace.model_copy(
         update={"max_members": 1, "max_member_bytes": 1, "max_total_bytes": 1}
     )

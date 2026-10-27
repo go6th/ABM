@@ -4,7 +4,7 @@ version: "1.0.0"
 
 lanes:
   - id: salesforce
-    label: "Salesforce (including field service such as ServiceMax)"
+    label: "Salesforce (including MuleSoft)"  # master prompt v2 (2026-10-24) supersedes D-100: ServiceMax is never reported
   - id: servicenow
     label: "ServiceNow"
   - id: sap

@@ -215,3 +215,39 @@ def evaluate_lead(state: LeadVerification, cfg: GradingConfig) -> LeadStatus:
         ):
             raise LeadRuleViolation("lead marked complete without the required distinct queries")
     return state.status
+
+
+def lead_states_from_fetches(
+    leads: Mapping[str, Iterable[str]],
+    fetches: Mapping[str, FetchRecord],
+    terms: Iterable[str],
+    cfg: GradingConfig,
+) -> dict[str, LeadVerification]:
+    """The verification state of every Lead from what the run actually asked (master prompt v2
+    rule 8: a lead is not dead after one search; three differently worded queries across two
+    tools before it is called unverified). ``leads`` maps a lead key to the words of its value;
+    a fetch's query counts for a lead when it names one of those words. Each query is offered
+    through ``submit_query`` in ledger order, so the distinct-query and category rules of the
+    grading config decide, never this function."""
+    out: dict[str, LeadVerification] = {}
+    ordered = sorted(fetches.values(), key=lambda f: (f.fetched_at, f.call_ref))
+    for lead_key, words in leads.items():
+        needles = {w.lower() for w in words if len(w) >= 4}
+        state = new_lead(lead_key)
+        if not needles:
+            out[lead_key] = state
+            continue
+        for fetch in ordered:
+            for query in fetch.queries:
+                folded = query.lower()
+                if state.status != "pending":
+                    break
+                if not any(n in folded for n in needles):
+                    continue
+                state = submit_query(
+                    state, query, fetch.tool_category, fetch.call_ref, fetches, terms, cfg
+                )
+            if state.status != "pending":
+                break
+        out[lead_key] = state
+    return out

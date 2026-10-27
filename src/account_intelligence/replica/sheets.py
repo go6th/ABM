@@ -17,7 +17,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from functools import lru_cache
+from functools import cache, lru_cache
 from typing import Any
 from uuid import UUID
 
@@ -42,12 +42,16 @@ GRADE_ORDER = (
 
 @dataclass(frozen=True)
 class Col:
-    """One column: its key in the row, its heading, its sort expression and how it is shown."""
+    """One column: its key in the row, its heading, its sort expression and how it is shown.
+    ``link_text`` is what a link column of a file-shaped sheet shows in place of the address
+    (the People List's "Open profile"); the address goes in the row's ``links``."""
 
     key: str
     label: str
     sort: str | None
-    kind: str = "text"  # text, strong, grade, priority, status, date, ago, link, num
+    # text, strong, grade, priority, status, date, ago, link, num, url, code, long
+    kind: str = "text"
+    link_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +81,11 @@ class Sheet:
     tiebreak: str = "s._id"
     # Rows that must never leave in a shareable workbook (internal facts from uploaded files).
     export_where: str = "true"
+    # A file-shaped sheet (``file_sheet``): the client table of the export file set it shows
+    # (``views.tables``), read from the delivered run's materialised rows, and the sheet or
+    # table of the file it matches.
+    table: str | None = None
+    sheet_name: str = "Sheet 1"
 
 
 SORT_HINT = "Click a column heading to sort."
@@ -104,7 +113,7 @@ SHEETS: dict[str, Sheet] = {
             " coalesce(p.classification_json->>'area', '') AS area, coalesce(p.priority, '') AS"
             " priority,"
             " coalesce(p.classification_json->>'grade', '') AS grade, p.created_at AS seen,"
-            " p.profile_url AS link,"
+            " p.profile_url AS link, p.profile_url AS profile,"
             " (p.run_id IS DISTINCT FROM (SELECT r.id FROM account_runs r WHERE r.account_id ="
             " p.account_id"
             "   AND r.status IN ('COMPLETED', 'PARTIAL') ORDER BY r.finished_at LIMIT 1)) AS"
@@ -120,14 +129,26 @@ SHEETS: dict[str, Sheet] = {
                 " coalesce(f.value_json->>'lane', '') AS area,"
                 " coalesce(f.value_json->>'priority', '') AS priority, f.product_grade AS grade,"
                 " f.created_at AS seen, coalesce(e.url, f.value_json->>'link') AS link,"
+                # the person's own profile: an imported People List row's LinkedIn cell, a
+                # profile page the research cited (never the page that merely named them), or
+                # the profile the people search found for the same name on this account
+                " coalesce(nullif(f.value_json->>'link', ''), nullif(f.value_json->>'profile_url',"
+                "   ''), CASE WHEN e.url ~* '^https?://([a-z]+[.])?linkedin[.]com/(in|pub)/'"
+                "   THEN e.url END,"
+                "   (SELECT p2.profile_url FROM people p2 WHERE p2.account_id = f.account_id"
+                "     AND p2.profile_url IS NOT NULL AND NOT p2.excluded AND p2.merged_into IS NULL"
+                "     AND p2.erased_at IS NULL AND lower(p2.name) = lower(trim(split_part("
+                "       coalesce(f.value_text, f.value_json->>'text', ''), ',', 1)))"
+                "     ORDER BY p2.created_at LIMIT 1)) AS profile,"
                 " false AS later_run",
             )
         ),
         cols=(
             Col("name", "Name", "s.name", "strong"),
-            Col("title", "Role", "s.title"),
+            Col("title", "Title as reported", "s.title"),
             Col("area", "Area", "s.area"),
             Col("priority", "Priority", "s.priority", "priority"),
+            Col("profile", "LinkedIn", None, "url", link_text="Open profile"),
             Col("grade", "Fact grade", GRADE_ORDER.format("s.grade"), "grade"),
             Col("seen", "Last seen", "s.seen", "ago"),
         ),
@@ -464,6 +485,221 @@ SHEETS: dict[str, Sheet] = {
 MAX_PAGE = 500
 MAX_EXPORT = 5000
 
+# ---- file-shaped sheets ------------------------------------------------------------------------
+# Once an account has delivered files, its People, Job postings, Tech stack, Platform picture and
+# Coverage sheets show the client tables of that file set (``views.tables``: the columns, headers
+# and order of the files, from the export configuration; ``views.rowsources``: the cells as the
+# files print them), read from the delivered run's materialised rows (``views.materialize``).
+# Before any file is delivered (a research still running, an account known only from uploaded
+# files) the live sheets above stand in.
+
+# sheet key -> client table (views.tables.TableKind)
+FILE_TABLES: dict[str, str] = {
+    "people": "people",
+    "jobs": "jobs",
+    "technology": "tech",
+    "facts": "facts",
+    "coverage": "coverage",
+}
+# the order the file prints (each table's rows are materialised in the file's order)
+FILE_ORDER = Col("_file", "File order", "s._pos")
+_KEY = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+_RESERVED = frozenset({"_id", "_pos", "_cells", "link"})
+# how a few columns are shown on screen (a pill, bold); the cell text stays the file's
+_SHOWN: dict[tuple[str, str], str] = {
+    ("people", "name"): "strong",
+    ("people", "priority"): "priority",
+    ("jobs", "title"): "strong",
+    ("tech", "technology"): "strong",
+    ("facts", "item"): "strong",
+    ("facts", "grade"): "grade",
+    ("coverage", "row"): "strong",
+    ("coverage", "status"): "status",
+}
+# how an export column kind is shown when no entry above says otherwise
+_KIND_SHOWN = {"count": "num", "percent": "num", "url": "url", "code": "code", "text_long": "long"}
+
+
+def _lit(value: str) -> str:
+    """A configured word as an SQL string literal (configuration only, never request input)."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _heading(text_value: str) -> str:
+    """A document heading without its section number ("5. Platform picture by lane")."""
+    return re.sub(r"^\d+\.\s*", "", text_value)
+
+
+@cache
+def file_sheet(key: str) -> Sheet:
+    """The file-shaped sheet of one sheet key, built from the export configuration (the same
+    source the files and ``views.tables`` read, so a column added to a file appears here)."""
+    from exports.config import load_export_config
+    from views.tables import specs
+
+    table = FILE_TABLES[key]
+    spec = specs()[table]  # type: ignore[index]
+    rules = load_export_config().rules
+    live = SHEETS.get(key)
+    cols: list[Col] = []
+    for c in spec.exported_columns:
+        if not _KEY.match(c.key) or c.key in _RESERVED:
+            raise ValueError(f"unusable column key {c.key!r} in table {table}")
+        shown = _SHOWN.get((table, c.key), _KIND_SHOWN.get(c.kind, "text"))
+        sortable = c.kind not in ("text_long", "url")
+        link_text = (
+            rules.sheet_texts.people.link_text if (table == "people" and c.kind == "url") else None
+        )
+        cols.append(
+            Col(c.key, c.header, f"s._cells->'{c.key}'" if sortable else None, shown, link_text)
+        )
+    selected = ", ".join(f"coalesce(v.cells->>'{c.key}', '') AS \"{c.key}\"" for c in cols)
+    base = (
+        "SELECT v.position AS _id, v.position AS _pos, v.cells AS _cells, v.source_url AS link,"
+        f" {selected} FROM view_rows v WHERE v.run_id = CAST(:run AS uuid)"
+        f" AND v.table_kind = {_lit(table)}"
+    )
+
+    def chip(k: str, label: str, column: str, value: str) -> Filter:
+        return Filter(k, label, f's."{column}" = {_lit(value)}')
+
+    chips: list[Filter] = [Filter("all", "All", "true")]
+    labels = rules.labels
+    if table == "people":
+        header = {c.key: c.header for c in spec.exported_columns}
+        chips += [
+            chip("priority_a", "Priority A", "priority", "A"),
+            chip("senior", header["meets_seniority"], "meets_seniority", labels.yes),
+        ]
+    elif table == "jobs":
+        chips += [
+            chip(f"status_{k}", word, "status", word) for k, word in labels.posting_status.items()
+        ]
+    elif table == "facts":
+        st = rules.statement_text
+        chips += [
+            chip("may_state", st.may_state, "use", st.may_state),
+            chip("ask", st.ask, "use", st.ask),
+        ]
+    elif table == "coverage":
+        chips += [
+            chip(f"status_{i}", word, "status", word)
+            for i, word in enumerate(rules.documents.labels.remains, start=1)
+        ]
+    # ``file`` names the sheet's own export (Open in Excel); ``sheet_name`` the file's sheet, or
+    # the Account Summary table, it matches
+    if table == "facts":
+        title = sheet_name = _heading(rules.headings.summary.lane_tables)
+        file_name = f"{title}.xlsx"
+    elif table == "coverage":
+        assert live is not None
+        title, file_name = live.title, live.file
+        sheet_name = _heading(rules.headings.summary.coverage_tracker)
+    else:
+        assert live is not None
+        title, file_name, sheet_name = live.title, live.file, spec.sheet or "Sheet 1"
+    return Sheet(
+        key=key,
+        title=title,
+        file=file_name,
+        scope=f"The table of your delivered files, row for row. {SORT_HINT}",
+        base=base,
+        cols=tuple(cols),
+        filters=tuple(chips),
+        default_sort=FILE_ORDER.key,
+        tiebreak="s._pos",
+        table=table,
+        sheet_name=sheet_name,
+    )
+
+
+async def delivered_run(session: Any, account_id: UUID) -> UUID | None:
+    """The run of the account's newest delivered file (the file set the sheets match)."""
+    found = await session.scalar(
+        text(
+            "SELECT d.run_id FROM deliverables d WHERE d.account_id = :a AND d.run_id IS NOT NULL"
+            " ORDER BY d.built_at DESC LIMIT 1"
+        ),
+        {"a": account_id},
+    )
+    return UUID(str(found)) if found else None
+
+
+# the delivered file each client table is printed in (deliverables.kind)
+_FILE_KIND = {
+    "people": "people",
+    "jobs": "jobs",
+    "tech": "tech",
+    "facts": "summary",
+    "coverage": "summary",
+}
+
+
+async def _file_table(session: Any, account_id: UUID, key: str) -> tuple[UUID, int] | None:
+    """(delivered run, rows) of the file-shaped sheet ``key``, or None when the live sheet
+    stands in. The rows are shown only when they are the delivered file's: the run's
+    materialisation is ready and was built with this configuration's columns (one from before a
+    column change is passed over rather than shown with blank columns), the file was made by the
+    export builder (its stored manifest counts its rows), and a workbook holds exactly the rows
+    materialised."""
+    table = FILE_TABLES.get(key)
+    run = await delivered_run(session, account_id) if table else None
+    if table is None or run is None:
+        return None
+    ready = await session.scalar(
+        text("SELECT status = 'ready' FROM view_materializations WHERE run_id = :r"), {"r": run}
+    )
+    manifest = await session.scalar(
+        text(
+            "SELECT manifest_json FROM deliverables WHERE run_id = :r AND kind = :k"
+            " ORDER BY version DESC LIMIT 1"
+        ),
+        {"r": run, "k": _FILE_KIND[table]},
+    )
+    if isinstance(manifest, str):
+        manifest = json.loads(manifest)
+    printed = manifest.get("rows") if isinstance(manifest, dict) else None
+    if not ready or not isinstance(printed, int):
+        return None
+    first = await session.scalar(
+        text(
+            "SELECT cells FROM view_rows WHERE run_id = :r AND table_kind = :k"
+            " ORDER BY position LIMIT 1"
+        ),
+        {"r": run, "k": table},
+    )
+    from views.tables import specs
+
+    want = {c.key for c in specs()[table].columns}  # type: ignore[index]
+    if first is not None and set(dict(first)) != want:
+        return None
+    count = int(
+        await session.scalar(
+            text("SELECT count(*) FROM view_rows WHERE run_id = :r AND table_kind = :k"),
+            {"r": run, "k": table},
+        )
+        or 0
+    )
+    if _FILE_KIND[table] != "summary" and count != printed:
+        return None
+    return run, count
+
+
+async def file_run(session: Any, account_id: UUID, key: str) -> UUID | None:
+    """The delivered run whose materialised rows the sheet ``key`` shows (``_file_table``)."""
+    found = await _file_table(session, account_id, key)
+    return found[0] if found else None
+
+
+async def file_counts(session: Any, account_id: UUID) -> dict[str, int]:
+    """The rows of each file-shaped sheet with a delivered run, by sheet key."""
+    out: dict[str, int] = {}
+    for key in FILE_TABLES:
+        found = await _file_table(session, account_id, key)
+        if found is not None:
+            out[key] = found[1]
+    return out
+
 
 class SheetNotFound(LookupError):
     """No such sheet."""
@@ -475,7 +711,7 @@ class BadSheetQuery(ValueError):
 
 @dataclass(frozen=True)
 class Query:
-    """A validated sheet request."""
+    """A validated sheet request. ``run_id`` is the delivered run a file-shaped sheet reads."""
 
     sheet: Sheet
     filter: Filter
@@ -483,6 +719,7 @@ class Query:
     desc: bool
     offset: int
     limit: int
+    run_id: UUID | None = None
 
 
 def parse(
@@ -492,15 +729,21 @@ def parse(
     direction: str | None,
     offset: int = 0,
     limit: int = 200,
+    *,
+    run_id: UUID | None = None,
 ) -> Query:
-    """Validate a request against the sheet's allow-lists."""
-    sheet = SHEETS.get(sheet_key)
+    """Validate a request against the sheet's allow-lists. With ``run_id`` (the account's
+    delivered run, ``file_run``) a sheet the files print is the file-shaped one; the Platform
+    picture has no live form, so it is always file-shaped (and empty before a delivery)."""
+    if sheet_key in FILE_TABLES and (run_id is not None or sheet_key not in SHEETS):
+        sheet: Sheet | None = file_sheet(sheet_key)
+    else:
+        sheet = SHEETS.get(sheet_key)
     if sheet is None:
         raise SheetNotFound(sheet_key)
     filt = next((f for f in sheet.filters if f.key == (filter_key or "all")), None)
-    col = next(
-        (c for c in sheet.cols if c.key == (sort_key or sheet.default_sort) and c.sort), None
-    )
+    cols = (*sheet.cols, FILE_ORDER) if sheet.table else sheet.cols
+    col = next((c for c in cols if c.key == (sort_key or sheet.default_sort) and c.sort), None)
     if filt is None or col is None or (direction or sheet.default_dir) not in ("asc", "desc"):
         raise BadSheetQuery("unknown filter, sort or direction")
     return Query(
@@ -510,7 +753,50 @@ def parse(
         (direction or sheet.default_dir) == "desc",
         max(0, offset),
         max(1, min(limit, MAX_PAGE)),
+        run_id if sheet.table else None,
     )
+
+
+def params(q: Query, account_id: UUID, user_id: str, now: datetime) -> dict[str, Any]:
+    """The bound values of the sheet's SQL."""
+    out: dict[str, Any] = {"a": account_id, "u": user_id, "now": now}
+    if q.sheet.key == "coverage" and q.sheet.table is None:
+        out["tracker"] = tracker_labels()
+    if q.sheet.table is not None:
+        out["run"] = str(q.run_id) if q.run_id else None
+    return out
+
+
+def row_out(q: Query, n: int, r: Any, now: datetime) -> dict[str, Any]:
+    """One row as the sheet shows it: its number, cells, source link and, on a file-shaped
+    sheet, the address of each link column (the cell shows the file's link text)."""
+    if q.sheet.table is None:
+        out_cells: dict[str, str] = {}
+        out_links: dict[str, str] = {}
+        for c in q.sheet.cols:
+            if c.kind != "url":
+                out_cells[c.key] = display(c, r.get(c.key), now)
+                continue
+            # a profile link: the cell reads "Open profile" and opens the page itself; a data
+            # provider's own page is never shown (``source_label``)
+            found = source_link(r.get(c.key))
+            href = found.href if found else None
+            out_cells[c.key] = (c.link_text or "Open") if href else ""
+            if href:
+                out_links[c.key] = href
+        return {"n": n, "cells": out_cells, "links": out_links, **link_fields(r.get("link"))}
+    from views.render_safe import safe_link
+
+    cells: dict[str, str] = {}
+    links: dict[str, str] = {}
+    for c in q.sheet.cols:
+        value = "" if r.get(c.key) is None else str(r.get(c.key))
+        href = safe_link(value) if c.kind == "url" else None
+        if href:
+            links[c.key] = href
+            value = c.link_text or value
+        cells[c.key] = value
+    return {"n": n, "cells": cells, "links": links, **link_fields(r.get("link"))}
 
 
 def link_fields(raw: Any) -> dict[str, str | None]:
@@ -555,14 +841,12 @@ async def read(
     session: Any, q: Query, account_id: UUID, user_id: str, now: datetime, *, export: bool = False
 ) -> dict[str, Any]:
     """One page of the sheet (or the whole filtered sheet for an export) and the chip counts."""
-    params: dict[str, Any] = {"a": account_id, "u": user_id, "now": now}
-    if q.sheet.key == "coverage":
-        params["tracker"] = tracker_labels()
+    bound = params(q, account_id, user_id, now)
     counts_sql = ", ".join(
         f"count(*) FILTER (WHERE {f.where}) AS c{i}" for i, f in enumerate(q.sheet.filters)
     )
     counts_query = f"SELECT {counts_sql} FROM ({q.sheet.base}) s"  # nosec B608 -- allow-listed sheet SQL; values are bound.
-    counts = (await session.execute(text(counts_query), params)).one()
+    counts = (await session.execute(text(counts_query), bound)).one()
     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
     limit = MAX_EXPORT if export else q.limit
     offset = 0 if export else q.offset
@@ -572,7 +856,7 @@ async def read(
         (
             await session.execute(
                 text(page_query + " OFFSET :o LIMIT :l"),
-                {**params, "o": offset, "l": limit},
+                {**bound, "o": offset, "l": limit},
             )
         )
         .mappings()
@@ -586,6 +870,8 @@ async def read(
         "scope": q.sheet.scope,
         "footnote": q.sheet.footnote,
         "private": q.sheet.private,
+        "sheet_name": q.sheet.sheet_name,
+        "from_file": q.sheet.table is not None,
         "columns": [
             {"key": c.key, "label": c.label, "sortable": c.sort is not None, "kind": c.kind}
             for c in q.sheet.cols
@@ -599,14 +885,7 @@ async def read(
         "dir": "desc" if q.desc else "asc",
         "total": total,
         "offset": offset,
-        "rows": [
-            {
-                "n": offset + i + 1,
-                "cells": {c.key: display(c, r.get(c.key), now) for c in q.sheet.cols},
-                **link_fields(r.get("link")),
-            }
-            for i, r in enumerate(rows)
-        ],
+        "rows": [row_out(q, offset + i + 1, r, now) for i, r in enumerate(rows)],
     }
 
 
@@ -704,9 +983,17 @@ def workbook(sheet: dict[str, Any], account_name: str) -> bytes:
             ],
         )
         for col_no, c in enumerate(cols, start=2):
-            if c["kind"] == "link" and row.get("link"):
+            # a file-shaped sheet's link column shows the file's text and opens its address
+            href = (
+                row.get("link")
+                if c["kind"] == "link"
+                else (row.get("links") or {}).get(c["key"])
+                if c["kind"] == "url"
+                else None
+            )
+            if href:
                 cell = ws.cell(row=i, column=col_no)
-                cell.hyperlink = row["link"]
+                cell.hyperlink = href
                 cell.font = link_font
     ws.freeze_panes = "B2"
     for i, c in enumerate(cols, start=2):

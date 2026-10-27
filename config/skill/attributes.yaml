@@ -1,0 +1,132 @@
+# The attribute vocabulary of the research agents (web research rebuild, 2026-10-24).
+#
+# Until now an extraction call named its attributes freely, so one run held the same
+# headquarters fact four times under four different names and rows, the chief executive under
+# "lead verification" and the chief operating officer under three keys (audit 2026-10-24,
+# quidelortho run 2dab4361). Each attribute below has one name, one meaning, one canonical row
+# (the checklist row the fact belongs to, whatever row the page was pulled for), the signal tier
+# signals.md gives it, and the fact class the grading engine grades it under (half-life).
+#
+# Code (agents.extraction) files a candidate under its attribute's canonical row, merges repeats
+# of the same (row, attribute, value) into one candidate with every quote, and infers a lane from
+# the platform names in the quote when the model gave none. An attribute outside this list is
+# kept under the row it was pulled for and counted (never silently dropped, G1).
+#
+# Sources: checklist.md section 4 (the minimum to call each row Done), signals.md (tiers, lane
+# fingerprint questions, patterns worth looking for), output-spec.md (section order), the people
+# rules (titles are self reported until a profile is checked).
+version: "1.0.0"
+status: "adopted 2026-10-24 (web research rebuild)"
+source: "owner skill v1.11: checklist.md section 4, signals.md, output-spec.md"
+
+# tier: 1 budget proximate, 2 one step removed, 3 context and openers, 0 baseline (not a signal)
+rows:
+  source: "checklist.md section 4 coverage rows; signals.md tiers"
+  value:
+    basic_fit_check:
+      industry: {meaning: "The industry the company says it is in, in its own words", tier: 0}
+      headquarters: {meaning: "Headquarters city and country, or the registered address", tier: 0}
+      employee_count: {meaning: "Number of employees, with the date or period it was stated for", tier: 0}
+      revenue: {meaning: "Annual revenue with its fiscal year", tier: 0}
+      ownership: {meaning: "Public, private, private equity owned, or the parent that owns it", tier: 0}
+      ticker: {meaning: "Stock exchange listing and ticker", tier: 0}
+      parent_company: {meaning: "The parent company, when the account is a subsidiary", tier: 0}
+      subsidiary: {meaning: "A subsidiary, division or brand the company owns", tier: 0}
+      business_segment: {meaning: "A reporting segment or business unit and what it sells", tier: 0}
+      geographic_footprint: {meaning: "Countries or regions served, sites, plants or offices", tier: 0}
+      founded: {meaning: "Year founded or formed, including a merger that created the company", tier: 0}
+    platform_vendor_account_team:
+      vendor_partnership: {meaning: "A named partnership, agreement or program with a lane vendor (Salesforce, MuleSoft, ServiceNow, SAP, Tableau, Veeva)", tier: 1}
+      incumbent_partner: {meaning: "A systems integrator or consultancy named as working on a platform at the account", tier: 1}
+      vendor_account_team: {meaning: "A named person on a platform vendor's side who covers the account", tier: 3}
+      platform_selection: {meaning: "The company selected, deployed, migrated to or modernised a named platform", tier: 1}
+    key_contact_profiles_posts:
+      executive_role: {meaning: "A named technology, data, digital or commercial leader with the title as reported", tier: 3}
+      executive_post: {meaning: "What a named leader wrote or said publicly, with the subject", tier: 3}
+    prior_customer_status:
+      prior_engagement: {meaning: "Prior work, pursuit or customer status between the pursuing client and the account", tier: 1}
+    connections_alumni:
+      alumni_overlap: {meaning: "A named person who worked at both the pursuing client and the account", tier: 3}
+    company_news:
+      news_event: {meaning: "Something that happened, dated: what, who, and the date it occurred or was announced", tier: 2}
+      acquisition: {meaning: "An acquisition, merger or divestiture, with whether it closed", tier: 2}
+      product_launch: {meaning: "A product or service launch that strains commercial or service systems", tier: 2}
+      capability_centre: {meaning: "A new capability centre, shared service hub, site or expansion, with the city", tier: 2}
+      cost_program: {meaning: "A cost, efficiency or restructuring program, with its size or target", tier: 2}
+      reorganisation: {meaning: "A reorganisation of divisions, functions or reporting lines", tier: 2}
+      platform_initiative: {meaning: "A named platform initiative, funded program or transformation program", tier: 1}
+      security_incident: {meaning: "A breach, outage or security incident (preparation only, never an opener)", tier: 2}
+      partnership: {meaning: "A partnership or alliance outside the platform lanes", tier: 2}
+    leadership_changes:
+      appointment: {meaning: "A person appointed or promoted into a role: name, title, date", tier: 1}
+      departure: {meaning: "A person who left or will leave a role: name, title, date", tier: 1}
+    earnings_filings:
+      filing: {meaning: "An annual report, 10-K, 10-Q, 8-K or proxy, with its date and what it covers", tier: 0}
+      results_release: {meaning: "A quarterly or annual results release, with the period and headline figures", tier: 0}
+      guidance: {meaning: "Guidance for the year or quarter, as stated", tier: 2}
+    executive_voice_earnings:
+      focus: {meaning: "What an executive said the company is focused on, with the speaker and occasion", tier: 3}
+      opportunity: {meaning: "An opportunity an executive named, with the speaker and occasion", tier: 3}
+      challenge: {meaning: "A challenge or headwind an executive named, with the speaker and occasion", tier: 3}
+      stated_priority: {meaning: "A stated priority or investment area, with the speaker", tier: 3}
+    financial_baseline_verified:
+      revenue_growth: {meaning: "Revenue growth or decline for a period, as printed", tier: 0}
+      segment_revenue: {meaning: "Revenue or sales by segment or region, with the period", tier: 0}
+      operating_result: {meaning: "Operating income, margin or adjusted earnings, with the period", tier: 0}
+      cost_action: {meaning: "Charges, savings targets, headcount actions or tariff effects stated in the release", tier: 2}
+      capital_allocation: {meaning: "Debt, buybacks, dividends, capital spending or deal financing", tier: 0}
+    vendor_customer_stories:
+      customer_story: {meaning: "A vendor's customer story or case study naming the account: vendor, product, what it says", tier: 1}
+    lead_verification:
+      newsroom_release: {meaning: "A release on the company's own newsroom: date and headline", tier: 2}
+      verified_lead: {meaning: "A lead from a secondary source confirmed or contradicted in a primary one", tier: 2}
+    customers_partners_matched:
+      customer_named: {meaning: "A customer the company names publicly", tier: 3}
+      partner_named: {meaning: "A partner, reseller or alliance the company names publicly", tier: 3}
+    executive_speaking:
+      speaking_engagement: {meaning: "A named executive speaking at a named event, past or upcoming, with the date", tier: 3}
+    podcasts:
+      podcast_appearance: {meaning: "A named executive on a named podcast episode, with the date", tier: 3}
+    youtube:
+      video: {meaning: "A video, keynote or webinar featuring the company or its executives, with channel and date", tier: 3}
+    medium_substack:
+      article_or_post: {meaning: "An article, newsletter or engineering blog post by the company or its people", tier: 3}
+    review_sites:
+      review_presence: {meaning: "The company's presence or what it reviews on a software review site", tier: 3}
+    vendor_communities:
+      community_presence: {meaning: "A listing or presence on a vendor community or marketplace (Trailblazer, AppExchange, ServiceNow community, SAP community)", tier: 3}
+    regulatory_quality_events:
+      regulatory_event: {meaning: "A recall, warning letter, fine, settlement or regulatory action, with the date", tier: 2}
+    financial_position_peers:
+      peer_comparison: {meaning: "How the company compares with a named peer on a stated measure", tier: 2}
+    competitor_moves:
+      competitor_move: {meaning: "A named competitor's move or KPI that can be offered as a give", tier: 3}
+    major_holders_activists:
+      major_holder: {meaning: "A major shareholder and its stake", tier: 2}
+      activist_activity: {meaning: "Activist investor activity, with the date", tier: 2}
+    events_sponsored:
+      event_sponsorship: {meaning: "An event the company sponsored or exhibited at, with the date", tier: 2}
+    employee_content_github:
+      engineering_content: {meaning: "Employee technical content, an engineering blog or open source activity", tier: 3}
+    research_papers:
+      research_paper: {meaning: "A research paper or white paper the company published or co-authored", tier: 3}
+    job_board_by_lane:
+      board_search: {meaning: "A live job board search result: lane keyword and the count of matching roles (the jobs pipeline reads the postings themselves)", tier: 1}
+    job_postings_read_classified:
+      hiring_signal: {meaning: "A posting or hiring pattern for work the client delivers, when a page that is not a posting states it", tier: 1}
+    job_postings_12_months:
+      hiring_volume: {meaning: "How many roles were open or filled over a period, as a page states it", tier: 1}
+    technology_detections:
+      technology_detected: {meaning: "A technology name seen in public material, with first and last seen dates (a date range is a lead)", tier: 2}
+    people_by_platform:
+      platform_person: {meaning: "A named person whose title names a platform lane", tier: 3}
+    full_profiles_senior_people:
+      profile_finding: {meaning: "What a senior person's own role description says about platforms, programs or partners", tier: 3}
+    posts_priority_people:
+      priority_person_post: {meaning: "What a priority person posted or commented, with the subject", tier: 3}
+
+# Attributes the model may name in any extraction call because pages of every row carry them
+# (the page about a podcast also states the headquarters): listed with every group.
+shared:
+  source: "audit 2026-10-24: the facts misfiled across rows were baseline and leadership facts"
+  value: [headquarters, employee_count, revenue, industry, ownership, parent_company, executive_role, appointment, departure, news_event, vendor_partnership]

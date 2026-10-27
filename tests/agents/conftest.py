@@ -30,6 +30,7 @@ from tests.agents.fakes import (
     FakeLlm,
     FakeManifests,
     FakePayloads,
+    FakePipelines,
     FakeRecords,
     FakeRuns,
     FakeSettings,
@@ -75,6 +76,7 @@ class Harness:
 
     def __post_init__(self) -> None:
         self.provider = StubLedgerProvider(self.world, self.cfg, self.credit)
+        self.pipelines = FakePipelines(self.world, self.cfg, self.grading, self.tracker)
         self.builder = FakeBuilder(self.grading, self.records)
         self.llm = self.llm or honest_llm(self.cfg, self.world)
         self.saver = InMemorySaver()
@@ -102,6 +104,7 @@ class Harness:
             wallet=self.wallet,
             internal=self.internal,
             free_operations=FREE_NEEDS,
+            pipelines=self.pipelines,
         )
         return AbmRunService(deps, self.runs, self.saver)
 

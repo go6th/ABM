@@ -2,14 +2,17 @@
 
 ``SnapshotContent`` is produced by a ``ContentReader`` (the Postgres reader in production, an
 in-memory fake in tests) inside ONE ``REPEATABLE READ`` transaction (B1). It holds no provider
-code, call reference, cost figure or raw payload: the reader never selects those columns. The
-snapshot hash is the SHA-256 of its canonical JSON, so equal content always hashes equally.
+code, call reference or raw payload. The only cost figure is the dollars a call was charged, kept
+for the workspace's pull log (the column is named Cost there); the pull log's calls carry the
+operation, never the provider behind it. The snapshot hash is the SHA-256 of its canonical JSON,
+so equal content always hashes equally.
 """
 
 from __future__ import annotations
 
 import hashlib
-from datetime import date
+from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,6 +39,9 @@ class FactRow(_Row):
     flags: tuple[str, ...] = ()
     lead_status: str | None = None
     visibility: str = "public"
+    # the date the thing happened (``value_json.event_date``, ISO text); the Recent news table
+    # and the signal tables date a finding by it, never by the date it was found
+    event_date: str | None = None
 
 
 class EvidenceRow(_Row):
@@ -59,6 +65,10 @@ class SourceRow(_Row):
     url: str
     published: date | None
     kind: str
+    # the stored page title and publisher (``sources.title`` / ``sources.publisher``), when the
+    # registry recorded them; Evidence part D names a source by them before its host
+    title: str | None = None
+    publisher: str | None = None
 
 
 class SectionRow(_Row):
@@ -73,6 +83,8 @@ class SectionRow(_Row):
     confirming_question: str | None = None
     speaker: str | None = None
     visibility: str = "public"
+    # the lane id of a ``lane_meaning`` section (migration 0084); None for every other kind
+    lane: str | None = None
 
 
 class PersonRow(_Row):
@@ -87,14 +99,28 @@ class PersonRow(_Row):
     priority: str
     profile_url: str
     source_code: str | None
+    # how the person was found (people.models.Origin)
+    origin: str = "title_search"
+    # prior employers from the pulled profile; None when no profile field was provided
+    former_employers: tuple[str, ...] | None = None
+    # the profile link of a merged duplicate the merge kept beside the canonical one
+    second_profile_url: str | None = None
+    # the current title on the pulled profile (None when no profile was read); a title that
+    # differs from the title search is a status change in the Summary's People section
+    profile_title: str | None = None
+    # where the person is (the pulled profile's location, else the search record's)
+    location: str | None = None
 
 
 class PeopleCounts(_Row):
-    """The Summary sheet lines and count sentences from ``people.export`` / ``people.counts``."""
+    """The Summary sheet lines and count sentences from ``people.export`` / ``people.counts``,
+    and the people excluded by a title rule: (name, reason, title as reported), listed by name
+    on the People List Summary sheet (master prompt v2 9.3)."""
 
     summary: tuple[tuple[str, str, int], ...]
     sentences: tuple[str, ...]
     in_scope: int = Field(ge=0)
+    excluded: tuple[tuple[str, str, str], ...] = ()
 
 
 class FindingRow(_Row):
@@ -123,6 +149,12 @@ class PostingRow(_Row):
     full_text_read: bool = False
     hostile: bool = False
     window_bucket: str = "in_window"
+    # where the posting came from: the live careers board or the job feed
+    origin: str = "feed"
+    # the sentence the class decision stored as its evidence (``job_posting_classifications``)
+    class_sentence: str = ""
+    # the posting's location as the job pipeline stored it (``job_postings.location``)
+    location: str = ""
 
 
 class JobsCounts(_Row):
@@ -155,6 +187,36 @@ class TrackerLine(_Row):
     results: int | None
 
 
+class WebHit(_Row):
+    """One result of a web search: its host and whether the result's own text names the account
+    (None when the text was not stored). The entity lock decides from the host first, then this."""
+
+    host: str
+    names_account: bool | None = None
+
+
+class PullCall(_Row):
+    """One stored connector call as the workspace's pull log and search list show it."""
+
+    at: datetime
+    operation: str
+    step: str | None = None
+    queries: tuple[str, ...] = ()
+    terms: tuple[str, ...] = ()
+    domain: str | None = None
+    since: str | None = None
+    result_count: int | None = None
+    cost_usd: float = 0.0
+    hits: tuple[WebHit, ...] = ()
+
+
+class SenseCheckRow(_Row):
+    """The latest stored sense check of the run (counts only; no free text is stored)."""
+
+    findings: int
+    proposals: int
+
+
 class SnapshotContent(_Row):
     """Everything one build reads, from one snapshot."""
 
@@ -183,6 +245,19 @@ class SnapshotContent(_Row):
     tracker_tally: tuple[str, ...] = ()
     # COUNT(*) of the selected rows per file, taken in the same snapshot (B3 reconciliation)
     snapshot_counts: dict[str, int] = Field(default_factory=dict)
+    # the account's web domain (title block) and its verified careers host (Evidence part C);
+    # ``is_public`` is None until the account record carries it (the private-company tracker
+    # rule stays dormant on None, master prompt v2 section 11)
+    domain: str | None = None
+    careers_host: str | None = None
+    is_public: bool | None = None
+    # the stored entity lock (``EntityLock.as_dict()``), the run's connector calls in time order,
+    # how many calls failed with nothing stored, and the latest sense check: the workspace zip's
+    # own members are built from these and nothing else
+    entity_lock: dict[str, Any] | None = None
+    pull_calls: tuple[PullCall, ...] = ()
+    pull_failed: int = 0
+    sense_check: SenseCheckRow | None = None
 
     def snapshot_hash(self) -> str:
         """SHA-256 of the canonical JSON of the content (B1, B10)."""

@@ -104,38 +104,59 @@ async def test_b3_empty_sections_say_none_found(make_builder: Make) -> None:
     assert result.status == "complete", result.errors
     summary = next(d for d in result.deliverables if d.kind == "summary")
     text = docx_text(store.objects[summary.object_key])
-    # exactly the three empty sections: lane tables, key people, Findings from LinkedIn
-    assert text.count("None found") == 3
+    # every section of the specification is present, so a sparse account prints "None found" in
+    # each empty one: news, baseline, the four signal tables, lanes, the people method line, key
+    # people, findings from profiles and status changed, and section 1's what stands out and
+    # lane meanings (the corpus has none)
+    assert text.count("None found") == 13
 
 
 # ---- B4 provenance ---------------------------------------------------------------------------
 
 
-async def test_b4_posting_without_url(make_builder: Make) -> None:
+def assert_row_withheld(result: BuildResult, kind: str, row_id: str, rule: str, n: int) -> None:
+    """The set was delivered; the row is listed as withheld for ``rule`` and ``kind`` keeps
+    ``n`` rows (B4 by omission, never by invention; never a failed set, staging 2026-10-24)."""
+    assert result.status == "complete", result.errors
+    assert f"{kind}:{row_id}:{rule}" in result.manifest.withheld_blocks, (
+        result.manifest.withheld_blocks
+    )
+    assert len(result.manifest.row_ids[kind]) == n
+    assert row_id not in result.manifest.row_ids[kind]
+
+
+async def test_b4_posting_without_url_is_withheld(make_builder: Make) -> None:
     c = account()
     postings = list(c.postings)
     postings[0] = postings[0].model_copy(update={"url": None})
-    result, store = await run(make_builder, c.model_copy(update={"postings": tuple(postings)}))
-    assert_failed(result, store, "missing_provenance", "missing_url")
-    assert any("post-00000" in e for e in result.errors), "the failing row is listed"
+    result, _store = await run(make_builder, c.model_copy(update={"postings": tuple(postings)}))
+    assert_row_withheld(result, "jobs", "post-00000", "missing_url", len(postings) - 1)
 
 
-async def test_b4_person_link_not_in_the_registry(make_builder: Make) -> None:
+async def test_b4_person_link_not_in_the_registry_is_withheld(make_builder: Make) -> None:
     c = account()
     people = list(c.people)
     people[1] = people[1].model_copy(
         update={"source_code": None, "profile_url": "https://alpha.example/unknown"}
     )
+    result, _store = await run(make_builder, c.model_copy(update={"people": tuple(people)}))
+    assert_row_withheld(result, "people", people[1].id, "missing_source_code", len(people) - 1)
+
+
+async def test_b4_person_with_an_unknown_stored_code_fails(make_builder: Make) -> None:
+    c = account()
+    people = list(c.people)
+    people[1] = people[1].model_copy(update={"source_code": "S-9999"})
     result, store = await run(make_builder, c.model_copy(update={"people": tuple(people)}))
-    assert_failed(result, store, "missing_source_code")
+    assert_failed(result, store, "unknown_source_code")
 
 
-async def test_b4_detection_without_a_url(make_builder: Make) -> None:
+async def test_b4_detection_without_a_url_is_withheld(make_builder: Make) -> None:
     c = account()
     dets = list(c.detections)
     dets[0] = dets[0].model_copy(update={"source_url": None})
-    result, store = await run(make_builder, c.model_copy(update={"detections": tuple(dets)}))
-    assert_failed(result, store, "missing_url")
+    result, _store = await run(make_builder, c.model_copy(update={"detections": tuple(dets)}))
+    assert_row_withheld(result, "tech", dets[0].id, "missing_url", len(dets) - 1)
 
 
 # ---- B5 citations ----------------------------------------------------------------------------
@@ -316,16 +337,51 @@ async def test_b8_internal_grade_never_reaches_a_file(make_builder: Make) -> Non
     ],
 )
 async def test_b9_forbidden_content_in_a_row(make_builder: Make, value: str) -> None:
+    # the text is replaced by the withheld note and counted; the set is delivered (two such
+    # sentences held back all five files of a finished research, staging 2026-10-25)
     result, store = await run(make_builder, with_fact(account(), 0, value_text=value))
-    assert_failed(result, store, "leak")
-    assert not any(value in e for e in result.errors), "errors carry patterns, never text"
+    assert result.status == "complete", result.errors
+    assert result.manifest.leaks_withheld >= 1
+    for d in result.deliverables:
+        if d.kind in ("summary", "evidence"):
+            text = docx_text(store.objects[d.object_key])
+            assert value not in text
+
+
+async def test_b9_a_source_link_naming_a_data_tool_is_withheld_not_fatal(
+    make_builder: Make,
+) -> None:
+    # a vendor's public company page cited as a source (staging 2026-10-25: two such links
+    # failed the third-party scan of a finished research, build_failed:tool_name)
+    c = account()
+    in_sections = {fid for s in c.sections for fid in s.fact_ids}
+    ev = next(
+        e for e in c.evidence if e.fact_id not in in_sections and e.evidence_kind != "search_proof"
+    )
+    code = ev.source_code or next(s.code for s in c.sources if s.url == ev.url)
+    host = broker("p_scrape").lower().replace(" ", "")
+    url = f"https://www.{host}.dev/companies/synthetic"
+    sources = tuple(s.model_copy(update={"url": url}) if s.code == code else s for s in c.sources)
+    evidence = tuple(
+        e.model_copy(update={"url": url}) if (e.source_code or "") == code or e.url == ev.url else e
+        for e in c.evidence
+    )
+    c = c.model_copy(update={"sources": sources, "evidence": evidence})
+    result, store = await run(make_builder, c)
+    assert result.status == "complete", result.errors
+    assert any(b.endswith(":tool_link") for b in result.manifest.withheld_blocks), (
+        result.manifest.withheld_blocks
+    )
+    for d in result.deliverables:
+        if d.kind in ("summary", "evidence"):
+            assert host not in docx_text(store.objects[d.object_key]).lower()
 
 
 async def test_b9_client_staff_name_in_authored_text(make_builder: Make) -> None:
     c = account().model_copy(update={"forbidden_terms": ("Jane Clientstaff",)})
     c = with_section(c, "caveat", text="Jane Clientstaff shared this view.")
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "leak")
+    assert_withheld(result, store, "leak", "Jane Clientstaff")
 
 
 async def test_b9_partner_framing_fails_for_a_partner_tenant(make_builder: Make) -> None:

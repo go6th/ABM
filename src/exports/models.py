@@ -62,6 +62,13 @@ class AuthoredBlock(_Frozen):
     codes: tuple[SourceCode, ...]
 
 
+class LaneMeaningBlock(AuthoredBlock):
+    """What the facts likely mean for one lane (Summary section 1, interpretation labeled):
+    ``lane`` is the lane's display label."""
+
+    lane: Text
+
+
 class QuoteBlock(_Frozen):
     """Executive voice: the executive's own words, verbatim, with the speaker named."""
 
@@ -91,6 +98,12 @@ class LaneRow(_Frozen):
     may_state: bool
     question: str | None
     codes: tuple[SourceCode, ...] = Field(min_length=1)
+    # the Summary's "Platform picture by lane" columns (the reference Summary's section 5): the
+    # item (the lane and the attribute the fact answers), how the finding was read, and the
+    # reasoning and sources cell (the read, the codes, the confirming question when asked)
+    item: str = ""
+    read: str = ""
+    reasoning: str = ""
 
 
 class LaneTable(_Frozen):
@@ -112,6 +125,8 @@ class KeyPersonRow(_Frozen):
     priority: str
     profile_url: Url
     source_code: SourceCode
+    # the People List's note for the person (empty when it has none)
+    note: str = ""
 
 
 class FindingBlock(_Frozen):
@@ -129,7 +144,9 @@ class FindingBlock(_Frozen):
 
 
 class TrackerRow(_Frozen):
-    """One coverage row from the tracker's client view (never typed by the builder)."""
+    """One coverage row from the tracker's client view (never typed by the builder). ``needs``,
+    ``done`` and ``remains`` are the document's three derived cells (master prompt v2 9.1 item
+    11); ``reason``, ``tools`` and ``results`` stay for the client's on-screen table."""
 
     ref: Ref
     row_id: str
@@ -139,10 +156,114 @@ class TrackerRow(_Frozen):
     reason: str | None
     tools: str
     results: str
+    needs: str = ""
+    done: str = ""
+    remains: str = ""
+    pass_no: int = 2
+
+
+class WaitingRow(_Frozen):
+    """A coverage row that waits on the account owner (Blocked or Not done), printed as one
+    bullet with its status and what it needs."""
+
+    ref: Ref
+    row_id: str
+    row: Text
+    needs: Text
+    status: Text = ""
+
+
+class GradeLegendRow(_Frozen):
+    """One product grade of How to read this file, in the skill's wording
+    (``export_rules.yaml`` ``labels.grade_legend``), held to ``config/grading.yaml``'s policy."""
+
+    grade: Text
+    meaning: Text
+    use: Text
+
+
+class NewsRow(_Frozen):
+    """A dated signal inside the news window: what happened, how it was read, why it matters."""
+
+    ref: Ref
+    row_id: str
+    date: Text
+    what: Text
+    read: Text
+    codes: tuple[SourceCode, ...] = Field(min_length=1)
+    why: Text
+
+
+class PlatformHiringRow(_Frozen):
+    """One platform of the Summary's hiring table: postings naming it over the window, open now
+    and by class (the Job Postings workbook's own counts, never recounted)."""
+
+    ref: Ref
+    row_id: str
+    platform: Text
+    postings: int = Field(ge=0)
+    open_now: int = Field(ge=0)
+    build: int = Field(ge=0)
+    admin_owner: int = Field(ge=0)
+    working_tool: int = Field(ge=0)
+    user: int = Field(ge=0)
+
+
+class BaselineRow(_Frozen):
+    """A tier 0 fact: a baseline company item with what the sources say, printed as one bullet
+    ("Item: what (sources).") as the reference Summary lays section 3 out; a finding the policy
+    does not let the file state carries its grade in the bullet."""
+
+    row_id: str
+    item: Text
+    what: Text
+    grade_label: Text
+    may_state: bool
+    codes: tuple[SourceCode, ...] = Field(min_length=1)
+
+
+class SignalRow(_Frozen):
+    """A tier 1 to 3 fact in a signal table, dated by its event date when it has one."""
+
+    ref: Ref
+    row_id: str
+    finding: Text
+    grade_label: Text
+    lanes: str
+    date: Text
+    codes: tuple[SourceCode, ...] = Field(min_length=1)
+
+
+class SignalTable(_Frozen):
+    """One of the four signal tables (tier 1, 2, 3, context and history); may be empty."""
+
+    key: Literal["tier1", "tier2", "tier3", "context"]
+    title: Text
+    rows: tuple[SignalRow, ...]
+
+
+class StatusChangeRow(_Frozen):
+    """A person whose profile shows a different title from the title search."""
+
+    ref: Ref
+    row_id: str
+    person: Text
+    search_title: str
+    profile_title: str
+    source_code: SourceCode
+
+
+class SourceLinkRow(_Frozen):
+    """One cited source with its link and domain (Source links)."""
+
+    ref: Ref
+    code: SourceCode
+    url: Url
+    domain: Text
 
 
 class SummaryModel(_Frozen):
-    """The Account Summary, in the PRD order."""
+    """The Account Summary (master prompt v2 section 9.1 order; the fields keep their names)."""
 
     account: Text
     as_of: date
@@ -161,6 +282,29 @@ class SummaryModel(_Frozen):
     tracker_tally: tuple[Text, ...] = Field(min_length=1)
     none_found: Text
     brand: Text | None = None
+    domain: Text | None = None
+    version: Text | None = None
+    file_names: tuple[Text, ...] = ()
+    grade_legend: tuple[GradeLegendRow, ...] = ()
+    news: tuple[NewsRow, ...] = ()
+    news_sentence: Text | None = None
+    baseline: tuple[BaselineRow, ...] = ()
+    signals: tuple[SignalTable, ...] = ()
+    people_intro: tuple[Text, ...] = ()
+    status_changes: tuple[StatusChangeRow, ...] = ()
+    waiting: tuple[WaitingRow, ...] = ()
+    source_links: tuple[SourceLinkRow, ...] = ()
+    platform_hiring: tuple[PlatformHiringRow, ...] = ()
+    # the title and opening paragraph as the reference words them (agent 4, 2026-10-26): the
+    # account's legal name from the entity lock, the document's own name, the other files' line
+    legal_name: Text | None = None
+    document_name: Text | None = None
+    files_line: Text | None = None
+    # the one tally line printed under the tracker tables (computed from the rows)
+    tally_line: Text | None = None
+    # section 1 of the reference Summary (2026-10-26); empty for runs distilled before it
+    stands_out: tuple[AuthoredBlock, ...] = ()
+    lane_meanings: tuple[LaneMeaningBlock, ...] = ()
 
 
 # ---- Sources and Evidence ------------------------------------------------------------------
@@ -173,10 +317,14 @@ class EvidenceUse(_Frozen):
     grade_label: Text
     sentence: Text
     withheld: bool
+    # the rendered finding the sentence supports (Part A "What it supports"), when printable
+    finding: str = ""
+    fact_id: str = ""
 
 
 class EvidenceSource(_Frozen):
-    """One source: stable code, link, date, kind and every sentence relied on."""
+    """One source: stable code, link, date, kind, how it was retrieved and every sentence
+    relied on."""
 
     ref: Ref
     code: SourceCode
@@ -184,16 +332,171 @@ class EvidenceSource(_Frozen):
     published: date | None
     kind_label: Text
     uses: tuple[EvidenceUse, ...]
+    retrieved: Text | None = None
+    # the stored page title (printed above the link) and the Type cell: what the link is (a
+    # job posting, the company site, a public profile or post) or else the source kind
+    title: str = ""
+    type_label: str = ""
+    # "What it supports" for a source no finding rests on but a posting row cites
+    supports_note: str = ""
 
 
 class JobRead(_Frozen):
-    """A job description read in full."""
+    """A job description read in full (Evidence part B), with the posting's own platform
+    sentences."""
 
     ref: Ref
     row_id: str
     title: Text
     url: Url
     code: SourceCode
+    posting_ref: str = ""
+    posted: str = ""
+    entity: str = ""
+    sentences: str = ""
+    posting_class: str = ""
+    # Part B posting cell and Platforms column: the posting's status word, first seen date
+    # (ISO) and the lane platforms it names
+    status: str = ""
+    first_seen: str = ""
+    platforms: str = ""
+
+
+class LaneReadRow(_Frozen):
+    """One posting read in full under one lane platform (Evidence part C). ``posting_ref`` is
+    the posting's row in the Job Postings workbook; ``reasoning`` is the class decision's stored
+    evidence sentence, else the posting's sentences naming the platform."""
+
+    ref: Ref
+    row_id: str
+    posting_ref: Ref
+    title: Text
+    url: Url
+    first_seen: Text
+    posting_class: Text
+    status: Text
+    reasoning: Text
+    source_code: SourceCode
+
+
+class LaneReadGroup(_Frozen):
+    """One lane platform of Evidence part C: the heading counts (postings read in full, postings
+    naming the platform, open ones) and the read postings, one row each."""
+
+    platform: Text
+    heading: Text
+    read: int = Field(ge=0)
+    named: int = Field(ge=0)
+    open_now: int = Field(ge=0)
+    rows: tuple[LaneReadRow, ...] = ()
+
+    @model_validator(mode="after")
+    def _counted(self) -> LaneReadGroup:
+        if self.read != len(self.rows) or self.read > self.named or self.open_now > self.named:
+            raise ValueError("a lane counts its read rows once, within the postings naming it")
+        return self
+
+
+class ExtractQuote(_Frozen):
+    """One verbatim extract relied on from a source read in depth (Evidence part D): the quote
+    (or the withheld note), who said or wrote it, the grade of the row it supports and what it
+    supports. ``dated`` and ``kind`` are a post's own date and type words."""
+
+    row_id: str
+    text: Text
+    withheld: bool
+    code: SourceCode
+    speaker: Text | None = None
+    grade_label: Text | None = None
+    supports: Text | None = None
+    kind: Text | None = None
+    dated: Text | None = None
+
+
+class ExtractSource(_Frozen):
+    """One source read in depth (Evidence part D), printed as a sub-heading "<name> (<date>)
+    (<code>)" with its link and the extracts relied on from it. ``code`` is None for the group of
+    the listed people's own posts, whose extracts each cite their own post."""
+
+    row_id: str
+    heading: Text
+    url: Url | None = None
+    code: SourceCode | None = None
+    quotes: tuple[ExtractQuote, ...] = Field(min_length=1)
+
+
+class BoardCaptureRow(_Frozen):
+    """One job board count line (Evidence part E)."""
+
+    ref: Ref
+    row_id: str
+    keyword: Text
+    matches: int = Field(ge=0)
+    read: Text
+
+
+class LeadRow(_Frozen):
+    """A finding graded Lead, what was tried and what would settle it (Evidence part F)."""
+
+    ref: Ref
+    row_id: str
+    lead: Text
+    queries: Text
+    grade_label: Text
+    settle: str
+    codes: tuple[SourceCode, ...] = Field(min_length=1)
+
+
+class DataPullRow(_Frozen):
+    """One count of a data pull with its base (Evidence part H)."""
+
+    ref: Ref
+    row_id: str
+    pull: Text
+    count: int = Field(ge=0)
+    base: Text
+
+
+class LivePostingRow(_Frozen):
+    """One posting captured on the live careers board that names a lane platform (Evidence part
+    E): the title, the platforms it names, the entity, how far it was read and its class."""
+
+    ref: Ref
+    row_id: str
+    posting: Text
+    platforms: str
+    entity: str
+    read: Text
+    posting_class: Text
+
+
+class DetectionPullRow(_Frozen):
+    """One technology detection of a lane platform (Evidence part H): its first and last seen
+    dates and the postings of the Job Postings file that name it."""
+
+    ref: Ref
+    row_id: str
+    technology: Text
+    first_seen: Text
+    last_seen: Text
+    postings: int = Field(ge=0)
+
+
+class EntitySplitRow(_Frozen):
+    """The postings of the Job Postings file per entity (Evidence part H)."""
+
+    ref: Ref
+    row_id: str
+    entity: Text
+    postings: int = Field(ge=0)
+
+
+class UrlRow(_Frozen):
+    """One source URL written out in full (Evidence part I)."""
+
+    ref: Ref
+    code: SourceCode
+    url: Url
 
 
 class NewsItem(_Frozen):
@@ -208,7 +511,7 @@ class NewsItem(_Frozen):
 
 
 class EvidenceModel(_Frozen):
-    """The Sources and Evidence document."""
+    """The Sources and Evidence document (parts A to I, master prompt v2 section 9.2)."""
 
     account: Text
     as_of: date
@@ -218,6 +521,27 @@ class EvidenceModel(_Frozen):
     news: tuple[NewsItem, ...]
     none_found: Text
     brand: Text | None = None
+    # the Account Summary's delivered file name, named in the opening line
+    summary_file: str = ""
+    # the document title as the reference writes it ("BD (Becton, Dickinson and Company):
+    # Sources and Evidence"); blank prints the file title
+    doc_title: str = ""
+    lane_reads: tuple[LaneReadGroup, ...] = ()
+    extracts: tuple[ExtractSource, ...] = ()
+    board_captures: tuple[BoardCaptureRow, ...] = ()
+    leads: tuple[LeadRow, ...] = ()
+    keep_copies: Text | None = None
+    data_pulls: tuple[DataPullRow, ...] = ()
+    urls: tuple[UrlRow, ...] = ()
+    # parts E and H in the reference shape: live board postings, detections of lane platforms,
+    # postings per lane platform, the entity split, the news feed note and the teams note
+    live_heading: Text | None = None
+    live_postings: tuple[LivePostingRow, ...] = ()
+    detections: tuple[DetectionPullRow, ...] = ()
+    platform_postings: tuple[PlatformHiringRow, ...] = ()
+    entity_split: tuple[EntitySplitRow, ...] = ()
+    news_feed_note: Text | None = None
+    teams_note: Text | None = None
 
     @model_validator(mode="after")
     def _unique_codes(self) -> EvidenceModel:
@@ -233,16 +557,26 @@ class EvidenceModel(_Frozen):
 
 
 class PeopleRow(_Frozen):
-    """One deduplicated senior person."""
+    """One deduplicated senior person (master prompt v2 section 9.3 columns). ``level`` and
+    ``lanes`` carry the spec's labels; ``level_id`` and ``lane_id`` the stored ids behind them."""
 
     ref: Ref
     row_id: str
+    number: int = Field(ge=1)
     name: Text
     title: str
     level: str
+    level_id: str = ""
+    meets_seniority: bool = False
     lanes: str
+    lane_id: str | None = None
     priority: str
+    former_employers: str = ""
+    found_by: str = ""
     profile_url: Url
+    second_profile_url: Url | None = None
+    location: str = ""
+    note: str = ""
     source_code: SourceCode
 
 
@@ -254,6 +588,33 @@ class SummaryLine(_Frozen):
     count: int = Field(ge=0)
 
 
+class ExcludedPerson(_Frozen):
+    """A person excluded by title, named with the title and the reason (the only place the name
+    appears)."""
+
+    name: Text
+    reason: str
+    title: str = ""
+
+
+class LevelCount(_Frozen):
+    """One Level table line: people at the level and how many are priority A."""
+
+    label: Text
+    people: int = Field(ge=0)
+    priority_a: int = Field(ge=0)
+
+
+class LaneCount(_Frozen):
+    """One Lane table line (senior people only): priority A, B, C and the total."""
+
+    label: Text
+    a: int = Field(ge=0)
+    b: int = Field(ge=0)
+    c: int = Field(ge=0)
+    total: int = Field(ge=0)
+
+
 class PeopleModel(_Frozen):
     """The People List workbook."""
 
@@ -263,16 +624,32 @@ class PeopleModel(_Frozen):
     summary: tuple[SummaryLine, ...] = Field(min_length=1)
     sentences: tuple[Text, ...]
     in_scope_listed: int = Field(ge=0)
+    # the Summary sheet's title and its paragraphs in the reference's order (what the list
+    # merges, rows removed, exclusions by title with names, the seniority rule, the judgment note)
+    title_line: str = ""
+    paragraphs: tuple[str, ...] = ()
+    what: str = ""
+    seniority_text: str = ""
+    judgment_note: str = ""
+    excluded: tuple[ExcludedPerson, ...] = ()
+    levels: tuple[LevelCount, ...] = ()
+    senior_count: int = Field(ge=0, default=0)
+    lanes_table: tuple[LaneCount, ...] = ()
 
     @model_validator(mode="after")
     def _listed(self) -> PeopleModel:
         if self.in_scope_listed != len(self.rows):
             raise ValueError("the listed count is the number of rows")
+        if self.levels and sum(x.people for x in self.levels) != len(self.rows):
+            raise ValueError("the Level table counts every listed person once")
         return self
 
 
 class JobRow(_Frozen):
-    """One posting."""
+    """One posting (master prompt v2 section 9.4 columns). ``description`` is the full posting
+    text when the posting was read in full, else blank; ``read_text`` is the sentence the reading
+    quoted to decide the class (blank when no reading decided it); ``requisition`` is the job ID
+    the posting prints (blank when it prints none); ``entity`` names the account or the host."""
 
     ref: Ref
     row_id: str
@@ -285,7 +662,14 @@ class JobRow(_Frozen):
     url: Url
     posted_at: date | None
     first_seen: date | None
+    posted_or_seen: date | None = None
+    entity: str = ""
+    source_type: str = ""
+    full_text_read: bool = False
     source_code: SourceCode
+    requisition: str = ""
+    location: str = ""
+    read_text: str = ""
 
 
 class CountLine(_Frozen):
@@ -298,6 +682,17 @@ class CountLine(_Frozen):
     formula: Literal["rows", "open", "closed", "none"] = "none"
 
 
+class PlatformClassCounts(_Frozen):
+    """One row of the platform matrix (Job Postings Summary sheet): postings naming a platform,
+    open and closed, and by class (formulas)."""
+
+    platform: Text
+    rows: int = Field(ge=0)
+    by_class: tuple[int, ...]
+    open: int = Field(default=0, ge=0)
+    closed: int = Field(default=0, ge=0)
+
+
 class JobsModel(_Frozen):
     """The Job Postings workbook."""
 
@@ -306,19 +701,50 @@ class JobsModel(_Frozen):
     rows: tuple[JobRow, ...]
     counts: tuple[CountLine, ...] = Field(min_length=1)
     sentences: tuple[Text, ...]
+    class_labels: tuple[Text, ...] = ()
+    matrix: tuple[PlatformClassCounts, ...] = ()
+    # the Summary sheet: the title line and the explanatory paragraphs (sheet_texts.jobs)
+    summary_title: str = ""
+    summary_notes: tuple[Text, ...] = ()
+
+    @model_validator(mode="after")
+    def _matrix(self) -> JobsModel:
+        if any(len(m.by_class) != len(self.class_labels) for m in self.matrix):
+            raise ValueError("every matrix row counts every class once")
+        return self
 
 
 class TechRow(_Frozen):
-    """One technology detection with its dates and the posting cross-check."""
+    """One technology detection with its dates and the postings of the Job Postings file that
+    name it; category and lane from the platform dictionary (blank when not one of its
+    platforms)."""
 
     ref: Ref
     row_id: str
+    category: str
     technology: Text
+    postings: int = Field(ge=0)
+    lane: str
     first_seen: str
     last_seen: str
-    cross_check: Text
     grade: Text
     source_code: SourceCode
+
+
+class RankRow(_Frozen):
+    """One platform of the Platform Ranking sheet (master prompt v2 section 7.3): the rank and
+    share are workbook formulas; ``rank`` and ``share`` hold the values computed in code."""
+
+    platform: Text
+    category: Text
+    lane: Text
+    count: int = Field(ge=0)
+    share: float = Field(ge=0, le=1)
+    rank: str
+    open_now: int = Field(ge=0)
+    last_seen: Text
+    in_stack: Text
+    read_checked: Text
 
 
 class TechModel(_Frozen):
@@ -329,6 +755,26 @@ class TechModel(_Frozen):
     rows: tuple[TechRow, ...]
     counts: tuple[CountLine, ...] = Field(min_length=1)
     teams_note: Text
+    ranking: tuple[RankRow, ...] = ()
+    seen_once: tuple[RankRow, ...] = ()
+    base: int = Field(ge=0, default=0)
+    postings_in_window: int = Field(ge=0, default=0)
+    rank_counts: tuple[tuple[str, int], ...] = ()
+    # the title lines and notes of the three sheets (sheet_texts.tech)
+    title: str = ""
+    base_line: str = ""
+    notes: tuple[Text, ...] = ()
+    stack_title: str = ""
+    stack_note: str = ""
+    teams_title: str = ""
+
+    @model_validator(mode="after")
+    def _ranked(self) -> TechModel:
+        if any(r.count < 2 or not r.rank for r in self.ranking):
+            raise ValueError("a ranked platform has two postings or more and a rank letter")
+        if any(r.count != 1 for r in self.seen_once):
+            raise ValueError("a platform seen once has exactly one posting")
+        return self
 
 
 # ---- manifest and deliverables ------------------------------------------------------------
@@ -371,6 +817,16 @@ class BuildManifest(_Frozen):
     withheld_blocks: tuple[str, ...] = ()
     long_text_parts: int = Field(ge=0)
     formula_like_cells: int = Field(ge=0)
+    # out-of-scope platform names replaced by the scope mask in rendered text (scope.yaml
+    # never_report, master prompt v2 section 0); 0 for a manifest written before the rule
+    masked_terms: int = Field(ge=0, default=0)
+    # rendered texts replaced by the withheld note because the leak scan fired on them (B9);
+    # 0 for a manifest written before the rule (staging 2026-10-25)
+    leaks_withheld: int = Field(ge=0, default=0)
+    # external hosts linked or named in the five files, sorted into the four groups of the
+    # third-party scan (spec 12): account_and_press, data_tools (always empty in a stored set),
+    # aggregators, other
+    third_party_domains: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     files: tuple[FileEntry, ...] = ()
     loop_exits: dict[str, str] = Field(default_factory=dict)
     change_note: str | None = None

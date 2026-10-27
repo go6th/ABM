@@ -126,7 +126,7 @@ async def test_workbook_models(built: Any, expected: dict[str, Any]) -> None:
         {
             "ref": r.ref,
             "row_id": r.row_id,
-            "cross_check": r.cross_check,
+            "postings": r.postings,
             "source_code": r.source_code,
         }
         for r in tech.rows
@@ -168,15 +168,19 @@ async def test_numbers(built: Any, expected: dict[str, Any]) -> None:
 async def test_produced_workbook_cells(built: Any, expected: dict[str, Any]) -> None:
     _, result, store = built
     wb = load_workbook(io.BytesIO(_file(result, store, "jobs")))
-    ws = wb["Postings"]
+    ws = wb["Jobs"]
     headers = [c.value for c in ws[1]]
-    assert headers[0] == "Ref"
+    assert headers[0] == "Requisition"
     col = headers.index("Full description")
     assert ws.cell(row=2, column=col + 1).value == expected["jobs"][0]["description"]
     counts = wb["Counts"]
     assert counts["B2"].value.startswith("=COUNTA(")
     people = load_workbook(io.BytesIO(_file(result, store, "people")))
-    summary = [[c.value for c in row] for row in people["Summary"].iter_rows(min_row=2, max_row=3)]
-    assert summary == [["in scope", None, 2], ["excluded", "security function", 1]]
+    cells = [[c.value for c in row] for row in people["Summary"].iter_rows()]
+    # the reference layout: a title line, then paragraphs; a person excluded by title is named
+    # with the reason on the Summary sheet and never listed on the People sheet
+    assert str(cells[0][0]).endswith("people list, deduplicated")
+    summary_text = " ".join(str(v) for row in cells for v in row if v is not None)
+    assert "2 people in scope of 3 distinct people found" in summary_text
     names = " ".join(str(c.value) for row in people["People"].iter_rows() for c in row)
     assert "Cal Excluded" not in names

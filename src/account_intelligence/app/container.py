@@ -197,9 +197,13 @@ def build_connectors(
     from account_intelligence.connectors.factory import build_runtime
     from account_intelligence.connectors.ratelimit import RedisRateStore
     from account_intelligence.connectors.service import retry_policy_for
-    from account_intelligence.connectors.settings import load_providers_config
+    from account_intelligence.connectors.settings import load_providers_config, uncapped_config
 
     config = load_providers_config()
+    if research_uncapped(env):
+        # caps off (owner decision 2026-10-24): no provider timeout, wait, poll window or retry
+        # count the platform controls may stop a research
+        config = uncapped_config(config)
     rate_store = None
     if redis_url:
         import redis.asyncio as redis

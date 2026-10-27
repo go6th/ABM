@@ -4810,6 +4810,11 @@
             "title": "Coverage Total",
             "type": "integer"
           },
+          "facts": {
+            "default": 0,
+            "title": "Facts",
+            "type": "integer"
+          },
           "jobs": {
             "title": "Jobs",
             "type": "integer"
@@ -9811,6 +9816,99 @@
         "title": "PauseDeclined",
         "type": "object"
       },
+      "PeopleConsent": {
+        "additionalProperties": false,
+        "description": "Response body: the workspace's people data consent (G8, D-97).",
+        "properties": {
+          "current": {
+            "title": "Current",
+            "type": "boolean"
+          },
+          "granted": {
+            "title": "Granted",
+            "type": "boolean"
+          },
+          "granted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted At"
+          },
+          "granted_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted By"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "text_version": {
+            "title": "Text Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "label",
+          "text",
+          "text_version",
+          "granted",
+          "current",
+          "granted_by",
+          "granted_at",
+          "revoked_at"
+        ],
+        "title": "PeopleConsent",
+        "type": "object"
+      },
+      "PeopleConsentBody": {
+        "additionalProperties": false,
+        "description": "Grant (``accept`` true) or withdraw (false) the people data consent. No tenant field.",
+        "properties": {
+          "accept": {
+            "title": "Accept",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accept"
+        ],
+        "title": "PeopleConsentBody",
+        "type": "object"
+      },
       "PilotAggregate": {
         "additionalProperties": false,
         "description": "Response body: pilot aggregate.",
@@ -12449,6 +12547,17 @@
             "title": "File",
             "type": "string"
           },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Id"
+          },
           "filter": {
             "title": "Filter",
             "type": "string"
@@ -12463,6 +12572,11 @@
           "footnote": {
             "title": "Footnote",
             "type": "string"
+          },
+          "from_file": {
+            "default": false,
+            "title": "From File",
+            "type": "boolean"
           },
           "key": {
             "title": "Key",
@@ -12487,9 +12601,21 @@
             "title": "Scope",
             "type": "string"
           },
+          "sheet_name": {
+            "default": "Sheet 1",
+            "title": "Sheet Name",
+            "type": "string"
+          },
           "sort": {
             "title": "Sort",
             "type": "string"
+          },
+          "tabs": {
+            "items": {
+              "$ref": "#/components/schemas/SheetTabRef"
+            },
+            "title": "Tabs",
+            "type": "array"
           },
           "title": {
             "title": "Title",
@@ -12518,6 +12644,78 @@
           "rows"
         ],
         "title": "Sheet",
+        "type": "object"
+      },
+      "SheetBlock": {
+        "additionalProperties": false,
+        "description": "A text line or a table of a workbook tab, in the sheet's row order; ``cut`` counts rows\nleft out on screen (the file holds them).",
+        "properties": {
+          "cut": {
+            "default": 0,
+            "title": "Cut",
+            "type": "integer"
+          },
+          "header": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Header",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "text",
+              "table"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/SheetCell"
+              },
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "SheetBlock",
+        "type": "object"
+      },
+      "SheetCell": {
+        "additionalProperties": false,
+        "description": "One cell of a workbook tab as the file shows it, and the address its link opens.",
+        "properties": {
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Href"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "SheetCell",
         "type": "object"
       },
       "SheetColumn": {
@@ -12608,6 +12806,13 @@
             ],
             "title": "Link Label"
           },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
           "n": {
             "title": "N",
             "type": "integer"
@@ -12619,6 +12824,98 @@
           "link"
         ],
         "title": "SheetRow",
+        "type": "object"
+      },
+      "SheetTab": {
+        "additionalProperties": false,
+        "description": "One sheet of a delivered workbook (Summary, Platform Ranking, Platform teams, Counts),\nshown as the file prints it.",
+        "properties": {
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/SheetBlock"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Id"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "tab": {
+            "title": "Tab",
+            "type": "string"
+          },
+          "tab_label": {
+            "title": "Tab Label",
+            "type": "string"
+          },
+          "tabs": {
+            "items": {
+              "$ref": "#/components/schemas/SheetTabRef"
+            },
+            "title": "Tabs",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "file",
+          "account_name",
+          "tab",
+          "tab_label",
+          "tabs",
+          "blocks"
+        ],
+        "title": "SheetTab",
+        "type": "object"
+      },
+      "SheetTabRef": {
+        "additionalProperties": false,
+        "description": "One sheet of the delivered workbook, shown as a tab (``replica.file_tabs``); ``main`` is\nthe sheet the sortable table shows.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "main": {
+            "default": false,
+            "title": "Main",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "SheetTabRef",
         "type": "object"
       },
       "SignalEvent": {
@@ -18870,7 +19167,7 @@
     },
     "/v1/accounts/{domain}/sheets/{sheet}": {
       "get": {
-        "description": "One page of a deep-dive table, filtered and sorted on the server.",
+        "description": "One page of a deep-dive table, filtered and sorted on the server. Once files are\ndelivered, a table the files print shows the files' own table (``sheets.file_sheet``).",
         "operationId": "account_sheet_v1_accounts__domain__sheets__sheet__get",
         "parameters": [
           {
@@ -19123,6 +19420,83 @@
           }
         },
         "summary": "Account Sheet Csv",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/sheets/{sheet}/tabs/{tab}": {
+      "get": {
+        "description": "One sheet of the delivered workbook (Summary, Platform Ranking, Platform teams, Counts),\nas the file prints it: its text lines and tables, formulas computed, links kept.",
+        "operationId": "account_sheet_tab_v1_accounts__domain__sheets__sheet__tabs__tab__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sheet",
+            "required": true,
+            "schema": {
+              "title": "Sheet",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tab",
+            "required": true,
+            "schema": {
+              "title": "Tab",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetTab"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Sheet Tab",
         "tags": [
           "accounts"
         ]
@@ -19383,7 +19757,7 @@
     },
     "/v1/accounts/{domain}/workspace": {
       "get": {
-        "description": "The Account workspace screen for one account.",
+        "description": "The Account workspace screen for one account. Once files are delivered, the counts of\nthe tables the files print are the files' row counts (the sheets show those rows).",
         "operationId": "account_workspace_v1_accounts__domain__workspace_get",
         "parameters": [
           {
@@ -26108,6 +26482,114 @@
           }
         },
         "summary": "Upload Logo",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/people-consent": {
+      "get": {
+        "description": "The consent text, its version, and whether this workspace has granted it.",
+        "operationId": "read_people_consent_v1_settings_people_consent_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeopleConsent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read People Consent",
+        "tags": [
+          "settings"
+        ]
+      },
+      "post": {
+        "description": "Grant or withdraw the consent (insert-only rows; a withdrawal is a newer row).",
+        "operationId": "set_people_consent_v1_settings_people_consent_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PeopleConsentBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeopleConsent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set People Consent",
         "tags": [
           "settings"
         ]

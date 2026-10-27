@@ -12,7 +12,14 @@ unlisted_domain: {tier: T4, is_aggregator: false, flag: unclassified_source}
 # Account-derived primary hosts: one lineage group (the company is the single upstream).
 account_primary: {tier: T1, lineage_group: account_primary, live_state: true}
 
-domains: []
+# Primary sources the owner's skill reads as a matter of course (tools.md "Earnings calls and
+# releases": results releases are on the investor site and as SEC exhibits; checklist step 4 and
+# the earnings and filings rows). A filing is the company's own statement in a public register:
+# first tier, its own lineage (the company), a dated document. The research graph scrapes these
+# hosts live (full page read) so a figure read there can be Confirmed (2026-10-24).
+domains:
+  - {domain: sec.gov, tier: T1, is_aggregator: false, lineage_group: account_primary, live_state: false,
+     source: "owner skill v1.11 tools.md (earnings calls and releases: SEC exhibits); checklist.md step 4"}
 # Example shape (add real entries only with a source):
 #   - {domain: example-news.com, tier: T3, is_aggregator: false, lineage_group: example-news,
 #      live_state: false, source: "TODO, needs product owner"}

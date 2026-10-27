@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -151,9 +152,32 @@ class _NoConnectors:
 
         raise ProviderFailed("not_supported_yet")
 
+    async def entity_lock(self, ctx: RunContext) -> Any:
+        """No connectors: the lock holds the domain alone and says the home page was not read."""
+        from agents.entity import build_lock
 
-def abm_deps(deps: RunDeps, lanes: tuple[str, ...] = (), cfg: SkillConfig | None = None) -> AbmDeps:
-    """Every agent port bound to its production adapter for this run."""
+        lock = build_lock(
+            legal_name=ctx.account_name,
+            primary_domain=ctx.domain,
+            stopwords=skill_config().scope.name_stopwords,
+            home_url=f"https://{ctx.domain}/",
+            final_url=None,
+            home_title=None,
+            home_text=None,
+        )
+        from dataclasses import replace
+
+        return replace(lock, problems=(f"home page of {ctx.domain} unreadable",))
+
+
+def abm_deps(
+    deps: RunDeps,
+    lanes: tuple[str, ...] = (),
+    cfg: SkillConfig | None = None,
+    as_of: date | None = None,
+) -> AbmDeps:
+    """Every agent port bound to its production adapter for this run. ``as_of`` is the run's
+    date (its creation day): the posting window and the feed call key follow its month."""
     cfg = cfg or skill_config()
     grading_cfg = load_grading_config()
     provider: Any = _NoConnectors()
@@ -166,6 +190,8 @@ def abm_deps(deps: RunDeps, lanes: tuple[str, ...] = (), cfg: SkillConfig | None
             deps.extra_allowed_hosts,
             reuse_cached=deps.reuse_cached,
             resume_from=deps.resume_from,
+            as_of=as_of,
+            skill=cfg,
         )
         ledger = InheritedLedger(
             LedgerAdapter(
@@ -175,8 +201,10 @@ def abm_deps(deps: RunDeps, lanes: tuple[str, ...] = (), cfg: SkillConfig | None
         )
     if ledger is None:
         raise NotConfigured("the agent layer needs the connector runtime (ledger and sources)")
+    from agents.production.pipelines import RunPipelines
     from spend.config import load_spend_config
 
+    grading = EngineGrading(deps.txn, ledger, grading_cfg, deps.clock, LlmJudge(deps))
     return AbmDeps(
         cfg=cfg,
         registry=load_registry(),
@@ -187,7 +215,7 @@ def abm_deps(deps: RunDeps, lanes: tuple[str, ...] = (), cfg: SkillConfig | None
         manifests=PgManifestStore(),
         consent=PgConsentStore(),
         settings=SettingsAdapter(deps.txn, deps.run_id, cfg),
-        grading=EngineGrading(deps.txn, ledger, grading_cfg, deps.clock, LlmJudge(deps)),
+        grading=grading,
         tracker=TrackerAdapter(deps.txn, deps.spec.coverage_owners),
         credit=CreditAdapter(deps.txn, deps.clock, cfg, deps),
         records=PgRunRecords(deps.txn),
@@ -197,6 +225,7 @@ def abm_deps(deps: RunDeps, lanes: tuple[str, ...] = (), cfg: SkillConfig | None
         wallet=RunnerSettles(),
         internal=None,  # D-98: no connector search binding yet; internal history stays off
         free_operations=frozenset(load_spend_config().free_operations),
+        pipelines=RunPipelines(deps, grading) if deps.connectors is not None else None,
     )
 
 
@@ -240,11 +269,14 @@ class AbmGraphFactory:
         """The compiled ABM graph on the run's checkpointer."""
         cfg = self.cfg or skill_config()
         async with deps.txn(deps.tenant_id) as s:
-            run_input: dict[str, Any] = (
+            row = (
                 await s.execute(
-                    text("SELECT run_input FROM account_runs WHERE id = :r"), {"r": deps.run_id}
+                    text("SELECT run_input, created_at FROM account_runs WHERE id = :r"),
+                    {"r": deps.run_id},
                 )
-            ).scalar_one_or_none() or {}
+            ).first()
+            run_input: dict[str, Any] = dict((row.run_input if row else None) or {})
+            as_of = row.created_at.date() if row is not None and row.created_at else None
             # the tenant's own lanes (settings), not the skill's list: people search follows them
             from tenancy import settings as tenant_settings
 
@@ -256,7 +288,9 @@ class AbmGraphFactory:
             from account_intelligence.connectors.service import retry_policy_for
 
             policy = retry_policy_for(deps.connectors.config)
-        return build_abm_graph(abm_deps(deps, lanes, cfg), policy).compile(checkpointer=saver)
+        return build_abm_graph(abm_deps(deps, lanes, cfg, as_of), policy).compile(
+            checkpointer=saver
+        )
 
     async def initial(self, deps: RunDeps) -> dict[str, Any]:
         """The ABM state from the run row (tenant and run from the trusted run path)."""

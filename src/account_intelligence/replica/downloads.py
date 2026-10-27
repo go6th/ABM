@@ -315,8 +315,14 @@ async def _fill(
         key = keys.get(d["id"])
         if key:
             await writer.add_bytes(f"Deliverables/{d['filename']}", await src.payloads.get(key))
-    for sheet in SH.SHEETS:
-        q = SH.parse(sheet, None, None, None)
+    # every sheet; a sheet the delivered files print is the files' own table (``file_run``,
+    # materialised when the sheets were last viewed), the Platform picture only once delivered
+    for sheet in (*SH.SHEETS, *(k for k in SH.FILE_TABLES if k not in SH.SHEETS)):
+        async with src.txn(tenant_id) as s:
+            run = await SH.file_run(s, account_id, sheet)
+        if sheet not in SH.SHEETS and run is None:
+            continue
+        q = SH.parse(sheet, None, None, None, run_id=run)
         title = q.sheet.title.replace("/", "-")
         csv_path = work / f"{sheet}.csv"
         async with src.txn(tenant_id) as s:

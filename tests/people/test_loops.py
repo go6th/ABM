@@ -10,16 +10,17 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from people.config import PeopleConfig, load_people_config
+from people.config import PeopleConfig
 from people.models import Mention, PersonPage, RawPerson
 from people.ports import SourceUnavailable
 from people.search import SearchSpec, page_source, plan_title_searches, titles_for
 from tests.fakes.people import Corpus, FakeRepo
+from tests.people.conftest import frozen_people_config
 from tests.people.kit import Kit
 
 
 def _cfg(**caps: float) -> PeopleConfig:
-    base = load_people_config()
+    base = frozen_people_config()
     return replace(base, caps={**base.caps, **caps})
 
 
@@ -113,7 +114,7 @@ async def test_stored_pages_are_replayed_without_a_call() -> None:
 
 
 def test_title_plan_and_fallback() -> None:
-    cfg = load_people_config()
+    cfg = frozen_people_config()
     specs, not_searched = plan_title_searches(cfg, frozenset({"veeva"}))
     assert not_searched == {"veeva": "lane_not_in_scope", "data_ai": "not_available_yet"}
     assert {s.source_id for s in specs} >= {"title:salesforce:1", "title:salesforce:2"}
@@ -204,7 +205,7 @@ async def test_deadline_ends_every_loop_honestly() -> None:
 
 @pytest.mark.asyncio
 async def test_everything_off_and_mentions_not_configured() -> None:
-    cfg = load_people_config()
+    cfg = frozen_people_config()
     corpus = Corpus()
     corpus.lanes_off = frozenset(cfg.lane_ids())
     result = await Kit(corpus, mentions_configured=False).run()
@@ -290,7 +291,7 @@ def test_pipeline_terminates_and_keeps_invariants_for_any_outage(
 
 @pytest.mark.asyncio
 async def test_a_lane_switched_off_is_not_a_shortfall() -> None:
-    cfg = load_people_config()
+    cfg = frozen_people_config()
     corpus = Corpus()
     corpus.lanes_off = frozenset(lane for lane in cfg.lane_ids() if lane != "servicenow")
     result = await Kit(corpus).run()

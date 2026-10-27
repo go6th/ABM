@@ -20,7 +20,6 @@ from typing import Any
 
 import pytest
 
-from jobs.config import load_jobs_config
 from jobs.errors import JobsError
 from jobs.gap import gap_remainder
 from jobs.models import PageText, SourceBatch
@@ -28,7 +27,7 @@ from jobs.pipeline import ROW_READ, PipelineResult, result_to_json
 from jobs.ports import SourceUnavailable
 from jobs.stage import run_jobs
 from tests.fakes.jobs import Corpus, FakeLlm, FakeRunInput, Recorder
-from tests.jobs.conftest import build
+from tests.jobs.conftest import build, frozen_config
 
 pytestmark = pytest.mark.asyncio
 
@@ -207,7 +206,7 @@ async def test_gap_pass_without_progress_ends_no_progress_after_one_pass(corpus:
 
 
 async def test_gap_pass_respects_the_run_level_caps(corpus: Corpus) -> None:
-    cfg = load_jobs_config()
+    cfg = frozen_config()
     tight = replace(cfg, caps={**cfg.caps, "max_page_reads": 0, "max_extractor_calls": 1})
     pipeline, source, pages, first, _ = build(corpus, cfg=tight)
     rec = Recorder()
@@ -226,7 +225,7 @@ async def test_gap_passes_are_bounded_by_max_gap_passes(corpus: Corpus) -> None:
         calls["n"] += 1
         raise JobsError("transient")
 
-    cfg = load_jobs_config()
+    cfg = frozen_config()
     one = replace(cfg, caps={**cfg.caps, "max_gap_passes": 0})
     first = _extractor(corpus, **{"id:j5": progress_then_fail})
     pipeline, *_ = build(corpus, cfg=one, extractor=first)
@@ -237,7 +236,7 @@ async def test_gap_passes_are_bounded_by_max_gap_passes(corpus: Corpus) -> None:
 
 
 async def test_gap_escalation_reads_a_posting_the_cap_skipped(corpus: Corpus) -> None:
-    cfg = load_jobs_config()
+    cfg = frozen_config()
     # the corpus needs two escalation reads (j8 ok, j9 fails); a cap of one leaves one unescalated
     one_read = replace(cfg, caps={**cfg.caps, "max_page_reads": 1})
     pipeline, source, pages, *_ = build(corpus, cfg=one_read)

@@ -12,7 +12,7 @@ import { m } from "@/lib/messages";
 import type { OpenJob } from "@/lib/gen/api.gen";
 import { Checkpoint, currentStep, runSteps, StepList, StopButton, useRun } from "@/components/ws/RunSteps";
 import { TokenMeter } from "@/components/ws/TokenMeter";
-import { LiveRefresh } from "./ResumeResearch";
+import { LiveRefresh, reasonOr } from "./ResumeResearch";
 
 export function ResearchProgress({ job, scopeName }: { job: OpenJob; scopeName: string }) {
   const router = useRouter();
@@ -38,7 +38,7 @@ export function ResearchProgress({ job, scopeName }: { job: OpenJob; scopeName: 
       reload();
       router.refresh();
     } catch (cause) {
-      setMessage(cause instanceof ApiError && cause.status === 409 ? cause.detail : m.run.stopFailed);
+      setMessage(cause instanceof ApiError && cause.status === 409 ? reasonOr(cause, m.run.stopFailed) : m.run.stopFailed);
     }
   };
   const refresh = () => { reload(); router.refresh(); };

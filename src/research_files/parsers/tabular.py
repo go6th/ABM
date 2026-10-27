@@ -7,7 +7,17 @@ unit holds at most ``rows_per_unit`` rows or ``unit_text_bytes`` of text. Cursor
 * xlsx: sheet index and next row; parquet: rows done; JSON array: byte offset and item count;
   JSON Lines: byte offset and line number.
 
+An xlsx sheet's header is its first row with a value. A cell that shows a link label ("Open
+profile") reads as the address its hyperlink opens (read-only openpyxl drops hyperlinks, so they
+are read from the sheet's own part, ``part_links``). The package is untrusted: only http(s)
+addresses are kept, parts with a DTD or past their byte cap give no links, targets that leave the
+package are not read, and the cells a hyperlink covers are bounded.
+
 GUARANTEE(test_csv_resume_from_a_byte_offset_reads_the_same_rows)
+GUARANTEE(test_only_http_links_become_cell_values)
+GUARANTEE(test_a_huge_or_malformed_hyperlink_range_is_read_in_bounded_time)
+GUARANTEE(test_a_part_that_declares_a_dtd_gives_no_links)
+GUARANTEE(test_a_part_that_inflates_past_its_cap_gives_no_links)
 """
 
 from __future__ import annotations
@@ -17,8 +27,12 @@ import csv
 import datetime as dt
 import io
 import json
+import posixpath
+import re
+import zipfile
 from collections.abc import Iterator
 from typing import IO, Any
+from urllib.parse import urlsplit
 
 from research_files.checks import Finding
 from research_files.parsers.base import ParseContext, Unit, detect_encoding, fatal
@@ -311,6 +325,304 @@ def _cell(value: Any) -> Any:
     return value
 
 
+# A link cell that shows a label ("Open profile", "Open posting", "View") is read as the address
+# it opens: the People List's LinkedIn column is such a cell, and its label alone is no link.
+_LINK_LABEL = re.compile(r"(?i)^\s*(?:open|view|see|visit|link|click)\b[\w\s]{0,30}$")
+_XL_MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_XL_REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_PKG_REL = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+_CELL_REF = re.compile(r"^\$?([A-Za-z]{1,3})\$?(\d{1,7})(?::\$?([A-Za-z]{1,3})\$?(\d{1,7}))?$")
+_LAST_ROW, _LAST_COL = 1_048_576, 16_384  # the largest sheet Excel can hold
+# The link reader reads an uploaded (untrusted) package, so everything it reads is bounded:
+MAX_LINKS = 200_000  # linked cells kept per sheet (the parser), per workbook (sheet_links)
+MAX_LINK_CELLS = 1_000  # cells one hyperlink may cover; a larger range keeps its first cell only
+MAX_URL_CHARS = 2_000  # a longer address is not kept
+MAX_URL_BYTES = 32 * 1024 * 1024  # all kept addresses together
+MAX_PART_BYTES = 64 * 1024 * 1024  # a workbook.xml or .rels part (decompressed) read for links
+MAX_SHEET_BYTES = 1024 * 1024 * 1024  # a sheet part (decompressed) scanned for its hyperlinks
+
+
+class _Refused(Exception):
+    """A package part the link reader will not read: too long, or it declares a DTD."""
+
+
+class _Capped:
+    """A reader over one decompressed zip member that raises ``_Refused`` past ``cap`` bytes, so
+    a member that inflates to gigabytes (a zip bomb) costs at most ``cap`` bytes of reading."""
+
+    def __init__(self, raw: IO[bytes], cap: int) -> None:
+        self.raw = raw
+        self.left = cap
+
+    def read(self, size: int = -1) -> bytes:
+        """Up to ``size`` bytes (``size`` is bounded by the cap)."""
+        want = self.left + 1 if size is None or size < 0 else min(size, self.left + 1)
+        data = self.raw.read(want)
+        self.left -= len(data)
+        if self.left < 0:
+            raise _Refused("part too long")
+        return data
+
+
+class CellLinks(dict[tuple[int, int], str]):
+    """A sheet's linked cells: (row, column) -> address. ``anchors`` are the cells a hyperlink
+    starts at: only there may an empty cell take the address (the other cells of a merged range
+    are empty in read-only mode and stay empty)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.anchors: set[tuple[int, int]] = set()
+
+
+def safe_url(value: Any) -> str | None:
+    """``value`` when it is an absolute http(s) address a reader may open, else None: never a
+    ``javascript:``, ``file:``, ``mailto:`` or relative target, never one with a user name in
+    front of the host (``https://trusted@other``), spaces, control or invisible characters."""
+    if not isinstance(value, str):
+        return None
+    url = value.strip()
+    if not url or len(url) > MAX_URL_CHARS or not url.isprintable() or " " in url:
+        return None
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in ("http", "https") or not host or "@" in parts.netloc:
+        return None
+    return url
+
+
+def _elements(book: zipfile.ZipFile, name: str, tags: tuple[str, ...], cap: int) -> Iterator[Any]:
+    """Each ``tags`` element of one package part as it ends, streamed and then dropped, so a big
+    sheet's rows never pile up in memory. A part longer than ``cap`` bytes, or one that declares
+    a DTD (no Office part does: it is how an entity bomb or an external entity is written),
+    raises ``_Refused``. Entities are never expanded and nothing is fetched."""
+    from lxml import etree
+
+    with book.open(name) as raw:
+        events = etree.iterparse(
+            _Capped(raw, cap),
+            events=("end",),
+            tag=tags,
+            resolve_entities=False,
+            no_network=True,
+            load_dtd=False,
+            huge_tree=False,
+        )
+        checked = False
+        # LOOP(package part elements): cap=`cap` bytes of the part; exit=end of the part
+        for _, el in events:
+            if not checked:
+                if el.getroottree().docinfo.doctype:
+                    raise _Refused("the part declares a DTD")
+                checked = True
+            yield el
+            el.clear()
+            # LOOP(drop read siblings): cap=the elements already read; exit=none left before
+            while el.getprevious() is not None:
+                del el.getparent()[0]
+
+
+def _rels_name(part: str) -> str:
+    """The relationships part of a package part (``xl/_rels/workbook.xml.rels``)."""
+    folder, _, name = part.rpartition("/")
+    return f"{folder}/_rels/{name}.rels" if folder else f"_rels/{name}.rels"
+
+
+def _part_name(source: str, target: str) -> str | None:
+    """A relationship target as the part it names, resolved as openpyxl resolves it (relative to
+    the source part's folder; a leading ``/`` is the package root), or None when it climbs out of
+    the package (``../../x``) or is no part name (an address)."""
+    if not target or "://" in target or "\\" in target:
+        return None
+    if target.startswith("/"):
+        path = posixpath.normpath(target.lstrip("/"))
+    else:
+        path = posixpath.normpath(posixpath.join(posixpath.dirname(source), target))
+    if path.startswith(("../", "/")) or path in (".", ".."):
+        return None
+    return path
+
+
+def _hyperlink_targets(book: zipfile.ZipFile, part: str, budget: list[int]) -> dict[str, str]:
+    """Relationship id -> address of every external hyperlink a sheet part declares, kept only
+    when it is a safe http(s) address (``safe_url``); bounded by ``MAX_LINKS`` and
+    ``MAX_URL_BYTES`` (``budget`` is the bytes left, shared by the workbook)."""
+    rels = _rels_name(part)
+    if rels not in book.NameToInfo:
+        return {}
+    out: dict[str, str] = {}
+    for el in _elements(book, rels, (f"{_PKG_REL}Relationship",), MAX_PART_BYTES):
+        if el.get("TargetMode") != "External" or not el.get("Type", "").endswith("/hyperlink"):
+            continue
+        url = safe_url(el.get("Target"))
+        if url is None:
+            continue
+        budget[0] -= len(url)
+        if budget[0] < 0 or len(out) >= MAX_LINKS:
+            break
+        out[el.get("Id", "")] = url
+    return out
+
+
+def _column(letters: str) -> int:
+    """A column's number from its letters (A is 1, XFD is 16384)."""
+    number = 0
+    for ch in letters.upper():
+        number = number * 26 + ord(ch) - 64
+    return number
+
+
+def _span(ref: str | None) -> tuple[int, int, int, int] | None:
+    """A hyperlink's ``ref`` as (first row, first column, last row, last column), or None when it
+    is no cell or range of the sheet (malformed, a whole column, past the sheet's last cell)."""
+    m = _CELL_REF.match((ref or "").strip().split(" ")[0])
+    if m is None:
+        return None
+    c1, c2 = _column(m.group(1)), _column(m.group(3) or m.group(1))
+    r1, r2 = int(m.group(2)), int(m.group(4) or m.group(2))
+    top, bottom, left, right = min(r1, r2), max(r1, r2), min(c1, c2), max(c1, c2)
+    if top < 1 or bottom > _LAST_ROW or left < 1 or right > _LAST_COL:
+        return None
+    return top, left, bottom, right
+
+
+def part_links(
+    book: zipfile.ZipFile, part: str, cells_left: list[int], url_bytes: list[int]
+) -> CellLinks:
+    """The linked cells of one worksheet part (see ``sheet_links``). Raises ``_Refused`` (or a
+    zip or XML error) for a part it will not read; ``cells_left`` and ``url_bytes`` are the
+    workbook's remaining budgets."""
+    out = CellLinks()
+    targets = _hyperlink_targets(book, part, url_bytes) if part in book.NameToInfo else {}
+    if not targets:
+        return out
+    hyperlinks = f"{_XL_MAIN}hyperlinks"
+    for el in _elements(
+        book, part, (f"{_XL_MAIN}row", f"{_XL_MAIN}hyperlink", hyperlinks), MAX_SHEET_BYTES
+    ):
+        if el.tag == hyperlinks:
+            break  # the sheet's hyperlinks are all read; what follows has none
+        if el.tag != f"{_XL_MAIN}hyperlink":
+            continue  # a row: read only to get past it (and dropped)
+        url = targets.get(el.get(f"{_XL_REL}id", ""))  # an internal link (location=) has none
+        span = _span(el.get("ref")) if url else None
+        if url is None or span is None:
+            continue
+        top, left, bottom, right = span
+        if (bottom - top + 1) * (right - left + 1) > MAX_LINK_CELLS:
+            bottom, right = top, left  # a range this wide is no list of link cells
+        out.anchors.add((top, left))
+        # LOOP(hyperlink cells): cap=MAX_LINK_CELLS per hyperlink, MAX_LINKS per workbook;
+        # exit=range end, budget spent
+        for row in range(top, bottom + 1):
+            for col in range(left, right + 1):
+                if cells_left[0] <= 0:
+                    return out
+                if (row, col) not in out:
+                    out[(row, col)] = url
+                    cells_left[0] -= 1
+    return out
+
+
+def _workbook_part(book: zipfile.ZipFile) -> str:
+    """The workbook part the package's root relationships name (``xl/workbook.xml`` almost
+    always)."""
+    if "_rels/.rels" in book.NameToInfo:
+        for el in _elements(book, "_rels/.rels", (f"{_PKG_REL}Relationship",), MAX_PART_BYTES):
+            if el.get("Type", "").endswith("/officeDocument"):
+                part = _part_name("", el.get("Target", ""))
+                if part is not None:
+                    return part
+    return "xl/workbook.xml"
+
+
+def sheet_links(stream: IO[bytes]) -> dict[str, CellLinks]:
+    """The external hyperlink of every linked cell, by sheet name and (row, column): openpyxl's
+    read-only mode does not read them. Only safe http(s) addresses are kept (``safe_url``); a
+    sheet whose relationship target leaves the package is skipped; a repeated sheet name is
+    renamed as openpyxl renames it. Bounded (``MAX_LINKS`` and the byte caps above); a package
+    it cannot read safely gives no links rather than an error (the values are still read).
+    ``XlsxParser`` reads one sheet's links at a time (``_links_for``)."""
+    from openpyxl.workbook.child import avoid_duplicate_name
+
+    if not _seekable(stream):
+        return {}
+    here = stream.tell()
+    out: dict[str, CellLinks] = {}
+    try:
+        with zipfile.ZipFile(stream) as book:
+            workbook = _workbook_part(book)
+            sheets = [
+                (str(el.get("name", "")), el.get(f"{_XL_REL}id", ""))
+                for el in _elements(book, workbook, (f"{_XL_MAIN}sheet",), MAX_PART_BYTES)
+            ]
+            targets: dict[str, str] = {}
+            if _rels_name(workbook) in book.NameToInfo:
+                for el in _elements(
+                    book, _rels_name(workbook), (f"{_PKG_REL}Relationship",), MAX_PART_BYTES
+                ):
+                    if el.get("TargetMode") != "External":
+                        targets[el.get("Id", "")] = el.get("Target", "")
+            cells_left, url_bytes = [MAX_LINKS], [MAX_URL_BYTES]
+            # LOOP(workbook sheets for links): cap=the workbook's sheets; exit=last sheet
+            for name, rel in sheets:
+                part = _part_name(workbook, targets.get(rel, ""))
+                if part is None or part not in book.NameToInfo:
+                    continue  # openpyxl skips such a sheet too
+                key = avoid_duplicate_name(list(out), name)
+                out[key] = part_links(book, part, cells_left, url_bytes)
+    except Exception:  # noqa: BLE001 - zip, zlib, XML and limit errors: no links, values stay
+        return {}
+    finally:
+        stream.seek(here)
+    return out
+
+
+def _seekable(stream: Any) -> bool:
+    """Whether the stream can be read twice (a zip package needs it)."""
+    try:
+        return bool(stream.seekable())
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def _links_for(stream: IO[bytes], ws: Any) -> CellLinks:
+    """The linked cells of one read-only worksheet, read from its own part (openpyxl's resolved
+    ``_worksheet_path``, so two sheets with one name never share links). Never raises: a package
+    or part it cannot read safely, or a stream it cannot rewind, gives no links. The stream's
+    position is restored for openpyxl."""
+    part = getattr(ws, "_worksheet_path", None)
+    if not isinstance(part, str) or not _seekable(stream):
+        return CellLinks()
+    here = stream.tell()
+    try:
+        with zipfile.ZipFile(stream) as book:
+            return part_links(book, part, [MAX_LINKS], [MAX_URL_BYTES])
+    except Exception:  # noqa: BLE001 - zip, zlib, XML and limit errors: no links, values stay
+        return CellLinks()
+    finally:
+        stream.seek(here)
+
+
+def linked(cells: list[Any], row_no: int, links: dict[tuple[int, int], str]) -> list[Any]:
+    """The row's cells with each labelled link cell read as its address (``_LINK_LABEL``); an
+    empty cell takes the address only where a hyperlink starts (``CellLinks.anchors``)."""
+    if not links:
+        return cells
+    anchors = getattr(links, "anchors", None)
+    for j, value in enumerate(cells):
+        url = links.get((row_no, j + 1))
+        if not url:
+            continue
+        label = isinstance(value, str) and _LINK_LABEL.match(value) is not None
+        empty_anchor = value is None and (anchors is None or (row_no, j + 1) in anchors)
+        if label or empty_anchor:
+            cells[j] = url
+    return cells
+
+
 class XlsxParser:
     """Every sheet of a workbook, row batches in read-only (streaming) mode."""
 
@@ -318,13 +630,11 @@ class XlsxParser:
         """See the module docstring."""
         if cursor.get("done"):
             return
-        import zipfile
-
         from openpyxl import load_workbook
 
         try:
             book = load_workbook(stream, read_only=True, data_only=True)
-        except (zipfile.BadZipFile, KeyError, OSError, ValueError) as error:
+        except Exception as error:  # noqa: BLE001 - zip, zlib, XML (an entity bomb) and value errors
             yield fatal(
                 "note",
                 {},
@@ -333,6 +643,7 @@ class XlsxParser:
                 "Open and save the workbook in a spreadsheet program, then upload it again.",
             )
             return
+        name = ""
         try:
             sheets = book.sheetnames
             sheet_i = int(cursor.get("sheet", 0))
@@ -347,11 +658,21 @@ class XlsxParser:
                 )
                 header_unit = None
                 findings: list[Finding] = []
+                # read before the rows: a sheet's hyperlinks follow its rows in the part
+                links = _links_for(stream, ws)
                 rows_iter = ws.iter_rows(min_row=next_row, values_only=True)
                 row_no = next_row - 1
+                header_row = next_row
                 if header is None:
-                    first = next(rows_iter, None)
-                    row_no += 1
+                    # the header is the first row with a value: a sheet may open with empty rows
+                    first = None
+                    # LOOP(xlsx leading empty rows): cap=the sheet's rows; exit=a row with a value
+                    for values in rows_iter:
+                        row_no += 1
+                        if any(v is not None and str(v).strip() for v in values):
+                            first = values
+                            break
+                    header_row = row_no
                     if first is None:
                         yield Unit(
                             "note",
@@ -371,10 +692,10 @@ class XlsxParser:
                         sheet_i, next_row = sheet_i + 1, 1
                         continue
                     raw = [("" if c is None else str(c)) for c in first]
-                    # LOOP(xlsx sheets): cap=the workbook's sheets; exit=last sheet
+                    # LOOP(xlsx header trailing blanks): cap=the header's cells; exit=a named cell
                     while raw and raw[-1] == "":
                         raw.pop()
-                    findings += header_findings(name, raw, {"sheet": name, "row": 1})
+                    findings += header_findings(name, raw, {"sheet": name, "row": header_row})
                     header = unique_header(raw)
                     header_unit = header
                 batch: list[tuple[int, list[Any]]] = []
@@ -382,8 +703,9 @@ class XlsxParser:
                 start = row_no + 1
                 for values in rows_iter:
                     row_no += 1
-                    cells = [_cell(v) for v in values]
-                    # LOOP(xlsx header row): cap=one row; exit=header read
+                    cells = linked([_cell(v) for v in values], row_no, links)
+                    # LOOP(xlsx row trailing blanks): cap=the row's cells; exit=a value or the
+                    # header's width
                     while cells and cells[-1] is None and len(cells) > len(header):
                         cells.pop()
                     if all(c is None for c in cells):
@@ -399,7 +721,7 @@ class XlsxParser:
                             findings,
                             table=name,
                             header=header_unit,
-                            header_row=1 if header_unit else None,
+                            header_row=header_row if header_unit else None,
                             rows=batch,
                         )
                         batch, texts, findings, header_unit, start = [], [], [], None, row_no + 1
@@ -412,11 +734,20 @@ class XlsxParser:
                         findings,
                         table=name,
                         header=header_unit,
-                        header_row=1 if header_unit else None,
+                        header_row=header_row if header_unit else None,
                         rows=batch or None,
                     )
                 sheet_i, next_row = sheet_i + 1, 1
                 cursor = {}
+        except Exception as error:  # noqa: BLE001 - a sheet part that is corrupt or hostile XML
+            yield fatal(
+                "note",
+                {"sheet": name},
+                "truncated_or_corrupt",
+                f'The sheet "{name}" cannot be read: {type(error).__name__}.',
+                "Open and save the workbook in a spreadsheet program, then upload it again.",
+            )
+            return
         finally:
             book.close()
         yield Unit("note", {}, "", {"done": True})

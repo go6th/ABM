@@ -205,6 +205,7 @@ def test_log_lines_carry_only_allowed_fields() -> None:
         "service": "worker",
         "provider_code": "p_search",
         "attempt": 2,
+        "logger": "obs-test",
     }
     assert lines[1]["error_class"] == "ValueError" and len(lines[1]["message_hash"]) == 16
     assert lines[2]["event"] == "log"

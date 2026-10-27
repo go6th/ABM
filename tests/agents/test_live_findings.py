@@ -98,7 +98,9 @@ async def test_a_failing_group_cancels_the_others_and_keeps_the_saved_ones(h: Ha
     ) -> Any:
         if task_kind == "abm_pass2_extract":
             group = _group(payload)
-            if group == "scrape":
+            # the posting rows are the job pipeline's since 2026-10-24 (no scrape group here):
+            # the feed group fails, the web search group waits for it
+            if group == "structured_signals":
                 failed.set()
                 raise ProviderCreditsExhausted("credit balance too low")
             if group == "web_search":

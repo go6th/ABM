@@ -54,7 +54,7 @@ async def load_run_info(txn: TxnFactory, tenant_id: UUID, run_id: UUID) -> RunIn
             await s.execute(
                 text(
                     "SELECT r.id, r.account_id, r.created_at, a.domain, a.name, a.careers_url,"
-                    " a.careers_url_verified_at FROM account_runs r JOIN accounts a"
+                    " a.careers_url_verified_at, a.entity_lock FROM account_runs r JOIN accounts a"
                     " ON a.id = r.account_id AND a.tenant_id = r.tenant_id WHERE r.id = :r"
                 ),
                 {"r": run_id},
@@ -66,8 +66,19 @@ async def load_run_info(txn: TxnFactory, tenant_id: UUID, run_id: UUID) -> RunIn
     if row.careers_url and row.careers_url_verified_at is not None:
         host = (urlsplit(row.careers_url).hostname or "").lower()
         hosts = frozenset({host}) if host else frozenset()
+    lock = row.entity_lock if isinstance(row.entity_lock, dict) else {}
+    allowed = frozenset(
+        str(d).lower() for d in (lock.get("allowed_domains") or ()) if str(d).strip()
+    )
     return RunInfo(
-        tenant_id, UUID(str(row.account_id)), run_id, row.created_at, row.domain, row.name, hosts
+        tenant_id,
+        UUID(str(row.account_id)),
+        run_id,
+        row.created_at,
+        row.domain,
+        row.name,
+        hosts,
+        allowed_domains=allowed,
     )
 
 

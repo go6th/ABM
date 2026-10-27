@@ -1,8 +1,9 @@
 // Teammates (client admins): invite people by email and role, and see who is in the workspace.
 import type { Metadata } from "next";
-import type { Team } from "@/lib/gen/api.gen";
+import type { PeopleConsent, Team } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { StateCard } from "@/ui/design";
+import { PeopleConsentCard } from "@/components/accounts/PeopleConsent";
 import { Teammates } from "@/components/accounts/Teammates";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,14 @@ export default async function TeamPage() {
     if (!(e instanceof ServerApiError)) throw e;
     forbidden = e.status === 403;
   }
+  // the people data consent (every member reads it; admins change it): research runs build
+  // the senior people list only while it is granted
+  let consent: PeopleConsent | null = null;
+  try {
+    consent = await serverGet<PeopleConsent>("/v1/settings/people-consent", "/team");
+  } catch (e) {
+    if (!(e instanceof ServerApiError)) throw e;
+  }
   return (
     <div className="pg center">
       <div className="col w760">
@@ -30,6 +39,7 @@ export default async function TeamPage() {
             body={forbidden ? "Ask an administrator of your workspace to invite people." : "Reload the page in a moment."}
           />
         )}
+        {consent ? <PeopleConsentCard consent={consent} canChange={team !== null} /> : null}
       </div>
     </div>
   );

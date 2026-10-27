@@ -195,6 +195,10 @@ class RunInputPort(Protocol):
         """Regions the scope is narrowed to (empty = global)."""
         ...
 
+    async def allowed_domains(self) -> tuple[str, ...]:
+        """The entity lock's other domains of the account (empty when none was locked)."""
+        ...
+
     async def reference_employers(self) -> tuple[str, ...] | None:
         """The pursuing client and employers the operator named; ``None`` when not given."""
         ...

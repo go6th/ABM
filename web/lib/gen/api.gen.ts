@@ -96,6 +96,7 @@ export type CoverageGap = z.infer<typeof CoverageGap>;
 export const DeepDiveCounts = z.object({
   "coverage_done": z.number().int().optional(),
   "coverage_total": z.number().int().optional(),
+  "facts": z.number().int().optional(),
   "jobs": z.number().int(),
   "mail_drive": z.number().int(),
   "news": z.number().int(),
@@ -1968,6 +1969,24 @@ export const PauseDeclined = z.object({
 }).strict();
 export type PauseDeclined = z.infer<typeof PauseDeclined>;
 
+export const PeopleConsent = z.object({
+  "current": z.boolean(),
+  "granted": z.boolean(),
+  "granted_at": z.string().nullable(),
+  "granted_by": z.string().nullable(),
+  "label": z.string(),
+  "revoked_at": z.string().nullable(),
+  "scope": z.string(),
+  "text": z.string(),
+  "text_version": z.string(),
+}).strict();
+export type PeopleConsent = z.infer<typeof PeopleConsent>;
+
+export const PeopleConsentBody = z.object({
+  "accept": z.boolean(),
+}).strict();
+export type PeopleConsentBody = z.infer<typeof PeopleConsentBody>;
+
 export const PilotTenant = z.object({
   "facts_referenced": z.number().int(),
   "not_useful": z.number().int(),
@@ -2542,28 +2561,68 @@ export const SheetRow = z.object({
   "cells": z.record(z.string(), z.string()),
   "link": z.string().nullable(),
   "link_label": z.string().nullable().optional(),
+  "links": z.record(z.string(), z.string()).optional(),
   "n": z.number().int(),
 }).strict();
 export type SheetRow = z.infer<typeof SheetRow>;
+
+export const SheetTabRef = z.object({
+  "key": z.string(),
+  "label": z.string(),
+  "main": z.boolean().optional(),
+}).strict();
+export type SheetTabRef = z.infer<typeof SheetTabRef>;
 
 export const Sheet = z.object({
   "account_name": z.string(),
   "columns": z.array(SheetColumn),
   "dir": z.string(),
   "file": z.string(),
+  "file_id": z.string().nullable().optional(),
   "filter": z.string(),
   "filters": z.array(SheetFilter),
   "footnote": z.string(),
+  "from_file": z.boolean().optional(),
   "key": z.string(),
   "offset": z.number().int(),
   "private": z.boolean(),
   "rows": z.array(SheetRow),
   "scope": z.string(),
+  "sheet_name": z.string().optional(),
   "sort": z.string(),
+  "tabs": z.array(SheetTabRef).optional(),
   "title": z.string(),
   "total": z.number().int(),
 }).strict();
 export type Sheet = z.infer<typeof Sheet>;
+
+export const SheetCell = z.object({
+  "href": z.string().nullable().optional(),
+  "text": z.string(),
+}).strict();
+export type SheetCell = z.infer<typeof SheetCell>;
+
+export const SheetBlock = z.object({
+  "cut": z.number().int().optional(),
+  "header": z.array(z.string()).optional(),
+  "kind": z.string(),
+  "rows": z.array(z.array(SheetCell)).optional(),
+  "text": z.string().optional(),
+}).strict();
+export type SheetBlock = z.infer<typeof SheetBlock>;
+
+export const SheetTab = z.object({
+  "account_name": z.string(),
+  "blocks": z.array(SheetBlock),
+  "file": z.string(),
+  "file_id": z.string().nullable().optional(),
+  "key": z.string(),
+  "tab": z.string(),
+  "tab_label": z.string(),
+  "tabs": z.array(SheetTabRef),
+  "title": z.string(),
+}).strict();
+export type SheetTab = z.infer<typeof SheetTab>;
 
 export const SignalEvent = z.object({
   "account": z.string(),
@@ -3358,6 +3417,10 @@ export const KNOWN_VALUES = {
     "asc",
     "desc"
   ],
+  "SheetBlock.kind": [
+    "text",
+    "table"
+  ],
   "Sort.direction": [
     "asc",
     "desc"
@@ -3487,6 +3550,7 @@ export const operations = {
   "POST /v1/accounts/{domain}/refresh": { method: "POST", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 201, request: RefreshBody, requestRequired: true, response: RefreshStarted },
   "GET /v1/accounts/{domain}/sheets/{sheet}": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}", plane: "tenant", status: 200, request: null, requestRequired: false, response: Sheet },
   "GET /v1/accounts/{domain}/sheets/{sheet}/csv": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/csv", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
+  "GET /v1/accounts/{domain}/sheets/{sheet}/tabs/{tab}": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/tabs/{tab}", plane: "tenant", status: 200, request: null, requestRequired: false, response: SheetTab },
   "GET /v1/accounts/{domain}/sheets/{sheet}/xlsx": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/xlsx", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/tables/{table}": { method: "GET", path: "/v1/accounts/{domain}/tables/{table}", plane: "tenant", status: 200, request: null, requestRequired: false, response: TablePage },
   "GET /v1/accounts/{domain}/workspace": { method: "GET", path: "/v1/accounts/{domain}/workspace", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountWorkspace },
@@ -3597,6 +3661,8 @@ export const operations = {
   "PUT /v1/settings": { method: "PUT", path: "/v1/settings", plane: "tenant", status: 200, request: SettingsBody, requestRequired: true, response: TenantSettings },
   "PUT /v1/settings/branding": { method: "PUT", path: "/v1/settings/branding", plane: "tenant", status: 200, request: BrandingBody, requestRequired: true, response: BrandingSaved },
   "POST /v1/settings/branding/logo": { method: "POST", path: "/v1/settings/branding/logo", plane: "tenant", status: 201, request: null, requestRequired: false, response: LogoUploaded },
+  "GET /v1/settings/people-consent": { method: "GET", path: "/v1/settings/people-consent", plane: "tenant", status: 200, request: null, requestRequired: false, response: PeopleConsent },
+  "POST /v1/settings/people-consent": { method: "POST", path: "/v1/settings/people-consent", plane: "tenant", status: 200, request: PeopleConsentBody, requestRequired: true, response: PeopleConsent },
   "GET /v1/signals": { method: "GET", path: "/v1/signals", plane: "tenant", status: 200, request: null, requestRequired: false, response: SignalPage },
   "GET /v1/sso/connections": { method: "GET", path: "/v1/sso/connections", plane: "tenant", status: 200, request: null, requestRequired: false, response: IdpConnections },
   "POST /v1/sso/connections": { method: "POST", path: "/v1/sso/connections", plane: "tenant", status: 201, request: ConnectionBody, requestRequired: true, response: IdpConnection },

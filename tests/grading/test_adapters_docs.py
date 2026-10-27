@@ -56,6 +56,7 @@ def test_record_text_for_every_kind() -> None:
                 target_status=200,
                 markdown_text="M",
                 title_text=None,
+                publish_date=None,
                 **BASE,
             ),
             "M",
@@ -165,7 +166,10 @@ def test_record_text_for_every_kind() -> None:
     assert record_published(cases[2][0]) == datetime(
         2026, 9, 1, tzinfo=UTC
     )  # falls back to found_at
-    assert record_published(cases[3][0]) is None  # a date without a zone is not trusted
+    # a calendar date alone is a dateline (the feed's first-seen day): midnight UTC
+    assert record_published(cases[3][0]) == datetime(2026, 9, 1, tzinfo=UTC)
+    no_zone = cases[0][0].model_copy(update={"publish_date": "2026-09-01T10:00:00"})
+    assert record_published(no_zone) is None  # a time without a zone is not trusted
     assert record_published(cases[1][0]) is None
     bad = cases[0][0].model_copy(update={"publish_date": "not a date"})
     assert record_published(bad) is None

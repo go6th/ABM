@@ -44,6 +44,12 @@ def withheld_blocks(run_id: str, blocks: tuple[str, ...]) -> None:
     )
 
 
+def leaks_withheld(count: int) -> None:
+    """Log how many rendered texts the leak scan replaced by the withheld note in a delivered
+    set. A count only: the patterns name restricted terms and people."""
+    _logger.info("exports.leaks_withheld", extra={"count": count})
+
+
 def file_outcome(kind: str, outcome: str) -> None:
     """Count one file by kind and outcome."""
     _files.add(1, {"kind": kind, "outcome": outcome})

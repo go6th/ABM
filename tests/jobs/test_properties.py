@@ -18,6 +18,7 @@ from jobs.config import load_jobs_config
 from jobs.counts import compute_counts
 from jobs.models import Classification, PlatformSentence, Posting, RawPosting
 from jobs.window import classify_window, window_start
+from tests.jobs.conftest import frozen_config
 
 ROOT = Path(__file__).resolve().parents[2]
 CLASSES = ["build", "admin_owner", "working_tool", "user", "unclassified"]
@@ -143,7 +144,7 @@ def test_every_config_entry_carries_a_source_or_status() -> None:
     assert all("status" in r and "source" in r for r in rubric["rules"])
     jobs = yaml.safe_load((ROOT / "config/jobs_v1.yaml").read_text())
     assert all("status" in c and "source" in c for c in jobs["caps"].values())
-    assert load_jobs_config().full_text_required_classes == {"build", "admin_owner"}
+    assert frozen_config().full_text_required_classes == {"build", "admin_owner"}
 
 
 @settings(max_examples=30)
@@ -171,7 +172,7 @@ def test_extractor_loop_terminates_within_its_cap(outcomes: list[str]) -> None:
 
 @pytest.mark.parametrize("cls", ["build", "admin_owner"])
 def test_full_text_scope_is_one_config_line(cls: str) -> None:
-    assert cls in load_jobs_config().full_text_required_classes
+    assert cls in frozen_config().full_text_required_classes
 
 
 def _posting(key: str, **kw: object) -> Posting:

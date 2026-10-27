@@ -450,8 +450,8 @@ async def test_queries_match_a_hand_written_oracle(seeded: Any) -> None:
             [r for r in everything if r["status"] in statuses[:2]],
         ),
         (
-            {"filters": [{"column": "reason", "op": "is_empty"}]},
-            [r for r in everything if r["reason"] == ""],
+            {"filters": [{"column": "needs", "op": "is_empty"}]},
+            [r for r in everything if r["needs"] == ""],
         ),
         (
             {"sort": [{"column": "status", "direction": "desc"}]},

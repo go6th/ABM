@@ -223,3 +223,68 @@ def load_providers_config(path: Path | None = None) -> ProvidersConfig:
     """Load and validate config/providers.yaml (fail fast)."""
     raw: Any = yaml.safe_load((path or CONFIG_DIR / "providers.yaml").read_text(encoding="utf-8"))
     return ProvidersConfig.model_validate(raw)
+
+
+# What the research caps switch lifts in the provider layer (owner decision 2026-10-24: with the
+# caps off nothing the platform controls may stop a research, timeouts included). Hard platform
+# limits stay where they are: a Cloud Run request ends at 3600 s and a Cloud Tasks dispatch at
+# 1800 s, which is why a run is sliced and resumes from its checkpoint.
+UNCAPPED_READ_S = 900.0
+UNCAPPED_TOTAL_S = 1200.0
+UNCAPPED_WAIT_S = 1800.0
+UNCAPPED_POLLS = 10_000
+UNCAPPED_JOB_S = 7200.0
+UNCAPPED_RETRY_ATTEMPTS = 10
+UNCAPPED_MAX_BYTES = 200_000_000
+
+
+def uncapped_config(config: ProvidersConfig) -> ProvidersConfig:
+    """The config with every timeout, wait, poll window and retry count raised to the values
+    above (never lowered): a slow provider is waited for, a rate limit is paced through, a
+    long asynchronous job is polled to its end, and a flaky one is retried up to ten times.
+    Pagination caps are lifted by the runtime's page limit override (``app.container``)."""
+    d = config.defaults
+    defaults = d.model_copy(
+        update={
+            "retry": d.retry.model_copy(
+                update={
+                    "max_attempts": max(d.retry.max_attempts, UNCAPPED_RETRY_ATTEMPTS),
+                    "max_interval_s": max(d.retry.max_interval_s, 120.0),
+                }
+            ),
+            "ratelimit": d.ratelimit.model_copy(
+                update={
+                    "max_wait_s": max(d.ratelimit.max_wait_s, UNCAPPED_WAIT_S),
+                    "max_cooldown_s": max(d.ratelimit.max_cooldown_s, UNCAPPED_WAIT_S),
+                }
+            ),
+            "provider_jobs": d.provider_jobs.model_copy(
+                update={
+                    "max_polls": max(d.provider_jobs.max_polls, UNCAPPED_POLLS),
+                    "total_timeout_s": max(d.provider_jobs.total_timeout_s, UNCAPPED_JOB_S),
+                }
+            ),
+            "ledger": d.ledger.model_copy(
+                update={
+                    "in_flight_wait_s": max(d.ledger.in_flight_wait_s, UNCAPPED_TOTAL_S),
+                    "in_flight_stale_s": max(d.ledger.in_flight_stale_s, UNCAPPED_JOB_S),
+                }
+            ),
+        }
+    )
+    providers = {
+        code: cfg.model_copy(
+            update={
+                "http": cfg.http.model_copy(
+                    update={
+                        "read_s": max(cfg.http.read_s, UNCAPPED_READ_S),
+                        "write_s": max(cfg.http.write_s, 120.0),
+                        "total_s": max(cfg.http.total_s, UNCAPPED_TOTAL_S),
+                        "max_bytes": max(cfg.http.max_bytes, UNCAPPED_MAX_BYTES),
+                    }
+                )
+            }
+        )
+        for code, cfg in config.providers.items()
+    }
+    return config.model_copy(update={"defaults": defaults, "providers": providers})

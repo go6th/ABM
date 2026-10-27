@@ -3,7 +3,7 @@
  "$defs": {
   "BulletsBlock": {
    "additionalProperties": false,
-   "description": "A bulleted list.",
+   "description": "A bulleted list, or a numbered one starting at 1 (``numbered``). ``notes``, when given,\nholds one line per item (empty for none), printed as an indented note paragraph under its\nitem without breaking the numbering (a hypothesis and its confirming question).",
    "properties": {
     "items": {
      "items": {
@@ -13,6 +13,20 @@
      "minItems": 1,
      "title": "Items",
      "type": "array"
+    },
+    "notes": {
+     "default": [],
+     "items": {
+      "maxLength": 40000,
+      "type": "string"
+     },
+     "title": "Notes",
+     "type": "array"
+    },
+    "numbered": {
+     "default": false,
+     "title": "Numbered",
+     "type": "boolean"
     },
     "type": {
      "const": "bullets",
@@ -439,13 +453,29 @@
      },
      "propertyNames": {
       "enum": [
-       "lane",
+       "platform_picture",
        "key_people",
        "linkedin",
        "tracker",
+       "coverage",
+       "waiting",
+       "grade_legend",
+       "recent_news",
+       "signals",
+       "status_changed",
+       "source_links",
+       "platform_hiring",
        "sources",
        "job_reads",
-       "news"
+       "lane_reads",
+       "board_captures",
+       "live_postings",
+       "leads",
+       "data_pulls",
+       "tech_detections",
+       "platform_postings",
+       "entity_split",
+       "urls"
       ]
      },
      "title": "Tables",

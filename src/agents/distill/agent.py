@@ -10,6 +10,10 @@
 * both audiences are tenant-facing (the Internal Only view is read by the client's own staff), so
   the runtime scans every output for tool, provider and person names (G9) and rejects it whole;
   a claim that fails a fact or grade check is dropped and counted, the rest are kept;
+* the Summary's section 1 parts after the picture (2026-10-26, the reference Summary): what
+  stands out and the simplest way to sharpen it follow the narrative rule above; a lane meaning
+  also names the lane of a fact it cites and labels its interpretation ("Our interpretation:");
+  how this could be wrong is about the evidence itself and follows the claim checks only;
 * a narrative that is still empty after the one re-ask is made of the first-call questions
   (question-form sentences citing the same facts): the Summary always has an honest opening,
   and what may not be stated is asked (PRD: a Probable, Hypothesis or Lead "becomes a question").
@@ -30,12 +34,14 @@ from agents.errors import OutputRejected
 from agents.guards import Role, for_audience, restates_grade
 from agents.ports import AgentModel, RunContext
 from agents.runtime import call_agent
-from agents.schemas import Claim, DistillInput, DistillOutput, StoredFact
+from agents.schemas import Claim, DistillInput, DistillOutput, LaneClaim, StoredFact
 from exports.config import ContentRules, load_export_config
 from exports.policy import authored_violations
 
 # the longest narrative made from questions when no narrative sentence survived
 NARRATIVE_FROM_QUESTIONS = 8
+# the words a lane meaning labels its interpretation with (the reference Summary, section 1)
+INTERPRETATION_LABEL = "Our interpretation:"
 
 
 @cache
@@ -100,6 +106,7 @@ async def distill(
     if not visible:
         return DistillResult(DistillOutput(), drops)
     known = {f.fact_id for f in visible}
+    lane_of = {f.fact_id: f.lane for f in visible}
 
     def keep(
         claims: tuple[Claim, ...], counts: Counter[str], *, narrative: bool = False
@@ -120,6 +127,22 @@ async def distill(
                 kept.append(claim)
         return tuple(kept)
 
+    def keep_lanes(claims: tuple[LaneClaim, ...], counts: Counter[str]) -> tuple[LaneClaim, ...]:
+        """Lane meanings that pass the narrative checks, name the lane of a fact they cite and
+        label their interpretation (the reference Summary: "Our interpretation: ...")."""
+        passed = {id(c) for c in keep(claims, counts, narrative=True)}
+        kept = []
+        for claim in claims:
+            if id(claim) not in passed:
+                continue
+            if claim.lane not in {lane_of.get(fid) for fid in claim.fact_ids}:
+                counts["lane_not_cited"] += 1
+            elif INTERPRETATION_LABEL.lower() not in claim.text.lower():
+                counts["interpretation_unlabeled"] += 1
+            else:
+                kept.append(claim)
+        return tuple(kept)
+
     # LOOP(distill re-ask): cap=2 attempts; exit=a narrative survived, or the second attempt
     # (a narrative the model wrote and the guards dropped whole is asked for once more, with the
     # reasons; the Summary needs a narrative and used to fail its build without one)
@@ -136,6 +159,10 @@ async def distill(
             hypotheses=keep(out.hypotheses, counts),
             questions=keep(out.questions, counts),
             narrative=keep(out.narrative, counts, narrative=True),
+            stands_out=keep(out.stands_out, counts, narrative=True),
+            lane_meanings=keep_lanes(out.lane_meanings, counts),
+            could_be_wrong=keep(out.could_be_wrong, counts),
+            sharpen=keep(out.sharpen, counts, narrative=True),
         )
         drops.update(counts)
         result = DistillResult(kept, drops)

@@ -68,6 +68,8 @@ class TrackerConfig(BaseModel):
     d_13_tracker_rules: dict[str, Any]
     reason_codes: dict[str, str]
     transitions: dict[str, dict[str, list[str]]]
+    # section 11 consistency rules (tracker/consistency.py); empty: no rule is applied
+    consistency: dict[str, Any] = {}
 
     @property
     def attempts_per_row(self) -> int:

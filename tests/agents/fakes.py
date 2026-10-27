@@ -15,7 +15,7 @@ import hashlib
 import re
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -23,6 +23,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from agents.config import SkillConfig
+from agents.entity import EntityLock, build_lock
 from agents.manifest import PullManifest
 from agents.ports import (
     CapPause,
@@ -30,6 +31,7 @@ from agents.ports import (
     GradeBatch,
     GradingCandidate,
     InternalHistorySettings,
+    PipelineOutcome,
     ProviderFailed,
     ProviderResult,
     RowOutcome,
@@ -39,7 +41,7 @@ from agents.ports import (
     SourceItem,
     TenantAgentSettings,
 )
-from agents.schemas import PayloadView, PersonCandidate, StoredFact
+from agents.schemas import EvidenceRef, FactCandidate, PayloadView, PersonCandidate, StoredFact
 from spend.gate import RunCapState, decide
 
 SYNTHETIC = "synthetic"
@@ -147,6 +149,39 @@ class StubLedgerProvider:
         self.paid_calls = 0
         self.crash_after: int | None = None
         self.new_calls = 0
+        # the entity lock the stub returns: the world's home page names the account unless a
+        # test sets ``lookalike`` (the home page belongs to another company)
+        self.lookalike = False
+        self.lock_calls = 0
+
+    async def entity_lock(self, ctx: RunContext) -> EntityLock:
+        from agents.config import skill_config
+
+        self.lock_calls += 1
+        stop = skill_config().scope.name_stopwords
+        if self.lookalike:
+            lock = build_lock(
+                legal_name=ctx.account_name,
+                primary_domain=ctx.domain,
+                stopwords=stop,
+                home_url=f"https://{ctx.domain}/",
+                final_url=None,
+                home_title="Another Company, 3D studio",
+                home_text="We build renders for architects.",
+            )
+            # the world's domain carries the brand, so force the look-alike state the real lock
+            # reaches for a near-name domain (vizent.co for Vizient)
+            return replace(lock, confirmed=False, mismatch=True)
+        return build_lock(
+            legal_name=ctx.account_name,
+            primary_domain=ctx.domain,
+            stopwords=stop,
+            home_url=f"https://{ctx.domain}/",
+            final_url=f"https://www.{ctx.domain}/",
+            home_title=ctx.account_name,
+            home_text=f"{ctx.account_name} home page",
+            search_hits=[(f"https://{ctx.domain}/", ctx.account_name)],
+        )
 
     async def call(self, ctx: RunContext, need: str, query: str, row_key: str) -> ProviderResult:
         key = (ctx.run_id, need, query)
@@ -339,6 +374,99 @@ class FakeGrading:
         return tuple(f"p-{h(p.name)}" for p in people)
 
 
+class FakePipelines:
+    """The code pipelines after the reading step, scripted from the world: each ``attr: text``
+    line of a job row's pages becomes one read, classified posting (a full-page read: the fact is
+    graded confirmed) and each line of the detections row one dated detection (a date range:
+    lead). Nothing here reads a model."""
+
+    def __init__(
+        self, world: World, cfg: SkillConfig, grading: FakeGrading, tracker: FakeTracker
+    ) -> None:
+        self.world, self.cfg, self.grading, self.tracker = world, cfg, grading, tracker
+        self.jobs_runs = 0
+        self.tech_runs = 0
+        self.careers: list[str | None] = []
+
+    def _lines(self, pipeline: str) -> list[tuple[str, str, str, str]]:
+        out = []
+        for key, row in self.cfg.plan.items():
+            if row.pipeline != pipeline:
+                continue
+            for page in self.world.pages.get(key, []):
+                for line in page.body.splitlines():
+                    m = _LINE.match(line.strip())
+                    if m and len(m.group(2)) >= 8:
+                        out.append((key, m.group(1), m.group(2), page.url))
+        return out
+
+    async def _facts(
+        self, ctx: RunContext, pipeline: str, origin: str, read: bool
+    ) -> dict[str, int]:
+        items = [
+            GradingCandidate(
+                candidate=FactCandidate(
+                    row_key=row,
+                    attribute=attr,
+                    value=value[:300],
+                    origin=origin,  # type: ignore[arg-type]
+                    evidence=(EvidenceRef(payload_ref=f"pipe/{h(url)}", quote=value),),
+                ),
+                urls=(url,),
+                visibility="public",
+                read_this_run=read,
+            )
+            for row, attr, value, url in self._lines(pipeline)
+        ]
+        batch = await self.grading.grade(ctx, items)
+        return {"graded": len(batch.facts)}
+
+    async def run_jobs(self, ctx: RunContext, careers_url: str | None) -> PipelineOutcome:
+        self.jobs_runs += 1
+        self.careers.append(careers_url)
+        # the pipeline reports its own rows (board, feed, read) with its calls as proof
+        for key, row in self.cfg.plan.items():
+            if row.pipeline == "jobs":
+                await self.tracker.report(ctx, key, [f"pipe-{h(key)}"], None)
+        graded = await self._facts(ctx, "jobs", "read", True)
+        return PipelineOutcome({"jobs_claims": graded["graded"]}, {"jobs_gap": "converged"})
+
+    async def write_detections(self, ctx: RunContext) -> PipelineOutcome:
+        self.tech_runs += 1
+        graded = await self._facts(ctx, "tech", "date_range", False)
+        return PipelineOutcome({"tech_rows": graded["graded"]}, {"tech": "written"})
+
+    async def run_people(self, ctx: RunContext) -> PipelineOutcome:
+        """The people pipeline stand-in: every ``person: Name, Title at Account`` line of a
+        people row's pages becomes a recorded person; the three rows are reported with proof."""
+        self.people_runs = getattr(self, "people_runs", 0) + 1
+        people: list[PersonCandidate] = []
+        for key, row in self.cfg.plan.items():
+            if row.pipeline != "people":
+                continue
+            await self.tracker.report(ctx, key, [f"pipe-{h(key)}"], None)
+            for page in self.world.pages.get(key, []):
+                for line in page.body.splitlines():
+                    m = _LINE.match(line.strip())
+                    if m and m.group(1) == "person":
+                        name, _, rest = m.group(2).partition(",")
+                        people.append(
+                            PersonCandidate(
+                                name=name.strip(),
+                                title=rest.split(" at ")[0].strip(),
+                                priority="A",
+                                evidence=(
+                                    EvidenceRef(
+                                        payload_ref=f"pipe/{h(page.url)}", quote=m.group(2)
+                                    ),
+                                ),
+                            )
+                        )
+        if people:
+            await self.grading.record_people(ctx, people)
+        return PipelineOutcome({"people_found": len(people)}, {"people_gap_loop": "converged"})
+
+
 class FakeTracker:
     """Rows derived from evidence: a reason -> blocked, call refs -> done; downgrades to partial."""
 
@@ -381,6 +509,13 @@ class FakeRecords:
         self.sense: dict[UUID, SenseCheckRecord] = {}
         self.distilled: dict[tuple[UUID, str], BaseModel] = {}
         self.sense_saves = 0
+        self.locks: dict[str, dict[str, Any]] = {}  # by account key (the account's lock)
+
+    async def save_entity_lock(self, ctx: RunContext, lock: Mapping[str, Any]) -> None:
+        self.locks[ctx.account_key] = dict(lock)
+
+    async def entity_lock(self, ctx: RunContext) -> Mapping[str, Any] | None:
+        return self.locks.get(ctx.account_key)
 
     async def save_sense_check(self, ctx: RunContext, record: SenseCheckRecord) -> None:
         self.sense_saves += 1

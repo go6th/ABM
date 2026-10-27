@@ -87,10 +87,20 @@ class PayloadView(_Strict):
     match_kind: Literal["keyword_match", "date_range"] | None = None
 
 
+class AttributeName(_Strict):
+    """One attribute of the vocabulary as the extractor sees it (``config/skill/attributes.yaml``):
+    its name, the checklist row it belongs to and what it means."""
+
+    attribute: str = Field(pattern=r"^[a-z][a-z0-9_]{1,60}$")
+    row_key: str = Field(pattern=_KEY)
+    meaning: str = Field(max_length=300)
+
+
 class ExtractionInput(_Strict):
     """What one extraction call sees: one step and source group (and lane) of stored payloads,
-    and which account they are about (a payload a search returned about another company yields
-    nothing; staging 2026-10-16)."""
+    which account they are about (a payload a search returned about another company yields
+    nothing; staging 2026-10-16), and the attribute names it may use (the vocabulary of the
+    group's rows plus the shared baseline names; an attribute's row is its canonical row)."""
 
     step: Literal["pass1", "pass2", "people"]
     group: str = Field(pattern=_KEY)
@@ -98,6 +108,7 @@ class ExtractionInput(_Strict):
     payloads: tuple[PayloadView, ...]
     account_name: str | None = None
     domain: str | None = None
+    attributes: tuple[AttributeName, ...] = ()
 
 
 class EvidenceRef(_Strict):
@@ -108,7 +119,8 @@ class EvidenceRef(_Strict):
 
 
 class FactCandidate(_Strict):
-    """A proposed fact. No grade: the grading engine assigns it (G2, G4)."""
+    """A proposed fact. No grade: the grading engine assigns it (G2, G4). ``event_date`` is when
+    the quoted sentence says it happened (a year, a month or a day), never when it was read."""
 
     row_key: str = Field(pattern=_KEY)
     attribute: str = Field(pattern=r"^[a-z0-9_.]+$", max_length=80)
@@ -116,6 +128,7 @@ class FactCandidate(_Strict):
     lane: str | None = None
     origin: Origin
     evidence: tuple[EvidenceRef, ...] = Field(min_length=1, max_length=5)
+    event_date: str | None = Field(default=None, pattern=r"^\d{4}(-\d{2}(-\d{2})?)?$")
 
 
 class LeadDropRequest(_Strict):
@@ -153,7 +166,9 @@ class PeopleOutput(_Strict):
 
 
 class StoredFact(_Strict):
-    """A graded fact as later agents see it (grade from the engine, read-only)."""
+    """A graded fact as later agents see it (grade from the engine, read-only). ``tier`` is the
+    signal tier of its attribute (signals.md: 1 budget proximate, 2 one step removed, 3 context,
+    0 baseline) and ``event_date`` when the fact happened, both computed by code."""
 
     fact_id: str = Field(min_length=1)
     row_key: str = Field(pattern=_KEY)
@@ -162,6 +177,9 @@ class StoredFact(_Strict):
     grade: str
     visibility: Visibility = "public"
     flags: tuple[str, ...] = ()
+    lane: str | None = None
+    tier: int | None = None
+    event_date: str | None = None
 
 
 class SenseCheckInput(_Strict):
@@ -222,12 +240,26 @@ class Claim(_Strict):
     fact_ids: tuple[str, ...] = Field(min_length=1, max_length=20)
 
 
+class LaneClaim(Claim):
+    """What the facts likely mean for one lane (interpretation, labeled as such in the text);
+    ``lane`` is the lane id of at least one cited fact."""
+
+    lane: str = Field(pattern=_KEY, max_length=64)
+
+
 class DistillOutput(_Strict):
-    """Hypotheses, first-call questions and narrative."""
+    """Hypotheses, first-call questions and the Summary's section 1: the account picture
+    (``narrative``), what stands out, what it likely means for each lane, how this could be
+    wrong and the simplest way to sharpen it (the reference Summary, 2026-10-26). The section 1
+    parts after the picture default to empty, so outputs stored before them still load."""
 
     hypotheses: tuple[Claim, ...] = Field(default=(), max_length=30)
     questions: tuple[Claim, ...] = Field(default=(), max_length=30)
     narrative: tuple[Claim, ...] = Field(default=(), max_length=30)
+    stands_out: tuple[Claim, ...] = Field(default=(), max_length=12)
+    lane_meanings: tuple[LaneClaim, ...] = Field(default=(), max_length=12)
+    could_be_wrong: tuple[Claim, ...] = Field(default=(), max_length=10)
+    sharpen: tuple[Claim, ...] = Field(default=(), max_length=6)
 
 
 SCHEMAS: dict[str, type[BaseModel]] = {

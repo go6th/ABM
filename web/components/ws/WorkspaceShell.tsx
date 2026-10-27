@@ -51,6 +51,10 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // the "model not set up" notice can be dismissed; the shell persists across pages, so it stays
+  // hidden until the next full load
+  const [modelNoteHidden, setModelNoteHidden] = useState(false);
+  const hideModelNote = () => setModelNoteHidden(true);
   const menuButton = useRef<HTMLButtonElement>(null);
   const side = useRef<HTMLElement>(null);
   const thread = params.get("thread");
@@ -134,7 +138,6 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
             <Link
               key={item.href}
               href={item.href}
-              prefetch={false}
               aria-current={isCurrent(pathname, item.href) && !(item.href === "/" && thread) ? "page" : undefined}
               onClick={() => setOpen(false)}
             >
@@ -185,8 +188,11 @@ export function WorkspaceShell({ user, recent, notes = [], children }: { user: S
         </div>
       </aside>
       <main className="main" id="main" tabIndex={-1} inert={open || undefined}>
-        {user.modelReady === false ? (
-          <p className="model-missing" role="status">Answers need the AI model to be set up by your administrator.</p>
+        {user.modelReady === false && !modelNoteHidden ? (
+          <p className="model-missing" role="status">
+            Answers need the AI model to be set up by your administrator.
+            <button type="button" className="x" onClick={hideModelNote}>Dismiss</button>
+          </p>
         ) : null}
         {children}
       </main>

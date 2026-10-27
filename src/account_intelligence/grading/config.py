@@ -176,6 +176,8 @@ class GradingConfig(_M):
     lead_rule: LeadRule
     may_state: dict[ProductGrade, bool]
     requires_question: tuple[ProductGrade, ...]
+    # the PRD Appendix B meaning of each product grade, printed in the client files' legend
+    meanings: dict[ProductGrade, str] = {}
     eval_gates: EvalGates
     precedence: Precedence
     judge: JudgeCfg
@@ -277,6 +279,7 @@ def load_grading_config(config_dir: Path | None = None) -> GradingConfig:
             thresholds=_thresholds(engine),
             lead_rule=LeadRule(**product["lead"]["stays_lead_only_if"]),
             may_state={k: bool(v["may_state_to_prospect"]) for k, v in product.items()},
+            meanings={k: str(v["meaning"]) for k, v in product.items() if v.get("meaning")},
             requires_question=tuple(
                 k for k, v in product.items() if v.get("requires_confirming_question")
             ),

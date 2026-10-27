@@ -119,10 +119,11 @@ def test_a_research_goal_adds_searches_and_keeps_the_rows_own() -> None:
 
 
 @pytest.mark.asyncio
-async def test_people_rows_are_not_paid_for_while_people_cannot_be_saved(h: Harness) -> None:
-    """With consent, a people-step row is skipped (no call) while grading cannot record people;
-    without consent the reason stays consent_required (the one the client can act on)."""
-    h.grading.records_people = False  # type: ignore[attr-defined]
+async def test_people_rows_are_the_people_pipelines_and_phase_one_does_not_pay_for_them(
+    h: Harness,
+) -> None:
+    """The people pipeline (switched on 2026-10-24) pulls, merges and records the senior people
+    list after the reading step; Phase 1 makes no people call for its rows."""
     sent: list[str] = []
     real = h.provider.call
 
@@ -132,17 +133,19 @@ async def test_people_rows_are_not_paid_for_while_people_cannot_be_saved(h: Harn
 
     h.provider.call = call  # type: ignore[method-assign]
     h.grant_consent()
-    record, _ = await h.run("with-consent")
+    record, state = await h.run("with-consent")
     rows = {r.row_key: r for r in h.manifests.by_run[record.run_id].rows}
-    people_step = [k for k, r in CFG.plan.items() if r.step == "people"]
-    assert people_step and not set(people_step) & set(sent)
-    assert all(rows[k].blocked_reason == "people_not_recorded" for k in people_step)
+    owned = [k for k, r in CFG.plan.items() if r.pipeline == "people"]
+    assert owned and not set(owned) & set(sent)
+    assert all(rows[k].blocked_reason == "owned_by_pipeline" for k in owned)
+    assert all(h.tracker.rows_by_run[record.run_id][k].status == "done" for k in owned)
+    assert h.pipelines.people_runs == 1 and state["counters"]["people_found"] >= 1
 
 
 @pytest.mark.asyncio
 async def test_without_consent_people_rows_still_say_consent(h: Harness) -> None:
-    h.grading.records_people = False  # type: ignore[attr-defined]
-    record, _ = await h.run("no-consent")
-    rows = {r.row_key: r for r in h.manifests.by_run[record.run_id].rows}
-    people_step = [k for k, r in CFG.plan.items() if r.step == "people"]
-    assert all(rows[k].blocked_reason == "consent_required" for k in people_step)
+    record, state = await h.run("no-consent")
+    owned = [k for k, r in CFG.plan.items() if r.pipeline == "people"]
+    assert all(h.tracker.rows_by_run[record.run_id][k].reason == "consent_required" for k in owned)
+    assert state["exits"]["people"] == "consent_required"
+    assert getattr(h.pipelines, "people_runs", 0) == 0

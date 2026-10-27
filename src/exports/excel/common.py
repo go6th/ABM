@@ -34,6 +34,43 @@ from exports.policy import split_for_cell
 
 # A continuation pointer takes at most this many characters of the main cell.
 POINTER_RESERVE = 160
+# A wrapped paragraph's row height: lines times the font size times this line spacing; the
+# characters are padded by WRAP_SLACK for words that do not fill a line (Excel does not size a
+# merged row on its own).
+LINE_SPACING = 1.3
+WRAP_SLACK = 1.15
+
+
+@dataclass(frozen=True)
+class Formula:
+    """One formula cell a workbook recomputes (B12): where it goes, its text, the value computed
+    in code it must equal after recalculation, and the column kind that styles it."""
+
+    sheet: str
+    row: int
+    column: int
+    text: str
+    expected: int | str | float
+    kind: ColumnKind = "count"
+
+    @property
+    def coordinate(self) -> str:
+        """``B7``."""
+        return f"{get_column_letter(self.column)}{self.row}"
+
+
+def expected_of(plan: Sequence[Formula]) -> dict[tuple[str, str], int | str | float]:
+    """``{(sheet, coordinate): expected}`` of a formula plan (what the recalculation checks)."""
+    return {(f.sheet, f.coordinate): f.expected for f in plan}
+
+
+def criterion(text: str) -> str:
+    """A COUNTIF criterion for an exact text: quotes doubled; a leading comparison sign or
+    wildcard would change the meaning, so the text is prefixed with ``=`` when it has one."""
+    safe = text.replace('"', '""')
+    if safe[:1] in ("=", "<", ">") or any(ch in safe for ch in "*?~"):
+        safe = "=" + safe.replace("~", "~~").replace("*", "~*").replace("?", "~?")
+    return f'"{safe}"'
 
 
 def font(spec: FontSpec) -> Font:
@@ -111,17 +148,21 @@ class Book:
             ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
         return ws
 
-    def header(self, ws: Worksheet, columns: Sequence[Column], row: int = 1) -> None:
-        """Header row, widths and number formats by column kind, freeze and filter."""
+    def header(
+        self, ws: Worksheet, columns: Sequence[Column], row: int = 1, freeze: bool = True
+    ) -> None:
+        """Header row, widths and number formats by column kind, freeze (for the sheet's main
+        table) and filter."""
         style = self._header_style()
         for j, col in enumerate(columns, start=1):
             cell = ws.cell(row=row, column=j)
             text_cell(cell, col.header)
             cell.style = style
-            ws.column_dimensions[get_column_letter(j)].width = self.theme.column_kinds[
-                col.kind
-            ].width
-        if self.theme.freeze_header:
+            width = self.theme.column_kinds[col.kind].width
+            letter = get_column_letter(j)
+            if (ws.column_dimensions[letter].width or 0) < width:
+                ws.column_dimensions[letter].width = width
+        if freeze and self.theme.freeze_header:
             ws.freeze_panes = f"A{row + 1}"
 
     def finish_table(self, ws: Worksheet, columns: Sequence[Column], n_rows: int) -> None:
@@ -140,8 +181,9 @@ class Book:
             if value is None:
                 text_cell(cell, "")
             elif isinstance(value, bool):
-                text_cell(cell, "Yes" if value else "No")
-            elif isinstance(value, date | int):
+                labels = self.cfg.rules.labels
+                text_cell(cell, labels.yes if value else labels.no)
+            elif isinstance(value, date | int | float):
                 cell.value = value
             else:
                 text_cell(cell, self._fit(str(value), ref, col.header))
@@ -185,6 +227,47 @@ class Book:
         cell = ws.cell(row=row, column=1)
         text_cell(cell, text)
         cell.style = self._note_style()
+
+    def title_line(self, ws: Worksheet, row: int, text: str) -> None:
+        """A sheet's title line in the theme's title font (a Summary sheet's first line)."""
+        cell = ws.cell(row=row, column=1)
+        text_cell(cell, text)
+        cell.style = self._named(
+            "Export title",
+            font(self.theme.fonts.title),
+            None,
+            None,
+            self.theme.column_kinds["label"],
+            wrap=False,
+        )
+
+    def paragraph(self, ws: Worksheet, row: int, text: str, span: int) -> None:
+        """An explanatory paragraph in the body font, wrapped across the first ``span``
+        columns (merged), its row tall enough for the wrapped lines (Excel does not size a
+        merged row itself). Call after the sheet's column widths are set."""
+        cell = ws.cell(row=row, column=1)
+        text_cell(cell, text)
+        cell.style = self._named(
+            "Export paragraph",
+            font(self.theme.fonts.body),
+            None,
+            None,
+            self.theme.column_kinds["text_long"],
+            wrap=True,
+        )
+        if span > 1:
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=span)
+        widths = [ws.column_dimensions[get_column_letter(j)].width or 0 for j in range(1, span + 1)]
+        per_line = max(1.0, sum(widths))
+        lines = max(1, -(-int(len(text) * WRAP_SLACK) // int(per_line)))
+        ws.row_dimensions[row].height = lines * self.theme.fonts.body.size_pt * LINE_SPACING
+
+    def formula(self, f: Formula) -> None:
+        """Write one planned formula cell, styled by its column kind (the only way a formula
+        enters a workbook: every text cell is a string cell, B11)."""
+        cell = self.wb[f.sheet].cell(row=f.row, column=f.column)
+        cell.value = f.text
+        cell.style = self._body_style(f.kind)
 
     # Named styles: one per role and column kind, registered once per workbook and assigned by
     # name (per-cell style objects are re-hashed by openpyxl on every assignment: the hot path).
@@ -271,9 +354,11 @@ def counts_sheet(
     n_rows: int,
     status_col: str | None,
     status_words: dict[str, str],
+    count_col: str = "A",
 ) -> None:
     """Counts sheet: label, value, base. Lines marked ``rows``/``open``/``closed`` are formulas
-    over the data sheet (B12); the verification recalculates them against the code counts."""
+    over the data sheet (B12); the verification recalculates them against the code counts.
+    ``count_col`` is the data sheet column filled on every row (the Ref column)."""
     ws = book.sheet(title)
     cols = (
         Column(key="label", header="Count", kind="text_short"),
@@ -286,7 +371,8 @@ def counts_sheet(
         book.body(ws, cols, {"label": line.label, "value": line.value, "base": line.base}, i, "")
         cell = ws.cell(row=i, column=2)
         if line.formula == "rows":
-            cell.value = f"=COUNTA('{data_sheet}'!A2:A{max(2, last)})"
+            span = f"'{data_sheet}'!{count_col}2:{count_col}{max(2, last)}"
+            cell.value = f"=COUNTA({span})"
         elif line.formula in ("open", "closed") and status_col:
             word = status_words[line.formula].replace('"', '""')
             span = f"'{data_sheet}'!{status_col}2:{status_col}{max(2, last)}"

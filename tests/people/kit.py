@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from account_intelligence.grading.config import load_grading_config
@@ -42,6 +43,10 @@ def markers() -> tuple[str, ...]:
     return tuple(load_grading_config().spans.instruction_markers)
 
 
+# the frozen 2026-10-02 lexicon the golden oracle was written against (tests/people/conftest.py)
+_FROZEN = Path(__file__).resolve().parents[1] / "fixtures/synthetic/jobs/config"
+
+
 class Kit:
     """A pipeline over the corpus fakes, with handles on every fake."""
 
@@ -70,7 +75,7 @@ class Kit:
         self.repo = repo or FakeRepo()
         self.rec = Recorder()
         self.pipeline = PeoplePipeline(
-            cfg or load_people_config(),
+            cfg or load_people_config(_FROZEN),
             self.search,
             FakeMentions(corpus.mentions(), mentions_configured),
             self.resolver,

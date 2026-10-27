@@ -3,9 +3,47 @@
 // holds is kept; "Resume research" continues it and reuses everything already found at no cost,
 // so only the missing steps are paid for. It uses none of the user's researches.
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { ResearchResumed, StoppedRun } from "@/lib/gen/api.gen";
+
+function randomKey(): string {
+  // crypto.randomUUID exists only in secure contexts (https, localhost)
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  b[6] = (b[6]! & 0x0f) | 0x40;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** The ``request_id`` of one thing the user starts (a research, a refresh, a resume, a download).
+ * The server answers a repeated id with the first job, so the same id is sent again while the
+ * body is unchanged and the last attempt may have reached the server (a network error or a 5xx):
+ * a retry then returns the job already started instead of starting a second, paid one. A definite
+ * refusal (4xx) or a changed body gets a new id. */
+export function useRequestKey() {
+  const last = useRef<{ key: string; body: string } | null>(null);
+  return useMemo(() => ({
+    key(body: unknown): string {
+      const text = JSON.stringify(body) ?? "";
+      if (!last.current || last.current.body !== text) last.current = { key: randomKey(), body: text };
+      return last.current.key;
+    },
+    failed(cause: unknown): void {
+      if (cause instanceof ApiError && cause.status < 500) last.current = null;
+    },
+    done(): void {
+      last.current = null;
+    },
+  }), []);
+}
+
+/** The server's reason when it gave one, else the fallback (a bare status line has none). */
+export function reasonOr(cause: unknown, fallback: string): string {
+  return cause instanceof ApiError && cause.detail?.trim() ? cause.detail : fallback;
+}
 
 export function resumingLine(done: number, total: number): string {
   return total > 0 ? `Resuming: ${done} of ${total} steps already done` : "Resuming";
@@ -27,23 +65,30 @@ export function ResumeButton({ runId, compact = false, onResumed }: {
   onResumed?: (resumed: ResearchResumed) => void;
 }) {
   const router = useRouter();
-  const requestId = useRef(crypto.randomUUID());
+  const request = useRequestKey();
+  // a second click before the first re-render must not post again
+  const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<ResearchResumed | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const resume = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setMessage(null);
     try {
-      const resumed = await api<ResearchResumed>("POST", "/v1/research/resume", { run_id: runId, request_id: requestId.current });
+      const resumed = await api<ResearchResumed>("POST", "/v1/research/resume", { run_id: runId, request_id: request.key({ run_id: runId }) });
+      request.done();
       setDone(resumed);
       onResumed?.(resumed);
       router.refresh();
     } catch (cause) {
-      requestId.current = crypto.randomUUID();
-      setMessage(cause instanceof ApiError ? cause.detail : "The research could not be resumed. Try again in a moment.");
+      request.failed(cause);
+      setMessage(reasonOr(cause, "The research could not be resumed. Try again in a moment."));
       setBusy(false);
+    } finally {
+      inFlight.current = false;
     }
   };
 
@@ -51,7 +96,7 @@ export function ResumeButton({ runId, compact = false, onResumed }: {
   return (
     <>
       {message ? <span className="sm-text bad-text" role="alert">{message}</span> : null}
-      <button type="button" className={`btn primary${compact ? " sm" : " align-start"}`} disabled={busy} onClick={() => void resume()}>{busy ? "Resuming…" : "Resume research"}</button>
+      <button type="button" className={`btn primary${compact ? " sm" : " align-start"}`} disabled={busy} aria-busy={busy} onClick={() => void resume()}>{busy ? "Resuming…" : "Resume research"}</button>
     </>
   );
 }

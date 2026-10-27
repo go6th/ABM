@@ -22,6 +22,12 @@ from people.ports import (
 )
 
 
+async def _allowed_domains(run_input: RunInputPort) -> tuple[str, ...]:
+    """The entity lock's other domains; a run input without the method has none."""
+    method = getattr(run_input, "allowed_domains", None)
+    return tuple(await method()) if method is not None else ()
+
+
 async def read_inputs(run_input: RunInputPort, account_domain: str) -> RunInputs:
     """The run inputs one pass uses, read once."""
     return RunInputs(
@@ -32,6 +38,7 @@ async def read_inputs(run_input: RunInputPort, account_domain: str) -> RunInputs
         reference_employers=await run_input.reference_employers(),
         budget_usd=await run_input.people_budget_usd(),
         excluded_people=await run_input.excluded_people(),
+        allowed_domains=tuple(await _allowed_domains(run_input)),
     )
 
 

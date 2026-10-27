@@ -1,0 +1,46 @@
+# The platform dictionary behind the Platform Ranking sheet of the Tech Stack and Teams workbook.
+# Source: the owner's Madrid ABM master prompt v2 (2026-10-24) section 7.3 and its asset
+# assets/platform_ranking.py. Each entry names a platform, its category, the research lane it
+# belongs to (a lane id of config/job_lanes.yaml; empty means outside the lanes) and the
+# case-insensitive regular expression that says a posting names it (`case_sensitive: true` keeps
+# the case, for a short name that is also a word). A posting matches when the pattern matches its
+# title, description and platform sentences together; a posting counts once per platform.
+# The loader (exports.config.platform_dictionary) refuses a pattern that does not compile and any
+# name that is on the never_report list of config/skill/scope.yaml: a never_report name in a
+# posting is simply not a platform.
+version: "2026-10-24.1"
+status: sourced
+source: "master prompt v2 section 7.3 (platform ranking); assets/platform_ranking.py"
+
+platforms:
+  - {name: Salesforce, category: CRM, lane: salesforce, pattern: 'salesforce|\bsfdc\b|sales cloud|service cloud|marketing cloud|health cloud|life sciences cloud|agentforce|\bcpq\b'}
+  - {name: MuleSoft, category: Integration, lane: salesforce, pattern: 'mulesoft|anypoint'}
+  - {name: Tableau, category: Analytics and BI, lane: tableau_analytics, pattern: 'tableau'}
+  - {name: SAP, category: ERP, lane: sap, pattern: '\bSAP\b|s/4 ?hana|s4hana|\bariba\b|successfactors|\bconcur\b'}
+  - {name: ServiceNow, category: IT service management, lane: servicenow, pattern: 'servicenow'}
+  - {name: Veeva, category: Life sciences CRM and content, lane: veeva, pattern: '\bveeva\b|vault crm|promomats|\bmedcomms\b|vault clinical|vault rim|vault quality|vault safety|\bcrossix\b'}
+  - {name: Workday, category: HR and finance, lane: "", pattern: '\bworkday\b'}
+  - {name: Oracle ERP and EBS, category: ERP, lane: "", pattern: 'oracle (?:ebs|e-business|fusion|cloud erp|erp)|\bnetsuite\b|peoplesoft'}
+  - {name: Microsoft Dynamics 365, category: CRM and ERP, lane: "", pattern: 'dynamics 365|\bd365\b|dynamics crm'}
+  - {name: Snowflake, category: Data platform, lane: data_ai, pattern: 'snowflake'}
+  - {name: Amazon Web Services, category: Cloud, lane: data_ai, pattern: '\baws\b|amazon web services|redshift|sagemaker|bedrock'}
+  - {name: Microsoft Azure, category: Cloud, lane: data_ai, pattern: '\bazure\b|synapse|microsoft fabric'}
+  - {name: Google Cloud, category: Cloud, lane: data_ai, pattern: 'google cloud|\bgcp\b|bigquery|vertex ai'}
+  - {name: Power BI, category: Analytics and BI, lane: data_ai, pattern: 'power ?bi'}
+  - {name: Qlik, category: Analytics and BI, lane: data_ai, pattern: '\bqlik'}
+  - {name: Looker, category: Analytics and BI, lane: data_ai, pattern: '\blooker\b'}
+  - {name: Informatica, category: Data integration, lane: data_ai, pattern: 'informatica'}
+  - {name: dbt, category: Data transformation, lane: data_ai, pattern: '\bdbt\b'}
+  - {name: Kafka, category: Data streaming, lane: data_ai, pattern: '\bkafka\b|confluent'}
+  - {name: Alteryx, category: Analytics, lane: data_ai, pattern: 'alteryx'}
+  - {name: SAS, category: Analytics, lane: data_ai, pattern: '\bSAS\b', case_sensitive: true}
+  - {name: OpenAI and Azure OpenAI, category: Generative AI, lane: data_ai, pattern: 'openai|chatgpt|\bgpt-?4'}
+  - {name: Boomi, category: Integration, lane: "", pattern: '\bboomi\b'}
+  - {name: Epic, category: Electronic health record, lane: "", pattern: '\bepic (?:systems|ehr|emr|certified|certification)'}
+  - {name: Oracle Health (Cerner), category: Electronic health record, lane: "", pattern: 'cerner|oracle health'}
+  - {name: Adobe Experience Cloud and Marketo, category: Marketing, lane: "", pattern: 'adobe experience|\bmarketo\b|adobe campaign'}
+  - {name: HubSpot, category: Marketing and CRM, lane: "", pattern: 'hubspot'}
+  - {name: Genesys and Five9, category: Contact center, lane: "", pattern: 'genesys|five9'}
+  - {name: Zendesk, category: Service desk, lane: "", pattern: 'zendesk'}
+  - {name: UiPath, category: Automation, lane: "", pattern: 'uipath'}
+  - {name: Jira and Confluence, category: Delivery tooling, lane: "", pattern: '\bjira\b|confluence'}

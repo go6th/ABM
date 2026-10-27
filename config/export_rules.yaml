@@ -76,7 +76,9 @@ limits:
   excel_cell_chars: 32767
   excel_cell_chars_source: "Microsoft Excel specifications and limits [VERIFY V-EXP-1]"
   # Row caps fail the build (RowCapExceeded, B3); nothing is truncated. Proposal values.
-  row_caps: {summary_lane_rows: 5000, evidence_uses: 50000, people: 20000, postings: 50000, detections: 10000, sections: 500, tracker_rows: 200}
+  # sanity bounds on a file, not research caps (raised ten times 2026-10-24: an uncapped run on a
+  # large account carries thousands of postings and people)
+  row_caps: {summary_lane_rows: 50000, evidence_uses: 500000, people: 200000, postings: 500000, detections: 100000, sections: 5000, tracker_rows: 200}
   row_caps_status: proposal
   keyset_batch: 500
   keyset_batch_status: proposal
@@ -90,39 +92,101 @@ renderer:
   reruns: 1
   status: proposal
 
-# Plain-English headings. The names are the PRD's own (s3.4 Deliverables and Account Summary order).
+# Plain-English headings, in the document order of the owner's output specification (Madrid ABM
+# master prompt v2, 2026-10-24: section 9.1 the Account Summary, 9.2 Sources and Evidence). The
+# keys under ``summary`` are listed in the order the sections are rendered.
 headings:
-  source: "PRD s3.4 deliverables and Account Summary order; config/output_spec.yaml"
+  source: "master prompt v2 (2026-10-24) sections 9.1 and 9.2; PRD s3.4; config/output_spec.yaml"
+  # 2026-10-25: numbered and worded as the owner's skill-built BD Account Summary (the reference
+  # file set the platform's output must match)
   summary:
-    narrative: "Account narrative"
-    caveats: "Caveats on interpretation"
-    lane_tables: "Graded findings by platform lane"
-    key_people: "Key people (priority A and senior)"
-    linkedin_findings: "Findings from LinkedIn"
-    executive_voice: "Executive voice"
-    hypotheses: "Hypotheses with confirming questions"
-    first_call_questions: "First call questions"
-    decision_changes: "What would change a decision"
-    coverage_tracker: "Coverage tracker"
+    files: "Files in this set"
+    how_to_read: "How to read this file"
+    narrative: "1. The account in plain words"
+    narrative_picture: "The account picture"
+    stands_out: "What stands out"
+    lane_meaning: "What it likely means for each lane (interpretation labeled)"
+    caveats: "How this could be wrong"
+    executive_voice: "What the executives said"
+    news: "2. Recent news (newest first)"
+    baseline: "3. Company and transformation baseline"
+    signals: "4. Signals"
+    signals_tier1: "Tier 1, budget proximate"
+    signals_tier2: "Tier 2, one step removed"
+    signals_tier3: "Tier 3, context and openers"
+    signals_context: "Context and history (older than the shelf life)"
+    lane_tables: "5. Platform picture by lane"
+    platform_hiring: "Platform hiring over 12 months (postings naming each platform, by class)"
+    people: "6. People"
+    people_method: "How the list was built"
+    key_people: "Key people (priority A and the executives the lanes report to)"
+    linkedin_findings: "Findings from profiles"
+    status_changed: "People whose status changed"
+    hypotheses: "7. Hypotheses to test"
+    sensitive_cautions: "Cautions for sensitive findings"
+    first_call_questions: "8. Questions for a first conversation"
+    decision_changes: "The simplest way to sharpen it"
+    coverage_tracker: "9. Research coverage tracker"
+    tracker_waiting: "Decisions waiting on the account owner"
+    tracker_pass1: "Pass 1, summary homework"
+    tracker_pass2: "Pass 2, detailed homework"
+    source_links: "10. Source links"
     # proposal D-24: facts the grading step stored without a lane
     unassigned_lane: "Findings not assigned to a lane"
     absence: "No evidence found (the search proof is in the coverage tracker)"
   evidence:
-    sources: "Sources"
-    job_descriptions: "Job descriptions read"
-    news: "News items verified at source"
+    sources: "Part A. Source register"
+    job_descriptions: "Part B. Job posting extracts for postings read in full"
+    careers_postings: "Part C. Postings read one by one, by lane"
+    post_extracts: "Part D. Video, article and release extracts"
+    board_captures: "Part E. Job board captures"
+    leads: "Part F. Leads not verified, and items checked and dropped"
+    keep_copies: "Part G. How to keep copies of the original pages"
+    data_pulls: "Part H. Data pulls"
+    urls: "Part I. Full URLs written out"
+    # parts E and H sub-headings (reference Sources and Evidence file); {dates} is the capture
+    # date or range of the live board postings
+    live_postings: "Live postings captured on {dates} that name a lane platform"
+    live_postings_undated: "Live postings captured on the careers board that name a lane platform"
+    tech_detections: "Technology detections for lane platforms"
+    platform_postings: "Postings naming each lane platform"
+    entity_split: "Entity split of the postings in the Job Postings file"
+    news_feed: "News feed events"
+    teams: "Platform teams"
 
 # Word table headers (content). Proportions are in the theme (word.tables, same order).
 documents:
-  source: "PRD s3.4 deliverables (named contents); headers and order: proposal D-24"
+  source: "master prompt v2 (2026-10-24) sections 9.1 and 9.2 (named columns); Ref column, order and the rest: proposal D-24"
   tables:
-    lane: ["Ref", "Finding", "Grade", "Use", "Confirming question", "Sources"]
-    key_people: ["Ref", "Name", "Title", "Level", "Lane", "Profile link", "Source"]
-    linkedin: ["Ref", "Person", "Finding", "Their own words", "Link", "Source"]
+    # the Summary's section 5 as the reference BD Summary prints it (Item, What we found, Grade,
+    # Reasoning and sources), with the statement policy column the skill requires kept; the
+    # client's on-screen Facts by grade table shows the same cells (views.rowsources.facts)
+    platform_picture: ["Ref", "Item", "What we found", "Grade", "Use in outreach", "Reasoning and sources"]
+    key_people: ["Ref", "Name", "Title as reported", "Lane", "Priority", "Link", "Note", "Source"]
+    linkedin: ["Ref", "Person", "What the profiles show", "Their own words", "Source"]
+    # kept in step with the theme's table list; the document and the client table print ``coverage``
     tracker: ["Ref", "Coverage row", "Status", "Priority", "Reason", "Tools", "Results"]
-    sources: ["Ref", "Source", "Link", "Date", "Kind", "Sentences relied on, with the grade of each row"]
-    job_reads: ["Ref", "Posting", "Link", "Source"]
-    news: ["Ref", "Item", "Link", "Source", "Verified at source"]
+    coverage: ["Ref", "Source type", "Status", "Priority", "Needs", "What was done (proof)", "What remains"]
+    waiting: ["Ref", "Source type", "Needs"]
+    grade_legend: ["Grade", "Meaning", "Use in outreach"]
+    recent_news: ["Ref", "Date", "What happened", "Read depth", "Source", "Why it matters"]
+    # the baseline is a bulleted list ("Item: what (sources)."), as the reference Summary prints
+    # it; the tier is the signal table's own subheading, so the rows carry no Tier column
+    signals: ["Ref", "Finding", "Grade", "Lanes", "Date", "Sources"]
+    status_changed: ["Ref", "Person", "Was", "Now", "Source"]
+    source_links: ["Ref", "ID", "Source", "Domain"]
+    platform_hiring: ["Ref", "Platform", "Postings naming it", "Open on {as_of}", "Build roles", "Admin and owner roles", "Working tool", "User role"]
+    sources: ["Ref", "ID", "Source", "Type", "Date", "How retrieved", "What it supports"]
+    job_reads: ["Ref", "Posting", "Platforms", "Class", "What the posting says", "Entity"]
+    lane_reads: ["Ref", "Posting", "Class", "Status", "Classification reasoning"]
+    board_captures: ["Ref", "What was counted", "Number", "Base"]
+    live_postings: ["Ref", "Posting", "Platforms named", "Entity", "Read in full", "Class"]
+    leads: ["Ref", "Lead", "Queries and checks tried", "Status", "Source"]
+    data_pulls: ["Ref", "Pull", "Count", "Base"]
+    tech_detections: ["Ref", "Technology", "First seen", "Last seen", "Postings naming it"]
+    platform_postings: ["Ref", "Platform", "Postings", "Open", "Build", "Admin and owner", "Working tool", "User role"]
+    entity_split: ["Ref", "Entity", "Postings"]
+    urls: ["Ref", "ID", "URL"]
   labels:
     sources_suffix: "Sources"
     question_prefix: "Confirming question"
@@ -134,6 +198,103 @@ documents:
     as_of: "As of"
     attribution_line: "Prepared by 6th agents"
     sensitive_heading: "Sensitive findings"
+    # title block (9.1 item 1)
+    research_by: "Research by 6th agents"
+    domain_prefix: "Domain"
+    version_prefix: "Version"
+    config_prefix: "configuration"
+    files_intro: "Evidence, postings and source extracts, the people list, the postings and the stack and teams are in the other files of this set:"
+    # the Summary's title and opening paragraph as the reference BD Account Summary words them
+    # (build_summary.js line 9); the legal name comes from the stored entity lock
+    summary_title: "{account} ({legal_name}): {document}"
+    summary_title_plain: "{account}: {document}"
+    research_date: "Research date {date}."
+    files_line: "Evidence, postings and source extracts are in {evidence}. People are in {people}, postings in {jobs}, stack and teams in {tech}."
+    # Recent news "Read" column (9.1 item 4)
+    # the skill's read depth words (output-spec.md: Read, Headline only, Feed only); a cached
+    # copy and a finding with no read evidence keep their own words rather than claim a read
+    read_full: "Read"
+    read_headline: "Headline only"
+    read_feed: "Feed only"
+    read_cached: "Cached copy"
+    read_not: "Not read this run"
+    news_sentence: "The timeline covers {n} dated findings from the last {months} months; undated findings are listed in the signal tables."
+    # How to read this file (output-spec.md "Grades"): the line above the legend and each grade's
+    # meaning and use as the skill words them; a grade the policy forbids stating never reads
+    # "May be stated" whatever this says (the mapper checks it against config/grading.yaml)
+    legend_intro: "Every statement carries a source ID in brackets (S for a source). Every row in a table carries a grade:"
+    grade_legend:
+      confirmed: {meaning: "Read in a primary source during this run", use: "May be stated"}
+      probable: {meaning: "Inferred from one or two sources, reasoning given in the row", use: "Ask, do not state"}
+      hypothesis: {meaning: "Synthesis, no source states it", use: "Ask, do not state"}
+      lead: {meaning: "Seen in a secondary source, not verified", use: "Do not use until checked"}
+    caution_prefix: "Caution"
+    # coverage tracker columns (9.1 item 11)
+    # worded as the reference tracker (BD, 2026-10-20): "Not started", "None" left on a finished
+    # row, one tally line over all rows, waiting rows as plain bullets
+    needs_nothing: "Nothing"
+    done_results: "Searched with {tools}: {n} results"
+    done_zero: "Searched with {tools}; nothing found"
+    done_uncounted: "Searched with {tools}; results not counted"
+    done_nothing: "Not started"
+    # a finished row (Done, Partial, None) with no search on record: never "Not started"
+    done_unrecorded: "No search recorded"
+    remains:
+      "Done": "None"
+      "Partial": "The rest of the row"
+      "Not done": "The whole row"
+      "Blocked": "The row, once the need is met"
+      "None": "None"
+      "Not yet reported": "The whole row"
+    waiting_line: "{row}: {status} ({needs})."
+    waiting_line_plain: "{row}: {status}."
+    tally_line: "Tally, computed from the rows above ({n} rows): {counts}."
+    source_links_note: "Job postings read are listed in Part C of the Sources and Evidence file and in the Job Postings workbook."
+    # Sources and Evidence (9.2)
+    # Part A "How retrieved", in the reference register's words (BD, 2026-10-20)
+    retrieved_live: "Page read"
+    retrieved_cached: "Cached copy read"
+    retrieved_feed: "Feed only"
+    retrieved_snippet: "Search excerpt"
+    retrieved_link: "Cited as a link"
+    # the Sources and Evidence opening line, as the reference file opens (the title uses the
+    # Summary's summary_title words with the evidence file's own name)
+    evidence_opening: "Research date {date}. Companion to {summary}. Every source ID cited in the Summary is listed here with its link. Research by 6th agents."
+    # Part A "What it supports": a finding not graded Confirmed carries its grade before it, and
+    # the sentence it rests on follows the label
+    supports_quote: "Source text"
+    # Part A "Type" when the link itself says what the page is (else the source kind)
+    source_type_posting: "Job posting"
+    source_type_site: "Company site"
+    source_type_profile: "Public profile"
+    source_type_post: "Public post"
+    # Part B posting cell: "Title (open, first seen 2026-10-19)"
+    posting_first_seen: "first seen {date}"
+    # Part A "What it supports" for a posting's own link that no finding rests on
+    posting_supports: "Job Postings workbook row {ref}: {title}, {cls}"
+    # the line under the Part B heading (the reference's, with what this table holds)
+    job_reads_intro: "Each posting below was opened and read in full. What the posting says gives the posting's own sentences that name a lane platform; the full description is in the Job Postings workbook. Entity shows whether the posting is a {account} position."
+    post_type: "Post or comment"
+    # Part D, one sub-heading per source read in depth: "<name> (<date>) (<code>)", the name being
+    # the stored page title, else the publisher, else the host (never invented); a source the
+    # Summary quotes an executive from reads "<name> (<date>), executive voice (<code>)"
+    extract_voice: "executive voice"
+    extract_posts: "Posts by people on the People List"
+    supports_prefix: "Supports"
+    queries_not_tried: "Not yet re-searched"
+    keep_copies_text: "The workspace zip shipped with this delivery logs every data pull and lists every link cited; it does not hold copies of the pages. To keep a copy, open the link in the source register and save the page as a PDF with the date in the file name. For job postings, save the posting page the same day, because the careers site removes closed requisitions. Links that stop resolving should be replaced by the words Archive record in any later version, so the reader knows to ask for the saved copy."
+    read_in_full_yes: "Yes"
+    read_platform_sentence: "Platform sentence"
+    read_title_only: "Title only"
+    lead_queries:
+      pending: "Re-search started; fewer than {queries} differently worded queries recorded so far"
+      incomplete: "Re-searched; the rule of {queries} differently worded queries across {tools} tools was not met"
+      complete: "Re-searched with {queries} or more differently worded queries across {tools} or more tools; not confirmed"
+      upgraded: "Re-searched and confirmed"
+    detections_intro: "First seen and last seen are the dates the technology name appeared in the account's public material (postings and web pages). A date range shows presence in public material, not adoption, evaluation or retirement. Postings naming it counts the postings of the Job Postings file that name the technology. Platforms outside the lanes are left out."
+    news_feed_counted: "The news feed returned {events} events in {calls} pulls. The events are not stored with this file set, so they are not listed one by one; findings taken from the feed are in the source register, retrieved as {feed}."
+    news_feed_uncounted: "The news feed was pulled {calls} times; the number of events returned was not recorded. Findings taken from the feed are in the source register, retrieved as {feed}."
+    news_feed_none: "The news feed was not pulled for this run."
   status: proposal
 
 # The statement policy wording printed beside each graded row (D-01 labels come from the grading
@@ -151,17 +312,83 @@ none_found:
 
 labels:
   # PRD s3.4 step 5 names the four posting classes; "Unclassified" is the job pipeline's own
-  # value for anything not decided (src/jobs/counts.py). Status words are the stored values.
+  # value for anything not decided (src/jobs/counts.py). The two derived classes (a posting read
+  # that names no lane platform; a posting not read in full) and the status words follow the
+  # owner's master prompt v2 section 9.4 (2026-10-24).
   posting_class:
     build: "Build role"
     admin_owner: "Admin and owner role"
     working_tool: "Working tool"
     user: "User role"
     unclassified: "Unclassified"
+    no_lane_platform: "No lane platform named"
+    title_only: "Not read (title only)"
+  # the classes that confirm a platform is used (master prompt v2 section 9.5 Summary table)
+  posting_class_confirming: [build, admin_owner, working_tool]
   posting_status:
     open: "Open"
-    closed: "Closed"
+    closed: "Open or closed in the last 12 months"
     unknown: "Status unknown"
+  # how a posting was read (master prompt v2 section 9.4 "Source"): the read type, not the code
+  posting_source:
+    live_board_read: "Live board, read"
+    feed_read: "Job feed, 12 months, description read"
+    feed_title_only: "Job feed, 12 months, title only"
+  # a posting whose link is off the account's domains names its host and this suffix
+  entity_to_confirm_suffix: " (entity to confirm)"
+  # people rubric level ids (config/people_rubric.yaml) to the spec's level labels (master prompt
+  # v2 section 9.3); ids the rubric does not have yet (senior_director, team_lead) are mapped so a
+  # rubric change needs no code change; anything else is "other"
+  # wording as the owner's reference People List prints it (BD, 2026-10-19); associate_director
+  # has no rubric level yet and is mapped so a rubric change needs no code change
+  people_level:
+    c_level: "C-level, EVP and SVP"
+    evp: "C-level, EVP and SVP"
+    svp: "C-level, EVP and SVP"
+    vp: "VP"
+    senior_director: "Senior Director"
+    director: "Director"
+    associate_director: "Associate Director"
+    head: "Head"
+    senior_manager: "Senior Manager"
+    manager: "Manager"
+    team_lead: "Manager"
+    other: "Lead, owner, specialist or developer"
+  # the level labels in table order (the Summary sheet's Level table, the reference's order)
+  people_level_order: ["C-level, EVP and SVP", "VP", "Senior Director", "Director", "Associate Director", "Head", "Senior Manager", "Manager", "Lead, owner, specialist or developer"]
+  # level ids that meet the seniority rule (Director and above, Head, Senior Manager)
+  people_level_senior: [c_level, evp, svp, vp, senior_director, director, associate_director, head, senior_manager]
+  # People List lane wording (the reference People List); a lane id not named here falls back to
+  # ``lane`` below, and no lane is ``lane_none``. Two lane ids may share one label: the Summary
+  # sheet's Lane table then counts them on one line. The order here is the Lane table's order.
+  people_lane:
+    salesforce: "Salesforce and commercial"
+    servicenow: "ServiceNow and shared services"
+    sap: "SAP and ERP"
+    veeva: "Veeva and life sciences systems"
+    tableau_analytics: "Analytics, data and AI"
+    data_ai: "Analytics, data and AI"
+  # lane ids (config/job_lanes.yaml) to the spec's lane labels (master prompt v2 section 9.3);
+  # used in every client file, so a never_report name in lanes.yaml never reaches a client
+  lane:
+    salesforce: "Salesforce and commercial systems"
+    servicenow: "ServiceNow and IT service"
+    sap: "ERP and business systems"
+    tableau_analytics: "Analytics and Tableau"
+    data_ai: "Data and AI"
+    veeva: "Veeva and life sciences systems"
+  lane_none: "IT leadership and other"
+  lane_outside: "Outside the lanes"
+  # how a person was found (people.models.Origin), master prompt v2 section 9.3 "Found by"
+  found_by:
+    title_search: "Title search on the account's domains"
+    association: "Association search on the lane technology"
+    mention: "Research (named in a source)"
+  "yes": "Yes"
+  "no": "No"
+  not_pulled: "Not pulled"
+  not_dated: "Not dated"
+  teams_none: "None recorded"
   # sources.kind vocabulary (migration 0005); aggregator sources are labelled (PRD s3.4 gate)
   source_kind:
     primary: "Primary"
@@ -169,81 +396,256 @@ labels:
     aggregator: "Aggregator (labelled)"
   # PRD s3.4 step 6: "A date range in a detection feed is a lead, not a finding."
   detection_grade: "Lead (detection feed; a date range is not a finding)"
-  source: "PRD s3.4 steps 5 and 6; stored vocabularies; wording: proposal D-24"
+  source: "PRD s3.4 steps 5 and 6; stored vocabularies; master prompt v2 sections 9.3 to 9.5 (2026-10-24); wording: proposal D-24"
+
+# Fixed sentences of the workbook Summary sheets (master prompt v2 sections 9.3 and 9.5).
+sheet_texts:
+  source: "master prompt v2 sections 9.3 and 9.5 (2026-10-24); wording where the prompt gives none: proposal"
+  # People List Summary sheet, in the order and style of the owner's reference People List (BD,
+  # 2026-10-19). Every count comes from the stored people record or the run's stored search
+  # calls; {rows}, {searches}, {records} and {people} are a count with its word ("1 row").
+  people:
+    title: "{account} people list, deduplicated"
+    what: "This is the single people list for the {account} account."
+    merges: "It merges {parts}."
+    merge_title: "title searches on the {domains} domain"
+    merge_title_any: "title searches on the account's domains"
+    merge_association: "technology association searches"
+    merge_mention: "people named in research"
+    searches: "{searches}"
+    # the record count each stored search call returned (the ledger's record_count)
+    matches: "{records} loaded"
+    on_list: "{people} on this list"
+    dedupe: "Duplicates removed by profile link and by name. Pulled by {attribution} on {date}."
+    removed: "Rows removed before this list: {items}."
+    # keyed "status|reason" as the people module's Summary lines name them
+    removed_items:
+      "in scope|kept off this file by the distribution rules": "{rows} kept off this file by the distribution rules"
+      "out of scope|not current": "{rows} whose current employer is not the account"
+      "out of scope|below scope": "{rows} below the seniority rule"
+      "out of scope|outside geography": "{rows} outside the account's geography"
+      "excluded|not a person name": "{rows} whose name is a title or a fragment, not a person"
+      "excluded|tenant exclusion": "{rows} on the account owner's own exclusion list"
+      "for review|employment unknown": "{rows} held for review (nothing shows current employment at the account)"
+      "for review|level unknown": "{rows} held for review (the title names no level)"
+      "for review|location unknown": "{rows} held for review (no location)"
+      "for review|exclusion ambiguous": "{rows} held for review (the title names compliance or audit without IT)"
+      "for review|priority unmatched": "{rows} held for review (no priority rule matched)"
+      "no profile link yet|": "{rows} unresolved (no profile link yet)"
+      "merged as duplicates|": "{rows} merged as duplicates"
+    removed_other: "{rows} {status} ({reason})"
+    withheld: "{rows} without a registered profile source"
+    exclusions: "{reasons} people are excluded at the account owner's instruction ({rows}): {names}."
+    # the rubric's title exclusion reasons (config/people_rubric.yaml exclusion_rules)
+    exclusion_reasons:
+      security: "security"
+      it compliance: "IT compliance"
+      it audit: "IT audit"
+      privacy: "privacy"
+    no_exclusions: "No one was excluded by title (security, IT compliance, IT audit or privacy)."
+    seniority_prefix: "Seniority rule: "
+    seniority_filter: "Filter Meets seniority rule to Yes for the target list."
+    judgment_note: "Titles are self reported on public profiles and are not verified. Level, lane and priority are our judgment from the title alone (A: Director and above or Head, and the title names a lane platform; B: Director and above or Head with no lane platform named, or a Senior Manager whose title names one; C: a Senior Manager whose title names no lane platform). Correct them in the People sheet and the counts below update. Former employers come from the full profiles and cover any point in a career; Not pulled means no full profile was read."
+    level_heading: "Level"
+    senior_label: "Meets seniority rule"
+    lane_heading: "Lane, senior people only"
+    total_label: "Total"
+    link_text: "Open profile"
+  # Tech Stack and Teams, after the owner's reference file (BD_Tech_Stack_and_Teams.xlsx,
+  # 2026-10-26). Where the platform's data differs from the reference the words say what the
+  # platform has: the second sheet holds the technology detection pull (a lead, not the
+  # reference's confirmed stack pull, which no pipeline stores), so the ranking's stack column
+  # and its sentence name the detection pull. Placeholders: {account}, {base}, {postings},
+  # {months}, {as_of}.
+  tech:
+    title: "{account}: platforms seen in job postings, ranked A, B, C"
+    base_line: "Postings in the last {months} months that name at least one platform (the base):"
+    rank_rule: "How the rank is set. A: named in 15 percent or more of the base and in at least 5 postings. B: named in 5 percent or more of the base and in at least 3 postings. C: named in at least 2 postings. Platforms named in one posting are listed under Seen once."
+    count_rule: "Each posting counts once per platform, however many times it names it. Open and closed postings both count. The window is by posting date, else first seen; a posting with no date counts."
+    signal_rule: "A platform named in hiring is a signal of skills the account wants, not proof the platform runs in production. The column In stack detections shows whether the separate technology detection pull also shows it."
+    research_by: "Research by 6th agents. Ranks are formulas on the counts, so a corrected count updates the rank."
+    counts_heading: "Counts"
+    seen_once_heading: "Seen once (not ranked)"
+    rank_label: "Rank {rank}"
+    stack_title: "{account}: technologies the detection pull saw, with first and last seen dates"
+    stack_note: "Pulled by 6th agents for the research as of {as_of}. A detection is a lead, not proof of use: a first and last seen date range alone is not a finding. Postings naming it is the number of postings in the Job Postings file that name the technology. Category and Lane come from the platform dictionary when the technology is one of its platforms."
+    teams_title: "{account}: teams whose public records name a lane platform"
+  # Job Postings Summary sheet, after the owner's reference file (BD_Job_Postings.xlsx Summary,
+  # 2026-10-26). Placeholders: {account}, {months}, {start}, {end}, {as_of}, {suffix}. The class
+  # paragraph names every labels.posting_class word (test).
+  jobs:
+    title: "{account} platform job postings, last {months} months (first seen {start} to {end})"
+    paragraphs:
+      - "Every posting first seen in the last {months} months that names a platform, pulled by 6th agents from the structured job posting feed, plus the postings found open on the {account} careers site on {as_of}; the Found by column says which. Open and closed postings are both included, and a posting with no date is kept. One row per posting; a reposted requisition appears once per posting."
+      - "Entity: {account} means the posting link is on the {account} website or its careers site. A posting found on another website shows that site's name followed by {suffix}; check which business it belongs to before quoting it. The lines under the table count both."
+      - "Class: Build role means the platform is the job. Admin and owner role runs the platform, owns its data or governs it. Working tool means daily use. User role is everything else, including boilerplate and tool lists. Unclassified means the reading did not settle the class. No lane platform named means the posting was read and names none of the lane platforms. Not read (title only) means only the title could be read."
+      - "Requisition is the job ID the posting prints, blank when it prints none. First seen is the posting date, else the date the posting was first seen. What the posting says (read) is the sentence the reading quoted to decide the class, filled for roles read in full. Platform sentences shows the exact sentences where each platform is named. Full description is the complete posting, filled when the posting was read in full. Ref and Source code tie each row to the source register."
+    matrix_heading: "Platform (named anywhere)"
+    total: "Total"
+    open: "Open"
+    closed: "Closed"
+    rows_all: "Rows on the Jobs sheet (all entities)"
+    rows_account: "Rows that are {account} positions"
+    rows_other: "Rows found on another website (entity to confirm)"
 
 evidence:
   # Facts whose attribute key starts with one of these prefixes are listed under "News items
   # verified at source" when their evidence was read in full at the source.
   news_attribute_prefixes: []
   news_source: "TODO, needs product owner: no news attribute family is defined in config/grading_policy.yaml"
+  # Part A Type: a link on one of these hosts is a public profile (path starts with a profile
+  # path) or a public post (a post path); the account's own domain and careers host are the
+  # company site; a posting's link is a job posting. Anything else prints the source kind.
+  profile_hosts: ["linkedin.com"]
+  profile_paths: ["/in/", "/pub/"]
+  post_paths: ["/posts/", "/feed/update/", "/pulse/"]
+  # Part C: one heading per platform of workbooks.jobs.matrix_platforms that a posting names
+  # ({platform}, {read}, {named}, {account}, {open}, {date}), a note when none was read in full,
+  # and one closing note. Counts are the Job Postings workbook's rows.
+  lane_read_heading: "{platform}: {read} postings read in full ({named} {account} postings name it, {open} open on {date})"
+  lane_read_posting: "{title} ({posting_ref}, first seen {first_seen})"
+  lane_read_none: "No posting naming this platform was read in full; every posting naming it is a row of the Job Postings workbook, with its class and platform sentences."
+  lane_read_note: "The class of every other posting naming a lane platform is in the Class column of the Job Postings workbook, and the sentences it was read by are in the Platform sentences column."
+  lane_read_source: "reference Sources and Evidence Part C (owner's skill session, BD, 2026-10-19); wording of the notes: proposal"
 
 # Workbook columns: key, header and kind (the kind gives width and format in the theme). The PRD
 # names title, level, lane, priority, profile URL and source for people; class, platform
 # sentence, full description and link for postings; first and last seen and the cross-check for
 # detections. Ref, status, dates, platforms and the order are D-24 proposals.
 workbooks:
-  source: "PRD s3.4 deliverables (named columns); order and the rest: proposal D-24"
+  source: "master prompt v2 sections 9.3 to 9.5 (2026-10-24); PRD s3.4 deliverables; row keys and the rest: proposal D-24"
   people:
     sheet: "People"
     columns:
-      - {key: ref, header: "Ref", kind: ref}
+      - {key: number, header: "No.", kind: count}
       - {key: name, header: "Name", kind: text_short}
-      - {key: title, header: "Title", kind: text_short}
+      - {key: title, header: "Title as reported", kind: text_short}
       - {key: level, header: "Level", kind: label}
+      - {key: meets_seniority, header: "Meets seniority rule", kind: label}
       - {key: lanes, header: "Lane", kind: label}
       - {key: priority, header: "Priority", kind: label}
-      - {key: profile_url, header: "Profile link", kind: url}
+      - {key: former_employers, header: "Former SI and consulting employers (firm and years)", kind: text_short}
+      - {key: found_by, header: "Found by", kind: text_short}
+      - {key: profile_url, header: "LinkedIn", kind: url}
+      - {key: second_profile_url, header: "Second profile", kind: url}
+      - {key: location, header: "Location", kind: text_short}
+      - {key: note, header: "Note", kind: text_short}
+      - {key: ref, header: "Ref", kind: ref}
       - {key: source_code, header: "Source", kind: code}
     summary_sheet: "Summary"
   jobs:
-    sheet: "Postings"
+    sheet: "Jobs"
     columns:
-      - {key: ref, header: "Ref", kind: ref}
+      # the reference file's order (BD_Job_Postings.xlsx Jobs); Last seen and Seniority are not
+      # stored by the job pipeline, so they are not printed; Found by, Ref and Source code follow
+      - {key: requisition, header: "Requisition", kind: label}
       - {key: title, header: "Title", kind: text_short}
-      - {key: status, header: "Status", kind: label}
-      - {key: posting_class, header: "Class", kind: label}
       - {key: platforms, header: "Platforms named", kind: label}
-      - {key: platform_sentence, header: "Platform sentence", kind: text_long}
+      - {key: posting_class, header: "Class", kind: label}
+      - {key: status, header: "Status", kind: label}
+      - {key: posted_or_seen, header: "First seen", kind: date}
+      - {key: location, header: "Location", kind: text_short}
+      - {key: entity, header: "Entity", kind: text_short}
+      - {key: read_text, header: "What the posting says (read)", kind: text_long}
+      - {key: platform_sentence, header: "Platform sentences", kind: text_long}
       - {key: description, header: "Full description", kind: text_long}
       - {key: url, header: "Link", kind: url}
-      - {key: posted_at, header: "Posted", kind: date}
-      - {key: first_seen, header: "First seen", kind: date}
-      - {key: source_code, header: "Source", kind: code}
+      - {key: source_type, header: "Found by", kind: text_short}
+      - {key: ref, header: "Ref", kind: ref}
+      - {key: source_code, header: "Source code", kind: code}
     counts_sheet: "Counts"
     long_text_sheet: "Long text"
+    # the platform rows of the Counts sheet matrix (master prompt v2 section 9.4)
+    matrix_platforms: [Salesforce, Microsoft Dynamics, MuleSoft, ServiceNow, SAP, Tableau, Workday, Veeva]
+    matrix_all_rows: "All rows"
+    summary_sheet: "Summary"
+    # "Job ID: R-557322", "Requisition ID 12345", "Req #A-1001": the label, then the ID (group 1),
+    # which must hold a digit; a posting that prints no such label leaves the cell blank
+    requisition_pattern: '(?i)(?:job\s*(?:requisition\s*)?id|requisition\s*(?:id|number|no\.?)|req\.?\s*(?:id|#))\s*[:#]?\s*([A-Z0-9][A-Z0-9_-]*?\d[A-Z0-9_-]*)'
   tech:
-    sheet: "Detections"
+    # the second sheet, in the reference's "Confirmed stack" place: the detection pull, named
+    # for what it is (a lead); the reference's Business function is not stored, so not shown
+    sheet: "Stack detections"
     columns:
-      - {key: ref, header: "Ref", kind: ref}
+      - {key: category, header: "Category", kind: label}
       - {key: technology, header: "Technology", kind: text_short}
+      - {key: postings, header: "Postings naming it", kind: count}
+      - {key: lane, header: "Lane", kind: label}
       - {key: first_seen, header: "First seen", kind: label}
       - {key: last_seen, header: "Last seen", kind: label}
-      - {key: cross_check, header: "Cross check with postings", kind: text_short}
       - {key: grade, header: "Grade", kind: label}
+      - {key: ref, header: "Ref", kind: ref}
       - {key: source_code, header: "Source", kind: code}
-    teams_sheet: "Teams"
-    counts_sheet: "Counts"
+    teams_sheet: "Platform teams"
+    # the reference's columns; no pipeline stores team records yet, so the sheet shows the
+    # header and the "None recorded" note
+    teams_columns:
+      - {key: team, header: "Team", kind: text_short}
+      - {key: lane_technologies, header: "Lane technologies named", kind: text_short}
+      - {key: postings, header: "Postings count", kind: count}
+      - {key: first_activity, header: "First activity", kind: date}
+      - {key: last_activity, header: "Last activity", kind: date}
+      - {key: technologies, header: "Team technologies (name, postings)", kind: text_long}
+      - {key: locations, header: "Team locations (place, postings)", kind: text_long}
+      - {key: job_functions, header: "Job functions", kind: text_long}
+    ranking_sheet: "Platform Ranking"
+    ranking_columns:
+      - {key: rank, header: "Rank", kind: label}
+      - {key: platform, header: "Platform", kind: text_short}
+      - {key: category, header: "Category", kind: label}
+      - {key: lane, header: "Lane", kind: label}
+      - {key: count, header: "Postings naming it", kind: count}
+      - {key: share, header: "Share of base", kind: percent}
+      - {key: open_now, header: "Open now", kind: count}
+      - {key: last_seen, header: "Last seen", kind: label}
+      - {key: in_stack, header: "In stack detections", kind: label}
+      - {key: read_checked, header: "Matches checked by reading", kind: label}
 
 # Workspace zip (D-25 proposal). The PRD lists build scripts and raw data with neutral names; the
 # SaaS document says share graded facts and links, not raw exports; broker terms (D-10) are open.
 workspace:
   decision: D-25
   status: proposal
-  restore_text_source: "TODO, needs product owner: RESTORE.md wording not supplied; a neutral note is rendered"
-  restore_text: |
-    # Restore note
-
-    This archive holds the standing file set for one account, the data each file was built
-    from, and a manifest. Every member is listed in MANIFEST.json with its SHA-256 hash.
-
-    1. Check each member against MANIFEST.json before use.
-    2. The files in deliverables/ are the delivered set; data/ holds the render data behind them.
-    3. A later delivery adds a new archive; this one is never changed.
-  notes_text: |
-    # Notes
-
-    Prepared by 6th agents. Only Confirmed findings may be stated to a prospect; every other
-    grade is a question. Sensitive findings are preparation, never openers.
+  restore_text_source: "the owner's reference workspace (BD file set, RESTORE.md, 2026-10-20): layout, restore steps, canonical query definitions and entity rules; the figures come from the run"
+  # The folders under the root, in zip order, as the reference workspace names them.
+  folders: [deliverables, data, build, notes]
+  # RESTORE.md. Placeholders: {account}, {as_of}, {folder}, {what}, {files}, {platform}, {tech},
+  # {jobs}, {people}, {sheet}, {column}, {start}, {count}, {open}, {base}, {ranks}, {rank},
+  # {platforms}, {label}, {counts}, {file}, {value}, {yes}, {senior}, {listed}, {domains},
+  # {careers}, {hosts}, {names}, {n}.
+  restore:
+    title: "# {account} workspace"
+    intro: "Account research by 6th agents, research as of {as_of}. Only Confirmed findings may be stated to a prospect; every other grade is a question. Sensitive findings are preparation, never openers."
+    layout_heading: "## Layout"
+    folders:
+      deliverables: "the five files of this delivery"
+      data: "pulls as the run stored them"
+      build: "the data each deliverable was rendered from and the source link map (the builder code is not shipped)"
+      notes: "the pull log (every call, parameters, counts), pass 1 (internal history, neutral form) and the sense check (entity and gap review)"
+    folder_line: "- {folder}/: {what}: {files}"
+    manifest_line: "- MANIFEST.json: the SHA-256 hash of every member, this note included"
+    restore_heading: "## Restore"
+    restore_steps:
+      - "1. Unzip and check every member against MANIFEST.json."
+      - "2. 6th agents rebuild the deliverables into deliverables/ from the stored run with the same configuration; the build is deterministic, so the same run gives the same files. build/ holds the data each file was rendered from."
+      - "3. A later delivery adds a new archive; this one is never changed."
+    queries_heading: "## Canonical query definitions (use these wording for any question against this workspace)"
+    query_platform: "- \"Postings naming {platform}\": {tech}, sheet {sheet}, column {column}: the postings of {jobs} dated {start} to {as_of} (posting date, else first seen; an undated posting counts) whose title, description or platform sentences name {platform}. Answer on {as_of}: {count} ({open} open)."
+    query_rank: "- \"Platform rank\": {tech}, sheet {sheet}, base {base} postings naming any platform in the dictionary. {ranks}"
+    rank_part: "{rank}: {platforms}."
+    rank_none: "No platform is ranked."
+    query_class: "- \"{label}\": {jobs}, sheet {sheet}, {column} equals {label}: {counts}; every other platform 0."
+    query_count: "- \"{label}\": {file}, {base}. Answer on {as_of}: {value}."
+    query_senior: "- \"Senior people\": {people}, sheet {sheet}, {column} equals {yes}: {senior} of {listed}."
+    query_zero: "- A strict query that returns zero is reported as zero, then the nearest relaxed set is shown and labeled."
+    entity_heading: "## Entity rules applied"
+    entity_none: "- No entity lock was recorded for this run; results were kept as returned."
+    entity_domains: "- The account's own pages: {domains}{careers}. A page on another host counts only when its text names the account."
+    entity_careers: "; careers boards {hosts}"
+    entity_subsidiaries: "- Subsidiaries kept as the account: {names}."
+    entity_lookalikes: "- Look-alike hosts blocked, their results dropped: {n} (listed in data/entity_lock.json)."
+    out_of_scope: "- Platforms on the out-of-scope list are never on the ranking sheet and are masked in every file."
+    window: "- Postings dated before {start} are outside the Platform Ranking base."
   raw_payloads:
     default: excluded
     neutral_name_copy_enabled: false
@@ -251,3 +653,81 @@ workspace:
   max_member_bytes: 104857600
   max_total_bytes: 524288000
   entry_name_max: 120
+  # The members built from stored run data (owner's master prompt v2 sections 2 and 9.6,
+  # 2026-10-24; folders and names after the reference workspace), in zip order within their
+  # folder. A zip missing one fails its check. Each is built only from rows the run stored; a
+  # source with no rows says so in one line and never carries invented rows.
+  required_members:
+    - data/entity_lock.json
+    - data/web_searches.json
+    - data/techstack_detections.json
+    - build/urls.json
+    - notes/pull_log.md
+    - notes/pass1.md
+    - notes/sense_check.md
+  entity_lock:
+    none_recorded: "No entity lock recorded for this run."
+  web_searches:
+    dropped_entity: "No result came from a host that belongs to the account or names it."
+    dropped_empty: "No results returned."
+  sense_check:
+    none_recorded: "No sense check recorded for this run."
+    recorded: "Sense check recorded for this run. Findings raised: {findings}. Corrections proposed: {proposals}."
+    conflicts_heading: "Findings the sense check marked Conflicting"
+    conflict_line: "- {label}: {value} (graded {grade}; the sources disagree)"
+    conflicts_none: "No finding is marked Conflicting."
+  # The tracker rows that need the client's own mail, notes and files decide the line; the reason
+  # codes are tracker reason codes (config/tracker_v1.yaml), compared by their client wording.
+  pass1:
+    row_keys: [prior_customer_status, connections_alumni]
+    reason_codes: [no_internal_access]
+    skipped: "pass 1 skipped: no internal access"
+    read: "Internal history was read; its findings stay with the account owner and are not part of this package."
+    unknown: "The tracker holds no pass 1 rows for this run."
+  # pull_log.md: the tool role is what a tool does, never who sells it (a role word never names a
+  # provider). The output file is the deliverable the operation's results feed.
+  pull_log:
+    title: "Pull log"
+    intro: "One line per distinct call the run made to its research tools. Cost is in US dollars."
+    columns: ["Step", "Tool role", "Parameters as sent", "Result count", "Cost", "Output file"]
+    roles:
+      web_search: "open web search"
+      read_page: "page scraper"
+      scrape_job_page: "page scraper"
+      news_events: "job and news feed"
+      job_openings: "job and news feed"
+      tech_detections: "technology feed"
+      people_by_title: "title search tool"
+      people_by_technology: "association search tool"
+      profile_enrichment: "profile lookup"
+      org_resolve: "organisation lookup"
+      org_tech_stack: "organisation lookup"
+      org_teams: "organisation lookup"
+      document_read: "uploaded document reader"
+    default_role: "research tool"
+    outputs:
+      web_search: evidence
+      read_page: evidence
+      scrape_job_page: jobs
+      news_events: summary
+      job_openings: jobs
+      tech_detections: tech
+      people_by_title: people
+      people_by_technology: people
+      profile_enrichment: people
+      org_resolve: summary
+      org_tech_stack: tech
+      org_teams: tech
+      document_read: summary
+    default_output: "none"
+    not_counted: "not counted"
+    repeated: "(repeated {n} times)"
+    none_recorded: "No calls recorded for this run."
+    completeness_heading: "Completeness"
+    calls_total: "- Calls recorded: {n} (every call the run stored in its ledger)."
+    unique_queries: "- Unique search queries: {n} (distinct query text, case ignored, among {total} queries sent)."
+    duplicate_queries: "- Duplicate search queries: {n} (query texts sent more than once; each is listed once above)."
+    zero_result_queries: "- Search queries with no results: {n} (distinct query texts whose call returned nothing)."
+    failed_calls: "- Calls that failed and returned nothing: {n} (not listed above; they carry no stored parameters)."
+    lock_recorded: "- Entity lock: recorded for this account (see data/entity_lock.json)."
+    lock_missing: "- Entity lock: none recorded for this run."

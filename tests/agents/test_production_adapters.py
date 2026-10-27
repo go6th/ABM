@@ -186,7 +186,8 @@ async def test_feeds_use_the_row_operation(monkeypatch) -> None:  # type: ignore
     ops: list[Any] = []
 
     async def fake(route: str, args: Any, cc: Any, rt: Any, *, operation: Any = None) -> Any:
-        ops.append((route, args.domain, operation))
+        if route == "news_tech_job_feeds":  # the news row adds an own-site newsroom search
+            ops.append((route, args.domain, operation))
         return ConnectorResult(status="ok")
 
     monkeypatch.setattr(provider_module, "call_need", fake)
@@ -379,8 +380,10 @@ async def test_a_web_search_reads_the_accounts_own_pages_in_full(monkeypatch) ->
         return ConnectorResult(status="ok", records=(page(args.url),), call_refs=("r1",))
 
     monkeypatch.setattr(provider_module, "call_need", fake)
+    # podcasts is not an own-site row: one open search (own-site rows add a second search and
+    # its reads, tests/agents/test_research_core.py)
     result = await ConnectorProvider(_Runtime(), uuid4()).call(  # type: ignore[arg-type]
-        ctx(), "web_search", "acme results", "company_news"
+        ctx(), "web_search", "acme results", "podcasts"
     )
     reads = [(r, a.url, a.page_kind) for r, a in seen if r == "job_boards_and_pages"]
     # the account's own hosts are read, each once, as a live scrape (a full page read, G5; an

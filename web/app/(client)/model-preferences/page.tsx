@@ -8,14 +8,14 @@ export const metadata: Metadata = { title: "Model preferences · Account Intelli
 
 export default function Page() {
   return (
-    <div className="pg narrow">
+    <div className="pg center"><div className="col w820">
       <div className="head">
         <div className="ttl">
           <h1>Model preferences</h1>
-          <div className="sub">The models your research and answers use unless you choose another one for a single question or research.</div>
+          <div className="sub">Choose once. Every screen then starts with these models, and you can still change them for a single question or research.</div>
         </div>
       </div>
       <ModelPreferences />
-    </div>
+    </div></div>
   );
 }

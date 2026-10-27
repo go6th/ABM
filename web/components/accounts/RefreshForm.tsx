@@ -16,6 +16,7 @@ import { UsageProceed } from "@/components/UsageProceed";
 import { api, ApiError } from "@/lib/api";
 import type { RefreshOptions, RefreshStarted } from "@/lib/gen/api.gen";
 import { dollars, tokenCount } from "@/lib/usage";
+import { reasonOr, useRequestKey } from "./ResumeResearch";
 
 type Option = RefreshOptions["options"][number];
 type Scope = Option["scope"] | "topic";
@@ -30,12 +31,13 @@ function minutes(m: number): string {
 
 export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; initialTopic: string }) {
   const router = useRouter();
-  const options: Option[] = view.options;
+  const options: Option[] = view.options ?? [];
   const topicCost = view.topic;
   const [topic, setTopic] = useState(initialTopic.slice(0, TOPIC_MAX));
+  // no scopes offered (an older or a restricted workspace): only the topic is left
   const start: Scope = initialTopic
     ? "topic"
-    : (options.find((o) => o.scope === "people") ?? options[0]!).scope;
+    : (options.find((o) => o.scope === "people") ?? options[0])?.scope ?? "topic";
   const [scope, setScopeNow] = useState<Scope>(start);
   const [asking, setAsking] = useState(false);
   const setScope = (next: Scope) => { setScopeNow(next); setAsking(false); };
@@ -43,7 +45,9 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
   const [message, setMessage] = useState<string | null>(null);
   const [hit, setHit] = useState<string | null>(null);
   const { limits } = useMyLimits();
-  const requestId = useRef(crypto.randomUUID());
+  const request = useRequestKey();
+  // a second Proceed before the first re-render must not post again
+  const inFlight = useRef(false);
   const models = useResearchModels();
   const group = useRef<HTMLDivElement>(null);
   const topicInput = useRef<HTMLTextAreaElement>(null);
@@ -52,7 +56,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
   const topicText = topic.trim().replace(/\s+/g, " ");
   const needsTopic = scope === "topic" && topicText.length < 3;
   const back = `/accounts/${encodeURIComponent(view.domain)}`;
-  const usage = scope === "topic" ? topicCost.usage : options.find((o) => o.scope === scope)!.usage;
+  const usage = scope === "topic" ? topicCost.usage : (options.find((o) => o.scope === scope)?.usage ?? topicCost.usage);
 
   const focusScope = (next: Scope) => {
     setScope(next);
@@ -61,31 +65,32 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
   const move = (delta: number) => focusScope(order[(order.indexOf(scope) + delta + order.length) % order.length]!);
 
   const confirm = async () => {
-    if (busy || needsTopic) return;
+    if (inFlight.current || busy || needsTopic) return;
+    inFlight.current = true;
     setBusy(true);
     setMessage(null);
+    const body = { scope, ...(scope === "topic" ? { topic: topicText } : {}), ...models.body };
     try {
-      await api<RefreshStarted>("POST", `/v1/accounts/${encodeURIComponent(view.domain)}/refresh`, {
-        request_id: requestId.current,
-        scope,
-        ...(scope === "topic" ? { topic: topicText } : {}),
-        ...models.body,
-      });
+      await api<RefreshStarted>("POST", `/v1/accounts/${encodeURIComponent(view.domain)}/refresh`, { request_id: request.key(body), ...body });
+      request.done();
       router.push(back);
       router.refresh();
     } catch (cause) {
-      requestId.current = crypto.randomUUID();
+      // a network error or a 5xx keeps the request id, so trying again cannot start it twice
+      request.failed(cause);
       const reached = limitReached(cause);
       if (reached) {
         setHit(reached.message);
       } else if (cause instanceof ApiError && (cause.status === 409 || cause.status === 422)) {
-        setMessage(cause.status === 422 ? "Describe the topic in 3 to 300 characters." : cause.detail);
+        setMessage(cause.status === 422 ? "Describe the topic in 3 to 300 characters." : reasonOr(cause, "A refresh of this account is already running."));
       } else if (cause instanceof ApiError && cause.status === 403) {
         setMessage("Web refreshes are turned off for your workspace.");
       } else {
         setMessage("The refresh could not be started. Try again in a moment.");
       }
       setBusy(false);
+    } finally {
+      inFlight.current = false;
     }
   };
 

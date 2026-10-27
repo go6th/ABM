@@ -37,7 +37,7 @@ async def test_a_table_exports_whole_past_the_page_and_excel_limits(
     got = await _call(plane, "GET", f"{PEOPLE}/csv")
     assert got.status_code == 200 and got.headers["content-type"].startswith("text/csv")
     rows = list(csv.reader(io.StringIO(got.content.decode("utf-8-sig"))))
-    assert rows[0][:3] == ["#", "Name", "Role"]
+    assert rows[0][:3] == ["#", "Name", "Title as reported"]
     assert [int(r[0]) for r in rows[1 : total + 1]] == list(range(1, total + 1))
     book = load_workbook(io.BytesIO((await _call(plane, "GET", f"{PEOPLE}/xlsx")).content))
     sheets = [ws for ws in book.worksheets if ws.title != "About"]

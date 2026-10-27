@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +15,15 @@ from jobs.pipeline import JobsPipeline
 from tests.fakes.jobs import Corpus, FakeLlm
 
 CANARY = "CANARY-7f3a9e"
+# The golden oracle was written by hand against the 2026-10-02 lexicon; the production lexicon
+# follows the owner skill since 2026-10-24 (config/job_lanes.yaml), so the pipeline tests pin the
+# frozen copy and tests/jobs/test_lexicon.py checks the production one.
+FROZEN = Path(__file__).resolve().parents[1] / "fixtures/synthetic/jobs/config"
+
+
+def frozen_config() -> JobsConfig:
+    """The frozen lane lexicon, rubric and caps the golden oracle was written against."""
+    return load_jobs_config(FROZEN)
 
 
 def is_hostile(text: str) -> bool:
@@ -40,7 +50,7 @@ def build(
     source, pages = corpus.source(**source_kw), corpus.pages()
     first, second = extractor or corpus.extractor(), judge or corpus.judge()
     pipeline = JobsPipeline(
-        cfg or load_jobs_config(),
+        cfg or frozen_config(),
         source,
         pages,
         first,

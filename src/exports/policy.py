@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from account_intelligence.grading.config import GradingConfig
 from account_intelligence.grading.product import statement_policy
 from account_intelligence.safety.client_output import scan_text
-from exports.config import ContentRules
+from exports.config import ContentRules, provider_codes
 from exports.content import FactRow
 
 PRODUCT_GRADES = ("confirmed", "probable", "hypothesis", "lead", "internal")
@@ -37,8 +37,10 @@ PRODUCT_GRADES = ("confirmed", "probable", "hypothesis", "lead", "internal")
 _UNSAFE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff￾￿]")
 # A cell whose text starts with one of these could execute when a consumer re-parses it.
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
-# Internal identifiers that must never reach a client file.
-_PROVIDER_CODE = re.compile(r"(?<![A-Za-z0-9_])p_[a-z]+(?![A-Za-z0-9_])")
+# Internal identifiers that must never reach a client file: the configured provider codes
+# (config/providers.yaml), never any ``p_`` token (a posting that said "p_value" failed a build)
+_CODES = "|".join(re.escape(c) for c in provider_codes())
+_PROVIDER_CODE = re.compile(rf"(?<![A-Za-z0-9_])(?:{_CODES})(?![A-Za-z0-9_])")
 _HEX64 = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{64}(?![0-9A-Za-z])")
 _SPACED_HYPHEN = re.compile(r"\S\s+-\s+\S")
 
@@ -113,6 +115,12 @@ def leak_hits(text: str, extra_terms: Iterable[str] = ()) -> tuple[str, ...]:
     if _HEX64.search(text):
         hits.append("internal_hash")
     return tuple(hits)
+
+
+def denied_link(url: str) -> bool:
+    """True when a link names a data tool by the client-output denylist (the third-party scan's
+    own patterns, spec 12): a client file may neither show nor link it."""
+    return bool(scan_text(url))
 
 
 def fact_violations(fact: FactRow, grading: GradingConfig) -> tuple[Violation, ...]:

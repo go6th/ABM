@@ -2,7 +2,7 @@
 
 # The standing file set
 
-Rules status: **proposal** (D-24); rules hash `9c0a515a417ea981f2dda1c1d0cb07df3a5a986e246231bcc9fea818749300cf` (covers
+Rules status: **proposal** (D-24); rules hash `ed2a3516d60fe8b27a8c18b259167cc5f1de5fbbe6d325e603c48a35db937748` (covers
 `export_rules.yaml`, `lanes.yaml` and `output_spec.yaml`).
 
 | Kind | File name | Format |
@@ -16,87 +16,159 @@ Rules status: **proposal** (D-24); rules hash `9c0a515a417ea981f2dda1c1d0cb07df3
 
 ## Account Summary sections (PRD order)
 
-Source: PRD s3.4 deliverables and Account Summary order; config/output_spec.yaml.
+Source: master prompt v2 (2026-10-24) sections 9.1 and 9.2; PRD s3.4; config/output_spec.yaml.
 
-1. Account narrative
-2. Caveats on interpretation
-3. Graded findings by platform lane
-4. Key people (priority A and senior)
-5. Findings from LinkedIn
-6. Executive voice
-7. Hypotheses with confirming questions
-8. First call questions
-9. What would change a decision
-10. Coverage tracker
-11. Findings not assigned to a lane
-12. No evidence found (the search proof is in the coverage tracker)
+1. Files in this set
+2. How to read this file
+3. 1. The account in plain words
+4. The account picture
+5. What stands out
+6. What it likely means for each lane (interpretation labeled)
+7. How this could be wrong
+8. What the executives said
+9. 2. Recent news (newest first)
+10. 3. Company and transformation baseline
+11. 4. Signals
+12. Tier 1, budget proximate
+13. Tier 2, one step removed
+14. Tier 3, context and openers
+15. Context and history (older than the shelf life)
+16. 5. Platform picture by lane
+17. Platform hiring over 12 months (postings naming each platform, by class)
+18. 6. People
+19. How the list was built
+20. Key people (priority A and the executives the lanes report to)
+21. Findings from profiles
+22. People whose status changed
+23. 7. Hypotheses to test
+24. Cautions for sensitive findings
+25. 8. Questions for a first conversation
+26. The simplest way to sharpen it
+27. 9. Research coverage tracker
+28. Decisions waiting on the account owner
+29. Pass 1, summary homework
+30. Pass 2, detailed homework
+31. 10. Source links
+32. Findings not assigned to a lane
+33. No evidence found (the search proof is in the coverage tracker)
 
 ## Word tables
 
-Source: PRD s3.4 deliverables (named contents); headers and order: proposal D-24.
+Source: master prompt v2 (2026-10-24) sections 9.1 and 9.2 (named columns); Ref column, order and the rest: proposal D-24.
 
 | Table | Headers |
 | --- | --- |
-| lane | Ref, Finding, Grade, Use, Confirming question, Sources |
-| key_people | Ref, Name, Title, Level, Lane, Profile link, Source |
-| linkedin | Ref, Person, Finding, Their own words, Link, Source |
+| platform_picture | Ref, Item, What we found, Grade, Use in outreach, Reasoning and sources |
+| key_people | Ref, Name, Title as reported, Lane, Priority, Link, Note, Source |
+| linkedin | Ref, Person, What the profiles show, Their own words, Source |
 | tracker | Ref, Coverage row, Status, Priority, Reason, Tools, Results |
-| sources | Ref, Source, Link, Date, Kind, Sentences relied on, with the grade of each row |
-| job_reads | Ref, Posting, Link, Source |
-| news | Ref, Item, Link, Source, Verified at source |
+| coverage | Ref, Source type, Status, Priority, Needs, What was done (proof), What remains |
+| waiting | Ref, Source type, Needs |
+| grade_legend | Grade, Meaning, Use in outreach |
+| recent_news | Ref, Date, What happened, Read depth, Source, Why it matters |
+| signals | Ref, Finding, Grade, Lanes, Date, Sources |
+| status_changed | Ref, Person, Was, Now, Source |
+| source_links | Ref, ID, Source, Domain |
+| platform_hiring | Ref, Platform, Postings naming it, Open on {as_of}, Build roles, Admin and owner roles, Working tool, User role |
+| sources | Ref, ID, Source, Type, Date, How retrieved, What it supports |
+| job_reads | Ref, Posting, Platforms, Class, What the posting says, Entity |
+| lane_reads | Ref, Posting, Class, Status, Classification reasoning |
+| board_captures | Ref, What was counted, Number, Base |
+| live_postings | Ref, Posting, Platforms named, Entity, Read in full, Class |
+| leads | Ref, Lead, Queries and checks tried, Status, Source |
+| data_pulls | Ref, Pull, Count, Base |
+| tech_detections | Ref, Technology, First seen, Last seen, Postings naming it |
+| platform_postings | Ref, Platform, Postings, Open, Build, Admin and owner, Working tool, User role |
+| entity_split | Ref, Entity, Postings |
+| urls | Ref, ID, URL |
 
 ## Workbook columns
 
-Source: PRD s3.4 deliverables (named columns); order and the rest: proposal D-24.
+Source: master prompt v2 sections 9.3 to 9.5 (2026-10-24); PRD s3.4 deliverables; row keys and the rest: proposal D-24.
 
 ### People
 
 | Key | Header | Kind |
 | --- | --- | --- |
-| ref | Ref | ref |
+| number | No. | count |
 | name | Name | text_short |
-| title | Title | text_short |
+| title | Title as reported | text_short |
 | level | Level | label |
+| meets_seniority | Meets seniority rule | label |
 | lanes | Lane | label |
 | priority | Priority | label |
-| profile_url | Profile link | url |
+| former_employers | Former SI and consulting employers (firm and years) | text_short |
+| found_by | Found by | text_short |
+| profile_url | LinkedIn | url |
+| second_profile_url | Second profile | url |
+| location | Location | text_short |
+| note | Note | text_short |
+| ref | Ref | ref |
 | source_code | Source | code |
 
-### Postings
+### Jobs
 
 | Key | Header | Kind |
 | --- | --- | --- |
-| ref | Ref | ref |
+| requisition | Requisition | label |
 | title | Title | text_short |
-| status | Status | label |
-| posting_class | Class | label |
 | platforms | Platforms named | label |
-| platform_sentence | Platform sentence | text_long |
+| posting_class | Class | label |
+| status | Status | label |
+| posted_or_seen | First seen | date |
+| location | Location | text_short |
+| entity | Entity | text_short |
+| read_text | What the posting says (read) | text_long |
+| platform_sentence | Platform sentences | text_long |
 | description | Full description | text_long |
 | url | Link | url |
-| posted_at | Posted | date |
-| first_seen | First seen | date |
-| source_code | Source | code |
+| source_type | Found by | text_short |
+| ref | Ref | ref |
+| source_code | Source code | code |
 
-### Detections
+### Platform Ranking
 
 | Key | Header | Kind |
 | --- | --- | --- |
-| ref | Ref | ref |
+| rank | Rank | label |
+| platform | Platform | text_short |
+| category | Category | label |
+| lane | Lane | label |
+| count | Postings naming it | count |
+| share | Share of base | percent |
+| open_now | Open now | count |
+| last_seen | Last seen | label |
+| in_stack | In stack detections | label |
+| read_checked | Matches checked by reading | label |
+
+### Stack detections
+
+| Key | Header | Kind |
+| --- | --- | --- |
+| category | Category | label |
 | technology | Technology | text_short |
+| postings | Postings naming it | count |
+| lane | Lane | label |
 | first_seen | First seen | label |
 | last_seen | Last seen | label |
-| cross_check | Cross check with postings | text_short |
 | grade | Grade | label |
+| ref | Ref | ref |
 | source_code | Source | code |
+
+Other sheets: People `Summary`; Job Postings `Summary` first (title, paragraphs and the platform matrix, platforms Salesforce, Microsoft Dynamics, MuleSoft, ServiceNow, SAP, Tableau, Workday, Veeva), then `Counts` (count lines) and `Long text`; Tech Stack `Platform teams` (columns Team, Lane technologies named, Postings count, First activity, Last activity, Team technologies (name, postings), Team locations (place, postings), Job functions; no team records are stored yet).
+
+Platform dictionary: 31 platforms; out-of-scope platforms masked: 3 (mask `[platform outside scope]`).
 
 ## Workspace zip (D-25)
 
-Status: proposal. Members in order: RESTORE.md, MANIFEST.json, NOTES.md, the five
-deliverables under `deliverables/`, the render data under `data/`. Raw payloads:
+Status: proposal. Members in order: RESTORE.md (built from the run), MANIFEST.json,
+then the folders `deliverables/`, `data/`, `build/`, `notes/`: the five deliverables,
+the render data of each file under `build/`, and the run's own records
+(`data/entity_lock.json`, `data/web_searches.json`, `data/techstack_detections.json`, `build/urls.json`, `notes/pull_log.md`, `notes/pass1.md`, `notes/sense_check.md`), each built from stored
+rows only and required by the zip check. Raw payloads:
 excluded (neutral-name copy enabled: False); organisation-provider payloads never.
 Caps: 64 members, 104857600 bytes per member, 524288000 bytes in total, names up to 120 characters.
-RESTORE.md wording: TODO, needs product owner: RESTORE.md wording not supplied; a neutral note is rendered.
+RESTORE.md wording: the owner's reference workspace (BD file set, RESTORE.md, 2026-10-20): layout, restore steps, canonical query definitions and entity rules; the figures come from the run.
 
 ## Content rules (D-24)
 
@@ -106,4 +178,4 @@ RESTORE.md wording: TODO, needs product owner: RESTORE.md wording not supplied; 
 * Partner framings: leaving Salesforce, Salesforce failure (PRD s3.4 research rules (the rule's own wording)); more: TODO, needs product owner: the legacy phrase list was not supplied.
 * Restricted term in a verbatim quote: withhold_and_count (proposal).
 * Excel cell limit: 32767 (Microsoft Excel specifications and limits [VERIFY V-EXP-1]).
-* Row caps (proposal): summary_lane_rows 5000, evidence_uses 50000, people 20000, postings 50000, detections 10000, sections 500, tracker_rows 200.
+* Row caps (proposal): summary_lane_rows 50000, evidence_uses 500000, people 200000, postings 500000, detections 100000, sections 5000, tracker_rows 200.

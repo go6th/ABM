@@ -42,6 +42,11 @@ class _Metadata(Strict):
     status_code: int | None = Field(default=None, alias="statusCode")
     title: str | list[str] | None = None
     error: str | None = None
+    # the page's own publish date, when its metadata states one (master prompt v2 section 5:
+    # a news row's date comes from the article, never from the day it was read)
+    published_time: str | list[str] | None = Field(default=None, alias="publishedTime")
+    article_published: str | list[str] | None = Field(default=None, alias="article:published_time")
+    date_published: str | list[str] | None = Field(default=None, alias="datePublished")
 
 
 class _Data(Strict):
@@ -118,6 +123,14 @@ class ScrapeConnector:
             if isinstance(meta.title, str) or meta.title is None
             else " ".join(meta.title)
         )
+        published = next(
+            (
+                (v[0] if isinstance(v, list) else v)
+                for v in (meta.published_time, meta.article_published, meta.date_published)
+                if v
+            ),
+            None,
+        )
         record = ScrapedPageRecord(
             kind="scraped_page",
             provenance=provenance(base, source_url=meta.url or meta.source_url, page=1, index=0),
@@ -127,6 +140,7 @@ class ScrapeConnector:
             target_status=meta.status_code,
             markdown_text=response.data.markdown,
             title_text=title,
+            publish_date=str(published)[:40] if published else None,
         )
         # billing.md: a returned document costs 1 credit even when the target said 403/404.
         return ParsedPage(records=(record,), items_read=1, next_cursor=None, document_returned=True)

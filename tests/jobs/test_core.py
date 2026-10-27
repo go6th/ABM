@@ -7,13 +7,13 @@ from datetime import date
 import pytest
 
 from jobs.classify import classify_rules
-from jobs.config import load_jobs_config
 from jobs.dedupe import dedupe, dedupe_counted
 from jobs.match import match_platforms
 from jobs.models import ClassificationLabel, RawPosting
 from jobs.normalise import canonical_url, normalise_status, posting_key, stored_text, strip_pii
 from jobs.sentences import extract_platform_sentences, sentence_spans
 from jobs.window import classify_window, window_start
+from tests.jobs.conftest import frozen_config
 
 
 def raw(key: str | None, url: str = "", **kw: object) -> RawPosting:
@@ -172,7 +172,7 @@ def test_punctuation_only_chunks_are_not_sentences() -> None:
 
 
 def test_every_rubric_rule_has_a_passing_positive_and_negative_example() -> None:
-    cfg = load_jobs_config()
+    cfg = frozen_config()
     for rule in cfg.rules:
         verdict = classify_rules(rule.positive, cfg.rules)
         assert (verdict.label, verdict.reason) == (rule.label, "rule_match"), rule.rule_id
@@ -197,7 +197,7 @@ def test_a_single_rule_hit_records_its_rule_id() -> None:
 
 
 def test_conflicting_cues_are_ambiguous_and_cues_are_whole_words() -> None:
-    cfg = load_jobs_config()
+    cfg = frozen_config()
     assert classify_rules("The developer and the administrator", cfg.rules).reason == (
         "ambiguous_rules"
     )

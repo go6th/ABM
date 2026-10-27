@@ -41,7 +41,9 @@ def _under(host: str, domain: str) -> bool:
 
 def is_primary_host(host: str, run: RunInfo) -> bool:
     """Whether a host is the account's own (or its verified careers host)."""
-    return _under(host, run.account_domain) or host in run.primary_hosts
+    if _under(host, run.account_domain) or host in run.primary_hosts:
+        return True
+    return any(_under(host, d) for d in run.allowed_domains)
 
 
 def profile_for(source: RunSource, run: RunInfo, cfg: GradingConfig) -> SourceProfile:

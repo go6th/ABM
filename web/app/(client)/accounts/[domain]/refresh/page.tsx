@@ -12,6 +12,15 @@ export const metadata: Metadata = { title: "Refresh from web · Account Intellig
 
 const SCOPE = { jobs: "Job postings only", people: "People and teams", full: "Full refresh", file: "File analysis", topic: "Research on a topic" } as Record<string, string>;
 
+/** A path segment as text: a malformed escape ("%zz") is kept as typed instead of crashing. */
+function segment(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function ago(days: number | null): string {
   if (days === null) return "has not been researched yet";
   if (days === 0) return "was last refreshed today";
@@ -19,9 +28,11 @@ function ago(days: number | null): string {
   return `was last refreshed ${days} days ago`;
 }
 
-export default async function RefreshPage({ params, searchParams }: { params: Promise<{ domain: string }>; searchParams: Promise<{ topic?: string }> }) {
-  const domain = decodeURIComponent((await params).domain);
-  const initialTopic = ((await searchParams).topic ?? "").slice(0, 300);
+export default async function RefreshPage({ params, searchParams }: { params: Promise<{ domain: string }>; searchParams: Promise<{ topic?: string | string[] }> }) {
+  const domain = segment((await params).domain);
+  const topicParam = (await searchParams).topic;
+  // a repeated ?topic= counts its first value
+  const initialTopic = ((Array.isArray(topicParam) ? topicParam[0] : topicParam) ?? "").slice(0, 300);
   const back = `/accounts/${encodeURIComponent(domain)}`;
   let view: RefreshOptions | null = null;
   let failed = false;

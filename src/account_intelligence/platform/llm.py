@@ -432,7 +432,19 @@ class AnthropicLlm:
             operation = "results"
             results = await self.client.messages.batches.results(batch_id)
             outcome_type = "empty"
-            async for item in results:
+            # the results stream is read to its end and closed before any return: a batch holds
+            # one request, and an early return would leave the stream's generator paused for the
+            # loop to finalise later, racing the stream's own close ("aclose(): asynchronous
+            # generator is already running", a bare RuntimeError on staging 2026-10-24)
+            items = []
+            try:
+                async for item in results:
+                    items.append(item)
+            finally:
+                closer = getattr(results, "close", None) or getattr(results, "aclose", None)
+                if closer is not None:
+                    await closer()
+            for item in items:
                 outcome = item.result
                 outcome_type = str(outcome.type)
                 if outcome_type == "succeeded":

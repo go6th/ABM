@@ -111,17 +111,39 @@ def render_files(cfg: ExportConfig) -> str:
     for name, headers in r.documents.tables.items():
         out.append(f"| {name} | {', '.join(headers)} |")
     out += ["", "## Workbook columns", "", f"Source: {r.workbooks.source}.", ""]
-    for book in (r.workbooks.people, r.workbooks.jobs, r.workbooks.tech):
-        out += [f"### {book.sheet}", "", "| Key | Header | Kind |", "| --- | --- | --- |"]
-        out += [f"| {c.key} | {c.header} | {c.kind} |" for c in book.columns]
+    tech = r.workbooks.tech
+    sheets = (
+        (r.workbooks.people.sheet, r.workbooks.people.columns),
+        (r.workbooks.jobs.sheet, r.workbooks.jobs.columns),
+        (tech.ranking_sheet, tech.ranking_columns),
+        (tech.sheet, tech.columns),
+    )
+    for sheet, columns in sheets:
+        out += [f"### {sheet}", "", "| Key | Header | Kind |", "| --- | --- | --- |"]
+        out += [f"| {c.key} | {c.header} | {c.kind} |" for c in columns]
         out.append("")
+    out += [
+        f"Other sheets: People `{r.workbooks.people.summary_sheet}`; Job Postings"
+        f" `{r.workbooks.jobs.summary_sheet}` first (title, paragraphs and the platform matrix,"
+        f" platforms {', '.join(r.workbooks.jobs.matrix_platforms)}), then"
+        f" `{r.workbooks.jobs.counts_sheet}` (count lines) and"
+        f" `{r.workbooks.jobs.long_text_sheet}`; Tech Stack `{tech.teams_sheet}` (columns"
+        f" {', '.join(c.header for c in tech.teams_columns)}; no team records are stored yet).",
+        "",
+        f"Platform dictionary: {len(cfg.platforms)} platforms; out-of-scope platforms masked:"
+        f" {len(cfg.scope.never_report)} (mask `{cfg.scope.mask}`).",
+        "",
+    ]
     ws = r.workspace
     dashes, partner = r.banned_dashes, r.partner_rule
     out += [
         "## Workspace zip (D-25)",
         "",
-        f"Status: {ws.status}. Members in order: RESTORE.md, MANIFEST.json, NOTES.md, the five",
-        "deliverables under `deliverables/`, the render data under `data/`. Raw payloads:",
+        f"Status: {ws.status}. Members in order: RESTORE.md (built from the run), MANIFEST.json,",
+        f"then the folders {', '.join(f'`{f}/`' for f in ws.folders)}: the five deliverables,",
+        "the render data of each file under `build/`, and the run's own records",
+        f"({', '.join(f'`{n}`' for n in ws.required_members)}), each built from stored",
+        "rows only and required by the zip check. Raw payloads:",
         f"{ws.raw_payloads.default} (neutral-name copy enabled:"
         f" {ws.raw_payloads.neutral_name_copy_enabled}); organisation-provider payloads never.",
         f"Caps: {ws.max_members} members, {ws.max_member_bytes} bytes per member,"

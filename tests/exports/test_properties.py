@@ -95,25 +95,28 @@ def test_jobs_rows_conserved_safe_and_deterministic(
     assert mapped.model is not None and not ctx.violations
     body, parts = render_jobs(mapped.model, cfg, "Synthetic Jobs")
     assert body == render_jobs(mapped.model, cfg, "Synthetic Jobs")[0]
-    keys = xlsx_row_keys(body, "Postings")
+    keys = xlsx_row_keys(body, "Jobs", cfg.rules.workbooks.ref_column(cfg.rules.workbooks.jobs))
     assert keys == mapped.refs and len(keys) == len(content.postings)
     wb = load_workbook(io.BytesIO(body))
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:
-                if ws.title == "Counts" and cell.column == 2:
-                    continue  # the formula totals (B12)
+                if ws.title in ("Counts", "Summary"):
+                    continue  # the formula totals, the platform matrix (B12) and fixed texts
                 assert cell.data_type != "f", (ws.title, cell.coordinate)
                 if isinstance(cell.value, str):
                     assert len(cell.value) <= 400
     long_rows = list(wb["Long text"].iter_rows(min_row=2, values_only=True))
     assert len(long_rows) == parts
-    col = [c.value for c in wb["Postings"][1]].index("Full description") + 1
+    header = "Full description"
+    jobs_headers = [c.value for c in wb["Jobs"][1]]
+    col = jobs_headers.index(header) + 1
+    ref_col = jobs_headers.index("Ref") + 1
     for i, text in enumerate(descriptions, start=2):
         expected = sanitise(strip_pii(text))
-        cell = wb["Postings"].cell(row=i, column=col).value or ""
-        ref = wb["Postings"].cell(row=i, column=1).value
-        rest = "".join(t for r, c, _, _, t in long_rows if r == ref and c == "Full description")
+        cell = wb["Jobs"].cell(row=i, column=col).value or ""
+        ref = wb["Jobs"].cell(row=i, column=ref_col).value
+        rest = "".join(t for r, c, _, _, t in long_rows if r == ref and c == header)
         head = re.sub(r" \[continued: part 1 of \d+; .*\]$", "", cell, flags=re.S)
         assert head + rest == expected
 
@@ -151,8 +154,11 @@ def test_people_rows_conserved_in_order(people: list[tuple[str, str, str]]) -> N
         assert any(v.code == "name_missing" for v in ctx.violations)
         return
     body, _ = render_people(mapped.model, CFG, "Synthetic People")
-    assert xlsx_row_keys(body, "People") == mapped.refs
-    assert [r.row_id for r in mapped.model.rows] == [p.id for p in rows]
+    ref_col = CFG.rules.workbooks.ref_column(CFG.rules.workbooks.people)
+    assert xlsx_row_keys(body, "People", ref_col) == mapped.refs
+    # one level and no lane: the list orders by priority, then name, then link
+    ordered = sorted(rows, key=lambda p: (p.priority, p.name.casefold(), p.profile_url))
+    assert [r.row_id for r in mapped.model.rows] == [p.id for p in ordered]
 
 
 @st.composite

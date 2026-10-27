@@ -49,15 +49,20 @@ class ScopeInput:
     location: str | None
 
 
-def _same_org(domain: str | None, account_domain: str) -> bool:
+def _same_org(domain: str | None, account_domain: str, allowed: Sequence[str] = ()) -> bool:
     if not domain:
         return False
     d = domain.strip().lower().removeprefix("www.")
-    return d == account_domain or d.endswith("." + account_domain)
+    owned = (account_domain, *(a.lower() for a in allowed if a))
+    return any(d == a or d.endswith("." + a) for a in owned)
 
 
 def classify(
-    person: ScopeInput, cfg: PeopleConfig, account_domain: str, regions: Sequence[str] = ()
+    person: ScopeInput,
+    cfg: PeopleConfig,
+    account_domain: str,
+    regions: Sequence[str] = (),
+    allowed_domains: Sequence[str] = (),
 ) -> Classification:
     """The one status for ``person`` (see the module docstring)."""
     if person.merged:
@@ -69,7 +74,9 @@ def classify(
             rule_id="scope.not_current",
             evidence="is_current=false",
         )
-    if person.employer_domain and not _same_org(person.employer_domain, account_domain):
+    if person.employer_domain and not _same_org(
+        person.employer_domain, account_domain, allowed_domains
+    ):
         return Classification(
             status="out_of_scope",
             reason="not_current",

@@ -263,20 +263,20 @@ async def _package(t: UUID, a: UUID, store: dict[str, bytes], body: bytes) -> tu
     cells = [
         {
             "ref": "F-0001",
+            "item": "SAP: Selection",
             "finding": "Hiring a platform owner",
             "grade": "Confirmed",
             "use": "State",
-            "question": "",
-            "sources": "S-0001",
+            "reasoning": "S-0001",
             "lane": "sap",
         },
         {
             "ref": "F-0002",
+            "item": "SAP: Executive role",
             "finding": "New CIO",
             "grade": "Probable",
             "use": "Verify",
-            "question": "",
-            "sources": "S-0002",
+            "reasoning": "S-0002",
             "lane": "sap",
         },
     ]
@@ -319,11 +319,12 @@ async def _package(t: UUID, a: UUID, store: dict[str, bytes], body: bytes) -> tu
     return pkg, run
 
 
-HEADER = ["Ref", "Finding", "Grade", "Use", "Confirming question", "Sources"]
+# the Facts by grade columns (the Summary's Platform picture by lane)
+HEADER = ["Ref", "Item", "What we found", "Grade", "Use in outreach", "Reasoning and sources"]
 GOOD = [
     HEADER,
-    ["F-0001", "Hiring a platform owner", "Confirmed", "State", "", "S-0001"],
-    ["F-0002", "New CIO", "Probable", "Verify", "", "S-0002"],
+    ["F-0001", "SAP: Selection", "Hiring a platform owner", "Confirmed", "State", "S-0001"],
+    ["F-0002", "SAP: Executive role", "New CIO", "Probable", "Verify", "S-0002"],
 ]
 
 

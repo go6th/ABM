@@ -238,6 +238,7 @@ class ScrapedPageRecord(Record):
     target_status: int | None
     markdown_text: str | None
     title_text: str | None
+    publish_date: str | None  # the page's own stated publish date (metadata), if any
 
     def dedupe_key(self) -> str:
         """The final URL, else the requested URL, else the payload reference."""

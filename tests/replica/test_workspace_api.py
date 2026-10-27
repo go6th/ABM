@@ -65,6 +65,9 @@ async def test_workspace_after_a_refresh_shows_what_changed_and_live_counts(
         "searches": 0,
         "coverage_done": 24,
         "coverage_total": 33,
+        # the Platform picture counts only a builder-made delivery (the demo seed's files are
+        # stand-ins, so its sheets stay the live ones)
+        "facts": 0,
     }
     assert [f["name"] for f in ws["files"]] == [
         "Account summary",
@@ -250,7 +253,7 @@ async def test_sheet_export_is_a_real_workbook_of_the_filtered_rows(world: dict[
     assert r.headers["content-disposition"] == 'attachment; filename="Highmark-People-list.xlsx"'
     ws = load_workbook(io.BytesIO(r.content))["Sheet 1"]
     assert ws.max_row - 1 == 17
-    assert [c.value for c in ws[1]][:3] == ["#", "Name", "Role"]
+    assert [c.value for c in ws[1]][:3] == ["#", "Name", "Title as reported"]
 
 
 async def test_mail_and_drive_sheet_holds_only_the_callers_items(world: dict[str, Any]) -> None:

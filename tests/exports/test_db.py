@@ -306,12 +306,16 @@ async def test_end_to_end_build_from_postgres() -> None:
         assert b"p_search" not in body  # the provider code stays in the internal table
 
 
-async def test_postings_without_registry_codes_fail_closed() -> None:
+async def test_postings_without_registry_codes_are_withheld() -> None:
+    """A posting whose link the source registry never saw is left out of the Job Postings file
+    and listed in the manifest; the set is still delivered (B4 by omission, 2026-10-24)."""
     w, payloads = await seed_world(register_postings=False)
     result = await builder(w, payloads).build_all(str(w.tenant), str(w.run))
-    assert result.status == "failed" and result.reason == "build_failed"
-    assert any("missing_source_code" in e and "jobs:" in e for e in result.errors)
-    assert fetch("SELECT count(*) FROM deliverables WHERE run_id = %s", w.run)[0][0] == 0
+    assert result.status == "complete", result.errors
+    withheld = [b for b in result.manifest.withheld_blocks if b.startswith("jobs:")]
+    assert withheld and all(b.endswith(":missing_source_code") for b in withheld), withheld
+    assert result.manifest.row_ids["jobs"] == ()
+    assert fetch("SELECT count(*) FROM deliverables WHERE run_id = %s", w.run)[0][0] == 6
 
 
 async def test_one_snapshot_under_a_concurrent_writer() -> None:

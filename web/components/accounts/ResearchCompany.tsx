@@ -12,6 +12,7 @@ import { UsageProceed } from "@/components/UsageProceed";
 import { api, ApiError } from "@/lib/api";
 import { DOMAIN_RE, cleanDomain } from "@/lib/documents";
 import type { ResearchEstimate, ResearchStarted } from "@/lib/gen/api.gen";
+import { reasonOr, useRequestKey } from "./ResumeResearch";
 
 // the research goal is optional; the API takes 3 to 500 characters once whitespace is collapsed
 const GOAL_MAX = 500;
@@ -36,7 +37,9 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [hit, setHit] = useState<string | null>(null);
-  const requestId = useRef(crypto.randomUUID());
+  const request = useRequestKey();
+  // a second Proceed before the first re-render must not post again
+  const inFlight = useRef(false);
   const models = useResearchModels();
   const { limits } = useMyLimits();
   const domain = cleanDomain(site);
@@ -49,20 +52,21 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
   }
 
   const confirm = async () => {
-    if (busy || !valid) return;
+    if (inFlight.current || busy || !valid) return;
+    inFlight.current = true;
     setBusy(true);
     setMessage(null);
+    const body = {
+      company_name: name.trim(),
+      domain,
+      ...(goal.trim() ? { goal: goal.trim() } : {}),
+      ...models.body,
+    };
     try {
-      const started = await api<ResearchStarted>("POST", "/v1/research", {
-        request_id: requestId.current,
-        company_name: name.trim(),
-        domain,
-        ...(goal.trim() ? { goal: goal.trim() } : {}),
-        ...models.body,
-      });
+      const started = await api<ResearchStarted>("POST", "/v1/research", { request_id: request.key(body), ...body });
+      request.done();
       if (onStarted) {
         // the Research screen follows it live where it is
-        requestId.current = crypto.randomUUID();
         setName("");
         setSite("");
         setGoal("");
@@ -75,13 +79,16 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
       router.push(`/accounts/${encodeURIComponent(started.domain || domain)}`);
       router.refresh();
     } catch (cause) {
-      requestId.current = crypto.randomUUID();
+      // a network error or a 5xx keeps the request id, so trying again cannot start it twice
+      request.failed(cause);
       const reached = limitReached(cause);
       if (reached) setHit(reached.message);
-      else if (cause instanceof ApiError && cause.status === 409) setMessage(cause.detail);
-      else if (cause instanceof ApiError && cause.status === 422) setMessage(cause.detail || "Check the company name and website.");
+      else if (cause instanceof ApiError && cause.status === 409) setMessage(reasonOr(cause, "This company is already being researched."));
+      else if (cause instanceof ApiError && cause.status === 422) setMessage(reasonOr(cause, "Check the company name and website."));
       else setMessage("The research could not be started. Try again in a moment.");
       setBusy(false);
+    } finally {
+      inFlight.current = false;
     }
   };
 

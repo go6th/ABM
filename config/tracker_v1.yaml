@@ -55,7 +55,7 @@ reason_codes:
   lane_not_in_scope: "Lane not in scope for this run"
   source_unavailable: "Source unavailable"
   source_rate_limited: "Source rate limited"
-  budget_cap: "Stopped at the credits confirmed for this research"
+  budget_cap: "Stopped at the spending limit confirmed for this research"
   tool_call_cap: "Tool call cap reached"
   page_cap: "Page cap reached"
   deadline: "Deadline reached"
@@ -75,7 +75,7 @@ reason_codes:
   out_of_scope: "Out of scope"
   # credit cap v1 (D-28, D-31): no approved cap; provider credits exhausted
   no_cap: "No approved spending cap"
-  credits_exhausted: "Provider credits exhausted"
+  credits_exhausted: "Data provider allowance used up"
   # parallel execution (P2): a hard dependency of the row's unit failed or was blocked
   dependency_failed: "A step this row depends on did not finish"
   # ABM agent layer (D-96, D-97): people data consent missing; a recommended pull not approved
@@ -86,6 +86,25 @@ reason_codes:
   not_in_uploaded_data: "Not in uploaded data"
   not_searched_file_only: "Not searched (file-only mode)"
   no_internal_access: "Needs your own mail, notes and files (not switched on)"
+# Consistency rules applied to the client view when it is read for a client file (master prompt
+# v2, 2026-10-24, section 11; code: tracker/consistency.py). A row's status may not contradict
+# the content delivered beside it: a None news row next to dated news, a None leadership row
+# next to a recent appointment, a Done financials row for a private company. The row keys are
+# checklist.yaml keys; the attribute rows are config/skill/attributes.yaml row keys.
+consistency:
+  status: proposal
+  source: "master prompt v2 (2026-10-24) section 11 tracker consistency"
+  news_row: company_news
+  news_reason: "News rows exist in this file"
+  leadership_row: leadership_changes
+  leadership_attribute_rows: [leadership_changes]
+  leadership_months: 6
+  leadership_reason: "Leadership changes are listed in this file"
+  private_rows: [earnings_filings, executive_voice_earnings, financial_baseline_verified]
+  private_reason: "Private company, no published financials"
+  reference_row: customers_partners_matched
+  reference_needs: "The client's reference list"
+  no_internal_access_needs: "Not done: needs account owner"
 transitions:
   unset:
     done: ["stage", "verifier"]

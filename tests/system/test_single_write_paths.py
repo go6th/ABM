@@ -34,6 +34,7 @@ OWNERS: dict[str, set[str]] = {
     "accounts": {
         "runs/lifecycle.py",
         "datamodel/careers.py",
+        "datamodel/entity_lock.py",  # entity_lock and entity_lock_at only (migration 0083)
         "replica/schedules.py",  # refresh_cadence and next_refresh_at only
     },
     "job_postings": {"jobs/repo.py"},
@@ -215,6 +216,8 @@ OWNERS: dict[str, set[str]] = {
     "people_data_consents": {"agents/adapters.py"},
     "abm_sense_checks": {"agents/adapters.py"},
     "abm_distill_outputs": {"agents/production/state.py"},
+    # technology detections as dated rows, written by the research graph's pipelines node
+    "tech_detections": {"agents/production/pipelines.py"},
     # replica (migrations 0053 to 0056): client limits, the credit pool and its jobs, notices
     "client_settings": {"replica/settings.py"},
     "platform_defaults": {"replica/settings.py"},

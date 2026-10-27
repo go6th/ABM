@@ -13,6 +13,7 @@ from people.exclusion import check_exclusion
 from people.lane import lanes_for
 from people.level import classify_level
 from people.priority import assign_priority
+from tests.people.conftest import FROZEN
 
 CONFIG = Path(__file__).resolve().parents[2] / "config"
 
@@ -20,7 +21,10 @@ CONFIG = Path(__file__).resolve().parents[2] / "config"
 def test_config_loads_and_hash_is_stable(cfg: PeopleConfig) -> None:
     assert len(cfg.config_hash) == 64
     load_people_config.cache_clear()
-    assert load_people_config().config_hash == cfg.config_hash
+    # the fixture is the frozen lexicon (tests/people/conftest.py); reloading it gives the same
+    # hash, and the production lexicon (the owner skill's, 2026-10-24) a different one
+    assert load_people_config(FROZEN).config_hash == cfg.config_hash
+    assert load_people_config().config_hash != cfg.config_hash
     assert cfg.cap("max_gap_passes") == 2
     assert cfg.levels_in_scope == {
         "c_level",

@@ -3,7 +3,7 @@
 # Export theme (the look)
 
 Status: **proposal** (D-26). Source: TODO, needs product owner: neutral placeholder look; legacy library not supplied.
-Theme hash recorded on every deliverable: `3b77f226b3a951be1d2c4c14bd2c1fe51be98987a278460ae30fc68f1ff320a0`.
+Theme hash recorded on every deliverable: `f3179325cef11164477016928f4ab57474e68fb4cc8a5e7aa3349a7d2bf6a76c`.
 
 Every value below is a labelled proposal until the legacy Node docx library, the two
 workbook scripts and one real delivered file set are supplied; each value is then
@@ -31,13 +31,29 @@ Tables: header fill D9E2F3, border 8EAADB at 4/8 pt, cell margin 60 twips, heade
 
 | Table | Column proportions (percent) |
 | --- | --- |
-| lane | 10, 34, 14, 10, 20, 12 |
-| key_people | 10, 18, 20, 10, 12, 20, 10 |
-| linkedin | 10, 14, 24, 26, 16, 10 |
+| platform_picture | 10, 18, 32, 10, 10, 20 |
+| key_people | 10, 14, 20, 13, 7, 12, 16, 8 |
+| linkedin | 10, 16, 32, 32, 10 |
 | tracker | 10, 28, 10, 10, 18, 14, 10 |
-| sources | 10, 9, 27, 11, 10, 33 |
-| job_reads | 10, 40, 38, 12 |
-| news | 10, 38, 28, 10, 14 |
+| coverage | 10, 24, 10, 10, 16, 16, 14 |
+| waiting | 10, 45, 45 |
+| grade_legend | 20, 40, 40 |
+| recent_news | 10, 10, 41, 8, 8, 23 |
+| signals | 10, 43, 10, 12, 10, 15 |
+| status_changed | 10, 20, 30, 30, 10 |
+| source_links | 10, 10, 50, 30 |
+| platform_hiring | 10, 20, 14, 10, 12, 14, 10, 10 |
+| sources | 8, 8, 22, 9, 9, 10, 34 |
+| job_reads | 10, 25, 10, 10, 35, 10 |
+| lane_reads | 10, 30, 14, 10, 36 |
+| board_captures | 10, 40, 15, 35 |
+| live_postings | 10, 32, 16, 18, 12, 12 |
+| leads | 10, 36, 30, 14, 10 |
+| data_pulls | 10, 44, 12, 34 |
+| tech_detections | 10, 38, 15, 15, 22 |
+| platform_postings | 10, 18, 12, 10, 10, 14, 14, 12 |
+| entity_split | 10, 65, 25 |
+| urls | 10, 12, 78 |
 
 ## Workbooks
 
@@ -60,5 +76,6 @@ Header fill D9E2F3, summary fill FFF2CC, border 8EAADB; frozen header: True; fil
 | url | 45 | `@` | False |
 | date | 12 | `yyyy-mm-dd` | False |
 | count | 12 | `0` | False |
+| percent | 12 | `0.0%` | False |
 
 Packages: deflate, fixed entry time (1980, 1, 1, 0, 0, 0).

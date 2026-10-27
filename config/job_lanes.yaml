@@ -1,46 +1,84 @@
-# Research lanes and the platform lexicon for the job pipeline (PRD 3.3, 4.2; D-17 proposals).
-version: "2026-10-02.1"
-source: PRD section 3.3 inputs and section 4.2 jobs
-# D-17: lane keywords and aliases are not in any source. Until the product owner supplies them,
-# the live board search uses the lane's PRD-named platform names as its keywords (a proposal,
-# so the High row job_board_by_lane is searchable rather than blocked). Set keyword_fallback to
-# "none" to make lanes without keywords end Not done with reason not_available_yet.
+# Research lanes and the platform lexicon for the job pipeline (PRD 3.3, 4.2).
+# 2026-10-24: the lexicon follows the owner's research skill v1.11 (web research rebuild):
+#   * checklist.md scope defaults: MuleSoft counts under Salesforce and is searched on every
+#     account; ServiceMax, Siebel and Databricks are never a search term, a technology filter, a
+#     keyword count or a listed platform (lessons 2026-09-22 and 2026-09-29; phase1-pull.md);
+#   * signals.md lane fingerprint questions name the satellite products of each lane (Salesforce
+#     clouds and add-ons; SAP ECC, S/4HANA, IBP, MDG, Ariba, Datasphere, Analytics Cloud, EWM,
+#     Signavio; Tableau Server or Cloud beside other BI tools; the Veeva Commercial and Vault
+#     families; the warehouse, lake, integration, AI and hyperscaler names of Data and AI);
+#   * phase1-pull.md step 4: the live board is searched once per lane keyword.
+# Aliases match whole words in posting text (jobs.match); a match is a lead until the posting is
+# read. Keywords are the live board searches. The lane ids are config/lanes.yaml.
+version: "2026-10-24.2"
+source: "PRD section 3.3 inputs and section 4.2 jobs; owner skill v1.11 (checklist.md, signals.md, phase1-pull.md)"
 keyword_fallback:
   value: platform_names
-  status: proposal
-  source: "D-17 proposal; platform names are from PRD section 3.3"
+  status: sourced
+  source: "phase1-pull.md step 4: one live board search per lane keyword; platform names are the keywords"
 lanes:
   - id: salesforce
-    label: Salesforce including field service such as ServiceMax
-    platforms: [{name: Salesforce, aliases: [], source: PRD section 3.3}]
-    keywords: []
-    keyword_source: TODO, needs product owner
+    label: Salesforce (including MuleSoft)  # master prompt v2 (2026-10-24) supersedes D-100
+    platforms:
+      - {name: Salesforce, aliases: [SFDC, Sales Cloud, Service Cloud, Marketing Cloud, Experience Cloud, Salesforce CPQ, Salesforce Field Service, Field Service Lightning, Agentforce, Salesforce Data Cloud, Einstein, Apex, Visualforce, Lightning Web Components, Salesforce Lightning, Salesforce Flow], source: "signals.md Salesforce and service: clouds and add-ons (CPQ, Marketing Cloud, Field Service); checklist.md scope defaults"}
+      - {name: MuleSoft, aliases: [Mulesoft Anypoint, Anypoint Platform, Anypoint, Mule ESB], source: "checklist.md scope defaults: MuleSoft counts under Salesforce and is searched on every account (lessons 2026-09-29)"}
+    keywords: [Salesforce, MuleSoft]
+    keyword_source: "phase1-pull.md step 4 lane keywords (Salesforce, MuleSoft)"
   - id: servicenow
     label: ServiceNow
-    platforms: [{name: ServiceNow, aliases: [], source: PRD section 3.3}]
-    keywords: []
-    keyword_source: TODO, needs product owner
+    platforms:
+      - {name: ServiceNow, aliases: [Service Now, Now Platform, ServiceNow ITSM, ServiceNow ITOM, ServiceNow HRSD, ServiceNow CSM, ServiceNow IRM, ServiceNow SecOps, ServiceNow GRC], source: "signals.md ServiceNow: which modules; phase1-pull.md step 4"}
+    keywords: [ServiceNow]
+    keyword_source: "phase1-pull.md step 4 lane keywords"
   - id: sap
     label: SAP
-    platforms: [{name: SAP, aliases: [], source: PRD section 3.3}]
-    keywords: []
-    keyword_source: TODO, needs product owner
+    platforms:
+      - {name: SAP, aliases: [S/4HANA, S4HANA, S/4 HANA, SAP S4, SAP ECC, SAP HANA, SAP Ariba, SAP IBP, SAP MDG, SAP Datasphere, SAP Analytics Cloud, SAP EWM, SAP Signavio, SAP SuccessFactors, SuccessFactors, SAP BTP, SAP Fiori, ABAP, SAP BW, SAP Concur, SAP Central Finance], source: "signals.md SAP: ECC or S/4HANA, satellite products (IBP, MDG, Ariba, Datasphere, Analytics Cloud, EWM, Signavio)"}
+    keywords: [SAP]
+    keyword_source: "phase1-pull.md step 4 lane keywords"
   - id: tableau_analytics
     label: Tableau and analytics
-    platforms: [{name: Tableau, aliases: [], source: PRD section 3.3}]
-    keywords: []
-    keyword_source: TODO, needs product owner
+    platforms:
+      - {name: Tableau, aliases: [Tableau Server, Tableau Cloud, Tableau Prep, Tableau Desktop, CRM Analytics, Einstein Analytics, Tableau Pulse], source: "signals.md Tableau and analytics: Server or Cloud, where builders sit"}
+      - {name: Power BI, aliases: [PowerBI, Microsoft Power BI], source: "signals.md Tableau and analytics: which BI tools run side by side, whether a Microsoft first direction is visible"}
+      - {name: Qlik, aliases: [QlikView, Qlik Sense], source: "signals.md Tableau and analytics: which BI tools run side by side"}
+      - {name: Looker, aliases: [Looker Studio], source: "signals.md Tableau and analytics: which BI tools run side by side"}
+      - {name: MicroStrategy, aliases: [], source: "signals.md Tableau and analytics: which BI tools run side by side"}
+    keywords: [Tableau]
+    keyword_source: "phase1-pull.md step 4 lane keywords"
   - id: veeva
     label: Veeva
-    platforms: [{name: Veeva, aliases: [], source: PRD section 3.3}]
-    keywords: []
-    keyword_source: TODO, needs product owner
+    platforms:
+      - {name: Veeva, aliases: [Veeva CRM, Vault CRM, Veeva Vault, Vault PromoMats, PromoMats, Vault MedComms, MedComms, Veeva OpenData, Crossix, Vault Clinical, Vault RIM, Vault Quality, Vault QMS, Vault QualityDocs, Vault Safety, Veeva Network, Veeva Align, Veeva Nitro, Veeva Compass, Vault Submissions], source: "checklist.md scope defaults (Veeva Commercial and R&D and Quality families); signals.md Veeva fingerprint questions"}
+    keywords: [Veeva]
+    keyword_source: "phase1-pull.md step 4 lane keywords"
   - id: data_ai
     label: Data and AI
-    # "Data and AI" is a category in the PRD, not a platform name; matching the words "Data" or "AI"
-    # would match nearly every posting. No platform terms until the product owner supplies them
-    # (D-17); the lane's counts show "not searched" with a reason, never 0.
-    platforms: []
-    platforms_source: "TODO, needs product owner (D-17)"
-    keywords: []
-    keyword_source: TODO, needs product owner
+    # The warehouse, lake, integration, AI and hyperscaler names signals.md lists for the lane.
+    # "Data" and "AI" themselves are never terms (they match nearly every posting). Databricks is
+    # excluded by the owner's standing rule (never a keyword count or a listed platform).
+    platforms:
+      - {name: Snowflake, aliases: [], source: "signals.md Data and AI: warehouse and lake platforms"}
+      - {name: Microsoft Fabric, aliases: [Fabric Lakehouse, OneLake], source: "signals.md Data and AI: warehouse and lake platforms"}
+      - {name: Azure Synapse, aliases: [Synapse Analytics, Azure Synapse Analytics], source: "signals.md Data and AI: warehouse and lake platforms"}
+      - {name: Azure Data Factory, aliases: [Data Factory], source: "signals.md Data and AI: integration tools"}
+      - {name: BigQuery, aliases: [Google BigQuery], source: "signals.md Data and AI: warehouse and lake platforms"}
+      - {name: Redshift, aliases: [Amazon Redshift], source: "signals.md Data and AI: warehouse and lake platforms"}
+      - {name: Informatica, aliases: [IICS, PowerCenter, Informatica Cloud], source: "signals.md Data and AI: integration tools"}
+      - {name: dbt, aliases: [dbt Cloud, dbt Core], source: "signals.md Data and AI: integration tools"}
+      - {name: Apache Spark, aliases: [PySpark], source: "signals.md Data and AI: in-house data builds"}
+      - {name: Kafka, aliases: [Apache Kafka, Confluent], source: "signals.md Data and AI: integration tools"}
+      - {name: Airflow, aliases: [Apache Airflow], source: "signals.md Data and AI: integration tools"}
+      - {name: Palantir, aliases: [Palantir Foundry, Foundry AIP], source: "signals.md Data and AI: named data programs and platforms"}
+      - {name: AWS, aliases: [Amazon Web Services], source: "signals.md Data and AI: hyperscalers named in postings"}
+      - {name: Azure, aliases: [Microsoft Azure], source: "signals.md Data and AI: hyperscalers named in postings"}
+      - {name: Google Cloud, aliases: [Google Cloud Platform, GCP], source: "signals.md Data and AI: hyperscalers named in postings"}
+      - {name: Azure OpenAI, aliases: [Azure OpenAI Service], source: "signals.md Data and AI: AI frameworks named in postings"}
+      - {name: OpenAI, aliases: [ChatGPT Enterprise, GPT-4], source: "signals.md Data and AI: AI frameworks named in postings"}
+      - {name: SageMaker, aliases: [Amazon SageMaker, AWS Bedrock, Amazon Bedrock], source: "signals.md Data and AI: AI frameworks named in postings"}
+      - {name: Vertex AI, aliases: [Google Vertex, Gemini API], source: "signals.md Data and AI: AI frameworks named in postings"}
+      - {name: MLflow, aliases: [], source: "signals.md Data and AI: AI frameworks named in postings"}
+      - {name: LangChain, aliases: [LangGraph, LlamaIndex], source: "signals.md Data and AI: AI frameworks named in postings"}
+      - {name: Generative AI, aliases: [GenAI, Gen AI, Large Language Models, LLMs, LLM, Agentic AI], source: "signals.md Data and AI: AI frameworks named in postings"}
+    keywords: [Snowflake, "data engineering", "machine learning"]
+    keyword_source: "phase1-pull.md step 4: plus any platform the account is known for; the lane's own search words (proposal 2026-10-24)"

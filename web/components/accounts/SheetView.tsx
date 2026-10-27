@@ -18,7 +18,19 @@ const STATUS_TONE: Record<string, PillTone> = {
 };
 
 function Cell({ col, row }: { col: Column; row: Row }) {
-  const value = row.cells[col.key] ?? "";
+  const raw = row.cells?.[col.key];
+  const value = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
+  if (col.kind === "url") {
+    // a link column of the delivered file: the file's own text ("Open profile", or the address)
+    // opening the address the file links to
+    const href = safeLink(row.links?.[col.key] ?? "");
+    return <td>{href ? <a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value || "Open"}</a> : value}</td>;
+  }
+  if (col.kind === "code") {
+    // the file's source code, opening the source it names when the registry links it
+    const href = safeLink(row.link ?? "");
+    return <td>{href && value ? <a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value}</a> : value}</td>;
+  }
   if (col.kind === "link") {
     // "6th / LinkedIn": who found it and the site, opening the original page (never a connector)
     const href = safeLink(row.link ?? "");
@@ -36,10 +48,27 @@ function Cell({ col, row }: { col: Column; row: Row }) {
   }
   if (col.kind === "strong") return <td><b>{value}</b></td>;
   if (col.kind === "num") return <td className="c">{value}</td>;
-  return <td className={col.key === "snippet" || col.key === "reason" ? "wrap" : undefined}>{value}</td>;
+  if (col.kind === "long" || col.key === "snippet" || col.key === "reason" || value.length > 120) {
+    // long text reads four lines; Expand shows it whole
+    return <td className="wrap"><div className="clamp">{value}</div></td>;
+  }
+  return <td>{value}</td>;
 }
 
-export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: string; moreHref: string | null }) {
+// The caption's sort phrase; a delivered file's table opens in the file's own row order.
+function sortedBy(sheet: Sheet): string {
+  const col = (sheet.columns ?? []).find((c) => c.key === sheet.sort);
+  if (!col) return sheet.from_file ? "In the file's order." : "";
+  return `Sorted by ${col.label} ${sheet.dir === "asc" ? "ascending" : "descending"}.`;
+}
+
+/** The table's own CSV or Excel download (every row under the chosen filter and sort). */
+export function exportHref(domain: string, sheet: Pick<Sheet, "key" | "filter" | "sort" | "dir">, format: "csv" | "xlsx"): string {
+  const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "" });
+  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/${format}?${q.toString()}`;
+}
+
+export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; domain: string; base: string; moreHref: string | null }) {
   const [big, setBig] = useState(false);
   const frame = useRef<HTMLDivElement>(null);
   const [moreRight, setMoreRight] = useState(false);
@@ -51,44 +80,62 @@ export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: strin
   useEffect(() => {
     measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [measure, sheet]);
+    // the frame also changes width without a window resize (Expand, a sidebar, fonts loading)
+    const el = frame.current;
+    const watch = el && typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => measure()) : null;
+    if (el && watch) watch.observe(el);
+    return () => {
+      window.removeEventListener("resize", measure);
+      watch?.disconnect();
+    };
+  }, [measure, sheet, big]);
+  // a new page, filter or sort opens at its first row (the frame keeps its scroll otherwise;
+  // the sideways scroll stays, so a heading sorted at the right stays in view)
+  const view = `${sheet.filter}|${sheet.sort}|${sheet.dir}|${sheet.offset}`;
+  useEffect(() => {
+    const el = frame.current;
+    if (el) el.scrollTop = 0;
+  }, [view]);
+  const columns = sheet.columns ?? [];
+  const rows = sheet.rows ?? [];
+  const filters = sheet.filters ?? [];
   const query = (change: Record<string, string>) => {
-    const q = new URLSearchParams({ filter: sheet.filter, sort: sheet.sort, dir: sheet.dir, ...change });
+    const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "", ...change });
     return `${base}?${q.toString()}`;
   };
-  const excel = `/v1/accounts/${encodeURIComponent(base.split("/")[2] ?? "")}/sheets/${sheet.key}/xlsx?${new URLSearchParams({ filter: sheet.filter, sort: sheet.sort, dir: sheet.dir }).toString()}`;
-  const all = sheet.filters.find((f) => f.key === "all")?.count ?? 0;
+  // every row of the table, whatever the filter (a table without an "all" chip counts its total)
+  const all = filters.find((f) => f.key === "all")?.count ?? sheet.total ?? 0;
   return (
     <>
       <div className="sheet-bar">
-        {sheet.filters.map((f) => (
+        {filters.map((f) => (
           <Link key={f.key} className="fc" href={query({ filter: f.key })} aria-current={sheet.filter === f.key ? "true" : undefined} prefetch={false} scroll={false}>
             {f.key === "all" ? `All ${f.count}` : `${f.label} · ${f.count}`}
           </Link>
         ))}
         <span className="spacer" />
-        <button type="button" className="btn sm" aria-pressed={big} onClick={() => setBig((v) => !v)} disabled={!sheet.rows.length}>
+        {/* the label says what a click does, so no pressed state on top of it */}
+        <button type="button" className="btn sm" onClick={() => setBig((v) => !v)} disabled={!rows.length}>
           {big ? "Shrink" : "Expand"}
         </button>
-        {all ? <a className="btn sm" href={excel.replace("/xlsx?", "/csv?")} download>Download CSV</a> : <span className="btn sm" aria-disabled="true">Download CSV</span>}
-        {all ? <a className="btn primary sm" href={excel} download>Open in Excel</a> : <span className="btn primary sm" aria-disabled="true">Open in Excel</span>}
+        {all ? <a className="btn sm" href={exportHref(domain, sheet, "csv")} download>Download CSV</a> : <span className="btn sm" aria-disabled="true">Download CSV</span>}
+        {all ? <a className="btn primary sm" href={exportHref(domain, sheet, "xlsx")} download>Open in Excel</a> : <span className="btn primary sm" aria-disabled="true">Open in Excel</span>}
       </div>
       <div className="card clip">
-        <div className="xl-caption"><span className="sheet" aria-hidden="true" />{sheet.file} · Sheet 1 · {sheet.total} rows</div>
-        {sheet.rows.length ? (
+        <div className="xl-caption"><span className="sheet" aria-hidden="true" />{sheet.file} · {sheet.sheet_name ?? "Sheet 1"} · {sheet.total} rows</div>
+        {rows.length ? (
           <div className="xl-hint" data-show={moreRight} aria-hidden={!moreRight}>
             More columns to the right. Scroll the table sideways <span aria-hidden="true">→</span>
           </div>
         ) : null}
-        {sheet.rows.length ? (
+        {rows.length ? (
           <div ref={frame} onScroll={measure} className={big ? "xl-frame big" : "xl-frame"} tabIndex={0} role="region" aria-label={`${sheet.title} table`}>
             <table className="xl">
-              <caption className="sr-only">{sheet.title}, {sheet.total} rows. Sorted by {sheet.columns.find((c) => c.key === sheet.sort)?.label} {sheet.dir === "asc" ? "ascending" : "descending"}.</caption>
+              <caption className="sr-only">{sheet.title}, {sheet.total} rows. {sortedBy(sheet)}</caption>
               <thead>
                 <tr>
                   <th className="rn" scope="col"><span className="sr-only">Row</span></th>
-                  {sheet.columns.map((c) => {
+                  {columns.map((c) => {
                     const on = sheet.sort === c.key;
                     const ariaSort = on ? (sheet.dir === "asc" ? "ascending" : "descending") : undefined;
                     return (
@@ -106,17 +153,17 @@ export function SheetView({ sheet, base, moreHref }: { sheet: Sheet; base: strin
                 </tr>
               </thead>
               <tbody>
-                {sheet.rows.map((r) => (
-                  <tr key={r.n}>
+                {rows.map((r, i) => (
+                  <tr key={`${r.n}-${i}`}>
                     <td className="rn">{r.n}</td>
-                    {sheet.columns.map((c) => <Cell key={c.key} col={c} row={r} />)}
+                    {columns.map((c) => <Cell key={c.key} col={c} row={r} />)}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : null}
-        {sheet.rows.length ? null : (
+        {rows.length ? null : (
           <div className="state">
             <h2>{all ? "No rows match this filter" : "Nothing here yet"}</h2>
             <p>{all ? "Choose another filter above." : "Rows appear here when research finds them."}</p>

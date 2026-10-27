@@ -57,3 +57,7 @@ mutants/
 
 # Playwright output
 test-results/
+
+# Parked local junk (unwanted-things/README.md lists what is in it and why)
+unwanted-things/local-junk/
+unwanted-things/web/.next-*/

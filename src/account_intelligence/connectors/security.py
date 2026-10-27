@@ -86,7 +86,8 @@ def host_allowed(host: str, account_domain: str, extra_allowed: Iterable[str]) -
     host = host.lower().rstrip(".")
     if host == account_domain or host.endswith("." + account_domain):
         return True
-    return host in {h.lower().rstrip(".") for h in extra_allowed}
+    extra = {h.lower().rstrip(".").removeprefix("www.") for h in extra_allowed if h}
+    return host in extra or any(host.endswith("." + h) for h in extra)
 
 
 @dataclass(frozen=True)

@@ -94,15 +94,17 @@ def error_where(exc: BaseException) -> str | None:
     traced)."""
     import traceback
 
-    own = [
-        f
-        for f in traceback.extract_tb(exc.__traceback__)
-        if _package_path(f.filename).split("/", 1)[0] in _OWN_PACKAGES
-    ]
-    if not own:
+    frames = traceback.extract_tb(exc.__traceback__)
+    own = [f for f in frames if _package_path(f.filename).split("/", 1)[0] in _OWN_PACKAGES]
+    if own:
+        frame = own[-1]
+        return f"{_package_path(frame.filename)}:{frame.lineno}:{frame.name}"[:200]
+    if not frames:
         return None
-    frame = own[-1]
-    return f"{_package_path(frame.filename)}:{frame.lineno}:{frame.name}"[:200]
+    # no own frame (a library's background task, an async generator finaliser): the innermost
+    # library frame, marked ``ext:`` (staging 2026-10-24: four RuntimeErrors with only a hash)
+    frame = frames[-1]
+    return f"ext:{_package_path(frame.filename)}:{frame.lineno}:{frame.name}"[:200]
 
 
 def scrub_exception(exc: BaseException) -> dict[str, str]:

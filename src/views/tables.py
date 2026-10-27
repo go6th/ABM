@@ -5,7 +5,7 @@ column added to a workbook appears in the table and the parity check without a s
 * ``people``, ``jobs``, ``tech``: the workbook sheets (columns from ``workbooks.*.columns``).
 * ``facts`` (Facts by grade): the Account Summary's lane tables (headers from
   ``documents.tables.lane``) plus the lane itself (a heading in the document, a column here).
-* ``coverage``: the Account Summary's coverage tracker table (``documents.tables.tracker``).
+* ``coverage``: the Account Summary's coverage tracker table (``documents.tables.coverage``).
 
 Pure data.
 """
@@ -82,10 +82,11 @@ class TableSpec:
         return tuple(c for c in self.columns if c.exported)
 
 
-_LANE_KEYS = ("ref", "finding", "grade", "use", "question", "sources")
-_LANE_KINDS = ("ref", "text_long", "label", "label", "text_long", "code")
-_TRACKER_KEYS = ("ref", "row", "status", "priority", "reason", "tools", "results")
-_TRACKER_KINDS = ("ref", "text_short", "label", "label", "text_short", "label", "text_short")
+# the Account Summary's Platform picture by lane, as printed (documents.tables.platform_picture)
+_LANE_KEYS = ("ref", "item", "finding", "grade", "use", "reasoning")
+_LANE_KINDS = ("ref", "text_short", "text_long", "label", "label", "text_long")
+_TRACKER_KEYS = ("ref", "row", "status", "priority", "needs", "done", "remains")
+_TRACKER_KINDS = ("ref", "text_short", "label", "label", "text_short", "text_long", "text_long")
 
 
 def build_specs(cfg: ExportConfig) -> dict[TableKind, TableSpec]:
@@ -102,11 +103,11 @@ def build_specs(cfg: ExportConfig) -> dict[TableKind, TableSpec]:
 
     lane = tuple(
         ViewColumn(k, h, kind)
-        for k, h, kind in zip(_LANE_KEYS, headers["lane"], _LANE_KINDS, strict=True)
+        for k, h, kind in zip(_LANE_KEYS, headers["platform_picture"], _LANE_KINDS, strict=True)
     )
     tracker = tuple(
         ViewColumn(k, h, kind)
-        for k, h, kind in zip(_TRACKER_KEYS, headers["tracker"], _TRACKER_KINDS, strict=True)
+        for k, h, kind in zip(_TRACKER_KEYS, headers["coverage"], _TRACKER_KINDS, strict=True)
     )
     return {
         "people": book("people", books.people),
@@ -116,10 +117,10 @@ def build_specs(cfg: ExportConfig) -> dict[TableKind, TableSpec]:
             "facts",
             "summary",
             None,
-            "lane",
+            "platform_picture",
             (*lane, ViewColumn("lane", "Lane", "label", exported=False)),
         ),
-        "coverage": TableSpec("coverage", "summary", None, "tracker", tracker),
+        "coverage": TableSpec("coverage", "summary", None, "coverage", tracker),
     }
 
 

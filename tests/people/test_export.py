@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from account_intelligence.safety.client_output import ClientOutputLeak
 from people.export import build_export
+from people.models import Classification, Profile
 from people.pipeline import PipelineResult
 from tests.fakes.people import Corpus
 from tests.people.kit import Kit
@@ -102,7 +102,7 @@ async def test_scanner_passes_on_the_written_export(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_broker_name_in_a_title_blocks_the_export() -> None:
+async def test_a_broker_name_in_a_title_keeps_that_person_off_the_list() -> None:
     corpus = Corpus()
     page = corpus.data["search"]["title:servicenow:1"]["pages"][0]
     import yaml
@@ -115,5 +115,55 @@ async def test_a_broker_name_in_a_title_blocks_the_export() -> None:
     }
     result = await Kit(corpus).run()
     assert result.counts is not None
-    with pytest.raises(ClientOutputLeak):
-        build_export(result.people, result.counts, result.count_sentences, result.source_codes)
+    # the person is kept off the file and counted; the export is never blocked by one row
+    # (staging 2026-10-25: two leak hits held back all five files of a finished research)
+    export = build_export(result.people, result.counts, result.count_sentences, result.source_codes)
+    assert all(broker.casefold() not in r.title.casefold() for r in export.rows)
+    assert any("distribution rules" in reason for _status, reason, _n in export.summary)
+
+
+@pytest.mark.asyncio
+async def test_only_title_exclusions_are_named_with_their_title() -> None:
+    """People excluded by a title rule are named with the title as reported (the People List
+    Summary sheet lists them); a tenant's own exclusion list is counted, never named."""
+    result = await _result()
+    assert result.counts is not None
+    export = build_export(result.people, result.counts, result.count_sentences, result.source_codes)
+    assert ("Ann Lee", "security", "Head of Information Security") in export.excluded
+    ann = next(p for p in result.people if p.name == "Ann Lee")
+    tenant = ann.model_copy(
+        update={
+            "classification": Classification(
+                status="excluded", reason="tenant_exclusion", rule_id="tenant.exclusion"
+            )
+        }
+    )
+    people = [tenant if p is ann else p for p in result.people]
+    export = build_export(people, result.counts, result.count_sentences, result.source_codes)
+    assert "Ann Lee" not in {n for n, _r, _t in export.excluded}
+
+
+@pytest.mark.asyncio
+async def test_location_comes_from_the_profile_else_the_search_record() -> None:
+    result = await _result()
+    assert result.counts is not None
+    listed = [p for p in result.people if p.status == "in_scope" and not p.internal_only]
+    first, second = listed[0], listed[1]
+    people = [
+        p.model_copy(update={"location": "Search City"}) if p is second else p
+        for p in result.people
+    ]
+    profile = Profile(
+        person_key=first.person_key,
+        profile_url=str(first.profile_url),
+        location="Profile City",
+        provider_code="p_test",
+        raw_ref="raw/test",
+        call_ref="call-test",
+    )
+    export = build_export(
+        people, result.counts, result.count_sentences, result.source_codes, profiles=(profile,)
+    )
+    by_url = {r.profile_url: r for r in export.rows}
+    assert by_url[str(first.profile_url)].location == "Profile City"
+    assert by_url[str(second.profile_url)].location == "Search City"

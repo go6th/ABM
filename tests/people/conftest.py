@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -9,10 +10,20 @@ import pytest
 from people.config import PeopleConfig, load_people_config
 from people.models import Classification, Person
 
+# The people golden oracle was written against the 2026-10-02 lane lexicon; the production
+# lexicon follows the owner skill since 2026-10-24 (config/job_lanes.yaml), so these tests pin
+# the frozen copy (tests/jobs/conftest.py does the same for the job pipeline).
+FROZEN = Path(__file__).resolve().parents[1] / "fixtures/synthetic/jobs/config"
+
+
+def frozen_people_config() -> PeopleConfig:
+    """The people configuration over the frozen lexicon."""
+    return load_people_config(FROZEN)
+
 
 @pytest.fixture
 def cfg() -> PeopleConfig:
-    return load_people_config()
+    return frozen_people_config()
 
 
 def person(key: str, status: str = "in_scope", **kw: Any) -> Person:

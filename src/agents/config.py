@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -32,7 +33,16 @@ import yaml
 from account_intelligence.config import CONFIG_DIR
 from agents.errors import AgentConfigInvalid
 
-SKILL_FILES = ("source", "run", "pull_plan", "conversions", "consent", "provider_routes")
+SKILL_FILES = (
+    "scope",
+    "source",
+    "run",
+    "pull_plan",
+    "conversions",
+    "consent",
+    "provider_routes",
+    "attributes",
+)
 STEPS_WITH_PULLS = frozenset({"pass1", "pass2", "people"})
 
 
@@ -47,6 +57,22 @@ class PlanRow:
     internal_history: bool
     # the row's own search queries (``pull_plan.yaml`` queries); empty: the generic phrasings
     queries: tuple[str, ...] = ()
+    # the row's queries are also searched on the account's own site and the pages found there
+    # are read in full (the primary-source path to Confirmed, 2026-10-24)
+    own_site: bool = False
+    # a code pipeline owns the row after Phase 1 ("jobs": the job pipeline reads and classifies
+    # the postings; "tech": detections are written as dated rows); the extractor skips it
+    pipeline: str | None = None
+
+
+@dataclass(frozen=True)
+class AttributeSpec:
+    """One named attribute of the vocabulary (``config/skill/attributes.yaml``)."""
+
+    attribute: str
+    row_key: str
+    meaning: str
+    tier: int
 
 
 @dataclass(frozen=True)
@@ -59,6 +85,24 @@ class Conversion:
     decision: str | None
     enforced_by: str
     test: str
+
+
+@dataclass(frozen=True)
+class Scope:
+    """The fixed research scope (``config/skill/scope.yaml``: master prompt v2 section 0)."""
+
+    lanes: tuple[str, ...]
+    also_tracked: tuple[str, ...]
+    never_report: tuple[str, ...]
+    never_report_mask: str
+    window_months: Mapping[str, int]  # news, postings, detections
+    seniority_rule: str
+    excluded_title_patterns: tuple[str, ...]
+    lookalike_edit_distance: int
+    name_stopwords: tuple[str, ...]
+    min_brand_mentions: int
+    lead_min_queries: int
+    lead_min_tools: int
 
 
 @dataclass(frozen=True)
@@ -77,10 +121,16 @@ class SkillConfig:
     phrasings: tuple[str, ...]
     plan: Mapping[str, PlanRow]
     row_labels: Mapping[str, str]
+    # the attribute vocabulary: attribute name -> spec (its canonical row, meaning, tier), and
+    # the attribute names listed with every extraction call
+    attributes: Mapping[str, AttributeSpec]
+    shared_attributes: tuple[str, ...]
     shelf_life_days: Mapping[str, int | None]
     consent_scope: str
     consent_label: str
+    consent_text: str
     consent_text_version: str | None
+    scope: Scope
     internal_history_default: bool
     conversions: tuple[Conversion, ...]
     update_channel: str
@@ -114,6 +164,38 @@ def _row_queries(plan_doc: Mapping[str, Any], min_phrasings: int) -> dict[str, t
     return out
 
 
+PIPELINES = frozenset({"jobs", "tech", "people"})
+_ATTRIBUTE = re.compile(r"^[a-z][a-z0-9_]{1,60}$")
+
+
+def _attributes(
+    doc: Mapping[str, Any], plan_rows: Iterable[str]
+) -> tuple[dict[str, AttributeSpec], tuple[str, ...]]:
+    """``attributes.yaml``: every attribute name is unique across rows (it decides the canonical
+    row), names a planned row, and has a meaning and a tier of 0 to 3; ``shared`` names only
+    listed attributes."""
+    rows = set(plan_rows)
+    out: dict[str, AttributeSpec] = {}
+    for row_key, attrs in _val(doc["rows"], "attributes.rows").items():
+        if str(row_key) not in rows:
+            raise AgentConfigInvalid(f"attributes.rows: unknown row {row_key!r}")
+        for name, spec in (attrs or {}).items():
+            if not _ATTRIBUTE.match(str(name)):
+                raise AgentConfigInvalid(f"attributes.rows.{row_key}: bad name {name!r}")
+            if str(name) in out:
+                raise AgentConfigInvalid(f"attributes.rows: {name!r} listed under two rows")
+            meaning = str(spec.get("meaning") or "").strip()
+            tier = int(spec.get("tier", -1))
+            if not meaning or tier not in (0, 1, 2, 3):
+                raise AgentConfigInvalid(f"attributes.rows.{row_key}.{name}: needs meaning, tier")
+            out[str(name)] = AttributeSpec(str(name), str(row_key), meaning, tier)
+    shared = tuple(str(a) for a in _val(doc["shared"], "attributes.shared"))
+    unknown = sorted(set(shared) - set(out))
+    if unknown:
+        raise AgentConfigInvalid(f"attributes.shared: unknown attributes {unknown}")
+    return out, shared
+
+
 def _read(path: Path) -> Any:
     try:
         return yaml.safe_load(path.read_text())
@@ -139,6 +221,47 @@ def content_hash(documents: Mapping[str, Any]) -> str:
     """``sk-`` plus the first 16 hex digits of sha256 over the canonical JSON of ``documents``."""
     canonical = json.dumps(documents, sort_keys=True, separators=(",", ":"), default=str)
     return "sk-" + hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def _scope(doc: Mapping[str, Any]) -> Scope:
+    """Validate ``scope.yaml`` (every list non-empty, windows positive, the mask plain text)."""
+    try:
+        never = tuple(str(x) for x in _val(doc["never_report"], "scope.never_report"))
+        mask = str(doc["never_report"].get("mask") or "").strip()
+        windows = {
+            k: int(_val(doc["windows_months"][k], f"scope.windows_months.{k}"))
+            for k in ("news", "postings", "detections")
+        }
+        out = Scope(
+            lanes=tuple(str(x) for x in _val(doc["lanes"], "scope.lanes")),
+            also_tracked=tuple(str(x) for x in _val(doc["also_tracked"], "scope.also_tracked")),
+            never_report=never,
+            never_report_mask=mask,
+            window_months=windows,
+            seniority_rule=str(_val(doc["seniority"]["rule"], "scope.seniority.rule")),
+            excluded_title_patterns=tuple(
+                str(x).lower()
+                for x in _val(doc["people_exclusions"]["title_patterns"], "scope.exclusions")
+            ),
+            lookalike_edit_distance=int(
+                _val(doc["entity"]["lookalike_edit_distance"], "scope.entity.distance")
+            ),
+            name_stopwords=tuple(
+                str(x).lower() for x in _val(doc["entity"]["name_stopwords"], "scope.stopwords")
+            ),
+            min_brand_mentions=int(
+                _val(doc["entity"]["min_brand_mentions"], "scope.entity.min_brand_mentions")
+            ),
+            lead_min_queries=int(_val(doc["lead_verification"]["min_queries"], "scope.lead")),
+            lead_min_tools=int(_val(doc["lead_verification"]["min_tools"], "scope.lead")),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise AgentConfigInvalid(f"scope.yaml: {error}") from error
+    if not (out.lanes and out.never_report and mask and out.name_stopwords):
+        raise AgentConfigInvalid("scope.yaml: lanes, never_report, mask and stopwords are needed")
+    if any(v <= 0 for v in windows.values()) or out.lookalike_edit_distance < 1:
+        raise AgentConfigInvalid("scope.yaml: windows and the edit distance must be positive")
+    return out
 
 
 def _val(block: Any, name: str) -> Any:
@@ -173,6 +296,9 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
             raise AgentConfigInvalid(f"pull_plan.{key}: unknown step {spec['step']!r}")
         if spec["need"] not in needs:
             raise AgentConfigInvalid(f"pull_plan.{key}: unknown route need {spec['need']!r}")
+        pipeline = spec.get("pipeline")
+        if pipeline is not None and str(pipeline) not in PIPELINES:
+            raise AgentConfigInvalid(f"pull_plan.{key}: unknown pipeline {pipeline!r}")
         plan[str(key)] = PlanRow(
             str(key),
             str(spec["step"]),
@@ -180,6 +306,8 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
             bool(spec.get("people", False)),
             bool(spec.get("internal_history", False)),
             row_queries.get(str(key), ()),
+            bool(spec.get("own_site", False)),
+            str(pipeline) if pipeline is not None else None,
         )
     if set(row_queries) - set(plan):
         raise AgentConfigInvalid(
@@ -190,6 +318,7 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
         raise AgentConfigInvalid(
             f"pull plan and checklist disagree: unplanned={unplanned}, unknown={unknown}"
         )
+    attributes, shared = _attributes(docs["attributes"], plan)
     versions = docs["skill_versions"]
     if _val(versions["in_app_repackaging"], "in_app_repackaging") is not False:
         raise AgentConfigInvalid("skill updates must go through the repository (D-101)")
@@ -216,12 +345,16 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
         phrasings=tuple(str(p) for p in _val(plan_doc["phrasings"], "phrasings")),
         plan=plan,
         row_labels=labels,
+        attributes=attributes,
+        shared_attributes=shared,
         shelf_life_days=shelf_days,
         consent_scope=str(_val(consent["people_consent"]["scope"], "consent.scope")),
         consent_label=str(_val(consent["people_consent"]["tenant_label"], "consent.label")),
+        consent_text=" ".join(str(_val(consent["people_consent"]["text"], "consent.text")).split()),
         consent_text_version=_val(
             consent["people_consent"]["current_text_version"], "consent.text_version"
         ),
+        scope=_scope(docs["scope"]),
         internal_history_default=bool(
             _val(consent["internal_history"]["default_enabled"], "internal_history")
         ),

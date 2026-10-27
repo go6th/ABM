@@ -134,7 +134,17 @@ class TrackerAdapter:
         async with self.txn(ctx.tenant_id) as s:
             rows = {r.key: r for r in await CoverageRepo(s).get_all_rows(ctx.run_id)}
             row = rows.get(row_key)
-            if row is None or row.status in (None, Status.BLOCKED, Status.PARTIAL):
+            # the tracker downgrades only a Done row (or a Partial one is kept): a row that is
+            # Not done or None already says what happened, with its reason, and a follow-up pull
+            # that was not approved cannot make it "less" than that. Refusing here stopped the
+            # whole run on 2026-10-24 (NotOwner: gate may only downgrade a row).
+            if row is None or row.status in (
+                None,
+                Status.BLOCKED,
+                Status.PARTIAL,
+                Status.NOT_DONE,
+                Status.NONE,
+            ):
                 return _outcome(
                     row.status if row else None,
                     row.reason_code if row else None,

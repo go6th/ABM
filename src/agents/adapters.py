@@ -179,6 +179,20 @@ class PgSenseChecks:
         """Distill outputs feed the export builders' narrative input: not bound yet."""
         not_configured("distill narrative store")
 
+    async def save_entity_lock(self, ctx: RunContext, lock: Mapping[str, Any]) -> None:
+        """The lock of the latest research is the account's (migration 0083)."""
+        from datamodel.entity_lock import record_entity_lock
+
+        async with tenant_txn(ctx.tenant_id) as s:
+            await record_entity_lock(s, run_id=ctx.run_id, lock=lock)
+
+    async def entity_lock(self, ctx: RunContext) -> Mapping[str, Any] | None:
+        """The account's stored lock (a build run reuses its parent's)."""
+        from datamodel.entity_lock import load_entity_lock
+
+        async with tenant_txn(ctx.tenant_id) as s:
+            return await load_entity_lock(s, run_id=ctx.run_id)
+
 
 @dataclass(frozen=True)
 class RouterModel:

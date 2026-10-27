@@ -1,15 +1,19 @@
 """The workspace zip (D-25): deterministic and safe (B10, B13).
 
-Contents, in this fixed order: ``RESTORE.md``, ``MANIFEST.json``, ``NOTES.md``, the five client
-deliverables under ``deliverables/``, and the render-model data each was built from under
-``data/`` (in place of "build scripts": the builder code is not shipped). Raw broker payloads are
-EXCLUDED by default (D-25, pending D-10); the neutral-name copy path is built and tested but off;
-payloads from the organisation provider are never included in any case (adapter rule).
+Layout, after the owner's reference workspace (``RESTORE.md`` at the root, then folders):
+``RESTORE.md`` (built from the run: layout, how to rebuild, canonical query definitions, entity
+rules), ``MANIFEST.json``, the five client deliverables under ``deliverables/``, the pulls as the
+run stored them under ``data/``, the render-model data each file was built from and the source
+link map under ``build/`` (in place of build scripts: the builder code is not shipped), and the
+pull log, pass 1 and sense check under ``notes/``. Members sort by that folder order, then in the
+configured order. Raw broker payloads are EXCLUDED by default (D-25, pending D-10); the
+neutral-name copy path is built and tested but off; payloads from the organisation provider are
+never included in any case (adapter rule).
 
 Safety: names are relative, sanitised, unique and length-capped; no absolute path, no ``..``, no
 backslash, no symlink entries; member, member-size and total-size caps; ``MANIFEST.json`` lists a
-SHA-256 for every other member. Only the five client file kinds can be passed in: the Internal
-Only document has no kind here and a name check refuses it anyway (B8).
+SHA-256 for every other member, RESTORE.md included. Only the five client file kinds can be
+passed in: the Internal Only document has no kind here and a name check refuses it anyway (B8).
 GUARANTEE(test_unsafe_names_are_refused)
 GUARANTEE(test_internal_only_document_cannot_enter)
 """
@@ -34,6 +38,9 @@ _SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
 # matched as a name part, so an account merely called "Internal Systems" is not refused.
 _FORBIDDEN_NAMES = re.compile(r"(^|[/_.-])(internal|operator)[_ -]?only([/_.-]|$)", re.IGNORECASE)
 NEVER_SHIPPED_PROVIDERS = frozenset({"p_org"})
+RESTORE = "RESTORE.md"
+# the render-model data of each file: the intermediate files of the reference's build folder
+RENDER_DATA_FOLDER = "build"
 
 
 def safe_name(name: str, max_len: int) -> str:
@@ -84,24 +91,32 @@ def build_workspace(
     theme: ZipTheme,
     account: str,
     as_of: date,
+    extras: Mapping[str, bytes],
     raw: Sequence[tuple[str, bytes]] = (),
 ) -> bytes:
-    """The workspace zip bytes (see the module docstring)."""
+    """The workspace zip bytes (see the module docstring). ``extras`` holds ``RESTORE.md`` and
+    exactly the configured ``required_members``."""
     ws = rules.workspace
     if set(deliverables) != set(FILE_KINDS) or set(data) != set(FILE_KINDS):
         raise UnsafePackage("the workspace needs exactly the five client files and their data")
-    members: list[tuple[str, bytes]] = [("NOTES.md", ws.notes_text.encode())]
+    if set(extras) != {RESTORE, *ws.required_members}:
+        raise UnsafePackage("the workspace needs exactly its configured run records")
+    members: list[tuple[str, bytes]] = []
     for kind in FILE_KINDS:
         filename, body = deliverables[kind]
         members.append((f"deliverables/{filename}", body))
-    for kind in FILE_KINDS:
-        members.append((f"data/{kind}.json", data[kind]))
+    members += [(f"{RENDER_DATA_FOLDER}/{kind}.json", data[kind]) for kind in FILE_KINDS]
+    members += [(name, extras[name]) for name in ws.required_members]
     members += neutral_payload_members(raw, enabled=ws.raw_payloads.neutral_name_copy_enabled)
+    rank = {folder: i for i, folder in enumerate(ws.folders)}
+    members.sort(key=lambda m: rank.get(m[0].split("/", 1)[0], len(rank)))
     names = [safe_name(n, ws.entry_name_max) for n, _ in members]
     if len(set(names)) != len(names):
         raise UnsafePackage("duplicate member names")
+    # RESTORE.md is built from the run too, so the manifest covers it with every other member
     listing = [
-        {"name": n, "sha256": hashlib.sha256(b).hexdigest(), "size": len(b)} for n, b in members
+        {"name": n, "sha256": hashlib.sha256(b).hexdigest(), "size": len(b)}
+        for n, b in [(RESTORE, extras[RESTORE]), *members]
     ]
     document: dict[str, object] = {
         "schema_version": 1,
@@ -111,11 +126,7 @@ def build_workspace(
         "build": dict(manifest),
     }
     manifest_bytes = (json.dumps(document, indent=1, sort_keys=True, default=str) + "\n").encode()
-    ordered = [
-        ("RESTORE.md", ws.restore_text.encode()),
-        ("MANIFEST.json", manifest_bytes),
-        *members,
-    ]
+    ordered = [(RESTORE, extras[RESTORE]), ("MANIFEST.json", manifest_bytes), *members]
     if len(ordered) > ws.max_members:
         raise UnsafePackage("too many members", (str(len(ordered)),))
     total = 0
@@ -139,7 +150,8 @@ def build_workspace(
 
 def check_zip(data: bytes, rules: ContentRules) -> tuple[str, ...]:
     """Re-open a zip and return every safety problem (empty when safe): unsafe or duplicate
-    names, symlink entries, caps, and members whose hash disagrees with MANIFEST.json."""
+    names, symlink entries, caps, a required run record that is missing, and members whose hash
+    disagrees with MANIFEST.json."""
     ws = rules.workspace
     problems: list[str] = []
     with zipfile.ZipFile(io.BytesIO(data)) as z:
@@ -162,11 +174,14 @@ def check_zip(data: bytes, rules: ContentRules) -> tuple[str, ...]:
             total += info.file_size
         if total > ws.max_total_bytes:
             problems.append("total over cap")
+        problems.extend(
+            f"missing member {n}" for n in (RESTORE, *ws.required_members) if n not in names
+        )
         if "MANIFEST.json" in names:
             listing = json.loads(z.read("MANIFEST.json"))["members"]
             listed = {m["name"]: m["sha256"] for m in listing}
             for name in names:
-                if name in ("MANIFEST.json", "RESTORE.md"):
+                if name == "MANIFEST.json":
                     continue
                 if listed.get(name) != hashlib.sha256(z.read(name)).hexdigest():
                     problems.append(f"hash mismatch {name[:80]!r}")

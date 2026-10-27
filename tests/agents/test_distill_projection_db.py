@@ -15,7 +15,7 @@ import pytest
 from account_intelligence.db.session import tenant_txn
 from agents.ports import RunContext
 from agents.production.state import PgRunRecords
-from agents.schemas import Claim, DistillOutput
+from agents.schemas import Claim, DistillOutput, LaneClaim
 from tests.conftest import ADMIN_DSN, _make_account
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
@@ -149,3 +149,41 @@ async def test_a_statement_about_a_confirmed_fact_is_kept_as_written(tenant_a: U
     await PgRunRecords(tenant_txn).save_distill(_ctx(tenant_a, run), "client", out)
     narrative = [t for k, t in _sections(run) if k == "narrative"]
     assert narrative == ["The account runs its own platform."]  # no question fallback needed
+
+
+async def test_the_section_1_parts_are_projected_with_their_kinds(tenant_a: UUID) -> None:
+    """Section 1 of the reference Summary (2026-10-26): what stands out, the lane meanings (with
+    their lane id), how this could be wrong and how to sharpen it reach ``report_sections``; a
+    statement about a Probable fact is withheld there as it is for the narrative."""
+    _, run, f = _world(tenant_a)
+    out = DistillOutput(
+        narrative=(Claim(text="The account runs its own platform.", fact_ids=(f["confirmed"],)),),
+        stands_out=(
+            Claim(text="A new leader took office.", fact_ids=(f["confirmed"],)),
+            Claim(text="The account is investing in a platform.", fact_ids=(f["probable"],)),
+        ),
+        lane_meanings=(
+            LaneClaim(
+                lane="salesforce",
+                text="The platform is in use. Our interpretation: it is growing.",
+                fact_ids=(f["confirmed"],),
+            ),
+        ),
+        could_be_wrong=(Claim(text="One source backs the platform.", fact_ids=(f["probable"],)),),
+        sharpen=(Claim(text="Who owns the platform budget?", fact_ids=(f["probable"],)),),
+    )
+    await PgRunRecords(tenant_txn).save_distill(_ctx(tenant_a, run), "client", out)
+    sections = _sections(run)
+    assert ("stands_out", "A new leader took office.") in sections
+    assert ("stands_out", "The account is investing in a platform.") not in sections
+    assert ("caveat", "One source backs the platform.") in sections
+    assert ("decision_change", "Who owns the platform budget?") in sections
+    lanes = _db(
+        "SELECT lane, text FROM report_sections WHERE run_id = %s AND kind = 'lane_meaning'", run
+    )
+    assert lanes == [("salesforce", "The platform is in use. Our interpretation: it is growing.")]
+    assert _db(
+        "SELECT count(*) FROM report_sections WHERE run_id = %s AND kind <> 'lane_meaning'"
+        " AND lane IS NOT NULL",
+        run,
+    ) == [(0,)]

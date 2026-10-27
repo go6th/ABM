@@ -1,9 +1,10 @@
 /* Ask: the empty state, the thread, the composers and the "What this answer used" panel. */
 .ask { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-.ask-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 48px; gap: 24px; }
+.ask-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: safe center; padding: 32px 48px; gap: 24px; overflow-y: auto; }
 /* the soft blue band holding the greeting, the composer and the limit line (pastel, 2026-10-23) */
 .ask-band { width: 100%; max-width: calc(var(--chat) + 80px); display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 40px; border-radius: 24px; background: var(--hero-bg); border: 1px solid var(--hero-line); }
+.ask-band > *, .ask-empty > * { flex-shrink: 0; } /* never squash the composer: the page scrolls instead */
 .ask-empty .hero { text-align: center; }
 .ask-empty .hero .hi { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 6px 12px; border-radius: var(--r-pill); background: var(--surface); color: var(--lav-ink); font-size: 13px; font-weight: 700; }
 .ask-empty h1 { font-size: 40px; }
@@ -55,7 +56,8 @@
 .searching { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
 .searching .pdot { width: 8px; height: 8px; border-radius: 9px; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
 .answered { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
-.answered .mk { width: 22px; height: 22px; border-radius: 6px; background: var(--ink); flex: none; }
+.answered .mk { width: 22px; height: 22px; border-radius: 7px; background: var(--lav-bg); flex: none; position: relative; }
+.answered .mk::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--lav-ink); }
 .reply p { font-size: 16.5px; line-height: 1.7; color: var(--ink-2); }
 
 /* The answer body, rendered from the Markdown the model writes (2026-10-16): the same type as
@@ -76,8 +78,10 @@
 .md hr { border: 0; border-top: 1px solid var(--line-soft); }
 .md .md-link { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .md-table { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-field); background: var(--surface); }
-.md-table table { width: 100%; font-size: 14.5px; line-height: 1.5; }
-.md-table th, .md-table td { padding: 9px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+.md-table table { width: 100%; font-size: 14.5px; line-height: 1.5; overflow-wrap: normal; }
+.md-table th, .md-table td { padding: 9px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line-soft); overflow-wrap: normal; word-break: normal; }
+/* a word is never split inside a cell (the answer body breaks anywhere; a table does not): a
+   column is at least as wide as its longest word and the table scrolls sideways in its box */
 .md-table th + th, .md-table td + td { border-left: 1px solid var(--line-soft); }
 .md-table th { font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em; color: var(--text-3); background: var(--hover-soft); border-bottom: 1px solid var(--xl-head-line); white-space: nowrap; }
 .md-table tbody tr:nth-child(even) { background: var(--row-hover); }
@@ -192,3 +196,5 @@
 .usage-rows dd { margin: 0; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
 .turn-usage { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .usage-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); }
+/* the send button keeps to the right edge, also when the chips wrap on a phone */
+.composer .bar > .btn:last-child { margin-left: auto; }
