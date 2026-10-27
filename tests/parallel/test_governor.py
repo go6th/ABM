@@ -145,7 +145,9 @@ def test_aimd_halves_on_rate_limit_and_grows_by_one_per_clean_window() -> None:
 def _gov(clock: Clock, ceiling: int = 2) -> InMemoryGovernor:
     from dataclasses import replace
 
-    settings = replace(load_parallel_config().providers, default_ceiling=ceiling)
+    settings = replace(
+        load_parallel_config().providers, floor=1, default_ceiling=ceiling, ceilings={}
+    )
     return InMemoryGovernor(settings, SH, clock)
 
 

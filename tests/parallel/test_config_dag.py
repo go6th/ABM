@@ -62,7 +62,7 @@ def raw() -> dict:
 def test_parallel_config_loads_and_every_entry_is_sourced() -> None:
     cfg = load_parallel_config()
     assert len(cfg.config_hash) == 64
-    assert cfg.providers.default_ceiling == 1  # concurrency 1 until measured (section 2.1)
+    assert cfg.providers.default_ceiling == 4  # measured against the providers' limits (2026-10-27)
     assert cfg.deadline_ceiling_s == 14400  # the sourced 4 h ceiling
     data = raw()
     for key in ("lanes", "seniority_passes", "name_search_categories", "sequential_tail"):

@@ -117,17 +117,48 @@ async def authorize(request: Request, ident: Identity = Depends(identity)) -> Id
     return ident
 
 
+# (tenant, dedupe key) -> monotonic time its window ends. A read event is one row per actor,
+# action and resource per window (``audit.read_dedupe_window_s``); the key carries the window's
+# bucket, so once this process has seen a key recorded, every later read of the window would
+# only hit the row's conflict and write nothing. Those reads skip the transaction (its tenant-wide
+# advisory lock, chain head read and insert: a screen that polls a run paid them every few
+# seconds). Only a key whose event was written, or found already written, is remembered.
+_READ_SEEN: dict[tuple[str, str], float] = {}
+_READ_SEEN_CAP = 20_000
+
+
+def _read_seen(tenant: str, key: str) -> bool:
+    import time
+
+    now = time.monotonic()
+    ends = _READ_SEEN.get((tenant, key))
+    if ends is not None and now < ends:
+        return True
+    if len(_READ_SEEN) >= _READ_SEEN_CAP:
+        live = {k: v for k, v in _READ_SEEN.items() if v > now}
+        _READ_SEEN.clear()
+        _READ_SEEN.update(live if len(live) < _READ_SEEN_CAP else {})
+    return False
+
+
 async def _record_read(request: Request, ident: Identity) -> None:
     """The deduplicated read event (AU1), in a short transaction of its own, BEFORE any data is
     returned; when it cannot be written the read is refused (configurable, default closed)."""
+    import time
+
     from account_intelligence.api.audit_log import read_audit_event
     from account_intelligence.db.session import tenant_txn
     from audit.events import load_policy, record
 
     event, key = read_audit_event(request)
+    window_s = float(load_policy().read_dedupe_window_s)
+    tenant = str(ident.tenant_id)
+    if _read_seen(tenant, key):
+        return
     try:
         async with tenant_txn(ident.tenant_id) as s:
             await record(s, event, dedupe=key)
+        _READ_SEEN[(tenant, key)] = time.monotonic() + window_s
     except Exception as error:
         # a read that cannot be audited is refused when the policy says so (fail closed)
         if load_policy().read_fail_closed:

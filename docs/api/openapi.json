@@ -19757,7 +19757,7 @@
     },
     "/v1/accounts/{domain}/workspace": {
       "get": {
-        "description": "The Account workspace screen for one account. Once files are delivered, the counts of\nthe tables the files print are the files' row counts (the sheets show those rows).",
+        "description": "The Account workspace screen for one account. Once files are delivered, the counts of\nthe tables the files print are the files' row counts (the sheets show those rows).\n\nOne transaction reads everything. The delivered run's tables are materialised first only\nwhen they are not yet (once per run), and the delivered workbooks are opened, all at once,\nonly for a count that is not already known (``file_tabs.main_rows``).",
         "operationId": "account_workspace_v1_accounts__domain__workspace_get",
         "parameters": [
           {

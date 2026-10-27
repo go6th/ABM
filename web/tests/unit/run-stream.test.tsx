@@ -24,9 +24,10 @@ test("polls progress and the run record while the run is open, and stops on unmo
   expect(onProgress).toHaveBeenCalledTimes(2);
   await vi.advanceTimersByTimeAsync(POLL_RUN_MS * 2 - POLL_PROGRESS_MS);
   expect(reload).toHaveBeenCalledTimes(2);
+  const reads = onProgress.mock.calls.length;
   unmount();
   await vi.advanceTimersByTimeAsync(POLL_PROGRESS_MS * 3);
-  expect(onProgress).toHaveBeenCalledTimes(2);
+  expect(onProgress).toHaveBeenCalledTimes(reads);
   expect(reload).toHaveBeenCalledTimes(2);
 });
 

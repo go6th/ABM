@@ -104,6 +104,22 @@ task_settings:
 # Claude on Vertex have no batches: their calls stay standard.
 batch:
   enabled: true
+  # Speed policy (2026-10-27, owner: research must answer as fast as Claude does). `fast` sends
+  # every call as a standard request, which answers in seconds; `economy` batches the task_kinds
+  # below at half the price, and a batch answers in minutes (staging, 14 days: 634 batches, median
+  # 3 min, 95th percentile 5 to 9 min, longest 34 min; the judge's 130-token verdicts waited a
+  # median 137 s each). `fast` roughly doubles the model cost of the calls that were batched.
+  # RESEARCH_SPEED=economy|fast in the service environment overrides this without a config edit.
+  mode: fast
+  # never batched in either mode: short answers a run waits on one at a time, where the discount
+  # is cents and the wait is minutes
+  interactive_kinds:
+    - second_pass_posting
+    - classify_posting
+    - classify_person
+    - source_reread
+    - narrative_reread
+    - abm_sense_check
   # one retrieve call per waiting batch each interval: 32 calls in flight at 45 s is ~43 requests
   # a minute, under the lowest batch request limit (EXTRACT_CONCURRENCY in agents/graph.py)
   poll_seconds: 45

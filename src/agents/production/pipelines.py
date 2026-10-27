@@ -105,6 +105,7 @@ class RunPipelines:
         gcfg = load_grading_config()
 
         def hostile(body: str) -> bool:
+            """Whether the grading hostile-content check refuses this text."""
             try:
                 check_hostile(body, gcfg)
             except HostileContent:

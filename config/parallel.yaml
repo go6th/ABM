@@ -87,14 +87,19 @@ bodies:
     name_searches:      {granularity: stage, covers: [name_search, review_communities]}
     verification:       {granularity: stage, covers: [lead_verification]}
 
-# Provider concurrency (D-43). No source gives a provider's concurrency or rate limit: every
-# ceiling is a proposal, the adaptive limit starts at the floor and grows by one per clean window
-# (AIMD), never above the ceiling. Measured values replace these (docs/parallel/VALIDATION.md).
+# Provider concurrency (D-43). The ceilings were 1 "until measured", which held every research to
+# one provider call at a time whatever the code did (staging 2026-10-27: a pull of ~100 searches
+# at 3 s each ran for minutes). Now measured against the providers' own documented limits
+# (config/providers.yaml rate_limit): the connectors' token buckets still pace each provider to its
+# rate, so a higher ceiling only lets calls overlap their waiting. The adaptive limit starts at
+# the floor and grows by one per clean window (AIMD), never above the ceiling; a rate-limit signal
+# halves it, never below the floor.
 providers:
-  status: proposal
-  floor: 1
-  default_ceiling: {value: 1, status: "proposal: concurrency 1 until measured"}
-  ceilings: {}
+  status: "measured against docs/providers rate limits, 2026-10-27"
+  floor: 4
+  default_ceiling: {value: 4, source: "config/providers.yaml rate_limit: people 5/s, org 10/s; scrape and signals are paced by their token buckets (1/s, placeholders to verify)"}
+  ceilings:
+    p_search: 8  # config/providers.yaml: Search 600 per min (10/s), Extract 600 per min
   aimd_window_s: {value: 60, status: proposal}
   lease_ttl_s: {value: 120, status: proposal}
   heartbeat_s: {value: 30, status: proposal}
@@ -107,7 +112,7 @@ providers:
 # one slot), priority first, then critical path, then age (aging bounds the wait), then key.
 fairness:
   status: proposal
-  run_share_pct: 50
+  run_share_pct: 100
   tenant_share_pct: 50
   aging_step_s: 30
 

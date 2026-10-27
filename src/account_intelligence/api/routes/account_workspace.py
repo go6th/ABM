@@ -10,8 +10,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import re
+import time
 import zipfile
 from datetime import UTC, datetime
 from typing import Any
@@ -195,32 +197,57 @@ async def account_workspace(
     domain: str, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
     """The Account workspace screen for one account. Once files are delivered, the counts of
-    the tables the files print are the files' row counts (the sheets show those rows)."""
-    async with tenant_txn(ident.tenant_id) as s:
-        account_id = await account_id_of(s, domain)
-    await _delivered_tables(request, ident, account_id)
+    the tables the files print are the files' row counts (the sheets show those rows).
+
+    One transaction reads everything. The delivered run's tables are materialised first only
+    when they are not yet (once per run), and the delivered workbooks are opened, all at once,
+    only for a count that is not already known (``file_tabs.main_rows``)."""
+    started = time.perf_counter()
     printed = (("people", "people"), ("jobs", "jobs"), ("technology", "tech"))
-    async with tenant_txn(ident.tenant_id) as s:
-        out = await W.workspace(s, account_id, ident.user_id, datetime.now(UTC))
-        delivered = await SH.file_counts(s, account_id)
-        # the files of the sheets whose stored table cannot be shown, found in this transaction
-        files = {
-            sheet: await FT.delivered_file(s, account_id, sheet)
-            for sheet, _ in printed
-            if sheet not in delivered
-        }
+    materialised = False
+    for _ in range(2):  # the second pass only after the run's tables were just built
+        async with tenant_txn(ident.tenant_id) as s:
+            account_id = await account_id_of(s, domain)
+            run = await SH.delivered_run(s, account_id)
+            if run is not None and not materialised and not await SH.is_materialised(s, run):
+                missing = True
+            else:
+                missing = False
+                out = await W.workspace(s, account_id, ident.user_id, datetime.now(UTC))
+                delivered = await SH.file_counts(s, account_id, run)
+                # the files of the sheets whose stored table cannot be shown
+                files = await FT.delivered_files(
+                    s, account_id, [sheet for sheet, _ in printed if sheet not in delivered], run
+                )
+        if not missing:
+            break
+        await _delivered_tables(request, ident, account_id)
+        materialised = True
+    queried = time.perf_counter()
     counts = dict(out["counts"])
     # coverage keeps its "done of all items" counts (the tracker's own)
+    payloads = request.app.state.container.payloads
+    asked = [sheet for sheet, _ in printed if sheet in files]
+    rows_of = await asyncio.gather(
+        *(FT.main_rows(payloads, ident.tenant_id, files[sheet], sheet) for sheet in asked)
+    )
+    opened = dict(zip(asked, rows_of, strict=True))
     for sheet, key in printed:
         if sheet in delivered:
             counts[key] = delivered[sheet]
-            continue
-        book = await _read_book(request, ident, files[sheet], sheet, builder_only=True)
-        if main := _file_main(None, book, sheet):
+        elif opened.get(sheet) is not None:
             # the sheet shows the delivered file's own table (``_file_main``): its row count
-            counts[key] = len(main.table.rows) if main.table is not None else 0
+            counts[key] = opened[sheet]
     counts["facts"] = delivered.get("facts", 0)
     result: dict[str, Any] = _client_value({**out, "counts": counts, "latest_run": None})
+    log.info(
+        "workspace.timing",
+        extra={
+            "queries_ms": round(1000 * (queried - started)),
+            "files_ms": round(1000 * (time.perf_counter() - queried)),
+            "files_opened": len(opened),
+        },
+    )
     return result
 
 

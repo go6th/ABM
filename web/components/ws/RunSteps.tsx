@@ -63,8 +63,13 @@ export function useRun(runId: string | null) {
   const [run, setRun] = useState<RunStatusView | null>(null);
   const [progress, setProgress] = useState<RunProgress | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  // `tick` re-reads the run record (the open run is polled this way); `stepsTick` also re-reads
+  // the steps, which only a first read, Refresh and the end of the run need: while the run is
+  // open its steps arrive by event stream, so a poll that read them too doubled its requests
   const [tick, setTick] = useState(0);
-  const reload = useCallback(() => setTick((t) => t + 1), []);
+  const [stepsTick, setStepsTick] = useState(0);
+  const reload = useCallback(() => { setTick((t) => t + 1); setStepsTick((t) => t + 1); }, []);
+  const pollRun = useCallback(() => setTick((t) => t + 1), []);
   const status = run?.status.toUpperCase() ?? "";
   const terminal = TERMINAL.has(status);
 
@@ -74,16 +79,22 @@ export function useRun(runId: string | null) {
     api<RunStatusView>("GET", `/v1/runs/${encodeURIComponent(runId)}`)
       .then((r) => { if (alive) { setRun(r); setError(null); } })
       .catch((e: unknown) => { if (alive) setError(e instanceof ApiError ? e : new ApiError(0, "network", "")); });
-    // the steps as well: an ended run opens no stream, and Refresh reads them again at once
+    return () => { alive = false; };
+  }, [runId, tick]);
+
+  // the steps as well: an ended run opens no stream, and Refresh reads them again at once
+  useEffect(() => {
+    if (!runId) return;
+    let alive = true;
     api<RunProgress>("GET", `/v1/runs/${encodeURIComponent(runId)}/progress`)
       .then((p) => { if (alive) setProgress(p); })
       .catch(() => undefined);
     return () => { alive = false; };
-  }, [runId, tick]);
+  }, [runId, stepsTick]);
 
   // poll the run record while it is open, and follow progress by event stream or polling
   const onProgress = useCallback((p: RunProgress) => { setProgress(p); if (p.finished) reload(); }, [reload]);
-  useRunStream(runId, !terminal, onProgress, reload);
+  useRunStream(runId, !terminal, onProgress, pollRun);
 
   return { run, progress, error, status, terminal, reload };
 }

@@ -9,7 +9,7 @@ import { useEffect } from "react";
 import { api } from "@/lib/api";
 import type { RunProgress } from "@/lib/gen/api.gen";
 
-export const POLL_RUN_MS = 3000;
+export const POLL_RUN_MS = 5000;
 export const POLL_PROGRESS_MS = 5000;
 export const STREAM_RETRY_MS = 10000;
 

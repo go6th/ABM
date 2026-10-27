@@ -43,6 +43,7 @@ import re
 import threading
 import zipfile
 from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
@@ -58,7 +59,8 @@ MAX_BYTES = 80 * 1024 * 1024
 MAX_XML_BYTES = 64 * 1024 * 1024
 MAX_CELLS = 2_000_000
 MAX_TABLE_ROWS = 20_000
-CACHE_BOOKS = 6
+CACHE_BOOKS = 16
+CACHE_COUNTS = 4096
 READS_AT_ONCE = 2
 HEADER_STYLE = "Export header"
 # sheet key -> the deliverable that prints it (deliverables.kind) and its workbook settings
@@ -378,6 +380,11 @@ async def delivered_file(session: Any, account_id: UUID, sheet_key: str) -> Deli
             {"a": account_id, "r": run, "k": kind},
         )
     ).first()
+    return _delivered(row)
+
+
+def _delivered(row: Any) -> Delivered | None:
+    """The ``Delivered`` of a deliverables row (None: no row, or not a workbook)."""
     if row is None or not str(row.filename).endswith(".xlsx"):
         return None
     manifest = row.manifest_json
@@ -395,6 +402,82 @@ async def delivered_file(session: Any, account_id: UUID, sheet_key: str) -> Deli
         rows if isinstance(rows, int) and not isinstance(rows, bool) else None,
         int(row.size_bytes) if row.size_bytes is not None else None,
     )
+
+
+async def delivered_files(
+    session: Any, account_id: UUID, sheet_keys: Sequence[str], run: UUID | None = None
+) -> dict[str, Delivered]:
+    """``delivered_file`` of several sheets in one query (and one ``delivered_run`` read, or none
+    when the caller has it): the newest workbook of the delivered run for each sheet with one."""
+    from account_intelligence.replica.sheets import delivered_run
+
+    kinds = {k: KINDS[k] for k in sheet_keys if k in KINDS}
+    if not kinds:
+        return {}
+    run = run if run is not None else await delivered_run(session, account_id)
+    if run is None:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (kind) kind, id, filename, sha256, object_key, size_bytes,"
+                " manifest_json FROM deliverables"
+                " WHERE account_id = :a AND run_id = :r AND kind = ANY(:k)"
+                " ORDER BY kind, version DESC"
+            ),
+            {"a": account_id, "r": run, "k": sorted(set(kinds.values()))},
+        )
+    ).all()
+    by_kind = {r.kind: _delivered(r) for r in rows}
+    return {k: d for k, kind in kinds.items() if (d := by_kind.get(kind)) is not None}
+
+
+# (tenant, object key, SHA-256, sheet, rows the manifest counts, header signature) -> the rows
+# of the file's own main table when the file is this builder's (``builder_main``), else None.
+# Only a number, so it outlives the book itself in the book cache: the workspace screen reads it
+# on every open, and a book evicted (or a new instance) is parsed again only for a tab.
+_COUNTS: OrderedDict[tuple[str, str, str, str, int | None, int], int | None] = OrderedDict()
+
+
+def _count_cached(key: tuple[str, str, str, str, int | None, int]) -> tuple[bool, int | None]:
+    with _CACHE_LOCK:
+        if key in _COUNTS:
+            _COUNTS.move_to_end(key)
+            return True, _COUNTS[key]
+    return False, None
+
+
+def _count_keep(key: tuple[str, str, str, str, int | None, int], value: int | None) -> None:
+    with _CACHE_LOCK:
+        _COUNTS[key] = value
+        _COUNTS.move_to_end(key)
+        # LOOP(count cache trim): cap=one entry over CACHE_COUNTS; exit=within the cap
+        while len(_COUNTS) > CACHE_COUNTS:
+            _COUNTS.popitem(last=False)
+
+
+async def main_rows(payloads: Any, tenant_id: UUID, found: Delivered, sheet_key: str) -> int | None:
+    """The rows of the delivered file's own main table when it stands in for the stored table
+    (``builder_main``), else None. A file without the builder's row count is never read. The
+    answer is remembered by file content, so a file is opened for its count once per process."""
+    from exports.config import load_export_config
+
+    if found.rows is None:
+        return None
+    columns = getattr(load_export_config().rules.workbooks, KINDS[sheet_key]).columns
+    signature = hash(tuple(c.header for c in columns))
+    key = (str(tenant_id), found.object_key, found.sha256, sheet_key, found.rows, signature)
+    hit, value = _count_cached(key)
+    if hit:
+        return value
+    book = await book_of(payloads, tenant_id, found, main_sheet_of(sheet_key))
+    if book is None:
+        return None  # not remembered: the file may be readable on the next request
+    main = builder_main(book, found, sheet_key)
+    table = main.table if main is not None else None
+    value = len(table.rows) if table is not None else None
+    _count_keep(key, value)
+    return value
 
 
 def builder_main(book: Book, found: Delivered, sheet_key: str) -> Tab | None:

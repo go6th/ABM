@@ -61,19 +61,22 @@ async def _from_session(request: Request, token: str) -> Identity:
     from sqlalchemy import text
 
     from account_intelligence.api.tenant_plane import plane_of
-    from account_intelligence.db.session import tenant_txn, untenanted_session
+    from account_intelligence.db.session import bind_tenant, untenanted_session
     from identity import membership, sessions
 
     plane = plane_of(request)
     now = plane.clock.now()
+    # one transaction: the definer lookup finds the session's tenant, then the same transaction
+    # takes that tenant's context (as ``tenant_txn`` would) and loads the session and the role.
+    # Two transactions cost this hot path a second pool checkout, begin and commit per request.
     async with untenanted_session() as s:
         tenant = (
             await s.execute(text("SELECT session_tenant(:h)"), {"h": sessions.token_hash(token)})
         ).scalar_one_or_none()
-    if tenant is None:
-        raise HTTPException(status_code=401, detail="invalid session")
-    tenant_id = UUID(str(tenant))
-    async with tenant_txn(tenant_id) as s:
+        if tenant is None:
+            raise HTTPException(status_code=401, detail="invalid session")
+        tenant_id = UUID(str(tenant))
+        await bind_tenant(s, tenant_id)
         live = await sessions.load(s, token, now, plane.policy)
         role = await membership.active_role(s, live.user_id) if live else None
     if live is None or role is None:

@@ -48,7 +48,9 @@ def ctx(tenant: UUID, run: UUID) -> CallContext:
 def settings_for(ceiling: int) -> object:
     return replace(
         load_parallel_config().providers,
+        floor=1,
         default_ceiling=ceiling,
+        ceilings={},
         lease_poll_s=0.01,
         lease_jitter_s=0.01,
         lease_wait_s=30.0,

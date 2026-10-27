@@ -33,13 +33,65 @@ from sqlalchemy.ext.asyncio import (
 from account_intelligence.config import get_settings
 
 _settings = get_settings()
+PING_AFTER_IDLE_S = 20.0
+
+
+def lazy_pre_ping(target: AsyncEngine, idle_s: float = PING_AFTER_IDLE_S) -> None:
+    """Check a pooled connection before use only when it sat idle for ``idle_s`` seconds or last
+    ran on another event loop.
+
+    ``pool_pre_ping=True`` makes every checkout a round trip (begin, empty statement, rollback);
+    a request takes several checkouts, so on a database a millisecond or two away that was a
+    large share of every API call. A connection the pool handed out a moment ago is as alive as
+    it was then; one that sat idle, or was last used by another event loop, is checked (and
+    replaced when dead) exactly as pre-ping would."""
+    import time
+
+    from sqlalchemy import event
+    from sqlalchemy.exc import DisconnectionError
+
+    pool = target.sync_engine.pool
+
+    def running_loop() -> int | None:
+        """The event loop this thread is running (an asyncpg connection belongs to one)."""
+        import asyncio
+
+        try:
+            return id(asyncio.get_running_loop())
+        except RuntimeError:
+            return None
+
+    @event.listens_for(pool, "checkin")
+    def _stamp(dbapi_connection: Any, record: Any) -> None:
+        record.info["idle_since"] = time.monotonic()
+        record.info["loop"] = running_loop()
+
+    @event.listens_for(pool, "checkout")
+    def _check(dbapi_connection: Any, record: Any, proxy: Any) -> None:
+        since = record.info.get("idle_since")
+        if since is None:
+            return  # opened for this checkout
+        # a connection last used by another event loop (a worker thread's loop, a test's) is
+        # unusable here: the check finds that out and the pool opens a new one, as pre-ping did
+        same_loop = record.info.get("loop") == running_loop()
+        if same_loop and time.monotonic() - since < idle_s:
+            return
+        try:
+            if not target.sync_engine.dialect.do_ping(dbapi_connection):
+                raise DisconnectionError("connection did not answer")
+        except DisconnectionError:
+            raise
+        except Exception as error:  # noqa: BLE001 - any driver failure means a dead connection
+            raise DisconnectionError(str(error)) from error
+
+
 engine = create_async_engine(
     _settings.runtime_database_url,
     pool_size=_settings.db_pool_size,
     max_overflow=_settings.db_max_overflow,
-    pool_pre_ping=True,
     connect_args={"server_settings": {"application_name": "ai-api"}},
 )
+lazy_pre_ping(engine)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 _BOUND: list[async_sessionmaker[AsyncSession]] = []
 
@@ -173,16 +225,30 @@ async def tenant_txn(
             await session.execute(
                 text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             )
-        actor = user if user is not None else _ACTOR.get()
-        scope = "system" if (_SYSTEM.get() if system is None else system) else "user"
-        await session.execute(
-            text(
-                "SELECT set_config('app.tenant_id', :tid, true),"
-                " set_config('app.user_id', :uid, true), set_config('app.scope', :scope, true)"
-            ),
-            {"tid": str(tenant_id), "uid": actor or "", "scope": scope},
-        )
+        await bind_tenant(session, tenant_id, user=user, system=system)
         yield session
+
+
+async def bind_tenant(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    user: str | None = None,
+    system: bool | None = None,
+) -> None:
+    """Set the tenant, acting user and scope for the rest of ``session``'s open transaction
+    (``tenant_txn``'s own first statement). The session lookup uses it to continue the
+    transaction that found the session's tenant instead of opening a second one; the settings
+    are transaction-local, so they end with it like any other."""
+    actor = user if user is not None else _ACTOR.get()
+    scope = "system" if (_SYSTEM.get() if system is None else system) else "user"
+    await session.execute(
+        text(
+            "SELECT set_config('app.tenant_id', :tid, true),"
+            " set_config('app.user_id', :uid, true), set_config('app.scope', :scope, true)"
+        ),
+        {"tid": str(tenant_id), "uid": actor or "", "scope": scope},
+    )
 
 
 async def bound_waits(session: AsyncSession, *, lock_s: int, statement_s: int) -> None:

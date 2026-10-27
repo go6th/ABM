@@ -111,6 +111,7 @@ from agents.ports import (
 from agents.pull.agent import CREDIT_LIMIT, PullAgent, SpendPause
 from agents.schemas import ExtractionInput, PayloadView, SenseCheckInput, StoredFact
 from agents.sense_check.agent import sense_check
+from crosscut.fanout import fan_out, fan_out_all
 from llm.errors import (
     AdapterNotConfigured,
     AuthFailed,
@@ -130,7 +131,9 @@ STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "peo
 # calls / concurrency x the batch time, not compute. Tolmar (staging 2026-10-21) needed 121
 # calls: at 8 at a time and ~285 s a batch that is ~75 minutes, so no 20 minute slice could hold
 # the reading step and it took five slices. At 32 it is ~20 minutes. Polling stays inside the
-# provider's batch request rate (config/models.yaml batch.poll_seconds).
+# provider's batch request rate (config/models.yaml batch.poll_seconds). In `fast` speed mode
+# (models.yaml batch.mode) the calls are standard requests that answer in seconds, and the three
+# steps run side by side on this one gate.
 EXTRACT_CONCURRENCY = 32
 # a run that graded no fact has nothing to build: it ends finished with this reason instead of
 # the builder's missing_content (audit 2026-10-20: five McKesson refreshes ended "stopped before
@@ -421,37 +424,51 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             or state.get("spend_pauses", 0) >= MAX_SPEND_PAUSES
         )
         m = meter("pull")
-        rows: list[ManifestRow] = []
+        # the rows that are not pulled are decided here, in plan order; the rest are pulled side
+        # by side (``fan_out``) and put back into plan order, so the manifest is the one the
+        # one-at-a-time loop made (a pull of 33 rows took minutes of idle waiting on the provider)
+        fixed: dict[str, ManifestRow] = {}
+        todo: list[str] = []
         for key in _plan_order(cfg):
             if key not in in_scope:
                 # outside this job's scope: reported "not planned for this run", never silent
-                rows.append(agent.blocked(cfg.plan[key], "not_planned"))
-                continue
-            if cfg.plan[key].pipeline == "people" and deps.pipelines is not None:
+                fixed[key] = agent.blocked(cfg.plan[key], "not_planned")
+            elif cfg.plan[key].pipeline == "people" and deps.pipelines is not None:
                 # the people pipeline pulls, merges and records the senior people list itself
                 # after the reading step, under the tenant's consent (switched on 2026-10-24);
                 # Phase 1 does not pay for a pull the pipeline would repeat
-                rows.append(agent.blocked(cfg.plan[key], "owned_by_pipeline"))
-                continue
-            if (
+                fixed[key] = agent.blocked(cfg.plan[key], "owned_by_pipeline")
+            elif (
                 cfg.plan[key].step == "people"
                 and problem is None
                 and not getattr(deps.grading, "records_people", True)
                 and deps.pipelines is None
             ):
                 # no pipeline to record people: the pull is not paid for only to be thrown away
-                rows.append(agent.blocked(cfg.plan[key], "people_not_recorded"))
-                continue
+                fixed[key] = agent.blocked(cfg.plan[key], "people_not_recorded")
+            else:
+                todo.append(key)
+        pauses: dict[str, SpendPause] = {}
+
+        async def pull_one(key: str) -> ManifestRow:
+            """One row pulled; a spend pause is recorded and stops new rows from starting."""
             try:
-                rows.append(
-                    await agent.pull_row(
-                        ctx, cfg.plan[key], m, consent_problem=problem, internal_history=internal
-                    )
+                return await agent.pull_row(
+                    ctx, cfg.plan[key], m, consent_problem=problem, internal_history=internal
                 )
             except SpendPause as pause:
-                return {"pending_spend_row": pause.row_key}
+                pauses[key] = pause  # no new row starts; the rows in flight finish
+                return agent.blocked(cfg.plan[key], "spend_pause")
             except BudgetExceeded:
-                rows.append(agent.blocked(cfg.plan[key], "agent_budget_exceeded"))
+                return agent.blocked(cfg.plan[key], "agent_budget_exceeded")
+
+        pulled_rows = await fan_out(todo, pull_one, stop=lambda: bool(pauses))
+        if pauses:
+            first = next(k for k in todo if k in pauses)
+            return {"pending_spend_row": pauses[first].row_key}
+        for key, row in zip(todo, pulled_rows, strict=True):
+            fixed[key] = row if row is not None else agent.blocked(cfg.plan[key], "not_pulled")
+        rows = [fixed[key] for key in _plan_order(cfg)]
         manifest = PullManifest(
             tenant_id=ctx.tenant_id,
             run_id=ctx.run_id,
@@ -599,18 +616,22 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         # (a cancelled call would be paid again after the user continues), no new one starts,
         # and the node pauses once the step's calls are done
         guard: list[TokenGuardReached] = []
-        for step in STEPS:
+        # one gate for the three steps: their rows are disjoint (a checklist row has exactly one
+        # step), so the steps read side by side and a step's slowest call no longer holds the
+        # next step back; the calls in flight stay at EXTRACT_CONCURRENCY in all
+        gate = asyncio.Semaphore(EXTRACT_CONCURRENCY)
+
+        async def run_step(step: Literal["pass1", "pass2", "people"]) -> None:
             if guard:
                 raise guard[0]
             if step == "people" and not consent_ok:
-                continue
+                return
             if step == "people" and not getattr(deps.grading, "records_people", True):
                 # nothing can record people yet: the extraction call is not paid for only to be
                 # thrown away (OI-ABM-4; audit 2026-10-15)
                 drops["people_extraction_skipped"] += 1
-                continue
+                return
             m = meter(step)
-            gate = asyncio.Semaphore(EXTRACT_CONCURRENCY)
 
             async def one(
                 group: ExtractionInput,
@@ -673,6 +694,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             for g in groups(cfg, views, step):
                 by_need.setdefault(g.group, []).append(g)
             await _all_or_none(need(inputs) for inputs in by_need.values())
+
+        await _all_or_none(run_step(step) for step in STEPS)
         if guard:
             raise guard[0]
 
@@ -886,10 +909,20 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         views: list[PayloadView] = []
         calls: dict[str, list[str]] = {}
         failed = 0
-        for row_key, query in queries:
+
+        async def search_one(item: tuple[str, str]) -> Any:
+            """One person-name search; a refusal or failed source is a ``None`` result."""
+            row_key, query = item
             try:
-                result = await deps.provider.call(ctx, "web_search", query, row_key)
+                return await deps.provider.call(ctx, "web_search", query, row_key)
             except (CapPause, ProviderFailed):
+                return None
+
+        # side by side, then stored and read back in the order of the queries
+        for (row_key, _query), result in zip(
+            queries, await fan_out_all(queries, search_one), strict=True
+        ):
+            if result is None:
                 failed += 1
                 continue
             calls.setdefault(row_key, []).extend(result.call_refs)
@@ -1037,13 +1070,20 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         ctx = context(state)
         views: list[PayloadView] = []
         capped = False
-        for item in state.get("to_run") or []:
+        pulls: list[dict[str, str]] = list(state.get("to_run") or [])
+
+        async def pull_one(item: dict[str, str]) -> Any:
+            """One follow-up pull; a refusal or failed source is returned, not raised."""
             try:
-                result = await deps.provider.call(ctx, item["need"], item["query"], item["row_key"])
+                return await deps.provider.call(ctx, item["need"], item["query"], item["row_key"])
             except (CapPause, ProviderFailed) as error:
+                return error
+
+        for item, result in zip(pulls, await fan_out_all(pulls, pull_one), strict=True):
+            if isinstance(result, (CapPause, ProviderFailed)):
                 # the true reason (a failed source is not an unapproved pull)
-                await deps.tracker.mark_partial(ctx, item["row_key"], error.reason)
-                capped |= isinstance(error, CapPause) and error.reason == CREDIT_LIMIT
+                await deps.tracker.mark_partial(ctx, item["row_key"], result.reason)
+                capped |= isinstance(result, CapPause) and result.reason == CREDIT_LIMIT
                 continue
             for source in result.items:
                 ref = await deps.payloads.put(ctx, item["row_key"], source, "public")

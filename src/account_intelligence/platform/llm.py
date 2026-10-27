@@ -33,6 +33,7 @@ provider and model. Verified against the installed ``anthropic`` package (1.11.0
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -313,6 +314,34 @@ class AnthropicLlm:
         return self._result(message, batch=False)
 
     async def _send(self, kwargs: dict[str, Any], on_start: Callable[[], None] | None) -> Any:
+        """One standard request; a 429 waits the provider's ``retry-after`` (else a doubling
+        wait) and asks again instead of failing, so a burst of parallel calls meets the rate
+        limit as a short pause and never as a failed node that pays for its siblings again."""
+        import asyncio
+
+        wait = STANDARD_BACKOFF_S[0]
+        # LOOP(standard 429 backoff): cap=STANDARD_RATE_ATTEMPTS requests, waits doubling to
+        # STANDARD_BACKOFF_S[1]; exit=answered, a non-429 error, attempts used
+        for attempt in range(1, STANDARD_RATE_ATTEMPTS + 1):
+            try:
+                return await self._send_once(kwargs, on_start)
+            except Exception as error:  # noqa: BLE001 - only a 429 is waited out, the rest raised
+                if not is_rate_limited(error) or attempt == STANDARD_RATE_ATTEMPTS:
+                    raise
+                delay = min(retry_after_s(error) or wait, STANDARD_BACKOFF_S[1])
+                log.warning(
+                    "llm.rate_limited",
+                    extra={
+                        "model": kwargs.get("model"),
+                        "attempt": attempt,
+                        "wait_s": round(delay),
+                    },
+                )
+                await asyncio.sleep(delay)
+                wait = min(wait * 2, STANDARD_BACKOFF_S[1])
+        raise AssertionError("unreachable")  # the loop returns or raises
+
+    async def _send_once(self, kwargs: dict[str, Any], on_start: Callable[[], None] | None) -> Any:
         """``messages.create``, or with ``on_start`` and a client that streams, the same request
         streamed (the final message is the same object ``create`` returns)."""
         stream = getattr(self.client.messages, "stream", None)
@@ -749,6 +778,21 @@ def _processing(batch: Any) -> int | None:
     return value if isinstance(value, int) else None
 
 
+# a standard call that meets a 429 waits and asks again, at most this many requests
+STANDARD_RATE_ATTEMPTS = 6
+STANDARD_BACKOFF_S = (2.0, 60.0)
+
+
+def retry_after_s(error: BaseException) -> float | None:
+    """The provider's ``retry-after`` seconds on a refused request, when it gives one."""
+    headers = getattr(getattr(error, "response", None), "headers", None)
+    try:
+        value = float(headers.get("retry-after")) if headers is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 def is_rate_limited(error: BaseException) -> bool:
     """Whether a provider error is a request-rate refusal (HTTP 429) rather than a failure."""
     return getattr(error, "status_code", None) == 429 or type(error).__name__ == "RateLimitError"
@@ -779,16 +823,40 @@ async def batch_request(call: Callable[[], Any], *, what: str, model: str, tier:
 
 @dataclass(frozen=True)
 class BatchConfig:
-    """Which research calls go through the Message Batches API (``batch`` of models.yaml)."""
+    """Which research calls go through the Message Batches API (``batch`` of models.yaml).
+
+    ``mode`` is the speed policy. ``fast`` sends every call as a standard request, which answers
+    in seconds; ``economy`` batches the ``task_kinds`` at half price, which answers in minutes
+    (staging 2026-10-27: 634 batches, median three minutes, longest 34). ``interactive_kinds``
+    are never batched in either mode: their answers are short and a run waits on each one."""
 
     enabled: bool = False
     task_kinds: frozenset[str] = frozenset()
     poll_seconds: float = 20.0
     max_wait_seconds: float = 1800.0
+    mode: str = "economy"
+    interactive_kinds: frozenset[str] = frozenset()
 
     def applies(self, task_kind: str) -> bool:
         """Whether one task kind's calls are batched."""
-        return self.enabled and task_kind in self.task_kinds
+        return (
+            self.enabled
+            and self.mode == "economy"
+            and task_kind in self.task_kinds
+            and task_kind not in self.interactive_kinds
+        )
+
+
+SPEED_MODES = ("fast", "economy")
+
+
+def research_speed(configured: str, env: Mapping[str, str] | None = None) -> str:
+    """The speed mode in force: ``RESEARCH_SPEED`` (fast or economy) over the configured one."""
+    value = (os.environ if env is None else env).get("RESEARCH_SPEED", "").strip().lower()
+    chosen = value or configured
+    if chosen not in SPEED_MODES:
+        raise ValueError(f"research speed {chosen!r} is not one of {SPEED_MODES}")
+    return chosen
 
 
 @lru_cache(maxsize=2)
@@ -801,6 +869,8 @@ def load_batch_config(path: Path | None = None) -> BatchConfig:
         frozenset(str(k) for k in raw.get("task_kinds") or ()),
         float(raw.get("poll_seconds", 20)),
         float(raw.get("max_wait_seconds", 1800)),
+        research_speed(str(raw.get("mode", "economy"))),
+        frozenset(str(k) for k in raw.get("interactive_kinds") or ()),
     )
     if cfg.poll_seconds <= 0 or cfg.max_wait_seconds <= cfg.poll_seconds:
         raise ValueError("models.yaml batch: poll_seconds must be positive and below max_wait")

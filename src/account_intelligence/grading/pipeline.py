@@ -70,6 +70,7 @@ from account_intelligence.grading.spans import (
     verify_span,
     verify_url,
 )
+from crosscut.fanout import fan_out_all
 
 
 @dataclass(frozen=True)
@@ -264,6 +265,22 @@ def _drop_reason(error: ValidationError) -> str:
     return "schema_violation"
 
 
+# verdicts asked at once; each is a short standard call
+JUDGE_CONCURRENCY = 12
+
+
+@dataclass(frozen=True)
+class _Pending:
+    """A claim built and waiting for its judge's verdict, with what applying the verdict needs."""
+
+    claim: GradedClaim
+    sourced: _Sourced
+    proposal: ProposedSourced
+    score: Any
+    read_in_primary: bool
+    rule: str
+
+
 async def _judge_all(
     claim: GradedClaim, port: SupportJudgePort | None, judge_ok: bool, cfg: GradingConfig
 ) -> Judged:
@@ -347,6 +364,7 @@ async def grade_claims(
         for s in sourced:
             by_attr.setdefault(s.proposal.attribute_key, []).append(s)
         out_leads: dict[str, LeadVerification] = {}
+        pending: list[_Pending] = []
         for key in sorted(by_attr):
             group = by_attr[key]
             cls = attribute_class(key, cfg)
@@ -425,39 +443,58 @@ async def grade_claims(
                         flags=tuple(flags),
                         lead=lead_rec,
                     )
-                    judged = await _judge_all(claim, judge, judge_profile_ok, cfg)
-                    if not judged.keep:
-                        drop(judged.drop_reason or "unsupported_by_judge", s.claim_hash, p)
-                        continue
-                    if (judged.engine_grade, judged.product_grade, judged.flags) != (
-                        claim.engine_grade,
-                        claim.product_grade,
-                        claim.flags,
-                    ):
-                        downgraded = judged.product_grade != claim.product_grade
-                        claim = claim.model_copy(
-                            update={
-                                "engine_grade": judged.engine_grade,
-                                "product_grade": judged.product_grade,
-                                "read_in_primary_this_run": claim.read_in_primary_this_run,
-                                "may_state_to_prospect": statement_policy(
-                                    judged.product_grade, cfg
-                                ),
-                                "flags": tuple(sorted(set(judged.flags))),
-                                "reasoning": _reasoning(score, prim.value, p.reasoning)
-                                if downgraded
-                                else claim.reasoning,
-                                "precedence_rule": f"{rule}+judge_cap"
-                                if downgraded or "unjudged" in judged.flags
-                                else rule,
-                            }
-                        )
-                        claim = GradedClaim.model_validate(claim.model_dump())  # re-run every rule
+                    pending.append(_Pending(claim, s, p, score, prim.value, rule))
                 except ValidationError as error:
                     drop(_drop_reason(error), s.claim_hash, p)
                     continue
-                graded[s.claim_hash] = claim
-                by_local[p.local_id] = claim
+
+        # the judge's verdicts are asked side by side (each is its own short call, seconds long)
+        # and applied in the order the claims were built, so the result is the one-at-a-time loop's
+        verdicts = await fan_out_all(
+            pending,
+            lambda item: _judge_all(item.claim, judge, judge_profile_ok, cfg),
+            limit=JUDGE_CONCURRENCY,
+        )
+        for item, judged in zip(pending, verdicts, strict=True):
+            claim, s, p, score, prim_value, rule = (
+                item.claim,
+                item.sourced,
+                item.proposal,
+                item.score,
+                item.read_in_primary,
+                item.rule,
+            )
+            try:
+                if not judged.keep:
+                    drop(judged.drop_reason or "unsupported_by_judge", s.claim_hash, p)
+                    continue
+                if (judged.engine_grade, judged.product_grade, judged.flags) != (
+                    claim.engine_grade,
+                    claim.product_grade,
+                    claim.flags,
+                ):
+                    downgraded = judged.product_grade != claim.product_grade
+                    claim = claim.model_copy(
+                        update={
+                            "engine_grade": judged.engine_grade,
+                            "product_grade": judged.product_grade,
+                            "read_in_primary_this_run": claim.read_in_primary_this_run,
+                            "may_state_to_prospect": statement_policy(judged.product_grade, cfg),
+                            "flags": tuple(sorted(set(judged.flags))),
+                            "reasoning": _reasoning(score, prim_value, p.reasoning)
+                            if downgraded
+                            else claim.reasoning,
+                            "precedence_rule": f"{rule}+judge_cap"
+                            if downgraded or "unjudged" in judged.flags
+                            else rule,
+                        }
+                    )
+                    claim = GradedClaim.model_validate(claim.model_dump())  # re-run every rule
+            except ValidationError as error:
+                drop(_drop_reason(error), s.claim_hash, p)
+                continue
+            graded[s.claim_hash] = claim
+            by_local[p.local_id] = claim
 
         for h, p in sorted(others, key=lambda x: x[0]):
             try:

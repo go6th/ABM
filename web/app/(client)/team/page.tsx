@@ -10,22 +10,21 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Teammates · Account Intelligence" };
 
 export default async function TeamPage() {
+  // the two reads do not depend on each other: asked together, the page waits for the slower
+  // one instead of both. The people data consent (every member reads it; admins change it):
+  // research runs build the senior people list only while it is granted
+  const [teamRead, consentRead] = await Promise.allSettled([
+    serverGet<Team>("/v1/users/team", "/team"),
+    serverGet<PeopleConsent>("/v1/settings/people-consent", "/team"),
+  ]);
   let team: Team | null = null;
   let forbidden = false;
-  try {
-    team = await serverGet<Team>("/v1/users/team", "/team");
-  } catch (e) {
-    if (!(e instanceof ServerApiError)) throw e;
-    forbidden = e.status === 403;
-  }
-  // the people data consent (every member reads it; admins change it): research runs build
-  // the senior people list only while it is granted
+  if (teamRead.status === "fulfilled") team = teamRead.value;
+  else if (teamRead.reason instanceof ServerApiError) forbidden = teamRead.reason.status === 403;
+  else throw teamRead.reason;
   let consent: PeopleConsent | null = null;
-  try {
-    consent = await serverGet<PeopleConsent>("/v1/settings/people-consent", "/team");
-  } catch (e) {
-    if (!(e instanceof ServerApiError)) throw e;
-  }
+  if (consentRead.status === "fulfilled") consent = consentRead.value;
+  else if (!(consentRead.reason instanceof ServerApiError)) throw consentRead.reason;
   return (
     <div className="pg center">
       <div className="col w760">

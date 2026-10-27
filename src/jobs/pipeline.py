@@ -20,6 +20,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 
 from account_intelligence.grading.schema import ProposedSourced
+from crosscut.fanout import fan_out_all
 from jobs.claims import claims_for
 from jobs.classify import classify_rules
 from jobs.config import JobsConfig
@@ -43,6 +44,8 @@ from jobs.ports import PageReadPort, PostingSourcePort, SourceUnavailable
 from jobs.sentences import extract_platform_sentences
 from jobs.window import classify_window, window_start
 
+# postings read and classified at once (page reads and extractor calls are what each waits on)
+JOBS_CONCURRENCY = 8
 ROW_BOARD = "job_board_by_lane"
 ROW_PULL = "job_postings_12_months"
 ROW_READ = "job_postings_read_classified"
@@ -171,6 +174,7 @@ class JobsPipeline:
         reported: dict[str, int | None] = {}
         searched = 0
         partial = False
+        searches: list[tuple[str, str]] = []
         for lane in self.cfg.lanes:
             if lane.id in lanes_off:
                 not_searched[lane.id] = "lane_not_in_scope"
@@ -178,22 +182,32 @@ class JobsPipeline:
             if not lane.keywords:
                 not_searched[lane.id] = "not_available_yet"
                 continue
-            for keyword in dict.fromkeys(lane.keywords):  # no re-search of the same keyword
-                searched += 1
-                try:
-                    batch = await self.source.search_board(lane.id, keyword)
-                except SourceUnavailable as error:
-                    if error.call_ref:
-                        refs.append(error.call_ref)
-                        w.failed.append(error.call_ref)
-                    continue
-                refs.extend(batch.call_refs)
-                w.calls.extend(batch.call_refs)
-                partial |= not batch.complete
-                reported[f"{lane.id}:{keyword}"] = batch.reported_count
-                postings.extend(
-                    p.model_copy(update={"live_board_present": True}) for p in batch.postings
-                )
+            # no re-search of the same keyword
+            searches.extend((lane.id, keyword) for keyword in dict.fromkeys(lane.keywords))
+
+        async def search_one(item: tuple[str, str]) -> SourceBatch | SourceUnavailable:
+            try:
+                return await self.source.search_board(*item)
+            except SourceUnavailable as error:
+                return error
+
+        # the searches run side by side and are folded in below in the order they were listed
+        for (lane_id, keyword), batch in zip(
+            searches, await fan_out_all(searches, search_one), strict=True
+        ):
+            searched += 1
+            if isinstance(batch, SourceUnavailable):
+                if batch.call_ref:
+                    refs.append(batch.call_ref)
+                    w.failed.append(batch.call_ref)
+                continue
+            refs.extend(batch.call_refs)
+            w.calls.extend(batch.call_refs)
+            partial |= not batch.complete
+            reported[f"{lane_id}:{keyword}"] = batch.reported_count
+            postings.extend(
+                p.model_copy(update={"live_board_present": True}) for p in batch.postings
+            )
         reason = None
         if not refs:
             all_off = all(lane.id in lanes_off for lane in self.cfg.lanes)
@@ -376,21 +390,22 @@ class JobsPipeline:
         budget = ExtractorBudget(self.cfg.caps["max_extractor_calls"])
         postings: list[Posting] = []
         texts: dict[str, str] = {}
-        batch_size = max(self.cfg.caps["batch_size"], 1)
-        # LOOP(posting batch loop): cap=postings pulled (bounded by the pull caps), batch_size per
-        # batch; exit=all processed (one failure is isolated)
-        for i in range(0, len(merged.rows), batch_size):
-            for item in merged.rows[i : i + batch_size]:
-                refs = merged.call_refs.get(group_key(item), ())
-                base, text = self._base(item, as_of, refs)
-                if base.window_bucket == "out_of_window":
-                    # excluded and counted only: never read, escalated, classified or claimed
-                    postings.append(base)
-                    texts[base.posting_key] = ""
-                    continue
-                done, text = await self._isolated(base, text, lexicon, budget, w)
-                postings.append(done)
-                texts[done.posting_key] = text
+
+        async def handle(item: RawPosting) -> tuple[Posting, str]:
+            """One posting built, read and classified (out-of-window ones are only counted)."""
+            refs = merged.call_refs.get(group_key(item), ())
+            base, text = self._base(item, as_of, refs)
+            if base.window_bucket == "out_of_window":
+                # excluded and counted only: never read, escalated, classified or claimed
+                return base, ""
+            return await self._isolated(base, text, lexicon, budget, w)
+
+        # LOOP(posting fan-out): cap=postings pulled (bounded by the pull caps), JOBS_CONCURRENCY
+        # in flight; exit=all processed (one failure is isolated). The page-read and extractor
+        # budgets are taken before a call starts, so side by side they cap as one at a time did.
+        for done, text in await fan_out_all(merged.rows, handle, limit=JOBS_CONCURRENCY):
+            postings.append(done)
+            texts[done.posting_key] = text
         self.last_texts = texts
         pulled = tuple(r.raw_ref for r in raw)
         exits = {

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from functools import cache, lru_cache
@@ -635,6 +636,92 @@ _FILE_KIND = {
 }
 
 
+async def is_materialised(session: Any, run: UUID) -> bool:
+    """Whether the run's client tables were built (``views.materialize``), in any state."""
+    return bool(
+        await session.scalar(
+            text("SELECT true FROM view_materializations WHERE run_id = :r"), {"r": run}
+        )
+    )
+
+
+@dataclass(frozen=True)
+class _FilePrefetch:
+    """What ``_file_table`` reads about a delivered run, fetched once for every file-shaped sheet
+    (a screen asking for all five tables paid five times as many queries)."""
+
+    run: UUID
+    ready: bool
+    manifests: Mapping[str, Any]  # deliverables.kind -> the newest version's manifest
+    first: Mapping[str, Any]  # table kind -> the first materialised row's cells
+    counts: Mapping[str, int]  # table kind -> materialised rows
+
+
+async def _prefetch(session: Any, run: UUID) -> _FilePrefetch:
+    ready = await session.scalar(
+        text("SELECT status = 'ready' FROM view_materializations WHERE run_id = :r"), {"r": run}
+    )
+    manifests: dict[str, Any] = {}
+    first: dict[str, Any] = {}
+    counts: dict[str, int] = {}
+    if ready:
+        for r in (
+            await session.execute(
+                text(
+                    "SELECT DISTINCT ON (kind) kind, manifest_json FROM deliverables"
+                    " WHERE run_id = :r ORDER BY kind, version DESC"
+                ),
+                {"r": run},
+            )
+        ).all():
+            m = r.manifest_json
+            manifests[r.kind] = json.loads(m) if isinstance(m, str) else m
+        for r in (
+            await session.execute(
+                text(
+                    "SELECT DISTINCT ON (table_kind) table_kind, cells FROM view_rows"
+                    " WHERE run_id = :r ORDER BY table_kind, position"
+                ),
+                {"r": run},
+            )
+        ).all():
+            first[r.table_kind] = r.cells
+        counts = {
+            r.table_kind: int(r.n)
+            for r in (
+                await session.execute(
+                    text(
+                        "SELECT table_kind, count(*) AS n FROM view_rows WHERE run_id = :r"
+                        " GROUP BY table_kind"
+                    ),
+                    {"r": run},
+                )
+            ).all()
+        }
+    return _FilePrefetch(run, bool(ready), manifests, first, counts)
+
+
+def _judge(key: str, pre: _FilePrefetch) -> tuple[UUID, int] | None:
+    """(delivered run, rows) of the file-shaped sheet ``key`` from what ``_prefetch`` read."""
+    table = FILE_TABLES.get(key)
+    if table is None or not pre.ready:
+        return None
+    manifest = pre.manifests.get(_FILE_KIND[table])
+    printed = manifest.get("rows") if isinstance(manifest, dict) else None
+    if not isinstance(printed, int):
+        return None
+    from views.tables import specs
+
+    want = {c.key for c in specs()[table].columns}  # type: ignore[index]
+    first = pre.first.get(table)
+    if first is not None and set(dict(first)) != want:
+        return None
+    count = pre.counts.get(table, 0)
+    if _FILE_KIND[table] != "summary" and count != printed:
+        return None
+    return pre.run, count
+
+
 async def _file_table(session: Any, account_id: UUID, key: str) -> tuple[UUID, int] | None:
     """(delivered run, rows) of the file-shaped sheet ``key``, or None when the live sheet
     stands in. The rows are shown only when they are the delivered file's: the run's
@@ -646,43 +733,7 @@ async def _file_table(session: Any, account_id: UUID, key: str) -> tuple[UUID, i
     run = await delivered_run(session, account_id) if table else None
     if table is None or run is None:
         return None
-    ready = await session.scalar(
-        text("SELECT status = 'ready' FROM view_materializations WHERE run_id = :r"), {"r": run}
-    )
-    manifest = await session.scalar(
-        text(
-            "SELECT manifest_json FROM deliverables WHERE run_id = :r AND kind = :k"
-            " ORDER BY version DESC LIMIT 1"
-        ),
-        {"r": run, "k": _FILE_KIND[table]},
-    )
-    if isinstance(manifest, str):
-        manifest = json.loads(manifest)
-    printed = manifest.get("rows") if isinstance(manifest, dict) else None
-    if not ready or not isinstance(printed, int):
-        return None
-    first = await session.scalar(
-        text(
-            "SELECT cells FROM view_rows WHERE run_id = :r AND table_kind = :k"
-            " ORDER BY position LIMIT 1"
-        ),
-        {"r": run, "k": table},
-    )
-    from views.tables import specs
-
-    want = {c.key for c in specs()[table].columns}  # type: ignore[index]
-    if first is not None and set(dict(first)) != want:
-        return None
-    count = int(
-        await session.scalar(
-            text("SELECT count(*) FROM view_rows WHERE run_id = :r AND table_kind = :k"),
-            {"r": run, "k": table},
-        )
-        or 0
-    )
-    if _FILE_KIND[table] != "summary" and count != printed:
-        return None
-    return run, count
+    return _judge(key, await _prefetch(session, run))
 
 
 async def file_run(session: Any, account_id: UUID, key: str) -> UUID | None:
@@ -691,11 +742,16 @@ async def file_run(session: Any, account_id: UUID, key: str) -> UUID | None:
     return found[0] if found else None
 
 
-async def file_counts(session: Any, account_id: UUID) -> dict[str, int]:
-    """The rows of each file-shaped sheet with a delivered run, by sheet key."""
+async def file_counts(session: Any, account_id: UUID, run: UUID | None = None) -> dict[str, int]:
+    """The rows of each file-shaped sheet with a delivered run, by sheet key (``run``: the
+    account's delivered run when the caller already read it)."""
+    run = run if run is not None else await delivered_run(session, account_id)
+    if run is None:
+        return {}
+    pre = await _prefetch(session, run)
     out: dict[str, int] = {}
     for key in FILE_TABLES:
-        found = await _file_table(session, account_id, key)
+        found = _judge(key, pre)
         if found is not None:
             out[key] = found[1]
     return out

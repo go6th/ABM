@@ -100,6 +100,7 @@ _ACCOUNTS = text(
     FROM accounts a
     """
 )
+_ONE_ACCOUNT = text(_ACCOUNTS.text + " WHERE a.id = :account")
 
 
 def _state(row: Any, new_signals: int) -> str:
@@ -121,26 +122,39 @@ def _last_researched(row: Any) -> datetime | None:
     return max(values) if values else None
 
 
-async def _new_signals(session: Any, account_id: UUID, previous: datetime | None) -> int:
-    if previous is None:
-        return 0
-    return int(
-        await session.scalar(
-            text("SELECT count(*) FROM signal_events WHERE account_id = :a AND detected_at > :p"),
-            {"a": account_id, "p": previous},
+async def _new_signals_of(session: Any, rows: Sequence[Any]) -> dict[UUID, int]:
+    """Signals detected since the previous refresh, for every account that has had one, in one
+    query."""
+    asked = {r.id: r.refreshes[1] for r in rows if r.refreshes and len(r.refreshes) > 1}
+    if not asked:
+        return {}
+    found = (
+        await session.execute(
+            text(
+                "SELECT q.a AS account_id, count(s.*) AS n FROM unnest(CAST(:ids AS uuid[]),"
+                " CAST(:since AS timestamptz[])) AS q(a, p) JOIN signal_events s"
+                " ON s.account_id = q.a AND s.detected_at > q.p GROUP BY q.a"
+            ),
+            {"ids": list(asked), "since": list(asked.values())},
         )
-        or 0
+    ).all()
+    return {r.account_id: int(r.n) for r in found}
+
+
+async def account_rows(
+    session: Any, now: datetime, account_id: UUID | None = None
+) -> list[dict[str, Any]]:
+    """Every account (or just ``account_id``) with its sub-line state, lanes, last researched
+    and refresh cadence, most news first (new signals, then most recently researched)."""
+    rows = (
+        (await session.execute(_ONE_ACCOUNT, {"account": account_id})).all()
+        if account_id is not None
+        else (await session.execute(_ACCOUNTS)).all()
     )
-
-
-async def account_rows(session: Any, now: datetime) -> list[dict[str, Any]]:
-    """Every account with its sub-line state, lanes, last researched and refresh cadence,
-    most news first (new signals, then most recently researched)."""
+    signals = await _new_signals_of(session, rows)
     out = []
-    for row in (await session.execute(_ACCOUNTS)).all():
-        refreshes = list(row.refreshes or [])
-        previous = refreshes[1] if len(refreshes) > 1 else None
-        new = await _new_signals(session, row.id, previous)
+    for row in rows:
+        new = signals.get(row.id, 0)
         last = _last_researched(row)
         cadence = row.refresh_cadence or "off"
         out.append(
@@ -177,8 +191,7 @@ def _sentences(value: str) -> list[str]:
 
 async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime) -> dict[str, Any]:
     """The Account workspace read model (the account must already be resolved in this tenant)."""
-    rows = [r for r in await account_rows(session, now) if r["id"] == str(account_id)]
-    acct = rows[0]
+    acct = (await account_rows(session, now, account_id))[0]
     runs = (
         await session.execute(
             text(

@@ -263,6 +263,10 @@ async def cloud_sql_engine(
         async_creator=creator,
         pool_size=pool_size,
         max_overflow=max_overflow,
-        pool_pre_ping=True,
     )
+    # a connection is checked only after sitting idle (``db.session.lazy_pre_ping``): a check
+    # on every checkout was three round trips of every API call
+    from account_intelligence.db.session import lazy_pre_ping
+
+    lazy_pre_ping(engine)
     return engine, connector

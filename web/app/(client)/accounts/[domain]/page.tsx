@@ -4,6 +4,7 @@
 // live counts and FILES. Another client's account and a missing one look the same: not found.
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import type { AccountWorkspace, DocumentList } from "@/lib/gen/api.gen";
 import { serverGet, ServerApiError } from "@/lib/server-api";
 import { LINK_REL, safeLink } from "@/lib/render";
@@ -52,6 +53,19 @@ function gapTone(reason: string): PillTone {
   return "neutral";
 }
 
+/** The client's own uploads for this account (viewers may not list documents: none shown). Read
+ *  inside its own Suspense boundary so the page, whose data is the workspace, does not wait for a
+ *  second round trip to the API before it shows. */
+async function Uploads({ accountId, here }: { accountId: string; here: string }) {
+  let uploads: DocumentList["documents"] | null = null;
+  try {
+    uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(accountId)}`, here))?.documents ?? null;
+  } catch (e) {
+    if (!(e instanceof ServerApiError)) throw e;
+  }
+  return uploads ? <UploadedFilesCard docs={uploads} /> : null;
+}
+
 export default async function AccountWorkspacePage({ params }: Params) {
   const domain = segment((await params).domain);
   const here = `/accounts/${encodeURIComponent(domain)}`;
@@ -72,15 +86,6 @@ export default async function AccountWorkspacePage({ params }: Params) {
           : <StateCard title="Account not found" body="It is not in your workspace." action={<Link className="btn" href="/accounts">Back to accounts</Link>} />}
       </div>
     );
-  }
-  // the client's own uploads for this account (viewers may not list documents: none shown)
-  let uploads: DocumentList["documents"] | null = null;
-  if (ws.id) {
-    try {
-      uploads = (await serverGet<DocumentList>(`/v1/documents?account_id=${encodeURIComponent(ws.id)}`, here))?.documents ?? null;
-    } catch (e) {
-      if (!(e instanceof ServerApiError)) throw e;
-    }
   }
   const name = ws.name ?? ws.domain;
   const findings = ws.findings ?? [];
@@ -221,7 +226,7 @@ export default async function AccountWorkspacePage({ params }: Params) {
           ))}
         </nav>
         <FilesCard domain={ws.domain} files={ws.files} />
-        {uploads ? <UploadedFilesCard docs={uploads} /> : null}
+        {ws.id ? <Suspense fallback={null}><Uploads accountId={ws.id} here={here} /></Suspense> : null}
       </div>
     </div>
   );

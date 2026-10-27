@@ -17,7 +17,7 @@ GUARANTEE(test_an_unknown_citation_no_longer_discards_the_reply)
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -368,8 +368,13 @@ def test_the_config_switches_the_arm_and_lowers_effort() -> None:
     assert routes["judge"].model == profiles["analysis_fable"]["model"]
     assert routes["judge"].model != routes["extractor"].model
     assert routes["synthesis"].effort == "medium" and routes["narrative"].effort == "medium"
-    assert load_batch_config().applies("abm_pass1_extract")
-    assert not load_batch_config().applies("file_answer_question")  # interactive
+    economy = replace(load_batch_config(), mode="economy")
+    assert economy.applies("abm_pass1_extract")
+    assert not economy.applies("source_reread")  # a short verdict a run waits on
+    assert not economy.applies("file_answer_question")  # interactive
+    assert load_batch_config().mode == "fast" and not load_batch_config().applies(
+        "abm_pass1_extract"
+    )
     assert profiles["helper_haiku"]["model"] == HELPER
 
 
