@@ -37,6 +37,7 @@ COPY render/docx/package.json render/docx/package-lock.json render/docx/tsconfig
 COPY render/docx/src /opt/render-docx/src
 RUN npm ci --prefix /opt/render-docx --ignore-scripts \
  && npm run build --prefix /opt/render-docx \
+ && find /opt/render-docx/dist -name '*.map' -delete \
  && npm prune --omit=dev --prefix /opt/render-docx
 COPY src ./src
 # hadolint ignore=SC2086
