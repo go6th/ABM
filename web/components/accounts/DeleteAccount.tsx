@@ -34,7 +34,8 @@ export function DeleteAccount({ domain, name }: { domain: string; name: string }
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 409) setError("A research is still running on this account. Stop it, then delete the account.");
       else if (cause instanceof ApiError && cause.status === 404) { router.push("/accounts"); router.refresh(); return; }
-      else setError("The account could not be deleted. Try again in a moment.");
+      else if (cause instanceof ApiError && cause.status === 422) setError(`The account was not deleted: ${cause.detail || "the request was refused"} (${cause.type}).`);
+      else setError(`The account could not be deleted. Try again in a moment.${cause instanceof ApiError ? ` (${cause.status} ${cause.type})` : ""}`);
       setBusy(false);
     }
   };
