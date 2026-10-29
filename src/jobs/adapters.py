@@ -55,7 +55,11 @@ class ConnectorPostingSource(_Calls):
     """``PostingSourcePort`` over ``call_operation``."""
 
     def __init__(
-        self, deps: Any, careers_host: str | None, blocked_hosts: Iterable[str] = ()
+        self,
+        deps: Any,
+        careers_host: str | None,
+        blocked_hosts: Iterable[str] = (),
+        since_override: date | None = None,
     ) -> None:
         super().__init__(deps)
         # a verified host is often "www.<domain>"; search filters take the bare lowercase host
@@ -65,6 +69,9 @@ class ConnectorPostingSource(_Calls):
         # another company's and is dropped before it is stored, counted in ``dropped``
         self.blocked_hosts = frozenset(h.lower() for h in blocked_hosts if h)
         self.dropped = 0
+        # an incremental run's delta bound (``jobs.incremental.postings_since`` of the run
+        # input); None pulls the whole window
+        self.since_override = since_override
 
     def _lookalike(self, url: str | None) -> bool:
         if not self.blocked_hosts or not url:
@@ -116,11 +123,27 @@ class ConnectorPostingSource(_Calls):
         feed pages through the account's whole history and stops at the page cap. The bound is
         anchored to the first day of ``start``'s month, the same key the research graph's Phase 1
         pull uses (``agents.production.provider``): the pull is paid once a month per account,
-        and a posting the anchor adds before ``start`` is classified out of window by date."""
-        since = start.replace(day=1)
+        and a posting the anchor adds before ``start`` is classified out of window by date.
+
+        An incremental run (``since_override``, decided once at run creation) asks only for
+        postings first seen since the previous research minus the overlap: a new ledger key, paid
+        once and replayed on resume, the same key Phase 1 used."""
+        since = self.since_override or start.replace(day=1)
         result = await self.call(
             Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain, since=since)
         )
+        return self._feed_batch(result)
+
+    async def pull_active(self) -> SourceBatch:
+        """The feed's currently open postings (``active_only``, no date bound): one request at the
+        provider's page size, so an incremental run learns which carried postings have closed
+        without a page probe per posting."""
+        result = await self.call(
+            Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain, active_only=True)
+        )
+        return self._feed_batch(result)
+
+    def _feed_batch(self, result: Any) -> SourceBatch:
         rows = []
         for record in result.records:
             if not isinstance(record, JobOpeningRecord) or self._lookalike(record.url):
@@ -140,6 +163,8 @@ class ConnectorPostingSource(_Calls):
                     text_complete=None,  # VERIFY(V-JOBS-1): completeness not in the contract
                     location=record.location,
                     call_ref=result.call_refs[0] if result.call_refs else None,
+                    last_seen_at=record.last_seen_at,
+                    seniority=record.seniority,
                 )
             )
         return SourceBatch(
@@ -235,10 +260,21 @@ class ProposalSink:
 
 
 class RunJobsInput:
-    """``RunInputPort`` from the run row: lanes switched off and the run's ``as_of`` date."""
+    """``RunInputPort`` from the run row: lanes switched off, the run's ``as_of`` date and, for
+    an incremental run, the previous delivered run whose postings are carried
+    (``postings_previous_run`` in the run input, read back through the repo: same tenant and
+    account only)."""
 
-    def __init__(self, lanes_off: frozenset[str], as_of: date) -> None:
+    def __init__(
+        self,
+        lanes_off: frozenset[str],
+        as_of: date,
+        *,
+        previous_run_id: str | None = None,
+        repo: Any | None = None,
+    ) -> None:
         self._off, self._as_of = lanes_off, as_of
+        self._previous_run_id, self._repo = previous_run_id, repo
 
     async def lanes_off(self) -> frozenset[str]:
         """Lanes switched off in the run input."""
@@ -247,6 +283,12 @@ class RunJobsInput:
     async def as_of(self) -> date:
         """The run's as_of date (its creation date)."""
         return self._as_of
+
+    async def previous_postings(self) -> Any:
+        """The previous delivered research's stored postings (``PreviousPostings``), or None."""
+        if not self._previous_run_id or self._repo is None:
+            return None
+        return await self._repo.load_previous(self._previous_run_id)
 
 
 class LlmPostingClassifier:

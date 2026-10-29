@@ -29,6 +29,10 @@ async def test_golden_run_matches_the_oracle() -> None:
                         group["lanes"],
                         group["priority"],
                     ), group
+                    if "role_lane" in group:
+                        assert c.role_lane == group["role_lane"], group
+                    # a person below the seniority rule is listed from the search record alone
+                    assert (c.band == "below") is (group["level"] in ("manager", "other")), group
                 assert p.possible_duplicate is bool(group.get("possible_duplicate")), group
                 assert p.internal_only is bool(group.get("internal_only")), group
                 assert p.merged_into is None
@@ -96,6 +100,7 @@ async def test_stage_is_idempotent_and_reentry_makes_no_paid_call() -> None:
     assert {p.profile_state for p in replay.people if p.status == "in_scope"} == {
         "reused",
         "failed",
+        "not_requested",  # the two people below the seniority rule are never pulled
     }
 
 

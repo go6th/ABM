@@ -132,7 +132,9 @@ def test_every_rejected_record_is_counted() -> None:
 
 def test_status_only_from_explicit_values() -> None:
     assert normalise_status("Active") == "open" and normalise_status("filled") == "closed"
-    assert normalise_status(None) == normalise_status("maybe") == "unknown"
+    # the feed's contract: a null status is an open posting; a word outside the vocabulary is
+    # never guessed
+    assert normalise_status(None) == "open" and normalise_status("maybe") == "unknown"
 
 
 def test_stored_text_strips_markup_and_keeps_lines_and_pii_is_derived_only() -> None:

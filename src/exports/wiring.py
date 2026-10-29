@@ -55,8 +55,10 @@ def build_export_builder(
     cfg = default_export_config()
     command = renderer_command(env.get("EXPORT_RENDERER", default_renderer))
     checks = LibreOffice() if env.get("EXPORT_RENDER_CHECKS") == "on" else None
+    # archived-copy links in the files are absolute addresses on the public web origin
+    base = (env.get("PUBLIC_BASE_URL") or "").strip().rstrip("/") or None
     return ExportBuilder(
-        PgContentReader(payloads, batch=cfg.rules.limits.keyset_batch),
+        PgContentReader(payloads, batch=cfg.rules.limits.keyset_batch, archive_base=base),
         PgDeliverableStore(tenant_txn, payloads, clock, cfg.rules_hash),
         SubprocessWordRenderer(command, cfg.rules.renderer) if command else None,
         cfg,

@@ -33,7 +33,7 @@ from account_intelligence.grading.config import GradingConfig
 from account_intelligence.tracker.config import load_tracker_config
 from account_intelligence.workflow.ports import BuildIncomplete
 from exports import obs
-from exports.change_note import change_note
+from exports.change_note import rows_change_note
 from exports.citations import orphans
 from exports.config import ExportConfig, JobsBook, PeopleBook, TechBook
 from exports.content import FILE_KINDS, SnapshotContent
@@ -52,7 +52,7 @@ from exports.errors import (
 )
 from exports.excel.jobs import expected_jobs, render_jobs
 from exports.excel.people import expected_people, render_people
-from exports.excel.tech import expected_tech, render_tech
+from exports.excel.tech import LIST_HEADER, expected_tech, render_tech
 from exports.models import (
     BuildManifest,
     BuildResult,
@@ -85,6 +85,7 @@ from exports.verify import (
     scan_package,
     third_party_scan,
     xlsx_row_keys,
+    xlsx_stack_keys,
 )
 from exports.word.compose import compose_evidence, compose_summary
 from exports.workspace import account_slug, build_workspace, check_zip
@@ -190,6 +191,9 @@ class Assembly:
     long_parts: int = 0
     # external hosts of the five files by third-party group (spec 12), for the manifest
     domains: dict[str, set[str]] = field(default_factory=dict)
+    # what changed since the previous delivery (spec 8.3), computed from the mapped rows before
+    # rendering so a re-shared document opens with it; None until mapping is done
+    change_note: str | None = None
 
 
 def _filename(cfg: ExportConfig, kind: str, account: str, ext: str) -> str:
@@ -275,8 +279,12 @@ class ExportBuilder:
 
     # ---- pure-ish assembly (renderer subprocess is the only side effect) ----------------------
 
-    def assemble(self, content: SnapshotContent) -> Assembly:
-        """Map, render, verify and package one snapshot (no storage)."""
+    def assemble(
+        self, content: SnapshotContent, previous: BuildManifest | None = None
+    ) -> Assembly:
+        """Map, render, verify and package one snapshot (no storage). ``previous`` is the
+        account's previous delivered manifest, when there is one: the change note is computed
+        from it and the mapped rows before rendering, and a re-shared document opens with it."""
         out = Assembly()
         out.mapped, ctx = map_snapshot(content, self.cfg, self.grading)
         out.errors.extend(errors_of(ctx.violations))
@@ -285,14 +293,25 @@ class ExportBuilder:
             out.errors.append(MissingContent("a file could not be mapped", missing))
         if out.errors:
             return out
-        self._render_all(out, content, ctx)
+        out.change_note = rows_change_note(
+            previous, {k: (out.mapped[k].row_ids, out.mapped[k].digests) for k in FILE_KINDS}
+        )
+        # the opening line of a re-shared document; a first delivery prints nothing
+        change_line = out.change_note if previous is not None else None
+        self._render_all(out, content, ctx, change_line)
         if out.errors:
             return out
         out.manifest = self._manifest(out, content, ctx)
         self._package(out, content, ctx)
         return out
 
-    def _render_all(self, out: Assembly, content: SnapshotContent, ctx: MapContext) -> None:
+    def _render_all(
+        self,
+        out: Assembly,
+        content: SnapshotContent,
+        ctx: MapContext,
+        change_line: str | None = None,
+    ) -> None:
         account = content.account_name
         for kind in FILE_KINDS:
             mapped = out.mapped[kind]
@@ -302,7 +321,7 @@ class ExportBuilder:
             title = name.rsplit(".", 1)[0].replace("_", " ")
             with obs.span(f"exports.render.{kind}", content.run_id, rows=len(mapped.row_ids)):
                 try:
-                    body, parts = self._render(kind, model, title, content)
+                    body, parts = self._render(kind, model, title, content, change_line)
                     out.long_parts += parts
                     self._verify(kind, body, mapped, ctx, out)
                 except ExportError as error:
@@ -315,13 +334,18 @@ class ExportBuilder:
             obs.file_outcome(kind, "built")
 
     def _render(
-        self, kind: str, model: Any, title: str, content: SnapshotContent
+        self,
+        kind: str,
+        model: Any,
+        title: str,
+        content: SnapshotContent,
+        change_line: str | None = None,
     ) -> tuple[bytes, int]:
         if kind in ("summary", "evidence"):
             if self.renderer is None:
                 raise NotConfigured("no Word renderer")
             spec = (compose_summary if kind == "summary" else compose_evidence)(
-                model, self.cfg, title
+                model, self.cfg, title, change_line
             )
             raw = self.renderer.render(spec)
             props = self.cfg.rules.document_properties
@@ -360,7 +384,11 @@ class ExportBuilder:
                     "tech": books.tech,
                 }
                 book = by_kind[kind]
-                keys = xlsx_row_keys(body, book.sheet, books.ref_column(book))
+                if kind == "tech":
+                    # the Confirmed stack has no Ref column: its rows are keyed by their cells
+                    keys = xlsx_stack_keys(body, books.tech.sheet, LIST_HEADER)
+                else:
+                    keys = xlsx_row_keys(body, book.sheet, books.ref_column(book))
             if keys != mapped.refs:
                 raise RowConservation(
                     f"{kind}: rows in the file differ from the rows selected",
@@ -717,16 +745,16 @@ class ExportBuilder:
             content = await self.reader.read(tenant_id, run_id)
         except ExportError as error:
             return self._failed(run_id, [error])
-        out = self.assemble(content)
+        # the previous delivered manifest first: the change note is computed from it and the
+        # mapped rows before rendering, and both documents open with it (spec 8.3)
+        previous = await self.store.previous_manifest(tenant_id, content.account_id, run_id)
+        out = self.assemble(content, BuildManifest.model_validate(previous) if previous else None)
         if out.errors or out.manifest is None or out.workspace is None:
             return self._failed(run_id, out.errors or [MissingContent("nothing assembled")])
         set_hash = hashlib.sha256(
             json.dumps(out.content_hashes, sort_keys=True).encode()
         ).hexdigest()
-        previous = await self.store.previous_manifest(tenant_id, content.account_id, run_id)
-        note = change_note(
-            BuildManifest.model_validate(previous) if previous else None, out.manifest
-        )
+        note = out.change_note or rows_change_note(None, {})
         out.manifest = out.manifest.model_copy(update={"change_note": note})
         manifest = json.loads(out.manifest.model_dump_json())
         files = tuple(

@@ -98,9 +98,9 @@ def stub_tests(entries: Sequence[Mapping[str, Any]]) -> str:
 
 def require_guard(lesson_id: str, lessons: Sequence[Mapping[str, Any]] | None = None) -> None:
     """Fail unless the lesson is enforced by a known guard or a tagged prompt."""
-    from agents.config import load_skill_config
+    from agents.config import skill_config
 
-    found = [e for e in (lessons or load_skill_config().lessons) if e.get("id") == lesson_id]
+    found = [e for e in (lessons or skill_config().lessons) if e.get("id") == lesson_id]
     if not found:
         raise AssertionError(f"{lesson_id}: not in config/lessons.yaml")
     problem = entry_problem(found[0], prompts_dir=Path(__file__).parent)

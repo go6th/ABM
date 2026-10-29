@@ -8,6 +8,7 @@ The folder map of the whole repository is `../PROJECT_STRUCTURE.md`.
 
 | Document | What it is |
 | --- | --- |
+| [guide/](guide/README.md) | **the plain-language project guide**: what it is, how a research runs step by step, which code does what, the config map, running and releasing it, and the known problems |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | the system as built: services, request flow, tenancy and private workspaces, where data lives |
 | [workspace-how-it-works.md](workspace-how-it-works.md) | the workspace end to end, in full detail: ingest, the document/table store, the Ask tool loop, and the one model layer every surface reads |
 | [product-overview.md](product-overview.md) | the product: problem, workflow, grading, refresh, billing, where the source documents disagree |

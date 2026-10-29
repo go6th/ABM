@@ -133,9 +133,17 @@ def xlsx_rows(data: bytes, spec: TableSpec, long_sheet: str = "Long text") -> li
     ref_at = keys.index("ref") if "ref" in keys else 0
     out: list[dict[str, str]] = []
     for row in rows:
-        ref = row[ref_at] if row and len(row) > ref_at else None
-        if not isinstance(ref, str) or not _REF.match(ref):
-            continue
+        if "ref" in keys:
+            ref = row[ref_at] if row and len(row) > ref_at else None
+            if not isinstance(ref, str) or not _REF.match(ref):
+                continue
+        else:
+            # a sheet with no reference column (the Confirmed stack sheet has none, as in the
+            # owner's reference file): a data row has two or more filled cells (a "none found"
+            # note under the header fills one)
+            ref = ""
+            if sum(1 for v in row if v not in (None, "")) < 2:
+                continue
         record: dict[str, str] = {}
         for key, header, value in zip(keys, header_row, row, strict=False):
             if key is None:

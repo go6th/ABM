@@ -21,6 +21,11 @@
   detection's first evidence page, registered as a source so the Tech Stack workbook can cite it.
   A date range is a lead by rule; nothing here is graded or interpreted. Insert-only and
   idempotent per run: a replay writes nothing twice.
+* ``write_stack`` turns the organisation tech stack (resolved by domain, then the stack of that
+  organisation: business function, category, technology and the postings count the lookup
+  reports; both calls were made in Phase 1 and replay free here) into ``tech_stack_items`` rows
+  for the Tech Stack workbook's Confirmed stack sheet, in the lookup's own order. Insert-only and
+  idempotent per (run, function, category, technology).
 
 GUARANTEE(test_pipelines_run_after_the_reading_step_and_report_their_rows)
 """
@@ -36,9 +41,17 @@ from urllib.parse import urlsplit
 
 from sqlalchemy import text
 
+from account_intelligence import archive as LA
 from account_intelligence.connectors.base import Operation
 from account_intelligence.connectors.errors import ConnectorError, RetryableProviderError
-from account_intelligence.connectors.models import FeedArgs, TechDetectionRecord
+from account_intelligence.connectors.models import (
+    FeedArgs,
+    OrganizationRecord,
+    OrgResolveArgs,
+    OrgTechStackArgs,
+    TechDetectionRecord,
+    TechStackRecord,
+)
 from account_intelligence.connectors.service import call_operation
 from account_intelligence.workflow.deps import RunDeps
 from agents.ports import PipelineOutcome, RunContext
@@ -97,6 +110,7 @@ class RunPipelines:
             TrackerEvidence,
         )
         from jobs.config import load_jobs_config
+        from jobs.incremental import postings_since, previous_run_id
         from jobs.pipeline import JobsPipeline
         from jobs.repo import PgPostingRepo
         from jobs.stage import run_jobs
@@ -121,9 +135,14 @@ class RunPipelines:
                 )
             ).one()
         jobs_cfg = load_jobs_config()
+        run_input = dict(row.run_input or {})
+        repo = PgPostingRepo(deps.txn, deps.tenant_id, deps.account_id)
         pipeline = JobsPipeline(
             jobs_cfg,
-            ConnectorPostingSource(deps, host, ctx.blocked_hosts),
+            # an incremental re-research pulls the delta window only (jobs.incremental)
+            ConnectorPostingSource(
+                deps, host, ctx.blocked_hosts, since_override=postings_since(run_input)
+            ),
             ConnectorPageReader(deps),
             LlmPostingClassifier(deps, "classify_posting", "posting_classifier.v1"),
             LlmPostingClassifier(deps, "second_pass_posting", "posting_second_pass.v1"),
@@ -135,12 +154,15 @@ class RunPipelines:
         result = await run_jobs(
             str(deps.run_id),
             pipeline,
-            PgPostingRepo(deps.txn, deps.tenant_id, deps.account_id),
+            repo,
             RunPayloads(deps),
             TrackerEvidence(deps),
             collector,
             RunJobsInput(
-                frozenset((row.run_input or {}).get("lanes_off") or ()), row.created_at.date()
+                frozenset(run_input.get("lanes_off") or ()),
+                row.created_at.date(),
+                previous_run_id=previous_run_id(run_input),
+                repo=repo,
             ),
         )
         lane_of: dict[str, str] = {}
@@ -184,11 +206,11 @@ class RunPipelines:
 
         from account_intelligence.workflow.handlers import people_operations
         from account_intelligence.workflow.stages.people import _is_hostile
+        from agents.production.people_links import ArchiveResolver, FactMentions
         from people.adapters import (
             ConnectorPeopleSearch,
             LedgerCosts,
             LlmPeopleExtractor,
-            NoMentions,
             PeopleTrackerEvidence,
             RunPeopleInput,
             SourceRegistry,
@@ -221,13 +243,21 @@ class RunPipelines:
         repo = PgPeopleRepo(
             deps.txn, deps.tenant_id, deps.account_id, deps.payloads, deps.payload_key
         )
-        mentions = NoMentions()
+        # people named in the graded facts, and the archived profile pages of the research's
+        # own searches, so a named executive or a person returned without a link gets the
+        # profile page the research already holds (no paid call; link archive 2026-10-27)
+        from agents.config import skill_config
+
         deadline = deps.deadline
         pipeline = PeoplePipeline(
             cfg,
             ConnectorPeopleSearch(deps, people_operations(), cfg),
-            mentions,
-            mentions,
+            FactMentions(deps),
+            ArchiveResolver(deps, ctx.account_name, tuple(skill_config().scope.name_stopwords)),
+            # Full profile pulls cost credits per person and are NOT wired here: the People List's
+            # "Former SI and consulting employers" cell stays empty (no profile read, no claim).
+            # Wiring a profile pull is the owner's decision (people.profiles.to_profile already
+            # reads dated ``employments`` and people.si_firms prints them).
             UnavailableProfiles(),
             UnavailablePosts(),
             LedgerCosts(deps),
@@ -387,6 +417,38 @@ class RunPipelines:
                         await s.run_sync(register)
                     except Exception:  # noqa: BLE001 - an unregistrable page keeps its date range
                         source_ref = None
+                    # the detection as the feed reported it is the archived copy of its page
+                    body_text = (
+                        f"{name}\nFirst seen {key[1]}\nLast seen {key[2]}\n"
+                        f"Sources {int(rec.source_count)}"
+                    )
+                    body = LA.archive_body(
+                        url,
+                        body_text,
+                        title=name[:200],
+                        captured_at=datetime.now(UTC),
+                        kind="detection",
+                        source_ref=rec.provenance.raw_ref,
+                    )
+                    ref = await deps.payloads.put(
+                        LA.archive_key(deps.tenant_id, deps.account_id, body), body
+                    )
+                    await LA.record(
+                        s,
+                        deps.tenant_id,
+                        deps.account_id,
+                        deps.run_id,
+                        [
+                            LA.ArchiveEntry(
+                                url=url,
+                                kind="detection",
+                                payload_ref=ref,
+                                archived_at=datetime.now(UTC),
+                                title=name[:200],
+                                source_ref=rec.provenance.raw_ref,
+                            )
+                        ],
+                    )
                 await s.execute(
                     text(
                         "INSERT INTO tech_detections (tenant_id, account_id, run_id, technology,"
@@ -402,6 +464,107 @@ class RunPipelines:
                         "l": key[2],
                         "c": int(rec.source_count),
                         "s": source_ref or rec.provenance.raw_ref,
+                    },
+                )
+                written += 1
+        return written
+
+    async def write_stack(self, ctx: RunContext) -> PipelineOutcome:
+        """See the module docstring. A domain the lookup does not resolve writes nothing."""
+        deps = self.deps
+        if deps.connectors is None:
+            return PipelineOutcome({"stack_rows": 0}, {"stack": "not_available_yet"})
+        if not await self._stack_was_pulled():
+            # never a new paid call from here: the lookup is made in Phase 1 (the people step's
+            # association rows); a run that did not make it has no stack to store
+            return PipelineOutcome({"stack_rows": 0}, {"stack": "not_pulled"})
+        cc = deps.call_context()
+        try:
+            org = await call_operation(
+                Operation.ORG_RESOLVE, OrgResolveArgs(domain=deps.domain), cc, deps.connectors
+            )
+            found = next(
+                (r for r in org.records if isinstance(r, OrganizationRecord) and r.matched), None
+            )
+            if found is None or found.organization_id is None:
+                return PipelineOutcome({"stack_rows": 0}, {"stack": "not_matched"})
+            result = await call_operation(
+                Operation.ORG_TECH_STACK,
+                OrgTechStackArgs(organization_id=found.organization_id),
+                cc,
+                deps.connectors,
+            )
+        except RetryableProviderError:
+            raise
+        except ConnectorError:
+            return PipelineOutcome({"stack_rows": 0}, {"stack": "source_failed"})
+        records = [r for r in result.records if isinstance(r, TechStackRecord)]
+        written = await self._insert_stack(records)
+        _log.info("pipelines.stack", extra={"count": len(records), "rows": written})
+        return PipelineOutcome(
+            {"stack_rows": written, "stack_records": len(records)}, {"stack": "written"}
+        )
+
+    async def _stack_was_pulled(self) -> bool:
+        """True when this run, or the research it builds on, already made the tech stack lookup
+        (so the calls below replay and cost nothing)."""
+        deps = self.deps
+        async with deps.txn(deps.tenant_id) as s:
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT 1 FROM tool_calls WHERE operation = 'org_tech_stack'"
+                        " AND run_id IN (:r, (SELECT parent_run_id FROM account_runs"
+                        " WHERE id = :r)) LIMIT 1"
+                    ),
+                    {"r": deps.run_id},
+                )
+            ).first()
+        return row is not None
+
+    async def _insert_stack(self, records: list[TechStackRecord]) -> int:
+        """Insert the stack once per run: one row per (business function, category, technology),
+        the first of a repeat kept, ``position`` the item's place in the lookup's order."""
+        deps = self.deps
+        written = 0
+        async with deps.txn(deps.tenant_id) as s:
+            existing = {
+                (r.business_function, r.category, r.technology)
+                for r in (
+                    await s.execute(
+                        text(
+                            "SELECT business_function, category, technology FROM tech_stack_items"
+                            " WHERE run_id = :r AND account_id = :a"
+                        ),
+                        {"r": deps.run_id, "a": deps.account_id},
+                    )
+                ).all()
+            }
+            for position, rec in enumerate(records):
+                key = (
+                    (rec.business_function or "").strip()[:200],
+                    (rec.category_name or "").strip()[:200],
+                    (rec.technology_name or "").strip()[:200],
+                )
+                if not key[2] or key in existing:
+                    continue
+                existing.add(key)
+                await s.execute(
+                    text(
+                        "INSERT INTO tech_stack_items (tenant_id, account_id, run_id,"
+                        " business_function, category, technology, postings, position, source_ref)"
+                        " VALUES (:t, :a, :r, :f, :c, :n, :p, :o, :s)"
+                    ),
+                    {
+                        "t": deps.tenant_id,
+                        "a": deps.account_id,
+                        "r": deps.run_id,
+                        "f": key[0],
+                        "c": key[1],
+                        "n": key[2],
+                        "p": max(0, int(rec.job_post_used_count)),
+                        "o": position,
+                        "s": rec.provenance.raw_ref,
                     },
                 )
                 written += 1

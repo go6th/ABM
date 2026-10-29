@@ -407,6 +407,13 @@ class AccountWorkspace(AccountItem):
     gaps: list[CoverageGap] = []
 
 
+class AccountDeleted(Out):
+    """An account removed from the workspace: it is hidden from then on, its research kept."""
+
+    domain: str
+    deleted_at: str
+
+
 class SheetColumn(Out):
     """One column of a deep-dive table."""
 
@@ -435,6 +442,34 @@ class SheetRow(Out):
     # a file-shaped sheet's link columns: column key -> the address the cell opens (the cell
     # shows the file's own text, such as "Open profile")
     links: dict[str, str] = Field(default_factory=dict)
+    # the archived copy behind a link (the column key, or ``link`` for the row's source link):
+    # where to open the copy the research captured, and when it was captured
+    archives: dict[str, ArchivedLinkRef] = Field(default_factory=dict)
+    # the fill of a cell as the file colours it, by column key, as a theme token
+    # (``priority_a``, ``rank_b``, ``new_row``); the screen maps a token to a class
+    fills: dict[str, str] = Field(default_factory=dict)
+    # cells shown cut on the page, by column key, with the full text's length (the whole cell is
+    # one ``GET .../sheets/{sheet}/cell`` away, and in the file)
+    cut: dict[str, int] = Field(default_factory=dict)
+
+
+class ArchivedLinkRef(Out):
+    """Where a row opens the archived copy of one of its links, and when it was captured."""
+
+    href: str
+    archived_at: str
+
+
+class ArchivedCopy(Out):
+    """One archived copy of an address the research stored: the original address, the kind of
+    link, when it was captured, its title and the text captured (never a data provider's own
+    record)."""
+
+    url: str
+    kind: str
+    archived_at: str
+    title: str | None = None
+    text: str
 
 
 class SheetTabRef(Out):
@@ -474,10 +509,23 @@ class Sheet(Out):
 
 
 class SheetCell(Out):
-    """One cell of a workbook tab as the file shows it, and the address its link opens."""
+    """One cell of a workbook tab as the file shows it, the address its link opens and the
+    theme token of its fill (``priority_a``, ``rank_b``, ``new_row``; None: no fill)."""
 
     text: str
     href: str | None = None
+    fill: str | None = None
+
+
+class SheetCellText(Out):
+    """One whole cell of a deep-dive table (the page shows long cells cut): its row number,
+    column key, full text (withheld text reads as the marker) and the address it opens."""
+
+    n: int
+    col: str
+    text: str
+    href: str | None = None
+    withheld: bool = False
 
 
 class SheetBlock(Out):

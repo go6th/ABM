@@ -112,6 +112,9 @@ a.chipa:hover, button.chipa:hover { color: var(--accent); }
 /* a source as "6th / LinkedIn", opening the original page */
 .src-link { font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; margin: 0 4px 0 1px; }
 .src-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+/* the archived copy beside a source link: small and quiet, it matters once the link dies */
+.arc-link { font-size: 11px; color: var(--muted); white-space: nowrap; margin-left: 6px; }
+.arc-link:hover { text-decoration: underline; text-underline-offset: 2px; color: var(--accent); }
 .filecite { font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; }
 .filecite:hover { text-decoration: underline; }
 
@@ -399,6 +402,20 @@ table.xl .clamp { display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -w
 .xl-frame.big table.xl .clamp { display: block; -webkit-line-clamp: unset; line-clamp: none; overflow: visible; }
 table.xl tr:has(td.wrap) td { vertical-align: top; padding-top: 8px; padding-bottom: 8px; }
 .tab-table .xl-frame { max-height: none; }
+/* a long cell is cut on the page; Expand fetches the whole cell */
+table.xl .cell-more { display: inline-block; margin-top: 4px; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); background: transparent; border: 0; padding: 0; cursor: pointer; }
+table.xl .cell-more:hover { text-decoration: underline; text-underline-offset: 2px; }
+table.xl .cell-more:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+table.xl .cell-note { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+/* cell fills as the delivered file colours them: the API names a theme token (priority_a, rank_b,
+   new_row) and the screen maps it to a class, so no colour value is ever inlined (CSP) */
+table.xl td.fill-priority-a, table.xl tbody tr:hover td.fill-priority-a { background: #DDEFE0; }
+table.xl td.fill-priority-b, table.xl tbody tr:hover td.fill-priority-b { background: #FFF1CC; }
+table.xl td.fill-priority-c, table.xl tbody tr:hover td.fill-priority-c { background: #EEEEEE; }
+table.xl td.fill-rank-a, table.xl tbody tr:hover td.fill-rank-a { background: #C6EFCE; }
+table.xl td.fill-rank-b, table.xl tbody tr:hover td.fill-rank-b { background: #FFEB9C; }
+table.xl td.fill-rank-c, table.xl tbody tr:hover td.fill-rank-c { background: #E7E6E6; }
+table.xl td.fill-new-row, table.xl tbody tr:hover td.fill-new-row { background: #FFF9E6; }
 
 /* ---------- Refresh from web ---------- */
 .opts { display: flex; flex-direction: column; gap: 12px; }

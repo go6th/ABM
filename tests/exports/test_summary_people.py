@@ -14,7 +14,7 @@ from exports.readers.jobs import map_jobs
 from exports.readers.people import map_people
 from exports.readers.summary import map_summary
 from exports.word.compose import compose_summary, picture_cells
-from exports.word.contract import TableBlock
+from exports.word.contract import Run, TableBlock
 from tests.exports.corpus import account
 from views.rowsources.facts import facts_rows
 from views.tables import specs
@@ -109,14 +109,12 @@ def test_key_people_are_priority_a_and_the_executives_with_priority_and_note(
     (table,) = _tables(cfg, model)["key_people"]
     assert table.headers == tuple(cfg.rules.documents.tables["key_people"])
     row = next(r for r in table.rows if r[0] == executive.ref)
-    assert row[1:6] == (
-        executive.name,
-        executive.title,
-        executive.lanes,
-        "B",
-        executive.profile_url,
-    )
+    assert row[1:5] == (executive.name, executive.title, executive.lanes, "B")
+    # the Link cell is a "Profile" hyperlink to the profile, as the reference prints it
+    profile = Run(text=cfg.rules.documents.labels.profile_link, href=executive.profile_url)
+    assert row[5] == (profile,)
     assert row[-1] == executive.source_code
+    assert table.label_column == 1  # the name column prints bold, after the row key
     registered = {n.key: n.value for n in ctx.registry.items()}
     assert registered["summary.key_people"] == 3
 

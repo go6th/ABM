@@ -169,7 +169,10 @@ async def test_profile_cap_budget_and_isolated_failure() -> None:
     kit = Kit(Corpus(), cfg=_cfg(max_profiles_per_run=2))
     result = await kit.run()
     states = [p.profile_state for p in result.people if p.status == "in_scope"]
-    assert states.count("cap") == len(states) - 2 and result.flags["profiles_cap_hit"]
+    # the two people below the seniority rule are never a profile target
+    pulled = [s for s in states if s != "not_requested"]
+    assert len(pulled) == len(states) - 2
+    assert pulled.count("cap") == len(pulled) - 2 and result.flags["profiles_cap_hit"]
     assert result.exit_reasons["profiles"] == "cap_reached"
     corpus = Corpus()
     corpus.data["profiles"]["https://www.linkedin.com/in/raj-patel"] = {"budget": True}

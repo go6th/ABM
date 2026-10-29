@@ -28,7 +28,17 @@ def test_a_match_without_evidence_or_in_conflict_keeps_the_earlier_rules() -> No
         == "hypothesis"
     )
     conflicting = ProductInputs("conflicting", "A", False, unread_match=True)
-    assert product_grade(conflicting, CFG)[1] == "conflicting"
+    # the conflict cap is a ceiling, not a promotion: an unread match stays a Lead (the rule that
+    # decided it is still "conflicting"); a conflicting claim that is not a match caps at Probable
+    assert product_grade(conflicting, CFG) == ("lead", "conflicting")
+    assert product_grade(ProductInputs("conflicting", "A", False), CFG) == (
+        "probable",
+        "conflicting",
+    )
+    assert product_grade(ProductInputs("conflicting", "A", True, unread_match=True), CFG) == (
+        "probable",
+        "conflicting",
+    )
 
 
 def test_unread_match_rule_sits_after_primary_read() -> None:

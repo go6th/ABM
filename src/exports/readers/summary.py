@@ -83,6 +83,7 @@ SECTION_KINDS = (
     "decision_change",
     "stands_out",
     "lane_meaning",
+    "people_interpretation",
 )
 # Sections whose every block must cite at least one source code.
 _CITED_KINDS = ("narrative", "executive_voice", "decision_change", "stands_out", "lane_meaning")
@@ -543,16 +544,43 @@ def _waiting(rows: Sequence[TrackerRow]) -> tuple[WaitingRow, ...]:
 
 
 def _source_links(ctx: MapContext, cited: set[str]) -> tuple[SourceLinkRow, ...]:
-    """Every source this file cites, once, in code order, with its link and domain."""
+    """Every source this file cites, once, in code order, with its link, its stored page title
+    (the text the link is printed as) and its domain."""
     codes = sorted((c for c in cited if ctx.index.knows(c)), key=lambda c: int(c.split("-")[1]))
-    return tuple(
-        SourceLinkRow(
-            ref=ref("SL", i),
-            code=code,
-            url=ctx.index.by_code[code].url,
-            domain=ctx.rendered(host_of(ctx.index.by_code[code].url), "summary.source_links"),
+    where = "summary.source_links"
+    out = []
+    for i, code in enumerate(codes, start=1):
+        s = ctx.index.by_code[code]
+        out.append(
+            SourceLinkRow(
+                ref=ref("SL", i),
+                code=code,
+                url=s.url,
+                domain=ctx.rendered(host_of(s.url), where),
+                title=ctx.rendered(s.title, where).strip() if s.title else "",
+            )
         )
-        for i, code in enumerate(codes, start=1)
+    return tuple(out)
+
+
+def _long_date(d: date) -> str:
+    return f"{d.day} {d:%B %Y}"
+
+
+def _hiring_heading(ctx: MapContext, hiring: tuple[PlatformHiringRow, ...]) -> str | None:
+    """The platform hiring sub-heading with its window, as the reference words it: the postings
+    window of ``scope.yaml`` counted back from the research date."""
+    if not hiring:
+        return None
+    months = ctx.cfg.scope.postings_window_months
+    end = ctx.content.as_of
+    return str(
+        ctx.rules.headings.summary.platform_hiring.format(
+            months=months,
+            account=ctx.content.account_name,
+            start=_long_date(months_before(end, months)),
+            end=_long_date(end),
+        )
     )
 
 
@@ -643,7 +671,9 @@ def _key_people(ctx: MapContext, people: PeopleModel | None) -> tuple[KeyPersonR
     top = ctx.rules.labels.people_level_order[0]
     out: list[KeyPersonRow] = []
     for p in people.rows:
-        if p.priority != "A" and p.level != top:
+        # a person below the seniority rule (kept on the list because the title names a platform)
+        # is not a key person, whatever the priority
+        if not p.meets_seniority or (p.priority != "A" and p.level != top):
             continue
         out.append(
             KeyPersonRow(
@@ -816,10 +846,12 @@ def map_summary(
     lane_rows = [r for t in lanes for r in t.rows]
     stands_out = tuple(_block(ctx, s) for s in sections.get("stands_out", []))
     lane_meanings = tuple(_lane_block(ctx, s) for s in sections.get("lane_meaning", []))
+    interpretation = tuple(_block(ctx, s) for s in sections.get("people_interpretation", []))
     blocks: list[AuthoredBlock] = [
         *(_block(ctx, s) for s in sections["narrative"]),
         *stands_out,
         *lane_meanings,
+        *interpretation,
         *(_block(ctx, s) for s in sections.get("caveat", [])),
         *(_block(ctx, s) for s in sections.get("first_call_question", [])),
         *(_block(ctx, s) for s in sections.get("decision_change", [])),
@@ -864,6 +896,8 @@ def map_summary(
         tracker_tally=tally,
         source_links=links,
         platform_hiring=hiring,
+        platform_hiring_heading=_hiring_heading(ctx, hiring),
+        people_interpretation=interpretation,
         none_found=ctx.rules.none_found.text,
         legal_name=_legal_name(ctx),
         document_name=_document_name(ctx),

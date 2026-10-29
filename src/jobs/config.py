@@ -20,6 +20,7 @@ import yaml
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.dev_limits import UNCAPPED, research_uncapped
 from jobs.errors import ConfigError
+from jobs.heuristic import HeuristicRules
 
 CLASSES = ("build", "admin_owner", "working_tool", "user")
 
@@ -45,6 +46,11 @@ class Lane:
     platforms: dict[str, tuple[str, ...]]
     keywords: tuple[str, ...]
     keyword_source: str
+    # platforms of this lane whose terms must match in their own case ("SAP" is not "a sap of")
+    case_sensitive: frozenset[str] = frozenset()
+    # False: the people pipeline builds no title search for this lane (a platform the job
+    # lexicon counts that no people lane is built for, such as Workday in the lane "other")
+    people_search: bool = True
 
 
 @dataclass(frozen=True)
@@ -72,6 +78,13 @@ class JobsConfig:
     # when no lexicon term matched it: a truncated or empty description cannot match anything,
     # so without the read the posting stays unread (staging 2026-10-24: 12 postings, none read)
     read_excerpts: bool = False
+    # the Working tool / User role rule for a posting no reading decided (``jobs.heuristic``)
+    heuristic: HeuristicRules = HeuristicRules(working_tool_cues=())
+
+    @property
+    def case_sensitive_platforms(self) -> frozenset[str]:
+        """Platforms matched in their own case, across all lanes."""
+        return frozenset(name for lane in self.lanes for name in lane.case_sensitive)
 
     @property
     def lexicon(self) -> dict[str, tuple[str, ...]]:
@@ -96,14 +109,27 @@ def _lanes(data: dict[str, Any]) -> tuple[Lane, ...]:
     for lane in data["lanes"]:
         _need_provenance(lane, f"lane {lane.get('id')}")
         platforms: dict[str, tuple[str, ...]] = {}
+        exact: set[str] = set()
         for platform in lane.get("platforms") or []:
             _need_provenance(platform, f"platform {platform.get('name')}")
             platforms[str(platform["name"])] = tuple(str(a) for a in platform.get("aliases") or [])
+            if platform.get("case_sensitive") is True:
+                exact.add(str(platform["name"]))
         keywords = tuple(str(k) for k in lane.get("keywords") or [])
         source = str(lane.get("keyword_source", ""))
         if not keywords and fallback == "platform_names" and platforms:
             keywords, source = tuple(platforms), "D-17 proposal: platform names as keywords"
-        lanes.append(Lane(str(lane["id"]), str(lane["label"]), platforms, keywords, source))
+        lanes.append(
+            Lane(
+                str(lane["id"]),
+                str(lane["label"]),
+                platforms,
+                keywords,
+                source,
+                frozenset(exact),
+                lane.get("people_search") is not False,
+            )
+        )
     return tuple(lanes)
 
 
@@ -120,6 +146,27 @@ def _rules(data: dict[str, Any]) -> tuple[Rule, ...]:
             Rule(str(rule["rule_id"]), str(rule["label"]), cues, rule["positive"], rule["negative"])
         )
     return tuple(rules)
+
+
+def _heuristic(rubric: dict[str, Any]) -> HeuristicRules:
+    block = rubric["heuristic"]
+    _need_provenance(block, "heuristic")
+    cues = tuple(str(c) for c in block["working_tool_cues"])
+    if not cues or any(not c.strip() for c in cues):
+        raise ConfigError("heuristic.working_tool_cues needs at least one non-blank cue")
+    window = block["window"]
+    labels = (str(block["working_tool_label"]), str(block["default_label"]))
+    if not set(labels) <= {"working_tool", "user"}:
+        raise ConfigError("the heuristic may answer working_tool or user only")
+    return HeuristicRules(
+        working_tool_cues=cues,
+        starts_after=tuple(str(m) for m in window["starts_after"]),
+        ends_at=str(window["ends_at"]),
+        max_windows_per_platform=int(window["max_windows_per_platform"]),
+        max_chars=int(window["max_chars"]),
+        working_tool_label=labels[0],
+        default_label=labels[1],
+    )
 
 
 @lru_cache(maxsize=4)
@@ -152,6 +199,7 @@ def load_jobs_config(directory: Path | None = None) -> JobsConfig:
             count_sentence=str(template["value"]),
             config_hash=hashlib.sha256((h1 + h2 + h3).encode()).hexdigest(),
             read_excerpts=uncapped,
+            heuristic=_heuristic(rubric),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ConfigError(f"invalid job pipeline configuration: {exc}") from exc

@@ -14,6 +14,7 @@ example; the excluded terms of ``people_scope.yaml`` are exactly the cues of the
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -54,15 +55,27 @@ class CueRule:
 
 
 @dataclass(frozen=True)
-class PriorityRule:
-    """First match wins: the band and whether a lane is required (``None`` = either)."""
+class TitleRule:
+    """An ordered title rule (the People List's lane and priority): whole-word ``cues`` and
+    regular-expression ``patterns`` that fire it, and the ``unless_*`` words that switch it off.
+    ``value`` is the lane id or the priority letter. First matching rule in the list wins."""
 
     rule_id: str
-    priority: str
-    band: str
-    lane_required: bool
+    value: str
+    cues: tuple[str, ...]
+    patterns: tuple[str, ...]
+    unless_cues: tuple[str, ...]
     positive: str
     negative: str
+
+
+@dataclass(frozen=True)
+class SiFirm:
+    """A systems-integrator or consulting firm and the regular-expression fragments that match
+    its name in a profile's employer field."""
+
+    firm: str
+    aliases: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -107,7 +120,7 @@ class PeopleConfig:
     exclusion_rules: tuple[CueRule, ...]
     review_rules: tuple[CueRule, ...]
     lanes: tuple[LaneTerms, ...]
-    priority_rules: tuple[PriorityRule, ...]
+    priority_rules: tuple[TitleRule, ...]
     top_n: int
     profile_levels: str
     ownership_titles: dict[str, tuple[str, ...]]
@@ -124,6 +137,20 @@ class PeopleConfig:
     geography: str
     caps: dict[str, float] = field(default_factory=dict)
     config_hash: str = ""
+    # the default level of a title with no level cue, and the rule that names it
+    default_level: str = "other"
+    default_level_rule: str = "level.default"
+    # levels below the seniority rule (band ``below``): listed only when the title names a
+    # platform or technology (``stack_terms`` plus the lane lexicon's platform names)
+    below_levels: frozenset[str] = frozenset()
+    stack_terms: tuple[str, ...] = ()
+    # the People List's one lane per person: ordered rules and the default lane
+    role_lanes: tuple[TitleRule, ...] = ()
+    role_lane_default: str = ""
+    role_lane_default_rule: str = ""
+    priority_default: str = "B"
+    priority_default_rule: str = "prio.b.default"
+    si_firms: tuple[SiFirm, ...] = ()
 
     def cap(self, name: str) -> int:
         """An integer cap (``ConfigError`` when absent)."""
@@ -174,6 +201,30 @@ def _cue_rules(entries: list[dict[str, Any]], key: str, where: str) -> tuple[Cue
     return tuple(rules)
 
 
+def _title_rules(entries: list[dict[str, Any]], key: str, where: str) -> tuple[TitleRule, ...]:
+    """Ordered title rules (lane or priority): cues and patterns, an optional ``unless_cues``
+    list, provenance and a positive and a negative example. A bad pattern is a ``ConfigError``."""
+    rules = []
+    for entry in entries:
+        rule_id = str(entry.get("rule_id", ""))
+        _provenance(entry, f"{where} {rule_id}")
+        positive, negative = _examples(entry, f"{where} {rule_id}")
+        cues = tuple(str(c).casefold() for c in entry.get("cues") or [])
+        patterns = tuple(str(p) for p in entry.get("patterns") or [])
+        unless = tuple(str(c).casefold() for c in entry.get("unless_cues") or [])
+        if not rule_id or not (cues or patterns):
+            raise ConfigError(f"{where} needs a rule_id and cues or patterns")
+        for fragment in (*patterns, *(entry.get("aliases") or [])):
+            try:
+                re.compile(fragment)
+            except re.error as exc:
+                raise ConfigError(f"{where} {rule_id}: bad pattern {fragment!r}") from exc
+        rules.append(
+            TitleRule(rule_id, str(entry[key]), cues, patterns, unless, positive, negative)
+        )
+    return tuple(rules)
+
+
 def _lanes(directory: Path) -> tuple[LaneTerms, ...]:
     try:
         jobs_cfg = load_jobs_config(directory)
@@ -181,6 +232,8 @@ def _lanes(directory: Path) -> tuple[LaneTerms, ...]:
         raise ConfigError(f"lane lexicon: {exc}") from exc
     lanes = []
     for lane in jobs_cfg.lanes:
+        if not lane.people_search:
+            continue  # counted in the job lexicon only (Workday): no people title search
         terms = [name for name in lane.platforms]
         terms.extend(alias for aliases in lane.platforms.values() for alias in aliases)
         lanes.append(LaneTerms(lane.id, tuple(lane.platforms), tuple(dict.fromkeys(terms))))
@@ -207,33 +260,53 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
     band_of = {
         str(level): str(band) for band, ls in bands.items() if band != "status" for level in ls
     }
-    if set(band_of) != levels:
-        raise ConfigError("level_bands must cover exactly the levels in scope")
+    below = frozenset(str(x) for x in bands.get("below") or ())
+    if set(band_of) - below != levels:
+        raise ConfigError("level_bands must cover exactly the levels in scope (and the below band)")
+    if below & levels:
+        raise ConfigError("a level in scope cannot be in the below band")
+    if set(band_of) != set(order):
+        raise ConfigError("level_bands must give every level of level_order exactly one band")
+    default = rubric["default_level"]
+    _provenance(default, "default_level")
+    default_level = str(default["value"])
+    if default_level not in below or default_level not in order:
+        raise ConfigError("default_level must be a level of the below band in level_order")
     _provenance(rubric["passes"], "passes")
     passes = tuple((int(p["pass"]), str(p["band"])) for p in rubric["passes"]["list"])
-    if {b for _, b in passes} != set(band_of.values()):
+    if {b for _, b in passes} != {b for b in set(band_of.values()) if b != "below"}:
         raise ConfigError("every band needs exactly one search pass")
     exclusions = _cue_rules(rubric["exclusion_rules"], "reason", "exclusion rule")
     excluded_terms = {str(t).casefold() for t in scope["excluded_title_terms"]}
     if {c for r in exclusions for c in r.cues} != excluded_terms:
         raise ConfigError("exclusion rule cues must equal people_scope.yaml excluded_title_terms")
     reviews = _cue_rules(rubric["review_rules"], "reason", "review rule")
-    priorities = []
-    for entry in rubric["priority_rules"]:
-        _provenance(entry, f"priority rule {entry.get('rule_id')}")
-        positive, negative = _examples(entry, f"priority rule {entry.get('rule_id')}")
-        if entry["priority"] not in PRIORITIES or entry["band"] not in set(band_of.values()):
-            raise ConfigError(f"priority rule {entry.get('rule_id')} has an unknown value")
-        priorities.append(
-            PriorityRule(
-                str(entry["rule_id"]),
-                str(entry["priority"]),
-                str(entry["band"]),
-                bool(entry["lane_required"]),
-                positive,
-                negative,
-            )
-        )
+    priorities = _title_rules(rubric["priority_rules"], "priority", "priority rule")
+    if {r.value for r in priorities} - set(PRIORITIES):
+        raise ConfigError("priority rules have an unknown priority")
+    prio_default = rubric["priority_default"]
+    _provenance(prio_default, "priority_default")
+    if str(prio_default["priority"]) not in PRIORITIES:
+        raise ConfigError("priority_default has an unknown priority")
+    lane_block = rubric["people_lanes"]
+    _provenance(lane_block, "people_lanes")
+    role_lanes = _title_rules(lane_block["list"], "lane", "people lane")
+    lane_default = lane_block["default"]
+    _provenance(lane_default, "people_lanes default")
+    if len({r.value for r in role_lanes}) != len(role_lanes):
+        raise ConfigError("people_lanes: a lane may have one rule only")
+    stack = rubric["people_stack_terms"]
+    _provenance(stack, "people_stack_terms")
+    stack_terms = tuple(dict.fromkeys(str(t).casefold() for t in stack["list"]))
+    if not stack_terms:
+        raise ConfigError("people_stack_terms is empty")
+    firms_block = rubric["si_firms"]
+    _provenance(firms_block, "si_firms")
+    firms = tuple(
+        SiFirm(str(f["firm"]), tuple(str(a) for a in f["aliases"])) for f in firms_block["list"]
+    )
+    if not firms or any(not f.firm or not f.aliases for f in firms):
+        raise ConfigError("si_firms needs a firm name and aliases for every firm")
     top = rubric["top_people"]
     _provenance(top, "top_people")
     profile_levels = rubric["profile_levels"]
@@ -313,6 +386,16 @@ def _build(scope: dict[str, Any], rubric: dict[str, Any], directory: Path) -> Pe
         internal_only_providers=frozenset(str(p) for p in internal["value"]),
         geography=str(scope["geography"]["value"]),
         caps=caps,
+        default_level=default_level,
+        default_level_rule=str(default["rule_id"]),
+        below_levels=below,
+        stack_terms=stack_terms,
+        role_lanes=role_lanes,
+        role_lane_default=str(lane_default["lane"]),
+        role_lane_default_rule=str(lane_default["rule_id"]),
+        priority_default=str(prio_default["priority"]),
+        priority_default_rule=str(prio_default["rule_id"]),
+        si_firms=firms,
     )
 
 

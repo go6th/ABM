@@ -113,6 +113,8 @@ describe("deadlines", () => {
     expect(proxyTimeout("GET", "/v1/exports/p/files/1")).toBe(TRANSFER_TIMEOUT_MS);
     expect(proxyTimeout("GET", "/v1/downloads/j/parts/1")).toBe(TRANSFER_TIMEOUT_MS);
     expect(proxyTimeout("GET", "/v1/accounts/acme.example/sheets/people/xlsx")).toBe(TRANSFER_TIMEOUT_MS);
+    expect(proxyTimeout("GET", "/v1/accounts/acme.example/sheets/jobs/csv")).toBe(TRANSFER_TIMEOUT_MS);
+    expect(proxyTimeout("GET", "/v1/accounts/acme.example/sheets/jobs/cell")).toBe(JSON_TIMEOUT_MS);
     expect(proxyTimeout("GET", "/v1/exports/p")).toBe(JSON_TIMEOUT_MS);
   });
 });

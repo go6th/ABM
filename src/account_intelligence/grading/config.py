@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
@@ -258,9 +260,29 @@ def _proposal(block: dict[str, Any], name: str) -> dict[str, Any]:
     return {k: v for k, v in block.items() if k not in ("status", "decision", "source")}
 
 
+_FILES = ("grading.yaml", "grading_policy.yaml", "source_registry.yaml", "routing.yaml")
+
+
 def load_grading_config(config_dir: Path | None = None) -> GradingConfig:
-    """Load, validate and hash all grading configuration. Raises ``ConfigError``."""
+    """Load, validate and hash all grading configuration, once per directory and file state
+    (modification time and size: an edited file is read again). Raises ``ConfigError``. It is read
+    on hot paths (once per fact in ``may_state``): uncached, every call parsed four YAML files in
+    pure Python on the event loop, and the worker's loop stopped for more than 30 s in a grading
+    batch (staging 2026-10-28, stall dump: ``yaml/parser.py``)."""
     root = config_dir or CONFIG_DIR
+    try:
+        stamp = tuple((st.st_mtime_ns, st.st_size) for st in (os.stat(root / f) for f in _FILES))
+    except OSError:
+        return _build_grading_config(root)  # raises ConfigError the way an unreadable file does
+    return _cached_grading_config(root, stamp)
+
+
+@lru_cache(maxsize=8)
+def _cached_grading_config(root: Path, stamp: tuple[tuple[int, int], ...]) -> GradingConfig:
+    return _build_grading_config(root)
+
+
+def _build_grading_config(root: Path) -> GradingConfig:
     grading = _read(root / "grading.yaml")
     policy = _read(root / "grading_policy.yaml")
     registry = _read(root / "source_registry.yaml")

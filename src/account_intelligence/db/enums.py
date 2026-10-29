@@ -91,8 +91,10 @@ class PersonLevel(StrEnum):
     EVP = "evp"
     SVP = "svp"
     VP = "vp"
+    SENIOR_DIRECTOR = "senior_director"
     HEAD = "head"
     DIRECTOR = "director"
+    ASSOCIATE_DIRECTOR = "associate_director"
     SENIOR_MANAGER = "senior_manager"
 
 

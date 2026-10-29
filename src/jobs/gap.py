@@ -23,8 +23,12 @@ RETRYABLE_REASONS = frozenset({"cap", "error"})
 
 
 def is_remainder(posting: Posting) -> bool:
-    """True when a gap pass may re-process this posting (see the module docstring)."""
+    """True when a gap pass may re-process this posting (see the module docstring). A posting
+    carried from the previous delivered research (``new_since_previous`` False) is never
+    re-processed: its reads and classes were paid for by that research."""
     if posting.window_bucket == "out_of_window" or posting.hostile:
+        return False
+    if posting.new_since_previous is False:
         return False
     verdict = posting.classification
     if verdict is not None and verdict.classified_by == "none":

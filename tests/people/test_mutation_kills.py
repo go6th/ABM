@@ -96,12 +96,42 @@ ORACLE = [
         ),
     ),
     (
-        {"title": "Program Lead, SAP"},
+        {"title": None},
         (),
         ("review", "level_unknown", "scope.level", None, None, None, None, (), None),
     ),
     (
-        {"title": "Manager", "headline": "Runs SAP"},
+        {"title": "Program Lead, SAP"},
+        (),
+        (
+            "in_scope",
+            None,
+            "level.default",
+            "SAP",
+            "other",
+            "level.default",
+            "below",
+            ("sap",),
+            "A",
+        ),
+    ),
+    (
+        {"title": "Program Lead"},
+        (),
+        (
+            "out_of_scope",
+            "below_scope",
+            "level.default",
+            None,
+            "other",
+            "level.default",
+            "below",
+            (),
+            None,
+        ),
+    ),
+    (
+        {"title": "Manager", "headline": "Runs SAP"},  # the headline does not name it for the title
         (),
         (
             "out_of_scope",
@@ -110,8 +140,38 @@ ORACLE = [
             "Manager",
             "manager",
             "level.manager",
-            None,
+            "below",
             ("sap",),
+            None,
+        ),
+    ),
+    (
+        {"title": "Manager, SAP Basis"},
+        (),
+        (
+            "in_scope",
+            None,
+            "level.manager",
+            "SAP",
+            "manager",
+            "level.manager",
+            "below",
+            ("sap",),
+            "A",
+        ),
+    ),
+    (
+        {"title": "Manager, Quality"},
+        (),
+        (
+            "out_of_scope",
+            "below_scope",
+            "level.manager",
+            "Manager",
+            "manager",
+            "level.manager",
+            "below",
+            (),
             None,
         ),
     ),
@@ -216,16 +276,17 @@ def test_scope_oracle_exact(
         )  # type: ignore[union-attr]
 
 
-def test_priority_unmatched_exact(cfg: PeopleConfig) -> None:
+def test_no_priority_rule_gives_the_default_exactly(cfg: PeopleConfig) -> None:
     c = classify(_in(), replace(cfg, priority_rules=()), DOMAIN)
     assert (c.status, c.reason, c.rule_id, c.level, c.band, c.lanes) == (
-        "review",
-        "priority_unmatched",
-        "scope.priority",
+        "in_scope",
+        None,
+        "level.director",
         "director",
         "senior",
         ("salesforce",),
     )
+    assert (c.priority, c.priority_rule) == ("B", "prio.b.default")
 
 
 def test_same_org_exact() -> None:

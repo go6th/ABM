@@ -159,6 +159,9 @@ class ConnectorProvider:
     as_of: date | None = None
     # the skill config (which rows are own-site rows); loaded once when not given
     skill: SkillConfig | None = None
+    # an incremental re-research's job feed bound (``jobs.incremental.postings_since`` of the
+    # run input); None pulls the skill's 12-month posting window
+    postings_since: date | None = None
 
     def _own_site(self, row_key: str) -> bool:
         cfg = self.skill
@@ -328,7 +331,9 @@ class ConnectorProvider:
             # a re-run) stays the same all month instead of changing daily (audit 2026-10-15)
             # the feed windows of the skill (scope.yaml: news 18, postings 12, detections 24
             # months), anchored to the run's month so the call key repeats within a month
-            since = feed_since(feed, self.month_anchor(), (self.skill or skill_config()).scope)
+            since = feed_since(
+                feed, self.month_anchor(), (self.skill or skill_config()).scope, self.postings_since
+            )
             out = [
                 await call_need(
                     route, FeedArgs(domain=ctx.domain, since=since), cc, self.rt, operation=feed
@@ -495,9 +500,16 @@ class ConnectorProvider:
         return reads
 
 
-def feed_since(feed: Operation, anchor: date, scope: Any) -> date | None:
+def feed_since(
+    feed: Operation, anchor: date, scope: Any, postings_since: date | None = None
+) -> date | None:
     """The first-seen bound of a p_signals feed pull: the skill's window for that feed, counted
-    back from the run's month anchor; None for a feed without a window."""
+    back from the run's month anchor; None for a feed without a window. An incremental
+    re-research's delta bound (``postings_since``, decided once at run creation and read by
+    ``jobs.incremental.postings_since``) replaces the window for the job openings feed only, so
+    Phase 1 and the job pipeline share one ledger key for the pull."""
+    if feed is Operation.JOB_OPENINGS and postings_since is not None:
+        return postings_since
     months = scope.window_months
     key = {
         Operation.JOB_OPENINGS: "postings",

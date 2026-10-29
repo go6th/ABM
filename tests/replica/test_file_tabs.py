@@ -85,7 +85,8 @@ def test_the_web_tabs_are_the_delivered_workbooks_sheets() -> None:
         main = book.tab(None)
         assert main is not None and main.table is not None
         assert list(main.table.header) == [c.header for c in layout.columns]
-        assert len(main.table.rows) == len(model.rows)
+        # the Tech workbook's main sheet is the Confirmed stack (its detections are not printed)
+        assert len(main.table.rows) == len(model.stack if kind == "tech" else model.rows)
     # the People List: each LinkedIn cell shows the file's text and opens the profile
     people = FT.read(books["people"][0], CFG.rules.workbooks.people.sheet)
     main = people.tab(None)
@@ -311,3 +312,493 @@ def test_a_people_fact_that_is_only_a_title_is_not_a_person() -> None:
             sql = f"SELECT {title_only('x.v')} FROM (SELECT CAST(%s AS text) AS v) x"
             got = c.execute(sql, (value,)).fetchone()
             assert got is not None and got[0] is title, value
+
+
+# ---- the audit of 2026-10-29 (F1, F2, F4, F6, F7, F9, F10) -----------------------------------
+
+
+def _bytes(wb: Workbook) -> bytes:
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_a_files_header_may_gain_or_lack_columns_but_not_reorder_them() -> None:
+    """``headers_agree``: a delivered file with columns added (the Archived link), or one
+    delivered before the configuration gained a column, is still the builder's table; another
+    order or two lists that each lack the other's names is another table (F4)."""
+    want = ["Requisition", "Title", "Link"]
+    assert FT.headers_agree(want, want)
+    assert FT.headers_agree([*want, "Reviewer link", "Reviewer note"], want)
+    assert FT.headers_agree(["Requisition", "Title"], want)  # the configuration gained Link
+    assert FT.headers_agree(["", "Requisition", "Title", "Link", ""], want)  # blank headings
+    assert not FT.headers_agree(["Title", "Requisition", "Link"], want)
+    assert not FT.headers_agree(["Requisition", "Other"], ["Title", "Link"])
+    assert not FT.headers_agree([], want) and not FT.headers_agree(["Name"], want)
+    # builder_main takes the file's own table with two extra columns, rows counted by the manifest
+    data, model = _books()["jobs"]
+    wb = load_workbook(io.BytesIO(data))
+    ws = wb[CFG.rules.workbooks.jobs.sheet]
+    width = ws.max_column
+    ws.cell(row=1, column=width + 1, value="Reviewer link")
+    ws.cell(row=1, column=width + 2, value="Reviewer note")
+    for r in range(2, ws.max_row + 1):
+        ws.cell(
+            row=r, column=width + 1, value="Open review"
+        ).hyperlink = (
+            f"https://web.example/v1/accounts/x/archive?url=https%3A%2F%2Fjobs.example%2F{r}"
+        )
+        ws.cell(row=r, column=width + 2, value="Yes" if r % 2 else "")
+    book = FT.read(_bytes(wb), CFG.rules.workbooks.jobs.sheet)
+    found = FT.Delivered("f", "jobs.xlsx", "0" * 64, "k", rows=len(model.rows))
+    main = FT.builder_main(book, found, "jobs")
+    assert main is not None and main.table is not None
+    assert list(main.table.header)[-2:] == ["Reviewer link", "Reviewer note"]
+    # both link columns of a row work on the file-grid path: each under its own key (F2, F8)
+    q = FT.grid_query(main, SH.SHEETS["jobs"], None, None, 0, 3)
+    page = FT.grid_page(main, q)
+    kinds = {c["label"]: c["kind"] for c in page["columns"]}
+    assert kinds["Reviewer link"] == "url" and kinds["Reviewer note"] == "text"
+    reviewed = f"c{width + 1}"
+    for row in page["rows"]:
+        assert row["links"][reviewed].startswith("https://web.example/v1/accounts/x/archive?url=")
+        assert row["cells"][reviewed] == "Open review"
+    # two hyperlink columns in one row, each under its own key (F8)
+    ws.cell(row=2, column=width + 2, value="Open posting").hyperlink = "https://jobs.example/2"
+    two = FT.read(_bytes(wb), CFG.rules.workbooks.jobs.sheet).tab(None)
+    assert two is not None
+    row = FT.grid_page(two, FT.grid_query(two, SH.SHEETS["jobs"], None, None, 0, 1))["rows"][0]
+    assert row["links"][reviewed] and row["links"][f"c{width + 2}"] == "https://jobs.example/2"
+    assert row["cells"][f"c{width + 2}"] == "Open posting"
+    # the file's own table stands even when the manifest count differs (never the live sheet)
+    one_row = FT.Delivered("f", "jobs.xlsx", "0" * 64, "k", rows=1)
+    assert FT.builder_main(book, one_row, "jobs") is None
+    assert FT.main_table(book) is main
+    # the filter is validated on the file-grid path (F10): All and the stored table's chips
+    assert FT.grid_query(main, SH.SHEETS["jobs"], None, None, 0, 3, "all").filter.key == "all"
+    with pytest.raises(SH.BadSheetQuery):
+        FT.grid_query(main, SH.SHEETS["jobs"], None, None, 0, 3, "status_no_such_status")
+    # one whole cell by row number and column key
+    cell = FT.grid_cell(main, q, 2, reviewed)
+    assert cell is not None and cell["text"] == "Open review" and cell["href"]
+    assert FT.grid_cell(main, q, 10**6, reviewed) is None
+    assert FT.grid_cell(main, q, 1, "c999") is None and FT.grid_cell(main, q, 1, "zz") is None
+
+
+def test_the_stored_table_judge_lets_a_stored_row_hold_extra_keys() -> None:
+    """``_judge`` (F4): a stored first row with every configured key stands, extra keys or not;
+    one missing a configured key is a table stored under an earlier column set."""
+    from uuid import uuid4
+
+    from views.tables import specs
+
+    keys = [c.key for c in specs()["people"].columns]
+    run = uuid4()
+
+    def pre(first: dict[str, Any]) -> SH._FilePrefetch:
+        manifests = {"people": {"rows": 2}}
+        return SH._FilePrefetch(run, True, manifests, {"people": first}, {"people": 2})
+
+    assert SH._judge("people", pre(dict.fromkeys(keys, "x"))) == (run, 2)
+    assert SH._judge("people", pre(dict.fromkeys([*keys, "archived_url"], "x"))) == (run, 2)
+    assert SH._judge("people", pre(dict.fromkeys(keys[:-1], "x"))) is None
+
+
+def test_fills_are_theme_tokens_on_both_screen_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cell's solid fill becomes the theme's token (F9): the hex value comes from the theme,
+    never from code; an unnamed fill is dropped; the token travels in the tab's cells and in the
+    grid row's ``fills``."""
+    from openpyxl.styles import PatternFill
+
+    monkeypatch.setattr(FT, "fill_tokens", lambda: {"DDEFE0": "priority_a", "C6EFCE": "rank_a"})
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "People"
+    ws.append(["Name", "Priority", "Rank", "Note"])
+    ws.append(["Synthetic One", "A", "A"])
+    ws.append(["Synthetic Two", "B", ""])
+    ws["D2"].fill = PatternFill("solid", start_color="FFDDEFE0")  # an empty cell of a filled row
+    ws["B2"].fill = PatternFill("solid", start_color="FFDDEFE0")
+    ws["C2"].fill = PatternFill("solid", start_color="C6EFCE")
+    ws["B3"].fill = PatternFill("solid", start_color="FFFFF1CC")  # not in the theme map
+    book = FT.read(_bytes(wb), "People")
+    main = book.tab(None)
+    assert main is not None and main.table is not None
+    assert [c.fill for c in main.table.rows[0]] == [None, "priority_a", "rank_a", "priority_a"]
+    assert [c.fill for c in main.table.rows[1]] == [None, None, None, None]
+    out = FT.blocks_out(main)
+    assert out[0]["rows"][0][1] == {"text": "A", "href": None, "fill": "priority_a"}
+    assert "fill" not in out[0]["rows"][1][1]
+    q = FT.grid_query(main, SH.SHEETS["people"], None, None, 0, 5)
+    rows = FT.grid_page(main, q)["rows"]
+    assert rows[0]["fills"] == {"c2": "priority_a", "c3": "rank_a", "c4": "priority_a"}
+    assert "fills" not in rows[1]
+    # the real theme map: every named value is six hex digits keyed by the brief's token names
+    monkeypatch.undo()
+    FT.fill_tokens.cache_clear()
+    for rgb, token in FT.fill_tokens().items():
+        assert len(rgb) == 6 and token in FT.FILL_TOKENS
+
+
+def test_an_unsupported_formula_shows_the_files_cached_value() -> None:
+    """F6: a re-saved file carries cached values; a function the evaluator lacks shows that
+    value instead of a blank. An error value is not a value. The builder's own files, with no
+    cached values, still compute."""
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "S"
+    ws.append(["Rows", 1])
+    ws.append(["More", 3])
+    ws.append(["Biggest", "=MAX(B1:B2)"])
+    ws.append(["Broken", "=B1/0"])
+    ws.append(["Counted", "=COUNTA(A1:A4)"])
+    raw = _bytes(wb)
+
+    def cells(book: FT.Book) -> dict[str, str]:
+        table = book.tabs[0].table
+        assert table is not None  # two-cell rows without a styled header: the first is the header
+        return {table.header[0]: table.header[1], **{r[0].text: r[1].text for r in table.rows}}
+
+    # plant cached values as a re-save would: 3 for MAX, an error for the division
+    import re
+    import zipfile
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(raw)) as src, zipfile.ZipFile(out, "w") as dst:
+        for item in src.infolist():
+            body = src.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                text = body.decode()
+                text = re.sub(
+                    r"<f>MAX\(B1:B2\)</f><v\s*/?>(</v>)?", "<f>MAX(B1:B2)</f><v>3</v>", text
+                )
+                text = re.sub(
+                    r'<c r="B4"><f>B1/0</f><v\s*/?>(</v>)?</c>',
+                    '<c r="B4" t="e"><f>B1/0</f><v>#DIV/0!</v></c>',
+                    text,
+                )
+                body = text.encode()
+            dst.writestr(item, body)
+    got = cells(FT.read(out.getvalue(), "S"))
+    assert got == {"Rows": "1", "More": "3", "Biggest": "3", "Broken": "", "Counted": "4"}
+    # the builder's file: nothing cached, the evaluator's value shows and MAX stays blank
+    assert cells(FT.read(raw, "S")) == {
+        "Rows": "1", "More": "3", "Biggest": "", "Broken": "", "Counted": "4",
+    }  # fmt: skip
+
+
+def test_a_gap_closes_a_table_before_the_next_header_is_judged() -> None:
+    """F7: in a sheet without the builder's header style, a header row right after a blank row
+    starts its own table (the reference People Summary's lane table lost its header)."""
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Summary"
+    ws.append(["Synthetic people list"])
+    ws.append([])
+    ws.append(["Level", "People", "Priority A"])
+    ws.append(["Director", 4, 2])
+    ws.append(["Manager", 6, 1])
+    ws.append([])
+    ws.append(["Lane, senior people only", "A", "B"])
+    ws.append(["Analytics", 2, 3])
+    ws.append(["Commercial", 1, 0])
+    tabs = FT.read(_bytes(wb), "Summary").tabs
+    tables = [b for b in tabs[0].blocks if b.kind == "table"]
+    assert [t.header for t in tables] == [
+        ("Level", "People", "Priority A"),
+        ("Lane, senior people only", "A", "B"),
+    ]
+    assert [len(t.rows) for t in tables] == [2, 2]
+    assert tabs[0].blocks[0] == FT.Block("text", text="Synthetic people list")
+    # the configured main sheet missing: the sheet with the largest table is the main one
+    wb.create_sheet("Data").append(["A", "B"])
+    for i in range(5):
+        wb["Data"].append([i, i])
+    book = FT.read(_bytes(wb), "Nope")
+    assert [t.name for t in book.tabs if t.main] == ["Data"]
+
+
+def test_the_page_cuts_long_cells_and_the_guard_withholds_a_cell_never_the_page() -> None:
+    """F1 and F3 on a page of rows: a cell past ``CELL_CAP`` is cut and recorded, "in parallel"
+    in a description is shown, a provider code withholds that cell only, and a link to a
+    provider's host is dropped."""
+    from agents.naming import provider_terms
+
+    code = next(t for t in provider_terms() if t.startswith("p_"))
+    long_text = "word " * 1000
+    rows: list[dict[str, Any]] = [
+        {
+            "n": 1,
+            "cells": {
+                "a": long_text,
+                "b": "The teams work in parallel on the rollout.",
+                "c": f"from {code}",
+            },
+            "links": {"c": "https://example.com/x"},
+            "link": None,
+        },
+        {"n": 2, "cells": {"a": "short", "b": "", "c": "x"}, "links": {}, "link": None},
+    ]
+    SH.cap_rows(rows)
+    assert rows[0]["cut"] == {"a": len(long_text)} and rows[1]["cut"] == {}
+    assert len(rows[0]["cells"]["a"]) == SH.CELL_CAP and rows[0]["cells"]["a"].endswith("…")
+    held = SH.scrub_rows(rows)
+    assert held == 1
+    assert rows[0]["cells"]["b"] == "The teams work in parallel on the rollout."
+    assert rows[0]["cells"]["c"] == SH.WITHHELD and rows[0]["links"] == {
+        "c": "https://example.com/x"
+    }
+    assert rows[1]["cells"] == {"a": "short", "b": "", "c": "x"}
+    # a tab's blocks: the same, cell by cell and line by line
+    blocks: list[dict[str, Any]] = [
+        {"kind": "text", "text": f"Pulled with {code}"},
+        {"kind": "text", "text": "Counts by lane"},
+        {
+            "kind": "table",
+            "header": ["A", code],
+            "rows": [[{"text": "in parallel", "href": None}, {"text": code, "href": None}]],
+        },
+    ]
+    assert FT.scrub_blocks(blocks) == 3
+    assert blocks[0]["text"] == SH.WITHHELD and blocks[1]["text"] == "Counts by lane"
+    assert blocks[2]["header"] == ["A", SH.WITHHELD]
+    assert [c["text"] for c in blocks[2]["rows"][0]] == ["in parallel", SH.WITHHELD]
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_a_workbook_with_extra_columns_and_a_guarded_cell_shows_as_the_file() -> None:
+    """The API end to end (F1, F2, F3, F4, F8): the delivered Jobs workbook gains two columns
+    (a reviewer-link column and a reviewer-note column) and a description with a provider code; the
+    stored table is passed over; the page is the file's own table with every column, both link
+    columns open, the guarded cell alone is withheld, long cells are cut and whole from the cell
+    route, a filter the file does not have is refused, and the exports carry the same table."""
+    import psycopg
+
+    from tests.conftest import ADMIN_DSN
+    from tests.replica.test_file_sheets import _app, _get
+
+    w, payloads, build = await _world()
+    plane = _app(w, payloads, build)
+    mapped = await _deliver_files(w, payloads, build)
+    base = f"/v1/accounts/{w.domain}/sheets/jobs"
+    assert (await _get(plane, base)).json()["from_file"] is True  # the stored table in use
+    # rewrite the delivered Jobs workbook with two extra columns and planted cells
+    from agents.naming import provider_terms
+
+    code = next(t for t in provider_terms() if t.startswith("p_"))
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute("SET session_replication_role = replica")
+        row = c.execute(
+            "SELECT id, object_key FROM deliverables WHERE run_id = %s AND kind = 'jobs'", (w.run,)
+        ).fetchone()
+        assert row is not None
+        wb = load_workbook(io.BytesIO(payloads.objects[row[1]]))
+        ws = wb[CFG.rules.workbooks.jobs.sheet]
+        headers = [c.value for c in ws[1]]
+        width = len(headers)
+        desc = headers.index("Full description") + 1
+        ws.cell(row=1, column=width + 1, value="Reviewer link")
+        ws.cell(row=1, column=width + 2, value="Reviewer note")
+        for r in range(2, ws.max_row + 1):
+            ws.cell(
+                row=r, column=width + 1, value="Open review"
+            ).hyperlink = f"https://web.example/v1/accounts/{w.domain}/archive?url=https%3A%2F%2Fjobs.example%2F{r}"
+            ws.cell(row=r, column=width + 2, value="Yes")
+        ws.cell(row=2, column=desc, value="Teams work in parallel. " + "Detail. " * 400)
+        ws.cell(row=3, column=desc, value=f"Pulled from {code} feed")
+        body = _bytes(wb)
+        sha = hashlib.sha256(body).hexdigest()
+        payloads.objects[row[1]] = body
+        c.execute("UPDATE deliverables SET sha256 = %s WHERE id = %s", (sha, row[0]))
+        c.execute(
+            "UPDATE view_rows SET cells = cells - 'title'"
+            " WHERE run_id = %s AND table_kind = 'jobs'",
+            (w.run,),
+        )
+    sheet = (await _get(plane, base)).json()
+    assert sheet["from_file"] is True and sheet["tabs"] and sheet["columns"][0]["key"] == "c1"
+    labels = [c["label"] for c in sheet["columns"]]
+    assert labels == [*headers, "Reviewer link", "Reviewer note"]
+    assert sheet["total"] == len(mapped["jobs"].model.rows)
+    reviewed, link = f"c{width + 1}", f"c{headers.index('Link') + 1}"
+    first, second = sheet["rows"][0], sheet["rows"][1]
+    assert first["cells"][reviewed] == "Open review"
+    assert first["links"][reviewed].startswith(
+        f"https://web.example/v1/accounts/{w.domain}/archive"
+    )
+    assert link in first["links"] or first["cells"][link]  # the posting link column of the file
+    d = f"c{desc}"
+    assert first["cells"][d].startswith("Teams work in parallel.")
+    assert first["cells"][d].endswith("\u2026")
+    assert first["cut"] == {d: len("Teams work in parallel. " + "Detail. " * 400)}
+    assert second["cells"][d] == SH.WITHHELD and second["cut"] == {}
+    # the whole cell, under the same order
+    whole = await _get(plane, f"{base}/cell", params={"n": 1, "col": d})
+    assert whole.status_code == 200, whole.text
+    assert whole.json()["text"] == "Teams work in parallel. " + "Detail. " * 400
+    held = (await _get(plane, f"{base}/cell", params={"n": 2, "col": d})).json()
+    assert held["text"] == SH.WITHHELD and held["withheld"] is True
+    assert (await _get(plane, f"{base}/cell", params={"n": 10**6, "col": d})).status_code == 404
+    assert (await _get(plane, f"{base}/cell", params={"n": 1, "col": "zz"})).status_code == 404
+    # a filter the file's table does not have is refused like an unknown sort; All is fine
+    assert (await _get(plane, f"{base}?filter=status_no_such_status")).status_code == 422
+    # a link column is not sortable
+    assert (await _get(plane, f"{base}?filter=all&sort={reviewed}")).status_code == 422
+    assert (await _get(plane, f"{base}?filter=all&sort=c2&dir=desc")).status_code == 200
+    # the exports write the same table, extra columns included
+    csv_body = (await _get(plane, f"{base}/csv")).content.decode("utf-8-sig")
+    assert csv_body.splitlines()[0].split(",")[-2:] == ["Reviewer link", "Reviewer note"]
+    xlsx = await _get(plane, f"{base}/xlsx")
+    assert xlsx.status_code == 200, xlsx.text
+    ws = (await _get(plane, f"/v1/accounts/{w.domain}/workspace")).json()
+    assert ws["counts"]["jobs"] == sheet["total"]
+
+
+# ---- the web-table finish of 2026-10-29: chips on the file grid, link texts, fills, the guard ---
+
+
+def test_the_file_grid_has_the_stored_tables_chips_and_they_filter() -> None:
+    """The buttons work on file-shaped tabs: the chips the stored table has (Priority A, the
+    posting statuses) are matched to the file's columns by header, counted over the whole table,
+    and filter the page, the whole-cell route and the exports alike."""
+    from views.tables import specs
+
+    books = _books()
+    for key, kind, chip_key, column in (
+        ("people", "people", "priority_a", "priority"),
+        ("jobs", "jobs", f"status_{next(iter(CFG.rules.labels.posting_status))}", "status"),
+    ):
+        data, model = books[key]
+        main = FT.read(data, getattr(CFG.rules.workbooks, kind).sheet).tab(None)
+        assert main is not None and main.table is not None
+        header = {c.key: c.header for c in specs()[kind].exported_columns}
+        j = list(main.table.header).index(header[column])
+        live = SH.SHEETS[key]
+        chip = next(f for f in SH.file_sheet(key).filters if f.key == chip_key)
+        want = [r for r in main.table.rows if r[j].text.strip() == _chip_value(kind, chip_key)]
+        assert want, key  # the synthetic corpus holds rows for the chip
+        q = FT.grid_query(main, live, None, None, 0, 500, chip_key)
+        page = FT.grid_page(main, q)
+        assert page["filter"] == chip_key and page["total"] == len(want)
+        assert len(page["rows"]) == len(want)
+        counts = {f["key"]: f["count"] for f in page["filters"]}
+        assert counts["all"] == len(main.table.rows) and counts[chip_key] == len(want)
+        assert chip.label in [f["label"] for f in page["filters"]]
+        # a sort inside the chip, the whole cell under the chip, and the export see the same rows
+        sorted_q = FT.grid_query(main, live, "c1", "desc", 0, 500, chip_key)
+        assert FT.grid_page(main, sorted_q)["total"] == len(want)
+        cell = FT.grid_cell(main, q, len(want), "c1")
+        assert cell is not None and FT.grid_cell(main, q, len(want) + 1, "c1") is None
+        assert len(FT.grid_rows(main, q)) == len(want)
+    with pytest.raises(SH.BadSheetQuery):
+        FT.grid_query(main, SH.SHEETS["jobs"], None, None, 0, 5, "no_such_chip")
+
+
+def _chip_value(kind: str, chip_key: str) -> str:
+    """The cell text a chip of the stored table matches (``sheets.chip_specs``)."""
+    from views.tables import specs
+
+    for key, _label, _column, value in SH.chip_specs(
+        kind, specs()[kind].exported_columns, CFG.rules
+    ):
+        if key == chip_key:
+            return value
+    raise AssertionError(chip_key)
+
+
+def test_a_url_column_shows_its_configured_link_text_on_the_stored_table_path() -> None:
+    """``sheets._link_text``: a url column's label is the workbook column's own ``link_text``
+    ("Open posting", "Open archived copy"), else the sheet text ("Open profile"), else the
+    address; every url column of a table gets one."""
+    rules = CFG.rules
+    jobs = rules.workbooks.jobs
+    columns = tuple(
+        c.model_copy(update={"link_text": "Open posting"}) if c.key == "url" else c
+        for c in jobs.columns
+    )
+    configured = rules.model_copy(
+        update={
+            "workbooks": rules.workbooks.model_copy(
+                update={"jobs": jobs.model_copy(update={"columns": columns})}
+            )
+        }
+    )
+    assert SH._link_text(configured, "jobs", "url") == "Open posting"
+    assert SH._link_text(configured, "jobs", "no_such_column") is None
+    # the people sheet text covers both profile columns
+    for key in ("profile_url", "second_profile_url"):
+        assert SH._link_text(rules, "people", key) == rules.sheet_texts.people.link_text
+    # a rendered row: the cell reads the label and the address opens
+    col = SH.Col("url", "Link", None, "url", "Open posting")
+    sheet = SH.Sheet("jobs", "Jobs", "f.xlsx", "", "", (col,), (), "x", table="jobs")
+    q = SH.Query(sheet, SH.Filter("all", "All", "true"), col, False, 0, 10)
+    row = SH.row_out(q, 1, {"url": "https://jobs.example/p/1", "link": None}, None)  # type: ignore[arg-type]
+    assert row["cells"] == {"url": "Open posting"} and row["links"] == {
+        "url": "https://jobs.example/p/1"
+    }
+
+
+def test_the_stylesheet_fills_are_the_themes_fills() -> None:
+    """Colours live in the theme (``excel.fills``) and the stylesheet that mirrors them for the
+    screen (CSP forbids inline styles): a class per token with the theme's hex value."""
+    import re as _re
+    from pathlib import Path
+
+    import yaml
+
+    from account_intelligence.config import CONFIG_DIR
+
+    theme = yaml.safe_load((CONFIG_DIR / "export_theme.yaml").read_text())["excel"]["fills"]
+    css = (Path(__file__).resolve().parents[2] / "web" / "ui" / "components.css").read_text()
+    for token in FT.FILL_TOKENS:
+        name = token.replace("_", "-")
+        found = _re.search(
+            rf"table\.xl td\.fill-{name}\b[^{{]*\{{\s*background:\s*#([0-9A-Fa-f]{{6}})", css
+        )
+        assert found, token
+        assert found.group(1).upper() == str(theme[token]).upper()[-6:], token
+    assert set(FT.fill_tokens().values()) == set(FT.FILL_TOKENS)
+
+
+def test_ordinary_english_is_not_a_leak_in_the_gate_and_the_page() -> None:
+    """F1: "work in parallel" and "parallel processing" in a posting's description pass the
+    exports' leak check and the page's guard; the vendor's own name is still caught."""
+    from agents.naming import assert_client_clean
+    from exports.policy import leak_hits
+
+    description = (
+        "You will work in parallel with the platform team. Parallel processing of loads is a "
+        "plus. Salesforce, MuleSoft and SAP experience required."
+    )
+    assert leak_hits(description) == ()
+    assert_client_clean([description])
+    rows: list[dict[str, Any]] = [
+        {"n": 1, "cells": {"c1": description}, "links": {}, "link": None},
+    ]
+    SH.cap_rows(rows)
+    assert SH.scrub_rows(rows) == 0 and rows[0]["cells"]["c1"] == description
+    vendor = "Findings come from the parallel search API."
+    assert leak_hits(vendor)
+    with pytest.raises(Exception, match="G9|client"):
+        assert_client_clean([vendor])
+
+
+def test_a_long_text_is_scanned_not_remembered() -> None:
+    """The memo of the guard keeps cut page cells; a whole 32,000-character description (the cell
+    route) is scanned each time and never held."""
+    from agents import naming
+
+    naming._scrubbed_memo.cache_clear()
+    big = "word " * 7000
+    assert len(big) > naming.MEMO_MAX_CHARS
+    assert naming.scrub_client_text(big) == (big, False)
+    assert naming._scrubbed_memo.cache_info().currsize == 0
+    small = "A short, clean sentence."
+    naming.scrub_client_text(small)
+    naming.scrub_client_text(small)
+    info = naming._scrubbed_memo.cache_info()
+    assert info.currsize == 1 and info.hits >= 1

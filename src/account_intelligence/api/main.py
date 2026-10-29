@@ -77,6 +77,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # the no-op tracer); the queue drains off the event loop and once more at shutdown
         if obs_setup.install_cloud_trace(settings.gcp_project, f"ai-{settings.service_role}"):
             trace_flush = asyncio.create_task(obs_setup.trace_flush_loop())
+    from obs import stalldump
+
+    stall_beat = stalldump.install()  # a blocked loop writes every thread's stack to stderr
     app.state.draining = False
     container = build_container()
     app.state.container = container
@@ -141,6 +144,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             sweeper.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await sweeper
+        if stall_beat is not None:
+            stall_beat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await stall_beat
         if trace_flush is not None:
             from obs import setup as obs_setup
 

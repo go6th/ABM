@@ -69,6 +69,8 @@ class SourceRow(_Row):
     # registry recorded them; Evidence part D names a source by them before its host
     title: str | None = None
     publisher: str | None = None
+    # the absolute address that serves our archived copy of the page (blank: no copy stored)
+    archive_url: str = ""
 
 
 class SectionRow(_Row):
@@ -85,6 +87,17 @@ class SectionRow(_Row):
     visibility: str = "public"
     # the lane id of a ``lane_meaning`` section (migration 0084); None for every other kind
     lane: str | None = None
+
+
+class FoundVia(_Row):
+    """One search that found a person: the kind (``people.models.Origin``), the title-search pass,
+    the platform lane an association search ran for and the research page a named person came
+    from. The People List's Found by cell prints these as the reference does."""
+
+    origin: str
+    pass_no: int | None = None
+    lane: str | None = None
+    mention_url: str | None = None
 
 
 class PersonRow(_Row):
@@ -110,6 +123,10 @@ class PersonRow(_Row):
     profile_title: str | None = None
     # where the person is (the pulled profile's location, else the search record's)
     location: str | None = None
+    # the People List's one role-family lane id (empty for a record stored before the rule), and
+    # every search that found the person
+    role_lane: str = ""
+    found_via: tuple[FoundVia, ...] = ()
 
 
 class PeopleCounts(_Row):
@@ -155,6 +172,18 @@ class PostingRow(_Row):
     class_sentence: str = ""
     # the posting's location as the job pipeline stored it (``job_postings.location``)
     location: str = ""
+    # the feed's last seen date and seniority word, as stored by the job pipeline (the reference
+    # workbook prints both; blank when the source did not give them)
+    last_seen: date | None = None
+    seniority: str = ""
+    # (platform, sentence) pairs in posting order: the reference prints them grouped per
+    # platform (``Platform: s1 | s2 || Other: s3``); ``platform_sentences`` keeps the flat texts
+    platform_sentence_pairs: tuple[tuple[str, str], ...] = ()
+    # True when this posting was first seen after the account's previous delivered research
+    # (an incremental re-research); None when the run had no previous research to compare with
+    new_since_previous: bool | None = None
+    # the absolute address that serves our archived copy of the posting (blank: no copy stored)
+    archive_url: str = ""
 
 
 class JobsCounts(_Row):
@@ -173,6 +202,33 @@ class DetectionRow(_Row):
     last_seen: str | None
     source_url: str | None
     source_code: str | None
+
+
+class StackRow(_Row):
+    """One ``tech_stack_items`` row: a technology of the organisation's stack under its business
+    function and category, with the postings count the lookup reports for it."""
+
+    id: str
+    business_function: str
+    category: str
+    technology: str
+    postings: int = 0
+
+
+class TeamRow(_Row):
+    """One team whose public records name a lane platform (the reference's Platform teams sheet).
+    No pipeline stores teams yet: the workbook prints rows only when this tuple has some. The
+    list fields are printed as the reference prints them (``name (count); name (count)``)."""
+
+    id: str
+    name: str
+    lane_technologies: str = ""
+    postings: int = 0
+    first_activity: str | None = None
+    last_activity: str | None = None
+    technologies: str = ""
+    locations: str = ""
+    job_functions: str = ""
 
 
 class TrackerLine(_Row):
@@ -239,6 +295,13 @@ class SnapshotContent(_Row):
     postings: tuple[PostingRow, ...] = ()
     jobs_counts: JobsCounts | None = None
     detections: tuple[DetectionRow, ...] = ()
+    # the organisation tech stack of the run (the Confirmed stack sheet), and the teams whose
+    # records name a lane platform (the Platform teams sheet; empty until a pipeline stores them)
+    stack: tuple[StackRow, ...] = ()
+    teams: tuple[TeamRow, ...] = ()
+    # how many teams matched and the date the postings count from (the Platform teams title)
+    teams_matching: int = 0
+    teams_since: date | None = None
     tracker: tuple[TrackerLine, ...] = ()
     # the tenant's white-label display name for document headers (VW6); None: no branding
     brand_name: str | None = None

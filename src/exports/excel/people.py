@@ -1,27 +1,27 @@
-"""People List workbook in the shape of the owner's reference People List (master prompt v2
-section 9.3; BD, 2026-10-19). The Summary sheet comes first: the title, the paragraphs in the
+"""People List workbook in the shape of the owner's reference People List (reference set of
+2026-10-20, measured 2026-10-29). The Summary sheet comes first: the title, the paragraphs in the
 reference's order (what the list merges and from which searches, the rows removed before it, the
-people excluded by title by name, the seniority rule, the judgment note), the Level table with
-its Total and Meets seniority rule rows, the Lane table (senior people only, A, B, C and Total)
-with its Total row, then the people module's count sentences. The People sheet follows with the
-reference's columns; profile links read "Open profile". Layout from ``workbooks.people``; look
-from the theme; every formula cell is planned once (``plan_people``) and checked after
-recalculation (B12)."""
+people excluded by title by name, the seniority rule, the judgment note, the entity labels), the
+Level table (nine levels, People and Priority A, Total, Meets seniority rule) and the Lane table
+(eight lanes, senior people only, A, B, C and Total, Total row), every count a formula citing its
+label cell. The People sheet follows with the reference's 13 columns and widths, the product's
+Ref and Source columns to their right, the Priority cell filled A, B or C, profile links reading
+"Open profile", panes frozen right of the name. Layout from ``workbooks.people``; look from the
+theme; every formula cell is planned once (``plan_people``) and checked after recalculation
+(B12)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.worksheet import Worksheet
 
 from exports.config import Column, ExportConfig
-from exports.excel.common import Book, Formula, criterion, expected_of
+from exports.excel.common import Book, Formula, criterion, expected_of, sheet_ref
 from exports.models import PeopleModel
 
-# the paragraphs span six columns, as the reference's do (A to F, past the Lane table)
-_SPAN = 6
+# the Priority cell's theme fill by letter (``excel.fills``)
+_PRIORITY_FILL = {"A": "priority_a", "B": "priority_b", "C": "priority_c"}
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,6 @@ class _Layout:
     lane_header: int
     lane_first: int
     lane_total: int
-    sentences_first: int
 
 
 def _layout(model: PeopleModel) -> _Layout:
@@ -57,12 +56,13 @@ def _layout(model: PeopleModel) -> _Layout:
         lane_header,
         lane_first,
         lane_total,
-        lane_total + 2,
     )
 
 
 def plan_people(model: PeopleModel, cfg: ExportConfig) -> tuple[_Layout, tuple[Formula, ...]]:
-    """The Summary sheet layout and every formula cell with its code-computed value."""
+    """The Summary sheet layout and every formula cell with its code-computed value. A count
+    cites the cell that holds its label (``=COUNTIF(People!$D$2:$D$N,A12)``), as the reference
+    does, so a renamed label in the sheet still counts."""
     book = cfg.rules.workbooks.people
     labels = cfg.rules.labels
     keys = [c.key for c in book.columns]
@@ -70,14 +70,14 @@ def plan_people(model: PeopleModel, cfg: ExportConfig) -> tuple[_Layout, tuple[F
     last = max(2, len(model.rows) + 1)
 
     def span(key: str) -> str:
-        return f"'{book.sheet}'!${col[key]}$2:${col[key]}${last}"
+        return f"{sheet_ref(book.sheet)}!${col[key]}$2:${col[key]}${last}"
 
     lay = _layout(model)
     sheet = book.summary_sheet
     out: list[Formula] = []
     for i, level in enumerate(model.levels):
         row = lay.level_first + i
-        label = criterion(level.label)
+        label = f"A{row}"
         out.append(Formula(sheet, row, 2, f"=COUNTIF({span('level')},{label})", level.people))
         out.append(
             Formula(
@@ -112,10 +112,9 @@ def plan_people(model: PeopleModel, cfg: ExportConfig) -> tuple[_Layout, tuple[F
     )
     for i, lane in enumerate(model.lanes_table):
         row = lay.lane_first + i
-        lane_c = criterion(lane.label)
         for j, (letter, n) in enumerate((("A", lane.a), ("B", lane.b), ("C", lane.c)), start=2):
             text = (
-                f"=COUNTIFS({span('lanes')},{lane_c},{span('priority')},{criterion(letter)},"
+                f"=COUNTIFS({span('lanes')},$A{row},{span('priority')},{criterion(letter)},"
                 f"{span('meets_seniority')},{yes})"
             )
             out.append(Formula(sheet, row, j, text, n))
@@ -142,18 +141,6 @@ def expected_people(
     return expected_of(plan_people(model, cfg)[1])
 
 
-def _links(
-    ws: Worksheet, columns: tuple[Column, ...], row: int, values: dict[str, Any], text: str
-) -> None:
-    """Every link cell shows ``text`` and links to its URL (the reference's "Open profile")."""
-    for j, column in enumerate(columns, start=1):
-        url = values.get(column.key)
-        if column.kind == "url" and url:
-            cell = ws.cell(row=row, column=j)
-            cell.value = text
-            cell.hyperlink = str(url)
-
-
 def render_people(model: PeopleModel, cfg: ExportConfig, title: str) -> tuple[bytes, int]:
     """(xlsx bytes, continuation parts)."""
     layout = cfg.rules.workbooks.people
@@ -161,15 +148,18 @@ def render_people(model: PeopleModel, cfg: ExportConfig, title: str) -> tuple[by
     book = Book(cfg)
     summary = book.sheet(layout.summary_sheet)
     ws = book.sheet(layout.sheet)
-    book.header(ws, layout.columns)
-    keys = [c.key for c in layout.columns]
-    if book.theme.freeze_header and "name" in keys:
-        # the reference keeps the number and the name in view while scrolling right
-        ws.freeze_panes = f"{get_column_letter(keys.index('name') + 2)}2"
+    book.header(
+        ws,
+        layout.columns,
+        freeze_columns=layout.freeze_columns,
+        height_pt=layout.header_height_pt,
+    )
     for i, row in enumerate(model.rows, start=2):
         values = row.model_dump()
         book.body(ws, layout.columns, values, i, row.ref)
-        _links(ws, layout.columns, i, values, texts.link_text)
+        for j, column in enumerate(layout.columns, start=1):
+            if column.key == "priority" and row.priority in _PRIORITY_FILL:
+                book.fill(ws, i, j, _PRIORITY_FILL[row.priority])
     if not model.rows:
         book.note(ws, 3, cfg.rules.none_found.text)
     book.finish_table(ws, layout.columns, len(model.rows))
@@ -187,49 +177,26 @@ def render_people(model: PeopleModel, cfg: ExportConfig, title: str) -> tuple[by
         Column(key="c", header="C", kind="count"),
         Column(key="total", header="Total", kind="count"),
     )
-    book.header(summary, level_cols, row=lay.level_header, freeze=False)
+    book.header(summary, level_cols, row=lay.level_header, freeze=False, border=True)
     for i, level in enumerate(model.levels):
-        book.body(summary, level_cols, level.model_dump(), lay.level_first + i, "")
-    book.body(
-        summary,
-        level_cols,
-        {
-            "label": texts.total_label,
-            "people": len(model.rows),
-            "priority_a": sum(x.priority_a for x in model.levels),
-        },
-        lay.level_total,
-        "",
-    )
-    book.body(
-        summary,
-        level_cols[:2],
-        {"label": texts.senior_label, "people": model.senior_count},
-        lay.senior_row,
-        "",
-    )
-    book.header(summary, lane_cols, row=lay.lane_header, freeze=False)
+        book.body(summary, level_cols, {"label": level.label}, lay.level_first + i, "")
+    book.body(summary, level_cols, {"label": texts.total_label}, lay.level_total, "", bold=True)
+    book.body(summary, level_cols[:1], {"label": texts.senior_label}, lay.senior_row, "")
+    book.header(summary, lane_cols, row=lay.lane_header, freeze=False, border=True)
     for i, lane in enumerate(model.lanes_table):
-        book.body(summary, lane_cols, lane.model_dump(), lay.lane_first + i, "")
-    book.body(
-        summary,
-        lane_cols,
-        {
-            "label": texts.total_label,
-            "a": sum(x.a for x in model.lanes_table),
-            "b": sum(x.b for x in model.lanes_table),
-            "c": sum(x.c for x in model.lanes_table),
-            "total": sum(x.total for x in model.lanes_table),
-        },
-        lay.lane_total,
-        "",
-    )
+        book.body(summary, lane_cols, {"label": lane.label}, lay.lane_first + i, "")
+    book.body(summary, lane_cols, {"label": texts.total_label}, lay.lane_total, "", bold=True)
+    # the label column and the count columns (the Level and Lane tables share them)
+    book.set_width(summary, 1, layout.summary_label_width)
+    for j in range(2, layout.summary_span + 1):
+        book.set_width(summary, j, layout.summary_count_width)
     # the title and the paragraphs last, so their heights follow the final column widths
     book.title_line(summary, 1, model.title_line or title)
     for k, text in enumerate(model.paragraphs, start=lay.paragraphs_first):
-        book.paragraph(summary, k, text, _SPAN)
-    for k, sentence in enumerate(model.sentences, start=lay.sentences_first):
-        book.note(summary, k, sentence)
+        book.paragraph(
+            summary, k, text, layout.summary_span, height_pt=layout.summary_paragraph_height_pt
+        )
+    total_rows = {lay.level_total, lay.lane_total}
     for f in formulas:
-        book.formula(f)
+        book.formula(f, bold=f.row in total_rows)
     return book.bytes(title, model.as_of), 0

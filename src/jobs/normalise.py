@@ -65,9 +65,12 @@ def clean_text(text: str, max_chars: int = 100_000) -> str:
 
 
 def normalise_status(status: str | None) -> str:
-    """Map only explicit provider values to open or closed; anything else is unknown."""
+    """Map the feed's status to open or closed. The feed's contract (``docs/providers/
+    p_signals.md``: ``status`` is null or "closed") makes a null an open posting, as the
+    reference workbook prints it; explicit words map to open or closed; any other value is
+    unknown (never guessed)."""
     if status is None:
-        return "unknown"
+        return "open"
     value = status.strip().lower()
     if value in {"open", "active", "published"}:
         return "open"

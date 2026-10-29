@@ -5,31 +5,33 @@ label: synthetic
 groups:
   - {members: [r01, r02], status: in_scope, level: director, lanes: [salesforce], priority: A, possible_duplicate: true}
   - {members: [r03], status: excluded, reason: security}
-  - {members: [r04, r07, r08], status: in_scope, level: senior_manager, lanes: [salesforce], priority: B}
+  - {members: [r04, r07, r08], status: in_scope, level: senior_manager, lanes: [salesforce], priority: A}
   - {members: [r05, r18, r19], status: in_scope, level: vp, lanes: [salesforce], priority: A}
-  - {members: [r06], status: out_of_scope, reason: below_scope}
-  - {members: [r20], status: in_scope, level: senior_manager, lanes: [salesforce], priority: B}
+  # below the seniority rule but the title names a platform: listed (Meets seniority rule No)
+  - {members: [r06, r21], status: in_scope, level: manager, lanes: [salesforce], priority: A, role_lane: salesforce_commercial}
+  - {members: [r20], status: in_scope, level: senior_manager, lanes: [salesforce], priority: A}
   - {members: [r09], status: in_scope, level: c_level, lanes: [servicenow], priority: A}
   - {members: [r10], status: excluded, reason: it_audit}
   - {members: [r11], status: review, reason: exclusion_ambiguous}
   - {members: [r12], status: excluded, reason: it_compliance}
   - {members: [r13], status: out_of_scope, reason: not_current}
   - {members: [r14], status: out_of_scope, reason: not_current}
-  - {members: [r15], status: review, reason: level_unknown}
+  # no level cue: the default level, kept because the title names SAP
+  - {members: [r15], status: in_scope, level: other, lanes: [sap], priority: A, role_lane: sap_erp}
   - {members: [r16], status: in_scope, level: director, lanes: [sap], priority: A, possible_duplicate: true}
   - {members: [r17], status: in_scope, level: director, lanes: [tableau_analytics], priority: A, internal_only: true}
   - {members: ["mention:Priya Nair"], status: unresolved}
   - {members: ["mention:Sam Roe"], status: unresolved}
   - {members: ["mention:Raj Patel"], status: unresolved, possible_duplicate: true}
 counts:
-  found: 23
+  found: 24
   distinct: 18
-  merged_away: 5
+  merged_away: 6
   possible_duplicate: 3
-  in_scope: 7
-  out_of_scope: {below_scope: 1, not_current: 2}
+  in_scope: 9
+  out_of_scope: {not_current: 2}
   excluded: {it_audit: 1, it_compliance: 1, security: 1}
-  review: {exclusion_ambiguous: 1, level_unknown: 1}
+  review: {exclusion_ambiguous: 1}
   unresolved: 3
   profiles_requested: 7
   profiles_read: 6
@@ -45,14 +47,14 @@ counts:
   certified_by_lane: {salesforce: 1, servicenow: 1, sap: 0, tableau_analytics: 0, veeva: 0, data_ai: 0}
   posts_people: 2
   posts_pulled: 2
-  activity_unfiltered: 1
+  activity_unfiltered: 3
   hostile: 1
   fields_dropped: 3
-  by_lane_in_scope: {salesforce: 4, servicenow: 1, sap: 1, tableau_analytics: 1, veeva: 0, data_ai: 0}
-  by_priority: {A: 5, B: 2, C: 0}
+  by_lane_in_scope: {salesforce: 5, servicenow: 1, sap: 2, tableau_analytics: 1, veeva: 0, data_ai: 0}
+  by_priority: {A: 9, B: 0, C: 0}
 # Mei's email is redacted at the boundary, so the extractor's sentence quoting it is not in her
 # stored text.
-drops: {sentence_not_in_text: 2, claim_not_in_sentence: 1, schema_invalid: 1, mentions_ambiguous: 1}
+drops: {sentence_not_in_text: 2, claim_not_in_sentence: 1, schema_invalid: 1, mentions_ambiguous: 1, unlinked_resolved: 1}
 findings: 1
 claims: 8
 lanes_not_searched: {veeva: lane_not_in_scope, data_ai: not_available_yet}
@@ -66,4 +68,4 @@ exits:
 evidence:
   people_by_platform: {refs: 11, failed: 1, expected_calls: 10, cap_hit: true}
   full_profiles_senior_people: {refs: 7, failed: 1, expected_calls: 7, cap_hit: true}
-  posts_priority_people: {refs: 3, failed: 0, expected_calls: 3, cap_hit: false}
+  posts_priority_people: {refs: 5, failed: 0, expected_calls: 5, cap_hit: false}

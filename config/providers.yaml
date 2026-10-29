@@ -106,8 +106,8 @@ providers:
       rate_per_s: 1.0
       burst: 2
       source: "[VERIFY] rate not published in the OpenAPI (403 'Request rate over limit', 429 with Retry-After seconds); conservative placeholder"
-    page_limit: 100
-    page_limit_source: "OpenAPI: limit default 100, maximum 1000"
+    page_limit: 1000
+    page_limit_source: "OpenAPI: limit default 100, maximum 1000; the maximum, so a 12-month job feed of several thousand postings is a handful of requests (each page is one request of the monthly quota) and an incremental delta is one"
     usd_per_credit: null
     usd_per_credit_source: "unknown: monthly request quota by plan (info.description 'Request Limits'); [VERIFY]"
     unknown_cost_reserve_usd: null

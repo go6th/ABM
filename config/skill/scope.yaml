@@ -31,14 +31,19 @@ windows_months:
 seniority:
   # the levels that meet the seniority rule (people module labels); anyone below is kept only
   # when they confirm a stack fact
-  rule: {value: "Director and above, Head, Senior Manager", source: "master prompt v2 section 0 seniority rule"}
+  rule: {value: "Director and above, Head, and Senior Manager", source: "master prompt v2 section 0 seniority rule; wording as the owner's reference People List prints it (2026-10-29)"}
 
 people_exclusions:
   # titles never listed as people (their stack evidence stays); matched case-insensitively as
-  # whole words or phrases in the title
+  # whole words or phrases in the title. NOT read by the people pipeline: the people module's own
+  # exclusion and review cues are config/people_rubric.yaml exclusion_rules and review_rules
+  # (bare "compliance" and "audit" go to review there, not to exclusion; an open owner decision,
+  # docs/audit/2026-10-29-output-parity-audit.md section 5 item 6). This list is loaded into
+  # agents.config.Scope.excluded_title_patterns, which no code reads today; it is kept equal to
+  # the rubric's cues plus those two bare words so a future reader gets the same rule.
   title_patterns:
-    value: ["chief information security officer", "ciso", "security", "it compliance", "compliance", "it audit", "audit", "privacy"]
-    source: "master prompt v2 section 0: exclude CISO, security, IT compliance, IT audit, privacy titles"
+    value: ["chief information security officer", "ciso", "security", "cyber", "cybersecurity", "it compliance", "compliance", "it audit", "internal audit", "audit", "privacy", "privacy officer"]
+    source: "master prompt v2 section 0: exclude CISO, security, IT compliance, IT audit, privacy titles; cyber, internal audit and privacy officer: the owner's reference rule (2026-10-29)"
 
 entity:
   # section 3: the entity lock before any pull; a look-alike brand is within this edit distance

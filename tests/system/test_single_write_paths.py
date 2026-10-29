@@ -218,6 +218,10 @@ OWNERS: dict[str, set[str]] = {
     "abm_distill_outputs": {"agents/production/state.py"},
     # technology detections as dated rows, written by the research graph's pipelines node
     "tech_detections": {"agents/production/pipelines.py"},
+    # the organisation's tech stack (Confirmed stack sheet), written by the same node
+    "tech_stack_items": {"agents/production/pipelines.py"},
+    # the link archive (migration 0086): every stored address with its copy, one writer module
+    "link_archive": {"archive.py"},
     # replica (migrations 0053 to 0056): client limits, the credit pool and its jobs, notices
     "client_settings": {"replica/settings.py"},
     "platform_defaults": {"replica/settings.py"},

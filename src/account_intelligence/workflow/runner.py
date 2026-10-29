@@ -176,9 +176,17 @@ async def _begin(deps: RunDeps, settings: SliceSettings, slice_no: int) -> Slice
         # exit=done, awaiting, canceled, slice ceiling (FAILED, full refund)
         used = await lifecycle.begin_slice(s, deps.run_id, expected=slice_no)
         if used is None:
-            # a stale copy of a slice that already began (Cloud Tasks redelivered it after the
-            # first copy finished and enqueued the next): it must not run a graph chunk under the
-            # old name nor count a slice (review 2026-10-22)
+            # this slice already began. With the lease free (the caller holds it now) there are
+            # two cases. The run moved past it (a later slice began): a stale copy with nothing
+            # to run, dropped (review 2026-10-22). Or this is the LAST slice that began and the
+            # run is still active: its first copy died with the worker (liveness shutdowns,
+            # 2026-10-28) or its answer was lost, so Cloud Tasks redelivered it. Dropping that
+            # copy orphaned the run for up to the lease TTL plus the sweep; it resumes from the
+            # checkpoint instead, without counting a slice again.
+            begun = await lifecycle.slices_used(s, deps.run_id)
+            if begun == slice_no + 1 and status in RESUMABLE:
+                _log.warning("slice.resumed", extra={"count": slice_no, "stage": "redelivery"})
+                return None
             return SliceOutcome("noop", status.value)
         if status is RunStatus.QUEUED:
             await lifecycle.move(s, deps.run_id, RunStatus.QUEUED, RunStatus.RUNNING)
@@ -287,6 +295,8 @@ def _stage(snap: Any) -> str:
 # a Stop reaches the worker within this long (one indexed status read per tick); it was 10 s, and
 # a stopped run could keep paying for calls for that long (audit 2026-10-21)
 CANCEL_POLL_S = 2.0
+# the states a redelivered slice may resume in (QUEUED never began; AWAITING waits)
+RESUMABLE = frozenset({RunStatus.RUNNING, RunStatus.DISTILLING, RunStatus.VERIFYING})
 
 
 async def _drive(graph: Any, graph_input: Any, config: Mapping[str, Any], deps: RunDeps) -> bool:
@@ -360,6 +370,8 @@ async def _slice(
             else:
                 graph_input = None
             before, started = _mark(snap), deps.clock.now()
+            async with deps.txn(deps.tenant_id) as s:
+                replies_before = await lifecycle.model_replies(s, deps.run_id)
             _log.info("slice.started", extra={"count": slice_no, "stage": _stage(snap)})
             try:
                 async with asyncio.timeout(settings.slice_seconds):
@@ -370,7 +382,9 @@ async def _slice(
                 # failure: the slice ends like a timeout and the next one re-runs the node
                 snap = await graph.aget_state(config)
                 waited = (deps.clock.now() - started).total_seconds()
-                return await _timed_out(deps, slice_no, settings, snap, before, waited)
+                return await _timed_out(
+                    deps, slice_no, settings, snap, before, waited, replies_before
+                )
             snap = await graph.aget_state(config)
             _log.info(
                 "slice.ended",
@@ -404,12 +418,18 @@ async def _timed_out(
     snap: Any,
     before: tuple[Any, ...],
     waited: float,
+    replies_before: int | None = None,
 ) -> SliceOutcome:
     """A slice that ran out of time: ``continue`` while the run moves, and the end of the run
     once ``max_no_progress_slices`` slices in a row left the checkpoint where they found it
     (the pending node never finished inside a slice; re-running it forever is not research)."""
     progressed = _mark(snap) != before
     stage = _stage(snap)
+    async with deps.txn(deps.tenant_id) as s:
+        if not progressed and replies_before is not None:
+            # a node longer than a slice still pays for answers that the next slice reuses: new
+            # stored replies are progress even when the checkpoint stayed put
+            progressed = await lifecycle.model_replies(s, deps.run_id) > replies_before
     async with deps.txn(deps.tenant_id) as s:
         stalled = await lifecycle.count_no_progress(s, deps.run_id, progressed=progressed)
     _log.info(

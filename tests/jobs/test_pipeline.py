@@ -31,6 +31,10 @@ async def test_stage_reentry_uses_stored_rows_without_repull(corpus: Corpus) -> 
     assert first.postings == second.postings
     assert sum(kind == "feed" for kind, _ in source.calls) == 1
     assert rec.saves == 1
+    # a first research: no previous run, nothing carried, no active pull, no new-row flag
+    assert first.previous_run_id is None and first.carried == 0
+    assert not [c for c in source.calls if c[0] == "active"]
+    assert {p.new_since_previous for p in first.postings} == {None}
 
 
 async def test_feed_outage_blocks_the_pull_row_and_partial_counts_hold(corpus: Corpus) -> None:
@@ -80,7 +84,14 @@ async def test_caps_bound_escalation_and_extractor_calls(corpus: Corpus) -> None
     assert result.exit_reasons["extractor"] == "cap_reached"
     by_key = {p.posting_key: p for p in result.postings}
     assert by_key["id:j8"].full_text_missing and not by_key["id:j8"].read
-    assert any(p.classification and p.classification.reason == "cap" for p in result.postings)
+    # a candidate past the extractor budget gets the heuristic (never left unclassified)
+    capped = [
+        p
+        for p in result.postings
+        if p.classification and p.classification.reason == "heuristic_after_cap"
+    ]
+    assert capped and all(p.classification.classified_by == "heuristic" for p in capped)
+    assert all(p.posting_class in ("working_tool", "user") for p in capped)
     assert {e[0]: e for e in rec.evidence}[ROW_READ][3] is True
 
 

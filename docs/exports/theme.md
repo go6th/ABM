@@ -2,8 +2,8 @@
 
 # Export theme (the look)
 
-Status: **proposal** (D-26). Source: TODO, needs product owner: neutral placeholder look; legacy library not supplied.
-Theme hash recorded on every deliverable: `f3179325cef11164477016928f4ab57474e68fb4cc8a5e7aa3349a7d2bf6a76c`.
+Status: **sourced** (D-26). Source: the owner's reference workbook set (2026-10-20), measured 2026-10-29; Word values: see word.page.source.
+Theme hash recorded on every deliverable: `9e2b1afd98b4e81098cb0eb4f4c34b95837a9d20a5c18309233f44c5b6ec73da`.
 
 Every value below is a labelled proposal until the legacy Node docx library, the two
 workbook scripts and one real delivered file set are supplied; each value is then
@@ -11,28 +11,29 @@ replaced by the legacy value and its source names the file and line.
 
 ## Word
 
-Page 8.5 by 11.0 inches; margins top 1.0, bottom 1.0, left 1.0, right 1.0 inches (US Letter: PRD s3.4 format rules; margins: proposal).
+Page 11.0 by 8.5 inches; margins top 0.9, bottom 0.9, left 1.0, right 1.0 inches (reference file set 2026-10-20 (docx_lib.js page setup); US Letter: PRD s3.4 format rules).
 
 | Role | Font | Size (pt) | Bold | Italic | Colour |
 | --- | --- | --- | --- | --- | --- |
-| body | Calibri | 11.0 | False | False | 1A1A1A |
-| title | Calibri | 20.0 | True | False | 1F3864 |
-| subtitle | Calibri | 12.0 | False | False | 404040 |
-| heading1 | Calibri | 14.0 | True | False | 1F3864 |
-| heading2 | Calibri | 12.0 | True | False | 1F3864 |
-| quote | Calibri | 11.0 | False | True | 404040 |
-| note | Calibri | 9.0 | False | True | 595959 |
-| table_header | Calibri | 9.0 | True | False | 000000 |
-| table_body | Calibri | 9.0 | False | False | 1A1A1A |
-| header | Calibri | 8.0 | False | False | 595959 |
-| footer | Calibri | 8.0 | False | False | 595959 |
+| body | Arial | 10.0 | False | False | 000000 |
+| title | Arial | 20.0 | True | False | 1F3A5F |
+| subtitle | Arial | 11.0 | False | False | 555555 |
+| heading1 | Arial | 14.0 | True | False | 1F3A5F |
+| heading2 | Arial | 11.5 | True | False | 1F3A5F |
+| quote | Arial | 10.0 | False | True | 555555 |
+| note | Arial | 9.0 | False | True | 555555 |
+| table_header | Arial | 8.5 | True | False | FFFFFF |
+| table_body | Arial | 8.5 | False | False | 000000 |
+| link | Arial | 8.5 | False | False | 1155CC |
+| header | Arial | 8.0 | False | False | 777777 |
+| footer | Arial | 8.0 | False | False | 777777 |
 
-Tables: header fill D9E2F3, border 8EAADB at 4/8 pt, cell margin 60 twips, header row repeated: True, rows never split across pages: True.
+Tables: header fill 1F3A5F, border BFC5CC at 4/8 pt, cell margin 70 twips, header row repeated: True, rows never split across pages: True.
 
 | Table | Column proportions (percent) |
 | --- | --- |
 | platform_picture | 10, 18, 32, 10, 10, 20 |
-| key_people | 10, 14, 20, 13, 7, 12, 16, 8 |
+| key_people | 10, 16, 22, 14, 7, 9, 16, 6 |
 | linkedin | 10, 16, 32, 32, 10 |
 | tracker | 10, 28, 10, 10, 18, 14, 10 |
 | coverage | 10, 24, 10, 10, 16, 16, 14 |
@@ -41,9 +42,9 @@ Tables: header fill D9E2F3, border 8EAADB at 4/8 pt, cell margin 60 twips, heade
 | recent_news | 10, 10, 41, 8, 8, 23 |
 | signals | 10, 43, 10, 12, 10, 15 |
 | status_changed | 10, 20, 30, 30, 10 |
-| source_links | 10, 10, 50, 30 |
+| source_links | 10, 10, 55, 25 |
 | platform_hiring | 10, 20, 14, 10, 12, 14, 10, 10 |
-| sources | 8, 8, 22, 9, 9, 10, 34 |
+| sources | 8, 8, 24, 9, 9, 10, 32 |
 | job_reads | 10, 25, 10, 10, 35, 10 |
 | lane_reads | 10, 30, 14, 10, 36 |
 | board_captures | 10, 40, 15, 35 |
@@ -53,18 +54,18 @@ Tables: header fill D9E2F3, border 8EAADB at 4/8 pt, cell margin 60 twips, heade
 | tech_detections | 10, 38, 15, 15, 22 |
 | platform_postings | 10, 18, 12, 10, 10, 14, 14, 12 |
 | entity_split | 10, 65, 25 |
-| urls | 10, 12, 78 |
 
 ## Workbooks
 
 | Role | Font | Size (pt) | Bold | Italic | Colour |
 | --- | --- | --- | --- | --- | --- |
-| title | Calibri | 14.0 | True | False | 1F3864 |
-| header | Calibri | 11.0 | True | False | 000000 |
-| body | Calibri | 11.0 | False | False | 1A1A1A |
-| note | Calibri | 10.0 | False | True | 595959 |
+| title | Arial | 14.0 | True | False | 1F3A5F |
+| header | Arial | 10.0 | True | False | FFFFFF |
+| body | Arial | 10.0 | False | False | 000000 |
+| note | Arial | 9.0 | False | True | 000000 |
+| link | Arial | 10.0 | False | False | 1155CC |
 
-Header fill D9E2F3, summary fill FFF2CC, border 8EAADB; frozen header: True; filter: True; print landscape on letter, fit to width: True.
+Header fill 1F3A5F, summary fill FFF2CC, border BFC5CC; frozen header: True; filter: True; print landscape on letter, fit to width: True.
 
 | Column kind | Width | Number format | Wrap |
 | --- | --- | --- | --- |
@@ -73,9 +74,9 @@ Header fill D9E2F3, summary fill FFF2CC, border 8EAADB; frozen header: True; fil
 | label | 18 | `@` | False |
 | text_short | 30 | `@` | True |
 | text_long | 80 | `@` | True |
-| url | 45 | `@` | False |
+| url | 13 | `@` | False |
 | date | 12 | `yyyy-mm-dd` | False |
 | count | 12 | `0` | False |
-| percent | 12 | `0.0%` | False |
+| percent | 12 | `0%` | False |
 
 Packages: deflate, fixed entry time (1980, 1, 1, 0, 0, 0).

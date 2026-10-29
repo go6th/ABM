@@ -154,6 +154,208 @@ async def test_a_theme_change_changes_every_file_consistently(
         assert faces == {"Synthetic Serif"}, (kind, faces)
 
 
+# ---- the reference look: landscape, heading styles, links, fills, footer ------------------------
+
+R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+RELS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+
+
+def _archived(content: SnapshotContent) -> SnapshotContent:
+    """Source S-0001 and posting post-00000 with an archived copy; the rest without."""
+    sources = tuple(
+        s.model_copy(update={"archive_url": f"https://archive.example/copies/{s.code}"})
+        if s.code == "S-0001"
+        else s
+        for s in content.sources
+    )
+    postings = tuple(
+        p.model_copy(update={"archive_url": f"https://archive.example/copies/{p.posting_key}"})
+        if p.posting_key == "post-00000"
+        else p
+        for p in content.postings
+    )
+    return content.model_copy(update={"sources": sources, "postings": postings})
+
+
+def _parts(body: bytes) -> tuple[Any, Any, list[Any], bool]:
+    """document.xml, its relationships, the footer parts and whether a header part exists."""
+    with zipfile.ZipFile(io.BytesIO(body)) as z:
+        doc = etree.fromstring(z.read("word/document.xml"))
+        rels = etree.fromstring(z.read("word/_rels/document.xml.rels"))
+        footers = [etree.fromstring(z.read(n)) for n in z.namelist() if n.startswith("word/footer")]
+        header = any(n.startswith("word/header") for n in z.namelist())
+    return doc, rels, footers, header
+
+
+def _text_of(el: Any) -> str:
+    return "".join(t.text or "" for t in el.iter(f"{W}t"))
+
+
+def _links(doc: Any, rels: Any) -> list[tuple[str, str]]:
+    """(text, target) of every hyperlink; every one must resolve to an external relationship."""
+    targets = {
+        r.get("Id"): r.get("Target")
+        for r in rels.iter(f"{RELS}Relationship")
+        if r.get("TargetMode") == "External" and r.get("Type", "").endswith("/hyperlink")
+    }
+    out = []
+    for h in doc.iter(f"{W}hyperlink"):
+        rid = h.get(f"{R}id")
+        assert rid in targets, "a hyperlink without an external relationship"
+        out.append((_text_of(h), targets[rid]))
+    return out
+
+
+@pytest.mark.asyncio
+async def test_the_documents_follow_the_reference_look(
+    make_builder: Make, cfg: ExportConfig
+) -> None:
+    """Both Word files: Letter landscape with the reference margins, Word heading styles with a
+    page break before every section after the first, the theme's fonts on every run, grade and
+    status fills by cell value, a right-aligned PAGE footer and no header part."""
+    content = _archived(rich())
+    _, files = await build(make_builder, content)
+    theme = cfg.theme.word
+    for kind in ("summary", "evidence"):
+        doc, _, footers, header = _parts(files[kind])
+        sect = doc.find(f".//{W}sectPr")
+        size, margin = sect.find(f"{W}pgSz"), sect.find(f"{W}pgMar")
+        assert size.get(f"{W}orient") == "landscape"
+        assert (size.get(f"{W}w"), size.get(f"{W}h")) == ("15840", "12240"), kind
+        assert (margin.get(f"{W}top"), margin.get(f"{W}left")) == ("1296", "1440")
+        styles = [
+            p.find(f"{W}pPr/{W}pStyle").get(f"{W}val")
+            for p in doc.iter(f"{W}p")
+            if p.find(f"{W}pPr/{W}pStyle") is not None
+        ]
+        h1 = styles.count("Heading1")
+        assert h1 >= 9 and styles.count("Heading2") >= 8, kind
+        breaks = [p for p in doc.iter(f"{W}p") if p.find(f"{W}pPr/{W}pageBreakBefore") is not None]
+        assert len(breaks) == h1 - 1  # every section after the first starts a page
+        assert all(p.find(f"{W}pPr/{W}pStyle").get(f"{W}val") == "Heading1" for p in breaks)
+        faces = {f.get(f"{W}ascii") for f in doc.iter(f"{W}rFonts")}
+        assert faces == {theme.fonts.body.name}
+        # the footer is "Page" and a PAGE field, right-aligned; there is no header part
+        (footer,) = footers
+        assert _text_of(footer).startswith(f"{cfg.rules.documents.labels.page_label} ")
+        assert [f.get(f"{W}fldCharType") for f in footer.iter(f"{W}fldChar")] == [
+            "begin",
+            "separate",
+            "end",
+        ]
+        assert "PAGE" in "".join(i.text or "" for i in footer.iter(f"{W}instrText"))
+        assert footer.find(f".//{W}jc").get(f"{W}val") == "right"
+        assert not header
+        assert cfg.rules.documents.labels.attribution_line not in _text_of(doc)
+    # fills: every body cell whose whole text is a grade or status word carries its fill; a
+    # header cell carries the header fill; no other cell is filled
+    doc, _, _, _ = _parts(files["summary"])
+    seen: dict[str, set[str]] = {}
+    for tbl in doc.iter(f"{W}tbl"):
+        rows = list(tbl.iter(f"{W}tr"))
+        for tc in rows[0].iter(f"{W}tc"):
+            assert tc.find(f"{W}tcPr/{W}shd").get(f"{W}fill") == theme.table.header_fill
+        for tr in rows[1:]:
+            for tc in tr.iter(f"{W}tc"):
+                shd = tc.find(f"{W}tcPr/{W}shd")
+                text = _text_of(tc)
+                if text in theme.fills:
+                    assert shd is not None and shd.get(f"{W}fill") == theme.fills[text], text
+                    seen.setdefault(text, set()).add(shd.get(f"{W}fill"))
+                else:
+                    assert shd is None, text
+    assert {"Confirmed", "Probable", "Hypothesis", "Lead", "Done", "None"} <= set(seen)
+    # the label column (after the row key) is bold in body rows
+    table = next(t for t in doc.iter(f"{W}tbl") if _text_of(list(t.iter(f"{W}tc"))[0]) == "Ref")
+    body_row = list(table.iter(f"{W}tr"))[1]
+    bold = [tc.find(f".//{W}rPr/{W}b") is not None for tc in body_row.iter(f"{W}tc")]
+    assert bold[1] and not bold[0] and not any(bold[2:])
+
+
+@pytest.mark.asyncio
+async def test_every_link_is_a_hyperlink_with_its_archived_copy_beside_it(
+    make_builder: Make, cfg: ExportConfig
+) -> None:
+    """The owner's rule: every link in the outputs is a working link, with an archived copy
+    beside it when one is stored. Key people link "Profile"; the Summary's source links and the
+    Evidence register link the source; every posting of parts B, C and E links; a source or
+    posting with an archived copy carries the "Archived copy" link; one without carries none;
+    Part I writes the addresses as plain text; a link run is the theme's link font."""
+    content = _archived(rich())
+    result, files = await build(make_builder, content)
+    labels = cfg.rules.documents.labels
+    link_font = cfg.theme.word.fonts.link
+    for kind in ("summary", "evidence"):
+        doc, rels, _, _ = _parts(files[kind])
+        links = _links(doc, rels)
+        assert links and all(t.startswith("https://") for _, t in links), kind
+        for h in doc.iter(f"{W}hyperlink"):
+            rpr = h.find(f"{W}r/{W}rPr")
+            assert rpr.find(f"{W}u").get(f"{W}val") == "single"
+            assert rpr.find(f"{W}color").get(f"{W}val") == link_font.color
+    doc, rels, _, _ = _parts(files["summary"])
+    summary_links = _links(doc, rels)
+    profiles = [t for text, t in summary_links if text == labels.profile_link]
+    key_people = [r for r in result.manifest.refs["summary"] if r.startswith("K-")]
+    assert profiles and len(profiles) == len(key_people)  # one Profile link per key person
+    assert not any(text == labels.archived_copy for text, _ in summary_links)  # live links only
+    doc, rels, _, _ = _parts(files["evidence"])
+    evidence_links = _links(doc, rels)
+    archived = [t for text, t in evidence_links if text == labels.archived_copy]
+    # the register (A), the posting read in full (B) and its lane row (C): one copy each
+    assert sorted(archived) == sorted(
+        [
+            "https://archive.example/copies/S-0001",
+            "https://archive.example/copies/post-00000",
+            "https://archive.example/copies/post-00000",
+        ]
+    )
+    assert sum(1 for text, _ in evidence_links if text == labels.archived_copy) == 3
+    text = "\n".join(_text_of(p) for p in doc.iter(f"{W}p"))
+    # Part I: the addresses as plain lines, the archived one under its source
+    assert labels.url_line.format(code="S-0001", url="https://rich.example/news/item-0") in text
+    assert labels.archived_line.format(url="https://archive.example/copies/S-0001") in text
+    assert text.count("archived: ") == 1
+    # a source cell without a stored copy links once: the live page
+    cells = [
+        _links(tc, rels)
+        for tbl in doc.iter(f"{W}tbl")
+        for tr in list(tbl.iter(f"{W}tr"))[1:]
+        for tc in tr.iter(f"{W}tc")
+        if tc.find(f".//{W}hyperlink") is not None
+    ]
+    assert cells and all(len(c) in (1, 2) for c in cells)
+    assert sum(1 for c in cells if len(c) == 2) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_redelivery_opens_with_the_change_line(make_builder: Make) -> None:
+    """A re-shared file opens with one line on what is different (the owner's rule): the change
+    note is the first paragraph under the title of both documents on the second delivery and
+    absent on the first."""
+    from exports.verify import docx_text
+
+    store = MemoryStore()
+    first_c = account()
+    first = await make_builder(first_c, store).build_all(first_c.tenant_id, first_c.run_id)
+    again = account(n_people=5, run="00000000-0000-4000-8000-00000000a002")
+    second = await make_builder(again, store).build_all(again.tenant_id, again.run_id)
+    assert first.status == second.status == "complete"
+    files = {d.kind: store.objects[d.object_key] for d in first.deliverables}
+    for kind in ("summary", "evidence"):
+        assert "Changes since the previous delivery" not in docx_text(files[kind])
+        assert "First delivery" not in docx_text(files[kind])
+    files = {d.kind: store.objects[d.object_key] for d in second.deliverables}
+    note = second.change_note or ""
+    assert note.startswith("Changes since the previous delivery: ")
+    for kind in ("summary", "evidence"):
+        with zipfile.ZipFile(io.BytesIO(files[kind])) as z:
+            doc = etree.fromstring(z.read("word/document.xml"))
+        paragraphs = [_text_of(p) for p in doc.iter(f"{W}p") if _text_of(p)]
+        assert paragraphs[1] == note, kind  # right under the title, before the opening line
+        assert paragraphs[2].startswith("Research date ")
+
+
 # ---- determinism and properties ----------------------------------------------------------------
 
 

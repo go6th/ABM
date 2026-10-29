@@ -1176,6 +1176,67 @@
         "title": "Archive",
         "type": "object"
       },
+      "ArchivedCopy": {
+        "additionalProperties": false,
+        "description": "One archived copy of an address the research stored: the original address, the kind of\nlink, when it was captured, its title and the text captured (never a data provider's own\nrecord).",
+        "properties": {
+          "archived_at": {
+            "title": "Archived At",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "kind",
+          "archived_at",
+          "text"
+        ],
+        "title": "ArchivedCopy",
+        "type": "object"
+      },
+      "ArchivedLinkRef": {
+        "additionalProperties": false,
+        "description": "Where a row opens the archived copy of one of its links, and when it was captured.",
+        "properties": {
+          "archived_at": {
+            "title": "Archived At",
+            "type": "string"
+          },
+          "href": {
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": [
+          "href",
+          "archived_at"
+        ],
+        "title": "ArchivedLinkRef",
+        "type": "object"
+      },
       "AskBody": {
         "additionalProperties": false,
         "description": "One question. The tenant and user come from the session, never from the body.",
@@ -12694,8 +12755,19 @@
       },
       "SheetCell": {
         "additionalProperties": false,
-        "description": "One cell of a workbook tab as the file shows it, and the address its link opens.",
+        "description": "One cell of a workbook tab as the file shows it, the address its link opens and the\ntheme token of its fill (``priority_a``, ``rank_b``, ``new_row``; None: no fill).",
         "properties": {
+          "fill": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill"
+          },
           "href": {
             "anyOf": [
               {
@@ -12716,6 +12788,47 @@
           "text"
         ],
         "title": "SheetCell",
+        "type": "object"
+      },
+      "SheetCellText": {
+        "additionalProperties": false,
+        "description": "One whole cell of a deep-dive table (the page shows long cells cut): its row number,\ncolumn key, full text (withheld text reads as the marker) and the address it opens.",
+        "properties": {
+          "col": {
+            "title": "Col",
+            "type": "string"
+          },
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Href"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "withheld": {
+            "default": false,
+            "title": "Withheld",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "n",
+          "col",
+          "text"
+        ],
+        "title": "SheetCellText",
         "type": "object"
       },
       "SheetColumn": {
@@ -12777,11 +12890,32 @@
         "additionalProperties": false,
         "description": "One row: its absolute number, its cells as shown, and its link if it has one (the\noriginal page; ``link_label`` reads \"6th / LinkedIn\", never a data connector's name).",
         "properties": {
+          "archives": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ArchivedLinkRef"
+            },
+            "title": "Archives",
+            "type": "object"
+          },
           "cells": {
             "additionalProperties": {
               "type": "string"
             },
             "title": "Cells",
+            "type": "object"
+          },
+          "cut": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Cut",
+            "type": "object"
+          },
+          "fills": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fills",
             "type": "object"
           },
           "link": {
@@ -18707,6 +18841,76 @@
         ]
       }
     },
+    "/v1/accounts/{domain}/archive": {
+      "get": {
+        "description": "The archived copy of one address the research stored for this account (the newest\ncapture): the text the research read, with the original address and when it was captured.\nA browser gets a readable page; a client asking for JSON gets the same as JSON. 404 when the\naddress was never stored for the account (another tenant's looks the same).",
+        "operationId": "account_archive_v1_accounts__domain__archive_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 8,
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchivedCopy"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Archive",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
     "/v1/accounts/{domain}/deliverables": {
       "get": {
         "description": "The account's current deliverables (newest version of each).",
@@ -19303,6 +19507,148 @@
           }
         },
         "summary": "Account Sheet",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/sheets/{sheet}/cell": {
+      "get": {
+        "description": "One whole cell of a deep-dive table (the page shows a long cell cut to ``CELL_CAP``):\nrow ``n`` under the same filter and sort as the page, column ``col``. 404 past the table\nor for a column the table does not have; a guarded cell reads as withheld.",
+        "operationId": "account_sheet_cell_v1_accounts__domain__sheets__sheet__cell_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sheet",
+            "required": true,
+            "schema": {
+              "title": "Sheet",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "n",
+            "required": true,
+            "schema": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "title": "N",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "col",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Col",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filter"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dir",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dir"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetCellText"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Sheet Cell",
         "tags": [
           "accounts"
         ]

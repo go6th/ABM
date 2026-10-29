@@ -386,6 +386,7 @@ class FakePipelines:
         self.world, self.cfg, self.grading, self.tracker = world, cfg, grading, tracker
         self.jobs_runs = 0
         self.tech_runs = 0
+        self.stack_runs = 0
         self.careers: list[str | None] = []
 
     def _lines(self, pipeline: str) -> list[tuple[str, str, str, str]]:
@@ -435,6 +436,11 @@ class FakePipelines:
         self.tech_runs += 1
         graded = await self._facts(ctx, "tech", "date_range", False)
         return PipelineOutcome({"tech_rows": graded["graded"]}, {"tech": "written"})
+
+    async def write_stack(self, ctx: RunContext) -> PipelineOutcome:
+        """The organisation tech stack step: counted, nothing stored in the fake."""
+        self.stack_runs += 1
+        return PipelineOutcome({"stack_rows": 0}, {"stack": "written"})
 
     async def run_people(self, ctx: RunContext) -> PipelineOutcome:
         """The people pipeline stand-in: every ``person: Name, Title at Account`` line of a

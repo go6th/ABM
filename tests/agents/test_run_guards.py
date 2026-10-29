@@ -66,6 +66,33 @@ async def test_g6_facts_changed_after_the_sense_check_are_refused(h: Harness) ->
     assert state["error_code"] == "sense_check_stale" and not h.builder.builds
 
 
+async def test_a_provider_call_that_never_answers_makes_its_row_a_gap_not_a_stalled_node(
+    h: Harness, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from agents import graph
+
+    monkeypatch.setattr(graph, "PULL_ROW_CEILING_S", 0.05)
+    call = h.provider.call
+    hung: list[str] = []
+
+    async def stuck(ctx, need, query, row_key):  # type: ignore[no-untyped-def]
+        if not hung:
+            hung.append(row_key)
+            await asyncio.sleep(3600)
+        return await call(ctx, need, query, row_key)
+
+    h.provider.call = stuck  # type: ignore[method-assign]
+    _, state = await asyncio.wait_for(h.run("r"), 30)
+    rows = manifest(h, next(iter(h.manifests.by_run)))
+    # a row a code pipeline owns is handed to it (the pipeline finishes the pull); any other
+    # row is a named gap
+    owner = h.cfg.plan[hung[0]].pipeline
+    expected = "owned_by_pipeline" if owner in ("jobs", "tech") else "provider_slow"
+    assert rows[hung[0]].blocked_reason == expected
+    assert any(r.status == "stored" for r in rows.values())
+    assert state["outcome"] in ("completed", "partial")
+
+
 # G7 --------------------------------------------------------------------------------------------
 
 

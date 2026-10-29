@@ -24,6 +24,7 @@ PROFILE_FIELDS = (
     "headline",
     "employer",
     "prior_employers",
+    "employments",
     "join_date",
     "role_start",
     "certifications",

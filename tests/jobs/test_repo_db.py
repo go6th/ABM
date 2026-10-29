@@ -13,7 +13,7 @@ from jobs.repo import PgPostingRepo
 from jobs.stage import run_jobs
 from tests.fakes.jobs import Corpus, FakeRunInput, Recorder
 from tests.jobs.conftest import build
-from tests.tracker.world import World, fetch, make_world
+from tests.tracker.world import World, admin_dsn, fetch, make_world
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
@@ -58,8 +58,39 @@ async def test_save_and_load_round_trip_and_reentry_makes_no_call() -> None:
     assert n == len(result.postings)  # type: ignore[attr-defined]
     s = fetch("SELECT count(*) FROM job_posting_platform_sentences WHERE run_id = %s", w.run)
     assert s[0][0] == sum(len(p.sentences) for p in result.postings)  # type: ignore[attr-defined]
+    # every posting whose text was stored is archived under its link (format text: the stored
+    # text itself is the copy)
+    archived = fetch(
+        "SELECT url, payload_ref, format, kind FROM link_archive WHERE run_id = %s ORDER BY url",
+        w.run,
+    )
+    with_text = {(p.url, p.text_ref) for p in result.postings if p.text_ref}  # type: ignore[attr-defined]
+    assert {(row[0], row[1]) for row in archived} == with_text and with_text
+    assert {(row[2], row[3]) for row in archived} == {("text", "posting")}
     seen = await repo.first_and_last_seen("id:j1")
     assert seen is not None
+
+
+async def test_heuristic_classifications_are_stored_and_read_back() -> None:
+    """Migration 0088 widens classified_by: the heuristic's classes survive a save and a load."""
+    w = make_world()
+    repo, (result, _) = await _saved(w)
+    by = fetch(
+        "SELECT classified_by, count(*) FROM job_posting_classifications WHERE run_id = %s"
+        " GROUP BY classified_by",
+        w.run,
+    )
+    stored = {row[0]: row[1] for row in by}
+    assert stored.get("heuristic", 0) >= 3 and stored.get("extractor", 0) >= 10
+    loaded = await repo.load_run(str(w.run))
+    assert loaded is not None
+    kinds = {
+        p.classification.classified_by
+        for p in loaded.postings
+        if p.classification  # type: ignore[attr-defined]
+    }
+    assert {"heuristic", "extractor"} <= kinds
+    assert not stored.get("rule")
 
 
 async def test_db_refuses_bad_rows_and_any_update_or_delete() -> None:
@@ -155,3 +186,146 @@ async def test_gap_pass_appends_a_reclassification_and_resumes_from_the_last_pas
     )
     assert replay.replayed and again.calls == [] and replay.calls_made == 0
     assert fetch("SELECT count(*) FROM job_pipeline_passes WHERE run_id = %s", w.run) == [(1,)]
+
+
+# ---- incremental re-research (jobs.incremental) ------------------------------------------------
+
+
+def _second_run(w: World) -> UUID:
+    """A second run of the same account (both run tables), as a later research creates one."""
+    from uuid import uuid4
+
+    run = uuid4()
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        c.execute(
+            "INSERT INTO runs (id, tenant_id, account_id, run_type, status, config_version,"
+            " credit_cap, started_at) VALUES (%s, %s, %s, 'full', 'running', 'cfg', 100, now())",
+            (run, w.tenant, w.account),
+        )
+        c.execute(
+            "INSERT INTO account_runs (id, tenant_id, account_id, status, graph_version,"
+            " budget_json, reserved_credits, idempotency_key, budget_usd, tool_call_cap)"
+            " VALUES (%s, %s, %s, 'RUNNING', 'test', '{}', 1, %s, 5, 60)",
+            (run, w.tenant, w.account, "k-" + uuid4().hex),
+        )
+    return run
+
+
+def _delivered(w: World, run: UUID) -> None:
+    """A delivered Job Postings file for ``run`` (the row ``delivered_run`` reads)."""
+    digest = "0" * 64
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        c.execute(
+            "INSERT INTO deliverables (tenant_id, account_id, run_id, set_hash, kind, version,"
+            " filename, sha256, size_bytes, object_key, manifest_json, content_hash,"
+            " snapshot_hash, theme_hash, rules_hash, built_at) VALUES (%s, %s, %s, %s, 'jobs',"
+            " (SELECT coalesce(max(version), 0) + 1 FROM deliverables WHERE tenant_id = %s"
+            " AND account_id = %s AND kind = 'jobs'), 'jobs.xlsx', %s, 1, %s, '{}', %s, %s, %s,"
+            " %s, now())",
+            (
+                w.tenant,
+                w.account,
+                run,
+                digest,
+                w.tenant,
+                w.account,
+                digest,
+                f"{w.tenant}/{w.account}/{run}/deliverables/{digest}.xlsx",
+                digest,
+                digest,
+                digest,
+                digest,
+            ),
+        )
+
+
+async def test_incremental_fields_round_trip_and_the_previous_run_is_this_accounts_only() -> None:
+    from datetime import date, timedelta
+
+    from jobs.incremental import previous_delivered_run
+    from tests.jobs.test_incremental import ACTIVE, NEW, OVERLAP, _delta_source
+
+    w = make_world()
+    corpus = Corpus()
+    pipeline, *_ = build(corpus)
+    store = Recorder()  # the payload store: run 2 reads the carried texts back from it
+    repo = PgPostingRepo(tenant_txn, w.tenant, w.account)
+    first = await run_jobs(
+        str(w.run),
+        pipeline,
+        repo,
+        store,
+        store,
+        store,
+        FakeRunInput(corpus.lanes_off, corpus.as_of),
+    )
+    assert fetch(
+        "SELECT last_seen, seniority, new_since_previous FROM job_postings WHERE run_id = %s"
+        " AND posting_key = 'id:j18'",
+        w.run,
+    ) == [(date(2026, 9, 15), "mid_senior", None)]
+    assert fetch(
+        "SELECT previous_run_id, carried FROM job_pipeline_runs WHERE run_id = %s", w.run
+    ) == [(None, 0)]
+    # the previous run resolves for this account only (RLS keeps other tenants out, the account
+    # check keeps another account of the same tenant out)
+    previous = await repo.load_previous(str(w.run))
+    assert previous is not None and previous.postings == first.postings
+    assert previous.as_of == first.as_of
+    other_account = make_world(tenant=w.tenant)
+    assert (
+        await PgPostingRepo(tenant_txn, w.tenant, other_account.account).load_previous(str(w.run))
+        is None
+    )
+    other_tenant = make_world()
+    assert (
+        await PgPostingRepo(tenant_txn, other_tenant.tenant, other_tenant.account).load_previous(
+            str(w.run)
+        )
+        is None
+    )
+    # the delivered-run lookup needs a delivered file of a run with a job pipeline record
+    async with tenant_txn(w.tenant) as s:
+        assert await previous_delivered_run(s, w.account) is None
+    _delivered(w, w.run)
+    async with tenant_txn(w.tenant) as s:
+        assert await previous_delivered_run(s, w.account) == (w.run, first.as_of)  # type: ignore[attr-defined]
+        assert await previous_delivered_run(s, other_account.account) is None
+    async with tenant_txn(other_tenant.tenant) as s:
+        assert await previous_delivered_run(s, w.account) is None
+    # the second research of the account: carried rows are stored again under the new run with
+    # the incremental columns filled; the record names the previous run
+    pipeline, *_ = build(corpus)
+    pipeline.source = _delta_source(corpus, [NEW, OVERLAP], ACTIVE)
+    run2 = _second_run(w)
+    rec = Recorder()
+    second = await run_jobs(
+        str(run2),
+        pipeline,
+        repo,
+        store,
+        rec,
+        rec,
+        FakeRunInput(corpus.lanes_off, corpus.as_of + timedelta(days=60), previous),
+    )
+    assert len(second.claims) == len(first.claims) + 1 == len(rec.claims)
+    assert second.carried == len(first.postings) and second.previous_run_id == str(w.run)  # type: ignore[attr-defined]
+    assert fetch(
+        "SELECT previous_run_id, carried FROM job_pipeline_runs WHERE run_id = %s", run2
+    ) == [(w.run, len(first.postings))]  # type: ignore[attr-defined]
+    assert fetch(
+        "SELECT posting_key, new_since_previous, status, last_seen, seniority FROM job_postings"
+        " WHERE run_id = %s AND posting_key IN ('id:j18', 'id:j30', 'id:j2') ORDER BY posting_key",
+        run2,
+    ) == [
+        ("id:j18", False, "open", date(2026, 9, 15), "mid_senior"),
+        ("id:j2", False, "closed", None, None),
+        ("id:j30", True, "open", date(2026, 11, 28), "mid_senior"),
+    ]
+    loaded = await repo.load_run(str(run2))
+    assert loaded is not None and loaded.postings == second.postings  # type: ignore[attr-defined]
+    assert loaded.previous_run_id == str(w.run) and loaded.carried == second.carried  # type: ignore[attr-defined]
+    # the first run's rows are untouched (insert-only): still 21 rows, no flag
+    assert fetch(
+        "SELECT count(*) FROM job_postings WHERE run_id = %s AND new_since_previous IS NULL", w.run
+    ) == [(len(first.postings),)]  # type: ignore[attr-defined]

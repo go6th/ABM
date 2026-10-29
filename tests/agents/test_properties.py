@@ -13,7 +13,7 @@ from agents.errors import InvalidMode, NoPulledData
 from agents.guards import coverage_verdict, evidence_problem, lead_drop_decision, phrasing_key
 from agents.manifest import ManifestRow, PullManifest, QueryRecord, check_build_precondition
 from agents.modes import RunMode, resolve_mode
-from agents.naming import client_hits, provider_terms
+from agents.naming import client_hits, is_word_name, provider_terms
 from agents.ports import RowOutcome
 from agents.schemas import EvidenceRef, PayloadView
 
@@ -141,7 +141,8 @@ def test_a_quote_is_accepted_only_when_it_is_in_the_payload(text, start, length)
 @settings(max_examples=50)
 @given(st.text(alphabet=string.ascii_letters + " ", max_size=60), st.data())
 def test_a_provider_name_anywhere_is_always_caught(prefix: str, data: st.DataObject) -> None:
-    term = data.draw(st.sampled_from(provider_terms()))
+    # a provider name that is also an English word is caught as the vendor only (test_naming_words)
+    term = data.draw(st.sampled_from([t for t in provider_terms() if not is_word_name(t)]))
     assert client_hits(f"{prefix} {term} wrote this")
 
 

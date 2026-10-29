@@ -3,8 +3,8 @@
 One sourced claim per classified posting and named platform: attribute ``jobs.<platform>.<class>``,
 value the platform name, evidence the posting URL and the VERBATIM platform sentence (the grading
 engine re-checks it against the stored source, G4). The pipeline never sets a grade, never calls
-a keyword match a finding (title-only and unread postings get no claim), and skips a sentence
-that contains contact details (PII proposal) rather than sending it.
+a keyword match a finding (title-only, unread and heuristic-class postings get no claim), and
+skips a sentence that contains contact details (PII proposal) rather than sending it.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ def claims_for(posting: Posting, text: str) -> tuple[list[ProposedSourced], int]
     """Claims for one posting from its stored ``text``; returns ``(claims, skipped_for_pii)``."""
     if posting.classification is None or posting.posting_class == "unclassified":
         return [], 0
+    if posting.classification.classified_by == "heuristic":
+        return [], 0  # a keyword rule over the sentences is not a reading: never a finding
     if not posting.read or posting.title_only or posting.hostile:
         return [], 0
     claims: list[ProposedSourced] = []
@@ -34,6 +36,8 @@ def claims_for(posting: Posting, text: str) -> tuple[list[ProposedSourced], int]
         if sentence is None:
             continue
         verbatim = text[sentence.start : sentence.end]
+        if not verbatim:
+            continue  # the stored text is not at hand (a carried copy that failed to read back)
         if strip_pii(verbatim) != verbatim:
             skipped += 1
             continue

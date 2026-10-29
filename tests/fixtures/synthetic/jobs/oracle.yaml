@@ -16,12 +16,15 @@ distinct:
   with_platform_sentence: 15   # read minus j7 (title only)
   full_text_read: 16
   full_text_missing: 1         # j9
-  matched_status: {open: 13, closed: 4, unknown_status: 2}
-  read_status: {open: 10, closed: 4, unknown_status: 2}
-  by_class: {build: 7, admin_owner: 3, working_tool: 1, user: 2, unclassified: 3}
-  # build: j1 j8 j11 j13 j18 j20 (rule) + j5 (extractor, second pass agrees)
-  # admin_owner: j2 j19 j21; working_tool: j3; user: j4 j12
-  # unclassified: j6 (second pass disagrees), j7 (title only), j17 (extractor unclear)
+  matched_status: {open: 14, closed: 4, unknown_status: 1}   # j4: a null feed status is open
+  read_status: {open: 11, closed: 4, unknown_status: 1}
+  by_class: {build: 7, admin_owner: 3, working_tool: 1, user: 4, unclassified: 1}
+  # 2026-10-29: only the extractor (second pass agreeing) confirms build and admin_owner, and only
+  # for a title with a Build or Admin and owner cue; no keyword in a description decides a class.
+  # build (extractor, second pass agrees): j1 j5 j8 j11 j13 j18 j20; admin_owner: j2 j19 j21
+  # heuristic (Working tool when the platform sentence holds a cue, else User role):
+  #   j4 working_tool ("log"); user: j3 j12 (no cue), j6 (second pass disagrees), j17 (unclear)
+  # unclassified: j7 (title only, names no platform in its text)
 per_platform:
   Salesforce: {matched: 9, read: 8}   # j1 j4 j6 j7 j13 j15 j17 j19 j20; read drops j15
   ServiceNow: {matched: 5, read: 4}   # j2 j12 j16 j18 j21; read drops j16
@@ -32,16 +35,16 @@ lanes_not_searched: {veeva: lane_not_in_scope, data_ai: not_available_yet}
 classes:
   "id:j1": build
   "id:j2": admin_owner
-  "id:j3": working_tool
-  "id:j4": user
+  "id:j3": user
+  "id:j4": working_tool
   "id:j5": build
-  "id:j6": unclassified
+  "id:j6": user
   "id:j7": unclassified
   "id:j8": build
   "id:j11": build
   "id:j12": user
   "id:j13": build
-  "id:j17": unclassified
+  "id:j17": user
   "id:j18": build
   "id:j19": admin_owner
   "id:j20": build
@@ -52,10 +55,10 @@ sentences:
   "id:j19": [["Salesforce", "The Salesforce administrator manages users."]]
 status:
   "id:j1": [open, live_board]    # the feed says closed; the live board this run says open (J7)
-  "id:j4": [unknown, unknown]
+  "id:j4": [open, feed]           # the feed's null status means open (its contract)
   "id:j17": [unknown, unknown]    # an unrecognised provider value stays unknown
-claims: 14            # one per classified posting and named platform; j13 names two
+claims: 11            # one per build/admin_owner posting and named platform (j13 names two); the heuristic gives no claim
 board_calls: 4        # Salesforce, ServiceNow, SAP, Tableau (Veeva off; Data and AI has no terms)
-extractor_first_pass: 4   # j5 j6 j16 j17
+extractor_first_pass: 13  # j1 j2 j5 j6 j8 j11 j13 j16 j17 j18 j19 j20 j21 (a Build or Admin and owner cue in the title)
 page_reads: 2             # j8 ok, j9 failed
-count_sentence: "16 postings read of 19 matched (10 open and 4 closed of the 16 read)"
+count_sentence: "16 postings read of 19 matched (11 open and 4 closed of the 16 read)"

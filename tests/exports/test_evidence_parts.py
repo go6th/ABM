@@ -188,7 +188,9 @@ def test_parts_e_f_h_i_are_counts_leads_pulls_and_urls(
     assert [(u.code, str(u.url)) for u in model.urls] == [
         (s.code, str(s.url)) for s in model.sources
     ]
-    assert list(ev.refs[-len(model.urls) :]) == [u.ref for u in model.urls]
+    # Part I is plain lines (as the reference prints its URLs): no row keys in the file
+    assert not any(r.startswith("U-") for r in ev.refs)
+    assert [r for r in ev.row_ids if r.startswith("url:")] == [f"url:{u.code}" for u in model.urls]
 
 
 def test_a_lead_never_re_searched_says_so(cfg: ExportConfig, grading: GradingConfig) -> None:
@@ -217,13 +219,14 @@ def test_part_e_lists_the_live_board_postings_that_name_a_lane_platform(
     c = _live(account(), "post-00000", "post-00001")
     ev = evidence_of(c, cfg, grading)
     rows = ev.model.live_postings
+    # workbook order: the Jobs sheet lists the newest first seen first (post-00001, 2 February)
     assert [(r.ref, r.row_id, r.read) for r in rows] == [
-        ("LV-0001", "live:post-00000", labels.read_in_full_yes),
-        ("LV-0002", "live:post-00001", labels.read_platform_sentence),
+        ("LV-0001", "live:post-00001", labels.read_platform_sentence),
+        ("LV-0002", "live:post-00000", labels.read_in_full_yes),
     ]
-    assert rows[0].posting == "Synthetic Salesforce Admin 0" and rows[0].platforms == "Salesforce"
-    assert rows[0].entity == c.account_name
-    assert rows[0].posting_class == cfg.rules.labels.posting_class["admin_owner"]
+    assert rows[1].posting == "Synthetic Salesforce Admin 0" and rows[1].platforms == "Salesforce"
+    assert rows[1].entity == c.account_name
+    assert rows[1].posting_class == cfg.rules.labels.posting_class["admin_owner"]
     assert ev.model.live_heading == h.live_postings.format(
         dates="2 January 2026 to 2 February 2026"
     )
@@ -256,7 +259,7 @@ def test_part_h_detections_postings_entities_feed_and_teams(
     assert model.teams_note == cfg.rules.none_found.teams
     refs = list(ev.refs)
     assert refs.index("DP-0001") < refs.index("TD-0001") < refs.index("PP-0001")
-    assert refs.index("PP-0001") < refs.index("ES-0001") < refs.index("U-0001")
+    assert refs.index("PP-0001") < refs.index("ES-0001") == len(refs) - 1
 
 
 def test_part_h_news_feed_note_counts_the_ledger_calls(

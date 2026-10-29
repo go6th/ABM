@@ -25,6 +25,7 @@ checked against the run row under RLS: a run that is not the tenant's is not fou
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 from uuid import UUID
@@ -72,7 +73,13 @@ async def _act_as_owner_of(kind: str, tenant_id: UUID, item_id: UUID) -> None:
         raise HTTPException(404, f"{kind} not found") from None
 
 
-def _authorise(request: Request, authorization: str | None) -> Any:
+# the Google-signed token check fetches Google's public certificates over synchronous HTTPS (a
+# 120 s default timeout, with retries): on the event loop it froze /healthz and Cloud Run shut the
+# worker down mid-slice (staging 2026-10-28, twice). It runs in a thread now, with a bound.
+TOKEN_CHECK_TIMEOUT_S = 20.0
+
+
+async def _authorise(request: Request, authorization: str | None) -> Any:
     set_system()
     container = request.app.state.container
     if container.verify_task_token is None:
@@ -84,9 +91,21 @@ def _authorise(request: Request, authorization: str | None) -> Any:
         raise HTTPException(403, "task authentication is not configured")
     token = (authorization or "").removeprefix("Bearer ").strip()
     try:
-        container.verify_task_token(token, container.task_audience, container.task_service_account)
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                container.verify_task_token,
+                token,
+                container.task_audience,
+                container.task_service_account,
+            ),
+            TOKEN_CHECK_TIMEOUT_S,
+        )
     except PermissionError:
         raise HTTPException(403, "invalid task token") from None
+    except TimeoutError:
+        # Google's certificate endpoint did not answer: the caller (Cloud Tasks, Scheduler)
+        # retries; the worker stays responsive meanwhile
+        raise HTTPException(503, "task token check timed out") from None
     return container
 
 
@@ -95,7 +114,7 @@ async def run_slice(
     task: SliceTask, request: Request, authorization: str | None = Header(default=None)
 ) -> dict[str, str]:
     """Run one slice of one run for an OIDC-verified Cloud Tasks call."""
-    container = _authorise(request, authorization)
+    container = await _authorise(request, authorization)
     from account_intelligence.platform.checkpoint import checkpointer_factory
     from agents.production.wiring import AbmGraphFactory, uses_abm
     from documents.graph import FileGraphFactory, is_file_run
@@ -143,7 +162,7 @@ async def document_process(
 ) -> dict[str, str]:
     """Scan, parse and index one uploaded document (``documents.service``). The tenant in the
     body is checked against the document row under RLS: another tenant's document is not found."""
-    container = _authorise(request, authorization)
+    container = await _authorise(request, authorization)
     docs = getattr(container, "documents", None)
     if docs is None:
         raise HTTPException(503, "document processing is not configured")
@@ -170,7 +189,7 @@ async def approval_timeout(
     """Expire a run's wait past its deadline: a first-cap approval cancels and refunds (known
     defect 8); a cap pause (D-45) records the timeout and resumes the run, which then ends
     BUDGET_EXCEEDED with partial results."""
-    container = _authorise(request, authorization)
+    container = await _authorise(request, authorization)
     await _act_as_owner_of("run", task.tenant_id, task.run_id)
     deps = await container.deps_for(task.tenant_id, task.run_id)
     now = container.clock.now()
@@ -201,7 +220,7 @@ async def research_job(
 ) -> dict[str, str]:
     """Run one confirmed research job (``replica.jobs.run_job``). The tenant in the body is
     checked against the job row under RLS: another tenant's job is simply not claimed."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     await _act_as_owner_of("job", task.tenant_id, task.job_id)
     from account_intelligence.replica import jobs
 
@@ -214,7 +233,7 @@ async def download_everything(
     task: ResearchJobTask, request: Request, authorization: str | None = Header(default=None)
 ) -> dict[str, str]:
     """Build one Download everything archive (``replica.downloads.build``) as its owner."""
-    container = _authorise(request, authorization)
+    container = await _authorise(request, authorization)
     await _act_as_owner_of("download", task.tenant_id, task.job_id)
     from account_intelligence.replica import downloads
 
@@ -242,7 +261,7 @@ async def schedules_tick(
     """Start due scheduled refreshes from each client's pool (Cloud Scheduler, every 15 minutes).
     Reads identifiers only across tenants; everything else happens in each tenant's own
     transaction (``replica.schedules.tick``)."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     from datetime import UTC, datetime
 
     from account_intelligence.replica import jobs, schedules
@@ -260,7 +279,7 @@ async def maildrive_sync(
     turned the feature off, or whose owner's access ended, is purged instead (revoked, token
     destroyed, items deleted). No new connection is started after ``MAILDRIVE_BUDGET_S``; the
     rest are ``deferred`` to the next tick."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     from datetime import UTC, datetime, timedelta
 
     from account_intelligence.api.tenant_plane import plane_of
@@ -336,7 +355,7 @@ async def access_expiry(
     """Warn idle users three days before and end the access of those idle for their client's
     idle days (Cloud Scheduler, daily). Tenant ids only across clients; each client in its own
     transaction."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     from datetime import UTC, datetime
 
     from account_intelligence.api.tenant_plane import plane_of
@@ -375,7 +394,7 @@ async def sweep(
     """One sweeper pass on a schedule (Cloud Scheduler, every 5 minutes): documents left mid-way,
     orphaned and stalled runs. The worker also sweeps in the background while it is warm, but it
     scales to zero, so stuck work waited for the next request (audit 2026-10-15)."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     from account_intelligence.api.main import sweep_pass
 
     set_system()  # a system job: it sees every user's orphans (this request's context only)
@@ -389,7 +408,7 @@ async def audit_verify(
 ) -> dict[str, Any]:
     """The nightly audit chain check (Cloud Scheduler, 04:15): each client's tamper-evident audit
     chain is re-hashed in bounded batches; a break is logged (and alerts) with its position."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     from datetime import UTC, datetime
 
     from account_intelligence.db.session import untenanted_session
@@ -424,7 +443,7 @@ async def notify_relay(
     relayed by email, operator messages to the staff operator list and client messages to the
     client's admins. While no mailer is set up nothing is attempted, so messages wait instead
     of being given up (audit 2026-10-15)."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     import os
     from datetime import UTC, datetime
 
@@ -488,7 +507,7 @@ async def metrics_tick(
     telemetry-down alert watches, the stuck-run gauge by state and age (counted only, never
     recorded as observations), and this instance's dropped telemetry; then the points are
     sent by the periodic exporter (audit 2026-10-15)."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     import time
     from datetime import UTC, datetime
 
@@ -543,7 +562,7 @@ async def isolation_check(
 ) -> dict[str, Any]:
     """The nightly isolation check (Cloud Scheduler, 02:00): structure, every tenant table and
     the read routes, from a dedicated probe client; the pass is recorded either way."""
-    _authorise(request, authorization)
+    await _authorise(request, authorization)
     from datetime import UTC, datetime
 
     from account_intelligence.db.session import untenanted_session

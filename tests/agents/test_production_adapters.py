@@ -236,6 +236,50 @@ async def test_store_payloads_round_trip_and_refuse_other_tenants() -> None:
         await store.view(uuid4(), ref)
 
 
+class _Archive:
+    """A link archive that keeps what it was asked to record."""
+
+    def __init__(self) -> None:
+        self.entries: list[Any] = []
+
+    def now(self) -> datetime:
+        return T0
+
+    async def record(self, entries: Any) -> int:
+        self.entries.extend(entries)
+        return len(self.entries)
+
+
+@pytest.mark.asyncio
+async def test_public_items_are_archived_under_their_address_and_private_ones_are_not() -> None:
+    archive = _Archive()
+    store = StorePayloads(MemoryPayloadStore(), uuid4(), archive=archive)  # type: ignore[arg-type]
+    c = ctx()
+    text = "Jane Doe - CIO - Acme | LinkedIn\nA search result."
+    ref = await store.put(
+        c,
+        "key_contact_profiles_posts",
+        SourceItem("https://www.linkedin.com/in/jane-doe", text),
+        "public",
+    )
+    await store.put(
+        c, "company_news", SourceItem("https://acme.example/n", "feed", "date_range"), "public"
+    )
+    await store.put(
+        c, "prior_customer_status", SourceItem("https://mail.example/1", "private"), "private"
+    )
+    assert [(e.url, e.kind, e.payload_ref, e.title, e.archived_at) for e in archive.entries] == [
+        (
+            "https://www.linkedin.com/in/jane-doe",
+            "profile",
+            ref,
+            "Jane Doe - CIO - Acme | LinkedIn",
+            T0,
+        ),
+        ("https://acme.example/n", "feed_item", archive.entries[1].payload_ref, "feed", T0),
+    ]
+
+
 # credit -----------------------------------------------------------------------------------------
 
 

@@ -67,6 +67,11 @@
      "maximum": 72,
      "title": "Size Pt",
      "type": "number"
+    },
+    "underline": {
+     "default": false,
+     "title": "Underline",
+     "type": "boolean"
     }
    },
    "required": [
@@ -81,7 +86,7 @@
   },
   "HeadingBlock": {
    "additionalProperties": false,
-   "description": "A section heading (level 1) or sub-heading (level 2).",
+   "description": "A section heading (level 1) or sub-heading (level 2); a level 1 heading may start a new\npage (every section after the first in the reference).",
    "properties": {
     "level": {
      "enum": [
@@ -90,6 +95,11 @@
      ],
      "title": "Level",
      "type": "integer"
+    },
+    "page_break": {
+     "default": false,
+     "title": "Page Break",
+     "type": "boolean"
     },
     "text": {
      "maxLength": 40000,
@@ -150,7 +160,7 @@
   },
   "Page": {
    "additionalProperties": false,
-   "description": "Page size and margins.",
+   "description": "Page size, orientation and margins. ``width_in`` and ``height_in`` are the printed page\nas laid out (a landscape Letter page is 11 by 8.5 inches).",
    "properties": {
     "height_in": {
      "exclusiveMinimum": 0,
@@ -159,6 +169,14 @@
     },
     "margins_in": {
      "$ref": "#/$defs/Margins"
+    },
+    "orientation": {
+     "enum": [
+      "portrait",
+      "landscape"
+     ],
+     "title": "Orientation",
+     "type": "string"
     },
     "source": {
      "title": "Source",
@@ -173,6 +191,7 @@
    "required": [
     "width_in",
     "height_in",
+    "orientation",
     "margins_in",
     "source"
    ],
@@ -181,8 +200,20 @@
   },
   "ParagraphBlock": {
    "additionalProperties": false,
-   "description": "A paragraph in one of the themed paragraph styles.",
+   "description": "A paragraph in one of the themed paragraph styles; with ``href`` the whole paragraph is\none hyperlink (a source link under a Part D sub-heading).",
    "properties": {
+    "href": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Href"
+    },
     "style": {
      "enum": [
       "body",
@@ -209,6 +240,34 @@
     "text"
    ],
    "title": "ParagraphBlock",
+   "type": "object"
+  },
+  "Run": {
+   "additionalProperties": false,
+   "description": "A run of text inside a cell: plain, or a hyperlink to ``href``. Newlines in the text are\nline breaks; runs follow each other inline.",
+   "properties": {
+    "href": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Href"
+    },
+    "text": {
+     "maxLength": 40000,
+     "title": "Text",
+     "type": "string"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "title": "Run",
    "type": "object"
   },
   "Spacing": {
@@ -244,7 +303,7 @@
   },
   "TableBlock": {
    "additionalProperties": false,
-   "description": "A table: a header row, the theme proportions by name and the data rows. ``keys`` are the\nvisible row keys (the first cell of each row), checked by the row-presence verification.",
+   "description": "A table: a header row, the theme proportions by name and the data rows. ``keys`` are the\nvisible row keys (the first cell of each row, always plain text), checked by the\nrow-presence verification. ``label_column`` is the column printed bold in body rows (the\nreference bolds its first column; here that is the column after the row key).",
    "properties": {
     "headers": {
      "items": {
@@ -262,6 +321,12 @@
      "title": "Keys",
      "type": "array"
     },
+    "label_column": {
+     "default": 0,
+     "minimum": 0,
+     "title": "Label Column",
+     "type": "integer"
+    },
     "name": {
      "title": "Name",
      "type": "string"
@@ -269,8 +334,18 @@
     "rows": {
      "items": {
       "items": {
-       "maxLength": 40000,
-       "type": "string"
+       "anyOf": [
+        {
+         "maxLength": 40000,
+         "type": "string"
+        },
+        {
+         "items": {
+          "$ref": "#/$defs/Run"
+         },
+         "type": "array"
+        }
+       ]
       },
       "type": "array"
      },
@@ -304,8 +379,14 @@
   },
   "TitleBlock": {
    "additionalProperties": false,
-   "description": "The document title and its subtitle line.",
+   "description": "The document title, an optional note printed as the first line under it (what changed\nsince the previous delivery) and the opening paragraph (``subtitle``).",
    "properties": {
+    "note": {
+     "default": "",
+     "maxLength": 40000,
+     "title": "Note",
+     "type": "string"
+    },
     "subtitle": {
      "maxLength": 40000,
      "title": "Subtitle",
@@ -330,6 +411,28 @@
    "title": "TitleBlock",
    "type": "object"
   },
+  "TitleRule": {
+   "additionalProperties": false,
+   "description": "The rule under the opening paragraph of a document.",
+   "properties": {
+    "color": {
+     "title": "Color",
+     "type": "string"
+    },
+    "size_eighth_pt": {
+     "maximum": 96,
+     "minimum": 2,
+     "title": "Size Eighth Pt",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "color",
+    "size_eighth_pt"
+   ],
+   "title": "TitleRule",
+   "type": "object"
+  },
   "WordFonts": {
    "additionalProperties": false,
    "description": "Every font the Word renderer may use; nothing else is ever set.",
@@ -347,6 +450,9 @@
      "$ref": "#/$defs/Font"
     },
     "heading2": {
+     "$ref": "#/$defs/Font"
+    },
+    "link": {
      "$ref": "#/$defs/Font"
     },
     "note": {
@@ -378,6 +484,7 @@
     "note",
     "table_header",
     "table_body",
+    "link",
     "header",
     "footer"
    ],
@@ -388,6 +495,10 @@
    "additionalProperties": false,
    "description": "Table styling.",
    "properties": {
+    "bold_label_column": {
+     "title": "Bold Label Column",
+     "type": "boolean"
+    },
     "border_color": {
      "title": "Border Color",
      "type": "string"
@@ -396,6 +507,12 @@
      "maximum": 96,
      "minimum": 2,
      "title": "Border Size Eighth Pt",
+     "type": "integer"
+    },
+    "cell_margin_side_twips": {
+     "maximum": 1440,
+     "minimum": 0,
+     "title": "Cell Margin Side Twips",
      "type": "integer"
     },
     "cell_margin_twips": {
@@ -422,8 +539,10 @@
     "border_color",
     "border_size_eighth_pt",
     "cell_margin_twips",
+    "cell_margin_side_twips",
     "repeat_header_row",
-    "row_cant_split"
+    "row_cant_split",
+    "bold_label_column"
    ],
    "title": "WordTable",
    "type": "object"
@@ -432,6 +551,13 @@
    "additionalProperties": false,
    "description": "The Word look.",
    "properties": {
+    "fills": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "title": "Fills",
+     "type": "object"
+    },
     "fonts": {
      "$ref": "#/$defs/WordFonts"
     },
@@ -474,12 +600,14 @@
        "data_pulls",
        "tech_detections",
        "platform_postings",
-       "entity_split",
-       "urls"
+       "entity_split"
       ]
      },
      "title": "Tables",
      "type": "object"
+    },
+    "title_rule": {
+     "$ref": "#/$defs/TitleRule"
     }
    },
    "required": [
@@ -487,14 +615,16 @@
     "fonts",
     "table",
     "tables",
-    "spacing"
+    "spacing",
+    "title_rule",
+    "fills"
    ],
    "title": "WordTheme",
    "type": "object"
   }
  },
  "additionalProperties": false,
- "description": "One Word document, fully described.",
+ "description": "One Word document, fully described. The footer is the page word and a page number field\n(the reference's only footer). The header part exists only for a tenant's white-label brand\nname (``header_text``); the reference has none.",
  "properties": {
   "blocks": {
    "items": {
@@ -530,19 +660,27 @@
    "title": "Blocks",
    "type": "array"
   },
-  "footer_text": {
-   "maxLength": 40000,
-   "title": "Footer Text",
-   "type": "string"
-  },
   "header_text": {
+   "anyOf": [
+    {
+     "maxLength": 40000,
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Header Text"
+  },
+  "page_label": {
    "maxLength": 40000,
-   "title": "Header Text",
+   "title": "Page Label",
    "type": "string"
   },
   "schema_version": {
-   "const": 1,
-   "default": 1,
+   "const": 2,
+   "default": 2,
    "title": "Schema Version",
    "type": "integer"
   },
@@ -552,8 +690,7 @@
  },
  "required": [
   "theme",
-  "header_text",
-  "footer_text",
+  "page_label",
   "blocks"
  ],
  "title": "DocumentSpec",

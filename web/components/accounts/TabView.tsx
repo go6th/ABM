@@ -3,6 +3,7 @@
 // sits in its own frame that scrolls sideways, so a wide sheet never widens the page.
 import type { SheetTab } from "@/lib/gen/api.gen";
 import { LINK_REL, safeLink } from "@/lib/render";
+import { fillClass, tdClass } from "./cell-fill";
 
 type Block = SheetTab["blocks"][number];
 type Cell = NonNullable<Block["rows"]>[number][number];
@@ -46,8 +47,9 @@ function Table({ block, label }: { block: Block; label: string }) {
                   const value = text(c);
                   const href = safeLink(c?.href ?? "");
                   const long = value.length > 80;
+                  // the cell's fill as the file colours it (a theme token mapped to a class)
                   return (
-                    <td key={j} className={long ? "wrap" : undefined}>
+                    <td key={j} className={tdClass(long && "wrap", fillClass(c?.fill))}>
                       {href ? <a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value || "Open"}</a> : value}
                     </td>
                   );

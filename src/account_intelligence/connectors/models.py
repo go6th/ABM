@@ -96,10 +96,17 @@ class ScrapeJobPageArgs(_Args):
 
 
 class FeedArgs(_Args):
-    """p_signals company feed. One logical pull per run; ``since`` makes a delta pull."""
+    """p_signals company feed. One logical pull per run; ``since`` makes a delta pull.
+
+    The two flags are the job openings feed's documented filters (``docs/providers/
+    p_signals.md``) and are sent for that feed only: ``active_only`` asks for the postings open
+    today (the incremental status refresh), ``with_description_only`` leaves out postings the
+    provider has no text for (nothing to match or read)."""
 
     domain: Domain
     since: date | None = None
+    active_only: bool = False
+    with_description_only: bool = True
 
 
 class OrgResolveArgs(_Args):

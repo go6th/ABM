@@ -19,7 +19,8 @@ export const JSON_TIMEOUT_MS = 120_000;
 /** A file going up or down (uploads, downloads, exports, workbooks) may take far longer. */
 export const TRANSFER_TIMEOUT_MS = 60 * 60_000;
 
-const TRANSFER_PATH = /^\/v1\/(downloads\/|exports\/[^/]+\/files\/|audit\/export$|accounts\/[^/]+\/sheets\/[^/]+\/xlsx$)/;
+// a table's CSV streams every row (thousands of long descriptions): a transfer, not a JSON call
+const TRANSFER_PATH = /^\/v1\/(downloads\/|exports\/[^/]+\/files\/|audit\/export$|accounts\/[^/]+\/sheets\/[^/]+\/(xlsx|csv)$)/;
 
 export function proxyTimeout(method: string, pathname: string): number {
   if (bodyLimit(method, pathname) === UPLOAD_BODY_LIMIT) return TRANSFER_TIMEOUT_MS;

@@ -4,9 +4,11 @@
 // arrows). Chips and headings are links, so filtering and sorting always run on the server.
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Sheet } from "@/lib/gen/api.gen";
+import { api } from "@/lib/api";
+import type { Sheet, SheetCellText } from "@/lib/gen/api.gen";
 import { LINK_REL, safeLink } from "@/lib/render";
 import { Grade, Pill, type PillTone } from "@/ui/design";
+import { fillClass, tdClass } from "./cell-fill";
 
 type Row = Sheet["rows"][number];
 type Column = Sheet["columns"][number];
@@ -17,42 +19,89 @@ const STATUS_TONE: Record<string, PillTone> = {
   Done: "ok", Partial: "warn", "None found": "neutral", "Not done": "bad", Blocked: "bad", "Not checked": "neutral",
 };
 
-function Cell({ col, row }: { col: Column; row: Row }) {
+// The archived copy behind a link (the research keeps what it read): a same-origin address the
+// API serves as a readable page, so a link that has died still opens the captured text.
+function Archived({ row, k }: { row: Row; k: string }) {
+  const found = row.archives?.[k];
+  if (!found || !found.href.startsWith("/v1/")) return null;
+  const when = found.archived_at.slice(0, 10);
+  return <a className="arc-link" href={found.href} target="_blank" rel={LINK_REL} title={`Archived copy, captured ${when}`}>archived</a>;
+}
+
+// The whole cell behind one the page shows cut (the API caps a cell's text on a page): Expand
+// fetches it from the cell route under the page's own filter and sort.
+function More({ row, col, length, cellHref, onText }: { row: Row; col: Column; length: number; cellHref: string; onText: (t: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const load = async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const q = new URLSearchParams({ n: String(row.n), col: col.key });
+      const found = await api<SheetCellText>("GET", `${cellHref}${cellHref.includes("?") ? "&" : "?"}${q.toString()}`);
+      onText(found.text ?? "");
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button type="button" className="cell-more" onClick={load} disabled={busy} aria-label={`Show the whole ${col.label} cell of row ${row.n}`}>
+        {busy ? "Loading…" : `Show all (${length.toLocaleString()} characters)`}
+      </button>
+      {failed ? <span className="cell-note" role="alert">The whole cell could not be loaded. It is in the downloaded file.</span> : null}
+    </>
+  );
+}
+
+function Cell({ col, row, cellHref }: { col: Column; row: Row; cellHref: string }) {
   const raw = row.cells?.[col.key];
-  const value = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
+  const shown = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
+  const [full, setFull] = useState<string | null>(null);
+  const value = full ?? shown;
+  const fill = fillClass(row.fills?.[col.key]);
+  const cutTo = row.cut?.[col.key];
+  const cut = typeof cutTo === "number" && cutTo > 0 && full === null ? cutTo : null;
   if (col.kind === "url") {
-    // a link column of the delivered file: the file's own text ("Open profile", or the address)
-    // opening the address the file links to
+    // a link column of the delivered file: the file's own text ("Open profile", "Open posting",
+    // or the address) opening the address the file links to, and the archived copy beside it
     const href = safeLink(row.links?.[col.key] ?? "");
-    return <td>{href ? <a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value || "Open"}</a> : value}</td>;
+    return <td className={fill ?? undefined}>{href ? <><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value || "Open"}</a><Archived row={row} k={col.key} /></> : value}</td>;
   }
   if (col.kind === "code") {
     // the file's source code, opening the source it names when the registry links it
     const href = safeLink(row.link ?? "");
-    return <td>{href && value ? <a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value}</a> : value}</td>;
+    return <td className={fill ?? undefined}>{href && value ? <><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{value}</a><Archived row={row} k="link" /></> : value}</td>;
   }
   if (col.kind === "link") {
     // "6th / LinkedIn": who found it and the site, opening the original page (never a connector)
     const href = safeLink(row.link ?? "");
-    if (href) return <td><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{row.link_label ?? "Open"}</a></td>;
-    return <td>{row.link_label ? <span className="mut">{row.link_label}</span> : null}</td>;
+    if (href) return <td className={fill ?? undefined}><a className="src-link" href={href} target="_blank" rel={LINK_REL}>{row.link_label ?? "Open"}</a><Archived row={row} k="link" /></td>;
+    return <td className={fill ?? undefined}>{row.link_label ? <span className="mut">{row.link_label}</span> : null}</td>;
   }
-  if (col.kind === "grade") return <td>{value ? <Grade grade={value} /> : null}</td>;
+  if (col.kind === "grade") return <td className={fill ?? undefined}>{value ? <Grade grade={value} /> : null}</td>;
   if (col.kind === "priority") {
     const tone = value === "A" ? "run" : "neutral";
-    return <td className="c">{value ? <Pill tone={tone} small>{value}</Pill> : null}</td>;
+    return <td className={tdClass("c", fill)}>{value ? <Pill tone={tone} small>{value}</Pill> : null}</td>;
   }
   if (col.kind === "status") {
     const tone = STATUS_TONE[value] ?? "neutral";
-    return <td>{value ? <Pill tone={tone} small>{value}</Pill> : null}</td>;
+    return <td className={fill ?? undefined}>{value ? <Pill tone={tone} small>{value}</Pill> : null}</td>;
   }
-  if (col.kind === "strong") return <td><b>{value}</b></td>;
-  if (col.kind === "num") return <td className="c">{value}</td>;
-  if (col.kind === "long" || col.key === "snippet" || col.key === "reason" || value.length > 120) {
-    // long text reads four lines; Expand shows it whole
-    return <td className="wrap"><div className="clamp">{value}</div></td>;
+  if (col.kind === "strong") return <td className={fill ?? undefined}><b>{value}</b></td>;
+  if (col.kind === "num") return <td className={tdClass("c", fill)}>{value}</td>;
+  if (cut !== null || col.kind === "long" || col.key === "snippet" || col.key === "reason" || value.length > 120) {
+    // long text reads four lines; Expand shows it whole; a cell cut by the page fetches the rest
+    return (
+      <td className={tdClass("wrap", fill)}>
+        <div className="clamp">{value}</div>
+        {cut !== null ? <More row={row} col={col} length={cut} cellHref={cellHref} onText={setFull} /> : null}
+      </td>
+    );
   }
-  return <td>{value}</td>;
+  return <td className={fill ?? undefined}>{value}</td>;
 }
 
 // The caption's sort phrase; a delivered file's table opens in the file's own row order.
@@ -60,6 +109,12 @@ function sortedBy(sheet: Sheet): string {
   const col = (sheet.columns ?? []).find((c) => c.key === sheet.sort);
   if (!col) return sheet.from_file ? "In the file's order." : "";
   return `Sorted by ${col.label} ${sheet.dir === "asc" ? "ascending" : "descending"}.`;
+}
+
+/** One whole cell of the table (the page cuts long cells), under the page's filter and sort. */
+export function cellHref(domain: string, sheet: Pick<Sheet, "key" | "filter" | "sort" | "dir">): string {
+  const q = new URLSearchParams({ filter: sheet.filter ?? "", sort: sheet.sort ?? "", dir: sheet.dir ?? "" });
+  return `/v1/accounts/${encodeURIComponent(domain)}/sheets/${encodeURIComponent(sheet.key)}/cell?${q.toString()}`;
 }
 
 /** The table's own CSV or Excel download (every row under the chosen filter and sort). */
@@ -105,6 +160,7 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
   };
   // every row of the table, whatever the filter (a table without an "all" chip counts its total)
   const all = filters.find((f) => f.key === "all")?.count ?? sheet.total ?? 0;
+  const cell = cellHref(domain, sheet);
   return (
     <>
       <div className="sheet-bar">
@@ -156,7 +212,7 @@ export function SheetView({ sheet, domain, base, moreHref }: { sheet: Sheet; dom
                 {rows.map((r, i) => (
                   <tr key={`${r.n}-${i}`}>
                     <td className="rn">{r.n}</td>
-                    {columns.map((c) => <Cell key={c.key} col={c} row={r} />)}
+                    {columns.map((c) => <Cell key={c.key} col={c} row={r} cellHref={cell} />)}
                   </tr>
                 ))}
               </tbody>

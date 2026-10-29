@@ -17,8 +17,15 @@ from people.search import SearchSpec
 
 
 def gap_lanes(people: Iterable[Person], lanes_on: Sequence[str]) -> tuple[str, ...]:
-    """Lanes that are on and have no in-scope person, in lane order."""
-    covered = {lane for p in people if p.status == "in_scope" for lane in p.classification.lanes}
+    """Lanes that are on and have no in-scope person, in lane order. A person below the
+    seniority rule (band ``below``, kept on the list because the title names a platform) does not
+    cover a lane: the gap is a lane with nobody senior in it."""
+    covered = {
+        lane
+        for p in people
+        if p.status == "in_scope" and p.classification.band != "below"
+        for lane in p.classification.lanes
+    }
     return tuple(lane for lane in lanes_on if lane not in covered)
 
 

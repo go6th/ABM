@@ -1,4 +1,4 @@
-"""Tech stack: the Detections sheet's rows (``exports.readers.tech.map_tech``). Pure."""
+"""Tech stack: the Confirmed stack sheet's rows (``exports.readers.tech.map_tech``). Pure."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from views.tables import TableSpec
 
 
 def tech_rows(mapped: Mapping[str, Any], spec: TableSpec, urls: Mapping[str, str]) -> list[ViewRow]:
-    """One row per detection, in the sheet's order."""
+    """One row per technology of the organisation's stack, in the sheet's order (the lookup's).
+    A stack row cites no source page, so none carries a link."""
     model = getattr(mapped.get("tech"), "model", None)
-    rows = getattr(model, "rows", ()) or ()
+    rows = getattr(model, "stack", ()) or ()
     return [
-        build_row(spec, i, r.model_dump(), row_id=r.row_id, codes=(r.source_code,), urls=urls)
+        build_row(spec, i, r.model_dump(), row_id=r.row_id, codes=(), urls=urls)
         for i, r in enumerate(rows, start=1)
     ]

@@ -8,7 +8,7 @@
     "tech": "Synthetic_Oracle_Ltd_Tech_Stack_and_Teams.xlsx",
     "workspace": "Synthetic_Oracle_Ltd_workspace.zip"
   },
-  "rows_per_file": {"summary": 53,"evidence": 30, "people": 2, "jobs": 2, "tech": 2},
+  "rows_per_file": {"summary": 53,"evidence": 31, "people": 2, "jobs": 2, "tech": 3},
   "lanes": [
     {"lane": "Salesforce and commercial systems", "rows": [
       {"ref": "L-0001", "row_id": "00000000-0000-4000-8000-0000000000f1", "grade_label": "Confirmed", "use": "May be stated", "codes": ["S-0001"], "question": null}]},
@@ -27,15 +27,20 @@
     {"ref": "P-0002", "row_id": "pk-bob", "source_code": "S-0005"}
   ],
   "jobs": [
-    {"ref": "J-0001", "row_id": "post-1", "status": "Open", "posting_class": "Admin and owner role", "source_code": "S-0006", "description": "Administer Salesforce. Contact [redacted] for details."},
-    {"ref": "J-0002", "row_id": "post-2", "status": "Open or closed in the last 12 months", "posting_class": "User role", "source_code": "S-0007", "description": ""}
+    {"ref": "J-0001", "row_id": "post-2", "status": "Closed", "posting_class": "User role", "source_code": "S-0007", "description": ""},
+    {"ref": "J-0002", "row_id": "post-1", "status": "Open", "posting_class": "Admin and owner role", "source_code": "S-0006", "description": "Administer Salesforce. Contact [redacted] for details."}
   ],
   "tech": [
     {"ref": "D-0001", "row_id": "d-1", "postings": 1, "source_code": "S-0008"},
     {"ref": "D-0002", "row_id": "d-2", "postings": 0, "source_code": "S-0008", "first_seen": "Not given"}
   ],
+  "tech_stack": [
+    {"row_id": "st-1", "business_function": "Sales", "category": "Customer Relationship Manager (CRM)", "technology": "Salesforce", "postings": 12, "lane": "Salesforce"},
+    {"row_id": "st-2", "business_function": "Finance", "category": "ERP and Business Management Software", "technology": "SAP S/4HANA", "postings": 4, "lane": "SAP"},
+    {"row_id": "st-3", "business_function": "Information Technology", "category": "iPaaS", "technology": "Synthetic Platform", "postings": 2, "lane": ""}
+  ],
   "evidence_codes": ["S-0001", "S-0002", "S-0003", "S-0004", "S-0005", "S-0006", "S-0007", "S-0008", "S-0010"],
-  "evidence_refs": ["E-0001", "E-0002", "E-0003", "E-0004", "E-0005", "E-0006", "E-0007", "E-0008", "E-0009", "JD-0001", "LP-0001", "BC-0001", "LD-0001", "DP-0001", "DP-0002", "DP-0003", "DP-0004", "TD-0001", "PP-0001", "PP-0002", "ES-0001", "U-0001", "U-0002", "U-0003", "U-0004", "U-0005", "U-0006", "U-0007", "U-0008", "U-0009"],
+  "evidence_refs": ["E-0001", "E-0002", "E-0003", "E-0004", "E-0005", "E-0006", "E-0007", "E-0008", "E-0009", "JD-0001", "LP-0001", "BC-0001", "LD-0001", "DP-0001", "DP-0002", "DP-0003", "DP-0004", "DP-0005", "TD-0001", "PP-0001", "PP-0002", "ES-0001"],
   "evidence_uses": {
     "S-0001": [["Confirmed", "We run Salesforce Service Cloud."]],
     "S-0002": [["Probable", "The CIO joined in 2025."]],
@@ -46,7 +51,7 @@
   "job_descriptions_read": ["post-1"],
   "numbers": {
     "people.listed": 2, "jobs.file.rows": 2, "jobs.file.open": 1, "jobs.file.closed": 1,
-    "jobs.pipeline.pulled": 3, "tech.file.rows": 2, "tech.file.named": 1,
+    "jobs.pipeline.pulled": 3, "tech.detections.rows": 2, "tech.detections.named": 1, "tech.file.rows": 3,
     "summary.key_people": 1, "tracker.rows": 33, "evidence.sources": 9, "evidence.withheld": 0
   },
   "withheld_sentences": 0

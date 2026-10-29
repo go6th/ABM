@@ -13,7 +13,7 @@ from psycopg import errors
 
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.hermetic import MemoryPayloadStore
-from people.models import Classification, Profile
+from people.models import Classification, Employment, PartialDate, Profile
 from people.pipeline import PipelineResult
 from people.repo import PgPeopleRepo
 from people.stage import run_people
@@ -83,7 +83,7 @@ async def test_round_trip_and_reentry_makes_no_paid_call() -> None:
         "SELECT kind, count(*) FROM person_events WHERE run_id = %s GROUP BY kind ORDER BY kind",
         w.run,
     )
-    assert dict(events) == {"merge": 5, "scope": len(result.people) - 5}  # type: ignore[arg-type]
+    assert dict(events) == {"merge": 6, "scope": len(result.people) - 6}  # type: ignore[arg-type]
     record = fetch("SELECT record_json::text FROM people_pipeline_runs WHERE run_id = %s", w.run)[
         0
     ][0]
@@ -91,6 +91,18 @@ async def test_round_trip_and_reentry_makes_no_paid_call() -> None:
         for value in (p.name, p.title):
             if value:
                 assert value not in str(record)
+    # every profile link the run stored has an archived copy (the record the source returned)
+    archived = fetch(
+        "SELECT url, kind, format, title FROM link_archive WHERE run_id = %s ORDER BY url", w.run
+    )
+    linked = {
+        (p.profile_url_raw or p.profile_url)
+        for p in result.people
+        if p.profile_url and not p.internal_only
+    }
+    assert {row[0] for row in archived} == linked and linked
+    assert {(row[1], row[2]) for row in archived} == {("profile", "json")}
+    assert all(row[3] for row in archived)
 
 
 @pytest.mark.asyncio
@@ -378,7 +390,9 @@ async def test_unmerge_is_recorded_and_reversible() -> None:
     w = make_world()
     repo = _repo(w)
     result, _ = await _run(w, repo)
-    merged = next(p for p in result.people if p.status == "merged")
+    # a member merged by name (no profile link of its own) can be unmerged; a URL duplicate is
+    # the same person by identity and stays merged
+    merged = next(p for p in result.people if p.status == "merged" and p.profile_url is None)
     await repo.unmerge(
         str(w.run),
         merged.person_key,
@@ -412,6 +426,7 @@ async def test_profiles_are_reused_across_runs_and_posts_resume() -> None:
     assert {p.profile_state for p in result.people if p.status == "in_scope"} == {
         "reused",
         "failed",
+        "not_requested",  # people below the seniority rule are never pulled
     }
 
     w3 = make_world()
@@ -435,3 +450,94 @@ async def test_profiles_are_reused_across_runs_and_posts_resume() -> None:
     resumed, kit3 = await _run(w3, _repo(w3, payloads), corpus3)
     assert kit3.posts.pulled == [u for u in kit3.posts.pulled if u not in stored]
     assert resumed.counts is not None and resumed.counts.posts_pulled == 2
+
+
+def _dated_profile(url: str, **kw: Any) -> Profile:
+    return Profile(
+        person_key="pk-dated",
+        profile_url=url,
+        provider_code="p_people",
+        raw_ref="raw",
+        call_ref="call",
+        **kw,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dated_employments_round_trip_and_are_erased_with_the_profile() -> None:
+    w = make_world()
+    repo = _repo(w)
+    url = "https://www.linkedin.com/in/dated-1"
+    stints = (
+        Employment(
+            employer="Synthetic Firm A",
+            start=PartialDate.parse("2015"),
+            end=PartialDate.parse("2019-06"),
+        ),
+        Employment(employer="Synthetic Firm B", start=PartialDate.parse("2020"), end=None),
+    )
+    other = "https://www.linkedin.com/in/dated-2"
+    await repo.save_profiles(
+        str(w.run), [_dated_profile(url, employments=stints), _dated_profile(other)]
+    )
+    stored = await repo.stored_profiles([url, other])
+    assert stored[url].employments == stints
+    assert stored[other].employments is None  # "the source gave none" survives the round trip
+    assert (
+        await repo.erase(url, [], "synthetic erasure request") == 0
+    )  # no people row: profile only
+    rows = fetch(
+        "SELECT employments IS NULL, erased_at IS NOT NULL FROM person_profiles WHERE"
+        " account_id = %s AND profile_url_canonical = %s",
+        w.account,
+        url,
+    )
+    assert rows == [(True, True)]
+    assert (await repo.stored_profiles([url]))[url].employments is None
+
+
+def test_the_database_refuses_an_erasure_that_leaves_employments() -> None:
+    w = make_world()
+    _as_app_rw(
+        w.tenant,
+        "INSERT INTO person_profiles (tenant_id, account_id, run_id, profile_url_canonical,"
+        " person_key, provider_code, raw_ref, call_ref, name, employments,"
+        " certifications_provided) VALUES (%s, %s, %s, 'https://www.linkedin.com/in/e', 'pk',"
+        " 'p_people', 'raw', 'call', 'Synthetic', '[{\"employer\": \"X\"}]'::jsonb, false)",
+        w.tenant,
+        w.account,
+        w.run,
+    )
+    with pytest.raises(errors.CheckViolation):
+        _as_app_rw(
+            w.tenant,
+            "UPDATE person_profiles SET name = NULL, employments = '[]'::jsonb,"
+            " erased_at = now(), erasure_reason = 'x'",
+        )
+    _as_app_rw(
+        w.tenant,
+        "UPDATE person_profiles SET name = NULL, employments = NULL, erased_at = now(),"
+        " erasure_reason = 'x'",
+    )
+    with pytest.raises(errors.InsufficientPrivilege):  # the guard lists the column: no refill
+        _as_app_rw(w.tenant, "UPDATE person_profiles SET employments = '[]'::jsonb")
+
+
+def test_the_widened_level_check_accepts_the_reference_levels_and_refuses_others() -> None:
+    w = make_world()
+    for level in ("senior_director", "associate_director", "other", "manager"):
+        _insert(
+            w,
+            profile_url=f"https://www.linkedin.com/in/lvl-{level}",
+            profile_url_canonical=f"https://www.linkedin.com/in/lvl-{level}",
+            name="Synthetic L",
+            **{**IN_SCOPE, "job_level": level},
+        )
+    with pytest.raises(errors.CheckViolation):
+        _insert(
+            w,
+            profile_url="https://www.linkedin.com/in/lvl-bad",
+            profile_url_canonical="https://www.linkedin.com/in/lvl-bad",
+            name="Synthetic L",
+            **{**IN_SCOPE, "job_level": "intern"},
+        )

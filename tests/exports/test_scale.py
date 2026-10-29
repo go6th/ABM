@@ -75,10 +75,10 @@ async def test_large_account_builds_within_the_memory_cap() -> None:
     assert result.status == "complete", result.errors
     assert result.manifest.rows_per_file["jobs"] == 10_000
     # the register, the job reads (part B), the same reads by lane (part C, all Salesforce), the
-    # data pull counts (part H, four lines, plus one platform postings row and one entity split
+    # data pull counts (part H, five lines, plus one platform postings row and one entity split
     # row) and one written-out URL per source (part I)
     assert result.manifest.rows_per_file["evidence"] == (
-        (10_000 + 1) + 3334 + 3334 + 4 + 1 + 1 + (10_000 + 1)
+        (10_000 + 1) + 3334 + 3334 + 5 + 1 + 1 + (10_000 + 1)
     )
     assert peak < MEMORY_CAP
     sizes = {d.kind: d.size for d in result.deliverables}

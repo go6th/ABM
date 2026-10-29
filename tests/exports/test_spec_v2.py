@@ -20,7 +20,14 @@ from account_intelligence.config import CONFIG_DIR
 from account_intelligence.grading.config import GradingConfig
 from exports.builder import ExportBuilder
 from exports.config import ExportConfig, load_export_config
-from exports.content import DetectionRow, PeopleCounts, PersonRow, PostingRow, SourceRow
+from exports.content import (
+    FoundVia,
+    PeopleCounts,
+    PersonRow,
+    PostingRow,
+    SourceRow,
+    StackRow,
+)
 from exports.errors import ConfigError
 from exports.excel.jobs import expected_jobs
 from exports.excel.people import expected_people
@@ -122,25 +129,41 @@ async def test_out_of_scope_platforms_are_masked_in_every_file(
         _posting(src, "mask-1", f"Administers Salesforce and {never[0]} daily."),
     )
     det = c.detections[0].model_copy(update={"technology": never[2], "id": "mask-det"})
+    # the organisation's stack also returns an out-of-scope platform: the row stays, its name
+    # is masked
+    hidden = StackRow(
+        id="mask-stack",
+        business_function="Data & Analytics",
+        category="Cloud Data Warehouse",
+        technology=never[2],
+        postings=9,
+    )
     content = c.model_copy(
         update={
             "postings": postings,
             "detections": (*c.detections, det),
+            "stack": (*c.stack, hidden),
             "sources": tuple(src.rows),
         }
     )
     result, files = await _build(make_builder, content)
     assert result.status == "complete", result.errors
     assert result.manifest is not None
-    # the description, the platform sentence and the detection technology at least; the
-    # evidence file repeats the sentence
-    assert result.manifest.masked_terms >= 3
+    # the description, the platform sentence, the detection technology and the stack technology
+    # at least; the evidence file repeats the sentence
+    assert result.manifest.masked_terms >= 4
     for kind, body in files.items():
         text = _texts(body).casefold()
         for name in never:
             assert name.casefold() not in text, (kind, name)
     # the mask itself is on the sheets that carried the names
     assert cfg.scope.mask in _texts(files["jobs"]) and cfg.scope.mask in _texts(files["tech"])
+    # the masked stack row is still a row of the Confirmed stack, with its postings count
+    stack = load_workbook(io.BytesIO(files["tech"]))[cfg.rules.workbooks.tech.sheet]
+    masked = [r for r in stack.iter_rows(min_row=5, values_only=True) if r[2] == cfg.scope.mask]
+    assert masked == [("Data & Analytics", "Cloud Data Warehouse", cfg.scope.mask, 9, None)]
+    note = stack["A2"].value
+    assert "masked" in note and "kept as returned" not in note
 
 
 def test_never_report_names_are_never_platforms_or_lane_labels(cfg: ExportConfig) -> None:
@@ -182,15 +205,48 @@ def test_people_labels_seniority_lane_and_found_by(
 ) -> None:
     c = account(n_people=0)
     src = _Registry(c)
+    # (level, role lane, platform lanes, priority, found via, level label, meets the rule)
     cases = (
-        ("c level", "salesforce, data ai", "A", "title_search", "C-level, EVP and SVP", True),
-        ("vp", "", "B", "association", "VP", True),
-        ("senior manager", "data_ai", "B", "mention", "Senior Manager", True),
-        ("manager", "veeva", "C", "title_search", "Manager", False),
-        ("analyst", "", "C", "title_search", "Lead, owner, specialist or developer", False),
+        (
+            "c level",
+            "technology_it",
+            "salesforce, data ai",
+            "A",
+            (FoundVia(origin="title_search", pass_no=1),),
+            "C-level, EVP and SVP",
+            True,
+        ),
+        (
+            "vp",
+            "",
+            "",
+            "B",
+            (FoundVia(origin="association", lane="tableau_analytics"),),
+            "VP",
+            True,
+        ),
+        (
+            "senior manager",
+            "",
+            "data_ai",
+            "B",
+            (FoundVia(origin="mention", mention_url="https://x.example/about/leadership"),),
+            "Senior Manager",
+            True,
+        ),
+        (
+            "manager",
+            "veeva_life_sciences",
+            "veeva",
+            "C",
+            (FoundVia(origin="title_search", pass_no=2),),
+            "Manager",
+            False,
+        ),
+        ("analyst", "", "", "C", (), "Lead, owner, specialist or developer", False),
     )
     people = []
-    for i, (level, lanes, prio, origin, _label, _senior) in enumerate(cases):
+    for i, (level, role_lane, lanes, prio, via, _label, _senior) in enumerate(cases):
         s = src.add(f"people/p-{i}", kind="secondary")
         people.append(
             PersonRow(
@@ -199,11 +255,13 @@ def test_people_labels_seniority_lane_and_found_by(
                 title=f"Synthetic title {i}",
                 level=level,
                 lanes=lanes,
+                role_lane=role_lane,
                 priority=prio,
                 profile_url=s.url,
                 source_code=s.code,
-                origin=origin,
-                former_employers=("Synthetic Integrator",) if i == 0 else None,
+                origin=via[0].origin if via else "title_search",
+                found_via=via,
+                former_employers=("Synthetic Integrator (2015 to 2019)",) if i == 0 else None,
                 second_profile_url=f"https://{c.domain}/people/alt-{i}" if i == 1 else None,
                 location="Synthetic City, Synthetic Country" if i == 0 else None,
             )
@@ -215,19 +273,31 @@ def test_people_labels_seniority_lane_and_found_by(
     model = map_people(ctx).model
     assert model is not None and not ctx.violations
     labels = cfg.rules.labels
-    for row, (_, _lanes, _, origin, label, senior) in zip(model.rows, cases, strict=True):
+    for row, (_, _lane, _plat, _, _via, label, senior) in zip(model.rows, cases, strict=True):
         assert row.level == label and row.meets_seniority is senior
-        assert row.found_by == labels.found_by[origin]
+    assert [r.found_by for r in model.rows] == [
+        "title search source 1 (leadership and platform)",
+        "technology association search (Tableau)",
+        "Leadership page; profile found by search",
+        "title search source 2 (manager)",
+        "title search",
+    ]
     assert [r.number for r in model.rows] == [1, 2, 3, 4, 5]
     assert [r.row_id for r in model.rows] == [f"pk-{i}" for i in range(5)]
-    assert model.rows[0].lanes == labels.people_lane["salesforce"] == "Salesforce and commercial"
-    # the second lane is kept, in the note, in the People List's wording
-    assert labels.people_lane["data_ai"] in model.rows[0].note
-    assert model.rows[1].lanes == labels.lane_none
+    # ONE lane per person: the stored role lane; a record without one takes the lane of its first
+    # platform lane (stored before the role lanes existed), else the default lane
+    assert [r.lanes for r in model.rows] == [
+        labels.people_lane["technology_it"],
+        labels.people_lane["business_other"],
+        labels.people_lane["analytics_data_ai"],
+        labels.people_lane["veeva_life_sciences"],
+        labels.people_lane["business_other"],
+    ]
+    assert all(r.note == "" for r in model.rows)
     assert model.rows[0].location == "Synthetic City, Synthetic Country"
     assert model.rows[1].location == ""
-    assert model.rows[0].former_employers == "Synthetic Integrator"
-    assert model.rows[1].former_employers == labels.not_pulled
+    assert model.rows[0].former_employers == "Synthetic Integrator (2015 to 2019)"
+    assert model.rows[1].former_employers == ""  # no profile read: the cell stays empty
     assert model.rows[1].second_profile_url and model.rows[0].second_profile_url is None
     assert model.senior_count == 3
     by_label = {x.label: x for x in model.levels}
@@ -236,25 +306,29 @@ def test_people_labels_seniority_lane_and_found_by(
     assert by_label["C-level, EVP and SVP"].priority_a == 1
     assert sum(x.people for x in model.levels) == 5
     lanes_table = {x.label: x for x in model.lanes_table}
-    # two lane ids that share a People List label are one line of the Lane table
-    assert len(lanes_table) == len(model.lanes_table)
-    assert lanes_table[labels.people_lane["salesforce"]].a == 1
-    assert (
-        lanes_table[labels.people_lane["data_ai"]].b == 1
-    )  # the senior manager; the manager is not senior
-    assert lanes_table[labels.lane_none].b == 1 and lanes_table[labels.lane_none].total == 1
+    assert list(lanes_table) == list(labels.people_lane.values()) and len(lanes_table) == 8
+    assert lanes_table[labels.people_lane["technology_it"]].a == 1
+    # the senior manager (analytics) and the vp (default lane) are senior; the manager is not
+    assert lanes_table[labels.people_lane["analytics_data_ai"]].b == 1
+    assert lanes_table[labels.people_lane["business_other"]].b == 1
+    assert lanes_table[labels.people_lane["veeva_life_sciences"]].total == 0
     assert cfg.scope.seniority_rule in model.seniority_text
+    assert "kept only when the title names a platform or technology" in model.seniority_text
     assert model.seniority_text.endswith("Filter Meets seniority rule to Yes for the target list.")
-    # the Summary sheet's title and paragraphs in the reference's order, from stored counts
+    # the Summary sheet's title and its six paragraphs in the reference's order
     assert model.title_line == f"{c.account_name} people list, deduplicated"
+    assert len(model.paragraphs) == 6
     what = model.paragraphs[0]
     assert what.startswith(f"This is the single people list for the {c.account_name} account.")
-    assert "(3 people on this list)" in what  # title search: rows 0, 3 and 4
-    assert "technology association searches (1 person on this list)" in what
+    # the title search, one line per pass with its own count of listed people
+    assert "leadership and platform titles, 1 person on this list" in what
+    assert "manager titles, 1 person on this list" in what
+    assert "a technology association search for the Tableau gaps (1 person on this list)" in what
     assert "people named in research (1 person on this list)" in what
     assert "Pulled by 6th agents on " in what
-    assert model.paragraphs[-2] == model.seniority_text
-    assert model.paragraphs[-1] == model.judgment_note
+    assert model.paragraphs[-3] == model.seniority_text
+    assert model.paragraphs[-2] == model.judgment_note
+    assert model.paragraphs[-1].startswith("Entity labels: ")
     registered = {n.key for n in ctx.registry.items()}
     assert {"people.listed", "people.withheld", "people.senior", "people.level.00"} <= registered
 
@@ -309,6 +383,7 @@ async def test_people_summary_names_the_excluded_with_reason_and_formulas_are_re
         "Synthetic Excluded Person (Director, Information Security)."
     ) in text
     assert cfg.scope.seniority_rule in text and "self reported" in text
+    assert "Entity labels: " in text
     assert "Rows removed before this list: " in text and "1 row merged as duplicates" in text
     labels_col = [row[0] for row in summary]
     assert labels_col.index("Level") < labels_col.index("Lane, senior people only")
@@ -369,9 +444,12 @@ def test_jobs_labels_entity_and_source(cfg: ExportConfig, grading: GradingConfig
     labels = cfg.rules.labels
     rows = {r.row_id: r for r in model.rows}
     assert rows["a"].posting_class == "Build role"
-    assert rows["b"].posting_class == "Not read (title only)" and rows["b"].description == ""
-    assert rows["c"].posting_class == "No lane platform named"
-    assert rows["c"].status == "Open or closed in the last 12 months"
+    # the job pipeline gives every exported posting one of the four classes (a reading confirms
+    # Build and Admin and owner roles, the heuristic decides the rest); a posting with no stored
+    # class at all is the pipeline's own "Unclassified", never a derived "title only" label
+    assert rows["b"].posting_class == "Unclassified" and rows["b"].description == ""
+    assert rows["c"].posting_class == "Unclassified"
+    assert rows["c"].status == "Closed"  # the stored status word
     assert rows["c"].posted_or_seen == date(2026, 6, 2)  # first seen when not posted
     assert rows["a"].source_type == labels.posting_source["feed_read"]
     assert rows["b"].source_type == labels.posting_source["feed_title_only"]
@@ -379,13 +457,16 @@ def test_jobs_labels_entity_and_source(cfg: ExportConfig, grading: GradingConfig
     for key in ("a", "e", "f"):
         assert rows[key].entity == c.account_name, key
     assert rows["g"].entity == "boards.example" + labels.entity_to_confirm_suffix
+    # the matrix is the seven reference platforms, the account's own entity only (row g is on
+    # another website, so it is listed on the Jobs sheet and left out of the counts)
+    assert [m.platform for m in model.matrix] == list(cfg.rules.workbooks.jobs.matrix_platforms)
     matrix = {m.platform: m for m in model.matrix}
-    assert matrix["Salesforce"].rows == 6 and matrix["Workday"].rows == 1
-    assert matrix["All rows"].rows == 7
+    assert matrix["Salesforce"].rows == 5 and matrix["Workday"].rows == 1
+    assert model.class_labels == ("Build role", "Admin and owner role", "Working tool", "User role")
     build_index = model.class_labels.index("Build role")
-    assert matrix["Salesforce"].by_class[build_index] == 4
+    assert matrix["Salesforce"].by_class[build_index] == 3
     assert matrix["Workday"].closed == 1 and matrix["Workday"].open == 0
-    assert matrix["All rows"].open == 6 and matrix["All rows"].closed == 1
+    assert matrix["Salesforce"].closed == 0 and matrix["Salesforce"].open == 5
     assert {n.key for n in ctx.registry.items()} >= {"jobs.matrix.00", "jobs.matrix.00.00"}
 
 
@@ -429,14 +510,28 @@ def test_jobs_reference_columns(cfg: ExportConfig, grading: GradingConfig) -> No
         " (first seen 30 September 2025 to 30 September 2026)"
     )
     joined = " ".join(model.summary_notes)
+    assert len(model.summary_notes) == 5  # the reference Summary's five paragraphs
     assert "6th agents" in joined and "entity to confirm" in joined
-    for label in cfg.rules.labels.posting_class.values():
-        assert label in joined, label
+    # the class paragraph names the four classes of the matrix, the platform paragraph the rules
+    for key in cfg.rules.workbooks.jobs.matrix_classes:
+        assert cfg.rules.labels.posting_class[key] in model.summary_notes[2], key
+    for word in (
+        "S/4HANA",
+        "Ariba",
+        "Concur",
+        "SuccessFactors",
+        "SFDC",
+        "eTMF",
+        "CTMS",
+        "PromoMats",
+    ):
+        assert word in model.summary_notes[4], word
     headers = {col.key: col.header for col in cfg.rules.workbooks.jobs.columns}
-    for key in ("requisition", "posted_or_seen", "read_text", "platform_sentence", "description"):
+    for key in ("requisition", "read_text", "platform_sentence", "description", "archive_url"):
         assert headers[key] in joined, key
-    for key in ("source_type", "ref", "source_code"):
+    for key in ("new_flag", "ref", "source_code"):
         assert headers[key] in joined, key
+    assert c.account_name in model.matrix_heading and "positions only" in model.matrix_heading
 
 
 async def test_jobs_sheet_and_matrix_formulas_are_registered(
@@ -462,9 +557,16 @@ async def test_jobs_sheet_and_matrix_formulas_are_registered(
         list(mapped.summary_notes)
     )
     texts = cfg.rules.sheet_texts.jobs
-    header_row = 3 + len(mapped.summary_notes) + 1
-    matrix_header = [c.value for c in summary[header_row]][:4]
-    assert matrix_header == [texts.matrix_heading, texts.total, texts.closed, texts.open]
+    header_row = 3 + len(mapped.summary_notes) + 2  # two blank rows, as the reference (row 10)
+    assert header_row == 10
+    matrix_header = [c.value for c in summary[header_row]][:8]
+    assert matrix_header == [
+        texts.matrix_heading.format(prefix=mapped.prefix),
+        texts.total,
+        texts.closed,
+        texts.open,
+        *mapped.class_labels,
+    ]
     expected = expected_jobs(mapped, cfg)
     formulas = _formula_cells(files["jobs"])
     assert set(expected) == set(formulas), set(expected) ^ set(formulas)
@@ -503,35 +605,36 @@ def test_platform_ranking_counts_rank_and_window(cfg: ExportConfig, grading: Gra
     assert [r.platform for r in model.seen_once] == ["Workday"]
     assert model.rank_counts == (("A", 1), ("B", 1), ("C", 1))
     sf, sn, sap = model.ranking
-    assert sf.share == 0.5 and sf.open_now == 6 and sf.last_seen == "2026-06-01"
+    # last seen: the feed's last seen, else the first seen (the posted date is not a last seen)
+    assert sf.share == 0.5 and sf.open_now == 6 and sf.last_seen == "2026-06-02"
     assert sf.read_checked == "Yes" and sap.read_checked == "No"
-    assert sf.in_stack == cfg.rules.labels.not_pulled  # the run has no detections
-    assert sn.lane == cfg.rules.labels.lane["servicenow"]
+    assert sf.in_stack == cfg.rules.labels.not_pulled  # the run has no stack
+    assert sn.lane == cfg.rules.labels.tech_lane["servicenow"] == "ServiceNow"
+    assert sf.lane == "Salesforce"  # the Tech workbook's own lane words, not the people list's
     assert model.seen_once[0].lane == cfg.rules.labels.lane_outside
     assert "12 months" in model.base_line and model.title.startswith(content.account_name)
     registered = {n.key: n.value for n in ctx.registry.items()}
     assert registered["tech.ranking.base"] == 12 and registered["tech.ranking.rank.A"] == 1
 
 
-def test_in_confirmed_stack_follows_the_detections(
+def test_in_confirmed_stack_follows_the_stack_items(
     cfg: ExportConfig, grading: GradingConfig
 ) -> None:
     content = _ranking_content()
-    s = _Registry(content)
-    d = s.add("tech/d", kind="aggregator")
-    det = DetectionRow(
-        id="det-1",
+    item = StackRow(
+        id="st-1",
+        business_function="Support",
+        category="Contact Center Technologies",
         technology="Salesforce Service Cloud",
-        first_seen=None,
-        last_seen=None,
-        source_url=d.url,
-        source_code=None,
+        postings=10,
     )
-    content = content.model_copy(update={"detections": (det,), "sources": tuple(s.rows)})
+    content = content.model_copy(update={"stack": (item,)})
     model = map_tech(MapContext(content, cfg, grading)).model
     assert model is not None
     by = {r.platform: r for r in model.ranking}
     assert by["Salesforce"].in_stack == "Yes" and by["ServiceNow"].in_stack == "No"
+    # the technology detections no longer decide it
+    assert model.rows == ()
 
 
 async def test_ranking_sheet_is_first_and_its_formulas_are_registered(
@@ -542,7 +645,8 @@ async def test_ranking_sheet_is_first_and_its_formulas_are_registered(
     assert result.status == "complete", result.errors
     wb = load_workbook(io.BytesIO(files["tech"]))
     book = cfg.rules.workbooks.tech
-    assert wb.sheetnames == ["Platform Ranking", book.sheet, "Platform teams"]
+    assert wb.sheetnames == ["Platform Ranking", "Confirmed stack", "Platform teams"]
+    assert book.sheet == "Confirmed stack"
     ws = wb["Platform Ranking"]
     # the reference layout: title, base line with the base in the share column, four rule
     # paragraphs, a gap, the header on row 8 and the first platform on row 9
@@ -555,9 +659,8 @@ async def test_ranking_sheet_is_first_and_its_formulas_are_registered(
     assert ws["B9"].value == "Salesforce" and ws["B11"].value == "SAP"
     assert ws["B14"].value == '=COUNTIF($A$9:$A$11,"A")' and ws["A14"].value == "Rank A"
     text = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value is not None)
-    for note in cfg.rules.sheet_texts.tech.__dict__.values():
-        if isinstance(note, str) and note.endswith(".") and "{" not in note:
-            assert note in text, note
+    for name in ("rank_rule", "count_rule", "signal_rule", "research_by"):
+        assert getattr(cfg.rules.sheet_texts.tech, name) in text, name
     assert "Seen once (not ranked)" in text and "Workday" in text
     mapped = make_builder(content).assemble(content).mapped["tech"].model
     assert mapped is not None
@@ -573,9 +676,9 @@ async def test_ranking_sheet_is_first_and_its_formulas_are_registered(
     assert stack["A1"].value.startswith(content.account_name)
     assert [c.value for c in stack[4]] == [c.header for c in book.columns]
     teams = wb["Platform teams"]
-    assert teams["A2"].value == cfg.rules.none_found.teams
+    assert teams["A2"].value == cfg.rules.sheet_texts.tech.teams_note
     assert [c.value for c in teams[4]] == [c.header for c in book.teams_columns]
-    assert teams.max_row == 4
+    assert teams["A5"].value == cfg.rules.none_found.teams and teams.max_row == 5
 
 
 # ---- 5. third-party scan -----------------------------------------------------------------------

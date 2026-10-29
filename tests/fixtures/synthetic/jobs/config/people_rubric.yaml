@@ -6,54 +6,91 @@
 # "gap", "recent activity", tenure buckets, alumni, or certification matching. Those are below,
 # each with `source` (where the sources say it) or `status: proposal` (this build's default, open
 # decisions D-21 to D-23 in docs/decisions/open-decisions.md). The product owner extends them.
-version: "2026-10-03.1"
+version: "2026-10-29.1"
 status: proposal
 decisions: [D-21, D-22, D-23]
 
 # ---- level (people.level) -------------------------------------------------------------------
-# Most senior first. When a title matches cues of several levels, the most senior level wins.
-level_order: [c_level, evp, svp, vp, head, director, senior_manager, manager]
+# 2026-10-29: the cues follow the tiers of the owner's reference People List (Level rules measured
+# on its 736 titles: all 736 agree). Most senior first. When a title matches cues of several
+# levels, a cue that sits inside a longer cue's match is set aside (so "associate director" is
+# Associate Director, not Director; "senior vice president" is SVP, not VP) and then the most
+# senior remaining level wins. A title that names no level cue is the default level (below),
+# never a guess at a senior one.
+level_order: [c_level, evp, svp, vp, senior_director, director, associate_director, head, senior_manager, manager, other]
 level_order_status: proposal
+level_order_source: "owner's reference People List (2026-10-20), Level column order; evp and svp share the reference's first label"
+default_level:
+  value: other
+  rule_id: level.default
+  source: "owner's reference People List: a title without a level cue is 'Lead, owner, specialist or developer'"
 level_rules:
-  - {rule_id: level.director, level: director, cues: [director], status: proposal,
-     source: "PRD s3.3 names Director", positive: "Director of Field Service Systems", negative: "Directory Services Analyst"}
-  - {rule_id: level.head, level: head, cues: [head], status: proposal,
-     source: "PRD s3.3 names Head", positive: "Head of Enterprise Applications", negative: "Headcount Planning Analyst"}
-  - {rule_id: level.senior_manager, level: senior_manager, cues: [senior manager], status: proposal,
-     source: "PRD s3.3 names Senior Manager", positive: "Senior Manager, CRM Platforms", negative: "Manager, CRM Platforms"}
-  - {rule_id: level.manager, level: manager, cues: [manager], status: proposal,
-     source: "proposal (D-21): Senior Manager is the lowest level in scope, so Manager without Senior is below it",
+  - {rule_id: level.director, level: director, cues: [director, dir], status: proposal,
+     source: "PRD s3.3 names Director; reference tier 'director|dir'", positive: "Director of Field Service Systems", negative: "Directory Services Analyst"}
+  - {rule_id: level.senior_director, level: senior_director, cues: [senior director, sr director, sr. director, executive director], status: proposal,
+     source: "owner's reference People List: tier 'senior director|sr.? director|executive director'",
+     positive: "Sr. Director, Data Platforms", negative: "Director, Data Platforms"}
+  - {rule_id: level.associate_director, level: associate_director, cues: [associate director, assoc director, assoc. director, assoc dir, assoc. dir], status: proposal,
+     source: "owner's reference People List: tier 'associate director|assoc.? dir'",
+     positive: "Associate Director, CRM Platforms", negative: "Director, CRM Platforms"}
+  - {rule_id: level.head, level: head, cues: [head, global lead], status: proposal,
+     source: "PRD s3.3 names Head; reference tier 'head|global lead'", positive: "Head of Enterprise Applications", negative: "Headcount Planning Analyst"}
+  - {rule_id: level.senior_manager, level: senior_manager,
+     cues: [senior manager, sr manager, sr. manager, senior it manager, senior program manager, senior product manager, senior project manager, senior engineering manager, senior technical product manager],
+     status: proposal,
+     source: "PRD s3.3 names Senior Manager; reference tier 'senior manager|sr.? manager|senior (it|program|product|project|engineering|technical product) manager'",
+     positive: "Senior Manager, CRM Platforms", negative: "Manager, CRM Platforms"}
+  - {rule_id: level.manager, level: manager, cues: [manager, mgr], status: proposal,
+     source: "owner's reference People List: tier 'manager|mgr'; below the seniority rule (D-21)",
      positive: "Manager, CRM Platforms", negative: "Program Lead"}
   - {rule_id: level.vp, level: vp, cues: [vice president, vp], status: proposal,
-     source: "proposal (D-21): reading of 'and above' in PRD s3.3", positive: "VP, Business Applications", negative: "Valve Planner"}
-  - {rule_id: level.svp, level: svp, cues: [senior vice president, svp], status: proposal,
-     source: "proposal (D-21): reading of 'and above' in PRD s3.3", positive: "SVP Digital", negative: "Vice President Digital"}
-  - {rule_id: level.evp, level: evp, cues: [executive vice president, evp], status: proposal,
-     source: "proposal (D-21): reading of 'and above' in PRD s3.3", positive: "EVP Operations", negative: "Vice President Operations"}
-  - {rule_id: level.c_level, level: c_level, cues: [chief], status: proposal,
-     source: "proposal (D-21): reading of 'and above' in PRD s3.3", positive: "Chief Information Officer", negative: "Mischief Analyst"}
+     source: "owner's reference People List: tier 'vice president|vp'", positive: "VP, Business Applications", negative: "Valve Planner"}
+  - {rule_id: level.svp, level: svp, cues: [senior vice president, senior vice, svp], status: proposal,
+     source: "owner's reference People List: first tier ('svp|senior vice')", positive: "SVP Digital", negative: "Vice President Digital"}
+  - {rule_id: level.evp, level: evp, cues: [executive vice president, executive vice, evp], status: proposal,
+     source: "owner's reference People List: first tier ('evp|executive vice')", positive: "EVP Operations", negative: "Vice President Operations"}
+  - {rule_id: level.c_level, level: c_level, cues: [chief, cio, cto, ceo, cfo], status: proposal,
+     source: "owner's reference People List: first tier ('chief |cio|cto|ceo|cfo')", positive: "Chief Information Officer", negative: "Mischief Analyst"}
 
 # Seniority bands and the two search passes (D-21 proposal: pass 1 Director and above plus Head,
-# pass 2 Senior Manager). Levels outside every band (manager) are out of scope.
+# pass 2 Senior Manager). `below` is the rest of the levels: below the seniority rule, kept on the
+# list only when the title names a platform or technology (people_stack_terms); no search pass,
+# no profile pull and no gap coverage for them.
 level_bands:
   status: proposal
-  senior: [c_level, evp, svp, vp, head, director]
+  senior: [c_level, evp, svp, vp, senior_director, director, associate_director, head]
   manager: [senior_manager]
+  below: [manager, other]
 passes:
   status: proposal
   list:
     - {pass: 1, band: senior}
     - {pass: 2, band: manager}
 
+# Words in a title that name a platform or a technology. A person below the seniority rule whose
+# title names one stays on the list with "Meets seniority rule" No (they confirm what is in use);
+# a person below the rule whose title names none is removed and counted. The lane lexicon's
+# platform names and aliases (config/job_lanes.yaml) count as well; these are the generic
+# technology words on top. Whole words, case-insensitive.
+people_stack_terms:
+  status: proposal
+  source: "owner's reference People List: every one of its 312 below-rule rows names one of these; the rule is 'kept only when the title names a platform or technology'"
+  list: [integration, integrator, data, master data, erp, crm, cpq, analytics, bi, business intelligence, middleware, api, cloud, azure, software, system, systems, platform, digital, technology, it, architect, architecture, developer, devops, automation, ai, machine learning, infrastructure, applications, application, hyperion, kinaxis, oracle, workday, abap, fico]
+
 # ---- exclusion and review (people.exclusion) ------------------------------------------------
 # Whole-word, case-insensitive cues on the title. Exclusion beats inclusion.
 exclusion_rules:
-  - {rule_id: excl.security, reason: security, cues: [security], status: proposal,
-     source: "PRD s3.3 exclusion name", positive: "Director, Information Security", negative: "Director, Salesforce Platform"}
+  - {rule_id: excl.security, reason: security, cues: [security, cyber, cybersecurity, ciso], status: proposal,
+     source: "PRD s3.3 exclusion name; cyber, cybersecurity and ciso: owner's reference rule 'security|cyber' (2026-10-29)",
+     positive: "Director, Cyber Risk", negative: "Director, Salesforce Platform"}
   - {rule_id: excl.it_compliance, reason: it_compliance, cues: [it compliance], status: proposal,
      source: "PRD s3.3 exclusion name", positive: "Head of IT Compliance", negative: "Head of IT Operations"}
-  - {rule_id: excl.it_audit, reason: it_audit, cues: [it audit], status: proposal,
-     source: "PRD s3.3 exclusion name", positive: "Director, IT Audit", negative: "Director, IT Architecture"}
+  - {rule_id: excl.it_audit, reason: it_audit, cues: [it audit, internal audit], status: proposal,
+     source: "PRD s3.3 exclusion name; internal audit: owner's reference rule 'audit' (2026-10-29)",
+     positive: "Director, Internal Audit", negative: "Director, IT Architecture"}
+  - {rule_id: excl.privacy, reason: privacy, cues: [privacy, privacy officer], status: proposal,
+     source: "master prompt v2 section 0 (2026-10-24): exclude CISO, security, IT compliance, IT audit, privacy titles; privacy officer: owner's reference rule (2026-10-29)",
+     positive: "Director, Data Privacy", negative: "Director, Data Platform"}
 # A title that names part of an exclusion without the IT qualifier is ambiguous: review, never a
 # silent include or exclude.
 review_rules:
@@ -73,16 +110,103 @@ lanes:
   match_fields: [title, headline]
   status: proposal
 
-# ---- priority (people.priority), first matching rule wins ----------------------------------
+# ---- people lanes: ONE role-family lane per person, from the title alone ------------------------
+# The eight lanes of the owner's reference People List, ordered: the first lane with a hit wins and
+# a title with no hit is the default lane. `cues` are whole words or phrases, `patterns` are
+# regular-expression fragments matched on word starts and ends (an `\w*` ends a stem); both are
+# case-insensitive. (`lanes` above, the platform lexicon, stays what the gap rule and the
+# association search use: whether a platform lane has an in-scope person.)
+people_lanes:
+  status: proposal
+  source: "owner's reference People List (2026-10-20), Lane rules; 730 of its 736 titles agree"
+  default: {lane: business_other, rule_id: lane.business_other, source: "reference: else Business leadership and other"}
+  list:
+    - rule_id: lane.salesforce_commercial
+      lane: salesforce_commercial
+      cues: [salesforce, sfdc, crm, cpq, e-commerce, ecommerce, digital commerce]
+      patterns: ['commercial (technology|systems|excellence|operations|effectiveness)', 'sales (technology|operations|enablement|effectiveness)', 'revenue (operations|technology)', 'customer (engagement|experience)', 'marketing (technology|automation|operations)']
+      source: "reference lane rule: salesforce|sfdc|crm|commercial ...|sales ...|revenue ...|customer ...|cpq|e-commerce|digital commerce|marketing ..."
+      positive: "Director of Global CRM Technology"
+      negative: "Director of Quality"
+    - rule_id: lane.salesforce_integration
+      lane: salesforce_integration
+      cues: [mulesoft, middleware, api, enterprise integration, solution integration, technical integration]
+      patterns: ['integration (engineer|architect|platform|developer|lead|engineering)\w*']
+      source: "reference lane rule: mulesoft|middleware|api|... integration (engineer|architect|platform|developer|lead|engineering)"
+      positive: "Integration Architect"
+      negative: "Director of Quality"
+    - rule_id: lane.servicenow_shared
+      lane: servicenow_shared
+      cues: [servicenow, itsm, service management, shared services, global business services, gbs, service delivery, workday, hris]
+      patterns: ['hr (technology|systems|service)\w*']
+      source: "reference lane rule: servicenow|itsm|service management|shared services|global business services|gbs|service delivery|hr ...|workday|hris"
+      positive: "Head of Shared Services"
+      negative: "Director of Quality"
+    - rule_id: lane.veeva_life_sciences
+      lane: veeva_life_sciences
+      cues: [veeva, vault, medical affairs systems, regulatory systems, quality systems, clinical systems, promomats, mlr]
+      source: "reference lane rule: veeva|vault|medical affairs systems|regulatory systems|quality systems|clinical systems|promomats|mlr"
+      positive: "Senior Manager, Quality Systems"
+      negative: "Director of Quality"
+    - rule_id: lane.sap_erp
+      lane: sap_erp
+      cues: [sap, erp, master data, mdm, order management, order to cash, plm, abap, basis]
+      patterns: ['s/4\w*', 'supply chain (systems|technology|digital)\w*']
+      source: "reference lane rule: sap|s/4|erp|master data|mdm|order management|order to cash|supply chain (systems|technology|digital)|plm|abap|basis"
+      positive: "Manager, Master Data"
+      negative: "Director of Quality"
+    - rule_id: lane.analytics_data_ai
+      lane: analytics_data_ai
+      cues: [tableau, analytics, insights, visualization, bi, business intelligence, ai, machine learning, artificial intelligence, decision science, data and, "data &"]
+      patterns: ['data (product|engineering|science|scientist|platform|governance|architect|management|strategy|analytics)\w*']
+      source: "reference lane rule: tableau|analytics|insights|visualization|bi|business intelligence|data ...|ai|machine learning|artificial intelligence|decision science|data and|data &"
+      positive: "Director of Data Engineering"
+      negative: "Director of Quality"
+    - rule_id: lane.technology_it
+      lane: technology_it
+      cues: [digital, information, it, software, cloud, devops, infrastructure, enterprise applications, automation]
+      patterns: ['technolog\w*', 'architect\w*', 'applications?', 'platforms?', 'cyber\w*']
+      source: "reference lane rule: digital|technology|information|it|architect|software|cloud|devops|infrastructure|enterprise applications|applications|platform|automation|cyber"
+      positive: "Head of Information Technology"
+      negative: "Director of Quality"
+
+# ---- priority (people.priority): from the title alone, ordered rules, first match wins ------------
+# 2026-10-29: the owner's reference People List rates on the title only, never on the level, the
+# lane or the person. Order: the overrides (an executive assistant, an emeritus or retired person
+# is C whatever the title names), then C for a non-IT function unless the title names a platform
+# (`unless`), then B for M&A and business integration, then A for platform names and IT leadership,
+# and B for everything else. `cues` are whole words or phrases, `patterns` regular-expression
+# fragments (an `\w*` ends a stem). Measured against the reference's 736 rated titles: 712 agree
+# (the rest are the reference's own inconsistencies, for example the same phrase rated A and B).
 priority_rules:
-  - {rule_id: prio.a.senior_lane, priority: A, band: senior, lane_required: true, status: proposal,
-     positive: "Director of Salesforce Platform", negative: "Director of Finance"}
-  - {rule_id: prio.b.senior_no_lane, priority: B, band: senior, lane_required: false, status: proposal,
-     positive: "Director of Finance", negative: "Senior Manager, Finance"}
-  - {rule_id: prio.b.manager_lane, priority: B, band: manager, lane_required: true, status: proposal,
-     positive: "Senior Manager, Salesforce", negative: "Senior Manager, Finance"}
-  - {rule_id: prio.c.manager_no_lane, priority: C, band: manager, lane_required: false, status: proposal,
-     positive: "Senior Manager, Finance", negative: "Director of Salesforce Platform"}
+  - rule_id: prio.c.override
+    priority: C
+    cues: [executive assistant, assistant to, emeritus, retired]
+    source: "reference rule: executive assistant, emeritus and retired are C"
+    positive: "Executive Assistant to the Chief Information Officer"
+    negative: "Chief Information Officer"
+  - rule_id: prio.c.non_it
+    priority: C
+    cues: [territory, account manager, clinical, marketing manager, brand, scientist, "r&d", research, field service, plant, manufacturing, quality engineer, quality engineering, quality assurance, regulatory affairs, medical director, medical affairs, finance, accounting, tax, treasury, legal, counsel, communications, public affairs, government affairs, investor, talent, learning, payroll, benefits, hr business partner, human resources, general manager, vp/gm]
+    patterns: ['sales rep\w*', 'recruit\w*']
+    unless_cues: [salesforce, sfdc, servicenow, sap, veeva, mulesoft, master data, crm, erp, clinical systems, quality systems, regulatory systems]
+    source: "reference rule: a non-IT function and no platform word is C (the platform words extend the reference's list with erp, mulesoft and the clinical, quality and regulatory systems phrases, which the reference rates A)"
+    positive: "Director of Finance and Treasury"
+    negative: "Director of Finance Systems, SAP"
+  - rule_id: prio.b.integration
+    priority: B
+    cues: ["m&a", merger, mergers, acquisition, acquisitions, business integration, integration management, divestiture, separation, commercial integration, process integration, systems integration]
+    source: "reference rule: M&A and business integration phrases are B"
+    positive: "Director, M&A Integration"
+    negative: "Director, Data Platform"
+  - rule_id: prio.a.platform_it
+    priority: A
+    cues: [salesforce, sfdc, servicenow, sap, veeva, mulesoft, tableau, erp, crm, mdm, master data, middleware, enterprise integration, solution integration, shared services, gbs, service delivery, e-commerce, ecommerce, cpq, order to cash, supply chain systems, ai, global business solutions, revenue officer, supply chain officer, direct to consumer, analytics, business intelligence, quality systems, clinical systems, regulatory systems, head of it, commercial technology, commercial systems, sales technology, revenue operations, revenue technology, sales enablement, sales operations and effectiveness, sales operations & effectiveness, enterprise architecture, enterprise applications, enterprise data, enterprise ai, enterprise architect]
+    patterns: ['chief (information|digital|technology|data)\w*', '(vp|vice president)( of)?,? (it|information|technology|digital|data|analytics)', 'data (engineering|platform|governance|architect)\w*', 'digital (transformation|solutions|technology|platforms|excellence)', '(integration|middleware|api) architect\w*', 'it (solution|enterprise)\w*', 'architecture']
+    source: "reference rule: platform names, chief information/digital/technology/data, VP of IT and the other IT-leadership phrases are A"
+    positive: "VP of IT"
+    negative: "Director of Manufacturing Operations"
+priority_default: {priority: B, rule_id: prio.b.default, source: "reference rule: else B"}
 
 # "Top ten" for the name-searches stage: priority, then level (level_order), then the stable key.
 top_people:
@@ -145,6 +269,44 @@ certifications:
   match: lane_lexicon
   status: proposal
 
+# ---- former SI and consulting employers (People List column) -------------------------------------
+# A profile's experience entries are matched, by employer name, to these firms (the 28 of the
+# owner's reference People List). `aliases` are regular-expression fragments matched on whole
+# words, case-insensitive. The column prints `Firm (2015 to 2019); Firm (2020 to date)`: one entry
+# per stint, in the profile's own order. Nothing is printed for a person with no profile read.
+si_firms:
+  status: proposal
+  source: "owner's reference People List (2026-10-20): Former SI and consulting employers, 28 firms"
+  list:
+    - {firm: Accenture, aliases: [accenture]}
+    - {firm: Deloitte, aliases: ['deloitte\w*']}
+    - {firm: PwC, aliases: [pwc, 'pricewaterhouse\w*']}
+    - {firm: EY, aliases: [ey, 'ernst (&|and) young']}
+    - {firm: KPMG, aliases: [kpmg]}
+    - {firm: Capgemini, aliases: [capgemini]}
+    - {firm: Cognizant, aliases: [cognizant]}
+    - {firm: Infosys, aliases: [infosys]}
+    - {firm: TCS, aliases: [tcs, 'tata consultancy services']}
+    - {firm: Wipro, aliases: [wipro]}
+    - {firm: HCL, aliases: ['hcl\w*']}
+    - {firm: IBM, aliases: [ibm, 'international business machines']}
+    - {firm: McKinsey, aliases: ['mckinsey\w*']}
+    - {firm: BCG, aliases: [bcg, 'boston consulting group']}
+    - {firm: Bain, aliases: ['bain (&|and) company', bain]}
+    - {firm: Tech Mahindra, aliases: ['tech mahindra']}
+    - {firm: LTIMindtree, aliases: [ltimindtree, mindtree, 'larsen (&|and) toubro infotech']}
+    - {firm: Genpact, aliases: [genpact]}
+    - {firm: DXC, aliases: [dxc, 'dxc technology']}
+    - {firm: Slalom, aliases: [slalom]}
+    - {firm: Persistent Systems, aliases: ['persistent systems']}
+    - {firm: CitiusTech, aliases: [citiustech]}
+    - {firm: Virtusa, aliases: [virtusa]}
+    - {firm: Hexaware, aliases: [hexaware]}
+    - {firm: NTT Data, aliases: ['ntt data']}
+    - {firm: Mphasis, aliases: [mphasis]}
+    - {firm: EPAM, aliases: [epam]}
+    - {firm: Globant, aliases: [globant]}
+
 # ---- profile URLs (people.urls) -------------------------------------------------------------
 # Hosts treated as profile hosts: locale subdomains fold to the canonical host and the query is
 # dropped (identity is in the path). Proposal; the PRD names the profile site in "Findings from
@@ -158,8 +320,8 @@ profile_url:
 # ---- data minimisation (D-23, pending counsel D-06) -----------------------------------------
 profile_fields:
   status: proposal
-  allowed: [name, current_title, employer, prior_employers, join_date, role_start, certifications,
-            location, own_description, headline, last_activity_at]
+  allowed: [name, current_title, employer, prior_employers, employments, join_date, role_start,
+            certifications, location, own_description, headline, last_activity_at]
 
 # ---- distribution rules (adapter rules, config/routing.yaml) --------------------------------
 internal_only_providers:

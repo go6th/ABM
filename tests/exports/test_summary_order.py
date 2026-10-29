@@ -44,6 +44,7 @@ ORDER = (
     "key_people",
     "linkedin_findings",
     "status_changed",
+    "people_interpretation",
     "hypotheses",
     "sensitive_cautions",
     "first_call_questions",
@@ -245,9 +246,10 @@ async def test_a_tiered_account_builds_and_prints_the_timeline(make_builder: Mak
 async def test_every_empty_section_says_none_found(make_builder: Make, cfg: ExportConfig) -> None:
     text = await summary_text(make_builder, sparse())
     # news, baseline, four signal tables, lane tables, how the list was built, key people,
-    # findings from profiles and status changed, and section 1's what stands out and lane
-    # meanings (not in the corpus): thirteen empty sections, each with the note
-    assert text.count(cfg.rules.none_found.text) == 13
+    # findings from profiles, status changed and the people interpretation, and section 1's
+    # what stands out and lane meanings (not in the corpus): fourteen empty sections, each
+    # with the note
+    assert text.count(cfg.rules.none_found.text) == 14
     assert "The timeline covers 0 dated findings" in text
 
 

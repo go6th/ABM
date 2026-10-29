@@ -287,6 +287,10 @@ locals {
       APP_ENV = local.app_env
       # "off": no research cap (dev_limits.research_uncapped); the API and the worker both read it
       RESEARCH_CAPS = var.research_caps
+      # every delivered workbook is recalculated with LibreOffice Calc and every Word file is
+      # rendered to PDF for the row-presence check before it is stored (exports/wiring.py); the
+      # images install libreoffice-calc for this (audit of 2026-10-29: the switch had never been set)
+      EXPORT_RENDER_CHECKS = "on"
       # documents are indexed and searched by meaning with an on-server model (no per-use cost)
       DOCUMENT_SEMANTIC_EMBEDDER = "fastembed"
       # app metrics to Cloud Monitoring (workload.googleapis.com/*) for the dashboards and alerts

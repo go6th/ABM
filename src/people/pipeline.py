@@ -34,7 +34,7 @@ from people.errors import InvariantViolation, PeopleError
 from people.findings import extract_findings, finding_claims
 from people.gaps import association_specs, gap_lanes
 from people.lane import lanes_for
-from people.mentions import resolve_mentions
+from people.mentions import resolve_mentions, resolve_unlinked
 from people.merge import MergeEvent, MergeItem, MergePlan, stable_plan
 from people.models import (
     Classification,
@@ -166,6 +166,8 @@ class _Work:
     seen_records: set[str] = field(default_factory=set)
     seen_people: set[str] = field(default_factory=set)
     exits: dict[str, str] = field(default_factory=dict)
+    # records that came without a profile link and were given one from the archived pages
+    linked: int = 0
 
 
 class PeoplePipeline:
@@ -396,6 +398,12 @@ class PeoplePipeline:
         else:
             gap_exit = "cap_reached" if gap_lanes(people, lanes_on) else "converged"
         w.exits["gap_loop"] = gap_exit
+        # a record the source returned without a profile link gets the one profile page the
+        # resolver holds for its name (the pages Phase 1 archived); counted, never guessed
+        linked = await resolve_unlinked(w.records, self.resolver, self.cfg, self.out_of_time)
+        w.records = linked.records
+        w.linked = linked.linked
+        w.exits["unlinked"] = linked.exit_reason
         mentions = await self._mentions()
         resolved = await resolve_mentions(mentions, self.resolver, self.cfg, self.out_of_time)
         w.exits["mentions"] = resolved.exit_reason
@@ -427,7 +435,13 @@ class PeoplePipeline:
         specs: Sequence[SearchSpec],
         resolved: Any,
     ) -> PipelineResult:
-        targets = list(top_people(people, len(people), self.cfg.level_order))
+        # full profiles are pulled for the people who meet the seniority rule; a person kept on
+        # the list below it (the title names a platform) is listed from the search record alone
+        targets = [
+            p
+            for p in top_people(people, len(people), self.cfg.level_order)
+            if p.classification.band != "below"
+        ]
         stored_profiles = await self.repo.stored_profiles([p.profile_url or "" for p in targets])
 
         async def save_profiles(batch: Sequence[Profile]) -> None:
@@ -538,6 +552,7 @@ class PeoplePipeline:
         drops = dict(found.dropped)
         drops["title_claim_contact_detail"] = skipped
         drops["mentions_ambiguous"] = resolved.ambiguous
+        drops["unlinked_resolved"] = w.linked
         return PipelineResult(
             run_id=run_id,
             as_of=inputs.as_of,

@@ -98,6 +98,15 @@ class PartialDate(_Frozen):
             return None
 
 
+class Employment(_Frozen):
+    """One stint of a profile's experience: the employer as written and the dates the source gave
+    (``end`` ``None`` = to date). Years are enough for the People List's former-employers cell."""
+
+    employer: str = Field(min_length=1, max_length=200)
+    start: PartialDate | None = None
+    end: PartialDate | None = None
+
+
 class RawPerson(_Frozen):
     """One person as a source returned it, with provenance (P1). Text fields are untrusted.
 
@@ -187,6 +196,10 @@ class Classification(_Frozen):
     level_rule: str | None = None
     band: str | None = None
     lanes: tuple[str, ...] = ()
+    # the ONE role-family lane of the People List (people_lanes), from the title alone; ``lanes``
+    # above stays the platform lexicon's lanes (the gap rule and the association search read it)
+    role_lane: str | None = None
+    role_lane_rule: str | None = None
     priority: Literal["A", "B", "C"] | None = None
     priority_rule: str | None = None
 
@@ -250,6 +263,8 @@ class Profile(_Frozen):
     headline: str | None = None
     employer: str | None = None
     prior_employers: tuple[str, ...] | None = None
+    # dated experience entries; ``None`` means the source gave none
+    employments: tuple[Employment, ...] | None = None
     join_date: PartialDate | None = None
     role_start: PartialDate | None = None
     certifications: tuple[str, ...] | None = None

@@ -1,6 +1,8 @@
 """Person claims templated by code from structured fields (P15).
 
-One sourced claim per in-scope person: attribute ``people.<person_key>.title``, value the title as
+One sourced claim per in-scope person who meets the seniority rule (a person kept on the list
+below it because the title names a platform is listed from the search record alone and adds no
+claim): attribute ``people.<person_key>.title``, value the title as
 the source returned it, evidence the canonical profile URL and the verbatim title string. A title
 whose contact details were redacted at the boundary is skipped and counted. The pipeline never
 sets a grade; a profile page is
@@ -25,6 +27,8 @@ def title_claims(people: Sequence[Person]) -> tuple[list[ProposedSourced], int]:
     skipped = 0
     for p in people:
         if p.status != "in_scope" or not p.title or not p.profile_url:
+            continue
+        if p.classification.band == "below":
             continue
         if REDACTED in p.title:  # contact details were redacted at the boundary
             skipped += 1

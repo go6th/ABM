@@ -134,6 +134,18 @@ async def test_workbook_models(built: Any, expected: dict[str, Any]) -> None:
     want = [{k: v for k, v in t.items() if k != "first_seen"} for t in expected["tech"]]
     assert got == want
     assert tech.rows[1].first_seen == expected["tech"][1]["first_seen"]
+    # the Confirmed stack rows, in the lookup's order, with the lane the platform word gives
+    assert [
+        {
+            "row_id": r.row_id,
+            "business_function": r.business_function,
+            "category": r.category,
+            "technology": r.technology,
+            "postings": r.postings,
+            "lane": r.lane,
+        }
+        for r in tech.stack
+    ] == expected["tech_stack"]
 
 
 async def test_evidence(built: Any, expected: dict[str, Any]) -> None:
@@ -172,7 +184,16 @@ async def test_produced_workbook_cells(built: Any, expected: dict[str, Any]) -> 
     headers = [c.value for c in ws[1]]
     assert headers[0] == "Requisition"
     col = headers.index("Full description")
-    assert ws.cell(row=2, column=col + 1).value == expected["jobs"][0]["description"]
+    ref_col = headers.index("Ref")
+    # rows are sorted by First seen, newest first: compare every row by its Ref
+    cells = {
+        ws.cell(row=r, column=ref_col + 1).value: ws.cell(row=r, column=col + 1).value or ""
+        for r in range(2, ws.max_row + 1)
+    }
+    assert cells == {j["ref"]: j["description"] for j in expected["jobs"]}
+    assert [ws.cell(row=r, column=ref_col + 1).value for r in range(2, ws.max_row + 1)] == [
+        j["ref"] for j in expected["jobs"]
+    ]
     counts = wb["Counts"]
     assert counts["B2"].value.startswith("=COUNTA(")
     people = load_workbook(io.BytesIO(_file(result, store, "people")))
@@ -181,6 +202,13 @@ async def test_produced_workbook_cells(built: Any, expected: dict[str, Any]) -> 
     # with the reason on the Summary sheet and never listed on the People sheet
     assert str(cells[0][0]).endswith("people list, deduplicated")
     summary_text = " ".join(str(v) for row in cells for v in row if v is not None)
-    assert "2 people in scope of 3 distinct people found" in summary_text
+    # the reference layout: six notes (rows 3 to 8), the Level table from row 11, the Lane table
+    # from row 24 and nothing after its Total row (the count sentences are not on this sheet)
+    assert all(cells[i][0] for i in range(2, 8)) and cells[8][0] is None
+    assert [cells[10][0], cells[10][1], cells[10][2]] == ["Level", "People", "Priority A"]
+    assert cells[20][0] == "Total" and cells[21][0] == "Meets seniority rule"
+    assert cells[23][0] == "Lane, senior people only" and cells[32][0] == "Total"
+    assert len(cells) == 33
+    assert "Entity labels: " in summary_text
     names = " ".join(str(c.value) for row in people["People"].iter_rows() for c in row)
     assert "Cal Excluded" not in names

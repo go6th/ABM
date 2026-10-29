@@ -305,6 +305,21 @@ export const Archive = z.object({
 }).strict();
 export type Archive = z.infer<typeof Archive>;
 
+export const ArchivedCopy = z.object({
+  "archived_at": z.string(),
+  "kind": z.string(),
+  "text": z.string(),
+  "title": z.string().nullable().optional(),
+  "url": z.string(),
+}).strict();
+export type ArchivedCopy = z.infer<typeof ArchivedCopy>;
+
+export const ArchivedLinkRef = z.object({
+  "archived_at": z.string(),
+  "href": z.string(),
+}).strict();
+export type ArchivedLinkRef = z.infer<typeof ArchivedLinkRef>;
+
 export const AskBody = z.object({
   "account_id": z.string().nullable().optional(),
   "effort": z.string().nullable().optional(),
@@ -2558,7 +2573,10 @@ export const SheetFilter = z.object({
 export type SheetFilter = z.infer<typeof SheetFilter>;
 
 export const SheetRow = z.object({
+  "archives": z.record(z.string(), ArchivedLinkRef).optional(),
   "cells": z.record(z.string(), z.string()),
+  "cut": z.record(z.string(), z.number().int()).optional(),
+  "fills": z.record(z.string(), z.string()).optional(),
   "link": z.string().nullable(),
   "link_label": z.string().nullable().optional(),
   "links": z.record(z.string(), z.string()).optional(),
@@ -2597,6 +2615,7 @@ export const Sheet = z.object({
 export type Sheet = z.infer<typeof Sheet>;
 
 export const SheetCell = z.object({
+  "fill": z.string().nullable().optional(),
   "href": z.string().nullable().optional(),
   "text": z.string(),
 }).strict();
@@ -2610,6 +2629,15 @@ export const SheetBlock = z.object({
   "text": z.string().optional(),
 }).strict();
 export type SheetBlock = z.infer<typeof SheetBlock>;
+
+export const SheetCellText = z.object({
+  "col": z.string(),
+  "href": z.string().nullable().optional(),
+  "n": z.number().int(),
+  "text": z.string(),
+  "withheld": z.boolean().optional(),
+}).strict();
+export type SheetCellText = z.infer<typeof SheetCellText>;
 
 export const SheetTab = z.object({
   "account_name": z.string(),
@@ -3541,6 +3569,7 @@ export const operations = {
   "POST /v1/accounts": { method: "POST", path: "/v1/accounts", plane: "tenant", status: 201, request: AccountBody, requestRequired: true, response: AccountAdded },
   "POST /v1/accounts/from-library": { method: "POST", path: "/v1/accounts/from-library", plane: "tenant", status: 201, request: FromLibrary, requestRequired: true, response: LibraryAdded },
   "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountDetail },
+  "GET /v1/accounts/{domain}/archive": { method: "GET", path: "/v1/accounts/{domain}/archive", plane: "tenant", status: 200, request: null, requestRequired: false, response: ArchivedCopy },
   "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
   "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/accounts/{domain}/download-everything": { method: "POST", path: "/v1/accounts/{domain}/download-everything", plane: "tenant", status: 202, request: EverythingBody, requestRequired: true, response: DownloadJob },
@@ -3549,6 +3578,7 @@ export const operations = {
   "GET /v1/accounts/{domain}/refresh": { method: "GET", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 200, request: null, requestRequired: false, response: RefreshOptions },
   "POST /v1/accounts/{domain}/refresh": { method: "POST", path: "/v1/accounts/{domain}/refresh", plane: "tenant", status: 201, request: RefreshBody, requestRequired: true, response: RefreshStarted },
   "GET /v1/accounts/{domain}/sheets/{sheet}": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}", plane: "tenant", status: 200, request: null, requestRequired: false, response: Sheet },
+  "GET /v1/accounts/{domain}/sheets/{sheet}/cell": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/cell", plane: "tenant", status: 200, request: null, requestRequired: false, response: SheetCellText },
   "GET /v1/accounts/{domain}/sheets/{sheet}/csv": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/csv", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/sheets/{sheet}/tabs/{tab}": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/tabs/{tab}", plane: "tenant", status: 200, request: null, requestRequired: false, response: SheetTab },
   "GET /v1/accounts/{domain}/sheets/{sheet}/xlsx": { method: "GET", path: "/v1/accounts/{domain}/sheets/{sheet}/xlsx", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },

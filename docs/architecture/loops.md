@@ -7,7 +7,7 @@ unannotated (the generator's check fails otherwise).
 | Loop | Where | Cap | Exit reasons |
 | --- | --- | --- | --- |
 | CRM reconcile | `src/crm_writeback/service.py:299` | 100 writes per pass | end |
-| agent schema re-ask | `src/agents/production/wiring.py:100` | 2 attempts, then 2 on the Claude default when the chosen model is Kimi K3 | valid reply, SchemaInvalid |
+| agent schema re-ask | `src/agents/production/wiring.py:102` | 2 attempts, then 2 on the Claude default when the chosen model is Kimi K3 | valid reply, SchemaInvalid |
 | alert fan-out | `src/alerts/engine.py:205` | len(recipients) | end |
 | archive copy | `src/account_intelligence/replica/downloads.py:439` | the file's size / 1 MiB | end of file |
 | archive heartbeat | `src/account_intelligence/replica/downloads.py:255` | the build's length / BEAT_S | cancelled when the build ends |
@@ -15,29 +15,30 @@ unannotated (the generator's check fails otherwise).
 | archive table rows | `src/account_intelligence/replica/downloads.py:366` | the table's rows | end of the table |
 | ask keepalive | `src/account_intelligence/api/routes/ask.py:482` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
-| audit verify tenants | `src/account_intelligence/api/routes/tasks.py:406` | every client once per pass | last client |
-| auto resume clients | `src/account_intelligence/replica/auto_resume.py:303` | every client once per pass, `limit` runs each | last one |
-| auto resume runs | `src/account_intelligence/replica/auto_resume.py:311` | `limit` runs per client per pass | rows exhausted |
+| audit verify tenants | `src/account_intelligence/api/routes/tasks.py:425` | every client once per pass | last client |
+| auto resume clients | `src/account_intelligence/replica/auto_resume.py:307` | every client once per pass, `limit` runs each | last one |
+| auto resume runs | `src/account_intelligence/replica/auto_resume.py:315` | `limit` runs per client per pass | rows exhausted |
 | batch 429 backoff | `src/account_intelligence/platform/llm.py:809` | RATE_LIMIT_ATTEMPTS requests (~25 minutes of doubling waits) | request accepted, any other error, attempts spent (the 429 is raised) |
 | batch poll | `src/account_intelligence/platform/llm.py:418` | max_wait_seconds from the first submission, then cancel and at most the same wait again for the cancel to land | ended, cancel deadline |
 | blob compose copy | `src/research_files/blobstore.py:143` | the part's size in COPY_BUFFER reads | end of part |
-| book cache trim | `src/account_intelligence/replica/file_tabs.py:305` | one entry over CACHE_BOOKS | within the cap |
+| book cache trim | `src/account_intelligence/replica/file_tabs.py:470` | one entry over CACHE_BOOKS | within the cap |
 | cache ratio window | `src/account_intelligence/platform/prompt_cache.py:222` | the calls of one window | oldest call inside it |
 | cache-eviction | `src/account_intelligence/rag/cache.py:103` | max_entries excess | capacity reached. |
 | call arguments | `src/account_intelligence/replica/workbook_formulas.py:600` | the formula's tokens (_take raises at the end) | ")" |
-| cancel watch | `src/account_intelligence/workflow/runner.py:306` | the slice timeout around it | graph done, canceled, timeout |
+| cancel watch | `src/account_intelligence/workflow/runner.py:316` | the slice timeout around it | graph done, canceled, timeout |
+| carried text reads | `src/jobs/stage.py:116` | postings of the previous research, TEXT_CONCURRENCY in flight | all read (a failed read is skipped) |
 | catch-up selection | `src/refresh/schedule.py:66` | len(missed) | per_tick reached or end |
-| cause chain | `src/account_intelligence/workflow/runner.py:479` | the chain length (each exception visited once) | end of chain |
+| cause chain | `src/account_intelligence/workflow/runner.py:499` | the chain length (each exception visited once) | end of chain |
 | clamd stream chunks | `src/documents/scan.py:137` | file size / 1 MiB chunks | end of stream |
-| close ended jobs | `src/account_intelligence/api/main.py:279` | every client once per pass, `limit` jobs each | last client |
+| close ended jobs | `src/account_intelligence/api/main.py:286` | every client once per pass, `limit` jobs each | last client |
 | cluster scan | `src/signals/events.py:148` | 50 recent events | first same, or end |
 | common prefix | `src/documents/deliverables.py:231` | the shorter first part | first differing character |
 | comparisons | `src/account_intelligence/replica/workbook_formulas.py:536` | the formula's tokens | no comparison sign |
 | connector token refresh | `src/connectors_client/oauth.py:281` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (transient: token_refresh_failed) |
-| continuation chain | `src/account_intelligence/replica/auto_resume.py:128` | MAX_AUTO_RESUMES + 8 hops | a run no continuation made |
-| converter re-run | `src/exports/verify.py:153` | 2 attempts | converted, None (not_run with reason) |
+| continuation chain | `src/account_intelligence/replica/auto_resume.py:132` | MAX_AUTO_RESUMES + 8 hops | a run no continuation made |
+| converter re-run | `src/exports/verify.py:178` | 2 attempts | converted, None (not_run with reason) |
 | copy document for the sandbox | `src/documents/service.py:817` | size / 1 MiB | end of object |
-| count cache trim | `src/account_intelligence/replica/file_tabs.py:455` | one entry over CACHE_COUNTS | within the cap |
+| count cache trim | `src/account_intelligence/replica/file_tabs.py:620` | one entry over CACHE_COUNTS | within the cap |
 | credit ledger pass | `src/account_intelligence/worker/nightly.py:87` | the tenants with credit activity in the window | end |
 | criterion characters | `src/account_intelligence/replica/workbook_formulas.py:194` | the pattern's characters | end of pattern |
 | crm fetch pass | `src/connectors_client/framework.py:402` | max_pages_per_pass pages per pass | last page, page_cap |
@@ -58,14 +59,14 @@ unannotated (the generator's check fails otherwise).
 | eval repeats | `src/evalgate/runner.py:104` | accounts x repeats_k runs | all cases executed |
 | event evidence | `src/refresh/probe.py:349` | outlets of one item | end |
 | evidence-path | `src/account_intelligence/rag/graphrag.py:123` | entity_count | found or queue empty or max_hops. |
-| export keyset pagination | `src/exports/readers/pg.py:97` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
+| export keyset pagination | `src/exports/readers/pg.py:101` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
 | farthest-point-selection | `src/account_intelligence/rag/synthetic.py:140` | count | count reached or candidates empty. |
 | file extraction documents | `src/documents/graph.py:140` | the run's documents | last document |
 | file extraction pages | `src/documents/graph.py:143` | passages / PASSAGE_PAGE | a short page |
 | file extraction schema re-ask | `src/documents/extract.py:248` | 2 attempts | valid reply, dropped batch |
 | findings extractor | `src/people/findings.py:103` | max_extractor_calls, one call per person | converged, cap_reached |
 | formula tokens | `src/account_intelligence/replica/workbook_formulas.py:142` | the formula's characters (MAX_FORMULA) | end of text |
-| gap pass over the remainder | `src/jobs/pipeline.py:478` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
+| gap pass over the remainder | `src/jobs/pipeline.py:673` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
 | gate fix loop | `src/account_intelligence/workflow/stages/core.py:249` | gate_cycles (3) build, gate, rebuild | converged (passed), cap_reached (PARTIAL with failing checks) |
 | gcs compose hash read | `src/research_files/blobstore.py:278` | the object's size in COPY_BUFFER reads | end |
 | gcs compose rounds | `src/research_files/blobstore.py:265` | ceil(log32(parts)) rounds | one source left |
@@ -87,7 +88,7 @@ unannotated (the generator's check fails otherwise).
 | isolation owner probe | `src/account_intelligence/replica/isolation.py:205` | every real client once | all probed |
 | isolation route probe | `src/account_intelligence/replica/isolation.py:251` | the read routes of the catalog | all probed |
 | job slices | `src/account_intelligence/worker/job.py:80` | max_slices | awaiting/done/canceled/noop, no next slice, busy cap |
-| jobs gap passes | `src/jobs/stage.py:54` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
+| jobs gap passes | `src/jobs/stage.py:65` | max_gap_passes (spec 7: 2) | converged, no_progress, budget, cap_reached; every pass is persisted before the next starts |
 | json array items | `src/research_files/parsers/tabular.py:984` | the array's items | closing bracket, corrupt item |
 | judge re-ask | `src/account_intelligence/grading/judge.py:95` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:146` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
@@ -97,21 +98,21 @@ unannotated (the generator's check fails otherwise).
 | lease wait | `src/parallel/governor.py:203` | lease_wait_s of polls every lease_poll_s plus jitter | granted, SlotUnavailable (the unit is re-queued with its age preserved; never a provider retry) |
 | mail and drive pages | `src/connectors_client/maildrive.py:424` | max_pages list pages and `limit` entries per pass | the last page, the item limit, the page cap (the cursor resumes) |
 | mail and drive provider call | `src/connectors_client/maildrive.py:377` | MAX_ATTEMPTS attempts, each wait at most MAX_WAIT_S | an answer that is not 429 or 5xx, a 401, or the attempts are spent |
-| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:287` | 500 connections per tick (the lookup's limit) and MAILDRIVE_BUDGET_S of wall clock | end of the list or budget spent (the rest deferred) |
-| mention resolution | `src/people/mentions.py:71` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
+| mail and drive sync | `src/account_intelligence/api/routes/tasks.py:306` | 500 connections per tick (the lookup's limit) and MAILDRIVE_BUDGET_S of wall clock | end of the list or budget spent (the rest deferred) |
+| mention resolution | `src/people/mentions.py:75` | mention_queries_per_person each and mention_run_cap in total | converged, cap_reached, budget, deadline |
 | merge fixpoint check | `src/people/merge.py:178` | merge_fixpoint_cap | identical plan, MergeError |
-| metrics stuck count clients | `src/account_intelligence/api/routes/tasks.py:509` | every client once per pass | last client |
+| metrics stuck count clients | `src/account_intelligence/api/routes/tasks.py:528` | every client once per pass | last client |
 | model re-ask | `src/account_intelligence/workflow/stages/research.py:53` | 1 re-ask on unparseable output | parsed, None (item blocked) |
 | month normalisation | `src/jobs/window.py:18` | months // 12 + 1 iterations | month in 1..12 |
 | moonshot stream | `src/llm/adapters/moonshot_api.py:318` | the server's chunks until [DONE] | [DONE], end |
 | narrative reread | `src/verify/narrative.py:74` | one verdict per sentence | all sentences decided |
 | notification relay | `src/spend/notify.py:224` | 100 messages per pass, one attempt each, max_attempts per message over passes | delivered, failed (retried next pass), gave_up |
-| notification relay clients | `src/account_intelligence/api/routes/tasks.py:455` | every client once per pass | last client |
+| notification relay clients | `src/account_intelligence/api/routes/tasks.py:474` | every client once per pass | last client |
 | onedrive download | `src/connectors_client/drive_files.py:447` | max_bytes | end of body or over the cap |
 | onedrive list pages | `src/connectors_client/drive_files.py:352` | ONEDRIVE_MAX_PAGES pages | PAGE_SIZE files, no next link, or a next link that is not on the Graph host |
 | orphan listing pages | `src/account_intelligence/runs/sweeper.py:76` | max_pages pages of batch_size | short page |
 | orphan sweep | `src/account_intelligence/runs/sweeper.py:90` | max_pages * batch_size runs per pass | rows exhausted |
-| orphan sweep loop | `src/account_intelligence/api/main.py:312` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
+| orphan sweep loop | `src/account_intelligence/api/main.py:319` | none, one pass per interval for the life of the worker | task cancelled at shutdown |
 | outbox relay | `src/alerts/outbox.py:87` | limit | end |
 | outlook folders | `src/connectors_client/maildrive.py:614` | len(OUTLOOK_FOLDERS) folders | all folders read, or a folder stopped at the pass bound (the cursor resumes it) |
 | pacing | `src/account_intelligence/connectors/ratelimit.py:169` | max_iterations and max_wait_s | token granted, RateLimited (the node RetryPolicy owns the retry) |
@@ -119,18 +120,18 @@ unannotated (the generator's check fails otherwise).
 | pagination | `src/account_intelligence/connectors/paginate.py:83` | max_pages, max_items, max_bytes, slice deadline | exhausted, max_pages, max_items, max_bytes, deadline, loop_detected |
 | part download | `src/account_intelligence/api/routes/downloads.py:161` | the range's bytes / 1 MiB | range sent |
 | passage split | `src/documents/chunking.py:337` | len(text) / (max_chars - overlap) + 1 spans | end of text |
-| people gap passes | `src/people/pipeline.py:379` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
+| people gap passes | `src/people/pipeline.py:381` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
 | people search paging | `src/people/search.py:127` | max_pages_per_source and max_people_per_run | converged, no_progress (no new person, cursor repeat, failed call), cap_reached, budget, deadline |
 | plan delimited parts | `src/documents/parts.py:158` | the file's lines | end of file |
 | plan line pieces | `src/documents/parts.py:102` | the file's size / LINE_PIECE pieces at least | end of file |
 | plan text parts | `src/documents/parts.py:208` | the file's lines | end of file |
 | planner gap loop | `src/account_intelligence/workflow/stages/research.py:204` | 1 + planner_gap_passes (2) | converged, no_progress, budget, cap_reached |
 | posting extractor re-ask | `src/jobs/extractor.py:97` | 1 re-ask, run cap max_extractor_calls | verified, unclassified(reason), hostile |
-| posting fan-out | `src/jobs/pipeline.py:406` | postings pulled (bounded by the pull caps), JOBS_CONCURRENCY in flight | all processed (one failure is isolated). The page-read and extractor budgets are taken before a call starts, so side by side they cap as one at a time did. |
+| posting fan-out | `src/jobs/pipeline.py:580` | postings pulled (bounded by the pull caps), JOBS_CONCURRENCY in flight | all processed (one failure is isolated). The page-read and extractor budgets are taken before a call starts, so side by side they cap as one at a time did. |
 | posts pull | `src/people/posts.py:125` | cost_sample_size, then the budget-approved remainder or unknown_cost_post_cap | converged, budget, cap_reached, deadline |
 | probe monitors | `src/refresh/probe.py:174` | 6 kinds | end |
 | products | `src/account_intelligence/replica/workbook_formulas.py:562` | the formula's tokens | no times or divide |
-| profile batches | `src/people/profiles.py:139` | max_profiles_per_run, profile_batch_size per batch | converged, cap_reached, budget, deadline (one person's failure is isolated) |
+| profile batches | `src/people/profiles.py:180` | max_profiles_per_run, profile_batch_size per batch | converged, cap_reached, budget, deadline (one person's failure is isolated) |
 | progress stream | `src/account_intelligence/api/routes/runs.py:794` | sse_max_duration_s seconds, polled every sse_poll_s | finished run, max duration, client gone |
 | provider job poll | `src/account_intelligence/connectors/paginate.py:154` | max_polls with a bounded interval | succeeded, failed, ProviderJobTimeout |
 | reindex clients | `src/documents/reindex.py:49` | the workspaces in scope once per run, `limit` documents each | last client |
@@ -152,12 +153,14 @@ unannotated (the generator's check fails otherwise).
 | slice loop | `src/account_intelligence/workflow/runner.py:177` | max_slices slices of slice_seconds (config/workflow_v1.yaml) | done, awaiting, canceled, slice ceiling (FAILED, full refund) |
 | slot recovery | `src/refresh/slots.py:87` | limit stale slots | end |
 | spend invariant pass | `src/spend/jobs.py:63` | batch_size runs | converged, cap_reached |
+| stall beat | `src/obs/stalldump.py:68` | the process lifetime | cancelled at shutdown |
 | stall marking | `src/account_intelligence/runs/sweeper.py:164` | batch_size runs per pass | rows exhausted |
+| stall watchdog | `src/obs/stalldump.py:46` | the process lifetime | stop set at shutdown |
 | standard 429 backoff | `src/account_intelligence/platform/llm.py:325` | STANDARD_RATE_ATTEMPTS requests, waits doubling to STANDARD_BACKOFF_S[1] | answered, a non-429 error, attempts used |
 | streamed answer pieces | `src/account_intelligence/replica/model_answer.py:501` | the pieces in the text received so far | no complete piece left, a refused piece |
 | stuck scan | `src/obs/stuck.py:79` | keyset pages of `page` runs until none remain | all scanned |
 | sums | `src/account_intelligence/replica/workbook_formulas.py:554` | the formula's tokens | no plus or minus |
-| tab key suffix | `src/account_intelligence/replica/file_tabs.py:193` | the workbook's sheets | an unused key |
+| tab key suffix | `src/account_intelligence/replica/file_tabs.py:242` | the workbook's sheets | an unused key |
 | table export pages | `src/account_intelligence/replica/table_export.py:48` | the table's rows / page pages | a short page |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
 | text joins | `src/account_intelligence/replica/workbook_formulas.py:546` | the formula's tokens | no ampersand |
@@ -175,7 +178,7 @@ unannotated (the generator's check fails otherwise).
 | unique column name | `src/documents/chunking.py:246` | the table's columns | a name no column has |
 | unique table name | `src/documents/tables.py:276` | the workspace's tables | a name no table has |
 | verification batch | `src/verify/claims.py:112` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
-| walk to verifying | `src/account_intelligence/runs/lifecycle.py:641` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
+| walk to verifying | `src/account_intelligence/runs/lifecycle.py:659` | 3 hops (QUEUED/AWAITING -> RUNNING -> DISTILLING -> VERIFYING) | VERIFYING reached |
 | webhook retry schedule | `src/signals/webhooks.py:60` | the 24 h window (delays double) | window end |
 | workbook sheets for links | `src/research_files/parsers/tabular.py:570` | the workbook's sheets | last sheet |
 | xai stream | `src/llm/adapters/xai_api.py:262` | the server's chunks until [DONE] | [DONE], end |

@@ -57,9 +57,10 @@ async def test_a_delivered_file_is_opened_for_its_count_once() -> None:
     unstated = FT.Delivered("d1", "people.xlsx", digest, key, None, len(data))
     assert await FT.main_rows(store, tenant, unstated, "people") is None
     assert store.gets == 1
-    # a manifest that disagrees with the file's table: not this builder's file
+    # a manifest that disagrees with the file's table: the screen still shows the delivered
+    # file's own table (never the live sheet, owner 2026-10-29), so the count is that table's
     wrong = FT.Delivered("d1", "people.xlsx", digest, key, len(main.table.rows) + 1, len(data))
-    assert await FT.main_rows(store, tenant, wrong, "people") is None
+    assert await FT.main_rows(store, tenant, wrong, "people") == len(main.table.rows)
 
 
 @pytest.mark.asyncio

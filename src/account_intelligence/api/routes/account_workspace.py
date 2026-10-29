@@ -6,6 +6,10 @@
 * ``GET /v1/accounts/{domain}/deliverables/download?ids=a,b``: one id downloads that file as
   itself; several (or ``all``) download one zip. Every download is an audited export. A file of
   another account or tenant is simply not found.
+* ``GET /v1/accounts/{domain}/sheets/{sheet}``: one page of a deep-dive table; once a workbook
+  is delivered, the table of that file (stored rows, else the file's own main table), with the
+  file's sheets as tabs (``.../tabs/{tab}``) and long cells cut (``.../cell`` for one whole cell).
+  The client-output guard withholds a cell, never the page.
 """
 
 from __future__ import annotations
@@ -43,6 +47,7 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 register(
     "GET", "/v1/accounts/{domain}/workspace", tenant_route("read_public", "read", step_up=False)
 )
+register("GET", "/v1/accounts/{domain}/archive", tenant_route("read_public", "read", step_up=False))
 register(
     "GET",
     "/v1/accounts/{domain}/file-analysis",
@@ -59,6 +64,11 @@ register(
 register(
     "GET",
     "/v1/accounts/{domain}/sheets/{sheet}/tabs/{tab}",
+    tenant_route("read_public", "read", step_up=False),
+)
+register(
+    "GET",
+    "/v1/accounts/{domain}/sheets/{sheet}/cell",
     tenant_route("read_public", "read", step_up=False),
 )
 register(
@@ -160,11 +170,12 @@ def _file_main(
 ) -> FT.Tab | None:
     """The main tab read from the file when the delivered run's stored table cannot be shown
     (``sheets._file_table`` passed it over, for example a table stored under an earlier column
-    set): the screen then shows the builder's file's own table rather than the live research
-    table with other columns (``file_tabs.builder_main``)."""
+    set): the screen then shows the delivered file's own table, by the file's own header
+    (``file_tabs.builder_main``, else ``main_table``), never the live research table with other
+    columns (owner 2026-10-29: a delivered account never falls back to the live sheet)."""
     if run is not None or delivered is None:
         return None
-    return FT.builder_main(delivered[0], delivered[1], sheet)
+    return FT.builder_main(delivered[0], delivered[1], sheet) or FT.main_table(delivered[0])
 
 
 async def _export_main(
@@ -179,10 +190,16 @@ async def _export_main(
 
 
 def _grid_query(
-    main: FT.Tab, sheet: str, sort: str | None, dir: str | None, offset: int, limit: int
+    main: FT.Tab,
+    sheet: str,
+    sort: str | None,
+    dir: str | None,
+    offset: int,
+    limit: int,
+    filter: str | None = None,
 ) -> SH.Query:
     try:
-        return FT.grid_query(main, SH.SHEETS[sheet], sort, dir, offset, limit)  # type: ignore[no-any-return]
+        return FT.grid_query(main, SH.SHEETS[sheet], sort, dir, offset, limit, filter)  # type: ignore[no-any-return]
     except SH.BadSheetQuery:
         raise APIProblem(
             422,
@@ -416,22 +433,164 @@ async def account_sheet(
         account_id = await account_id_of(s, domain)
         name = await _account_name(s, account_id)
     run = await _file_run(request, ident, account_id, sheet)
-    # with a stored table the file gives the tabs; without one, only a builder's file is used
+    # the delivered workbook gives the tabs, and its own table when the stored one cannot stand
     delivered = await _book(request, ident, account_id, sheet, builder_only=run is None)
     main = _file_main(run, delivered, sheet)
     if main is not None:
-        q = _grid_query(main, sheet, sort, dir, offset, limit)
+        q = _grid_query(main, sheet, sort, dir, offset, limit, filter)
         out = FT.grid_page(main, q)
     else:
         q = _sheet_query(sheet, filter, sort, dir, offset, limit, run)
         async with tenant_txn(ident.tenant_id) as s:
             out = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC))
+    async with tenant_txn(ident.tenant_id) as s:
+        # the archived copy behind each link of the page (link archive): a dead link still
+        # opens what the research captured
+        await SH.attach_archives(s, account_id, out["rows"], domain)
     response = {**out, "account_name": name}
     if delivered is not None and (main is not None or q.sheet.table is not None):
         # the delivered workbook's sheets, as tabs, and the file itself
         response["tabs"] = FT.tab_refs(delivered[0])
         response["file_id"] = delivered[1].id
-    return response if q.sheet.private else _client_value(response)
+    if q.sheet.private:
+        SH.cap_rows(response["rows"])
+        return response
+    return _client_page(response, sheet)
+
+
+def _client_page(response: dict[str, Any], sheet: str) -> dict[str, Any]:
+    """A page of a table made safe for the client: long cells cut (``sheets.cap_rows``), each
+    cell scrubbed and, when a guarded term remains, withheld on its own (``sheets.scrub_rows``,
+    as the exports do), then the rest of the response through the guard. The page always
+    loads; the owner's reference Jobs sheet was held back whole for the word "parallel" in a
+    description (audit 2026-10-29, F1)."""
+    rows = response["rows"]
+    SH.cap_rows(rows)
+    held = SH.scrub_rows(rows)
+    if held:
+        log.info("sheet_cells_withheld", extra={"sheet": sheet, "cells": held})
+    rest = _client_value({k: v for k, v in response.items() if k != "rows"})
+    return {**rest, "rows": rows}
+
+
+@router.get("/{domain}/sheets/{sheet}/cell", response_model=C.SheetCellText)
+async def account_sheet_cell(
+    domain: str,
+    sheet: str,
+    request: Request,
+    n: int = Query(ge=1, le=1_000_000),
+    col: str = Query(min_length=1, max_length=40, pattern=r"^[a-z][a-z0-9_]*$"),
+    filter: str | None = Query(default=None, max_length=40),
+    sort: str | None = Query(default=None, max_length=40),
+    dir: str | None = Query(default=None, max_length=4),
+    ident: Identity = Depends(authorize),
+) -> dict[str, Any]:
+    """One whole cell of a deep-dive table (the page shows a long cell cut to ``CELL_CAP``):
+    row ``n`` under the same filter and sort as the page, column ``col``. 404 past the table
+    or for a column the table does not have; a guarded cell reads as withheld."""
+    _known(sheet)
+    async with tenant_txn(ident.tenant_id) as s:
+        account_id = await account_id_of(s, domain)
+    run = await _file_run(request, ident, account_id, sheet)
+    delivered = await _book(request, ident, account_id, sheet, builder_only=run is None)
+    main = _file_main(run, delivered, sheet)
+    found: dict[str, Any] | None
+    if main is not None:
+        q = _grid_query(main, sheet, sort, dir, n - 1, 1, filter)
+        found = FT.grid_cell(main, q, n, col)
+    else:
+        q = _sheet_query(sheet, filter, sort, dir, n - 1, 1, run)
+        if col not in {c.key for c in q.sheet.cols}:
+            raise HTTPException(404, "not found")
+        async with tenant_txn(ident.tenant_id) as s:
+            page = await SH.read(s, q, account_id, ident.user_id, datetime.now(UTC))
+        row = next((r for r in page["rows"] if r["n"] == n), None)
+        found = (
+            {"n": n, "col": col, "text": row["cells"].get(col, ""), "href": row["links"].get(col)}
+            if row is not None
+            else None
+        )
+    if found is None:
+        raise HTTPException(404, "not found")
+    if q.sheet.private:
+        return {**found, "withheld": False}
+    rows: list[dict[str, Any]] = [
+        {"n": n, "cells": {col: found["text"]}, "links": {}, "link": None}
+    ]
+    held = SH.scrub_rows(rows)
+    result: dict[str, Any] = _client_value(
+        {
+            "n": n,
+            "col": col,
+            "text": rows[0]["cells"][col],
+            "href": found.get("href"),
+            "withheld": bool(held),
+        }
+    )
+    return result
+
+
+@router.get("/{domain}/archive", response_model=C.ArchivedCopy)
+async def account_archive(
+    domain: str,
+    request: Request,
+    url: str = Query(min_length=8, max_length=2048),
+    ident: Identity = Depends(authorize),
+) -> Any:
+    """The archived copy of one address the research stored for this account (the newest
+    capture): the text the research read, with the original address and when it was captured.
+    A browser gets a readable page; a client asking for JSON gets the same as JSON. 404 when the
+    address was never stored for the account (another tenant's looks the same)."""
+    from html import escape
+
+    from fastapi.responses import HTMLResponse
+
+    from account_intelligence import archive as LA
+
+    async with tenant_txn(ident.tenant_id) as s:
+        account_id = await account_id_of(s, domain)
+        found = await LA.lookup(s, account_id, [url])
+    link = found.get(url)
+    if link is None:
+        raise HTTPException(404, "not found")
+    try:
+        require_owned(ident.tenant_id, link.payload_ref)
+        copy = await LA.archived_copy(request.app.state.container.payloads, link)
+    except (PathRefused, ValueError, LookupError):
+        raise HTTPException(404, "not found") from None
+    except Exception:  # noqa: BLE001 - a missing or unreadable body reads as not found
+        raise HTTPException(404, "not found") from None
+    body = _client_value(
+        {
+            "url": copy.url,
+            "kind": copy.kind,
+            "archived_at": copy.archived_at.isoformat(),
+            "title": copy.title,
+            "text": copy.text,
+        }
+    )
+    if "text/html" not in (request.headers.get("accept") or "") or "json" in (
+        request.headers.get("accept") or ""
+    ):
+        return body
+    when = copy.archived_at.strftime("%d %B %Y")
+    title = escape(body.get("title") or body["url"])
+    page = (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{title}</title>"
+        "<style>body{margin:0;padding:24px 16px;font:15px/1.5 system-ui,sans-serif;color:#1d1d1f;"
+        "background:#fff}main{max-width:820px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}"
+        "p.meta{color:#5f6368;margin:0 0 20px;font-size:13px}pre{white-space:pre-wrap;"
+        "word-wrap:break-word;font:inherit;border-top:1px solid #e5e7eb;padding-top:16px}"
+        "</style></head><body><main>"
+        f"<h1>{title}</h1>"
+        f'<p class="meta">Archived copy captured on {escape(when)}. Original address:'
+        f' <a href="{escape(body["url"], quote=True)}" rel="noopener noreferrer">'
+        f"{escape(body['url'])}</a></p>"
+        f"<pre>{escape(body['text'])}</pre></main></body></html>"
+    )
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/{domain}/sheets/{sheet}/tabs/{tab}", response_model=C.SheetTab)
@@ -455,6 +614,11 @@ async def account_sheet_tab(
     if delivered is None or found is None:
         raise HTTPException(404, "not found")
     book, file = delivered
+    # each cell scrubbed and, when a guarded term remains, withheld on its own: the tab loads
+    blocks = FT.blocks_out(found)
+    held = FT.scrub_blocks(blocks)
+    if held:
+        log.info("sheet_cells_withheld", extra={"sheet": sheet, "tab": found.key, "cells": held})
     result: dict[str, Any] = _client_value(
         {
             "key": sheet,
@@ -465,10 +629,9 @@ async def account_sheet_tab(
             "tab_label": found.name,
             "tabs": FT.tab_refs(book),
             "file_id": file.id,
-            "blocks": FT.blocks_out(found),
         }
     )
-    return result
+    return {**result, "blocks": blocks}
 
 
 def _client_value(value: Any) -> Any:
@@ -511,7 +674,7 @@ async def account_sheet_xlsx(
     run = await _file_run(request, ident, account_id, sheet)
     main = await _export_main(request, ident, account_id, run, sheet)
     q = (
-        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE)
+        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter)
         if main is not None
         else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run)
     )
@@ -577,7 +740,7 @@ async def account_sheet_csv(
     run = await _file_run(request, ident, account_id, sheet)
     main = await _export_main(request, ident, account_id, run, sheet)
     q = (
-        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE)
+        _grid_query(main, sheet, sort, dir, 0, SH.MAX_PAGE, filter)
         if main is not None
         else _sheet_query(sheet, filter, sort, dir, 0, SH.MAX_PAGE, run)
     )

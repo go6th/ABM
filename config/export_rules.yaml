@@ -116,12 +116,14 @@ headings:
     signals_tier3: "Tier 3, context and openers"
     signals_context: "Context and history (older than the shelf life)"
     lane_tables: "5. Platform picture by lane"
-    platform_hiring: "Platform hiring over 12 months (postings naming each platform, by class)"
+    # the window is the postings window of config/skill/scope.yaml, dated from the research date
+    platform_hiring: "Platform hiring over {months} months ({account} positions only, first seen {start} to {end})"
     people: "6. People"
     people_method: "How the list was built"
     key_people: "Key people (priority A and the executives the lanes report to)"
     linkedin_findings: "Findings from profiles"
     status_changed: "People whose status changed"
+    people_interpretation: "Interpretation"
     hypotheses: "7. Hypotheses to test"
     sensitive_cautions: "Cautions for sensitive findings"
     first_call_questions: "8. Questions for a first conversation"
@@ -186,7 +188,7 @@ documents:
     tech_detections: ["Ref", "Technology", "First seen", "Last seen", "Postings naming it"]
     platform_postings: ["Ref", "Platform", "Postings", "Open", "Build", "Admin and owner", "Working tool", "User role"]
     entity_split: ["Ref", "Entity", "Postings"]
-    urls: ["Ref", "ID", "URL"]
+    # Part I (full URLs written out) is plain lines, one per code, as the reference prints it
   labels:
     sources_suffix: "Sources"
     question_prefix: "Confirming question"
@@ -282,7 +284,7 @@ documents:
     extract_posts: "Posts by people on the People List"
     supports_prefix: "Supports"
     queries_not_tried: "Not yet re-searched"
-    keep_copies_text: "The workspace zip shipped with this delivery logs every data pull and lists every link cited; it does not hold copies of the pages. To keep a copy, open the link in the source register and save the page as a PDF with the date in the file name. For job postings, save the posting page the same day, because the careers site removes closed requisitions. Links that stop resolving should be replaced by the words Archive record in any later version, so the reader knows to ask for the saved copy."
+    keep_copies_text: "The workspace zip shipped with this delivery logs every data pull and lists every link cited; it does not hold copies of the pages. To keep a copy, open the link in the source register and save the page as a PDF with the date in the file name. For job postings, save the posting page the same day, because the careers site removes closed requisitions. Where a source or posting carries an Archived copy line, that link opens the saved page. Links that stop resolving should be replaced by the words Archive record in any later version, so the reader knows to use the saved copy."
     read_in_full_yes: "Yes"
     read_platform_sentence: "Platform sentence"
     read_title_only: "Title only"
@@ -295,6 +297,14 @@ documents:
     news_feed_counted: "The news feed returned {events} events in {calls} pulls. The events are not stored with this file set, so they are not listed one by one; findings taken from the feed are in the source register, retrieved as {feed}."
     news_feed_uncounted: "The news feed was pulled {calls} times; the number of events returned was not recorded. Findings taken from the feed are in the source register, retrieved as {feed}."
     news_feed_none: "The news feed was not pulled for this run."
+    # link texts (reference 2026-10-20): the Key people Link cell reads "Profile"; a source or
+    # posting with a stored archived copy carries a second linked line; Part I writes every URL
+    # out in plain text, the archived copy under it; the footer counts pages
+    profile_link: "Profile"
+    archived_copy: "Archived copy"
+    url_line: "{code}: {url}"
+    archived_line: "archived: {url}"
+    page_label: "Page"
   status: proposal
 
 # The statement policy wording printed beside each graded row (D-01 labels come from the grading
@@ -327,7 +337,7 @@ labels:
   posting_class_confirming: [build, admin_owner, working_tool]
   posting_status:
     open: "Open"
-    closed: "Open or closed in the last 12 months"
+    closed: "Closed"
     unknown: "Status unknown"
   # how a posting was read (master prompt v2 section 9.4 "Source"): the read type, not the code
   posting_source:
@@ -336,6 +346,16 @@ labels:
     feed_title_only: "Job feed, 12 months, title only"
   # a posting whose link is off the account's domains names its host and this suffix
   entity_to_confirm_suffix: " (entity to confirm)"
+  # The Entity column. Per-account entity rules are DATA on the stored entity lock
+  # (accounts.entity_lock, read into SnapshotContent.entity_lock): "entities" is a list of
+  # {label, patterns (case sensitive regular expressions over the posting title and description),
+  # before (ISO date; the rule applies only to a posting first seen before it), counts_as_account}
+  # and "entity_prefix" optionally gives the account's short name (it must start the account name).
+  # Rules are applied first, in order; then the host rule above. The Summary matrix counts the
+  # rows whose Entity starts with the prefix (COUNTIFS "<prefix>*"), so counts_as_account is true
+  # exactly when the label starts with the prefix (a subsidiary: "<prefix> (Name)"); a rule that
+  # breaks this, has no pattern, an uncompilable pattern or a bad date is left out and listed in
+  # the manifest as withheld block "jobs.entities" (src/exports/readers/jobs.py entity_rules).
   # people rubric level ids (config/people_rubric.yaml) to the spec's level labels (master prompt
   # v2 section 9.3); ids the rubric does not have yet (senior_director, team_lead) are mapped so a
   # rubric change needs no code change; anything else is "other"
@@ -358,16 +378,28 @@ labels:
   people_level_order: ["C-level, EVP and SVP", "VP", "Senior Director", "Director", "Associate Director", "Head", "Senior Manager", "Manager", "Lead, owner, specialist or developer"]
   # level ids that meet the seniority rule (Director and above, Head, Senior Manager)
   people_level_senior: [c_level, evp, svp, vp, senior_director, director, associate_director, head, senior_manager]
-  # People List lane wording (the reference People List); a lane id not named here falls back to
-  # ``lane`` below, and no lane is ``lane_none``. Two lane ids may share one label: the Summary
-  # sheet's Lane table then counts them on one line. The order here is the Lane table's order.
+  # People List lane wording: the eight role-family lanes of the owner's reference People List
+  # (config/people_rubric.yaml people_lanes; one lane per person). The order here is the Lane
+  # table's order.
   people_lane:
-    salesforce: "Salesforce and commercial"
-    servicenow: "ServiceNow and shared services"
-    sap: "SAP and ERP"
-    veeva: "Veeva and life sciences systems"
-    tableau_analytics: "Analytics, data and AI"
-    data_ai: "Analytics, data and AI"
+    salesforce_commercial: "Salesforce and commercial"
+    salesforce_integration: "Salesforce (MuleSoft and integration)"
+    servicenow_shared: "ServiceNow and shared services"
+    sap_erp: "SAP and ERP"
+    veeva_life_sciences: "Veeva and life sciences systems"
+    analytics_data_ai: "Analytics, data and AI"
+    technology_it: "Technology, digital and IT leadership"
+    business_other: "Business leadership and other"
+  # a person stored before the role lanes existed has no role lane: the lane of the first platform
+  # lane it has (people.models.Classification.lanes), else the default lane
+  people_lane_default: business_other
+  people_lane_platform:
+    salesforce: salesforce_commercial
+    servicenow: servicenow_shared
+    sap: sap_erp
+    tableau_analytics: analytics_data_ai
+    data_ai: analytics_data_ai
+    veeva: veeva_life_sciences
   # lane ids (config/job_lanes.yaml) to the spec's lane labels (master prompt v2 section 9.3);
   # used in every client file, so a never_report name in lanes.yaml never reaches a client
   lane:
@@ -377,13 +409,42 @@ labels:
     tableau_analytics: "Analytics and Tableau"
     data_ai: "Data and AI"
     veeva: "Veeva and life sciences systems"
+  # the Tech Stack and Teams workbook's own lane words (lane id to label): the Platform Ranking's
+  # Lane column, as the reference prints it; a platform of no lane is ``lane_outside``
+  tech_lane:
+    salesforce: "Salesforce"
+    servicenow: "ServiceNow"
+    sap: "SAP"
+    tableau_analytics: "Tableau and analytics"
+    veeva: "Veeva"
+    data_ai: "Data and AI"
   lane_none: "IT leadership and other"
   lane_outside: "Outside the lanes"
-  # how a person was found (people.models.Origin), master prompt v2 section 9.3 "Found by"
+  # how a person was found, as the owner's reference People List prints it (Found by). Several
+  # ways are joined with "; ". {pass_no} and {band} come from found_by_pass, {platforms} from
+  # found_by_platform. A named person's page is a leadership page when its address has one of
+  # found_by_leadership_words.
   found_by:
-    title_search: "Title search on the account's domains"
-    association: "Association search on the lane technology"
-    mention: "Research (named in a source)"
+    title_search: "title search source {pass_no} ({band})"
+    title_search_any: "title search"
+    association: "technology association search ({platforms})"
+    association_any: "technology association search"
+    mention_leadership: "Leadership page; profile found by search"
+    mention_other: "Research page; profile found by search"
+  found_by_pass:
+    1: "leadership and platform"
+    2: "manager"
+  # a stored title search whose titles contain one of these words is that pass (else pass 1)
+  found_by_pass_terms:
+    2: ["senior manager"]
+  found_by_platform:
+    salesforce: "Salesforce"
+    servicenow: "ServiceNow"
+    sap: "SAP"
+    tableau_analytics: "Tableau"
+    veeva: "Veeva"
+    data_ai: "Data and AI"
+  found_by_leadership_words: [leadership, management, executive, executives, team, board, officers, people]
   "yes": "Yes"
   "no": "No"
   not_pulled: "Not pulled"
@@ -408,21 +469,27 @@ sheet_texts:
     title: "{account} people list, deduplicated"
     what: "This is the single people list for the {account} account."
     merges: "It merges {parts}."
-    merge_title: "title searches on the {domains} domain"
-    merge_title_any: "title searches on the account's domains"
-    merge_association: "technology association searches"
-    merge_mention: "people named in research"
-    searches: "{searches}"
+    # {searches} the stored title search calls ("2 title searches"), {passes} each pass with its
+    # own counts: "leadership and platform titles, 976 records loaded, 61 people on this list"
+    merge_title: "{searches} on the {domains} domain ({passes})"
+    merge_title_any: "{searches} on the account's domains ({passes})"
+    searches_unknown: "title searches"
+    search_pass: "{label} titles, {details}"
+    # {platforms} the platforms of the gap lanes the association search ran for
+    merge_association: "a technology association search for the {platforms} gaps ({details})"
+    merge_association_any: "technology association searches ({details})"
+    merge_mention: "people named in research ({details})"
     # the record count each stored search call returned (the ledger's record_count)
     matches: "{records} loaded"
     on_list: "{people} on this list"
     dedupe: "Duplicates removed by profile link and by name. Pulled by {attribution} on {date}."
     removed: "Rows removed before this list: {items}."
+    removed_none: "No rows were removed before this list."
     # keyed "status|reason" as the people module's Summary lines name them
     removed_items:
       "in scope|kept off this file by the distribution rules": "{rows} kept off this file by the distribution rules"
       "out of scope|not current": "{rows} whose current employer is not the account"
-      "out of scope|below scope": "{rows} below the seniority rule"
+      "out of scope|below scope": "{rows} below the seniority rule whose titles name no platform or technology"
       "out of scope|outside geography": "{rows} outside the account's geography"
       "excluded|not a person name": "{rows} whose name is a title or a fragment, not a person"
       "excluded|tenant exclusion": "{rows} on the account owner's own exclusion list"
@@ -444,49 +511,59 @@ sheet_texts:
       privacy: "privacy"
     no_exclusions: "No one was excluded by title (security, IT compliance, IT audit or privacy)."
     seniority_prefix: "Seniority rule: "
+    seniority_below: "People below that level are kept only when the title names a platform or technology, because they confirm what is in use."
     seniority_filter: "Filter Meets seniority rule to Yes for the target list."
-    judgment_note: "Titles are self reported on public profiles and are not verified. Level, lane and priority are our judgment from the title alone (A: Director and above or Head, and the title names a lane platform; B: Director and above or Head with no lane platform named, or a Senior Manager whose title names one; C: a Senior Manager whose title names no lane platform). Correct them in the People sheet and the counts below update. Former employers come from the full profiles and cover any point in a career; Not pulled means no full profile was read."
+    # {entities} the account's own entities from its entity lock; {account} its name
+    entity_labels: "Entity labels: rows labelled {entities} are {account} entities and are kept. People of a business that {account} has sold or combined with another company may still show {account} as employer; check before outreach."
+    entity_labels_none: "Entity labels: people of a business that {account} has sold or combined with another company may still show {account} as employer; check before outreach."
+    judgment_note: "Titles are self reported on public profiles and are not verified. Level, lane and priority are our judgment from the title alone (A: owns or runs a lane platform, its data or its program, or is the executive the lane reports to; B: senior and relevant; C: senior but outside the lanes). Correct them in the People sheet and the counts below update. Former SI and consulting employers come from the full profiles and cover any point in a career."
     level_heading: "Level"
     senior_label: "Meets seniority rule"
     lane_heading: "Lane, senior people only"
     total_label: "Total"
     link_text: "Open profile"
-  # Tech Stack and Teams, after the owner's reference file (BD_Tech_Stack_and_Teams.xlsx,
-  # 2026-10-26). Where the platform's data differs from the reference the words say what the
-  # platform has: the second sheet holds the technology detection pull (a lead, not the
-  # reference's confirmed stack pull, which no pipeline stores), so the ranking's stack column
-  # and its sentence name the detection pull. Placeholders: {account}, {base}, {postings},
-  # {months}, {as_of}.
+  # Tech Stack and Teams, after the owner's reference file (Tech Stack and Teams workbook,
+  # 2026-10-20; patterns, labels and wording measured 2026-10-29). Sheet 2 is the organisation's
+  # tech stack as the lookup returns it (the reference's Confirmed stack); the technology
+  # detections (leads) are no sheet of their own, the Evidence file lists them. Placeholders:
+  # {account}, {base}, {postings}, {months}, {as_of}, {mask}, {shown}, {matching}, {since}.
   tech:
     title: "{account}: platforms seen in job postings, ranked A, B, C"
     base_line: "Postings in the last {months} months that name at least one platform (the base):"
     rank_rule: "How the rank is set. A: named in 15 percent or more of the base and in at least 5 postings. B: named in 5 percent or more of the base and in at least 3 postings. C: named in at least 2 postings. Platforms named in one posting are listed under Seen once."
     count_rule: "Each posting counts once per platform, however many times it names it. Open and closed postings both count. The window is by posting date, else first seen; a posting with no date counts."
-    signal_rule: "A platform named in hiring is a signal of skills the account wants, not proof the platform runs in production. The column In stack detections shows whether the separate technology detection pull also shows it."
+    signal_rule: "A platform named in hiring is a signal of skills the account wants, not proof the platform runs in production. The column In confirmed stack shows whether the separate stack pull also shows it."
     research_by: "Research by 6th agents. Ranks are formulas on the counts, so a corrected count updates the rank."
     counts_heading: "Counts"
     seen_once_heading: "Seen once (not ranked)"
+    seen_once_none: "None"
     rank_label: "Rank {rank}"
-    stack_title: "{account}: technologies the detection pull saw, with first and last seen dates"
-    stack_note: "Pulled by 6th agents for the research as of {as_of}. A detection is a lead, not proof of use: a first and last seen date range alone is not a finding. Postings naming it is the number of postings in the Job Postings file that name the technology. Category and Lane come from the platform dictionary when the technology is one of its platforms."
+    stack_title: "{account}: technologies seen in use, by business function and category"
+    stack_note: "Pulled by 6th agents on {as_of} from public job postings and team records. Postings naming it is the number of postings in which the technology was named as used. Out of scope platforms are masked and are not used in any finding."
     teams_title: "{account}: teams whose public records name a lane platform"
-  # Job Postings Summary sheet, after the owner's reference file (BD_Job_Postings.xlsx Summary,
-  # 2026-10-26). Placeholders: {account}, {months}, {start}, {end}, {as_of}, {suffix}. The class
-  # paragraph names every labels.posting_class word (test).
+    teams_title_counted: "{account}: teams whose public records name a lane platform ({shown} largest of {matching} matching teams, by postings since {since})"
+    teams_listed: "{teams} teams whose public records name a lane platform are listed on the {sheet} sheet of the Tech Stack and Teams workbook."
+    teams_note: "Pulled by 6th agents. Team names are as the source records them (often a business unit or function rather than an IT team). Team technologies lists every technology the team's records name with its postings count. Team locations shows city and country with postings count."
+  # Job Postings Summary sheet, after the owner's reference file (Summary, measured 2026-10-29),
+  # written for any account. Placeholders: {account}, {prefix} (the entity prefix the matrix
+  # counts: the account's short name), {months}, {start}, {end}, {as_of}, {suffix}. The class
+  # paragraph names the four matrix classes (test); the platform paragraph names the matching
+  # rules of config/job_lanes.yaml (test).
   jobs:
     title: "{account} platform job postings, last {months} months (first seen {start} to {end})"
     paragraphs:
-      - "Every posting first seen in the last {months} months that names a platform, pulled by 6th agents from the structured job posting feed, plus the postings found open on the {account} careers site on {as_of}; the Found by column says which. Open and closed postings are both included, and a posting with no date is kept. One row per posting; a reposted requisition appears once per posting."
-      - "Entity: {account} means the posting link is on the {account} website or its careers site. A posting found on another website shows that site's name followed by {suffix}; check which business it belongs to before quoting it. The lines under the table count both."
-      - "Class: Build role means the platform is the job. Admin and owner role runs the platform, owns its data or governs it. Working tool means daily use. User role is everything else, including boilerplate and tool lists. Unclassified means the reading did not settle the class. No lane platform named means the posting was read and names none of the lane platforms. Not read (title only) means only the title could be read."
-      - "Requisition is the job ID the posting prints, blank when it prints none. First seen is the posting date, else the date the posting was first seen. What the posting says (read) is the sentence the reading quoted to decide the class, filled for roles read in full. Platform sentences shows the exact sentences where each platform is named. Full description is the complete posting, filled when the posting was read in full. Ref and Source code tie each row to the source register."
-    matrix_heading: "Platform (named anywhere)"
+      - "Every posting on the {account} careers site first seen in the last {months} months that names a platform, pulled by 6th agents from the structured job posting feed, plus the live postings found on the careers site on {as_of} that the feed did not yet hold. Open and closed postings are both included, and a posting with no date is kept. One row per posting; a reposted requisition appears once per posting."
+      - "Entity: {prefix} means a {prefix} position. A divested business or a subsidiary that is tagged for this account shows its own label; a label that starts with {prefix} is counted with the {prefix} positions below, any other label is shown for completeness and left out of the counts. A posting on another website shows that site's name followed by {suffix}; check which business it belongs to before quoting it."
+      - "Class: Build role means the platform is the job. Admin and owner role runs the platform, owns its data or governs it. Working tool means daily use. User role is everything else, including boilerplate and tool lists. Build and Admin and owner roles are confirmed by reading the whole posting; the other two come from the sentences that name the platform."
+      - "What the posting says (read) is filled for roles read in full that were confirmed as Build or Admin and owner. Platform sentences shows the exact sentences where each platform is named, grouped by platform. Full description is the complete posting. Requisition is the job ID the posting prints, blank when it prints none. Link opens the posting; Archived link opens our stored copy, because closed postings disappear from careers sites. New since last research marks postings first seen after the previous research. Ref and Source code tie each row to the source register."
+      - "Platforms are matched in the posting text. SAP is matched as the capitalized word SAP, S/4HANA, Ariba, SuccessFactors or Concur. Salesforce includes SFDC and the Salesforce clouds. Veeva includes Vault, PromoMats, eTMF and CTMS. A posting that names several platforms is counted once for each."
+    matrix_heading: "Platform (named anywhere), {prefix} positions only"
     total: "Total"
     open: "Open"
     closed: "Closed"
     rows_all: "Rows on the Jobs sheet (all entities)"
-    rows_account: "Rows that are {account} positions"
-    rows_other: "Rows found on another website (entity to confirm)"
+    rows_account: "Rows that are {prefix} positions"
+    rows_other: "Rows that are other entities (a divested business or another website)"
 
 evidence:
   # Facts whose attribute key starts with one of these prefixes are listed under "News items
@@ -516,90 +593,126 @@ workbooks:
   source: "master prompt v2 sections 9.3 to 9.5 (2026-10-24); PRD s3.4 deliverables; row keys and the rest: proposal D-24"
   people:
     sheet: "People"
+    # the owner's reference People List: 13 columns in this order and with these widths (Link
+    # texts "Open profile"), then Ref and Source, the product's own: Ref is the row key the row
+    # conservation check and the Summary formulas count, Source ties the row to the source register
     columns:
-      - {key: number, header: "No.", kind: count}
-      - {key: name, header: "Name", kind: text_short}
-      - {key: title, header: "Title as reported", kind: text_short}
-      - {key: level, header: "Level", kind: label}
-      - {key: meets_seniority, header: "Meets seniority rule", kind: label}
-      - {key: lanes, header: "Lane", kind: label}
-      - {key: priority, header: "Priority", kind: label}
-      - {key: former_employers, header: "Former SI and consulting employers (firm and years)", kind: text_short}
-      - {key: found_by, header: "Found by", kind: text_short}
-      - {key: profile_url, header: "LinkedIn", kind: url}
-      - {key: second_profile_url, header: "Second profile", kind: url}
-      - {key: location, header: "Location", kind: text_short}
-      - {key: note, header: "Note", kind: text_short}
+      - {key: number, header: "No.", kind: count, width: 6}
+      - {key: name, header: "Name", kind: text_short, width: 26}
+      - {key: title, header: "Title as reported", kind: text_short, width: 56}
+      - {key: level, header: "Level", kind: label, width: 22, wrap: true}
+      - {key: meets_seniority, header: "Meets seniority rule", kind: label, width: 11, wrap: true}
+      - {key: lanes, header: "Lane", kind: label, width: 30, wrap: true}
+      - {key: priority, header: "Priority", kind: label, width: 9, align: center}
+      - {key: former_employers, header: "Former SI and consulting employers (firm and years)", kind: text_short, width: 30}
+      - {key: found_by, header: "Found by", kind: text_short, width: 30}
+      - {key: profile_url, header: "LinkedIn", kind: url, width: 13, link_text: "Open profile", wrap: true}
+      - {key: second_profile_url, header: "Second profile", kind: url, width: 13, link_text: "Open profile", wrap: true}
+      - {key: location, header: "Location", kind: text_short, width: 24}
+      - {key: note, header: "Note", kind: text_short, width: 50}
       - {key: ref, header: "Ref", kind: ref}
       - {key: source_code, header: "Source", kind: code}
+    header_height_pt: 32
+    freeze_columns: 2
+    summary_paragraph_height_pt: 58
+    summary_span: 6
+    summary_label_width: 44
+    summary_count_width: 12
     summary_sheet: "Summary"
   jobs:
     sheet: "Jobs"
     columns:
-      # the reference file's order (BD_Job_Postings.xlsx Jobs); Last seen and Seniority are not
-      # stored by the job pipeline, so they are not printed; Found by, Ref and Source code follow
-      - {key: requisition, header: "Requisition", kind: label}
-      - {key: title, header: "Title", kind: text_short}
-      - {key: platforms, header: "Platforms named", kind: label}
-      - {key: posting_class, header: "Class", kind: label}
-      - {key: status, header: "Status", kind: label}
-      - {key: posted_or_seen, header: "First seen", kind: date}
-      - {key: location, header: "Location", kind: text_short}
-      - {key: entity, header: "Entity", kind: text_short}
-      - {key: read_text, header: "What the posting says (read)", kind: text_long}
-      - {key: platform_sentence, header: "Platform sentences", kind: text_long}
-      - {key: description, header: "Full description", kind: text_long}
-      - {key: url, header: "Link", kind: url}
-      - {key: source_type, header: "Found by", kind: text_short}
+      # the reference file's 14 columns in its order and widths (Job Postings, measured
+      # 2026-10-29), then the owner's two additions (2026-10-29: the archived copy of the posting
+      # and the new-row flag), then the product-only Ref and Source code, which stay to the
+      # right: Ref is the row-conservation key (the Counts sheet and the render checks count it)
+      # and Source code ties the row to the source register
+      - {key: requisition, header: "Requisition", kind: label, width: 12}
+      - {key: title, header: "Title", kind: text_short, width: 44}
+      - {key: platforms, header: "Platforms named", kind: label, width: 18}
+      - {key: posting_class, header: "Class", kind: label, width: 20}
+      - {key: status, header: "Status", kind: label, width: 9}
+      - {key: first_seen_text, header: "First seen", kind: label, width: 11}
+      - {key: last_seen_text, header: "Last seen", kind: label, width: 11}
+      - {key: location, header: "Location", kind: text_short, width: 26}
+      - {key: seniority, header: "Seniority", kind: label, width: 11}
+      - {key: entity, header: "Entity", kind: text_short, width: 26, wrap: false}
+      - {key: read_text, header: "What the posting says (read)", kind: text_long, width: 50}
+      - {key: platform_sentence, header: "Platform sentences", kind: text_long, width: 70}
+      - {key: description, header: "Full description", kind: text_long, width: 60}
+      - {key: url, header: "Link", kind: url, width: 13, link_text: "Open posting"}
+      - {key: archive_url, header: "Archived link", kind: url, width: 16, link_text: "Open archived copy"}
+      - {key: new_flag, header: "New since last research", kind: label, width: 14}
       - {key: ref, header: "Ref", kind: ref}
       - {key: source_code, header: "Source code", kind: code}
     counts_sheet: "Counts"
     long_text_sheet: "Long text"
-    # the platform rows of the Counts sheet matrix (master prompt v2 section 9.4)
-    matrix_platforms: [Salesforce, Microsoft Dynamics, MuleSoft, ServiceNow, SAP, Tableau, Workday, Veeva]
+    # the platform rows of the Summary matrix, in the reference's order; the same order is the
+    # fixed order of the Platforms named cell (the other platforms follow alphabetically)
+    matrix_platforms: [Salesforce, MuleSoft, ServiceNow, SAP, Tableau, Veeva, Workday]
+    # the Summary matrix has no "All rows" line any more (the row-count lines under it do that
+    # job); the key stays because the Summary and Evidence readers skip a matrix row of this name
     matrix_all_rows: "All rows"
+    # the matrix class columns (stored class ids, labels from labels.posting_class) and the
+    # classes whose rows print the sentence the reading quoted
+    matrix_classes: [build, admin_owner, working_tool, user]
+    read_text_classes: [build, admin_owner]
+    sentences_per_platform: 4
+    sentence_chars: 3000
     summary_sheet: "Summary"
+    # the reference Summary: notes merged A:H, column A 52 wide, B to H 18 wide
+    summary_span: 8
+    summary_label_width: 52
+    summary_count_width: 18
     # "Job ID: R-557322", "Requisition ID 12345", "Req #A-1001": the label, then the ID (group 1),
     # which must hold a digit; a posting that prints no such label leaves the cell blank
     requisition_pattern: '(?i)(?:job\s*(?:requisition\s*)?id|requisition\s*(?:id|number|no\.?)|req\.?\s*(?:id|#))\s*[:#]?\s*([A-Z0-9][A-Z0-9_-]*?\d[A-Z0-9_-]*)'
   tech:
-    # the second sheet, in the reference's "Confirmed stack" place: the detection pull, named
-    # for what it is (a lead); the reference's Business function is not stored, so not shown
-    sheet: "Stack detections"
+    # the second sheet: the organisation's tech stack (the reference's Confirmed stack), five
+    # columns and no Ref column (the reference has none; the rows are keyed by their first three
+    # cells). Widths and no wrapping as the reference sets them.
+    sheet: "Confirmed stack"
     columns:
-      - {key: category, header: "Category", kind: label}
-      - {key: technology, header: "Technology", kind: text_short}
-      - {key: postings, header: "Postings naming it", kind: count}
-      - {key: lane, header: "Lane", kind: label}
-      - {key: first_seen, header: "First seen", kind: label}
-      - {key: last_seen, header: "Last seen", kind: label}
-      - {key: grade, header: "Grade", kind: label}
-      - {key: ref, header: "Ref", kind: ref}
-      - {key: source_code, header: "Source", kind: code}
+      - {key: business_function, header: "Business function", kind: label, width: 26}
+      - {key: category, header: "Category", kind: label, width: 40}
+      - {key: technology, header: "Technology", kind: label, width: 34}
+      - {key: postings, header: "Postings naming it", kind: count, width: 18}
+      - {key: lane, header: "Lane", kind: label, width: 26}
+    # the Lane column: a platform word in the lower-cased technology name gives the label; several
+    # words take the last one in this order (the reference's build script). Every key is a name of
+    # config/platform_dictionary.yaml (test).
+    stack_lanes:
+      Salesforce: "Salesforce"
+      MuleSoft: "Salesforce (MuleSoft)"
+      ServiceNow: "ServiceNow"
+      SAP: "SAP"
+      Tableau: "Tableau and analytics"
+      Veeva: "Veeva"
+      Workday: "Outside the lanes (Workday)"
     teams_sheet: "Platform teams"
-    # the reference's columns; no pipeline stores team records yet, so the sheet shows the
-    # header and the "None recorded" note
+    # the reference's columns and widths; rows come from SnapshotContent.teams (no pipeline
+    # stores teams yet: the provider operation is not specified), else the None recorded line
     teams_columns:
-      - {key: team, header: "Team", kind: text_short}
-      - {key: lane_technologies, header: "Lane technologies named", kind: text_short}
-      - {key: postings, header: "Postings count", kind: count}
-      - {key: first_activity, header: "First activity", kind: date}
-      - {key: last_activity, header: "Last activity", kind: date}
-      - {key: technologies, header: "Team technologies (name, postings)", kind: text_long}
-      - {key: locations, header: "Team locations (place, postings)", kind: text_long}
-      - {key: job_functions, header: "Job functions", kind: text_long}
+      - {key: team, header: "Team", kind: text_short, width: 40, wrap: true}
+      - {key: lane_technologies, header: "Lane technologies named", kind: text_short, width: 30, wrap: true}
+      - {key: postings, header: "Postings count", kind: count, width: 10, wrap: true}
+      - {key: first_activity, header: "First activity", kind: label, width: 12, wrap: true}
+      - {key: last_activity, header: "Last activity", kind: label, width: 12, wrap: true}
+      - {key: technologies, header: "Team technologies (name, postings)", kind: text_long, width: 70, wrap: true}
+      - {key: locations, header: "Team locations (place, postings)", kind: text_long, width: 50, wrap: true}
+      - {key: job_functions, header: "Job functions", kind: text_long, width: 40, wrap: true}
     ranking_sheet: "Platform Ranking"
     ranking_columns:
-      - {key: rank, header: "Rank", kind: label}
-      - {key: platform, header: "Platform", kind: text_short}
-      - {key: category, header: "Category", kind: label}
-      - {key: lane, header: "Lane", kind: label}
-      - {key: count, header: "Postings naming it", kind: count}
-      - {key: share, header: "Share of base", kind: percent}
-      - {key: open_now, header: "Open now", kind: count}
-      - {key: last_seen, header: "Last seen", kind: label}
-      - {key: in_stack, header: "In stack detections", kind: label}
-      - {key: read_checked, header: "Matches checked by reading", kind: label}
+      - {key: rank, header: "Rank", kind: label, width: 8}
+      - {key: platform, header: "Platform", kind: text_short, width: 30, wrap: false}
+      - {key: category, header: "Category", kind: label, width: 26}
+      - {key: lane, header: "Lane", kind: label, width: 22}
+      - {key: count, header: "Postings naming it", kind: count, width: 12}
+      - {key: share, header: "Share of base", kind: percent, width: 10}
+      - {key: open_now, header: "Open now", kind: count, width: 10}
+      - {key: last_seen, header: "Last seen", kind: label, width: 12}
+      - {key: in_stack, header: "In confirmed stack", kind: label, width: 14}
+      - {key: read_checked, header: "Matches checked by reading", kind: label, width: 14}
 
 # Workspace zip (D-25 proposal). The PRD lists build scripts and raw data with neutral names; the
 # SaaS document says share graded facts and links, not raw exports; broker terms (D-10) are open.

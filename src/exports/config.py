@@ -49,6 +49,8 @@ class Font(_Strict):
     bold: bool
     italic: bool
     color: Hex
+    # single underline (the hyperlink font); off for every other role
+    underline: bool = False
 
 
 class Margins(_Strict):
@@ -61,12 +63,21 @@ class Margins(_Strict):
 
 
 class Page(_Strict):
-    """Page size and margins."""
+    """Page size, orientation and margins. ``width_in`` and ``height_in`` are the printed page
+    as laid out (a landscape Letter page is 11 by 8.5 inches)."""
 
     width_in: float = Field(gt=0)
     height_in: float = Field(gt=0)
+    orientation: Literal["portrait", "landscape"]
     margins_in: Margins
     source: str
+
+    @model_validator(mode="after")
+    def _oriented(self) -> Page:
+        wide = self.width_in > self.height_in
+        if wide != (self.orientation == "landscape"):
+            raise ValueError("a landscape page is wider than it is tall, a portrait page taller")
+        return self
 
 
 class WordFonts(_Strict):
@@ -81,6 +92,9 @@ class WordFonts(_Strict):
     note: Font
     table_header: Font
     table_body: Font
+    # a hyperlink run inside a table cell (the Profile, source and posting links); a link in a
+    # body paragraph takes the body size with this colour and underline
+    link: Font
     header: Font
     footer: Font
 
@@ -91,9 +105,20 @@ class WordTable(_Strict):
     header_fill: Hex
     border_color: Hex
     border_size_eighth_pt: int = Field(ge=2, le=96)
+    # cell padding: top and bottom, then left and right (twips)
     cell_margin_twips: int = Field(ge=0, le=1440)
+    cell_margin_side_twips: int = Field(ge=0, le=1440)
     repeat_header_row: bool
     row_cant_split: bool
+    # the row's label column (the first column after the row key) in bold
+    bold_label_column: bool
+
+
+class TitleRule(_Strict):
+    """The rule under the opening paragraph of a document."""
+
+    color: Hex
+    size_eighth_pt: int = Field(ge=2, le=96)
 
 
 class Spacing(_Strict):
@@ -127,7 +152,6 @@ TableName = Literal[
     "tech_detections",
     "platform_postings",
     "entity_split",
-    "urls",
 ]
 
 
@@ -139,12 +163,19 @@ class WordTheme(_Strict):
     table: WordTable
     tables: dict[TableName, tuple[float, ...]]
     spacing: Spacing
+    title_rule: TitleRule
+    # cell fills by the cell's whole text: the grade words and the tracker status words, as the
+    # reference colour-codes them (the vocabulary itself is the grading engine's and the
+    # tracker's; only the colours live here)
+    fills: dict[str, Hex]
 
     @model_validator(mode="after")
     def _proportions(self) -> WordTheme:
         for name, widths in self.tables.items():
             if abs(sum(widths) - 100) > 0.01 or min(widths) <= 0:
                 raise ValueError(f"table {name}: proportions must be positive and sum to 100")
+        if any(not k.strip() for k in self.fills):
+            raise ValueError("a fill is keyed by a cell word")
         return self
 
 
@@ -155,6 +186,13 @@ class ExcelFonts(_Strict):
     header: Font
     body: Font
     note: Font
+    # hyperlink cells ("Open posting", "Open profile", "Open archived copy")
+    link: Font
+
+
+Vertical = Literal["top", "center", "bottom"]
+Horizontal = Literal["left", "center", "right"]
+_FILL_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class ColumnStyle(_Strict):
@@ -180,8 +218,19 @@ class ExcelTheme(_Strict):
     header_fill: Hex
     summary_fill: Hex
     border_color: Hex
+    # the header row: vertical alignment, whether its cells are bordered by default (a Summary
+    # table's header asks for a border) and its height in points (None: Excel's default)
+    header_vertical: Vertical = "center"
+    header_border: bool = False
+    header_height_pt: float | None = Field(default=None, gt=0, le=409)
+    # a sheet's title line row height (None: Excel's default)
+    title_height_pt: float | None = Field(default=None, gt=0, le=409)
+    body_vertical: Vertical = "top"
     freeze_header: bool
     autofilter: bool
+    # named fills a renderer applies by name (``Book.fill``); every name is registered as a
+    # named style up front so the stylesheet never depends on which rows carry a fill
+    fills: dict[str, Hex] = Field(default_factory=dict)
     column_kinds: dict[ColumnKind, ColumnStyle]
     print: ExcelPrint
 
@@ -190,6 +239,9 @@ class ExcelTheme(_Strict):
         missing = set(ColumnKind.__args__) - set(self.column_kinds)  # type: ignore[attr-defined]
         if missing:
             raise ValueError(f"column kinds without a style: {sorted(missing)}")
+        bad = [n for n in self.fills if not _FILL_NAME.match(n)]
+        if bad:
+            raise ValueError(f"fill names are lower-case identifiers: {bad}")
         return self
 
 
@@ -370,6 +422,7 @@ class SummaryHeadings(_Strict):
     key_people: str
     linkedin_findings: str
     status_changed: str
+    people_interpretation: str
     hypotheses: str
     sensitive_cautions: str
     first_call_questions: str
@@ -499,6 +552,13 @@ class DocumentLabels(_Strict):
     news_feed_counted: str
     news_feed_uncounted: str
     news_feed_none: str
+    # link texts: the Key people Link cell, the archived copy line under a linked source or
+    # posting; Part I's plain lines; the footer's page number word
+    profile_link: str = Field(min_length=1)
+    archived_copy: str = Field(min_length=1)
+    url_line: str = Field(min_length=1)
+    archived_line: str = Field(min_length=1)
+    page_label: str = Field(min_length=1)
 
 
 class Documents(_Strict):
@@ -537,12 +597,26 @@ class Labels(_Strict):
     people_level: dict[str, str]
     people_level_order: tuple[str, ...] = Field(min_length=1)
     people_level_senior: tuple[str, ...] = Field(min_length=1)
-    # the People List's own lane wording (falls back to ``lane``)
+    # the People List's own lane wording, in the Lane table's order: the eight role-family lane
+    # ids of config/people_rubric.yaml people_lanes (one lane per person)
     people_lane: dict[str, str] = Field(default_factory=dict)
+    # the lane a person with no stored role lane gets: the default lane id, or the lane of the
+    # person's first platform lane (a record stored before the role lanes existed)
+    people_lane_default: str = ""
+    people_lane_platform: dict[str, str] = Field(default_factory=dict)
     lane: dict[str, str]
+    # the Tech Stack and Teams workbook's own lane words (lane id -> label); a platform of no
+    # lane is ``lane_outside``
+    tech_lane: dict[str, str] = Field(default_factory=dict)
     lane_none: str = Field(min_length=1)
     lane_outside: str = Field(min_length=1)
+    # the Found by templates (title search with its pass and band, the technology association
+    # search with its platforms, a named person's research page) and their words
     found_by: dict[str, str]
+    found_by_pass: dict[int, str] = Field(default_factory=dict)
+    found_by_pass_terms: dict[int, tuple[str, ...]] = Field(default_factory=dict)
+    found_by_platform: dict[str, str] = Field(default_factory=dict)
+    found_by_leadership_words: tuple[str, ...] = ()
     yes: str = Field(min_length=1)
     no: str = Field(min_length=1)
     not_pulled: str = Field(min_length=1)
@@ -572,8 +646,19 @@ class Labels(_Strict):
             raise ValueError("people_level_order must list every level label once")
         if not set(self.people_level_senior) <= set(self.people_level):
             raise ValueError("people_level_senior names a level id without a label")
-        if set(self.found_by) != {"title_search", "association", "mention"}:
-            raise ValueError("found_by labels must cover the three people origins")
+        if set(self.found_by) != {
+            "title_search",
+            "title_search_any",
+            "association",
+            "association_any",
+            "mention_leadership",
+            "mention_other",
+        }:
+            raise ValueError("found_by templates must cover the three people origins")
+        if self.people_lane and self.people_lane_default not in self.people_lane:
+            raise ValueError("people_lane_default must be one of the people_lane ids")
+        if not set(self.people_lane_platform.values()) <= set(self.people_lane):
+            raise ValueError("people_lane_platform names a lane id people_lane does not have")
         return self
 
     def level_label(self, level: str | None) -> str:
@@ -591,6 +676,12 @@ class Labels(_Strict):
         """The spec's lane label of a lane id; no lane (or an unknown one) is ``lane_none``."""
         key = (lane or "").strip().casefold().replace(" ", "_")
         return self.lane.get(key, self.lane_none)
+
+    def tech_lane_label(self, lane: str | None) -> str:
+        """The Tech Stack and Teams workbook's lane label of a lane id; no lane (or an unknown
+        one) is ``lane_outside``."""
+        key = (lane or "").strip().casefold().replace(" ", "_")
+        return self.tech_lane.get(key, self.lane_outside)
 
     def people_lane_label(self, lane: str | None) -> str:
         """The People List's lane label (``people_lane``, else ``lane_label``)."""
@@ -612,11 +703,14 @@ class PeopleSheetTexts(_Strict):
     merge_title_any: str = Field(min_length=1)
     merge_association: str = Field(min_length=1)
     merge_mention: str = Field(min_length=1)
-    searches: str = Field(min_length=1)
+    searches_unknown: str = Field(min_length=1)
+    search_pass: str = Field(min_length=1)
+    merge_association_any: str = Field(min_length=1)
     matches: str = Field(min_length=1)
     on_list: str = Field(min_length=1)
     dedupe: str = Field(min_length=1)
     removed: str = Field(min_length=1)
+    removed_none: str = Field(min_length=1)
     removed_items: dict[str, str]
     removed_other: str = Field(min_length=1)
     withheld: str = Field(min_length=1)
@@ -624,7 +718,10 @@ class PeopleSheetTexts(_Strict):
     exclusion_reasons: dict[str, str]
     no_exclusions: str = Field(min_length=1)
     seniority_prefix: str = Field(min_length=1)
+    seniority_below: str = Field(min_length=1)
     seniority_filter: str = Field(min_length=1)
+    entity_labels: str = Field(min_length=1)
+    entity_labels_none: str = Field(min_length=1)
     judgment_note: str = Field(min_length=1)
     level_heading: str = Field(min_length=1)
     senior_label: str = Field(min_length=1)
@@ -646,9 +743,15 @@ class TechSheetTexts(_Strict):
     counts_heading: str = Field(min_length=1)
     seen_once_heading: str = Field(min_length=1)
     rank_label: str = Field(min_length=1)
+    seen_once_none: str = Field(min_length=1)
     stack_title: str = Field(min_length=1)
     stack_note: str = Field(min_length=1)
     teams_title: str = Field(min_length=1)
+    # the title when the teams pull reports how many teams matched: {shown}, {matching}, {since}
+    teams_title_counted: str = Field(min_length=1)
+    teams_note: str = Field(min_length=1)
+    # the Evidence file's line when teams are listed on the sheet: {teams}, {sheet}
+    teams_listed: str = Field(min_length=1)
 
 
 class JobsSheetTexts(_Strict):
@@ -690,19 +793,41 @@ class EvidenceRules(_Strict):
 
 
 class Column(_Strict):
-    """One workbook column."""
+    """One workbook column: its row key, header and kind, with optional overrides of the kind's
+    width and wrapping, a horizontal alignment, and for a ``url`` column the fixed label every
+    link cell shows ("Open posting"; the hyperlink carries the address)."""
 
     key: str
     header: str = Field(min_length=1)
     kind: ColumnKind
+    width: float | None = Field(default=None, gt=0, le=255)
+    wrap: bool | None = None
+    align: Horizontal | None = None
+    link_text: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _link_on_url(self) -> Column:
+        if self.link_text is not None and self.kind != "url":
+            raise ValueError(f"column {self.key}: link_text belongs to a url column")
+        return self
 
 
 class PeopleBook(_Strict):
-    """People List workbook layout."""
+    """People List workbook layout (the owner's reference People List: 13 columns, then the
+    product's Ref and Source columns)."""
 
     sheet: str
     columns: tuple[Column, ...] = Field(min_length=1)
     summary_sheet: str
+    # the People header row height and the columns kept in view (number and name) while scrolling
+    header_height_pt: float | None = Field(default=None, gt=0, le=409)
+    freeze_columns: int = Field(default=0, ge=0)
+    # the Summary sheet: the notes' row height and how many columns they span, and the widths of
+    # its first column (the Level and Lane names) and of the count columns after it
+    summary_paragraph_height_pt: float | None = Field(default=None, gt=0, le=409)
+    summary_span: int = Field(default=6, ge=1)
+    summary_label_width: float = Field(default=44, gt=0, le=255)
+    summary_count_width: float = Field(default=12, gt=0, le=255)
 
 
 class JobsBook(_Strict):
@@ -714,8 +839,21 @@ class JobsBook(_Strict):
     long_text_sheet: str
     matrix_platforms: tuple[str, ...] = Field(min_length=1)
     matrix_all_rows: str = Field(min_length=1)
-    # the sheet printed first: title, explanatory paragraphs and the platform matrix
+    # the class columns of the Summary matrix, in order (stored class ids; the reference prints
+    # the four classes and nothing else) and the classes whose rows print the sentence the
+    # reading quoted ("What the posting says (read)"; only a reading confirms these)
+    matrix_classes: tuple[str, ...] = ("build", "admin_owner", "working_tool", "user")
+    read_text_classes: tuple[str, ...] = ("build", "admin_owner")
+    # the Platform sentences cell: sentences per platform and characters in all
+    sentences_per_platform: int = Field(default=4, ge=1)
+    sentence_chars: int = Field(default=3000, ge=100)
+    # the sheet printed first: title, explanatory paragraphs and the platform matrix; the
+    # paragraphs merge across ``summary_span`` columns (the reference's A:H), column A is
+    # ``summary_label_width`` wide and the others ``summary_count_width``
     summary_sheet: str = Field(min_length=1)
+    summary_span: int = Field(default=8, ge=1)
+    summary_label_width: float = Field(default=52, gt=0, le=255)
+    summary_count_width: float = Field(default=18, gt=0, le=255)
     # the job ID label a posting prints and the ID itself (group 1): the Requisition column
     requisition_pattern: str = Field(min_length=1)
 
@@ -728,10 +866,16 @@ class JobsBook(_Strict):
 
 
 class TechBook(_Strict):
-    """Tech Stack and Teams workbook layout."""
+    """Tech Stack and Teams workbook layout. ``sheet``/``columns`` are the Confirmed stack (the
+    organisation's tech stack; it has no Ref column: its rows are keyed by function, category and
+    technology)."""
 
     sheet: str
     columns: tuple[Column, ...] = Field(min_length=1)
+    # the Confirmed stack's Lane column: a platform word (a dictionary platform name) found in the
+    # lower-cased technology name gives the label; several words take the last in this order, as
+    # the reference's build script does
+    stack_lanes: dict[str, str] = Field(default_factory=dict)
     teams_sheet: str
     teams_columns: tuple[Column, ...] = Field(min_length=1)
     ranking_sheet: str
@@ -750,8 +894,12 @@ class Workbooks(_Strict):
     def _ref_column(self) -> Workbooks:
         for book in (self.people, self.jobs, self.tech):
             keys = [c.key for c in book.columns]
-            if "ref" not in keys or len(set(keys)) != len(keys):
-                raise ValueError(f"{book.sheet}: a ref column is present and keys are unique")
+            if len(set(keys)) != len(keys):
+                raise ValueError(f"{book.sheet}: column keys are unique")
+            # the Confirmed stack has no Ref column (the reference has none); its rows are keyed
+            # by their first three cells (verify.xlsx_stack_keys)
+            if book is not self.tech and "ref" not in keys:
+                raise ValueError(f"{book.sheet}: a ref column is present")
         ranking = [c.key for c in self.tech.ranking_columns]
         if len(set(ranking)) != len(ranking) or not {"rank", "count", "share"} <= set(ranking):
             raise ValueError("the ranking columns carry rank, count and share, keys unique")
@@ -1028,6 +1176,18 @@ class ExportConfig(_Strict):
                 raise ValueError(
                     f"table {name}: {len(headers[name])} headers, {len(widths[name])} proportions"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _tech_words(self) -> ExportConfig:
+        """The Tech Stack workbook's lane words name dictionary platforms and scope lanes."""
+        names = {e.name for e in self.platforms}
+        unknown = set(self.rules.workbooks.tech.stack_lanes) - names
+        if unknown:
+            raise ValueError(f"tech stack_lanes name platforms outside the dictionary: {unknown}")
+        used = {e.lane for e in self.platforms if e.lane}
+        if used - set(self.rules.labels.tech_lane):
+            raise ValueError("labels.tech_lane lacks a label for a lane of the platform dictionary")
         return self
 
     def lane_label(self, lane_id: str | None) -> str | None:

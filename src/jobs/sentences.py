@@ -39,12 +39,15 @@ def extract_platform_sentences(
     platforms: tuple[str, ...],
     lexicon: dict[str, tuple[str, ...]],
     max_chars: int = 600,
+    case_sensitive: frozenset[str] = frozenset(),
 ) -> tuple[PlatformSentence, ...]:
-    """Every sentence of ``text`` that names one of ``platforms``, per platform, in order."""
+    """Every sentence of ``text`` that names one of ``platforms``, per platform, in order (a
+    platform in ``case_sensitive`` is named only in its own case, as ``match_platforms``)."""
     out: list[PlatformSentence] = []
     spans = sentence_spans(text)
     for platform in platforms:
-        patterns = [term_pattern(t) for t in (platform, *lexicon.get(platform, ()))]
+        exact = platform in case_sensitive
+        patterns = [term_pattern(t, exact) for t in (platform, *lexicon.get(platform, ()))]
         for start, end in spans:
             span = text[start:end]
             if any(p.search(span) for p in patterns):

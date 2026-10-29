@@ -234,6 +234,8 @@ async def test_pipelines_run_after_the_reading_step_and_report_their_rows(make) 
     h = make(worlds.rich())
     record, state = await h.run("r")
     assert h.pipelines.jobs_runs == 1 and h.pipelines.tech_runs == 1
+    # the organisation tech stack is written once per run, beside the detections
+    assert h.pipelines.stack_runs == 1 and state["exits"]["stack"] == "written"
     assert state["exits"]["pipelines"] == "run" and state["exits"]["jobs_gap"] == "converged"
     assert state["counters"]["jobs_claims"] == 1 and state["counters"]["tech_rows"] == 1
     # the careers page the graph chose reaches the job pipeline (the live board host)
@@ -260,6 +262,24 @@ async def test_a_store_error_in_the_detections_writer_blocks_its_row(make) -> No
     tech_key = next(k for k, row in h.cfg.plan.items() if row.pipeline == "tech")
     row = h.tracker.rows_by_run[record.run_id][tech_key]
     assert row.status == "blocked" and row.reason == "source_failed"
+
+
+@pytest.mark.asyncio
+async def test_a_stack_writer_error_never_touches_the_detections_or_the_run(make) -> None:  # type: ignore[no-untyped-def]
+    """The organisation tech stack is a sheet of its own: a lookup or store error while writing
+    it is logged and counted, the detection rows and every other pipeline still complete."""
+    h = make(worlds.rich())
+
+    async def failing(ctx: Any) -> Any:
+        raise RuntimeError("synthetic store error")
+
+    h.pipelines.write_stack = failing  # type: ignore[method-assign]
+    record, state = await h.run("r")
+    assert state["exits"]["stack"] == "failed" and state["exits"]["tech"] == "written"
+    assert state["counters"]["pipelines_stack_failed"] == 1
+    assert state["counters"]["tech_rows"] == 1 and h.pipelines.jobs_runs == 1
+    tech_key = next(k for k, row in h.cfg.plan.items() if row.pipeline == "tech")
+    assert h.tracker.rows_by_run[record.run_id][tech_key].status != "blocked"
 
 
 # the entity lock (master prompt v2 section 3) ---------------------------------------------------

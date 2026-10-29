@@ -25,6 +25,8 @@ erase:
   - job_posting_observations
   - job_postings
   - tech_detections
+  - tech_stack_items
+  - link_archive
   - chunks
 blocked:
   sources: "rows are never deleted (stable source codes, trigger sources_guard_identity); C23"

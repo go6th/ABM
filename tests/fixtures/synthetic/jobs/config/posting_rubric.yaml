@@ -42,3 +42,42 @@ full_text_required_classes:
   value: [build, admin_owner]
   status: proposal
   source: "D-16; spec default is the superset"
+
+# (added 2026-10-29 to this frozen copy: the loader now requires the heuristic block, and the
+# golden run needs it for the postings no reading decides; the rules above are unchanged)
+# The Working tool / User role rule of the owner's reference research (measured 2026-10-29 on its
+# Job Postings file: 1,777 postings not read by hand, 100% agreement; docs/parity/reference_spec.md,
+# Job Postings, "Class for rows not read by hand"). The platform sentences are a window in the
+# whitespace-collapsed text from the previous "." or "*" to the next "."; the class is Working tool
+# when they contain any cue below (substring, any case), else User role. Build and Admin and owner
+# are never decided by this rule (src/jobs/heuristic.py).
+heuristic:
+  status: sourced
+  source: "reference Job Postings workbook (owner's research 2026-10-20), measured 2026-10-29; docs/parity/reference_spec.md"
+  working_tool_label: working_tool
+  default_label: user
+  working_tool_cues:
+    - experience
+    - proficien
+    - knowledge
+    - familiar
+    - working with
+    - using
+    - utiliz
+    - document
+    - enter
+    - update
+    - maintain
+    - input
+    - record
+    - log
+    - skills
+    - transactions
+    - data entr
+    - administ
+    - manage
+  window:
+    starts_after: [".", "*"]
+    ends_at: "."
+    max_windows_per_platform: 4
+    max_chars: 3000

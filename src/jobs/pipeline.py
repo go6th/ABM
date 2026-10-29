@@ -15,31 +15,36 @@ tool-less extractor and is never logged.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
 
+from account_intelligence.dev_limits import UNCAPPED
 from account_intelligence.grading.schema import ProposedSourced
 from crosscut.fanout import fan_out_all
 from jobs.claims import claims_for
-from jobs.classify import classify_rules
+from jobs.classify import title_candidate
 from jobs.config import JobsConfig
 from jobs.counts import compute_counts
 from jobs.dedupe import dedupe_counted, group_key
 from jobs.errors import InvariantViolation, JobsError
 from jobs.extractor import Call, ExtractorBudget, classify_with_extractor
 from jobs.gap import gap_remainder, progress
+from jobs.heuristic import classify_heuristic
 from jobs.match import match_platforms
 from jobs.models import (
     Classification,
     PageText,
     Posting,
     PostingCounts,
+    PostingStatus,
+    PreviousPostings,
     RawPosting,
     SourceBatch,
+    StatusSource,
     digest_text,
 )
-from jobs.normalise import canonical_url, clean_text, normalise_status, stored_text
+from jobs.normalise import canonical_url, clean_text, normalise_status, stored_text, strip_pii
 from jobs.ports import PageReadPort, PostingSourcePort, SourceUnavailable
 from jobs.sentences import extract_platform_sentences
 from jobs.window import classify_window, window_start
@@ -99,6 +104,10 @@ class PipelineResult:
     page_reads_used: int = 0
     extractor_calls_used: int = 0
     pass_no: int = 0
+    # incremental re-research (``jobs.incremental``): the delivered run whose postings were
+    # carried into this one without a pull, read or extractor call, and how many were carried
+    previous_run_id: str | None = None
+    carried: int = 0
 
 
 @dataclass(frozen=True)
@@ -112,6 +121,8 @@ class _Frame:
     rejected: int
     pull_complete: bool
     lanes_off: frozenset[str]
+    previous_run_id: str | None = None
+    carried: int = 0
 
 
 @dataclass(frozen=True)
@@ -241,7 +252,13 @@ class JobsPipeline:
             for name, aliases in lane.platforms.items()
         }
 
-    def _base(self, raw: RawPosting, as_of: date, refs: tuple[str, ...]) -> tuple[Posting, str]:
+    def _base(
+        self,
+        raw: RawPosting,
+        as_of: date,
+        refs: tuple[str, ...],
+        new_since_previous: bool | None = None,
+    ) -> tuple[Posting, str]:
         caps = self.cfg.caps
         key = group_key(raw)
         text = stored_text(raw.description or "", caps["max_description_chars"])
@@ -269,8 +286,96 @@ class JobsPipeline:
             text_complete=raw.text_complete,
             window_bucket=classify_window(posted or first, as_of),
             call_refs=refs,
+            last_seen=_parse_date(raw.last_seen_at),
+            seniority=clean_text(raw.seniority, caps["max_title_chars"]) or None
+            if raw.seniority
+            else None,
+            new_since_previous=new_since_previous,
         )
         return posting, text
+
+    def _carry(
+        self,
+        stored: Posting,
+        fresh: RawPosting | None,
+        as_of: date,
+        refs: tuple[str, ...],
+        active: frozenset[str] | None,
+    ) -> Posting:
+        """A posting of the previous delivered research carried into this run: its text
+        reference, sentences, class and read flags are kept (no read, no extractor call); the
+        window bucket is recomputed for this ``as_of`` (a posting that fell out of the window stays
+        a row, bucketed out of window); the status is refreshed by evidence only: a live board
+        hit this run beats everything, then the feed's explicit "closed" on the fresh record, then
+        the feed's active set (present: open, absent: closed), then the fresh record's own status;
+        without any of them (the active pull failed and the delta did not return it) the stored
+        status stays as it was."""
+        status: PostingStatus = stored.status
+        source: StatusSource = stored.status_source
+        fresh_status = normalise_status(fresh.status) if fresh is not None else None
+        if fresh is not None and fresh.live_board_present:
+            status, source = "open", "live_board"
+        elif fresh_status == "closed":
+            status, source = "closed", "feed"
+        elif active is not None:
+            in_active = stored.posting_key in active or any(
+                f"url:{u}" in active for u in stored.urls
+            )
+            status, source = ("open" if in_active else "closed"), "feed"
+        elif fresh_status == "open":
+            status, source = "open", "feed"
+        update: dict[str, object] = {
+            "status": status,
+            "status_source": source,
+            "window_bucket": classify_window(stored.posted_at or stored.first_seen_at, as_of),
+            "new_since_previous": False,
+        }
+        if fresh is not None:
+            caps = self.cfg.caps
+            update.update(
+                {
+                    "retrieved_at": fresh.retrieved_at,
+                    "raw_ref": fresh.raw_ref,
+                    "call_refs": refs or stored.call_refs,
+                    "last_seen": _parse_date(fresh.last_seen_at) or stored.last_seen,
+                    "seniority": (
+                        clean_text(fresh.seniority, caps["max_title_chars"]) or stored.seniority
+                        if fresh.seniority
+                        else stored.seniority
+                    ),
+                    "first_seen_at": stored.first_seen_at or _parse_date(fresh.first_seen_at),
+                    "posted_at": stored.posted_at or _parse_date(fresh.posted_at),
+                }
+            )
+        return stored.model_copy(update=update)
+
+    async def _active(
+        self, w: _Run, pull_ev: RowEvidence
+    ) -> tuple[frozenset[str] | None, RowEvidence]:
+        """The feed's open postings as a set of identities (provider id and canonical URLs) for
+        the carried postings' status refresh; None when the call failed (statuses are kept), the
+        failed reference cited on the pull row as tracker proof."""
+        try:
+            batch = await self.source.pull_active()
+        except SourceUnavailable as error:
+            failed = (error.call_ref,) if error.call_ref else ()
+            w.failed.extend(failed)
+            return None, replace(pull_ev, call_refs=(*pull_ev.call_refs, *failed), expected_calls=2)
+        w.calls.extend(batch.call_refs)
+        identities: set[str] = set()
+        for p in batch.postings:
+            if p.source_id:
+                identities.add(f"id:{p.source_id}")
+            identities.update(
+                f"url:{u}" for u in (canonical_url(x) for x in (p.url, *p.other_urls)) if u
+            )
+        evidence = replace(
+            pull_ev,
+            call_refs=(*pull_ev.call_refs, *batch.call_refs, *batch.failed_refs),
+            expected_calls=2,
+            cap_hit=pull_ev.cap_hit or not batch.complete,
+        )
+        return frozenset(identities), evidence
 
     def _is_read(self, complete: bool | None, text: str, hostile: bool) -> bool:
         return (
@@ -312,7 +417,7 @@ class JobsPipeline:
         w: _Run,
     ) -> tuple[Posting, str]:
         hostile = bool(text) and self.is_hostile(text)
-        matches = match_platforms(posting.title, text, lexicon)
+        matches = match_platforms(posting.title, text, lexicon, self.cfg.case_sensitive_platforms)
         matched = bool(matches.description or matches.title_only)
         unread = not self._is_read(posting.text_complete, text, False)
         excerpt = self.cfg.read_excerpts and len(text) < self.cfg.caps["minimum_text_length"]
@@ -320,11 +425,17 @@ class JobsPipeline:
         if wanted and not hostile and unread and posting.escalation == "none":
             posting, text = await self._escalate(posting, text, w)
             hostile = bool(text) and self.is_hostile(text)
-            matches = match_platforms(posting.title, text, lexicon)
+            matches = match_platforms(
+                posting.title, text, lexicon, self.cfg.case_sensitive_platforms
+            )
         read = self._is_read(posting.text_complete, text, hostile)
         sentences = (
             extract_platform_sentences(
-                text, matches.description, lexicon, self.cfg.caps["max_sentence_chars"]
+                text,
+                matches.description,
+                lexicon,
+                self.cfg.caps["max_sentence_chars"],
+                self.cfg.case_sensitive_platforms,
             )
             if read
             else ()
@@ -361,40 +472,103 @@ class JobsPipeline:
     async def _classify(
         self, posting: Posting, text: str, budget: ExtractorBudget
     ) -> tuple[Classification, bool]:
-        verdict = classify_rules(text, self.cfg.rules)
-        if verdict.label is not None:
-            return (
-                Classification(
-                    label=verdict.label,
-                    classified_by="rule",
-                    reason=verdict.reason,
-                    rule_id=verdict.rule_id,
-                ),
-                False,
+        """The class of a read posting that names a platform in its description.
+
+        Order (2026-10-29, reference parity): the TITLE rules only pick candidates; the tool-less
+        extractor, verified by a second pass for Build and Admin and owner, is the one reader that
+        may confirm a class, and it reads every posting when the caps are off (``UNCAPPED``) or
+        else the candidates while its budget lasts. A posting the extractor did not read, or read
+        without a verified class (cap, schema, unclear, disagreement), gets the reference's
+        Working tool / User role rule over its platform sentences (``jobs.heuristic``), stored as
+        ``classified_by="heuristic"`` with the reason. A hostile answer stays hostile."""
+        unlimited = self.cfg.caps["max_extractor_calls"] >= UNCAPPED
+        candidate = unlimited or title_candidate(posting.title, self.cfg.rules)
+        why = "heuristic_window"
+        if candidate and budget.remaining > 0:
+            verdict, hostile = await classify_with_extractor(
+                posting.posting_key,
+                text,
+                self.extractor,
+                self.judge,
+                self.canary,
+                budget,
+                self.markers,
             )
-        return await classify_with_extractor(
-            posting.posting_key, text, self.extractor, self.judge, self.canary, budget, self.markers
+            if hostile or verdict.label != "unclassified":
+                return verdict, hostile
+            why = f"heuristic_after_{verdict.reason}"
+        elif candidate:
+            why = "heuristic_after_cap"
+        found = classify_heuristic(
+            text,
+            posting.platforms,
+            self.cfg.lexicon,
+            self.cfg.heuristic,
+            self.cfg.case_sensitive_platforms,
+        )
+        return (
+            Classification(
+                label=found.label,
+                classified_by="heuristic",
+                reason=why,
+                evidence_sentence=strip_pii(found.evidence)[:600] or None,
+            ),
+            False,
         )
 
     # ---- the whole pass ---------------------------------------------------------------------
 
-    async def run_pass(self, run_id: str, lanes_off: frozenset[str], as_of: date) -> PipelineResult:
-        """One full pass (the caller checks the store first; see ``run_once``)."""
+    async def run_pass(
+        self,
+        run_id: str,
+        lanes_off: frozenset[str],
+        as_of: date,
+        previous: PreviousPostings | None = None,
+        carried_texts: Mapping[str, str] | None = None,
+    ) -> PipelineResult:
+        """One full pass (the caller checks the store first; see ``run_once``).
+
+        With ``previous`` (an incremental re-research, ``jobs.incremental``) every posting of the
+        previous delivered research is carried by posting key with no read and no extractor call;
+        the feed pull is the delta the adapter was given; only keys not in the previous set are
+        processed, flagged ``new_since_previous``; one ``pull_active`` call refreshes the carried
+        statuses. ``carried_texts`` holds the carried postings' stored texts (payload store, no
+        paid call) so their claims are templated again for this run."""
         w = _Run(page_reads_left=self.cfg.caps["max_page_reads"])
         start = window_start(as_of)
         board, board_ev, lanes_not_searched, reported = await self._board(lanes_off, w)
         feed, pull_ev = await self._feed(start, as_of, w)
+        carried = {p.posting_key: p for p in previous.postings} if previous else {}
+        by_url = {f"url:{u}": p.posting_key for p in carried.values() for u in p.urls}
+        active: frozenset[str] | None = None
+        if previous is not None:
+            active, pull_ev = await self._active(w, pull_ev)
         raw = [*board, *feed.postings]
         merged = dedupe_counted(raw)
         lexicon = self._platforms_in_scope(lanes_off)
         budget = ExtractorBudget(self.cfg.caps["max_extractor_calls"])
         postings: list[Posting] = []
         texts: dict[str, str] = {}
+        flag = True if previous is not None else None
 
-        async def handle(item: RawPosting) -> tuple[Posting, str]:
-            """One posting built, read and classified (out-of-window ones are only counted)."""
+        def stored_for(item: RawPosting) -> Posting | None:
+            """The carried posting a fresh record is (by key, else by any shared URL)."""
+            key = group_key(item)
+            if key in carried:
+                return carried[key]
+            for u in (canonical_url(x) for x in (item.url, *item.other_urls)):
+                if u and f"url:{u}" in by_url:
+                    return carried[by_url[f"url:{u}"]]
+            return None
+
+        async def handle(item: RawPosting) -> tuple[Posting, str | None]:
+            """One posting built, read and classified (out-of-window ones are only counted); a
+            carried posting is refreshed only (text None: nothing new to store)."""
             refs = merged.call_refs.get(group_key(item), ())
-            base, text = self._base(item, as_of, refs)
+            stored = stored_for(item)
+            if stored is not None:
+                return self._carry(stored, item, as_of, refs, active), None
+            base, text = self._base(item, as_of, refs, flag)
             if base.window_bucket == "out_of_window":
                 # excluded and counted only: never read, escalated, classified or claimed
                 return base, ""
@@ -405,17 +579,38 @@ class JobsPipeline:
         # budgets are taken before a call starts, so side by side they cap as one at a time did.
         for done, text in await fan_out_all(merged.rows, handle, limit=JOBS_CONCURRENCY):
             postings.append(done)
-            texts[done.posting_key] = text
-        self.last_texts = texts
-        pulled = tuple(r.raw_ref for r in raw)
+            if text is not None:
+                texts[done.posting_key] = text
+        seen = {p.posting_key for p in postings}
+        # every previous posting the delta did not return is carried as stored (nothing is ever
+        # deleted); its own provenance counts as pulled so the count chain holds
+        kept = [
+            self._carry(p, None, as_of, p.call_refs, active)
+            for key, p in carried.items()
+            if key not in seen
+        ]
+        postings.extend(kept)
+        self.last_texts = texts  # carried postings keep their stored text reference
+        pulled = (*(r.raw_ref for r in raw), *(p.raw_ref for p in kept))
         exits = {
             "board": "converged",
             "pull": _STOP_TO_EXIT.get(feed.exit_reason, "no_progress"),
         }
+        all_texts = {**(carried_texts or {}), **texts}
         return self._finish(
-            _Frame(run_id, as_of, start, pulled, merged.rejected, feed.complete, lanes_off),
+            _Frame(
+                run_id,
+                as_of,
+                start,
+                pulled,
+                merged.rejected,
+                feed.complete,
+                lanes_off,
+                previous.run_id if previous is not None else None,
+                len(carried),
+            ),
             postings,
-            texts,
+            all_texts,
             w,
             budget,
             (board_ev, pull_ev),
@@ -512,6 +707,8 @@ class JobsPipeline:
             prior.rejected_no_url,
             prior.exit_reasons.get("pull") == "converged",
             lanes_off,
+            prior.previous_run_id,
+            prior.carried,
         )
         board_ev, pull_ev = (e for e in prior.evidence if e.row_key != ROW_READ)
         read_prior = next(e.call_refs for e in prior.evidence if e.row_key == ROW_READ)
@@ -604,6 +801,8 @@ class JobsPipeline:
             + used.budget_left_at_start
             - budget.remaining,
             pass_no=pass_no,
+            previous_run_id=frame.previous_run_id,
+            carried=frame.carried,
         )
 
 
@@ -651,6 +850,8 @@ def result_to_json(result: PipelineResult) -> dict[str, object]:
         "page_reads_used": result.page_reads_used,
         "extractor_calls_used": result.extractor_calls_used,
         "pass_no": result.pass_no,
+        "previous_run_id": result.previous_run_id,
+        "carried": result.carried,
     }
 
 
@@ -687,4 +888,7 @@ def result_from_json(data: dict[str, object]) -> PipelineResult:
         page_reads_used=d["page_reads_used"],
         extractor_calls_used=d["extractor_calls_used"],
         pass_no=d["pass_no"],
+        # records written before the incremental fields existed have neither key
+        previous_run_id=d.get("previous_run_id"),
+        carried=int(d.get("carried") or 0),
     )

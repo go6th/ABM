@@ -148,7 +148,7 @@ async def test_top_people_order() -> None:
     assert [p.classification.priority for p in top] == ["A", "A", "A"]
     assert [p.classification.level for p in top][0] == "c_level"  # most senior first
     assert top_people(result.people, 0, cfg.level_order) == ()
-    assert len(top_people(result.people, 99, cfg.level_order)) == 7
+    assert len(top_people(result.people, 99, cfg.level_order)) == 9
 
 
 def test_erasure_rule_keeps_identity() -> None:
@@ -187,8 +187,15 @@ def test_erasure_lists_match_the_migration() -> None:
     sql = (Path(__file__).resolve().parents[2] / "migrations/0014_people_pipeline.sql").read_text()
     profile_check = sql[sql.index("CONSTRAINT ck_person_profiles_erased") :]
     profile_check = profile_check[: profile_check.index(")\n);")]
+    # migration 0089 replaces the check and the trigger with versions that include `employments`
+    later = (Path(__file__).resolve().parents[2] / "migrations/0089_people_fields.sql").read_text()
+    later_check = later[later.index("ADD CONSTRAINT ck_person_profiles_erased") :]
+    later_check = later_check[: later_check.index("));")]
+    trigger = later[later.index("CREATE TRIGGER trg_person_profiles_erasure_only") :]
     for f in PROFILE_FIELDS:
-        assert f"{f} IS NULL" in profile_check, f
+        assert f"{f} IS NULL" in (later_check if f == "employments" else profile_check), f
+        assert f"{f} IS NULL" in later_check, f
+        assert f"'{f}'" in trigger, f
     people_check = sql[sql.index("ADD CONSTRAINT ck_people_erased") :]
     for f in ("name", "title", "headline", "location"):
         assert f"{f} IS NULL" in people_check[:300], f

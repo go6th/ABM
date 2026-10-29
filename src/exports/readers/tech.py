@@ -1,18 +1,27 @@
 """Tech Stack and Teams mapping (pure).
 
-The Platform Ranking (owner's master prompt v2 section 7.3) is built from the postings of the run:
-a platform of ``config/platform_dictionary.yaml`` is named by a posting when its pattern matches
-the title, description and platform sentences; the base is the postings in the window that name
-at least one platform; each posting counts once per platform. The rank and share are workbook
-formulas; their values are computed here for the recalculation check (B12).
+The Platform Ranking (owner's master prompt v2 section 7.3, patterns copied from the reference
+build script) is built from the postings of the run: a platform of
+``config/platform_dictionary.yaml`` is named by a posting when its pattern matches the title,
+description and platform sentences; the base is the postings in the window that name at least one
+platform; each posting counts once per platform. Open now counts the postings not closed; Last
+seen is the latest last-seen date of the postings (the first-seen date when the feed gave none).
+The rank and share are workbook formulas; their values are computed here for the recalculation
+check (B12). "In confirmed stack" is Yes when a technology name of the organisation's stack
+matches the platform's pattern, No when none does, Not pulled when no stack was stored.
 
-Each detection keeps its first and last seen dates and is labelled a Lead (PRD s3.4 step 6: a
-date range in a detection feed is a lead, not a finding). Its "Postings naming it" counts the
-postings of the Job Postings file that name the technology; its category and lane come from the
-platform dictionary when the technology is one of its platforms (blank otherwise). The business
-function of the reference's confirmed stack is not stored by any pipeline, so it is not shown.
-No team data is stored by any pipeline yet, so the Platform teams sheet carries the visible "None
-recorded" note under its header.
+The Confirmed stack sheet lists the organisation's tech stack rows as the lookup returned them
+(``SnapshotContent.stack``: business function, category, technology and its postings count), in
+the lookup's order. The lane comes from the platform words of ``workbooks.tech.stack_lanes``
+found in the technology name. A name on the scope's never_report list is masked.
+
+The technology detections stay available (``TechModel.rows``): each is a Lead (PRD s3.4 step 6),
+the Evidence file's part H lists them, and their source codes are cited from here so the Evidence
+register keeps their pages. No sheet of this workbook prints them.
+
+Platform teams: rows appear when ``SnapshotContent.teams`` has rows (no pipeline stores teams yet:
+the provider operation is not specified); otherwise the sheet carries the visible "None recorded"
+line under its header.
 """
 
 from __future__ import annotations
@@ -20,11 +29,12 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from exports.config import PlatformEntry
+from exports.config import ExportConfig, PlatformEntry
 from exports.content import PostingRow
-from exports.models import CountLine, RankRow, TechModel, TechRow
+from exports.models import CountLine, RankRow, StackLine, TeamLine, TechModel, TechRow
 from exports.readers.common import MapContext, Mapped, digest, ref
 from exports.readers.jobs import posting_text
+from exports.verify import stack_key
 from jobs.window import months_before
 
 RANK_LETTERS = ("A", "B", "C")
@@ -56,29 +66,51 @@ def rank_of(count: int, share: float) -> str:
 
 
 def _last_seen(matches: list[PostingRow], not_dated: str) -> str:
-    dates = [p.posted_at or p.first_seen for p in matches]
-    known = [d for d in dates if d is not None]
+    """The latest last-seen date of the postings, the first-seen date for a posting the feed gave
+    no last seen; ``not_dated`` when none has a date (the reference's ``l`` else ``f``)."""
+    known = [d for d in ((p.last_seen or p.first_seen) for p in matches) if d is not None]
     return max(known).isoformat() if known else not_dated
 
 
-def _rank_row(ctx: MapContext, e: PlatformEntry, matches: list[PostingRow], base: int) -> RankRow:
+def stack_lane(cfg: ExportConfig, technology: str) -> str:
+    """The Confirmed stack's Lane label for a technology name: the last platform word of
+    ``workbooks.tech.stack_lanes`` found in the lower-cased name, blank when it holds none."""
+    low = technology.casefold()
+    lane = ""
+    for word, label in cfg.rules.workbooks.tech.stack_lanes.items():
+        if word.casefold() in low:
+            lane = label
+    return lane
+
+
+def _date_text(d: date) -> str:
+    """``19 October 2026``."""
+    return f"{d.day} {d:%B %Y}"
+
+
+def _rank_row(
+    ctx: MapContext,
+    e: PlatformEntry,
+    matches: list[PostingRow],
+    base: int,
+    stack_names: tuple[str, ...],
+) -> RankRow:
     labels = ctx.rules.labels
     count = len(matches)
     share = count / base if base else 0.0
-    detections = ctx.content.detections
-    if not detections:
+    if not stack_names:
         in_stack = labels.not_pulled
     else:
-        in_stack = labels.yes if any(e.names(d.technology) for d in detections) else labels.no
+        in_stack = labels.yes if any(e.names(n) for n in stack_names) else labels.no
     read = sum(1 for p in matches if p.full_text_read)
     return RankRow(
         platform=e.name,
         category=e.category,
-        lane=labels.lane[e.lane] if e.lane else labels.lane_outside,
+        lane=labels.tech_lane_label(e.lane),
         count=count,
         share=share,
         rank=rank_of(count, share),
-        open_now=sum(1 for p in matches if p.status == "open"),
+        open_now=sum(1 for p in matches if p.status != "closed"),
         last_seen=_last_seen(matches, labels.not_dated),
         in_stack=in_stack,
         read_checked=labels.yes if read >= min(3, count) else labels.no,
@@ -86,13 +118,15 @@ def _rank_row(ctx: MapContext, e: PlatformEntry, matches: list[PostingRow], base
 
 
 def map_tech(ctx: MapContext) -> Mapped[TechModel]:
-    """Detection rows sorted by technology (then id), refs ``D-0001``..; the Platform Ranking
-    from the run's postings."""
+    """The Confirmed stack rows (lookup order), the Platform Ranking from the run's postings, the
+    teams when stored, and the detection rows (sorted by technology, refs ``D-0001``..) the
+    Evidence file lists."""
     c = ctx.content
     where = "tech"
     labels = ctx.rules.labels
     texts = ctx.rules.sheet_texts.tech
-    if ctx.capped(len(c.detections), ctx.rules.limits.row_caps.detections, where):
+    cap = ctx.rules.limits.row_caps.detections
+    if ctx.capped(len(c.detections), cap, where) or ctx.capped(len(c.stack), cap, where):
         return Mapped(None)
     postings = c.postings
     rows: list[TechRow] = []
@@ -111,7 +145,7 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
         entry = next((e for e in ctx.cfg.platforms if e.names(d.technology)), None)
         lane = ""
         if entry is not None:
-            lane = labels.lane[entry.lane] if entry.lane else labels.lane_outside
+            lane = labels.tech_lane_label(entry.lane)
         rows.append(
             TechRow(
                 ref=ref("D", i),
@@ -130,6 +164,26 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
     if len(rows) + withheld != len(c.detections):
         return Mapped(None)
 
+    # the Confirmed stack: the organisation's tech stack in the lookup's order
+    stack: list[StackLine] = []
+    for x in c.stack:
+        if not ctx.printable(x.technology, where, x.id):
+            continue
+        technology = ctx.rendered(x.technology, where)
+        stack.append(
+            StackLine(
+                row_id=x.id,
+                business_function=ctx.rendered(x.business_function, where),
+                category=ctx.rendered(x.category, where),
+                technology=technology,
+                postings=x.postings,
+                lane=stack_lane(ctx.cfg, technology),
+            )
+        )
+    if len(stack) != len(c.stack):
+        return Mapped(None)
+    stack_names = tuple(line.technology for line in stack)
+
     # the Platform Ranking over the postings of the window
     months = ctx.cfg.scope.postings_window_months
     start = months_before(c.as_of, months)
@@ -140,11 +194,10 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
     }
     base_keys = {p.posting_key for m in matches.values() for p in m}
     base = len(base_keys)
-    all_rows = [_rank_row(ctx, e, matches[e.name], base) for e in ctx.cfg.platforms]
-    ranking = tuple(
-        sorted((r for r in all_rows if r.count >= 2), key=lambda r: (-r.count, r.platform))
-    )
-    seen_once = tuple(sorted((r for r in all_rows if r.count == 1), key=lambda r: r.platform))
+    all_rows = [_rank_row(ctx, e, matches[e.name], base, stack_names) for e in ctx.cfg.platforms]
+    # most postings first, ties in the dictionary's order (the reference's stable sort)
+    ranking = tuple(sorted((r for r in all_rows if r.count >= 2), key=lambda r: -r.count))
+    seen_once = tuple(r for r in all_rows if r.count == 1)
     rank_counts = tuple((x, sum(1 for r in ranking if r.rank == x)) for x in RANK_LETTERS)
     base_text = "postings in the window that name at least one platform"
     ctx.registry.add(
@@ -181,25 +234,63 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
             f"tech.ranking.rank.{letter}", n, "ranked platforms", f"{n} platforms ranked {letter}"
         )
 
-    sheet = ctx.rules.workbooks.tech.sheet
+    # the Platform teams (rows only when a pipeline stored teams)
+    teams = tuple(
+        TeamLine(
+            row_id=t.id,
+            team=ctx.rendered(t.name, where),
+            lane_technologies=ctx.rendered(t.lane_technologies, where),
+            postings=t.postings,
+            first_activity=t.first_activity or "",
+            last_activity=t.last_activity or "",
+            technologies=ctx.rendered(t.technologies, where),
+            locations=ctx.rendered(t.locations, where),
+            job_functions=ctx.rendered(t.job_functions, where),
+        )
+        for t in c.teams
+    )
+    account = c.account_name
+    if teams and c.teams_matching and c.teams_since is not None:
+        teams_title = texts.teams_title_counted.format(
+            account=account,
+            shown=len(teams),
+            matching=c.teams_matching,
+            since=_date_text(c.teams_since),
+        )
+    else:
+        teams_title = texts.teams_title.format(account=account)
+    sheets = ctx.rules.workbooks.tech
+    teams_note = (
+        texts.teams_listed.format(teams=len(teams), sheet=sheets.teams_sheet)
+        if teams
+        else ctx.rules.none_found.teams
+    )
+
+    sheet = sheets.sheet
     counts = (
         CountLine(
-            key="file.rows",
+            key="detections.rows",
             label="Detections in this file",
             value=len(rows),
-            base=f"detections listed on the {sheet} sheet",
+            base="technology detections recorded for this run",
         ),
         CountLine(
-            key="file.named",
+            key="detections.named",
             label="Detections named in at least one posting",
             value=named_total,
-            base=f"detections listed on the {sheet} sheet",
+            base="technology detections recorded for this run",
         ),
         CountLine(
-            key="file.withheld",
+            key="detections.withheld",
             label="Detections not listed (no public evidence page)",
             value=withheld,
             base="detections recorded for this run",
+        ),
+        CountLine(
+            key="file.rows",
+            label="Technologies in this file",
+            value=len(stack),
+            base=f"technologies listed on the {sheet} sheet",
         ),
         CountLine(
             key="file.ranked",
@@ -213,27 +304,30 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
             f"tech.{count.key}", count.value, count.base, f"{count.value} {count.label}"
         )
     model = TechModel(
-        account=c.account_name,
+        account=account,
         as_of=c.as_of,
         rows=tuple(rows),
         counts=counts,
-        teams_note=ctx.rules.none_found.teams,
+        stack=tuple(stack),
+        teams=teams,
+        teams_note=teams_note,
+        teams_sheet_note=texts.teams_note,
         ranking=ranking,
         seen_once=seen_once,
         base=base,
         postings_in_window=len(window),
         rank_counts=rank_counts,
-        title=texts.title.format(account=c.account_name),
+        title=texts.title.format(account=account),
         base_line=texts.base_line.format(base=base, postings=len(window), months=months),
         notes=(texts.rank_rule, texts.count_rule, texts.signal_rule, texts.research_by),
-        stack_title=texts.stack_title.format(account=c.account_name),
-        stack_note=texts.stack_note.format(as_of=c.as_of.isoformat()),
-        teams_title=texts.teams_title.format(account=c.account_name),
+        stack_title=texts.stack_title.format(account=account),
+        stack_note=texts.stack_note.format(as_of=_date_text(c.as_of)),
+        teams_title=teams_title,
     )
     return Mapped(
         model,
-        row_ids=tuple(r.row_id for r in rows),
-        digests=tuple(digest(r) for r in rows),
-        refs=tuple(r.ref for r in rows),
+        row_ids=tuple(x.row_id for x in stack),
+        digests=tuple(digest(x) for x in stack),
+        refs=tuple(stack_key(x.business_function, x.category, x.technology) for x in stack),
         cited=frozenset(r.source_code for r in rows),
     )

@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PostingClass = Literal["build", "admin_owner", "working_tool", "user", "unclassified"]
 PostingStatus = Literal["open", "closed", "unknown"]
+StatusSource = Literal["live_board", "feed", "unknown"]
 WindowBucket = Literal["in_window", "out_of_window", "undated"]
 # J5 escalation of an unread matched posting: never tried, read, failed (the one read is spent),
 # or skipped because the run-level page-read cap was reached (a gap pass may still read it)
@@ -56,6 +57,9 @@ class RawPosting(_Frozen):
     live_board_present: bool = False
     location: str | None = None
     call_ref: str | None = None
+    # the feed's own last-seen timestamp and seniority word (the reference workbook prints both)
+    last_seen_at: str | None = None
+    seniority: str | None = None
 
 
 class SourceBatch(_Frozen):
@@ -101,7 +105,9 @@ class Classification(_Frozen):
     """How a posting's class was decided (J4). Never from the title alone."""
 
     label: PostingClass
-    classified_by: Literal["rule", "extractor", "none"]
+    # ``rule``: the title/keyword rules of earlier runs (kept so stored rows load); ``heuristic``:
+    # the reference's Working tool / User role rule over the platform sentences (jobs.heuristic)
+    classified_by: Literal["rule", "extractor", "heuristic", "none"]
     reason: str
     rule_id: str | None = None
     evidence_sentence: str | None = None
@@ -123,7 +129,7 @@ class Posting(_Frozen):
     posted_at: date | None = None
     first_seen_at: date | None = None
     status: PostingStatus = "unknown"
-    status_source: Literal["live_board", "feed", "unknown"] = "unknown"
+    status_source: StatusSource = "unknown"
     text_ref: str | None = None
     text_sha256: str | None = None
     text_complete: bool | None = None
@@ -139,6 +145,12 @@ class Posting(_Frozen):
     classification: Classification | None = None
     hostile: bool = False
     call_refs: tuple[str, ...] = ()
+    # the feed's last-seen date and seniority word as given (None when the source gave none)
+    last_seen: date | None = None
+    seniority: str | None = None
+    # incremental re-research: True when first seen after the account's previous delivered
+    # research, False when carried over from it, None when the run had no previous research
+    new_since_previous: bool | None = None
 
     @property
     def matched(self) -> bool:
@@ -154,6 +166,16 @@ class Posting(_Frozen):
     def posting_class(self) -> PostingClass:
         """The class used in counts; anything not decided is ``unclassified``."""
         return self.classification.label if self.classification else "unclassified"
+
+
+class PreviousPostings(_Frozen):
+    """The account's previous delivered research, as the incremental pass carries it: its run,
+    its ``as_of`` date and every posting it stored (text references, sentences, classes, status
+    and first/last seen included), so none of them is pulled, read or classified again."""
+
+    run_id: str
+    as_of: date
+    postings: tuple[Posting, ...] = ()
 
 
 class StatusCounts(_Frozen):

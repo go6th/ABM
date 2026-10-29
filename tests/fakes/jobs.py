@@ -29,7 +29,9 @@ def _ref() -> str:
 
 
 class FakePostingSource:
-    """Scripted board and feed. ``fail_feed`` makes the pull fail with a ledger reference."""
+    """Scripted board and feed. ``fail_feed`` makes the pull fail with a ledger reference;
+    ``active`` is what the ``active_only`` pull returns (None: the feed's open postings);
+    ``fail_active`` makes that pull fail."""
 
     def __init__(
         self,
@@ -40,10 +42,13 @@ class FakePostingSource:
         feed_complete: bool = True,
         feed_exit: str = "exhausted",
         fail_keywords: Sequence[str] = (),
+        active: list[RawPosting] | None = None,
+        fail_active: bool = False,
     ) -> None:
         self.board, self.feed = board, feed
         self.fail_feed, self.feed_complete, self.feed_exit = fail_feed, feed_complete, feed_exit
         self.fail_keywords = set(fail_keywords)
+        self.active, self.fail_active = active, fail_active
         self.calls: list[tuple[str, str]] = []
 
     async def search_board(self, lane: str, keyword: str) -> SourceBatch:
@@ -65,6 +70,18 @@ class FakePostingSource:
             call_refs=(ref,),
             complete=self.feed_complete,
             exit_reason=self.feed_exit,
+        )
+
+    async def pull_active(self) -> SourceBatch:
+        self.calls.append(("active", ""))
+        ref = _ref()
+        if self.fail_active:
+            raise SourceUnavailable("source_unavailable", ref)
+        rows = self.active
+        if rows is None:
+            rows = [p for p in self.feed if (p.status or "open").lower() in ("open", "active")]
+        return SourceBatch(
+            postings=tuple(p.model_copy(update={"call_ref": ref}) for p in rows), call_refs=(ref,)
         )
 
 
@@ -123,6 +140,15 @@ class Recorder:
             return self.passes[max(self.passes)]
         return self.stored.get(run_id)
 
+    async def load_previous(self, run_id: str) -> Any:
+        """The stored run's postings as ``PreviousPostings`` (None when never stored)."""
+        from jobs.models import PreviousPostings
+
+        record = await self.load_run(run_id)
+        if record is None or record.run_id != run_id:
+            return None
+        return PreviousPostings(run_id=run_id, as_of=record.as_of, postings=record.postings)
+
     async def save_run(self, run_id: str, record: Any) -> None:
         self.saves += 1
         self.stored[run_id] = record
@@ -159,14 +185,19 @@ class Recorder:
 
 
 class FakeRunInput:
-    def __init__(self, lanes_off: frozenset[str], as_of: date) -> None:
-        self._off, self._as_of = lanes_off, as_of
+    """Lanes off, ``as_of`` and, for an incremental run, the previous research to carry."""
+
+    def __init__(self, lanes_off: frozenset[str], as_of: date, previous: Any = None) -> None:
+        self._off, self._as_of, self._previous = lanes_off, as_of, previous
 
     async def lanes_off(self) -> frozenset[str]:
         return self._off
 
     async def as_of(self) -> date:
         return self._as_of
+
+    async def previous_postings(self) -> Any:
+        return self._previous
 
 
 class Corpus:
@@ -197,6 +228,8 @@ class Corpus:
             first_seen_at=item.get("posted_at"),
             status=item.get("status"),
             text_complete=item.get("text_complete", True),
+            last_seen_at=item.get("last_seen_at"),
+            seniority=item.get("seniority"),
         )
 
     def source(self, **kw: Any) -> FakePostingSource:

@@ -4,6 +4,7 @@
   "account_id": "00000000-0000-4000-8000-00000000c0de",
   "run_id": "00000000-0000-4000-8000-00000000a0de",
   "account_name": "Synthetic Oracle Ltd",
+  "careers_host": "jobs.example",
   "as_of": "2026-09-30",
   "is_salesforce_partner": false,
   "forbidden_terms": ["Synthetic Other Account Inc", "other.example"],
@@ -57,5 +58,10 @@
   "detections": [
     {"id": "d-1", "technology": "Salesforce", "first_seen": "2024-02", "last_seen": "2026-08", "source_url": "https://tech.example/d/1", "source_code": null},
     {"id": "d-2", "technology": "Synthetic Gizmo", "first_seen": null, "last_seen": null, "source_url": "https://tech.example/d/1", "source_code": null}
+  ],
+  "stack": [
+    {"id": "st-1", "business_function": "Sales", "category": "Customer Relationship Manager (CRM)", "technology": "Salesforce", "postings": 12},
+    {"id": "st-2", "business_function": "Finance", "category": "ERP and Business Management Software", "technology": "SAP S/4HANA", "postings": 4},
+    {"id": "st-3", "business_function": "Information Technology", "category": "iPaaS", "technology": "Synthetic Platform", "postings": 2}
   ]
 }

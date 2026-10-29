@@ -2,7 +2,7 @@
 
 # The standing file set
 
-Rules status: **proposal** (D-24); rules hash `ed2a3516d60fe8b27a8c18b259167cc5f1de5fbbe6d325e603c48a35db937748` (covers
+Rules status: **proposal** (D-24); rules hash `a7b5efbc440b31fcc84712247c3aacbe1d08263d0ef4bcc578d08eaa483bf8b6` (covers
 `export_rules.yaml`, `lanes.yaml` and `output_spec.yaml`).
 
 | Kind | File name | Format |
@@ -34,23 +34,24 @@ Source: master prompt v2 (2026-10-24) sections 9.1 and 9.2; PRD s3.4; config/out
 14. Tier 3, context and openers
 15. Context and history (older than the shelf life)
 16. 5. Platform picture by lane
-17. Platform hiring over 12 months (postings naming each platform, by class)
+17. Platform hiring over {months} months ({account} positions only, first seen {start} to {end})
 18. 6. People
 19. How the list was built
 20. Key people (priority A and the executives the lanes report to)
 21. Findings from profiles
 22. People whose status changed
-23. 7. Hypotheses to test
-24. Cautions for sensitive findings
-25. 8. Questions for a first conversation
-26. The simplest way to sharpen it
-27. 9. Research coverage tracker
-28. Decisions waiting on the account owner
-29. Pass 1, summary homework
-30. Pass 2, detailed homework
-31. 10. Source links
-32. Findings not assigned to a lane
-33. No evidence found (the search proof is in the coverage tracker)
+23. Interpretation
+24. 7. Hypotheses to test
+25. Cautions for sensitive findings
+26. 8. Questions for a first conversation
+27. The simplest way to sharpen it
+28. 9. Research coverage tracker
+29. Decisions waiting on the account owner
+30. Pass 1, summary homework
+31. Pass 2, detailed homework
+32. 10. Source links
+33. Findings not assigned to a lane
+34. No evidence found (the search proof is in the coverage tracker)
 
 ## Word tables
 
@@ -80,7 +81,6 @@ Source: master prompt v2 (2026-10-24) sections 9.1 and 9.2 (named columns); Ref 
 | tech_detections | Ref, Technology, First seen, Last seen, Postings naming it |
 | platform_postings | Ref, Platform, Postings, Open, Build, Admin and owner, Working tool, User role |
 | entity_split | Ref, Entity, Postings |
-| urls | Ref, ID, URL |
 
 ## Workbook columns
 
@@ -115,14 +115,17 @@ Source: master prompt v2 sections 9.3 to 9.5 (2026-10-24); PRD s3.4 deliverables
 | platforms | Platforms named | label |
 | posting_class | Class | label |
 | status | Status | label |
-| posted_or_seen | First seen | date |
+| first_seen_text | First seen | label |
+| last_seen_text | Last seen | label |
 | location | Location | text_short |
+| seniority | Seniority | label |
 | entity | Entity | text_short |
 | read_text | What the posting says (read) | text_long |
 | platform_sentence | Platform sentences | text_long |
 | description | Full description | text_long |
 | url | Link | url |
-| source_type | Found by | text_short |
+| archive_url | Archived link | url |
+| new_flag | New since last research | label |
 | ref | Ref | ref |
 | source_code | Source code | code |
 
@@ -138,24 +141,20 @@ Source: master prompt v2 sections 9.3 to 9.5 (2026-10-24); PRD s3.4 deliverables
 | share | Share of base | percent |
 | open_now | Open now | count |
 | last_seen | Last seen | label |
-| in_stack | In stack detections | label |
+| in_stack | In confirmed stack | label |
 | read_checked | Matches checked by reading | label |
 
-### Stack detections
+### Confirmed stack
 
 | Key | Header | Kind |
 | --- | --- | --- |
+| business_function | Business function | label |
 | category | Category | label |
-| technology | Technology | text_short |
+| technology | Technology | label |
 | postings | Postings naming it | count |
 | lane | Lane | label |
-| first_seen | First seen | label |
-| last_seen | Last seen | label |
-| grade | Grade | label |
-| ref | Ref | ref |
-| source_code | Source | code |
 
-Other sheets: People `Summary`; Job Postings `Summary` first (title, paragraphs and the platform matrix, platforms Salesforce, Microsoft Dynamics, MuleSoft, ServiceNow, SAP, Tableau, Workday, Veeva), then `Counts` (count lines) and `Long text`; Tech Stack `Platform teams` (columns Team, Lane technologies named, Postings count, First activity, Last activity, Team technologies (name, postings), Team locations (place, postings), Job functions; no team records are stored yet).
+Other sheets: People `Summary`; Job Postings `Summary` first (title, paragraphs and the platform matrix, platforms Salesforce, MuleSoft, ServiceNow, SAP, Tableau, Veeva, Workday), then `Counts` (count lines) and `Long text`; Tech Stack `Platform teams` (columns Team, Lane technologies named, Postings count, First activity, Last activity, Team technologies (name, postings), Team locations (place, postings), Job functions; no team records are stored yet).
 
 Platform dictionary: 31 platforms; out-of-scope platforms masked: 3 (mask `[platform outside scope]`).
 

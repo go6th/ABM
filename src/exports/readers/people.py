@@ -1,21 +1,25 @@
 """People List mapping (pure). The selection and the Summary sheet lines are the people module's
 own (``people.export.build_export``, run by the reader); this maps them to the render model in
-the shape of the owner's reference People List (master prompt v2 section 9.3; BD, 2026-10-19):
-rows ordered by level, priority, lane and name; level, lane, seniority and found-by labels from
-``export_rules.yaml labels``; the Summary sheet's title and paragraphs (what the list merges and
-from which searches, the rows removed before it, the people excluded by title by name, the
-seniority rule, the judgment note) built only from the stored people record and the run's stored
-search calls. It attaches the registered source code (B4) and registers every count the Summary
-sheet renders (B6). The Level and Lane tables are workbook formulas over the People sheet; their
-code-computed values live on the model for the recalculation check (B12)."""
+the shape of the owner's reference People List (reference set of 2026-10-20, measured
+2026-10-29): rows ordered by level, priority, lane and name; level, lane, seniority and found-by
+labels from ``export_rules.yaml labels``; the Summary sheet's title and its six paragraphs (what
+the list merges and from which searches, with each search's counts; the rows removed before it;
+the people excluded by title by name; the seniority rule; the judgment note; the entity labels)
+built only from the stored people record, the account's stored entity lock and the run's stored
+search calls. Every person has ONE lane (the title's role family) and a Found by that names the
+search source as the reference prints it. It attaches the registered source code (B4) and
+registers every count the Summary sheet renders (B6). The Level and Lane tables are workbook
+formulas over the People sheet; their code-computed values live on the model for the
+recalculation check (B12)."""
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from datetime import date
 
 from exports.config import Labels, PeopleSheetTexts
-from exports.content import PersonRow, PullCall, SnapshotContent
+from exports.content import FoundVia, PersonRow, PullCall, SnapshotContent
 from exports.models import (
     ExcludedPerson,
     LaneCount,
@@ -29,7 +33,15 @@ from exports.readers.common import MapContext, Mapped, digest, ref
 # the stored search operations behind the list (connectors.base Operation values)
 TITLE_SEARCH = "people_by_title"
 ASSOCIATION_SEARCH = "people_by_technology"
-_PLURAL = {"row": "rows", "search": "searches", "record": "records", "person": "people"}
+_PLURAL = {
+    "row": "rows",
+    "search": "searches",
+    "title search": "title searches",
+    "record": "records",
+    "person": "people",
+}
+# the order the Found by cell lists the ways a person was found
+_ORIGIN_ORDER = {"title_search": 0, "association": 1, "mention": 2}
 
 
 def _id(value: str | None) -> str:
@@ -55,49 +67,158 @@ def _long_date(d: date) -> str:
     return f"{d.day} {d:%B} {d.year}"
 
 
-def _lane_order(labels: Labels, scope_lanes: tuple[str, ...]) -> list[str]:
-    """Lane ids in the People List's order: ``people_lane`` first, then any other scope lane."""
-    ids = [_id(x) for x in labels.people_lane]
-    return ids + [_id(x) for x in scope_lanes if _id(x) not in ids]
+def _lane_order(labels: Labels) -> list[str]:
+    """Lane ids in the People List's order (the Lane table's order): ``people_lane``."""
+    return [_id(x) for x in labels.people_lane]
 
 
-def _lane_ids(p: PersonRow, order: list[str]) -> list[str]:
-    rank = {lane: n for n, lane in enumerate(order)}
-    ids = [_id(x) for x in p.lanes.split(",") if x.strip()]
-    return sorted(dict.fromkeys(ids), key=lambda x: rank.get(x, len(rank)))
+def _lane_id(p: PersonRow, labels: Labels) -> str:
+    """The one lane id of a person: the stored role lane; for a record stored before the rule
+    existed, the lane of its first platform lane (``people_lane_platform``), else the default."""
+    stored = _id(p.role_lane)
+    if stored in labels.people_lane:
+        return stored
+    for platform in (_id(x) for x in p.lanes.split(",") if x.strip()):
+        mapped = labels.people_lane_platform.get(platform)
+        if mapped in labels.people_lane:
+            return str(mapped)
+    return labels.people_lane_default
+
+
+def _is_leadership_page(url: str | None, labels: Labels) -> bool:
+    """True when a research page's address names a leadership, management or team page."""
+    if not url:
+        return False
+    parts = re.split(r"[^a-z0-9]+", url.casefold())
+    return any(w in parts for w in labels.found_by_leadership_words)
+
+
+def _found_by(p: PersonRow, labels: Labels) -> str:
+    """The reference's Found by: the search source of every way the person was found, joined by
+    ``; `` (``title search source 1 (leadership and platform)``, ``technology association search
+    (Tableau)``, ``Leadership page; profile found by search``)."""
+    vias = list(p.found_via) or [FoundVia(origin=p.origin)]
+    vias.sort(key=lambda v: (_ORIGIN_ORDER.get(v.origin, 9), v.pass_no or 0))
+    parts: list[str] = []
+    platforms: list[str] = []
+    for v in vias:
+        if v.origin == "title_search":
+            band = labels.found_by_pass.get(v.pass_no or 0)
+            parts.append(
+                labels.found_by["title_search"].format(pass_no=v.pass_no, band=band)
+                if v.pass_no and band
+                else labels.found_by["title_search_any"]
+            )
+        elif v.origin == "association":
+            platform = labels.found_by_platform.get(_id(v.lane))
+            if platform:
+                platforms.append(platform)
+            elif "association_any" not in parts:
+                parts.append(labels.found_by["association_any"])
+        else:
+            key = (
+                "mention_leadership"
+                if _is_leadership_page(v.mention_url, labels)
+                else "mention_other"
+            )
+            parts.append(labels.found_by[key])
+    if platforms:
+        parts.append(
+            labels.found_by["association"].format(platforms=", ".join(dict.fromkeys(platforms)))
+        )
+    return "; ".join(dict.fromkeys(parts))
+
+
+def _pass_of(call: PullCall, labels: Labels) -> int:
+    """The title-search pass of a stored call: the pass whose title words (``found_by_pass_terms``)
+    the call's titles contain, else pass 1."""
+    titles = " ".join((*call.terms, *call.queries)).casefold()
+    for pass_no, words in sorted(labels.found_by_pass_terms.items(), reverse=True):
+        if any(w in titles for w in words):
+            return pass_no
+    return 1
 
 
 def _merges(
-    c: SnapshotContent, texts: PeopleSheetTexts, by_origin: Counter[str], ctx: MapContext
+    c: SnapshotContent,
+    texts: PeopleSheetTexts,
+    labels: Labels,
+    listed: list[PersonRow],
+    ctx: MapContext,
 ) -> str:
-    """ "It merges ..." from the stored search calls and the listed people by origin; empty when
-    nothing was searched or listed."""
+    """ "It merges ..." from the stored search calls and the listed people by how they were
+    found, with each title search's own counts; empty when nothing was searched or listed."""
     title_calls = [x for x in c.pull_calls if x.operation == TITLE_SEARCH]
     assoc_calls = [x for x in c.pull_calls if x.operation == ASSOCIATION_SEARCH]
+    by_origin: Counter[str] = Counter()
+    by_pass: Counter[int] = Counter()
+    gap_platforms: list[str] = []
+    for p in listed:
+        vias = p.found_via or (FoundVia(origin=p.origin),)
+        for origin in {v.origin for v in vias}:
+            by_origin[origin] += 1
+        for pass_no in {v.pass_no for v in vias if v.origin == "title_search" and v.pass_no}:
+            by_pass[pass_no] += 1
+        for v in vias:
+            platform = (
+                labels.found_by_platform.get(_id(v.lane)) if v.origin == "association" else None
+            )
+            if platform and platform not in gap_platforms:
+                gap_platforms.append(platform)
     parts: list[str] = []
 
-    def details(calls: list[PullCall], origin: str) -> str:
+    def count_words(calls: list[PullCall], people: int) -> str:
         out = []
-        if calls:
-            out.append(texts.searches.format(searches=_n(len(calls), "search")))
-            counted = [x.result_count for x in calls if x.result_count is not None]
-            if counted:
-                out.append(texts.matches.format(records=_n(sum(counted), "record")))
-        out.append(texts.on_list.format(people=_n(by_origin[origin], "person")))
+        counted = [x.result_count for x in calls if x.result_count is not None]
+        if counted:
+            out.append(texts.matches.format(records=_n(sum(counted), "record")))
+        out.append(texts.on_list.format(people=_n(people, "person")))
         return ", ".join(out)
 
     if title_calls or by_origin["title_search"]:
         domains = sorted({x.domain.casefold() for x in title_calls if x.domain})
         if not domains and c.domain:
             domains = [c.domain.casefold()]
-        label = (
-            texts.merge_title.format(domains=_and(domains)) if domains else texts.merge_title_any
+        passes = sorted({_pass_of(x, labels) for x in title_calls} | set(by_pass))
+        per_pass = []
+        for pass_no in passes:
+            calls = [x for x in title_calls if _pass_of(x, labels) == pass_no]
+            band = labels.found_by_pass.get(pass_no, str(pass_no))
+            per_pass.append(
+                texts.search_pass.format(label=band, details=count_words(calls, by_pass[pass_no]))
+            )
+            counted = [x.result_count for x in calls if x.result_count is not None]
+            ctx.registry.add(
+                f"people.searches.title.pass{pass_no}.records",
+                sum(counted),
+                "stored search calls of this run",
+                f"{sum(counted)} records loaded by title search source {pass_no}",
+            )
+            ctx.registry.add(
+                f"people.listed.title_search.pass{pass_no}",
+                by_pass[pass_no],
+                "people on the People List",
+                f"{by_pass[pass_no]} found by title search source {pass_no}",
+            )
+        template = texts.merge_title if domains else texts.merge_title_any
+        parts.append(
+            template.format(
+                searches=_n(len(title_calls), "title search")
+                if title_calls
+                else texts.searches_unknown,
+                domains=_and(domains),
+                passes="; ".join(per_pass) or count_words(title_calls, by_origin["title_search"]),
+            )
         )
-        parts.append(f"{label} ({details(title_calls, 'title_search')})")
     if assoc_calls or by_origin["association"]:
-        parts.append(f"{texts.merge_association} ({details(assoc_calls, 'association')})")
+        details = count_words(assoc_calls, by_origin["association"])
+        parts.append(
+            texts.merge_association.format(platforms=_and(gap_platforms), details=details)
+            if gap_platforms
+            else texts.merge_association_any.format(details=details)
+        )
     if by_origin["mention"]:
-        parts.append(f"{texts.merge_mention} ({details([], 'mention')})")
+        parts.append(texts.merge_mention.format(details=count_words([], by_origin["mention"])))
     for key, n in (
         ("people.searches.title", len(title_calls)),
         ("people.searches.association", len(assoc_calls)),
@@ -121,7 +242,8 @@ def _merges(
 
 def _removed(lines: tuple[SummaryLine, ...], withheld: int, texts: PeopleSheetTexts) -> str:
     """ "Rows removed before this list: ..." from the people module's Summary lines (in scope
-    and the title exclusions, listed apart, are left out); empty when nothing was removed."""
+    and the title exclusions, listed apart, are left out); a sentence saying none when nothing
+    was removed (the sheet always has its six notes)."""
     items: list[str] = []
     for line in lines:
         if line.count == 0 or (line.status == "in scope" and not line.reason):
@@ -138,7 +260,7 @@ def _removed(lines: tuple[SummaryLine, ...], withheld: int, texts: PeopleSheetTe
             items.append(template.format(rows=rows))
     if withheld:
         items.append(texts.withheld.format(rows=_n(withheld, "row")))
-    return texts.removed.format(items="; ".join(items)) if items else ""
+    return texts.removed.format(items="; ".join(items)) if items else texts.removed_none
 
 
 def _exclusions(
@@ -168,32 +290,51 @@ def _exclusions(
     return out
 
 
+def _entity_labels(c: SnapshotContent, texts: PeopleSheetTexts) -> str:
+    """The entity-labels paragraph: the account's subsidiaries (from the stored entity lock) are
+    its own entities and are kept; people of a business the account sold or combined may still
+    show the account as employer. Only account data fills it."""
+    lock = c.entity_lock or {}
+    names = [
+        str(x.get("name") or "").strip()
+        for x in (lock.get("subsidiaries") or [])
+        if isinstance(x, dict) and str(x.get("name") or "").strip()
+    ]
+    names = list(dict.fromkeys(names))
+    if names:
+        return texts.entity_labels.format(entities=_and(names), account=c.account_name)
+    return texts.entity_labels_none.format(account=c.account_name)
+
+
 def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
     """People rows ordered as the reference orders them (level, priority, lane, name), refs
     ``P-0001``..; the Summary sheet carries the title, the list's provenance, the rows removed,
-    the people excluded by title by name, the seniority rule, the judgment note and the Level
-    and Lane tables."""
+    the people excluded by title by name, the seniority rule, the judgment note, the entity
+    labels and the Level and Lane tables."""
     c = ctx.content
     where = "people"
     labels = ctx.rules.labels
     texts = ctx.rules.sheet_texts.people
     if ctx.capped(len(c.people), ctx.rules.limits.row_caps.people, where):
         return Mapped(None)
-    lane_order = _lane_order(labels, tuple(ctx.cfg.scope.lanes))
-    lane_labels = list(dict.fromkeys(labels.people_lane_label(x) for x in lane_order))
-    lane_labels.append(labels.lane_none)
-    lane_rank = {label: n for n, label in enumerate(dict.fromkeys(lane_labels))}
+    lane_order = _lane_order(labels)
+    lane_labels = list(dict.fromkeys(labels.people_lane[x] for x in lane_order))
+    lane_rank = {label: n for n, label in enumerate(lane_labels)}
     level_rank = {label: n for n, label in enumerate(labels.people_level_order)}
 
     def order(p: PersonRow) -> tuple[int, str, int, str, str]:
-        ids = _lane_ids(p, lane_order)
-        lane = labels.people_lane_label(ids[0] if ids else None)
+        lane = labels.people_lane[_lane_id(p, labels)]
         level = level_rank.get(labels.level_label(p.level), len(level_rank))
-        lane_n = lane_rank.get(lane, len(lane_rank))
-        return (level, p.priority, lane_n, p.name.casefold(), p.profile_url)
+        return (
+            level,
+            p.priority,
+            lane_rank.get(lane, len(lane_rank)),
+            p.name.casefold(),
+            p.profile_url,
+        )
 
     rows: list[PeopleRow] = []
-    by_origin: Counter[str] = Counter()
+    listed: list[PersonRow] = []
     for i, p in enumerate(sorted(c.people, key=order), start=1):
         code = ctx.code_or_withhold(p.source_code, p.profile_url, where, p.id)
         name = ctx.rendered(p.name, where)
@@ -202,23 +343,13 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
             continue
         if code is None:
             continue
-        found_by = labels.found_by.get(p.origin)
-        if found_by is None:
+        if not p.origin or p.origin not in _ORIGIN_ORDER:
             ctx.fail("origin_vocabulary", where, p.id)
             continue
-        lane_ids = _lane_ids(p, lane_order)
-        primary = lane_ids[0] if lane_ids else None
-        lane = labels.people_lane_label(primary)
-        notes = []
-        also = [labels.people_lane_label(x) for x in lane_ids[1:]]
-        also = [x for x in dict.fromkeys(also) if x != lane]
-        if also:
-            notes.append(f"Also in lane: {', '.join(also)}.")
-        if p.former_employers is None:
-            former = labels.not_pulled
-        else:
-            former = ctx.rendered(", ".join(p.former_employers), where)
-        by_origin[p.origin] += 1
+        lane_id = _lane_id(p, labels)
+        # nothing was read for the person: the cell stays empty (no claim either way)
+        former = ctx.rendered("; ".join(p.former_employers or ()), where)
+        listed.append(p)
         rows.append(
             PeopleRow(
                 ref=ref("P", i),
@@ -229,15 +360,15 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
                 level=labels.level_label(p.level),
                 level_id=_id(p.level),
                 meets_seniority=labels.meets_seniority(p.level),
-                lanes=lane,
-                lane_id=primary,
+                lanes=labels.people_lane[lane_id],
+                lane_id=lane_id,
                 priority=ctx.rendered(p.priority, where),
                 former_employers=former,
-                found_by=found_by,
+                found_by=ctx.rendered(_found_by(p, labels), where),
                 profile_url=p.profile_url,
                 second_profile_url=p.second_profile_url or None,
                 location=ctx.rendered(p.location, where) if p.location else "",
-                note=ctx.rendered(" ".join(notes), where),
+                note="",
                 source_code=code,
             )
         )
@@ -285,7 +416,7 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
             c=sum(1 for r in senior if r.lanes == label and r.priority == "C"),
             total=sum(1 for r in senior if r.lanes == label),
         )
-        for label in lane_rank
+        for label in lane_labels
     )
     ctx.registry.add(
         "people.listed",
@@ -342,7 +473,7 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
         x
         for x in (
             texts.what.format(account=c.account_name),
-            _merges(c, texts, by_origin, ctx),
+            _merges(c, texts, labels, listed, ctx),
             texts.dedupe.format(attribution=attribution, date=_long_date(c.as_of)),
         )
         if x
@@ -351,11 +482,12 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
     removed = _removed(summary, withheld, texts)
     seniority = (
         f"{texts.seniority_prefix}{ctx.cfg.scope.seniority_rule.rstrip('.')}."
-        f" {texts.seniority_filter}"
+        f" {texts.seniority_below} {texts.seniority_filter}"
     )
     exclusion_lines = _exclusions(excluded, texts, ctx.rules.limits.excel_cell_chars)
+    entity = ctx.rendered(_entity_labels(c, texts), where)
     paragraphs = tuple(
-        x for x in (what, removed, *exclusion_lines, seniority, texts.judgment_note) if x
+        x for x in (what, removed, *exclusion_lines, seniority, texts.judgment_note, entity) if x
     )
     model = PeopleModel(
         account=c.account_name,

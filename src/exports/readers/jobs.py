@@ -1,17 +1,20 @@
 """Job Postings mapping (pure). The selection is the job pipeline's own
 (``jobs.export.is_exported``, applied by the reader) and descriptions pass the job pipeline's
-contact-detail scrub (``jobs.normalise.strip_pii``). The columns follow the owner's master prompt
-v2 section 9.4: the class, status and read-type labels come from ``export_rules.yaml labels``;
-the entity is the account when the posting link sits on its domains, else the link's host marked
-to confirm. Counts are the job pipeline's (``jobs.counts``) plus the row counts and the
-platform matrix (total, closed, open, by class) this file recomputes as workbook formulas (B12).
-The reference file's columns: the requisition the posting text prints after a job ID label, the
-stored location, the sentence the reading quoted for the class (read postings only) and the full
-description apart; Last seen and Seniority are not stored by the job pipeline, so not printed."""
+contact-detail scrub (``jobs.normalise.strip_pii``). The columns follow the owner's reference
+Job Postings file (``docs/parity/reference_spec.md``): rows sorted by First seen, newest first;
+the class, status and read-type labels come from ``export_rules.yaml labels``; Platforms named in
+the fixed order of ``workbooks.jobs.matrix_platforms``; Platform sentences as ``Platform: s1 | s2
+|| Other: s3``; the Entity per the account's entity rules (``entity_rules``, data on the stored
+entity lock) and else the host: the account name when the link sits on its domains, else the
+link's host marked to confirm. Counts are the job pipeline's (``jobs.counts``) plus the row
+counts and the platform matrix (total, closed, open, by class, the account's own entity only)
+this file recomputes as workbook formulas (B12)."""
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urlsplit
 
@@ -21,7 +24,8 @@ from exports.models import CountLine, JobRow, JobsModel, PlatformClassCounts
 from exports.readers.common import MapContext, Mapped, digest, months_before, ref
 from jobs.normalise import strip_pii
 
-# the five classes the job pipeline stores; the two derived ones are decided here
+# the five classes the job pipeline stores (every exported posting has one: the heuristic
+# decides the postings no reading does, ``jobs.heuristic``; ``unclassified`` is a pipeline error)
 _STORED_CLASSES = ("build", "admin_owner", "working_tool", "user", "unclassified")
 
 _MONTHS = (
@@ -69,9 +73,100 @@ def names_lane_platform(p: PostingRow, platforms: tuple[PlatformEntry, ...]) -> 
     return False
 
 
-def entity_of(url: str, content: SnapshotContent, suffix: str) -> str:
-    """The account name when the link is on the account's domain, a subdomain of it or its
-    verified careers host; otherwise the link's registrable domain and ``suffix``."""
+@dataclass(frozen=True)
+class EntityRule:
+    """One entity rule of an account: a posting whose title and description match any pattern
+    (case sensitive) and, when ``before`` is set, was first seen before that date, is printed
+    under ``label``. ``counts_as_account``: the label starts with the account prefix, so the
+    Summary matrix counts the row with the account's own positions."""
+
+    label: str
+    patterns: tuple[re.Pattern[str], ...]
+    before: date | None = None
+    counts_as_account: bool = False
+
+    def applies(self, text: str, first_seen: date | None) -> bool:
+        """True when this rule names the posting."""
+        if self.before is not None and (first_seen is None or first_seen >= self.before):
+            return False
+        return any(p.search(text) for p in self.patterns)
+
+
+def entity_prefix(content: SnapshotContent) -> str:
+    """The prefix the Summary matrix counts: the entity lock's ``entity_prefix`` when it is a
+    prefix of the account name (the short name), else the account name itself (the label every
+    account row carries)."""
+    name = content.account_name.strip()
+    chosen = str((content.entity_lock or {}).get("entity_prefix") or "").strip()
+    if chosen and name.casefold().startswith(chosen.casefold()):
+        return chosen
+    return name
+
+
+def entity_rules(
+    content: SnapshotContent, prefix: str
+) -> tuple[tuple[EntityRule, ...], tuple[tuple[str, str], ...]]:
+    """The account's entity rules from the stored entity lock (``entities``: a list of
+    ``{label, patterns, before, counts_as_account}``) and the problems found: ``(label,
+    reason)`` for each rule left out. A rule is left out, never guessed at, when its label is
+    blank, it has no pattern, a pattern does not compile, ``before`` is not an ISO date, or
+    ``counts_as_account`` disagrees with the label (a label that starts with the prefix counts
+    in the account's totals; one that does not, does not)."""
+    raw = (content.entity_lock or {}).get("entities")
+    if not isinstance(raw, Sequence) or isinstance(raw, str):
+        return (), ()
+    rules: list[EntityRule] = []
+    problems: list[tuple[str, str]] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, Mapping):
+            problems.append((f"#{i}", "not_a_mapping"))
+            continue
+        label = str(item.get("label") or "").strip()
+        name = label or f"#{i}"
+        patterns = item.get("patterns")
+        if not label:
+            problems.append((name, "label_missing"))
+            continue
+        if not isinstance(patterns, Sequence) or isinstance(patterns, str) or not patterns:
+            problems.append((name, "patterns_missing"))
+            continue
+        try:
+            compiled = tuple(re.compile(str(p)) for p in patterns)
+        except re.error:
+            problems.append((name, "pattern_does_not_compile"))
+            continue
+        before: date | None = None
+        if item.get("before"):
+            try:
+                before = date.fromisoformat(str(item["before"])[:10])
+            except ValueError:
+                problems.append((name, "before_not_an_iso_date"))
+                continue
+        counts = bool(item.get("counts_as_account"))
+        if counts != label.casefold().startswith(prefix.casefold()):
+            problems.append((name, "counts_as_account_disagrees_with_label"))
+            continue
+        rules.append(EntityRule(label, compiled, before, counts))
+    return tuple(rules), tuple(problems)
+
+
+def entity_of(
+    url: str,
+    content: SnapshotContent,
+    suffix: str,
+    *,
+    rules: Iterable[EntityRule] = (),
+    text: str = "",
+    first_seen: date | None = None,
+) -> str:
+    """The Entity of a posting. The account's entity rules come first (the first rule that
+    matches ``text``, the title and description, and whose ``before`` date the first seen date
+    precedes); then the host: the account name when the link is on the account's domain, a
+    subdomain of it or its verified careers host; otherwise the link's registrable domain and
+    ``suffix``."""
+    for rule in rules:
+        if rule.applies(text, first_seen):
+            return rule.label
     host = (urlsplit(url).hostname or "").casefold()
     domain = (content.domain or "").casefold()
     careers = (content.careers_host or "").casefold()
@@ -82,17 +177,66 @@ def entity_of(url: str, content: SnapshotContent, suffix: str) -> str:
     return f"{registrable(host) or host}{suffix}"
 
 
-def _class_key(p: PostingRow, platforms: tuple[PlatformEntry, ...]) -> str:
-    """The label key of a posting: the stored class, else why it has none (not read in full,
-    or read and naming no lane platform), else ``unclassified``."""
-    cls = p.posting_class or "unclassified"
-    if cls != "unclassified":
-        return cls
-    if not p.full_text_read:
-        return "title_only"
-    if not names_lane_platform(p, platforms):
-        return "no_lane_platform"
-    return "unclassified"
+def ordered_platforms(names: Iterable[str], order: Sequence[str]) -> tuple[str, ...]:
+    """Platform names once each: the fixed ``order`` first (the matrix platforms), then the
+    others alphabetically."""
+    unique = list(dict.fromkeys(n for n in names if n))
+    rank = {n.casefold(): i for i, n in enumerate(order)}
+    return tuple(sorted(unique, key=lambda n: (rank.get(n.casefold(), len(rank)), n.casefold())))
+
+
+_BULLET = re.compile(r"(^|\s)[*\u2022\u00b7]\s+")
+
+
+def _clean_sentence(text: str) -> str:
+    """A sentence on one line: bullet marks removed, whitespace collapsed."""
+    return " ".join(_BULLET.sub(r"\1", text).split())
+
+
+def sentence_cell(
+    p: PostingRow,
+    order: Sequence[str],
+    *,
+    per_platform: int,
+    max_chars: int,
+) -> str:
+    """The Platform sentences cell: ``Platform: s1 | s2 || Platform2: s3``, platforms in the
+    fixed order, at most ``per_platform`` distinct sentences each, bullet marks removed,
+    whitespace collapsed (never a newline), cut at ``max_chars``. A posting that carries only the
+    flat sentence list puts each sentence under the first of its platforms the sentence names
+    (else the first platform)."""
+    pairs = list(p.platform_sentence_pairs)
+    if not pairs and p.platform_sentences:
+        names = ordered_platforms(p.platforms, order)
+        for sentence in p.platform_sentences:
+            named = next((n for n in names if n.casefold() in sentence.casefold()), None)
+            if named is None and names:
+                named = names[0]
+            if named is not None:
+                pairs.append((named, sentence))
+    by_platform: dict[str, list[str]] = {}
+    for platform, sentence in pairs:
+        clean = _clean_sentence(sentence)
+        if clean and clean not in by_platform.setdefault(platform, []):
+            by_platform[platform].append(clean)
+    parts = [
+        f"{name}: {' | '.join(by_platform[name][:per_platform])}"
+        for name in ordered_platforms(by_platform, order)
+    ]
+    return " || ".join(parts)[:max_chars].rstrip()
+
+
+def _first_seen(p: PostingRow, as_of: date) -> date | None:
+    """The First seen date: the feed's first seen, else the posting date, else (a posting only
+    the live careers board holds) the date the board was captured."""
+    return p.first_seen or p.posted_at or (as_of if p.origin == "live_board" else None)
+
+
+def _class_key(p: PostingRow) -> str:
+    """The label key of a posting: its stored class. The job pipeline gives every exported
+    posting one of the four classes (a reading confirms Build and Admin and owner roles; the
+    heuristic decides the rest); ``unclassified`` is only a posting the pipeline errored on."""
+    return p.posting_class or "unclassified"
 
 
 def _source_key(p: PostingRow) -> str:
@@ -102,15 +246,29 @@ def _source_key(p: PostingRow) -> str:
 
 
 def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
-    """Posting rows in the reader's order (posted date, then key), refs ``J-0001``.."""
+    """Posting rows sorted by First seen, newest first, then the posting key; refs ``J-0001``.."""
     c = ctx.content
     where = "jobs"
     labels = ctx.rules.labels
     book = ctx.rules.workbooks.jobs
     if ctx.capped(len(c.postings), ctx.rules.limits.row_caps.postings, where):
         return Mapped(None)
+    prefix = entity_prefix(c)
+    rules, problems = entity_rules(c, prefix)
+    for name, why in problems:  # a bad entity rule is listed in the manifest, never guessed at
+        ctx.withhold("jobs.entities", name, f"entity_rule_{why}")
+    order = book.matrix_platforms
+    yes = labels.yes
+    ordered = sorted(
+        c.postings,
+        key=lambda p: (
+            (d := _first_seen(p, c.as_of)) is None,
+            -(d.toordinal() if d else 0),
+            p.posting_key,
+        ),
+    )
     rows: list[JobRow] = []
-    for i, p in enumerate(c.postings, start=1):
+    for i, p in enumerate(ordered, start=1):
         code = ctx.code_or_withhold(None, p.url, where, p.posting_key)
         if not ctx.printable(p.title, where, p.posting_key) or code is None or not p.url:
             continue
@@ -121,32 +279,64 @@ def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
             ctx.fail("posting_class_vocabulary", where, p.posting_key)
             continue
         description = ctx.rendered(strip_pii(p.description), where) if p.full_text_read else ""
-        # the sentence the reading quoted for the class: shown for postings read in full only
+        # the sentence the reading quoted for the class: shown for the classes only a reading
+        # confirms (Build, Admin and owner), for postings read in full
+        key = _class_key(p)
         read_text = (
-            ctx.rendered(p.class_sentence, where) if p.full_text_read and p.class_sentence else ""
+            ctx.rendered(p.class_sentence, where)
+            if p.full_text_read and p.class_sentence and key in book.read_text_classes
+            else ""
         )
         requisition = requisition_of(p.description, book.requisition_pattern)
+        seen = _first_seen(p, c.as_of)
+        platforms = ordered_platforms(p.platforms, order)
+        archive = p.archive_url if p.archive_url.startswith(("https://", "http://")) else ""
         rows.append(
             JobRow(
                 ref=ref("J", i),
                 row_id=p.posting_key,
                 title=ctx.rendered(p.title, where),
                 status=labels.posting_status[p.status],
-                posting_class=labels.posting_class[_class_key(p, ctx.cfg.platforms)],
-                platforms=ctx.rendered(", ".join(p.platforms), where),
-                platform_sentence=ctx.rendered("\n".join(p.platform_sentences), where),
+                posting_class=labels.posting_class[key],
+                platforms=ctx.rendered(", ".join(platforms), where),
+                platform_sentence=ctx.rendered(
+                    sentence_cell(
+                        p,
+                        order,
+                        per_platform=book.sentences_per_platform,
+                        max_chars=book.sentence_chars,
+                    ),
+                    where,
+                ),
                 description=description,
                 url=p.url,
                 posted_at=p.posted_at,
                 first_seen=p.first_seen,
                 posted_or_seen=p.posted_at or p.first_seen,
-                entity=ctx.rendered(entity_of(p.url, c, labels.entity_to_confirm_suffix), where),
+                entity=ctx.rendered(
+                    entity_of(
+                        p.url,
+                        c,
+                        labels.entity_to_confirm_suffix,
+                        rules=rules,
+                        text=f"{p.title or ''}\n{p.description}",
+                        first_seen=seen,
+                    ),
+                    where,
+                ),
                 source_type=labels.posting_source[_source_key(p)],
                 full_text_read=p.full_text_read,
                 source_code=code,
                 requisition=ctx.rendered(requisition, where) if requisition else "",
                 location=ctx.rendered(p.location, where) if p.location else "",
                 read_text=read_text,
+                last_seen=p.last_seen,
+                first_seen_text=seen.isoformat() if seen else "",
+                last_seen_text=p.last_seen.isoformat() if p.last_seen else "",
+                seniority=ctx.rendered(p.seniority, where) if p.seniority else "",
+                archive_url=archive,
+                new_since_previous=p.new_since_previous,
+                new_flag=yes if p.new_since_previous else "",
             )
         )
     withheld = ctx.withheld_in(where)
@@ -202,14 +392,13 @@ def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
     for i, s in enumerate(sentences):
         ctx.registry.add_sentence(f"jobs.sentence.{i:03d}", s)
     # the platform by class matrix: the workbook recounts it with COUNTIFS over the Jobs sheet
-    # (a platform cell that contains the name, any case; the class cell equal to the label)
-    class_labels = tuple(labels.posting_class.values())
+    # (a platform cell that contains the name, the Entity cell that starts with the account
+    # prefix, the class cell equal to the label), the seven platforms of the reference
+    class_labels = tuple(labels.posting_class[k] for k in book.matrix_classes)
+    own = [r for r in rows if r.entity.casefold().startswith(prefix.casefold())]
     matrix: list[PlatformClassCounts] = []
-    for name in (*book.matrix_platforms, book.matrix_all_rows):
-        if name == book.matrix_all_rows:
-            named = rows
-        else:
-            named = [r for r in rows if name.casefold() in r.platforms.casefold()]
+    for name in book.matrix_platforms:
+        named = [r for r in own if name.casefold() in r.platforms.casefold()]
         matrix.append(
             PlatformClassCounts(
                 platform=name,
@@ -237,6 +426,7 @@ def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
     months = ctx.cfg.scope.postings_window_months
     fields = {
         "account": c.account_name,
+        "prefix": prefix,
         "months": months,
         "start": long_date(months_before(c.as_of, months)),
         "end": long_date(c.as_of),
@@ -253,6 +443,8 @@ def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
         matrix=tuple(matrix),
         summary_title=ctx.rendered(texts.title.format(**fields), where),
         summary_notes=tuple(ctx.rendered(t.format(**fields), where) for t in texts.paragraphs),
+        prefix=prefix,
+        matrix_heading=ctx.rendered(texts.matrix_heading.format(**fields), where),
     )
     return Mapped(
         model,

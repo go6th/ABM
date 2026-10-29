@@ -3,6 +3,13 @@
 # from the class names only; the product owner extends it. Cues match whole words in the posting
 # DESCRIPTION (never the title alone). Conflicting hits make a posting ambiguous; only the ambiguous
 # remainder goes to the tool-less extractor (with a second pass for build and admin_owner).
+# 2026-10-29 (reference parity): the rules below no longer decide a class. A keyword in a
+# description (an "engineer" in the company boilerplate, a "representative" in a tool list) flipped
+# postings to Build or User role that no reading had confirmed. The pipeline applies the cues to
+# the TITLE only, as triage: a title that carries a Build or Admin and owner cue is a candidate
+# for the extractor when the extractor budget is limited (caps on); with the caps off the
+# extractor reads every posting. The class of a posting no reading decided comes from the
+# `heuristic` block at the end of this file.
 version: "2026-10-02.1"
 status: proposal
 source: "TODO, needs product owner (D-16); cues derived from the class names only"
@@ -42,3 +49,40 @@ full_text_required_classes:
   value: [build, admin_owner]
   status: proposal
   source: "D-16; spec default is the superset"
+
+# The Working tool / User role rule of the owner's reference research (measured 2026-10-29 on its
+# Job Postings file: 1,777 postings not read by hand, 100% agreement; docs/parity/reference_spec.md,
+# Job Postings, "Class for rows not read by hand"). The platform sentences are a window in the
+# whitespace-collapsed text from the previous "." or "*" to the next "."; the class is Working tool
+# when they contain any cue below (substring, any case), else User role. Build and Admin and owner
+# are never decided by this rule (src/jobs/heuristic.py).
+heuristic:
+  status: sourced
+  source: "reference Job Postings workbook (owner's research 2026-10-20), measured 2026-10-29; docs/parity/reference_spec.md"
+  working_tool_label: working_tool
+  default_label: user
+  working_tool_cues:
+    - experience
+    - proficien
+    - knowledge
+    - familiar
+    - working with
+    - using
+    - utiliz
+    - document
+    - enter
+    - update
+    - maintain
+    - input
+    - record
+    - log
+    - skills
+    - transactions
+    - data entr
+    - administ
+    - manage
+  window:
+    starts_after: [".", "*"]
+    ends_at: "."
+    max_windows_per_platform: 4
+    max_chars: 3000

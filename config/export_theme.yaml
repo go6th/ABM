@@ -2,49 +2,74 @@
 # recorded on every deliverable; no renderer outside exports/config.py holds a style literal
 # (static test tests/exports/test_static_guards.py).
 #
-# The look is NOT sourced. The legacy Node docx library, the two openpyxl workbook scripts and a
-# real delivered file set were not supplied, so every value below is a labelled PROPOSAL chosen
-# to be neutral and legible (D-26). When the legacy files arrive, each value is replaced by the
-# value the legacy library defines and its `source` names that file and line.
-version: "1.0.0"
-status: proposal
+# The workbook look is SOURCED: every `excel:` value below was measured on the owner's reference
+# workbook set of 2026-10-20 (three workbooks: People List, Job Postings, Tech Stack and Teams;
+# measured 2026-10-29, scratchpad bd_reference_spec.md section 1 "Common workbook style" and the
+# per-column widths of sections 2 to 4). The product reproduces that look for every account; the
+# reference account is never named here. Per-column widths, wrapping and link labels live with
+# the columns (config/export_rules.yaml workbooks) and override the column kind.
+version: "1.1.0"
+status: sourced
 decision: D-26
-source: "TODO, needs product owner: neutral placeholder look; legacy library not supplied"
+source: "the owner's reference workbook set (2026-10-20), measured 2026-10-29; Word values: see word.page.source"
 
 word:
+  # The Word look follows the owner's reference file set of 2026-10-20 (the golden Account
+  # Summary and Sources and Evidence files built by docx_lib.js): Letter landscape, Arial, navy
+  # headings and table header rows, grade and status fills, blue underlined links.
   page:
-    # US Letter is sourced (PRD format rules, config/output_spec.yaml document_rules.page_size);
-    # the margins are a proposal ("proper margins" is the only wording in the PRD).
-    width_in: 8.5
-    height_in: 11.0
-    margins_in: {top: 1.0, bottom: 1.0, left: 1.0, right: 1.0}
-    source: "US Letter: PRD s3.4 format rules; margins: proposal"
+    # US Letter landscape (reference pgSz 15840 x 12240, orient landscape); margins 0.90 in top
+    # and bottom (1300 twips), 1.0 in sides (1440 twips)
+    width_in: 11.0
+    height_in: 8.5
+    orientation: landscape
+    margins_in: {top: 0.9, bottom: 0.9, left: 1.0, right: 1.0}
+    source: "reference file set 2026-10-20 (docx_lib.js page setup); US Letter: PRD s3.4 format rules"
   fonts:
-    body:         {name: Calibri, size_pt: 11, bold: false, italic: false, color: "1A1A1A"}
-    title:        {name: Calibri, size_pt: 20, bold: true,  italic: false, color: "1F3864"}
-    subtitle:     {name: Calibri, size_pt: 12, bold: false, italic: false, color: "404040"}
-    heading1:     {name: Calibri, size_pt: 14, bold: true,  italic: false, color: "1F3864"}
-    heading2:     {name: Calibri, size_pt: 12, bold: true,  italic: false, color: "1F3864"}
-    quote:        {name: Calibri, size_pt: 11, bold: false, italic: true,  color: "404040"}
-    note:         {name: Calibri, size_pt: 9,  bold: false, italic: true,  color: "595959"}
-    table_header: {name: Calibri, size_pt: 9,  bold: true,  italic: false, color: "000000"}
-    table_body:   {name: Calibri, size_pt: 9,  bold: false, italic: false, color: "1A1A1A"}
-    header:       {name: Calibri, size_pt: 8,  bold: false, italic: false, color: "595959"}
-    footer:       {name: Calibri, size_pt: 8,  bold: false, italic: false, color: "595959"}
+    body:         {name: Arial, size_pt: 10,   bold: false, italic: false, color: "000000"}
+    title:        {name: Arial, size_pt: 20,   bold: true,  italic: false, color: "1F3A5F"}
+    subtitle:     {name: Arial, size_pt: 11,   bold: false, italic: false, color: "555555"}
+    heading1:     {name: Arial, size_pt: 14,   bold: true,  italic: false, color: "1F3A5F"}
+    heading2:     {name: Arial, size_pt: 11.5, bold: true,  italic: false, color: "1F3A5F"}
+    quote:        {name: Arial, size_pt: 10,   bold: false, italic: true,  color: "555555"}
+    note:         {name: Arial, size_pt: 9,    bold: false, italic: true,  color: "555555"}
+    table_header: {name: Arial, size_pt: 8.5,  bold: true,  italic: false, color: "FFFFFF"}
+    table_body:   {name: Arial, size_pt: 8.5,  bold: false, italic: false, color: "000000"}
+    link:         {name: Arial, size_pt: 8.5,  bold: false, italic: false, color: "1155CC", underline: true}
+    header:       {name: Arial, size_pt: 8,    bold: false, italic: false, color: "777777"}
+    footer:       {name: Arial, size_pt: 8,    bold: false, italic: false, color: "777777"}
   table:
-    header_fill: "D9E2F3"
-    border_color: "8EAADB"
+    header_fill: "1F3A5F"
+    border_color: "BFC5CC"
     border_size_eighth_pt: 4
-    cell_margin_twips: 60
+    cell_margin_twips: 70
+    cell_margin_side_twips: 100
     repeat_header_row: true
     row_cant_split: true
+    bold_label_column: true
+  title_rule:
+    color: "E07B39"
+    size_eighth_pt: 8
+  # cell fills by the cell's whole text (reference: grade words and tracker status words share
+  # four colours); the words are the grading engine's display labels and the tracker's status
+  # texts, so a label change there is a change here
+  fills:
+    "Confirmed": "DDEFE0"
+    "Probable": "FFF1CC"
+    "Hypothesis": "FBDAD4"
+    "Lead": "E6E6E6"
+    "Done": "DDEFE0"
+    "Partial": "FFF1CC"
+    "Not done": "FBDAD4"
+    "Blocked": "E6E6E6"
+    "None": "E6E6E6"
   # Column proportions (percent of the text width) of each Word table; the headers are content
   # and live in export_rules.yaml documents.tables (same order, checked at load).
   tables:
     # the Ref column (row keys such as JD-0001) is wide enough never to wrap at its hyphen: the
     # PDF row-presence check found 8 percent too narrow
     platform_picture: [10, 18, 32, 10, 10, 20]
-    key_people:  [10, 14, 20, 13, 7, 12, 16, 8]
+    key_people:  [10, 16, 22, 14, 7, 9, 16, 6]
     linkedin:    [10, 16, 32, 32, 10]
     tracker:     [10, 28, 10, 10, 18, 14, 10]
     coverage:    [10, 24, 10, 10, 16, 16, 14]
@@ -53,9 +78,9 @@ word:
     recent_news: [10, 10, 41, 8, 8, 23]
     signals:     [10, 43, 10, 12, 10, 15]
     status_changed: [10, 20, 30, 30, 10]
-    source_links: [10, 10, 50, 30]
+    source_links: [10, 10, 55, 25]
     platform_hiring: [10, 20, 14, 10, 12, 14, 10, 10]
-    sources:     [8, 8, 22, 9, 9, 10, 34]
+    sources:     [8, 8, 24, 9, 9, 10, 32]
     job_reads:   [10, 25, 10, 10, 35, 10]
     lane_reads:  [10, 30, 14, 10, 36]
     board_captures: [10, 40, 15, 35]
@@ -65,35 +90,58 @@ word:
     tech_detections: [10, 38, 15, 15, 22]
     platform_postings: [10, 18, 12, 10, 10, 14, 14, 12]
     entity_split: [10, 65, 25]
-    urls:        [10, 12, 78]
   spacing:
     paragraph_after_pt: 6
     heading_before_pt: 12
     heading_after_pt: 4
 
 excel:
+  # Measured on the owner's reference workbook set (2026-10-20): Arial throughout; titles 14 bold
+  # navy; header row bold white on navy; body black; notes 9 italic; link cells blue, underlined.
   fonts:
-    title:  {name: Calibri, size_pt: 14, bold: true,  italic: false, color: "1F3864"}
-    header: {name: Calibri, size_pt: 11, bold: true,  italic: false, color: "000000"}
-    body:   {name: Calibri, size_pt: 11, bold: false, italic: false, color: "1A1A1A"}
-    note:   {name: Calibri, size_pt: 10, bold: false, italic: true,  color: "595959"}
-  header_fill: "D9E2F3"
+    title:  {name: Arial, size_pt: 14, bold: true,  italic: false, color: "1F3A5F"}
+    header: {name: Arial, size_pt: 10, bold: true,  italic: false, color: "FFFFFF"}
+    body:   {name: Arial, size_pt: 10, bold: false, italic: false, color: "000000"}
+    note:   {name: Arial, size_pt: 9,  bold: false, italic: true,  color: "000000"}
+    link:   {name: Arial, size_pt: 10, bold: false, italic: false, color: "1155CC", underline: true}
+  header_fill: "1F3A5F"
   summary_fill: "FFF2CC"
-  border_color: "8EAADB"
+  border_color: "BFC5CC"
+  # Header row: vertical center, wrapped, no border on a data sheet (a Summary table's header is
+  # bordered: the renderer asks for it). The height is a per-sheet choice (the reference People
+  # header is 32); none by default. Title rows are 18 in every reference sheet. Body: vertical top.
+  header_vertical: center
+  header_border: false
+  header_height_pt: null
+  title_height_pt: 18
+  body_vertical: top
   freeze_header: true
   autofilter: true
+  # Named fills a renderer applies by name (Book.fill / Book.body(fill=...)): the reference's
+  # People Priority A/B/C and Platform Ranking Rank A/B/C cells, and the soft highlight of rows
+  # new since the previous research (owner's re-research request, 2026-10-29).
+  fills:
+    priority_a: "DDEFE0"
+    priority_b: "FFF1CC"
+    priority_c: "EEEEEE"
+    rank_a: "C6EFCE"
+    rank_b: "FFEB9C"
+    rank_c: "E7E6E6"
+    new_row: "FFF9E6"
   # Column kinds: every workbook column names a kind (config/export_rules.yaml); the kind gives
-  # the width, the number format and wrapping. No sheet defines its own widths.
+  # the default width, the number format and wrapping. A column may override the width, the
+  # wrapping and the horizontal alignment (Column.width, Column.wrap, Column.align) to match the
+  # reference's per-column widths (bd_reference_spec.md sections 2 to 4).
   column_kinds:
     ref:        {width: 9,  number_format: "@",          wrap: false}
     code:       {width: 10, number_format: "@",          wrap: false}
     label:      {width: 18, number_format: "@",          wrap: false}
     text_short: {width: 30, number_format: "@",          wrap: true}
     text_long:  {width: 80, number_format: "@",          wrap: true}
-    url:        {width: 45, number_format: "@",          wrap: false}
+    url:        {width: 13, number_format: "@",          wrap: false}
     date:       {width: 12, number_format: "yyyy-mm-dd", wrap: false}
     count:      {width: 12, number_format: "0",          wrap: false}
-    percent:    {width: 12, number_format: "0.0%",       wrap: false}
+    percent:    {width: 12, number_format: "0%",         wrap: false}
   print:
     orientation: landscape
     paper: letter

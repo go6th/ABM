@@ -23,7 +23,10 @@ Vendor name: `config/providers.yaml` `display_name`. Source: the vendor's OpenAP
 `news_events`, `job_openings`, `tech_detections` (Done). Cassettes are the three dataset `example` objects from the OpenAPI, verbatim.
 
 ## Pull once
-Arguments are the domain and an optional delta date (`since` maps to `found_at_from` or `first_seen_at_from`); page size is fixed by config. The same feed in the same run always hashes to the same per-page ledger keys, so a second request replays stored pages. A delta pull is a new key.
+Arguments are the domain and an optional delta date (`since` maps to `found_at_from` or `first_seen_at_from`); page size is fixed by config (`page_limit`, the documented maximum 1000). The same feed in the same run always hashes to the same per-page ledger keys, so a second request replays stored pages. A delta pull is a new key.
+
+## Job openings filters
+`FeedArgs.with_description_only` (default on) and `FeedArgs.active_only` (default off) are sent for `job_openings` only, as the documented `with_description_only` and `active_only` parameters. The job pipeline's incremental re-research pulls the delta with `first_seen_at_from` = the previous research minus an overlap and refreshes carried statuses with one `active_only` pull (`src/jobs/incremental.py`).
 
 ## Note on 403
 For this provider 403 means rate limited, not forbidden. The connector maps it to `RateLimited` and sets the shared cooldown.

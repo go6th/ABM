@@ -53,8 +53,12 @@ from obs.logging import logger
 
 _log = logger(__name__)
 
-# how many times the platform continues one research by itself before it leaves it to its owner
-MAX_AUTO_RESUMES = 2
+# how many times the platform continues one research by itself before it leaves it to its owner.
+# It was 2; on 2026-10-28 three worker shutdowns in one research used it up by mid-afternoon and
+# the owner had to press Resume (owner: a research "should not stop"). A continuation reuses
+# every finished pull and model reply at no cost, so the bound guards against a crash loop, not
+# against spend.
+MAX_AUTO_RESUMES = 5
 # a stop older than this is the owner's to resume (the sweep passes every five minutes)
 WINDOW_HOURS = 24
 # the stop reasons a retry can mend; every other reason needs a person first

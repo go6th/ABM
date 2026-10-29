@@ -363,3 +363,16 @@ async def test_no_progress_slices_count_up_and_start_again_on_progress() -> None
     with pytest.raises(RunNotFound):
         async with tenant_txn(tenant()) as other:
             await count_no_progress(other, run, progressed=False)  # another client's run
+
+
+async def test_model_replies_counts_a_runs_stored_replies_and_nothing_of_another_run() -> None:
+    """The reading behind "a long node that pays for answers is progress": zero for a run with
+    no replies, and the query runs under the tenant's row security."""
+    from account_intelligence.runs.lifecycle import model_replies
+
+    t = tenant()
+    run = (await _create(t, req())).run_id
+    other = (await _create(t, req())).run_id
+    async with tenant_txn(t) as s:
+        assert await model_replies(s, run) == 0
+        assert await model_replies(s, other) == 0

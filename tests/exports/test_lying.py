@@ -107,8 +107,8 @@ async def test_b3_empty_sections_say_none_found(make_builder: Make) -> None:
     # every section of the specification is present, so a sparse account prints "None found" in
     # each empty one: news, baseline, the four signal tables, lanes, the people method line, key
     # people, findings from profiles and status changed, and section 1's what stands out and
-    # lane meanings (the corpus has none)
-    assert text.count("None found") == 13
+    # lane meanings (the corpus has none) and the People Interpretation section (reference shape)
+    assert text.count("None found") == 14
 
 
 # ---- B4 provenance ---------------------------------------------------------------------------
@@ -156,7 +156,8 @@ async def test_b4_detection_without_a_url_is_withheld(make_builder: Make) -> Non
     dets = list(c.detections)
     dets[0] = dets[0].model_copy(update={"source_url": None})
     result, _store = await run(make_builder, c.model_copy(update={"detections": tuple(dets)}))
-    assert_row_withheld(result, "tech", dets[0].id, "missing_url", len(dets) - 1)
+    # the file's rows are the organisation's stack, so the withheld detection leaves them all
+    assert_row_withheld(result, "tech", dets[0].id, "missing_url", len(c.stack))
 
 
 # ---- B5 citations ----------------------------------------------------------------------------

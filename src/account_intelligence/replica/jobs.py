@@ -44,6 +44,7 @@ from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica.notifications import notify
 from account_intelligence.runs.lifecycle import record_hermetic_run
+from jobs.incremental import incremental_input, previous_delivered_run
 from obs.logging import logger
 
 log = logger(__name__)
@@ -219,6 +220,11 @@ class GraphEngine:
                 run_input["people_regions"] = list(current.settings.people_scope.regions)
             if rule.people or rule.companies:
                 run_input.update(rule.run_input())
+            # incremental re-research (jobs.incremental): the account's previous delivered run
+            # is carried, the job feed pulled from its date minus the overlap only
+            run_input.update(
+                incremental_input(await previous_delivered_run(s, job.account_id), now.date())
+            )
             tracker = TrackerService(
                 CoverageRepo(s),
                 LedgerCallAdapter(s, load_grading_config().category_by_operation),

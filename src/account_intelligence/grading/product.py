@@ -1,7 +1,8 @@
 """Product grade by one pure function with configured precedence (D-01 proposal).
 
 Order (``config/grading_policy.yaml product_precedence.order``):
-1 no evidence -> Hypothesis; 2 Conflicting -> at most Probable; 3 internal-only -> Internal;
+1 no evidence -> Hypothesis; 2 Conflicting -> at most Probable (a Lead stays a Lead);
+3 internal-only -> Internal;
 4 read in a primary source this run (computed by ``primary.py``) -> Confirmed;
 4a a keyword match or date range not read this run -> Lead (``unread_match``, platform rule 4);
 4b every source an aggregator (a data feed or listing, not read at the source) -> Lead
@@ -39,7 +40,14 @@ def _rule(rule: str, x: ProductInputs, cfg: GradingConfig) -> ProductGrade | Non
     if rule == "no_evidence":
         return "hypothesis" if x.status == "no_evidence" else None
     if rule == "conflicting":
-        return p.conflicting_max_product_grade if x.status == "conflicting" else None
+        if x.status != "conflicting":
+            return None
+        # the cap is a ceiling, never a promotion: a keyword match or date range not read this run
+        # stays a Lead even when its sources conflict (staging 2026-10-28: such a claim came
+        # out Probable and guard G2 ended a three-hour research)
+        if x.unread_match and not x.read_in_primary:
+            return "lead"
+        return p.conflicting_max_product_grade
     if rule == "internal_only":
         # Never Confirmed from internal material alone unless the client marked it authoritative.
         return "internal" if x.internal_only and not x.internal_authoritative else None

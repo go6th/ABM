@@ -30,3 +30,8 @@ def test_each_feed_takes_its_own_window_from_the_scope() -> None:
     assert feed_since(Operation.NEWS_EVENTS, anchor, scope) == date(2025, 4, 1)
     assert feed_since(Operation.TECH_DETECTIONS, anchor, scope) == date(2024, 10, 1)
     assert feed_since(Operation.WEB_SEARCH, anchor, scope) is None
+    # an incremental re-research's delta bound replaces the window for the job feed only
+    delta = date(2026, 9, 24)
+    assert feed_since(Operation.JOB_OPENINGS, anchor, scope, delta) == delta
+    assert feed_since(Operation.NEWS_EVENTS, anchor, scope, delta) == date(2025, 4, 1)
+    assert feed_since(Operation.TECH_DETECTIONS, anchor, scope, delta) == date(2024, 10, 1)

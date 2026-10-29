@@ -123,6 +123,31 @@ def xlsx_row_keys(data: bytes, sheet: str, column: int = 1) -> tuple[str, ...]:
         wb.close()
 
 
+STACK_KEY_SEPARATOR = " | "
+
+
+def stack_key(business_function: str, category: str, technology: str) -> str:
+    """The row key of a Confirmed stack row: its first three cells (the sheet has no Ref column,
+    as the reference has none)."""
+    return STACK_KEY_SEPARATOR.join((business_function, category, technology))
+
+
+def xlsx_stack_keys(data: bytes, sheet: str, header_row: int) -> tuple[str, ...]:
+    """The row keys of the Confirmed stack rows (``stack_key`` of columns A to C) below the header
+    row, in row order. A row with no technology (the none-found note) is not a stack row."""
+    wb = load_workbook(io.BytesIO(data), read_only=True)
+    try:
+        ws = wb[sheet]
+        keys = []
+        for row in ws.iter_rows(min_row=header_row + 1, max_col=3, values_only=True):
+            cells = [("" if v is None else str(v)) for v in row] + ["", "", ""]
+            if cells[2]:
+                keys.append(stack_key(cells[0], cells[1], cells[2]))
+        return tuple(keys)
+    finally:
+        wb.close()
+
+
 def keys_once_in_order(text: str, keys: Sequence[str]) -> tuple[str, ...]:
     """Problems: a key missing, found more than once, or out of order in ``text``."""
     problems: list[str] = []

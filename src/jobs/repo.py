@@ -21,7 +21,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from jobs.models import Classification, PlatformSentence
+from account_intelligence import archive as LA
+from jobs.models import Classification, PlatformSentence, PreviousPostings
 from jobs.pipeline import PipelineResult, result_from_json, result_to_json
 
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
@@ -30,10 +31,11 @@ _POSTING = (
     "INSERT INTO job_postings (tenant_id, account_id, run_id, posting_key, row_json, status,"
     " window_bucket, url, other_urls, title, location, posted_at, first_seen, status_source,"
     " text_ref, text_sha256, text_complete, full_text_read, posting_class, lanes, platforms,"
-    " title_only, weak_key, undated, hostile) VALUES (:tenant, :account, :run, :key,"
+    " title_only, weak_key, undated, hostile, last_seen, seniority, new_since_previous)"
+    " VALUES (:tenant, :account, :run, :key,"
     " CAST(:row AS jsonb), :status, :bucket, :url, :urls, :title, :location, :posted, :first,"
     " :status_source, :text_ref, :sha, :complete, :full, :class, :lanes, :platforms, :title_only,"
-    " :weak, :undated, :hostile)"
+    " :weak, :undated, :hostile, :last_seen, :seniority, :new_since_previous)"
 )
 
 
@@ -71,6 +73,38 @@ class PgPostingRepo:
                     )
                 ).first()
         return result_from_json(row.record_json) if row is not None else None
+
+    async def load_previous(self, run_id: str) -> PreviousPostings | None:
+        """The stored postings of an earlier run of THIS account (its latest pass), carried into
+        an incremental re-research; None when the run is not this account's (another account's
+        or tenant's run id never resolves: the account is checked here, the tenant and owner by
+        the tables' row-level security)."""
+        async with self.txn(self.tenant_id) as s:
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT p.record_json FROM job_pipeline_passes p"
+                        " JOIN job_pipeline_runs r ON r.run_id = p.run_id"
+                        " WHERE p.run_id = :r AND r.account_id = :a"
+                        " ORDER BY p.pass_no DESC LIMIT 1"
+                    ),
+                    {"r": UUID(run_id), "a": self.account_id},
+                )
+            ).first()
+            if row is None:
+                row = (
+                    await s.execute(
+                        text(
+                            "SELECT record_json FROM job_pipeline_runs"
+                            " WHERE run_id = :r AND account_id = :a"
+                        ),
+                        {"r": UUID(run_id), "a": self.account_id},
+                    )
+                ).first()
+        if row is None:
+            return None
+        record = result_from_json(row.record_json)
+        return PreviousPostings(run_id=record.run_id, as_of=record.as_of, postings=record.postings)
 
     async def save_pass(self, run_id: str, pass_no: int, record: PipelineResult) -> None:
         """Append one gap pass: side rows of the re-processed postings, then the pass record."""
@@ -163,6 +197,27 @@ class PgPostingRepo:
         transaction."""
         run = UUID(run_id)
         async with self.txn(self.tenant_id) as s:
+            # every posting whose text was stored is archived under its link, so the Job
+            # Postings row opens the captured text once the posting closes (link archive)
+            await LA.record(
+                s,
+                self.tenant_id,
+                self.account_id,
+                run,
+                [
+                    LA.ArchiveEntry(
+                        url=p.url,
+                        kind="posting",
+                        payload_ref=p.text_ref,
+                        archived_at=_when(p.retrieved_at),
+                        format="text",
+                        title=p.title,
+                        source_ref=p.raw_ref,
+                    )
+                    for p in record.postings
+                    if p.text_ref
+                ],
+            )
             for p in record.postings:
                 await s.execute(
                     text(_POSTING),
@@ -192,6 +247,9 @@ class PgPostingRepo:
                         "weak": p.weak_key,
                         "undated": p.window_bucket == "undated",
                         "hostile": p.hostile,
+                        "last_seen": p.last_seen,
+                        "seniority": p.seniority,
+                        "new_since_previous": p.new_since_previous,
                     },
                 )
                 for sentence in p.sentences:
@@ -218,8 +276,9 @@ class PgPostingRepo:
             await s.execute(
                 text(
                     "INSERT INTO job_pipeline_runs (run_id, tenant_id, account_id, as_of,"
-                    " window_start, config_hash, record_json)"
-                    " VALUES (:r, :t, :a, :as_of, :start, :hash, CAST(:rec AS jsonb))"
+                    " window_start, config_hash, record_json, previous_run_id, carried)"
+                    " VALUES (:r, :t, :a, :as_of, :start, :hash, CAST(:rec AS jsonb), :prev,"
+                    " :carried)"
                 ),
                 {
                     "r": run,
@@ -229,6 +288,8 @@ class PgPostingRepo:
                     "start": record.window_start,
                     "hash": record.config_hash,
                     "rec": json.dumps(result_to_json(record), sort_keys=True),
+                    "prev": UUID(record.previous_run_id) if record.previous_run_id else None,
+                    "carried": record.carried,
                 },
             )
 

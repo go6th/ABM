@@ -32,7 +32,13 @@ class PostingSourcePort(Protocol):
         ...
 
     async def pull_window(self, start: date, end: date) -> SourceBatch:
-        """The 12-month pull of open and closed postings."""
+        """The 12-month pull of open and closed postings (an incremental run asks only for the
+        delta window; the adapter holds the bound)."""
+        ...
+
+    async def pull_active(self) -> SourceBatch:
+        """The postings the feed lists as open today (no date bound): a carried posting absent
+        from this set has closed since the previous research."""
         ...
 
 
@@ -61,6 +67,11 @@ class PostingRepo(Protocol):
 
     async def load_run(self, run_id: str) -> Any:
         """The latest stored pipeline record of the run (last gap pass, else first), or None."""
+        ...
+
+    async def load_previous(self, run_id: str) -> Any:
+        """The stored postings of an earlier run OF THIS ACCOUNT as ``PreviousPostings``, or None
+        (another account's or tenant's run is never returned)."""
         ...
 
     async def save_run(self, run_id: str, record: Any) -> None:
@@ -111,4 +122,9 @@ class RunInputPort(Protocol):
 
     async def as_of(self) -> date:
         """The run's as_of date."""
+        ...
+
+    async def previous_postings(self) -> Any:
+        """The previous delivered research to carry forward (``jobs.models.PreviousPostings``),
+        or None for a first research."""
         ...

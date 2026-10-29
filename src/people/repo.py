@@ -28,9 +28,19 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_intelligence import archive as LA
 from account_intelligence.grading.schema import ProposedSourced
 from people.merge import MergeEvent
-from people.models import Classification, Finding, PartialDate, Person, PersonPage, Post, Profile
+from people.models import (
+    Classification,
+    Employment,
+    Finding,
+    PartialDate,
+    Person,
+    PersonPage,
+    Post,
+    Profile,
+)
 from people.pipeline import PipelineResult, RowEvidence
 
 TxnFactory = Callable[[UUID], AbstractAsyncContextManager[AsyncSession]]
@@ -45,6 +55,37 @@ class StoredPage:
     page_no: int
     cursor_in: str | None
     page: PersonPage
+
+
+def _employments(raw: Any) -> tuple[Employment, ...] | None:
+    """The stored dated experience entries (``None`` when the source gave none)."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    return tuple(
+        Employment(
+            employer=str(x["employer"]),
+            start=PartialDate.parse(x.get("start")),
+            end=PartialDate.parse(x.get("end")),
+        )
+        for x in raw
+    )
+
+
+def _employments_json(value: Sequence[Employment] | None) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(
+        [
+            {
+                "employer": e.employer,
+                "start": e.start.iso() if e.start else None,
+                "end": e.end.iso() if e.end else None,
+            }
+            for e in value
+        ]
+    )
 
 
 def _iso(value: PartialDate | None) -> tuple[str | None, str | None]:
@@ -130,6 +171,7 @@ class PgPeopleRepo:
             headline=row.headline,
             employer=row.employer,
             prior_employers=tuple(row.prior_employers) if row.prior_employers is not None else None,
+            employments=_employments(row.employments),
             join_date=PartialDate.parse(row.join_date),
             role_start=PartialDate.parse(row.role_start),
             certifications=tuple(row.certifications) if row.certifications is not None else None,
@@ -175,13 +217,14 @@ class PgPeopleRepo:
                     text(
                         "INSERT INTO person_profiles (tenant_id, account_id, run_id,"
                         " profile_url_canonical, person_key, provider_code, raw_ref, call_ref,"
-                        " name, current_title, headline, employer, prior_employers, join_date,"
-                        " join_precision, role_start, role_precision, certifications,"
+                        " name, current_title, headline, employer, prior_employers, employments,"
+                        " join_date, join_precision, role_start, role_precision, certifications,"
                         " certifications_provided, location, own_description,"
                         " own_description_sha256, last_activity_at, fields_dropped,"
                         " internal_only, partial, hostile) VALUES (:t, :a, :r, :url, :key,"
                         " :provider, :raw, :call, :name, :title, :headline, :employer, :prior,"
-                        " :join, :join_p, :role, :role_p, :certs, :certs_provided, :location,"
+                        " CAST(:employments AS jsonb), :join, :join_p, :role, :role_p, :certs,"
+                        " :certs_provided, :location,"
                         " :desc, :sha, :activity, :dropped, :internal, :partial, :hostile)"
                         " ON CONFLICT (tenant_id, run_id, profile_url_canonical) DO NOTHING"
                     ),
@@ -199,6 +242,7 @@ class PgPeopleRepo:
                         "headline": p.headline,
                         "employer": p.employer,
                         "prior": list(p.prior_employers) if p.prior_employers is not None else None,
+                        "employments": _employments_json(p.employments),
                         "join": join,
                         "join_p": join_p,
                         "role": role,
@@ -295,6 +339,38 @@ class PgPeopleRepo:
             )
 
     # ---- the run ------------------------------------------------------------------------------
+
+    async def _archive_entries(self, people: Sequence[Person]) -> list[LA.ArchiveEntry]:
+        """The archived copy of every person's profile page: the record the source returned
+        (name, title, headline, location), stored as a small body so the People List row can
+        open what was captured once the live profile link dies (never erased people, never
+        internal-only rows)."""
+        out: list[LA.ArchiveEntry] = []
+        now = datetime.now(UTC)
+        for p in people:
+            url = p.profile_url_raw or p.profile_url
+            if not url or p.internal_only or LA.normalized(url) is None:
+                continue
+            lines = [p.name, p.title, p.headline, p.location]
+            body_text = "\n".join(x for x in lines if x)
+            if not body_text:
+                continue
+            body = LA.archive_body(
+                url, body_text, title=p.name, captured_at=now, kind="profile", source_ref=p.raw_ref
+            )
+            key = LA.archive_key(self.tenant_id, self.account_id, body)
+            ref = await self.payloads.put(key, body)
+            out.append(
+                LA.ArchiveEntry(
+                    url=url,
+                    kind="profile",
+                    payload_ref=ref,
+                    archived_at=now,
+                    title=p.name,
+                    source_ref=p.raw_ref,
+                )
+            )
+        return out
 
     async def _insert_person(
         self, s: AsyncSession, run: UUID, p: Person, into: UUID | None
@@ -423,6 +499,7 @@ class PgPeopleRepo:
         ).encode()
         claims_ref = await self.payloads.put(self.key_for("people", "claims.json"), claims_body)
         merge_rule = {e.key: e.rule_id for e in record.merge_events}
+        archived = await self._archive_entries(record.people)
         async with self.txn(self.tenant_id) as s:
             ids: dict[str, UUID] = {}
             ordered = sorted(record.people, key=lambda p: (p.merged_into is not None, p.person_key))
@@ -436,6 +513,7 @@ class PgPeopleRepo:
                     await self._event(
                         s, run, p.person_key, "scope", None, p.classification.rule_id or "scope"
                     )
+            await LA.record(s, self.tenant_id, self.account_id, run, archived)
             await s.execute(
                 text(
                     "INSERT INTO people_pipeline_runs (run_id, tenant_id, account_id, as_of,"
@@ -637,7 +715,8 @@ class PgPeopleRepo:
                     text(
                         "UPDATE person_profiles SET name = NULL, current_title = NULL,"
                         " headline = NULL, employer = NULL, prior_employers = NULL,"
-                        " join_date = NULL, join_precision = NULL, role_start = NULL,"
+                        " employments = NULL, join_date = NULL, join_precision = NULL,"
+                        " role_start = NULL,"
                         " role_precision = NULL, certifications = NULL, location = NULL,"
                         " own_description = NULL, own_description_sha256 = NULL,"
                         " last_activity_at = NULL, erased_at = :now, erasure_reason = :why"

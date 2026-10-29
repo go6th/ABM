@@ -238,7 +238,7 @@ def test_unknown_extra_fields_are_ignored_in_records() -> None:
 def test_signals_pagination_uses_the_documented_count() -> None:
     code, op, name, args = CASES[3]
     body = copy.deepcopy(_cassette(code, name)["response"]["body"])
-    body["meta"]["count"] = 250
+    body["meta"]["count"] = 2500  # more than two pages of the configured size (1000)
     conn = CONNECTORS[code]
     assert conn.parse(op, args, _raw(body), _base(code, op), None).next_cursor == "2"
     assert conn.parse(op, args, _raw(body), _base(code, op), "3").next_cursor is None
@@ -252,7 +252,26 @@ def test_signals_requests_carry_page_limit_and_delta_filter() -> None:
         Operation.JOB_OPENINGS, FeedArgs(domain="acme.com", since=date(2026, 9, 1)), "2"
     )
     assert req.path == "/companies/acme.com/job_openings"
-    assert req.params == {"page": 2, "limit": 100, "first_seen_at_from": "2026-09-01"}
+    # the documented maximum page size; the job feed asks for described postings only
+    assert req.params == {
+        "page": 2,
+        "limit": 1000,
+        "first_seen_at_from": "2026-09-01",
+        "with_description_only": "true",
+    }
+    active = conn.build_request(
+        Operation.JOB_OPENINGS, FeedArgs(domain="acme.com", active_only=True), None
+    )
+    assert active.params == {
+        "page": 1,
+        "limit": 1000,
+        "active_only": "true",
+        "with_description_only": "true",
+    }
+    news = conn.build_request(
+        Operation.NEWS_EVENTS, FeedArgs(domain="acme.com", since=date(2026, 9, 1)), None
+    )
+    assert news.params == {"page": 1, "limit": 1000, "found_at_from": "2026-09-01"}
 
 
 def test_signals_403_is_a_rate_limit_for_this_provider() -> None:

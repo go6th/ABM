@@ -20,7 +20,7 @@ lanes:
   - id: salesforce
     label: Salesforce (including MuleSoft)  # master prompt v2 (2026-10-24) supersedes D-100
     platforms:
-      - {name: Salesforce, aliases: [SFDC, Sales Cloud, Service Cloud, Marketing Cloud, Experience Cloud, Salesforce CPQ, Salesforce Field Service, Field Service Lightning, Agentforce, Salesforce Data Cloud, Einstein, Apex, Visualforce, Lightning Web Components, Salesforce Lightning, Salesforce Flow], source: "signals.md Salesforce and service: clouds and add-ons (CPQ, Marketing Cloud, Field Service); checklist.md scope defaults"}
+      - {name: Salesforce, aliases: [SFDC, Sales Cloud, Service Cloud, Marketing Cloud, Experience Cloud, Salesforce CPQ, Salesforce Field Service, Field Service Lightning, Agentforce, Health Cloud, Commerce Cloud, Salesforce Data Cloud, Einstein, Visualforce, Lightning Web Components, Salesforce Lightning, Salesforce Flow], source: "signals.md Salesforce and service: clouds and add-ons (CPQ, Marketing Cloud, Field Service); checklist.md scope defaults; reference Job Postings pattern (2026-10-29): Health Cloud and Commerce Cloud added, bare Apex removed (it names the Apex code language, not the vendor)"}
       - {name: MuleSoft, aliases: [Mulesoft Anypoint, Anypoint Platform, Anypoint, Mule ESB], source: "checklist.md scope defaults: MuleSoft counts under Salesforce and is searched on every account (lessons 2026-09-29)"}
     keywords: [Salesforce, MuleSoft]
     keyword_source: "phase1-pull.md step 4 lane keywords (Salesforce, MuleSoft)"
@@ -33,7 +33,7 @@ lanes:
   - id: sap
     label: SAP
     platforms:
-      - {name: SAP, aliases: [S/4HANA, S4HANA, S/4 HANA, SAP S4, SAP ECC, SAP HANA, SAP Ariba, SAP IBP, SAP MDG, SAP Datasphere, SAP Analytics Cloud, SAP EWM, SAP Signavio, SAP SuccessFactors, SuccessFactors, SAP BTP, SAP Fiori, ABAP, SAP BW, SAP Concur, SAP Central Finance], source: "signals.md SAP: ECC or S/4HANA, satellite products (IBP, MDG, Ariba, Datasphere, Analytics Cloud, EWM, Signavio)"}
+      - {name: SAP, case_sensitive: true, aliases: [Ariba, Concur, S/4HANA, S4HANA, S/4 HANA, SAP S4, SAP ECC, SAP HANA, SAP Ariba, SAP IBP, SAP MDG, SAP Datasphere, SAP Analytics Cloud, SAP EWM, SAP Signavio, SAP SuccessFactors, SuccessFactors, SAP BTP, SAP Fiori, ABAP, SAP BW, SAP Concur, SAP Central Finance], source: "signals.md SAP: ECC or S/4HANA, satellite products (IBP, MDG, Ariba, Datasphere, Analytics Cloud, EWM, Signavio); reference Job Postings pattern (2026-10-29): matched in its own case (SAP, Ariba, Concur are not the words sap, ariba or concur), bare Ariba and Concur count"}
     keywords: [SAP]
     keyword_source: "phase1-pull.md step 4 lane keywords"
   - id: tableau_analytics
@@ -49,7 +49,7 @@ lanes:
   - id: veeva
     label: Veeva
     platforms:
-      - {name: Veeva, aliases: [Veeva CRM, Vault CRM, Veeva Vault, Vault PromoMats, PromoMats, Vault MedComms, MedComms, Veeva OpenData, Crossix, Vault Clinical, Vault RIM, Vault Quality, Vault QMS, Vault QualityDocs, Vault Safety, Veeva Network, Veeva Align, Veeva Nitro, Veeva Compass, Vault Submissions], source: "checklist.md scope defaults (Veeva Commercial and R&D and Quality families); signals.md Veeva fingerprint questions"}
+      - {name: Veeva, aliases: [Veeva CRM, Vault CRM, Veeva Vault, Vault PromoMats, PromoMats, Vault MedComms, MedComms, Veeva OpenData, Crossix, Vault Clinical, Vault RIM, Vault Quality, Vault QMS, Vault QualityDocs, Vault Safety, eTMF, CTMS, Veeva Network, Veeva Align, Veeva Nitro, Veeva Compass, Vault Submissions], source: "checklist.md scope defaults (Veeva Commercial and R&D and Quality families); signals.md Veeva fingerprint questions; reference Job Postings pattern (2026-10-29): eTMF and CTMS count as Veeva"}
     keywords: [Veeva]
     keyword_source: "phase1-pull.md step 4 lane keywords"
   - id: data_ai
@@ -82,3 +82,14 @@ lanes:
       - {name: Generative AI, aliases: [GenAI, Gen AI, Large Language Models, LLMs, LLM, Agentic AI], source: "signals.md Data and AI: AI frameworks named in postings"}
     keywords: [Snowflake, "data engineering", "machine learning"]
     keyword_source: "phase1-pull.md step 4: plus any platform the account is known for; the lane's own search words (proposal 2026-10-24)"
+  - id: other
+    label: Other
+    # Workday is a column of the owner's reference Job Postings matrix (Salesforce, MuleSoft,
+    # ServiceNow, SAP, Tableau, Veeva, Workday) and no research lane. It is counted and listed in
+    # the Job Postings file and never searched for people: people_search false keeps the people
+    # pipeline from building title searches for it (src/people/config.py).
+    people_search: false
+    platforms:
+      - {name: Workday, aliases: [], source: "reference Job Postings workbook (owner's research 2026-10-20): Workday is the seventh matrix platform, pattern \\bworkday\\b"}
+    keywords: [Workday]
+    keyword_source: "reference Job Postings workbook: one live board search per platform column (proposal 2026-10-29)"

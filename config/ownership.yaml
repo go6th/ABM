@@ -134,6 +134,8 @@ created_owned:
   document_tables: the ingested tables of a document, owned by its owner (0077)
   document_table_rows: the rows of those tables, owned by the document's owner (0077)
   raw_files: the content-addressed raw bytes registry, owned by the first uploader (0078)
+  link_archive: archived copies of the addresses a research stored, owned like the account (0086)
+  tech_stack_items: the organisation tech stack of a run (function, category, technology, postings), owned like the account (0090)
 
 tenant:
   # identity, access and the client's own settings

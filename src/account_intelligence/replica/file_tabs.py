@@ -11,10 +11,16 @@ the file's order, and each sheet becomes a tab:
   tables (a header row the builder styled ``Export header``, then its rows down to the next
   blank row); a sheet from elsewhere with no styled header takes its first row of two or more
   cells as the header;
-* a formula cell shows the value the formula computes (``workbook_formulas``: the builder stores
-  no cached value); a cell's link opens its address and shows the file's text ("Open profile");
-* the main sheet (``workbooks.<kind>.sheet``) is marked, so the screen keeps its sortable,
-  filterable table there and shows the other sheets as they are.
+* a formula cell shows the value the formula computes (``workbook_formulas``), or the value the
+  file cached when the function is one the evaluator does not have (a re-saved file); a cell's
+  link opens its address and shows the file's text ("Open profile", "Open posting"); a cell's
+  solid fill is carried as a theme token (``Cell.fill``: ``priority_a``, ``rank_b``, ``new_row``,
+  the hex values from ``config/export_theme.yaml`` ``excel.fills``) for the screen's classes;
+* the main sheet (``workbooks.<kind>.sheet``, else the sheet with the largest table) is marked,
+  so the screen keeps its sortable, filterable table there and shows the other sheets as they
+  are. Once a workbook is delivered its main table is what the screen shows, by the file's own
+  header (``builder_main`` lets the header gain columns, ``main_table``), never the live
+  research table with other columns.
 
 Reading is bounded: the stored file (``MAX_BYTES``), its unpacked sheets (``MAX_XML_BYTES``,
 checked before the workbook is opened), its cells (``MAX_CELLS``), the rows of one table
@@ -46,6 +52,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
@@ -70,10 +77,12 @@ _SLUG = re.compile(r"[^a-z0-9]+")
 
 @dataclass(frozen=True)
 class Cell:
-    """One cell as the file shows it, and the address its link opens (None: no link)."""
+    """One cell as the file shows it, the address its link opens (None: no link) and the theme
+    token of its solid fill (None: no fill, or a fill the theme does not name)."""
 
     text: str
     href: str | None = None
+    fill: str | None = None
 
 
 @dataclass(frozen=True)
@@ -168,6 +177,42 @@ def _href(cell: Any) -> str | None:
     return safe_link(target) if isinstance(target, str) else None
 
 
+# The fills the screen knows by name: the theme (``excel.fills``) gives each its hex value, so no
+# colour value lives here. A fill the theme does not name is dropped.
+FILL_TOKENS = ("priority_a", "priority_b", "priority_c", "rank_a", "rank_b", "rank_c", "new_row")
+
+
+@lru_cache(maxsize=1)
+def fill_tokens() -> dict[str, str]:
+    """RGB hex (six upper-case digits) -> fill token, from the export theme's ``excel.fills``
+    (``config/export_theme.yaml``, validated by ``exports.config``); empty when the theme names
+    none or cannot be loaded."""
+    from exports.config import load_export_config
+    from exports.errors import ConfigError
+
+    try:
+        fills = load_export_config().theme.excel.fills
+    except ConfigError:
+        return {}
+    out: dict[str, str] = {}
+    for token in FILL_TOKENS:
+        value = fills.get(token)
+        if isinstance(value, str) and re.fullmatch(r"[0-9A-Fa-f]{6,8}", value.strip()):
+            out[value.strip().upper()[-6:]] = token
+    return out
+
+
+def _fill(cell: Any) -> str | None:
+    """The theme token of a cell's solid fill, else None."""
+    fill = getattr(cell, "fill", None)
+    if fill is None or getattr(fill, "fill_type", None) != "solid":
+        return None
+    rgb = getattr(getattr(fill, "start_color", None), "rgb", None)
+    if not isinstance(rgb, str) or len(rgb) < 6:
+        return None
+    return fill_tokens().get(rgb.upper()[-6:])
+
+
 def read(data: bytes, main_sheet: str | None) -> Book:
     """Every sheet of the workbook as a tab (see the module docstring); ``TooLarge`` past the
     read bounds."""
@@ -176,14 +221,18 @@ def read(data: bytes, main_sheet: str | None) -> Book:
     _check_package(data)
     wb = load_workbook(io.BytesIO(data), data_only=False)
     grid: dict[tuple[str, int, int], Any] = {}
+    formulas: list[tuple[str, int, int]] = []
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for c in row:
                 if c.value is not None:
                     grid[(ws.title, c.row, c.column)] = c.value
+                    if isinstance(c.value, str) and c.value.startswith("="):
+                        formulas.append((ws.title, c.row, c.column))
         if len(grid) > MAX_CELLS:
             raise TooLarge(f"more than {MAX_CELLS} cells")
     ev = Evaluator(grid, [ws.title for ws in wb.worksheets])
+    values = _Values(ev, _cached_values(data, formulas) if formulas else {})
     tabs: list[Tab] = []
     seen: set[str] = set()
     for ws in wb.worksheets:
@@ -193,10 +242,111 @@ def read(data: bytes, main_sheet: str | None) -> Book:
         while key in seen:
             key, n = f"{tab_key(ws.title)}-{n}", n + 1
         seen.add(key)
-        tabs.append(Tab(key, ws.title, _blocks(ws, ev), main=ws.title == main_sheet))
+        tabs.append(Tab(key, ws.title, _blocks(ws, values), main=ws.title == main_sheet))
     if tabs and not any(t.main for t in tabs):
-        tabs[0] = Tab(tabs[0].key, tabs[0].name, tabs[0].blocks, main=True)
+        # the configured sheet name is not in the file: the sheet with the largest table is the
+        # data sheet (a Summary of a few rows is never the main table)
+        sized = [(len(t.table.rows) if t.table is not None else -1, -i) for i, t in enumerate(tabs)]
+        i = -max(sized)[1]
+        tabs[i] = Tab(tabs[i].key, tabs[i].name, tabs[i].blocks, main=True)
     return Book(tuple(tabs))
+
+
+def _cached_values(data: bytes, formulas: list[tuple[str, int, int]]) -> dict[Any, Any]:
+    """The values the file cached for its formula cells (a workbook re-saved by Excel or
+    LibreOffice carries them; the builder's own files do not), read from the sheets' own XML
+    (``<c><f>..</f><v>..</v></c>``) of the sheets that hold formulas: a second workbook load
+    would parse every shared string again (13 MB on the reference Jobs file). An error value
+    (``#DIV/0!``) is not a value; a text result is inline, never a shared string."""
+    from lxml import etree
+
+    wanted: dict[str, set[tuple[int, int]]] = {}
+    for title, r, c in formulas:
+        wanted.setdefault(title, set()).add((r, c))
+    out: dict[Any, Any] = {}
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as package:
+            paths = _sheet_paths(package)
+            for title, cells in wanted.items():
+                path = paths.get(title)
+                if path is None or path not in package.namelist():
+                    continue
+                with package.open(path) as part:
+                    _read_cached(part, title, cells, out)
+    except (zipfile.BadZipFile, KeyError, ValueError, etree.LxmlError):
+        return {}
+    return out
+
+
+_SS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
+_REF = re.compile(r"^([A-Z]{1,3})(\d+)$")
+
+
+def _sheet_paths(package: zipfile.ZipFile) -> dict[str, str]:
+    """Sheet title -> the package path of its XML (workbook.xml and its relationships)."""
+    from lxml import etree
+
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=True)
+    rels = etree.fromstring(package.read("xl/_rels/workbook.xml.rels"), parser=parser)
+    targets = {
+        str(r.get("Id")): str(r.get("Target") or "")
+        for r in rels.iter(f"{{{_PKG_REL}}}Relationship")
+    }
+    book = etree.fromstring(package.read("xl/workbook.xml"), parser=parser)
+    out: dict[str, str] = {}
+    for sheet in book.iter(f"{{{_SS}}}sheet"):
+        target = targets.get(str(sheet.get(f"{{{_REL}}}id")), "")
+        if not target:
+            continue
+        path = target.lstrip("/") if target.startswith("/") else f"xl/{target}"
+        out[str(sheet.get("name"))] = path
+    return out
+
+
+def _read_cached(part: Any, title: str, cells: set[tuple[int, int]], out: dict[Any, Any]) -> None:
+    """The cached values of the wanted formula cells of one sheet part, streamed."""
+    from lxml import etree
+    from openpyxl.utils.cell import column_index_from_string
+
+    for _, c in etree.iterparse(
+        part, events=("end",), tag=f"{{{_SS}}}c", resolve_entities=False, no_network=True,
+        huge_tree=True,
+    ):  # fmt: skip
+        ref = _REF.match(str(c.get("r") or ""))
+        if ref is not None:
+            key = (int(ref.group(2)), column_index_from_string(ref.group(1)))
+            if key in cells and c.find(f"{{{_SS}}}f") is not None:
+                v = c.find(f"{{{_SS}}}v")
+                kind = c.get("t")
+                if v is not None and v.text is not None and kind not in ("e", "s"):
+                    text = str(v.text)
+                    if kind == "str" or kind == "inlineStr":
+                        out[(title, *key)] = text
+                    elif kind == "b":
+                        out[(title, *key)] = text.strip() == "1"
+                    else:
+                        try:
+                            number = float(text)
+                        except ValueError:
+                            continue
+                        out[(title, *key)] = int(number) if number.is_integer() else number
+        c.clear()
+
+
+class _Values:
+    """A cell's value for the screen: the evaluator's, else the file's cached value."""
+
+    def __init__(self, ev: Evaluator, cached: dict[Any, Any]) -> None:
+        self.ev = ev
+        self.cached = cached
+
+    def value(self, sheet: str, row: int, col: int) -> Any:
+        got = self.ev.value(sheet, row, col)
+        if got is None and self.cached:
+            return self.cached.get((sheet, row, col))
+        return got
 
 
 def _check_package(data: bytes) -> None:
@@ -208,15 +358,22 @@ def _check_package(data: bytes) -> None:
         raise TooLarge(f"unpacks to {unpacked} bytes")
 
 
-def _blocks(ws: Any, ev: Evaluator) -> tuple[Block, ...]:
-    """A sheet's text lines and tables, in row order."""
+def _blocks(ws: Any, ev: Any) -> tuple[Block, ...]:
+    """A sheet's text lines and tables, in row order. A blank row closes a table before the next
+    row is judged, so an unstyled header right after a gap starts its own table (the reference
+    People Summary's lane table; audit 2026-10-29, F7)."""
     rows: dict[int, list[tuple[int, Any]]] = {}
+    # the filled cells of a row, empty ones too: a row highlight covers the blanks of the row
+    filled: dict[int, dict[int, Any]] = {}
     styled = False
     for row in ws.iter_rows():
         cells = [(c.column, c) for c in row if c.value is not None]
         if cells:
             rows[row[0].row] = cells
             styled = styled or any(_is_header(c) for _, c in cells)
+            blank = {c.column: c for c in row if c.value is None and _fill(c)}
+            if blank:
+                filled[row[0].row] = blank
     # without the builder's header style, a header is a row at least 60% as wide as the widest
     widest = max((len(c) for c in rows.values()), default=0)
     unstyled_min = max(2, -(-widest * 3 // 5))
@@ -225,14 +382,17 @@ def _blocks(ws: Any, ev: Evaluator) -> tuple[Block, ...]:
     last_row = 0
     for r in sorted(rows):
         cells = rows[r]
+        gap = r > last_row + 1
+        last_row = r
+        if table is not None and gap:
+            out.append(_close(table))
+            table = None
         header = (
             any(_is_header(c) for _, c in cells)
             if styled
             else (table is None and len(cells) >= unstyled_min)
         )
-        gap = r > last_row + 1
-        last_row = r
-        if table is not None and (header or gap):
+        if table is not None and header:
             out.append(_close(table))
             table = None
         if header:
@@ -246,9 +406,14 @@ def _blocks(ws: Any, ev: Evaluator) -> tuple[Block, ...]:
                 table["cut"] = table.get("cut", 0) + 1
                 continue
             by_col = dict(cells)
+            blanks = filled.get(r, {})
             table["rows"].append(
                 tuple(
-                    Cell(_text(by_col.get(j), ev.value(ws.title, r, j)), _href(by_col.get(j)))
+                    Cell(
+                        _text(by_col.get(j), ev.value(ws.title, r, j)),
+                        _href(by_col.get(j)),
+                        _fill(by_col.get(j) or blanks.get(j)),
+                    )
                     for j in range(1, width + 1)
                 )
             )
@@ -458,12 +623,14 @@ def _count_keep(key: tuple[str, str, str, str, int | None, int], value: int | No
 
 async def main_rows(payloads: Any, tenant_id: UUID, found: Delivered, sheet_key: str) -> int | None:
     """The rows of the delivered file's own main table when it stands in for the stored table
-    (``builder_main``), else None. A file without the builder's row count is never read. The
-    answer is remembered by file content, so a file is opened for its count once per process."""
+    (``builder_main``, else ``main_table``), else None. The answer is remembered by file content,
+    so a file is opened for its count once per process. A file whose manifest states no row
+    count is not this builder's: None."""
     from exports.config import load_export_config
 
     if found.rows is None:
         return None
+
     columns = getattr(load_export_config().rules.workbooks, KINDS[sheet_key]).columns
     signature = hash(tuple(c.header for c in columns))
     key = (str(tenant_id), found.object_key, found.sha256, sheet_key, found.rows, signature)
@@ -473,7 +640,7 @@ async def main_rows(payloads: Any, tenant_id: UUID, found: Delivered, sheet_key:
     book = await book_of(payloads, tenant_id, found, main_sheet_of(sheet_key))
     if book is None:
         return None  # not remembered: the file may be readable on the next request
-    main = builder_main(book, found, sheet_key)
+    main = builder_main(book, found, sheet_key) or main_table(book)
     table = main.table if main is not None else None
     value = len(table.rows) if table is not None else None
     _count_keep(key, value)
@@ -481,9 +648,10 @@ async def main_rows(payloads: Any, tenant_id: UUID, found: Delivered, sheet_key:
 
 
 def builder_main(book: Book, found: Delivered, sheet_key: str) -> Tab | None:
-    """The main tab when the file is this builder's own (its manifest counts exactly the main
-    table's rows and the table has the configured headers), else None: a file set made some
-    other way (the demo seed's stand-in files) is never shown as the files' table."""
+    """The main tab when the file is this builder's own: its manifest counts exactly the main
+    table's rows and the table's header agrees with the configured headers (``headers_agree``:
+    the file may carry columns added since, or lack columns the configuration gained since it
+    was delivered), else None."""
     from exports.config import load_export_config
 
     main = book.tab(None)
@@ -491,7 +659,28 @@ def builder_main(book: Book, found: Delivered, sheet_key: str) -> Tab | None:
     if table is None or found.rows is None or len(table.rows) != found.rows:
         return None
     columns = getattr(load_export_config().rules.workbooks, KINDS[sheet_key]).columns
-    return main if list(table.header) == [c.header for c in columns] else None
+    return main if headers_agree(table.header, [c.header for c in columns]) else None
+
+
+def headers_agree(file_header: Sequence[str], configured: Sequence[str]) -> bool:
+    """Whether a file's header names are the configured columns by name: the names both have
+    come in the configured order, and one list holds every name of the other (the file gained
+    columns, or the configuration did after the file was delivered). An empty overlap, or two
+    lists that each lack names of the other, is another table."""
+    names = [h for h in file_header if h]
+    shared = [h for h in configured if h in names]
+    if not shared:
+        return False
+    if [h for h in names if h in configured] != shared:
+        return False  # the shared names come in another order
+    return set(configured) <= set(names) or set(names) <= set(configured)
+
+
+def main_table(book: Book) -> Tab | None:
+    """The main tab whenever it holds a table: what a delivered workbook shows on screen when the
+    stored table cannot stand for it (never the live research table, owner 2026-10-29)."""
+    main = book.tab(None)
+    return main if main is not None and main.table is not None else None
 
 
 def main_sheet_of(sheet_key: str) -> str:
@@ -515,6 +704,44 @@ def tab_refs(book: Book) -> list[dict[str, Any]]:
     return [{"key": t.key, "label": t.name, "main": t.main} for t in book.tabs]
 
 
+def _cell_out(c: Cell) -> dict[str, Any]:
+    out: dict[str, Any] = {"text": c.text, "href": c.href}
+    if c.fill:
+        out["fill"] = c.fill
+    return out
+
+
+def scrub_blocks(blocks: list[dict[str, Any]]) -> int:
+    """The client-output guard on a tab's blocks, withholding per cell and per line (as
+    ``sheets.scrub_rows`` does for a page): the tab always loads. Returns the cells withheld."""
+    from account_intelligence.replica.sheets import WITHHELD
+    from agents.naming import scrub_client_text, third_party_domain_hits
+
+    held = 0
+    for b in blocks:
+        if b.get("kind") == "text":
+            cleaned, withheld = scrub_client_text(str(b.get("text") or ""))
+            b["text"] = WITHHELD if withheld else cleaned
+            held += withheld
+            continue
+        header = [str(h) for h in b.get("header") or []]
+        for j, h in enumerate(header):
+            cleaned, withheld = scrub_client_text(h)
+            header[j] = WITHHELD if withheld else cleaned
+            held += withheld
+        b["header"] = header
+        for row in b.get("rows") or []:
+            for cell in row:
+                cleaned, withheld = scrub_client_text(str(cell.get("text") or ""))
+                cell["text"] = WITHHELD if withheld else cleaned
+                held += withheld
+                href = cell.get("href")
+                if isinstance(href, str) and third_party_domain_hits(href):
+                    cell["href"] = None
+                    held += 1
+    return held
+
+
 def blocks_out(tab: Tab) -> list[dict[str, Any]]:
     """A tab's blocks as the API returns them, capped (``SCREEN_ROWS`` per table, then
     ``SCREEN_CELLS``, ``SCREEN_CHARS`` and ``SCREEN_LINES`` for the whole tab): the rows left out
@@ -533,7 +760,7 @@ def blocks_out(tab: Tab) -> list[dict[str, Any]]:
             size = sum(len(c.text) + len(c.href or "") for c in r)
             if cells + len(r) > SCREEN_CELLS or chars + size > SCREEN_CHARS:
                 break
-            shown.append([{"text": c.text, "href": c.href} for c in r])
+            shown.append([_cell_out(c) for c in r])
             cells += len(r)
             chars += size
         out.append(
@@ -588,7 +815,7 @@ def grid_sheet(tab: Tab, live: Any) -> Any:
         scope=f"The table of your delivered files, row for row. {SORT_HINT}",
         base="",
         cols=tuple(_columns(table)),
-        filters=(Filter("all", "All", "true"),),
+        filters=(Filter("all", "All", "true"), *(f for f, _, _ in _chips(tab, live.key))),
         default_sort=FILE_ORDER.key,
         table="file",
         sheet_name=tab.name,
@@ -596,11 +823,18 @@ def grid_sheet(tab: Tab, live: Any) -> Any:
 
 
 def grid_query(
-    tab: Tab, live: Any, sort: str | None, direction: str | None, offset: int, limit: int
+    tab: Tab,
+    live: Any,
+    sort: str | None,
+    direction: str | None,
+    offset: int,
+    limit: int,
+    filter_key: str | None = None,
 ) -> Any:
     """A validated request over the main tab (``sheets.BadSheetQuery`` for an unknown or
-    unsortable column, or a direction other than asc or desc); the page is clamped like
-    ``sheets.parse`` clamps it."""
+    unsortable column, a direction other than asc or desc, or a filter the file's table does not
+    have: it has All and the stored table's chips whose column the file carries); the page is
+    clamped like ``sheets.parse`` clamps it."""
     from account_intelligence.replica.sheets import FILE_ORDER, MAX_PAGE, BadSheetQuery, Query
 
     sheet = grid_sheet(tab, live)
@@ -608,9 +842,12 @@ def grid_query(
     col = cols.get(sort or FILE_ORDER.key)
     if col is None or col.sort is None or (direction or "asc") not in ("asc", "desc"):
         raise BadSheetQuery("unknown sort or direction")
+    filt = next((f for f in sheet.filters if f.key == (filter_key or "all")), None)
+    if filt is None:
+        raise BadSheetQuery("unknown filter")
     return Query(
         sheet,
-        sheet.filters[0],
+        filt,
         col,
         direction == "desc",
         max(0, offset),
@@ -626,11 +863,58 @@ def _sort_value(text_value: str) -> tuple[int, Any]:
     return (1, t.casefold())
 
 
+@lru_cache(maxsize=8)
+def _chip_headers(kind: str) -> tuple[tuple[str, str, str, str], ...]:
+    """The stored table's chips beside All as ``(key, label, header, value)``, the column given
+    by its header in the file (``sheets.chip_specs``). Read once per process: the export
+    configuration is parsed from YAML on every ``load_export_config`` call."""
+    from account_intelligence.replica.sheets import chip_specs
+    from exports.config import load_export_config
+    from views.tables import specs
+
+    columns = specs()[kind].exported_columns  # type: ignore[index]
+    header_of = {c.key: c.header for c in columns}
+    return tuple(
+        (key, label, header_of[column], value)
+        for key, label, column, value in chip_specs(kind, columns, load_export_config().rules)
+        if column in header_of
+    )
+
+
+def _chips(tab: Tab, sheet_key: str) -> list[tuple[Any, int, str]]:
+    """The filter chips of the main tab beside All, as ``(filter, column index, value)``: the
+    stored table's own chips (Priority A, Meets seniority rule, the posting statuses) matched to
+    the file's columns by header, so a chip filters the file's table the way it filters the
+    stored one. A chip whose column the file lacks is left out."""
+    from account_intelligence.replica.sheets import Filter
+
+    kind = KINDS.get(sheet_key)
+    table = tab.table
+    if kind is None or table is None:
+        return []
+    return [
+        (Filter(key, label, "true"), table.header.index(name), value)
+        for key, label, name, value in _chip_headers(kind)
+        if name in table.header
+    ]
+
+
+def _kept(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
+    """The main tab's rows under the request's filter (All: every row)."""
+    table = tab.table or Block("table")
+    if q.filter.key == "all":
+        return list(table.rows)
+    chip = next((c for c in _chips(tab, q.sheet.key) if c[0].key == q.filter.key), None)
+    if chip is None:
+        return []
+    _, j, value = chip
+    return [r for r in table.rows if j < len(r) and r[j].text.strip() == value]
+
+
 def _order(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
     """The main tab's rows in the request's order. A sort is stable (equal cells keep the file's
     order) and puts blank cells last in either direction, as the stored tables do (NULLS LAST)."""
-    table = tab.table or Block("table")
-    rows = list(table.rows)
+    rows = _kept(tab, q)
     if q.sort.key == "_file":
         return rows[::-1] if q.desc else rows
     j = int(q.sort.key[1:]) - 1
@@ -647,13 +931,41 @@ def _order(tab: Tab, q: Any) -> list[tuple[Cell, ...]]:
 def _row(width: int, n: int, r: tuple[Cell, ...]) -> dict[str, Any]:
     cells = {f"c{j + 1}": (r[j].text if j < len(r) else "") for j in range(width)}
     links = {f"c{j + 1}": r[j].href for j in range(min(width, len(r))) if r[j].href}
-    return {"n": n, "cells": cells, "links": links, "link": None, "link_label": None}
+    fills = {f"c{j + 1}": r[j].fill for j in range(min(width, len(r))) if r[j].fill}
+    out: dict[str, Any] = {"n": n, "cells": cells, "links": links, "link": None, "link_label": None}
+    if fills:
+        out["fills"] = fills
+    return out
+
+
+def grid_cell(tab: Tab, q: Any, n: int, col_key: str) -> dict[str, Any] | None:
+    """One whole cell of the main tab in the request's order: row ``n`` (absolute, 1-based) and
+    column ``col_key`` (``c1``...), or None past the table."""
+    ordered = _order(tab, q)
+    if n < 1 or n > len(ordered) or not re.fullmatch(r"c\d{1,3}", col_key):
+        return None
+    j = int(col_key[1:]) - 1
+    r = ordered[n - 1]
+    if j < 0 or j >= len((tab.table or Block("table")).header):
+        return None
+    cell = r[j] if j < len(r) else Cell("")
+    return {"n": n, "col": col_key, "text": cell.text, "href": cell.href}
 
 
 def grid_rows(tab: Tab, q: Any) -> list[dict[str, Any]]:
     """Every row of the main tab in the request's order, as ``sheets.row_out`` shapes them."""
     width = len((tab.table or Block("table")).header)
     return [_row(width, n, r) for n, r in enumerate(_order(tab, q), start=1)]
+
+
+def _filter_counts(tab: Tab, q: Any) -> list[dict[str, Any]]:
+    """The chips with the rows each holds over the whole table (not the filtered page)."""
+    table = tab.table or Block("table")
+    out = [{"key": "all", "label": "All", "count": len(table.rows)}]
+    for f, j, value in _chips(tab, q.sheet.key):
+        n = sum(1 for r in table.rows if j < len(r) and r[j].text.strip() == value)
+        out.append({"key": f.key, "label": f.label, "count": n})
+    return out
 
 
 def grid_page(tab: Tab, q: Any) -> dict[str, Any]:
@@ -678,8 +990,8 @@ def grid_page(tab: Tab, q: Any) -> dict[str, Any]:
             {"key": c.key, "label": c.label, "sortable": c.sort is not None, "kind": c.kind}
             for c in q.sheet.cols
         ],
-        "filters": [{"key": "all", "label": "All", "count": len(ordered)}],
-        "filter": "all",
+        "filters": _filter_counts(tab, q),
+        "filter": q.filter.key,
         "sort": q.sort.key,
         "dir": "desc" if q.desc else "asc",
         "total": len(ordered),

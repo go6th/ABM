@@ -162,6 +162,12 @@ class SignalsConnector:
         params: dict[str, str | int | bool] = {"page": page, "limit": self.page_limit}
         if args.since is not None:
             params[_SINCE_PARAM[op]] = args.since.isoformat()
+        if op is Operation.JOB_OPENINGS:
+            # the job feed's documented filters (OpenAPI: active_only, with_description_only)
+            if args.active_only:
+                params["active_only"] = "true"
+            if args.with_description_only:
+                params["with_description_only"] = "true"
         path = f"/companies/{quote(args.domain, safe='.-')}/{_PATHS[op]}"
         return PageRequest("GET", path, params=params)
 

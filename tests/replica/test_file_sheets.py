@@ -126,7 +126,6 @@ async def test_sheets_show_the_delivered_files_tables(world: Any) -> None:
         t: len(v) for t, v in expected.items()
     }
     ws = (await _get(plane, f"/v1/accounts/{w.domain}/workspace")).json()
-    link_text = CFG.rules.sheet_texts.people.link_text
     for key, table in SH.FILE_TABLES.items():
         spec = specs()[table]  # type: ignore[index]
         r = await _get(plane, f"{base}/{key}", params={"limit": 500})
@@ -144,8 +143,13 @@ async def test_sheets_show_the_delivered_files_tables(world: Any) -> None:
                 value = _text(row.cells.get(c.key))
                 if c.kind == "url" and value:
                     assert got["links"][c.key] == value, (key, c.key)
-                    shown = link_text if table == "people" else value
+                    shown = SH._link_text(CFG.rules, table, c.key) or value
                     assert got["cells"][c.key] == shown, (key, c.key)
+                elif len(value) > SH.CELL_CAP:
+                    # a long cell is cut on the page and recorded; the whole cell is one
+                    # request away (the cell route) and in the file
+                    assert got["cells"][c.key] == value[: SH.CELL_CAP - 1].rstrip() + "\u2026"
+                    assert got["cut"][c.key] == len(value), (key, c.key)
                 else:
                     assert got["cells"][c.key] == value, (key, c.key)
         counted = "tech" if key == "technology" else key

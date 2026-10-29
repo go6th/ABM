@@ -205,6 +205,19 @@ def seed_rows(w: World) -> dict[str, Any]:
             " '2025-01', '2026-08', %s)",
             (w.tenant, w.account, w.run, s3[2]),
         )
+        # the organisation's tech stack, in the lookup's own order (position)
+        for position, (function, category, technology, postings) in enumerate(
+            (
+                ("Sales", "Customer Relationship Manager (CRM)", "Salesforce", 12),
+                ("Finance", "ERP and Business Management Software", "SAP", 5),
+            )
+        ):
+            c.execute(
+                "INSERT INTO tech_stack_items (tenant_id, owner_user_id, account_id, run_id,"
+                " business_function, category, technology, postings, position)"
+                " VALUES (%s, 'test-owner', %s, %s, %s, %s, %s, %s, %s)",
+                (w.tenant, w.account, w.run, function, category, technology, postings, position),
+            )
     return {"codes": (s1[1], s2[1], s3[1])}
 
 
@@ -281,7 +294,13 @@ async def test_end_to_end_build_from_postgres() -> None:
     m = result.manifest
     assert m is not None
     assert m.snapshot_counts["facts"] == 2  # private and superseded facts are not selected
-    assert m.snapshot_counts["sources"] >= 3 and m.rows_per_file["tech"] == 1
+    assert m.snapshot_counts["sources"] >= 3 and m.rows_per_file["tech"] == 2
+    # the Confirmed stack rows come from tech_stack_items, counted in the same snapshot
+    assert m.snapshot_counts["tech_stack_items"] == 2 and m.snapshot_counts["tech_detections"] == 1
+    assert m.refs["tech"] == (
+        "Sales | Customer Relationship Manager (CRM) | Salesforce",
+        "Finance | ERP and Business Management Software | SAP",
+    )
     assert m.rows_per_file["people"] > 0 and m.rows_per_file["jobs"] > 0
     rows = fetch(
         "SELECT kind, version, supersedes, object_key FROM deliverables WHERE run_id = %s"
@@ -426,3 +445,59 @@ async def test_two_tenants_never_cross() -> None:
     built = await builder(same_domain, payloads).build_all(str(b.tenant), str(same_domain.run))
     assert built.status == "failed"  # no narrative of its own: nothing of tenant A was used
     assert any("missing_narrative" in e for e in built.errors)
+
+
+async def test_reader_fills_the_posting_fields_and_the_archived_copy_links() -> None:
+    """The reader fills last seen, seniority, the (platform, sentence) pairs, the new-row flag
+    and the archived-copy address of each posting and source (absolute on the public origin;
+    blank without one or without a copy)."""
+    from datetime import UTC, date, datetime
+    from urllib.parse import quote
+
+    from account_intelligence import archive as LA
+
+    w, payloads = await seed_world()
+    # one source has an archived copy (Phase 1 would have stored it), the others none
+    async with tenant_txn(w.tenant) as s:
+        await LA.record(
+            s,
+            w.tenant,
+            w.account,
+            w.run,
+            [
+                LA.ArchiveEntry(
+                    url=f"https://{w.domain}/about",
+                    kind="page",
+                    payload_ref=f"t/{w.tenant}/archive/about",
+                    archived_at=datetime(2026, 10, 1, tzinfo=UTC),
+                )
+            ],
+        )
+    base = "https://app.example"
+    content = await PgContentReader(payloads, batch=2, archive_base=base + "/").read(
+        str(w.tenant), str(w.run)
+    )
+    by_key = {p.posting_key: p for p in content.postings}
+    j18 = by_key["id:j18"]
+    assert (j18.last_seen, j18.seniority) == (date(2026, 9, 15), "mid_senior")
+    assert j18.platform_sentence_pairs == (
+        ("ServiceNow", "The ServiceNow developer builds & tests flows."),
+    )
+    assert j18.new_since_previous is None  # a first research
+    assert by_key["id:j13"].seniority == "manager" and by_key["id:j13"].last_seen is None
+    # every exported posting has a stored text, so every one has an archived copy
+    for p in content.postings:
+        assert p.archive_url == (
+            f"{base}/v1/accounts/{quote(w.domain, safe='')}/archive?url={quote(p.url, safe='')}"
+        ), p.posting_key
+    sources = {x.url: x for x in content.sources}
+    assert sources[f"https://{w.domain}/about"].archive_url == (
+        f"{base}/v1/accounts/{quote(w.domain, safe='')}/archive"
+        f"?url={quote(f'https://{w.domain}/about', safe='')}"
+    )
+    assert sources[f"https://{w.domain}/news/a"].archive_url == ""
+    # without a public origin no link is made
+    plain = await PgContentReader(payloads, batch=2).read(str(w.tenant), str(w.run))
+    assert all(p.archive_url == "" for p in plain.postings)
+    assert all(x.archive_url == "" for x in plain.sources)
+    assert {p.posting_key: p.last_seen for p in plain.postings}["id:j18"] == date(2026, 9, 15)

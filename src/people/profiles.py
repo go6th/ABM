@@ -25,7 +25,7 @@ from typing import Any
 from jobs.normalise import strip_pii
 from people.config import PeopleConfig
 from people.cues import clean
-from people.models import PartialDate, Person, Profile, RawProfile
+from people.models import Employment, PartialDate, Person, Profile, RawProfile
 from people.ports import BUDGET_REASONS, ProfilePort, SourceUnavailable
 from people.urls import canonical_profile_url
 
@@ -44,6 +44,39 @@ def _str_list(value: object, max_chars: int) -> tuple[str, ...] | None:
     if not isinstance(value, list | tuple) or not all(isinstance(v, str) for v in value):
         return None
     return tuple(c for c in (clean(v, max_chars) for v in value) if c)
+
+
+def _year_or_date(value: object) -> PartialDate | None:
+    """A year given as a number or a text date (``2019``, ``2019-03``) as a ``PartialDate``."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return PartialDate.parse(f"{value:04d}")
+    return PartialDate.parse(value)
+
+
+def _employments(value: Sequence[object], max_chars: int) -> tuple[tuple[Employment, ...], bool]:
+    """The dated experience entries of a profile and whether any entry was unusable. An entry is
+    a mapping with a text ``employer`` and optional ``start`` and ``end`` (a missing end means to
+    date); an entry without an employer, or with a date that is not a date, is dropped (the
+    profile is then marked partial). Nothing is guessed."""
+    out: list[Employment] = []
+    bad = False
+    for item in value:
+        if not isinstance(item, Mapping) or not isinstance(item.get("employer"), str):
+            bad = True
+            continue
+        employer = clean(item["employer"], max_chars)
+        start, end = item.get("start"), item.get("end")
+        parsed_start, parsed_end = _year_or_date(start), _year_or_date(end)
+        if not employer or (start is not None and parsed_start is None):
+            bad = True
+            continue
+        if end is not None and parsed_end is None:
+            bad = True
+            continue
+        out.append(Employment(employer=employer, start=parsed_start, end=parsed_end))
+    return tuple(out), bad
 
 
 def to_profile(
@@ -73,6 +106,14 @@ def to_profile(
                 partial, dropped = True, dropped + 1
             else:
                 values[name] = parsed
+    if "employments" in kept:
+        if isinstance(kept["employments"], list | tuple):
+            entries, bad = _employments(kept["employments"], title_cap)
+            values["employments"] = entries
+        else:  # the wrong type: the field counts as not provided
+            bad = True
+        if bad:
+            partial, dropped = True, dropped + 1
     for name in ("join_date", "role_start"):
         if kept.get(name) is not None:
             parsed_date = PartialDate.parse(kept[name])

@@ -32,6 +32,7 @@ from exports.content import (
     SectionRow,
     SnapshotContent,
     SourceRow,
+    StackRow,
     TrackerLine,
 )
 
@@ -119,6 +120,7 @@ def account(
     n_people: int = 4,
     n_postings: int = 3,
     n_detections: int = 2,
+    n_stack: int | None = None,
     long_text: bool = False,
     hostile_text: bool = False,
     partner: bool = False,
@@ -214,9 +216,17 @@ def account(
                 posting_class="admin_owner",
                 platforms=("Salesforce",),
                 platform_sentences=(f"Synthetic sentence naming Salesforce {i}.",),
+                platform_sentence_pairs=(
+                    ("Salesforce", f"Synthetic sentence naming Salesforce {i}."),
+                ),
                 description=description,
                 posted_at=date(2026, 1 + i % 9, 1),
                 first_seen=date(2026, 1 + i % 9, 2),
+                last_seen=date(2026, 1 + i % 9, 20),
+                seniority=("mid_senior", "manager", "")[i % 3],
+                # every third posting is new since the previous research (None when the account
+                # had no previous research: i = 0)
+                new_since_previous=(i % 3 == 2) if i > 0 else None,
                 full_text_read=i % 2 == 0,
             )
         )
@@ -235,6 +245,27 @@ def account(
                 source_code=None,
             )
         )
+    # the organisation tech stack (the Confirmed stack sheet): six items unless the account is
+    # built empty (no detections), in the order the lookup gave them
+    stack_items = (
+        ("Sales", "Customer Relationship Manager (CRM)", "Salesforce", 40),
+        ("Sales", "Customer Relationship Manager (CRM)", "Synthetic CRM", 3),
+        ("Finance", "ERP and Business Management Software", "SAP", 25),
+        ("Information Technology", "iPaaS", "MuleSoft", 7),
+        ("HR", "Core HCM Suites", "Workday", 5),
+        ("Engineering & R&D", "Programming Languages and Frameworks", "Synthetic Language", 11),
+    )
+    stack_n = (6 if n_detections else 0) if n_stack is None else n_stack
+    stack = tuple(
+        StackRow(
+            id=f"40000000-0000-4000-8000-{i:012d}",
+            business_function=stack_items[i % 6][0],
+            category=stack_items[i % 6][1],
+            technology=stack_items[i % 6][2] if i < 6 else f"{stack_items[i % 6][2]} {i}",
+            postings=stack_items[i % 6][3] + i,
+        )
+        for i in range(stack_n)
+    )
     first = facts[0] if facts else None
     narrative_codes = (evidence[0].source_code,) if evidence and evidence[0].source_code else ()
     if not narrative_codes:
@@ -322,6 +353,7 @@ def account(
             sentences=(f"{n_postings} postings read of {n_postings} matched",),
         ),
         detections=tuple(detections),
+        stack=stack,
         tracker=lines,
         tracker_tally=tally,
         snapshot_counts={
@@ -330,6 +362,7 @@ def account(
             "sources": len(src.rows),
             "report_sections": len(sections),
             "tech_detections": len(detections),
+            "tech_stack_items": len(stack),
         },
     )
     return content

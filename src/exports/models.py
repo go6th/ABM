@@ -254,12 +254,14 @@ class StatusChangeRow(_Frozen):
 
 
 class SourceLinkRow(_Frozen):
-    """One cited source with its link and domain (Source links)."""
+    """One cited source with its link and domain (Source links). ``title`` is the stored page
+    title the link is printed as (the reference links the source name); blank prints the URL."""
 
     ref: Ref
     code: SourceCode
     url: Url
     domain: Text
+    title: str = ""
 
 
 class SummaryModel(_Frozen):
@@ -305,6 +307,10 @@ class SummaryModel(_Frozen):
     # section 1 of the reference Summary (2026-10-26); empty for runs distilled before it
     stands_out: tuple[AuthoredBlock, ...] = ()
     lane_meanings: tuple[LaneMeaningBlock, ...] = ()
+    # the People section's closing "Interpretation" bullets (section kind people_interpretation)
+    people_interpretation: tuple[AuthoredBlock, ...] = ()
+    # the platform hiring sub-heading with its date window (None: no hiring table)
+    platform_hiring_heading: Text | None = None
 
 
 # ---- Sources and Evidence ------------------------------------------------------------------
@@ -339,6 +345,8 @@ class EvidenceSource(_Frozen):
     type_label: str = ""
     # "What it supports" for a source no finding rests on but a posting row cites
     supports_note: str = ""
+    # the address of our archived copy of the page (blank: none stored)
+    archive_url: str = ""
 
 
 class JobRead(_Frozen):
@@ -360,6 +368,8 @@ class JobRead(_Frozen):
     status: str = ""
     first_seen: str = ""
     platforms: str = ""
+    # the address of our archived copy of the posting (blank: none stored)
+    archive_url: str = ""
 
 
 class LaneReadRow(_Frozen):
@@ -377,6 +387,7 @@ class LaneReadRow(_Frozen):
     status: Text
     reasoning: Text
     source_code: SourceCode
+    archive_url: str = ""
 
 
 class LaneReadGroup(_Frozen):
@@ -468,6 +479,9 @@ class LivePostingRow(_Frozen):
     entity: str
     read: Text
     posting_class: Text
+    # the posting's link (the reference links every Part E posting) and our archived copy
+    url: Url | None = None
+    archive_url: str = ""
 
 
 class DetectionPullRow(_Frozen):
@@ -492,11 +506,13 @@ class EntitySplitRow(_Frozen):
 
 
 class UrlRow(_Frozen):
-    """One source URL written out in full (Evidence part I)."""
+    """One source URL written out in full (Evidence part I), with its archived copy's address
+    when one is stored."""
 
     ref: Ref
     code: SourceCode
     url: Url
+    archive_url: str = ""
 
 
 class NewsItem(_Frozen):
@@ -670,6 +686,17 @@ class JobRow(_Frozen):
     requisition: str = ""
     location: str = ""
     read_text: str = ""
+    # the reference columns added 2026-10-29: the feed's last seen date, the First seen and Last
+    # seen cells as ISO date text, the seniority word as given, our archived copy of the posting
+    # (an absolute address; blank when none is stored) and the incremental re-research flag
+    # (``new_flag`` is the cell: the Yes word for a new row, blank otherwise)
+    last_seen: date | None = None
+    first_seen_text: str = ""
+    last_seen_text: str = ""
+    seniority: str = ""
+    archive_url: str = ""
+    new_since_previous: bool | None = None
+    new_flag: str = ""
 
 
 class CountLine(_Frozen):
@@ -706,6 +733,10 @@ class JobsModel(_Frozen):
     # the Summary sheet: the title line and the explanatory paragraphs (sheet_texts.jobs)
     summary_title: str = ""
     summary_notes: tuple[Text, ...] = ()
+    # the entity prefix the Summary matrix counts (``"<prefix>*"`` over the Entity column) and the
+    # matrix heading cell; blank prefix: the account name
+    prefix: str = ""
+    matrix_heading: str = ""
 
     @model_validator(mode="after")
     def _matrix(self) -> JobsModel:
@@ -731,6 +762,36 @@ class TechRow(_Frozen):
     source_code: SourceCode
 
 
+class StackLine(_Frozen):
+    """One row of the Confirmed stack sheet: a technology of the organisation's stack under its
+    business function and category, the postings count the lookup reports for it, and the lane
+    the platform dictionary gives it (blank when the name holds no lane platform word). Out of
+    scope platform names are masked before they reach this row."""
+
+    row_id: str
+    business_function: Text
+    category: Text
+    technology: Text
+    postings: int = Field(ge=0)
+    lane: str
+
+
+class TeamLine(_Frozen):
+    """One row of the Platform teams sheet (the reference's columns). The list columns are the
+    reference's ``name (count); name (count)`` text. Printed only when a pipeline stored teams."""
+
+    row_id: str
+    team: Text
+    # the list columns may be empty (a team whose records name no technology or place)
+    lane_technologies: str
+    postings: int = Field(ge=0)
+    first_activity: str
+    last_activity: str
+    technologies: str
+    locations: str
+    job_functions: str
+
+
 class RankRow(_Frozen):
     """One platform of the Platform Ranking sheet (master prompt v2 section 7.3): the rank and
     share are workbook formulas; ``rank`` and ``share`` hold the values computed in code."""
@@ -752,9 +813,17 @@ class TechModel(_Frozen):
 
     account: Text
     as_of: date
+    # the technology detections (a lead each): no sheet prints them, the Evidence file's part H
+    # lists them
     rows: tuple[TechRow, ...]
     counts: tuple[CountLine, ...] = Field(min_length=1)
+    # the Confirmed stack sheet's rows, in the lookup's own order
+    stack: tuple[StackLine, ...] = ()
+    teams: tuple[TeamLine, ...] = ()
+    # the Evidence file's teams line: "None recorded" or the count of teams listed on the sheet
     teams_note: Text
+    # the Platform teams sheet's own note (row 2)
+    teams_sheet_note: Text = ""
     ranking: tuple[RankRow, ...] = ()
     seen_once: tuple[RankRow, ...] = ()
     base: int = Field(ge=0, default=0)

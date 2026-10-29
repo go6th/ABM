@@ -10,9 +10,7 @@ import yaml
 from people.config import PeopleConfig, load_people_config
 from people.errors import ConfigError
 from people.exclusion import check_exclusion
-from people.lane import lanes_for
 from people.level import classify_level
-from people.priority import assign_priority
 from tests.people.conftest import FROZEN
 
 CONFIG = Path(__file__).resolve().parents[2] / "config"
@@ -31,10 +29,27 @@ def test_config_loads_and_hash_is_stable(cfg: PeopleConfig) -> None:
         "evp",
         "svp",
         "vp",
+        "senior_director",
         "head",
         "director",
+        "associate_director",
         "senior_manager",
     }
+    assert cfg.below_levels == {"manager", "other"}
+    assert cfg.default_level == "other"
+    assert cfg.level_order == (
+        "c_level",
+        "evp",
+        "svp",
+        "vp",
+        "senior_director",
+        "director",
+        "associate_director",
+        "head",
+        "senior_manager",
+        "manager",
+        "other",
+    )
 
 
 def test_every_level_rule_example_holds(cfg: PeopleConfig) -> None:
@@ -55,15 +70,28 @@ def test_every_exclusion_and_review_example_holds(cfg: PeopleConfig) -> None:
         assert check_exclusion(rule.negative, (), cfg.review_rules).outcome == "include"
 
 
-def test_every_priority_example_holds(cfg: PeopleConfig) -> None:
-    for rule in cfg.priority_rules:
-        for example, expect in ((rule.positive, True), (rule.negative, False)):
-            level = classify_level(example, cfg.level_rules, cfg.level_order)
-            assert level is not None
-            band = cfg.band_of_level[level.level]
-            lanes = lanes_for(example, None, cfg.lanes)
-            got = assign_priority(band, bool(lanes), cfg.priority_rules)
-            assert (got is not None and got.rule_id == rule.rule_id) is expect, rule.rule_id
+def test_the_reference_shape_of_the_rubric(cfg: PeopleConfig) -> None:
+    """Eight lanes in the reference's rule order, three priority rules and the override, 28 SI
+    firms, the stack terms and a default for the lane and the priority."""
+    assert [r.value for r in cfg.role_lanes] == [
+        "salesforce_commercial",
+        "salesforce_integration",
+        "servicenow_shared",
+        "veeva_life_sciences",
+        "sap_erp",
+        "analytics_data_ai",
+        "technology_it",
+    ]
+    assert cfg.role_lane_default == "business_other"
+    assert [r.rule_id for r in cfg.priority_rules] == [
+        "prio.c.override",
+        "prio.c.non_it",
+        "prio.b.integration",
+        "prio.a.platform_it",
+    ]
+    assert cfg.priority_default == "B"
+    assert len(cfg.si_firms) == 28 and len({f.firm for f in cfg.si_firms}) == 28
+    assert "integration" in cfg.stack_terms and "data" in cfg.stack_terms
 
 
 def test_every_rubric_entry_has_source_or_status() -> None:
@@ -72,6 +100,10 @@ def test_every_rubric_entry_has_source_or_status() -> None:
     for section in ("level_rules", "exclusion_rules", "review_rules", "priority_rules"):
         for entry in rubric[section]:
             assert "source" in entry or "status" in entry, entry
+    for entry in rubric["people_lanes"]["list"]:
+        assert "source" in entry, entry
+    for name in ("people_stack_terms", "si_firms", "default_level", "priority_default"):
+        assert "source" in rubric[name] or "status" in rubric[name], name
     for name, cap in rubric["caps"].items():
         assert "source" in cap or "status" in cap, name
     scope = yaml.safe_load((CONFIG / "people_scope.yaml").read_text())
@@ -100,7 +132,7 @@ def _broken(tmp_path: Path, edit: str, find: str, replace: str) -> Path:
     [
         (
             "people_rubric.yaml",
-            'status: proposal,\n     source: "PRD s3.3 names Director"',
+            'status: proposal,\n     source: "PRD s3.3 names Director; reference tier',
             'source_x: "none"',
         ),
         ("people_rubric.yaml", 'negative: "Directory Services Analyst"', 'negative: ""'),
@@ -110,9 +142,51 @@ def _broken(tmp_path: Path, edit: str, find: str, replace: str) -> Path:
         ("people_rubric.yaml", "value: platform_and_level", "value: guess"),
         ("people_rubric.yaml", "max_months: 12}", "max_months: 11}"),
         ("people_rubric.yaml", "match: lane_lexicon", "match: titles"),
-        ("people_rubric.yaml", "priority: A, band: senior", "priority: D, band: senior"),
+        (
+            "people_rubric.yaml",
+            "    priority: A\n    cues: [salesforce",
+            "    priority: D\n    cues: [salesforce",
+        ),
         ("people_rubric.yaml", "level_order: [c_level,", "level_order: ["),
-        ("people_rubric.yaml", "cues: [chief]", "cues: []"),
+        ("people_rubric.yaml", "cues: [chief, cio, cto, ceo, cfo]", "cues: []"),
+        # the 2026-10-29 reference sections
+        (
+            "people_rubric.yaml",
+            "  value: other\n  rule_id: level.default",
+            "  value: director\n  rule_id: level.default",
+        ),
+        ("people_rubric.yaml", "  below: [manager, other]\n", "  below: [other]\n"),
+        (
+            "people_rubric.yaml",
+            "patterns: ['commercial (technology",
+            "patterns: ['commercial (technology|(unclosed",
+        ),
+        (
+            "people_rubric.yaml",
+            '      positive: "Director of Global CRM Technology"\n',
+            '      positive: ""\n',
+        ),
+        (
+            "people_rubric.yaml",
+            "priority_default: {priority: B,",
+            "priority_default: {priority: Z,",
+        ),
+        (
+            "people_rubric.yaml",
+            "  list: [integration, integrator,",
+            "  list_x: [integration, integrator,",
+        ),
+        (
+            "people_rubric.yaml",
+            "    - {firm: Accenture, aliases: [accenture]}",
+            "    - {firm: Accenture, aliases: []}",
+        ),
+        (
+            "people_rubric.yaml",
+            "excl.security, reason: security, cues: [security, cyber, cybersecurity, ciso]",
+            "excl.security, reason: security, cues: [security, cyber, cybersecurity]",
+        ),
+        ("people_scope.yaml", "  - privacy officer\n", ""),
         ("people_scope.yaml", "geography:", "geo:"),
         (
             "people_rubric.yaml",

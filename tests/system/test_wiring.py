@@ -169,6 +169,51 @@ async def test_tenant_never_comes_from_a_body_w3(monkeypatch: pytest.MonkeyPatch
     assert unauth.status_code == 422 or unauth.status_code == 401  # no token: never a run
 
 
+@pytest.mark.asyncio
+async def test_a_blocking_token_check_never_freezes_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Google token check fetches certificates over synchronous HTTPS. It runs in a thread
+    with a bound: the loop keeps answering (/healthz) while it blocks, and a check that outlasts
+    the bound is a 503 the caller retries (staging 2026-10-28: the worker was shut down twice)."""
+    import asyncio
+    import time
+
+    from account_intelligence.api.routes import tasks
+
+    monkeypatch.setattr(tasks, "TOKEN_CHECK_TIMEOUT_S", 0.3)
+    app = _app(build_container({"APP_ENV": "test"}))
+    container = app.state.container
+
+    def blocks(token: str, audience: str, email: str) -> None:
+        time.sleep(1.0)  # a synchronous fetch that hangs
+
+    container.task_audience = "aud"
+    container.verify_task_token = lambda *a: (_ for _ in ()).throw(PermissionError("warm-up"))
+    body = {"tenant_id": str(uuid4()), "run_id": str(uuid4()), "slice": 0}
+    await _get(app, "/tasks/run-slice", method="POST", json=body)  # first-request imports
+    container.verify_task_token = blocks
+    ticks: list[float] = []
+
+    async def heartbeat() -> None:
+        for _ in range(8):
+            ticks.append(time.monotonic())
+            await asyncio.sleep(0.05)
+
+    slow, _ = await asyncio.gather(
+        _get(
+            app,
+            "/tasks/run-slice",
+            method="POST",
+            json=body,
+            headers={"Authorization": "Bearer t"},
+        ),
+        heartbeat(),
+    )
+    assert slow.status_code == 503
+    assert max(b - a for a, b in zip(ticks, ticks[1:], strict=False)) < 0.3  # the loop kept going
+
+
 def test_every_stage_is_wired_to_a_production_handler() -> None:
     from account_intelligence.platform.hermetic import ScriptedLlm
     from account_intelligence.workflow.deps import RunDeps

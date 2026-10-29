@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections import Counter
 from collections.abc import Coroutine, Iterable, Mapping
 from dataclasses import dataclass
@@ -125,6 +126,8 @@ from obs.logging import logger
 _log = logger(__name__)
 T = TypeVar("T")
 MAX_SPEND_PAUSES = 3
+# one planned row's pull may take this long (a third of a 1650 s slice); past it the row is a gap
+PULL_ROW_CEILING_S = 540
 STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "people")
 # extraction calls in flight at once per step (each call is independent; see _interpret). Each is
 # a one-request Message Batch that takes minutes on the provider's side, so the node's duration is
@@ -453,8 +456,29 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         async def pull_one(key: str) -> ManifestRow:
             """One row pulled; a spend pause is recorded and stops new rows from starting."""
             try:
-                return await agent.pull_row(
-                    ctx, cfg.plan[key], m, consent_problem=problem, internal_history=internal
+                async with asyncio.timeout(PULL_ROW_CEILING_S):
+                    return await agent.pull_row(
+                        ctx, cfg.plan[key], m, consent_problem=problem, internal_history=internal
+                    )
+            except TimeoutError:
+                # one provider call that never answers must not hold the whole node past the
+                # slice (no checkpoint, three empty slices, run ended PARTIAL on 2026-10-27/28).
+                # A row a code pipeline owns (jobs, tech) is handed to it: the pipeline re-issues
+                # the same ledger keys, replays the pages fetched so far and finishes the pull
+                # (the 12-month postings feed of a large account paginates for 20 minutes). Any
+                # other row is a named gap; every other row is kept.
+                handed = cfg.plan[key].pipeline in ("jobs", "tech") and deps.pipelines is not None
+                _log.log(
+                    logging.INFO if handed else logging.WARNING,
+                    "pull.row_slow",
+                    extra={
+                        "stage": key[:60],
+                        "waited_s": PULL_ROW_CEILING_S,
+                        "outcome": "handed_to_pipeline" if handed else "gap",
+                    },
+                )
+                return agent.blocked(
+                    cfg.plan[key], "owned_by_pipeline" if handed else "provider_slow"
                 )
             except SpendPause as pause:
                 pauses[key] = pause  # no new row starts; the rows in flight finish
@@ -857,6 +881,23 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             else:
                 counters.update(out.counters)
                 exits.update(out.exits)
+            # the organisation's tech stack (the Confirmed stack sheet): its own failure never
+            # touches the detection rows or ends the run
+            try:
+                stack_out = await deps.pipelines.write_stack(ctx)
+            except TokenGuardReached:
+                raise
+            except Exception as error:  # noqa: BLE001 - a store or lookup error never ends the run
+                if model_failure_code(error) is not None:
+                    raise
+                _log.warning(
+                    "pipelines.stack_failed", extra={"error_code": type(error).__name__[:80]}
+                )
+                counters["pipelines_stack_failed"] = 1
+                exits["stack"] = "failed"
+            else:
+                counters.update(stack_out.counters)
+                exits.update(stack_out.exits)
         else:
             exits["tech"] = "not_planned"
         # the people list (skill step 8), under the tenant's people data consent (G8): without

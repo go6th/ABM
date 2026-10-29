@@ -51,7 +51,7 @@ FROM python:3.12-slim@sha256:cb33f7f771ecec2ef1225cf39b159591a040391bd73e4c01f00
 # apt versions are deliberately unpinned so the upgrade can move (DL3008).
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get -y upgrade \
- && apt-get install -y --no-install-recommends nodejs poppler-utils libreoffice-writer \
+ && apt-get install -y --no-install-recommends nodejs poppler-utils libreoffice-writer libreoffice-calc \
  && apt-get clean && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --no-create-home app
 # Local payload store (compose mounts the shared `payloads` volume here; it inherits this owner).

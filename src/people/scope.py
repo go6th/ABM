@@ -10,12 +10,15 @@ Order (the first that applies decides; exclusion beats inclusion):
 5. ``review(employment_unknown)`` when nothing shows the person is current at the account (no
    current flag, no employer domain, and the record did not come from a search restricted to the
    account domain).
-6. ``review(level_unknown)`` when no level cue matches; ``out_of_scope(below_scope)`` when the
-   level is outside the scope.
+6. The level: ``review(level_unknown)`` only for a person with no title at all; a title with no
+   level cue is the default level (``other``, "Lead, owner, specialist or developer"). A level
+   below the seniority rule (band ``below``) stays on the list as ``in_scope`` only when the title
+   names a platform or technology (``people_stack_terms`` and the lane lexicon), else
+   ``out_of_scope(below_scope)``. The level is read from the title; the profile adds nothing.
 7. With a narrowed geography: ``review(location_unknown)`` or ``out_of_scope(outside_geography)``.
 8. ``review(exclusion_ambiguous)`` on a review cue.
-9. ``review(priority_unmatched)`` when no priority rule matches; otherwise ``in_scope`` with
-   level, lanes and priority.
+9. ``in_scope`` with level, platform lanes, the People List's one role lane and the priority,
+   both from the title alone (the priority is never unmatched: the rubric has a default).
 
 Every outcome carries the rule id and the matching substring or field value as evidence. No model
 decides any of this.
@@ -29,10 +32,10 @@ from dataclasses import dataclass
 from people.config import PeopleConfig
 from people.cues import clean, find_cue
 from people.exclusion import check_exclusion
-from people.lane import lanes_for
-from people.level import classify_level
+from people.lane import lanes_for, role_lane_for
+from people.level import LevelMatch, classify_level
 from people.models import Classification
-from people.priority import assign_priority
+from people.priority import priority_for_title
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,18 @@ def _same_org(domain: str | None, account_domain: str, allowed: Sequence[str] = 
     d = domain.strip().lower().removeprefix("www.")
     owned = (account_domain, *(a.lower() for a in allowed if a))
     return any(d == a or d.endswith("." + a) for a in owned)
+
+
+def names_stack(title: str | None, cfg: PeopleConfig) -> str | None:
+    """The first platform or technology word the TITLE names (the lane lexicon's platform names
+    and aliases, then ``people_stack_terms``), or ``None``. The headline does not count: the
+    owner's rule is that the title names it."""
+    text = clean(title)
+    for lane in cfg.lanes:
+        hit = find_cue(text, lane.terms)
+        if hit is not None:
+            return hit
+    return find_cue(text, cfg.stack_terms)
 
 
 def classify(
@@ -104,23 +119,35 @@ def classify(
         )
     level = classify_level(person.title, cfg.level_rules, cfg.level_order)
     if level is None:
-        return Classification(status="review", reason="level_unknown", rule_id="scope.level")
+        if not clean(person.title):
+            return Classification(status="review", reason="level_unknown", rule_id="scope.level")
+        level = LevelMatch(cfg.default_level, cfg.default_level_rule, "")
     lanes = tuple(m.lane for m in lanes_for(person.title, person.headline, cfg.lanes))
+    band = cfg.band_of_level[level.level]
+    stack: str | None = None
     if level.level not in cfg.levels_in_scope:
-        return Classification(
-            status="out_of_scope",
-            reason="below_scope",
-            rule_id=level.rule_id,
-            evidence=level.evidence,
-            level=level.level,
-            level_rule=level.rule_id,
-            lanes=lanes,
-        )
+        stack = names_stack(person.title, cfg)
+        if stack is None:
+            return Classification(
+                status="out_of_scope",
+                reason="below_scope",
+                rule_id=level.rule_id,
+                evidence=level.evidence or None,
+                level=level.level,
+                level_rule=level.rule_id,
+                band=band,
+                lanes=lanes,
+            )
+    lane = role_lane_for(
+        person.title, cfg.role_lanes, cfg.role_lane_default, cfg.role_lane_default_rule
+    )
     common = {
         "level": level.level,
         "level_rule": level.rule_id,
-        "band": cfg.band_of_level[level.level],
+        "band": band,
         "lanes": lanes,
+        "role_lane": lane.lane,
+        "role_lane_rule": lane.rule_id,
     }
     if regions:
         where = clean(person.location)
@@ -145,15 +172,13 @@ def classify(
             evidence=verdict.evidence,
             **common,
         )
-    priority = assign_priority(cfg.band_of_level[level.level], bool(lanes), cfg.priority_rules)
-    if priority is None:
-        return Classification(
-            status="review", reason="priority_unmatched", rule_id="scope.priority", **common
-        )
+    priority = priority_for_title(
+        person.title, cfg.priority_rules, cfg.priority_default, cfg.priority_default_rule
+    )
     return Classification(
         status="in_scope",
         rule_id=level.rule_id,
-        evidence=level.evidence,
+        evidence=stack or level.evidence or None,
         priority=priority.priority,
         priority_rule=priority.rule_id,
         **common,

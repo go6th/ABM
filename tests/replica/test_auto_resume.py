@@ -136,14 +136,16 @@ async def test_automatic_continuations_are_bounded(
 
     tenant, user = world["a"], f"bound-{uuid4().hex[:6]}"
     owners = _owners(tenant, user, world)
-    assert MAX_AUTO_RESUMES == 2
-    # a chain the platform already continued twice: a -> b -> c
-    a, _ = _run(tenant, user, "PARTIAL")
-    _job(tenant, a, user, status="done")
-    b, _ = _run(tenant, user, "PARTIAL")
-    _job(tenant, b, user, status="done", resume_from=a, request_id=auto_request_id(a))
+    assert MAX_AUTO_RESUMES == 5
+    # a chain the platform already continued MAX_AUTO_RESUMES times: a -> b -> ... -> c
+    prev, _ = _run(tenant, user, "PARTIAL")
+    _job(tenant, prev, user, status="done")
+    for _ in range(MAX_AUTO_RESUMES - 1):
+        nxt, _ = _run(tenant, user, "PARTIAL")
+        _job(tenant, nxt, user, status="done", resume_from=prev, request_id=auto_request_id(prev))
+        prev = nxt
     c, _ = _run(tenant, user, "RUNNING", idle_minutes=45)
-    _job(tenant, c, user, resume_from=b, request_id=auto_request_id(b))
+    _job(tenant, c, user, resume_from=prev, request_id=auto_request_id(prev))
     set_system()
     now = datetime.now(UTC)
     assert c in await mark_stalled(SessionLocal, tenant_txn, now)

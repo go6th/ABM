@@ -156,14 +156,19 @@ def _reasoning(ctx: MapContext, p: PostingRow | None, platform: str) -> str:
     return ctx.rendered("\n".join(naming), "evidence") if naming else ""
 
 
+def _archive(p: PostingRow | None) -> str:
+    """The posting's archived copy address, when one is stored."""
+    return p.archive_url if p is not None else ""
+
+
 def _lane_reads(ctx: MapContext, jobs: JobsModel | None) -> list[LaneReadGroup]:
     """Evidence part C, the reference's "Postings read one by one, by lane": one group per
     platform of the Job Postings matrix (``workbooks.jobs.matrix_platforms``) that a posting
     names, holding the postings read in full that name it, in workbook order, with the class,
     the status and the classification reasoning. The heading counts are the workbook's rows
     (the matrix rule: the platform name inside the Platforms named cell, any case)."""
-    if jobs is None:
-        return []
+    if jobs is None or not jobs.rows:
+        return []  # no postings at all: Part C says "None found" rather than eight empty lanes
     c = ctx.content
     rules = ctx.rules.evidence
     labels = ctx.rules.documents.labels
@@ -173,9 +178,9 @@ def _lane_reads(ctx: MapContext, jobs: JobsModel | None) -> list[LaneReadGroup]:
     groups: list[LaneReadGroup] = []
     n = 0
     for i, name in enumerate(ctx.rules.workbooks.jobs.matrix_platforms):
+        # a lane no posting names keeps its heading ("0 postings read in full"), as the
+        # reference prints every lane in its fixed order
         named = [r for r in jobs.rows if name.casefold() in r.platforms.casefold()]
-        if not named:
-            continue
         rows: list[LaneReadRow] = []
         for r in (r for r in named if r.full_text_read):
             n += 1
@@ -193,6 +198,7 @@ def _lane_reads(ctx: MapContext, jobs: JobsModel | None) -> list[LaneReadGroup]:
                     status=r.status,
                     reasoning=_reasoning(ctx, postings.get(r.row_id), name) or labels.no_sentence,
                     source_code=r.source_code,
+                    archive_url=_archive(postings.get(r.row_id)),
                 )
             )
         open_now = sum(1 for r in named if r.status == open_word)
@@ -381,6 +387,8 @@ def _live_postings(
                 entity=j.entity or c.account_name,
                 read=read,
                 posting_class=j.posting_class,
+                url=j.url,
+                archive_url=p.archive_url,
             )
         )
     ctx.registry.add(
@@ -596,6 +604,7 @@ def map_evidence(
                 )
                 if code in posting_of and not uses_by_code.get(code)
                 else "",
+                archive_url=s.archive_url,
             )
         )
 
@@ -623,6 +632,7 @@ def map_evidence(
                     status=j.status,
                     first_seen=seen.isoformat() if seen else "",
                     platforms=j.platforms,
+                    archive_url=p.archive_url,
                 )
             )
 
@@ -690,7 +700,10 @@ def map_evidence(
     news_feed_note = _news_feed_note(ctx)
 
     # I: every URL of the register, written out
-    urls = tuple(UrlRow(ref=ref("U", i), code=s.code, url=s.url) for i, s in enumerate(sources, 1))
+    urls = tuple(
+        UrlRow(ref=ref("U", i), code=s.code, url=s.url, archive_url=s.archive_url)
+        for i, s in enumerate(sources, 1)
+    )
 
     prefixes = ctx.rules.evidence.news_attribute_prefixes
     news: list[NewsItem] = []
@@ -765,11 +778,13 @@ def map_evidence(
     keyed += [(r.row_id, r.ref, digest(r)) for r in detections]
     keyed += [(r.row_id, r.ref, digest(r)) for r in platform_postings]
     keyed += [(r.row_id, r.ref, digest(r)) for r in entity_split]
-    keyed += [(f"url:{r.code}", r.ref, digest(r)) for r in urls]
+    # Part I is plain lines (one per code), as the reference prints it: its rows carry no
+    # visible key; the URL itself is the register's and is verified there
+    keyed += [(f"url:{r.code}", "", digest(r)) for r in urls]
     return Mapped(
         model,
         row_ids=tuple(k[0] for k in keyed),
         digests=tuple(k[2] for k in keyed),
-        refs=tuple(k[1] for k in keyed),
+        refs=tuple(k[1] for k in keyed if k[1]),
         cited=frozenset(s.code for s in sources),
     )

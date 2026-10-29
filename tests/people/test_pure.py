@@ -13,7 +13,7 @@ from people.config import PeopleConfig, ProfileUrlRule, TenureBucket
 from people.cues import clean, find_cue
 from people.errors import MergeError
 from people.exclusion import check_exclusion
-from people.lane import lanes_for
+from people.lane import lanes_for, role_lane_for
 from people.level import classify_level
 from people.merge import (
     MergeItem,
@@ -25,7 +25,7 @@ from people.merge import (
 )
 from people.models import Classification, PartialDate
 from people.names import names_equal, normalise_name, title_tokens, titles_similar
-from people.priority import assign_priority
+from people.priority import priority_for_title
 from people.scope import ScopeInput, classify
 from people.tenure import bucket_of, compute_tenure, months_between
 from people.urls import canonical_profile_url, is_profile_host
@@ -210,13 +210,29 @@ def test_unstable_plan_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     ("title", "level"),
     [
         ("Senior Manager, CRM", "senior_manager"),
+        ("Sr. Manager, CRM", "senior_manager"),
+        ("Sr Manager CRM", "senior_manager"),
+        ("Senior Program Manager, CRM", "senior_manager"),
         ("Head of Platforms", "head"),
+        ("Global Lead, Platforms", "head"),
         ("Director, Field Service", "director"),
+        ("Dir. of Field Service", "director"),
+        ("Senior Director, Field Service", "senior_director"),
+        ("Sr. Director Field Service", "senior_director"),
+        ("Executive Director, Field Service", "senior_director"),
+        ("Associate Director, Field Service", "associate_director"),
+        ("Assoc. Dir, Field Service", "associate_director"),
         ("VP Business Applications", "vp"),
+        ("Vice President, Business Applications", "vp"),
         ("Senior Vice President, IT", "svp"),
+        ("Executive Vice President, Operations", "evp"),
         ("Chief Information Officer", "c_level"),
+        ("CIO and EVP, Technology", "c_level"),
+        ("CTO", "c_level"),
         ("Manager, CRM", "manager"),
+        ("Mgr, CRM", "manager"),
         ("Program Lead", None),
+        ("Directory Services Analyst", None),
         (None, None),
     ],
 )
@@ -234,6 +250,20 @@ def test_lane(cfg: PeopleConfig) -> None:
     assert lanes_for("Director of Data and AI", None, cfg.lanes) == ()  # no terms until supplied
 
 
+def test_the_longest_cue_wins_before_the_most_senior_level(cfg: PeopleConfig) -> None:
+    """A cue inside a longer cue is set aside; of the cues left the most senior level wins."""
+    # "director" sits inside "associate director"; "manager" inside "senior manager"
+    assert classify_level("Associate Director", cfg.level_rules, cfg.level_order).level == (  # type: ignore[union-attr]
+        "associate_director"
+    )
+    # two separate cues: the more senior one (director) wins over a senior manager
+    mixed = classify_level("Senior Manager and Director, CRM", cfg.level_rules, cfg.level_order)
+    assert mixed is not None and mixed.level == "director"
+    # the evidence is the matched text of the winning cue
+    hit = classify_level("Sr. Director, CRM", cfg.level_rules, cfg.level_order)
+    assert hit is not None and hit.evidence == "Sr. Director"
+
+
 def test_exclusion_beats_inclusion_and_review(cfg: PeopleConfig) -> None:
     v = check_exclusion(
         "Director, Salesforce Security and Compliance", cfg.exclusion_rules, cfg.review_rules
@@ -243,17 +273,103 @@ def test_exclusion_beats_inclusion_and_review(cfg: PeopleConfig) -> None:
     assert (v.outcome, v.reason, v.rule_id) == ("excluded", "it_audit", "excl.it_audit")
     v = check_exclusion("Director, IT Compliance", cfg.exclusion_rules, cfg.review_rules)
     assert v.reason == "it_compliance"
+    for title, reason in (
+        ("Head of Cyber Risk", "security"),
+        ("Director, Cybersecurity Operations", "security"),
+        ("CISO", "security"),
+        ("Director, Internal Audit", "it_audit"),
+        ("Chief Privacy Officer", "privacy"),
+        ("Privacy Officer, EMEA", "privacy"),
+    ):
+        v = check_exclusion(title, cfg.exclusion_rules, cfg.review_rules)
+        assert (v.outcome, v.reason) == ("excluded", reason), title
     v = check_exclusion("Director, Compliance Platforms", cfg.exclusion_rules, cfg.review_rules)
     assert (v.outcome, v.reason) == ("review", "exclusion_ambiguous")
     assert check_exclusion(None, cfg.exclusion_rules, cfg.review_rules).outcome == "include"
 
 
-def test_priority(cfg: PeopleConfig) -> None:
-    assert assign_priority("senior", True, cfg.priority_rules).priority == "A"  # type: ignore[union-attr]
-    assert assign_priority("senior", False, cfg.priority_rules).priority == "B"  # type: ignore[union-attr]
-    assert assign_priority("manager", True, cfg.priority_rules).priority == "B"  # type: ignore[union-attr]
-    assert assign_priority("manager", False, cfg.priority_rules).priority == "C"  # type: ignore[union-attr]
-    assert assign_priority("other", False, cfg.priority_rules) is None
+@pytest.mark.parametrize(
+    ("title", "priority", "rule"),
+    [
+        # A: platform names, IT leadership
+        ("Director, Salesforce Platform", "A", "prio.a.platform_it"),
+        ("Chief Information Officer", "A", "prio.a.platform_it"),
+        ("VP of IT, Commercial", "A", "prio.a.platform_it"),
+        ("Head of IT", "A", "prio.a.platform_it"),
+        ("Senior Manager, Data Governance", "A", "prio.a.platform_it"),
+        ("Associate Director, Enterprise Architecture", "A", "prio.a.platform_it"),
+        ("SAP Master Data Specialist", "A", "prio.a.platform_it"),
+        # B: M&A and business integration, and the default
+        ("Director, M&A Integration", "B", "prio.b.integration"),
+        ("Commercial Integration and Analytics Specialist", "B", "prio.b.integration"),
+        ("Director of Operations", "B", "prio.b.default"),
+        ("Integration Engineer", "B", "prio.b.default"),
+        # C: a non-IT function, unless the title names a platform
+        ("Director of Finance and Treasury", "C", "prio.c.non_it"),
+        ("VP, Clinical Research", "C", "prio.c.non_it"),
+        ("Senior Manager, Regulatory Affairs", "C", "prio.c.non_it"),
+        ("Director of Finance Systems, SAP", "A", "prio.a.platform_it"),
+        ("Senior Manager, Clinical Systems", "A", "prio.a.platform_it"),
+        # the overrides win over a platform word
+        ("Executive Assistant to the SAP Program Director", "C", "prio.c.override"),
+        ("Retired, formerly Chief Information Officer", "C", "prio.c.override"),
+        ("Chief Information Officer Emeritus", "C", "prio.c.override"),
+        (None, "B", "prio.b.default"),
+    ],
+)
+def test_priority_from_the_title_alone(
+    cfg: PeopleConfig, title: str | None, priority: str, rule: str
+) -> None:
+    got = priority_for_title(
+        title, cfg.priority_rules, cfg.priority_default, cfg.priority_default_rule
+    )
+    assert (got.priority, got.rule_id) == (priority, rule), title
+
+
+@pytest.mark.parametrize(
+    ("title", "lane"),
+    [
+        ("Director of Global CRM Technology", "salesforce_commercial"),
+        ("VP, Digital Commerce", "salesforce_commercial"),
+        ("Sr. Integration Architect", "salesforce_integration"),
+        ("Head of Middleware and API Services", "salesforce_integration"),
+        ("Head of Shared Services", "servicenow_shared"),
+        ("Director, HR Systems", "servicenow_shared"),
+        ("Senior Manager, Quality Systems", "veeva_life_sciences"),
+        ("Manager, Veeva Vault Admin", "veeva_life_sciences"),
+        ("Manager, Master Data Governance", "sap_erp"),
+        ("Director, S/4HANA Program", "sap_erp"),
+        ("Director of Data Engineering", "analytics_data_ai"),
+        ("Head of Business Intelligence", "analytics_data_ai"),
+        ("Head of Information Technology", "technology_it"),
+        ("Director, Enterprise Architecture", "technology_it"),
+        ("Director of Quality", "business_other"),
+        # the first lane in rule order wins
+        ("Director, Salesforce and SAP", "salesforce_commercial"),
+        (None, "business_other"),
+    ],
+)
+def test_one_role_lane_per_person_first_rule_wins(
+    cfg: PeopleConfig, title: str | None, lane: str
+) -> None:
+    got = role_lane_for(title, cfg.role_lanes, cfg.role_lane_default, cfg.role_lane_default_rule)
+    assert got.lane == lane, title
+    assert got.rule_id.startswith("lane.")
+
+
+def test_every_title_rule_example_holds(cfg: PeopleConfig) -> None:
+    """The positive example of each lane and priority rule fires that rule; the negative does
+    not (the lane rules are ordered, so only the rule's own firing is checked)."""
+    for rule in cfg.role_lanes:
+        got = role_lane_for(rule.positive, cfg.role_lanes, cfg.role_lane_default, "d")
+        assert got.rule_id == rule.rule_id, rule.rule_id
+        other = role_lane_for(rule.negative, cfg.role_lanes, cfg.role_lane_default, "d")
+        assert other.rule_id != rule.rule_id, rule.rule_id
+    for rule in cfg.priority_rules:
+        got = priority_for_title(rule.positive, cfg.priority_rules, "B", "d")
+        assert got.rule_id == rule.rule_id, rule.rule_id
+        other = priority_for_title(rule.negative, cfg.priority_rules, "B", "d")
+        assert other.rule_id != rule.rule_id, rule.rule_id
 
 
 # ---- scope ----------------------------------------------------------------------------------
@@ -287,8 +403,16 @@ def _scope(**kw: object) -> ScopeInput:
         ({"has_url": False}, (), "unresolved", None),
         ({"search_domain": None}, (), "review", "employment_unknown"),
         ({"search_domain": None, "is_current": True}, (), "in_scope", None),
-        ({"title": "Program Lead"}, (), "review", "level_unknown"),
-        ({"title": "Manager, Salesforce"}, (), "out_of_scope", "below_scope"),
+        ({"title": None}, (), "review", "level_unknown"),
+        ({"title": "  "}, (), "review", "level_unknown"),
+        # below the seniority rule: removed unless the title names a platform or technology
+        ({"title": "Program Lead"}, (), "out_of_scope", "below_scope"),
+        ({"title": "Manager, Finance"}, (), "out_of_scope", "below_scope"),
+        ({"title": "Manager, Salesforce"}, (), "in_scope", None),
+        ({"title": "Program Lead, SAP"}, (), "in_scope", None),
+        ({"title": "Process Integration Biochemist"}, (), "in_scope", None),
+        ({"title": "Senior Director, Data Platforms"}, (), "in_scope", None),
+        ({"title": "Associate Director, Finance"}, (), "in_scope", None),
         ({"location": None}, ("Germany",), "review", "location_unknown"),
         ({"location": "Pune, India"}, ("Germany",), "out_of_scope", "outside_geography"),
         ({"location": "Berlin, Germany"}, ("Germany",), "in_scope", None),
@@ -307,11 +431,12 @@ def test_scope_rules(
     assert c.rule_id
 
 
-def test_scope_priority_unmatched(cfg: PeopleConfig) -> None:
+def test_a_priority_default_replaces_the_unmatched_review(cfg: PeopleConfig) -> None:
     from dataclasses import replace
 
     narrowed = replace(cfg, priority_rules=())
-    assert classify(_scope(), narrowed, DOMAIN).reason == "priority_unmatched"
+    c = classify(_scope(), narrowed, DOMAIN)
+    assert (c.status, c.priority, c.priority_rule) == ("in_scope", "B", "prio.b.default")
 
 
 def test_in_scope_carries_level_lane_priority_and_evidence(cfg: PeopleConfig) -> None:
@@ -321,7 +446,23 @@ def test_in_scope_carries_level_lane_priority_and_evidence(cfg: PeopleConfig) ->
         ("sap",),
         "A",
         "VP",
-        "prio.a.senior_lane",
+        "prio.a.platform_it",
+    )
+    assert (c.role_lane, c.role_lane_rule, c.band) == ("sap_erp", "lane.sap_erp", "senior")
+
+
+def test_a_person_below_the_rule_is_kept_with_the_term_that_names_a_platform(
+    cfg: PeopleConfig,
+) -> None:
+    c = classify(_scope(title="Senior ServiceNow Developer"), cfg, DOMAIN)
+    assert (c.status, c.level, c.band, c.evidence) == ("in_scope", "other", "below", "ServiceNow")
+    assert (c.level_rule, c.role_lane) == ("level.default", "servicenow_shared")
+    gone = classify(_scope(title="Quality Technician"), cfg, DOMAIN)
+    assert (gone.status, gone.reason, gone.level, gone.band) == (
+        "out_of_scope",
+        "below_scope",
+        "other",
+        "below",
     )
 
 

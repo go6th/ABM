@@ -316,14 +316,22 @@ def test_branding_refuses_every_hostile_input() -> None:
     assert branding.contrast_with_white("#000000") > 20
 
 
-def test_document_header_carries_the_brand_and_the_footer_keeps_the_attribution() -> None:
+def test_document_header_carries_the_brand_and_the_body_keeps_the_attribution() -> None:
+    """A white-label brand name prints in the header; the footer is the reference's page number
+    only, and the attribution is the reference's opening line in the body ("Research by 6th
+    agents"). A tenant without a brand has no header part at all."""
     content = rich().model_copy(update={"brand_name": "Synthetic Partners"})
     _, files = _assembled(content)
     with zipfile.ZipFile(io.BytesIO(files["summary"][1])) as z:
         headers = b"".join(z.read(n) for n in z.namelist() if n.startswith("word/header"))
-        footers = b"".join(z.read(n) for n in z.namelist() if n.startswith("word/footer"))
+        body = z.read("word/document.xml")
     assert b"Synthetic Partners" in headers
-    assert b"6th agents" in footers
+    assert b"6th agents" in body
+    _, plain = _assembled(rich())
+    with zipfile.ZipFile(io.BytesIO(plain["summary"][1])) as z:
+        assert b"Synthetic Partners" not in b"".join(
+            z.read(n) for n in z.namelist() if n.startswith("word/header")
+        )
 
 
 # ---------------------------------------------------------------- on PostgreSQL

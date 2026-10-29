@@ -120,6 +120,11 @@ class PipelinePort(Protocol):
         """Write the run's technology detections as rows (insert-only, idempotent)."""
         ...
 
+    async def write_stack(self, ctx: RunContext) -> PipelineOutcome:
+        """Write the organisation's tech stack as rows (insert-only, idempotent; both lookups
+        were made in Phase 1 and replay free)."""
+        ...
+
     async def run_people(self, ctx: RunContext) -> PipelineOutcome:
         """Run the people pipeline for the run (the caller has checked consent, G8)."""
         ...

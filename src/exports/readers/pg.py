@@ -26,12 +26,13 @@ import json
 from collections.abc import Awaitable, Callable
 from datetime import date
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_intelligence import archive as LA
 from account_intelligence.platform.ports import PayloadStore
 from account_intelligence.safety.client_output import ClientOutputLeak
 from account_intelligence.tracker.adapters import RunInputAdapter
@@ -51,6 +52,7 @@ from exports.content import (
     EvidenceRow,
     FactRow,
     FindingRow,
+    FoundVia,
     JobsCounts,
     PeopleCounts,
     PersonRow,
@@ -60,6 +62,7 @@ from exports.content import (
     SenseCheckRow,
     SnapshotContent,
     SourceRow,
+    StackRow,
     TrackerLine,
     WebHit,
 )
@@ -72,6 +75,7 @@ from jobs.counts import render_count_sentence
 from jobs.export import is_exported
 from jobs.models import CountBlock, NotSearched, PostingCounts
 from jobs.repo import PgPostingRepo
+from people.config import load_people_config
 from people.export import build_export
 from people.repo import PgPeopleRepo
 from tenancy.settings import ExclusionFilter, TenantSettings
@@ -184,11 +188,24 @@ class PgContentReader:
         batch: int,
         snapshot: Callable[[UUID], Any] = open_snapshot,
         key_for: Callable[..., Awaitable[str]] | None = None,
+        archive_base: str | None = None,
     ) -> None:
         self.payloads = payloads
         self.batch = batch
         self.snapshot = snapshot
         self.key_for = key_for
+        # the public web origin the archived-copy links are made absolute on (None: no links)
+        self.archive_base = archive_base.rstrip("/") if archive_base else None
+
+    def _archive_url(self, domain: str, url: str | None, found: dict[str, Any]) -> str:
+        """The absolute address serving our archived copy of ``url`` for the account, blank when
+        no copy is stored or no public origin is configured (the archive route of the API)."""
+        if not self.archive_base or not url or url not in found:
+            return ""
+        return (
+            f"{self.archive_base}/v1/accounts/{quote(domain, safe='')}/archive"
+            f"?url={quote(url, safe='')}"
+        )
 
     async def read(self, tenant_id: str, run_id: str) -> SnapshotContent:
         """All rows of the build (see the module docstring)."""
@@ -315,10 +332,32 @@ class PgContentReader:
                 counts["tech_detections"],
                 "tech_detections",
             )
+            # the organisation tech stack of the run, in the feed's own order (the Confirmed stack)
+            counts["tech_stack_items"] = await _count(
+                s,
+                "SELECT count(*) FROM tech_stack_items WHERE run_id = :r AND account_id = :a",
+                p,
+            )
+            stack = await _keyset(
+                s,
+                "SELECT id, business_function, category, technology, postings, position"
+                " FROM tech_stack_items WHERE run_id = :r AND account_id = :a"
+                " AND id::text > :after ORDER BY id::text LIMIT :batch",
+                p,
+                self.batch,
+                counts["tech_stack_items"],
+                "tech_stack_items",
+            )
 
             factory = session_factory(s, tid)
             people_part = await self._people(factory, tid, account_id, run_id, s)
-            jobs_part = await self._jobs(factory, tid, account_id, run_id)
+            jobs_part = await self._jobs(factory, tid, account_id, run_id, s, head.domain)
+            # the archived copies behind the source links (link archive, same snapshot)
+            archived_sources = (
+                await LA.lookup(s, account_id, [x.url for x in sources if x.url])
+                if self.archive_base
+                else {}
+            )
             tracker, tally = await self._tracker(s, rid)
             lock = await load_entity_lock(s, run_id=rid)
             ledger = await load_ledger_calls(s, run_id=rid)
@@ -381,6 +420,7 @@ class PgContentReader:
                     kind=x.kind,
                     title=x.title,
                     publisher=x.publisher,
+                    archive_url=self._archive_url(head.domain, x.url, archived_sources),
                 )
                 for x in sorted(sources, key=lambda x: x.source_code)
             ),
@@ -411,6 +451,16 @@ class PgContentReader:
                     source_code=None,
                 )
                 for d in sorted(detections, key=lambda d: (d.technology.casefold(), str(d.id)))
+            ),
+            stack=tuple(
+                StackRow(
+                    id=str(x.id),
+                    business_function=x.business_function,
+                    category=x.category,
+                    technology=x.technology,
+                    postings=int(x.postings),
+                )
+                for x in sorted(stack, key=lambda x: (x.position, str(x.id)))
             ),
             tracker=tracker,
             tracker_tally=tally,
@@ -495,6 +545,7 @@ class PgContentReader:
                 result.source_codes,
                 erased,
                 result.profiles,
+                load_people_config().si_firms,
             )
         except ClientOutputLeak as leak:
             raise LeakError("people export", tuple(h.pattern for h in leak.hits)) from None
@@ -521,6 +572,16 @@ class PgContentReader:
                 second_profile_url=r.second_profile_url,
                 profile_title=profile_titles.get(r.profile_url),
                 location=r.location,
+                role_lane=r.role_lane,
+                found_via=tuple(
+                    FoundVia(
+                        origin=v.origin,
+                        pass_no=v.pass_no,
+                        lane=v.lane,
+                        mention_url=v.mention_url,
+                    )
+                    for v in r.found_via
+                ),
             )
             for r in export.rows
         )
@@ -541,15 +602,30 @@ class PgContentReader:
             ),
         }
 
-    async def _jobs(self, factory: Any, tid: UUID, account_id: UUID, run_id: str) -> dict[str, Any]:
+    async def _jobs(
+        self,
+        factory: Any,
+        tid: UUID,
+        account_id: UUID,
+        run_id: str,
+        s: AsyncSession,
+        domain: str,
+    ) -> dict[str, Any]:
         record = await PgPostingRepo(factory, tid, account_id).load_run(run_id)
         if record is None:
             return {}
-        rows = []
-        for p in sorted(
+        exported = sorted(
             (p for p in record.postings if is_exported(p)),
             key=lambda p: (p.posted_at or date.min, p.posting_key),
-        ):
+        )
+        # the archived copy behind each posting link (the job repo archives every stored text)
+        archived = (
+            await LA.lookup(s, account_id, [p.url for p in exported if p.url])
+            if self.archive_base
+            else {}
+        )
+        rows = []
+        for p in exported:
             description = ""
             if p.text_ref:
                 body = await self.payloads.get(p.text_ref)
@@ -576,6 +652,11 @@ class PgContentReader:
                         (p.classification.evidence_sentence or "") if p.classification else ""
                     ),
                     location=p.location or "",
+                    last_seen=p.last_seen,
+                    seniority=p.seniority or "",
+                    platform_sentence_pairs=tuple((x.platform, x.text) for x in p.sentences),
+                    new_since_previous=p.new_since_previous,
+                    archive_url=self._archive_url(domain, p.url, archived),
                 )
             )
         return {"postings": tuple(rows), "jobs_counts": _jobs_counts(record.counts)}

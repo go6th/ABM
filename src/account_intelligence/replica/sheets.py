@@ -134,8 +134,13 @@ SHEETS: dict[str, Sheet] = {
                 # profile page the research cited (never the page that merely named them), or
                 # the profile the people search found for the same name on this account
                 " coalesce(nullif(f.value_json->>'link', ''), nullif(f.value_json->>'profile_url',"
-                "   ''), CASE WHEN e.url ~* '^https?://([a-z]+[.])?linkedin[.]com/(in|pub)/'"
-                "   THEN e.url END,"
+                "   ''),"
+                # any evidence of the fact that is the person's own profile page, not only the
+                # newest (a fact quoted from a release and from the profile lost the profile
+                # when the release was dated later; link archive 2026-10-27)
+                "   (SELECT x.url FROM fact_evidence x WHERE x.fact_id = f.id"
+                "     AND x.url ~* '^https?://([a-z]+[.])?linkedin[.]com/(in|pub)/'"
+                "     ORDER BY x.evidence_date DESC NULLS LAST, x.id LIMIT 1),"
                 "   (SELECT p2.profile_url FROM people p2 WHERE p2.account_id = f.account_id"
                 "     AND p2.profile_url IS NOT NULL AND NOT p2.excluded AND p2.merged_into IS NULL"
                 "     AND p2.erased_at IS NULL AND lower(p2.name) = lower(trim(split_part("
@@ -531,6 +536,52 @@ def _heading(text_value: str) -> str:
     return re.sub(r"^\d+\.\s*", "", text_value)
 
 
+def _link_text(rules: Any, table: str, column_key: str) -> str | None:
+    """What a link column of a file-shaped sheet shows in place of the address: the label the
+    workbook column itself configures (``workbooks.<kind>.columns[].link_text``: "Open posting",
+    "Open archived copy"), else the workbook's sheet text (``sheet_texts.<kind>.link_text``
+    "Open profile"; an archived-copy column its ``archived_link_text``), else None (the address
+    itself). One rule for every url column, so the screen reads as the file does."""
+    kind = {"people": "people", "jobs": "jobs", "tech": "tech"}.get(table)
+    book = getattr(rules.workbooks, kind, None) if kind else None
+    for column in getattr(book, "columns", ()) or ():
+        label = getattr(column, "link_text", None)
+        if column.key == column_key and isinstance(label, str) and label.strip():
+            return label
+    texts = getattr(rules.sheet_texts, table, None)
+    if "archiv" in column_key:
+        archived = getattr(texts, "archived_link_text", None)
+        if isinstance(archived, str) and archived.strip():
+            return archived
+    text_value = getattr(texts, "link_text", None)
+    return text_value if isinstance(text_value, str) and text_value.strip() else None
+
+
+def chip_specs(table: str, columns: Any, rules: Any) -> list[tuple[str, str, str, str]]:
+    """The filter chips of a file-shaped table beside All, as ``(key, label, column key, value)``:
+    the rows whose cell in that column is exactly the value. One definition for the stored table
+    (a SQL condition, ``file_sheet``) and for the delivered file read back (``file_tabs``, a
+    match on the column's header), so a chip means the same on both."""
+    labels = rules.labels
+    header = {c.key: c.header for c in columns}
+    if table == "people":
+        return [
+            ("priority_a", "Priority A", "priority", "A"),
+            ("senior", header["meets_seniority"], "meets_seniority", labels.yes),
+        ]
+    if table == "jobs":
+        return [(f"status_{k}", word, "status", word) for k, word in labels.posting_status.items()]
+    if table == "facts":
+        st = rules.statement_text
+        return [("may_state", st.may_state, "use", st.may_state), ("ask", st.ask, "use", st.ask)]
+    if table == "coverage":
+        return [
+            (f"status_{i}", word, "status", word)
+            for i, word in enumerate(rules.documents.labels.remains, start=1)
+        ]
+    return []
+
+
 @cache
 def file_sheet(key: str) -> Sheet:
     """The file-shaped sheet of one sheet key, built from the export configuration (the same
@@ -548,9 +599,7 @@ def file_sheet(key: str) -> Sheet:
             raise ValueError(f"unusable column key {c.key!r} in table {table}")
         shown = _SHOWN.get((table, c.key), _KIND_SHOWN.get(c.kind, "text"))
         sortable = c.kind not in ("text_long", "url")
-        link_text = (
-            rules.sheet_texts.people.link_text if (table == "people" and c.kind == "url") else None
-        )
+        link_text = _link_text(rules, table, c.key) if c.kind == "url" else None
         cols.append(
             Col(c.key, c.header, f"s._cells->'{c.key}'" if sortable else None, shown, link_text)
         )
@@ -561,32 +610,9 @@ def file_sheet(key: str) -> Sheet:
         f" AND v.table_kind = {_lit(table)}"
     )
 
-    def chip(k: str, label: str, column: str, value: str) -> Filter:
-        return Filter(k, label, f's."{column}" = {_lit(value)}')
-
     chips: list[Filter] = [Filter("all", "All", "true")]
-    labels = rules.labels
-    if table == "people":
-        header = {c.key: c.header for c in spec.exported_columns}
-        chips += [
-            chip("priority_a", "Priority A", "priority", "A"),
-            chip("senior", header["meets_seniority"], "meets_seniority", labels.yes),
-        ]
-    elif table == "jobs":
-        chips += [
-            chip(f"status_{k}", word, "status", word) for k, word in labels.posting_status.items()
-        ]
-    elif table == "facts":
-        st = rules.statement_text
-        chips += [
-            chip("may_state", st.may_state, "use", st.may_state),
-            chip("ask", st.ask, "use", st.ask),
-        ]
-    elif table == "coverage":
-        chips += [
-            chip(f"status_{i}", word, "status", word)
-            for i, word in enumerate(rules.documents.labels.remains, start=1)
-        ]
+    for k, label, column, value in chip_specs(table, spec.exported_columns, rules):
+        chips.append(Filter(k, label, f's."{column}" = {_lit(value)}'))
     # ``file`` names the sheet's own export (Open in Excel); ``sheet_name`` the file's sheet, or
     # the Account Summary table, it matches
     if table == "facts":
@@ -714,7 +740,9 @@ def _judge(key: str, pre: _FilePrefetch) -> tuple[UUID, int] | None:
 
     want = {c.key for c in specs()[table].columns}  # type: ignore[index]
     first = pre.first.get(table)
-    if first is not None and set(dict(first)) != want:
+    # a stored row with every configured key stands (extra keys are columns the screen does not
+    # show); one missing a configured key was stored under an earlier column set
+    if first is not None and not want <= set(dict(first)):
         return None
     count = pre.counts.get(table, 0)
     if _FILE_KIND[table] != "summary" and count != printed:
@@ -853,6 +881,85 @@ def row_out(q: Query, n: int, r: Any, now: datetime) -> dict[str, Any]:
             value = c.link_text or value
         cells[c.key] = value
     return {"n": n, "cells": cells, "links": links, **link_fields(r.get("link"))}
+
+
+# A cell on a page of the table is shown up to this many characters; the whole cell is in the
+# file and one request away (``GET .../sheets/{sheet}/cell``). The reference Jobs sheet holds
+# descriptions of 32,000 characters: 200 uncapped rows were a 2 MB page (audit 2026-10-29, F3).
+CELL_CAP = 2000
+
+
+def cap_rows(rows: list[dict[str, Any]], cap: int = CELL_CAP) -> None:
+    """Cut every cell past ``cap`` characters (an ellipsis closes it) and record the cut under
+    ``row["cut"]`` as column key -> the full length, so the screen can offer the whole cell."""
+    for row in rows:
+        cut: dict[str, int] = {}
+        cells = row.get("cells") or {}
+        for key, value in cells.items():
+            if isinstance(value, str) and len(value) > cap:
+                cut[key] = len(value)
+                cells[key] = value[: cap - 1].rstrip() + "\u2026"
+        row["cut"] = cut
+
+
+def scrub_rows(rows: list[dict[str, Any]]) -> int:
+    """The client-output guard on a page of rows, withholding per cell: tool names are scrubbed
+    from every cell, a cell that still carries a provider term, a guarded person name or a
+    provider domain reads ``WITHHELD``, and a link to a provider domain is dropped. Returns the
+    cells withheld. The page always loads (the exports do the same, ``safe_cell``)."""
+    from agents.naming import scrub_client_text, third_party_domain_hits
+
+    held = 0
+    for row in rows:
+        cells = row.get("cells") or {}
+        for key, value in list(cells.items()):
+            if not isinstance(value, str) or not value:
+                continue
+            cleaned, withheld = scrub_client_text(value)
+            if withheld:
+                held += 1
+                cells[key] = WITHHELD
+                (row.get("cut") or {}).pop(key, None)
+            else:
+                cells[key] = cleaned
+        for key, href in list((row.get("links") or {}).items()):
+            if isinstance(href, str) and third_party_domain_hits(href):
+                del row["links"][key]
+                held += 1
+        if isinstance(row.get("link"), str) and third_party_domain_hits(str(row["link"])):
+            row["link"] = None
+            row["link_label"] = None
+            held += 1
+    return held
+
+
+async def attach_archives(
+    session: Any, account_id: UUID, rows: list[dict[str, Any]], domain: str
+) -> None:
+    """Give each row the archived copy behind its links (``row["archives"]``: column key, or
+    ``link`` for the row's source link, to the address of the archived copy and when it was
+    captured), so a link that died still opens what the research captured."""
+    from urllib.parse import quote
+
+    from account_intelligence.archive import lookup
+
+    wanted: set[str] = set()
+    for row in rows:
+        wanted.update(v for v in (row.get("links") or {}).values() if v)
+        if row.get("link"):
+            wanted.add(str(row["link"]))
+    found = await lookup(session, account_id, sorted(wanted)) if wanted else {}
+    base = f"/v1/accounts/{domain}/archive?url="
+    for row in rows:
+        archives: dict[str, dict[str, str]] = {}
+        for key, url in (*(row.get("links") or {}).items(), ("link", row.get("link"))):
+            hit = found.get(str(url)) if url else None
+            if hit is not None:
+                archives[key] = {
+                    "href": base + quote(str(url), safe=""),
+                    "archived_at": hit.archived_at.isoformat(),
+                }
+        row["archives"] = archives
 
 
 def link_fields(raw: Any) -> dict[str, str | None]:

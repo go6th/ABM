@@ -75,7 +75,7 @@ jobs:
       - name: LibreOffice and poppler (the export checks render and read back documents)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer poppler-utils
+          sudo apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer libreoffice-calc poppler-utils
       - name: Cloud Storage and Cloud Tasks emulators (port contract tests; same pins as compose.yml)
         run: |
           docker run -d -p 4443:4443 fsouza/fake-gcs-server:1.56.1 \

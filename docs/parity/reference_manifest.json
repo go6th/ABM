@@ -1,0 +1,223 @@
+{
+ "Job_Postings.xlsx": [
+  {
+   "name": "Summary",
+   "order": 0,
+   "freeze": null,
+   "filter": null,
+   "widths": {
+    "A": 52.0,
+    "B": 18.0
+   },
+   "merged": [
+    "A4:H4",
+    "A3:H3",
+    "A7:H7",
+    "A5:H5",
+    "A6:H6"
+   ],
+   "header_row": 10,
+   "headers": [
+    "Platform (named anywhere), {prefix} positions only",
+    "Total",
+    "Closed",
+    "Open",
+    "Build role",
+    "Admin and owner role",
+    "Working tool",
+    "User role"
+   ]
+  },
+  {
+   "name": "Jobs",
+   "order": 1,
+   "freeze": "C9",
+   "filter": "A1:N1898",
+   "widths": {
+    "A": 12.0,
+    "B": 44.0,
+    "C": 18.0,
+    "D": 20.0,
+    "E": 9.0,
+    "F": 11.0,
+    "H": 26.0,
+    "I": 11.0,
+    "J": 26.0,
+    "K": 50.0,
+    "L": 70.0,
+    "M": 60.0,
+    "N": 13.0
+   },
+   "merged": [],
+   "header_row": 1,
+   "headers": [
+    "Requisition",
+    "Title",
+    "Platforms named",
+    "Class",
+    "Status",
+    "First seen",
+    "Last seen",
+    "Location",
+    "Seniority",
+    "Entity",
+    "What the posting says (read)",
+    "Platform sentences",
+    "Full description",
+    "Link"
+   ]
+  }
+ ],
+ "People_List.xlsx": [
+  {
+   "name": "Summary",
+   "order": 0,
+   "freeze": null,
+   "filter": null,
+   "widths": {
+    "A": 44.0,
+    "B": 12.0
+   },
+   "merged": [
+    "A5:F5",
+    "A8:F8",
+    "A6:F6",
+    "A4:F4",
+    "A3:F3",
+    "A7:F7"
+   ],
+   "header_row": 11,
+   "headers": [
+    "Level",
+    "People",
+    "Priority A"
+   ]
+  },
+  {
+   "name": "People",
+   "order": 1,
+   "freeze": "C2",
+   "filter": "A1:M737",
+   "widths": {
+    "A": 6.0,
+    "B": 26.0,
+    "C": 56.0,
+    "D": 22.0,
+    "E": 11.0,
+    "F": 30.0,
+    "G": 9.0,
+    "H": 30.0,
+    "J": 13.0,
+    "L": 24.0,
+    "M": 50.0
+   },
+   "merged": [],
+   "header_row": 1,
+   "headers": [
+    "No.",
+    "Name",
+    "Title as reported",
+    "Level",
+    "Meets seniority rule",
+    "Lane",
+    "Priority",
+    "Former SI and consulting employers (firm and years)",
+    "Found by",
+    "LinkedIn",
+    "Second profile",
+    "Location",
+    "Note"
+   ]
+  }
+ ],
+ "Tech_Stack_and_Teams.xlsx": [
+  {
+   "name": "Platform Ranking",
+   "order": 0,
+   "freeze": "A9",
+   "filter": "A8:J33",
+   "widths": {
+    "A": 8.0,
+    "B": 30.0,
+    "C": 26.0,
+    "D": 22.0,
+    "E": 12.0,
+    "F": 10.0,
+    "H": 12.0,
+    "I": 14.0
+   },
+   "merged": [
+    "A6:J6",
+    "A5:J5",
+    "A4:J4",
+    "A3:J3"
+   ],
+   "header_row": 8,
+   "headers": [
+    "Rank",
+    "Platform",
+    "Category",
+    "Lane",
+    "Postings naming it",
+    "Share of base",
+    "Open now",
+    "Last seen",
+    "In confirmed stack",
+    "Matches checked by reading"
+   ]
+  },
+  {
+   "name": "Confirmed stack",
+   "order": 1,
+   "freeze": "A5",
+   "filter": "A4:E216",
+   "widths": {
+    "A": 26.0,
+    "B": 40.0,
+    "C": 34.0,
+    "D": 18.0,
+    "E": 26.0
+   },
+   "merged": [
+    "A2:E2"
+   ],
+   "header_row": 4,
+   "headers": [
+    "Business function",
+    "Category",
+    "Technology",
+    "Postings naming it",
+    "Lane"
+   ]
+  },
+  {
+   "name": "Platform teams",
+   "order": 2,
+   "freeze": "A5",
+   "filter": null,
+   "widths": {
+    "A": 40.0,
+    "B": 30.0,
+    "C": 10.0,
+    "D": 12.0,
+    "F": 70.0,
+    "G": 50.0,
+    "H": 40.0
+   },
+   "merged": [
+    "A2:H2"
+   ],
+   "header_row": 4,
+   "headers": [
+    "Team",
+    "Lane technologies named",
+    "Postings count",
+    "First activity",
+    "Last activity",
+    "Team technologies (name, postings)",
+    "Team locations (place, postings)",
+    "Job functions"
+   ]
+  }
+ ]
+}

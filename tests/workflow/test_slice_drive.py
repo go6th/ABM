@@ -192,7 +192,14 @@ def _checkpointer() -> Any:
     return saver
 
 
-async def _run_slice(monkeypatch: Any, graph: Any, counts: list[int], *, limit: int = 3) -> Any:
+async def _run_slice(
+    monkeypatch: Any,
+    graph: Any,
+    counts: list[int],
+    *,
+    limit: int = 3,
+    replies: tuple[int, ...] = (0, 0),
+) -> Any:
     """One slice of ``graph`` with a 10 ms timer; ``counts`` is the no-progress counter as the
     run row would hold it (one element), updated the way ``lifecycle.count_no_progress`` does."""
     from account_intelligence.runs import lifecycle
@@ -216,6 +223,12 @@ async def _run_slice(monkeypatch: Any, graph: Any, counts: list[int], *, limit: 
     monkeypatch.setattr(runner, "_begin", begin)
     monkeypatch.setattr(runner, "_status", status)
     monkeypatch.setattr(runner, "CANCEL_POLL_S", 0.001)
+    seen = iter(replies)
+
+    async def model_replies(_s: Any, _run: Any) -> int:
+        return next(seen)
+
+    monkeypatch.setattr(lifecycle, "model_replies", model_replies)
     monkeypatch.setattr(lifecycle, "count_no_progress", count_no_progress)
     monkeypatch.setattr(runner, "_end_no_progress", end_no_progress)
     settings = runner.SliceSettings(slice_seconds=0.01, max_no_progress_slices=limit)
@@ -255,6 +268,18 @@ async def test_a_slice_that_moves_the_checkpoint_starts_the_count_again(monkeypa
     moving = _StuckGraph(_Snap("c9", ("interpret",)), _Snap("c10", ("pipelines",)))
     outcome, ended = await _run_slice(monkeypatch, moving, counts)
     assert outcome.outcome == "continue" and counts == [0] and ended == []
+
+
+@pytest.mark.asyncio
+async def test_a_long_node_that_stores_new_model_replies_is_progress(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The checkpoint stays on the pending node but the slice stored new model replies (the next
+    slice reuses them): the count of empty slices starts again, not grows."""
+    counts = [2]
+    stuck = _StuckGraph(_Snap("c9", ("pipelines",)))
+    outcome, ended = await _run_slice(monkeypatch, stuck, counts, replies=(10, 25))
+    assert outcome.outcome == "continue" and counts == [0] and ended == []
+    outcome, ended = await _run_slice(monkeypatch, stuck, counts, replies=(25, 25))
+    assert counts == [1]
 
 
 @pytest.mark.asyncio
@@ -298,8 +323,12 @@ async def test_a_stale_redelivery_of_a_finished_slice_does_not_begin_again(monke
         begun.append(expected)
         return None  # slices_used != expected: already begun
 
+    async def slices_used(_s: Any, _run: Any) -> int:
+        return 5  # slices 0 to 4 began: slice 3 is well past
+
     monkeypatch.setattr(lifecycle, "current_status", current_status)
     monkeypatch.setattr(lifecycle, "begin_slice", begin_slice)
+    monkeypatch.setattr(lifecycle, "slices_used", slices_used)
 
     @asynccontextmanager
     async def txn(_tenant: Any) -> Any:
@@ -309,3 +338,49 @@ async def test_a_stale_redelivery_of_a_finished_slice_does_not_begin_again(monke
     outcome = await runner._begin(deps, runner.SliceSettings(), 3)  # type: ignore[arg-type]
     assert outcome is not None and outcome.outcome == "noop"
     assert begun == [3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "resumes"),
+    [
+        (RunStatus.RUNNING, True),
+        (RunStatus.DISTILLING, True),
+        (RunStatus.VERIFYING, True),
+        (RunStatus.AWAITING_APPROVAL, False),
+    ],
+)
+async def test_a_redelivered_slice_whose_first_copy_died_resumes_the_run(
+    monkeypatch, status: RunStatus, resumes: bool
+) -> None:  # type: ignore[no-untyped-def]
+    """The worker was shut down mid-slice (liveness failures, 2026-10-28). Cloud Tasks redelivers
+    the slice; it finds itself already counted but no later slice begun and the run still
+    active: it resumes from the checkpoint instead of orphaning the run until the sweep. A run
+    waiting for approval is left waiting."""
+    from contextlib import asynccontextmanager
+
+    from account_intelligence.runs import lifecycle
+
+    async def current_status(_s: Any, _run: Any) -> RunStatus:
+        return status
+
+    async def begin_slice(_s: Any, _run: Any, *, expected: int | None = None) -> int | None:
+        return None
+
+    async def slices_used(_s: Any, _run: Any) -> int:
+        return 4  # slices 0 to 3 began; slice 3 is the last and this is its second copy
+
+    monkeypatch.setattr(lifecycle, "current_status", current_status)
+    monkeypatch.setattr(lifecycle, "begin_slice", begin_slice)
+    monkeypatch.setattr(lifecycle, "slices_used", slices_used)
+
+    @asynccontextmanager
+    async def txn(_tenant: Any) -> Any:
+        yield None
+
+    deps = type("D", (), {"txn": staticmethod(txn), "tenant_id": None, "run_id": None})()
+    outcome = await runner._begin(deps, runner.SliceSettings(), 3)  # type: ignore[arg-type]
+    if resumes:
+        assert outcome is None  # the graph runs
+    else:
+        assert outcome is not None and outcome.outcome == "awaiting"

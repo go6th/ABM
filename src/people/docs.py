@@ -82,14 +82,42 @@ def render_rubric(cfg: PeopleConfig) -> str:
     out += ["", "## Review", "", *_cues(cfg.review_rules)]
     out += [
         "",
-        "## Priority (first match wins)",
+        "## Priority (from the title alone; first match wins)",
         "",
-        "| Rule | Priority | Band | Lane required |",
+        "| Rule | Priority | Cues | Patterns | Unless the title names |",
+        "|---|---|---|---|---|",
+    ]
+    out += [
+        f"| `{r.rule_id}` | {r.value} | {', '.join(r.cues)} | {', '.join(r.patterns)} |"
+        f" {', '.join(r.unless_cues)} |"
+        for r in cfg.priority_rules
+    ]
+    out.append(f"\nNo rule matches: `{cfg.priority_default}` (`{cfg.priority_default_rule}`).")
+    out += [
+        "",
+        "## People List lanes (one per person, from the title alone; first match wins)",
+        "",
+        "| Rule | Lane | Cues | Patterns |",
         "|---|---|---|---|",
     ]
     out += [
-        f"| `{r.rule_id}` | {r.priority} | {r.band} | {r.lane_required} |"
-        for r in cfg.priority_rules
+        f"| `{r.rule_id}` | {r.value} | {', '.join(r.cues)} | {', '.join(r.patterns)} |"
+        for r in cfg.role_lanes
+    ]
+    out.append(f"\nNo rule matches: `{cfg.role_lane_default}`.")
+    out += [
+        "",
+        "## Below the seniority rule",
+        "",
+        f"Levels below the rule: {', '.join(sorted(cfg.below_levels))}; a title with no level"
+        " cue is"
+        f" `{cfg.default_level}`. Such a person stays on the list (Meets seniority rule No) only"
+        " when the title names a platform of the lane lexicon or one of these technology words:"
+        f" {', '.join(cfg.stack_terms)}.",
+        "",
+        "## Former SI and consulting employers",
+        "",
+        f"Firms: {', '.join(f.firm for f in cfg.si_firms)}.",
     ]
     out += ["", "## Lanes (shared lexicon)", "", "| Lane | Terms |", "|---|---|"]
     out += [

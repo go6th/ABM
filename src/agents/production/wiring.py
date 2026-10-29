@@ -26,6 +26,7 @@ from uuid import UUID
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from account_intelligence.archive import LinkArchive
 from account_intelligence.grading.adapters import LedgerAdapter
 from account_intelligence.grading.config import load_grading_config
 from account_intelligence.platform.ports import NotConfigured
@@ -44,6 +45,7 @@ from agents.production.payloads import StorePayloads
 from agents.production.provider import ConnectorProvider
 from agents.production.state import PgRunRecords, SettingsAdapter
 from agents.production.tracker import TrackerAdapter
+from jobs.incremental import postings_since
 from llm.errors import SchemaInvalid
 from llm.schema import REASK_NOTE, validate
 
@@ -192,6 +194,7 @@ def abm_deps(
             resume_from=deps.resume_from,
             as_of=as_of,
             skill=cfg,
+            postings_since=postings_since(deps.run_input),
         )
         ledger = InheritedLedger(
             LedgerAdapter(
@@ -211,7 +214,13 @@ def abm_deps(
         clock=deps.clock,
         model=RunDepsModel(deps),
         provider=provider,
-        payloads=StorePayloads(deps.payloads, deps.account_id),
+        payloads=StorePayloads(
+            deps.payloads,
+            deps.account_id,
+            archive=LinkArchive(
+                deps.txn, deps.tenant_id, deps.account_id, deps.run_id, deps.payloads, deps.clock
+            ),
+        ),
         manifests=PgManifestStore(),
         consent=PgConsentStore(),
         settings=SettingsAdapter(deps.txn, deps.run_id, cfg),

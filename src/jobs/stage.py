@@ -4,7 +4,10 @@
 
 1. If the run has a stored record (first pass or a later gap pass), it is replayed with zero
    paid calls. Otherwise one full pass runs, each posting's text goes to the payload store, and
-   the record is persisted (``save_run``).
+   the record is persisted (``save_run``). An incremental re-research (``run_input.
+   previous_postings()``, see ``jobs.incremental``) carries the previous delivered research's
+   postings into the pass with their stored texts read back from the payload store; only the
+   delta is pulled, read and classified.
 2. Gap passes, at most ``max_gap_passes``: each re-processes only the remainder (``jobs.gap``)
    with texts read back from the payload store (no re-pull, no paid source call) inside the
    run-level caps, and is persisted as its own numbered pass (``save_pass``) before the next one
@@ -20,12 +23,16 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
+from crosscut.fanout import fan_out_all
 from jobs.gap import gap_remainder
 from jobs.pipeline import JobsPipeline, PipelineResult, replayed
 from jobs.ports import CoverageEvidencePort, GradingPort, PayloadStore, PostingRepo, RunInputPort
 
 FINAL_GAP_EXITS = frozenset({"converged", "no_progress", "budget", "cap_reached"})
+# stored texts of carried postings read back side by side (the payload store, no paid call)
+TEXT_CONCURRENCY = 16
 
 
 async def run_jobs(
@@ -44,7 +51,11 @@ async def run_jobs(
     if isinstance(stored, PipelineResult):
         result = replayed(stored)
     else:
-        result = await pipeline.run_pass(run_id, lanes_off, await run_input.as_of())
+        previous = await run_input.previous_postings()
+        carried_texts = await _carried_texts(previous, payloads)
+        result = await pipeline.run_pass(
+            run_id, lanes_off, await run_input.as_of(), previous, carried_texts
+        )
         result = await _store_texts(run_id, result, pipeline, payloads)
         calls += result.calls_made
         await repo.save_run(run_id, result)
@@ -84,6 +95,29 @@ async def run_jobs(
 
 def _with_gap(result: PipelineResult, reason: str) -> PipelineResult:
     return replace(result, exit_reasons={**result.exit_reasons, "gap": reason})
+
+
+async def _carried_texts(previous: Any, payloads: PayloadStore) -> dict[str, str]:
+    """The stored texts of the previous research's postings, read back from the payload store
+    (no paid call) so an incremental pass can template their claims again. A copy that cannot be
+    read back is left out: the posting is still carried, its claims are not re-made."""
+    if previous is None:
+        return {}
+    refs = [(p.posting_key, p.text_ref) for p in previous.postings if p.text_ref]
+
+    async def read(item: tuple[str, str]) -> tuple[str, str | None]:
+        try:
+            return item[0], await payloads.get_text(item[1])
+        except Exception:  # noqa: BLE001 - a missing or unreadable copy only costs its claims
+            return item[0], None
+
+    # LOOP(carried text reads): cap=postings of the previous research, TEXT_CONCURRENCY in
+    # flight; exit=all read (a failed read is skipped)
+    return {
+        key: body
+        for key, body in await fan_out_all(refs, read, limit=TEXT_CONCURRENCY)
+        if body is not None
+    }
 
 
 async def _store_texts(

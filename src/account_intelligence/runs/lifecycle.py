@@ -512,6 +512,24 @@ async def slices_used(session: AsyncSession, run_id: UUID) -> int:
     return int(used)
 
 
+async def model_replies(session: AsyncSession, run_id: UUID) -> int:
+    """How many model replies the run has stored so far (router ledger plus the research graph's
+    reply log): work a slice leaves behind even while its node is still pending, so a long node
+    that is paying for answers is not counted as stalled (staging 2026-10-28: the pipelines node
+    read postings for three slices and the run was ended no_progress)."""
+    return int(
+        await session.scalar(
+            text(
+                "SELECT (SELECT count(*) FROM llm_calls WHERE run_id = :r)"
+                " + (SELECT count(*) FROM model_reply_log"
+                "    WHERE run_id = :r AND served_from = 'model')"
+            ),
+            {"r": run_id},
+        )
+        or 0
+    )
+
+
 async def count_no_progress(session: AsyncSession, run_id: UUID, *, progressed: bool) -> int:
     """Count a slice that ended on its timer: the run of slices that moved nothing grows by one,
     or starts again at zero when this slice moved the checkpoint. Returns the run's length (the
