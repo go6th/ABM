@@ -747,6 +747,11 @@ async def account_archive(
         forbidden=policy.forbidden,
     )
     body["withheld"] = sorted(set(held))
+    if isinstance(body.get("record"), dict) and body["record"].get("content_hash"):
+        # a cleaned page or news copy names its account and its own id in the file it gives
+        digest = str(body["record"]["content_hash"]).split(":")[-1][:12]
+        body["record"]["account_domain"] = domain
+        body["record"]["record_id"] = f"arc_{domain}_{digest}"
     if held and isinstance(body.get("record"), dict):
         body["record"]["withheld"] = sorted({*body["record"].get("withheld", []), *held})
     if download:
@@ -760,7 +765,11 @@ async def account_archive(
                 resource_type="account",
                 resource_id=account_id,
             )
-        name = "posting-archive" if copy.record is not None else "archived-copy"
+        name = (
+            str(copy.record.get("schema", "archive")).split("/")[0]
+            if copy.record is not None
+            else "archived-copy"
+        )
         payload = body["record"] if copy.record is not None else body
         return JSONResponse(
             payload,
@@ -779,6 +788,15 @@ async def account_archive_list(
     kind: str | None = Query(None, max_length=16),
     offset: int = Query(0, ge=0, le=100_000),
     limit: int = Query(50, ge=1, le=200),
+    title: str | None = Query(None, max_length=100),
+    publisher: str | None = Query(None, max_length=100),
+    published: str | None = Query(None, max_length=100),
+    source_type: str | None = Query(None, max_length=100),
+    grade: str | None = Query(None, max_length=100),
+    event_type: str | None = Query(None, max_length=100),
+    person: str | None = Query(None, max_length=100),
+    lane: str | None = Query(None, max_length=100),
+    collected: str | None = Query(None, max_length=100),
     ident: Identity = Depends(authorize),
 ) -> dict[str, Any]:
     """The account's archive index: the newest copy of each stored address, newest capture first,
@@ -786,13 +804,37 @@ async def account_archive_list(
     ``detection``); ``profile`` copies are internal and never listed. A posting also gives its
     status when captured, location and requisition (stored beside the row; no body is opened for
     them). A row that names a person the client excluded, or sits on an excluded or provider
-    domain, is left out. Empty for an account of another tenant."""
+    domain, is left out. Empty for an account of another tenant. Each column of the index
+    filters (``title``, ``publisher``, ``published``, ``source_type``, ``grade``, ``event_type``,
+    ``person``, ``lane``, ``collected``): a case-insensitive "contains" on the field stored beside
+    the row."""
 
     await limit_user(ident, "archive_read")
+    column_filters = {
+        k: v
+        for k, v in {
+            "title": title,
+            "publisher": publisher,
+            "published": published,
+            "source_type": source_type,
+            "grade": grade,
+            "event_type": event_type,
+            "person": person,
+            "lane": lane,
+            "collected": collected,
+        }.items()
+        if v
+    }
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
         links, total = await LA.list_latest(
-            s, account_id, kind=kind, offset=offset, limit=limit, kinds=LA.CLIENT_KINDS
+            s,
+            account_id,
+            kind=kind,
+            offset=offset,
+            limit=limit,
+            kinds=LA.CLIENT_KINDS,
+            filters=column_filters,
         )
     policy = await _archive_policy(ident, account_id)
     items = await LA.list_items(
@@ -813,6 +855,13 @@ async def account_archive_list(
                 "location": i.location,
                 "requisition": i.requisition,
                 "record_schema": i.record_schema,
+                "publisher": i.publisher,
+                "published_date": i.published_date,
+                "source_type": i.source_type,
+                "fact_grade": i.fact_grade,
+                "event_types": i.event_types,
+                "people": i.people,
+                "lanes": i.lanes,
             }
             for i in shown
         ],

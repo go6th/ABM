@@ -222,6 +222,9 @@ class PgDeliverableStore:
                                     "rows": f.rows,
                                     "content_hash": f.content_hash,
                                     "exclusion_hash": manifest.get("exclusion_hash", ""),
+                                    # the files the set does not hold (``kind:rule``), on every
+                                    # row: the gate and the file listing read it from any file
+                                    "files_withheld": manifest.get("files_withheld", []),
                                 }
                             ),
                             "ch": f.content_hash,

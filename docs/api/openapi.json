@@ -1263,9 +1263,42 @@
             "title": "Archived At",
             "type": "string"
           },
+          "event_types": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Types"
+          },
+          "fact_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Grade"
+          },
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "lanes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lanes"
           },
           "location": {
             "anyOf": [
@@ -1277,6 +1310,39 @@
               }
             ],
             "title": "Location"
+          },
+          "people": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "People"
+          },
+          "published_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published Date"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
           },
           "record_schema": {
             "anyOf": [
@@ -1299,6 +1365,17 @@
               }
             ],
             "title": "Requisition"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
           },
           "status_at_capture": {
             "anyOf": [
@@ -19779,7 +19856,7 @@
     },
     "/v1/accounts/{domain}/archive/list": {
       "get": {
-        "description": "The account's archive index: the newest copy of each stored address, newest capture first,\none page (``limit`` at most 200). ``kind`` narrows it (``posting``, ``page``, ``feed_item``,\n``detection``); ``profile`` copies are internal and never listed. A posting also gives its\nstatus when captured, location and requisition (stored beside the row; no body is opened for\nthem). A row that names a person the client excluded, or sits on an excluded or provider\ndomain, is left out. Empty for an account of another tenant.",
+        "description": "The account's archive index: the newest copy of each stored address, newest capture first,\none page (``limit`` at most 200). ``kind`` narrows it (``posting``, ``page``, ``feed_item``,\n``detection``); ``profile`` copies are internal and never listed. A posting also gives its\nstatus when captured, location and requisition (stored beside the row; no body is opened for\nthem). A row that names a person the client excluded, or sits on an excluded or provider\ndomain, is left out. Empty for an account of another tenant. Each column of the index\nfilters (``title``, ``publisher``, ``published``, ``source_type``, ``grade``, ``event_type``,\n``person``, ``lane``, ``collected``): a case-insensitive \"contains\" on the field stored beside\nthe row.",
         "operationId": "account_archive_list_v1_accounts__domain__archive_list_get",
         "parameters": [
           {
@@ -19830,6 +19907,159 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "title",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            }
+          },
+          {
+            "in": "query",
+            "name": "publisher",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Publisher"
+            }
+          },
+          {
+            "in": "query",
+            "name": "published",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Published"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "grade",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Grade"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "person",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Person"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lane",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lane"
+            }
+          },
+          {
+            "in": "query",
+            "name": "collected",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Collected"
             }
           },
           {

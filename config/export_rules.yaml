@@ -68,6 +68,9 @@ quote_handling:
   # keeps the source link, counts and lists it. A quote is never altered.
   policy: withhold_and_count
   withheld_text: "Sentence withheld from this file by the distribution rules; the source link is kept."
+  # what replaces a restricted term, a data tool's name or the word credits in the workspace's own
+  # records (pull log, searches, detections): the member stays in the zip, scrubbed of the term
+  record_marker: "[withheld]"
   status: proposal
 
 limits:

@@ -120,11 +120,15 @@ class RunInputAdapter:
         return lane not in set((await self._input(run_id)).get("lanes_off") or [])
 
     async def other_account_names(self, tenant_id: UUID, run_id: UUID) -> tuple[str, ...]:
-        """Domains of the tenant's other accounts (never to appear in this run's output)."""
+        """Domains of the tenant's other accounts (never to appear in this run's output). Not an
+        account the user removed, and not another listing of this account's own domain: that
+        domain is in every file of the run, so as a "forbidden" term it would refuse them all."""
         result = await self.session.execute(
             text(
-                "SELECT a.domain FROM accounts a WHERE a.tenant_id = :t AND a.id <>"
-                " (SELECT account_id FROM account_runs WHERE id = :r)"
+                "SELECT a.domain FROM accounts a, accounts own WHERE a.tenant_id = :t"
+                " AND own.id = (SELECT account_id FROM account_runs WHERE id = :r)"
+                " AND a.id <> own.id AND a.deleted_at IS NULL"
+                " AND a.domain IS DISTINCT FROM own.domain"
             ),
             {"t": tenant_id, "r": run_id},
         )

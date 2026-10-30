@@ -318,10 +318,17 @@ export type Archive = z.infer<typeof Archive>;
 
 export const ArchiveListItem = z.object({
   "archived_at": z.string(),
+  "event_types": z.string().nullable().optional(),
+  "fact_grade": z.string().nullable().optional(),
   "kind": z.string(),
+  "lanes": z.string().nullable().optional(),
   "location": z.string().nullable().optional(),
+  "people": z.string().nullable().optional(),
+  "published_date": z.string().nullable().optional(),
+  "publisher": z.string().nullable().optional(),
   "record_schema": z.string().nullable().optional(),
   "requisition": z.string().nullable().optional(),
+  "source_type": z.string().nullable().optional(),
   "status_at_capture": z.string().nullable().optional(),
   "title": z.string().nullable().optional(),
   "url": z.string(),

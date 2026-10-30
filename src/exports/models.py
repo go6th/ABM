@@ -893,6 +893,20 @@ class BuildManifest(_Frozen):
     # rendered texts replaced by the withheld note because the leak scan fired on them (B9);
     # 0 for a manifest written before the rule (staging 2026-10-25)
     leaks_withheld: int = Field(ge=0, default=0)
+    # the same texts by part of the file and client-output rule, ``where:rule=count`` (neutral
+    # names, never the text or the term): which part of which file a rule kept a text out of
+    texts_withheld: tuple[str, ...] = ()
+    # strings the last line of defence replaced in a built model after the final scan of the
+    # produced file fired, ``kind:rule=count``: a text path that missed the mapping's checks.
+    # Empty in a healthy build; the log names it so the path can be closed
+    late_replaced: tuple[str, ...] = ()
+    # workspace members whose text was scrubbed of a restricted term, a data tool's name or the
+    # word credits, ``member=count``
+    members_scrubbed: tuple[str, ...] = ()
+    # files the set does not hold, ``kind:rule``: the file could not be made clean row by row (or
+    # a section it needs was not written), so that file alone is left out and the rest delivered
+    # (the run ends PARTIAL ``files_withheld``); never the text
+    files_withheld: tuple[str, ...] = ()
     # external hosts linked or named in the five files, sorted into the four groups of the
     # third-party scan (spec 12): account_and_press, data_tools (always empty in a stored set),
     # aggregators, other
@@ -944,3 +958,5 @@ class BuildResult(_Frozen):
     change_note: str | None = None
     reused: bool = False
     verbatim_quotes: tuple[str, ...] = ()
+    # ``kind:rule`` of each file (or the workspace zip) left out of a complete set
+    withheld_files: tuple[str, ...] = ()

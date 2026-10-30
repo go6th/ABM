@@ -22,7 +22,7 @@ import csv
 import hashlib
 import io
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -95,8 +95,11 @@ def verdict(pkg: Package) -> Package:
 def files_package(
     deliverables: list[tuple[str, str, str, bytes]],
     api: Mapping[str, list[dict[str, Any]]],
+    withheld: Collection[str] = (),
 ) -> Package:
-    """The standing set: ``deliverables`` are (kind, filename, object key, bytes)."""
+    """The standing set: ``deliverables`` are (kind, filename, object key, bytes). ``withheld``
+    names the file kinds the builder left out of the set (``BuildResult.withheld_files``): the
+    package carries the others, and the tables of a left out file are not compared with it."""
     pkg = Package("files", "blocked", None)
     produced: dict[str, tuple[str, bytes]] = {}
     from agents.naming import assert_client_clean
@@ -115,7 +118,7 @@ def files_package(
         if kind in ("summary", "people", "jobs", "tech"):
             produced[kind] = (EXT[kind], body)
     table_specs: dict[str, TableSpec] = {str(k): v for k, v in specs().items()}
-    pkg.parity = check_package(table_specs, api, produced)
+    pkg.parity = check_package(table_specs, api, produced, withheld)
     return verdict(pkg)
 
 

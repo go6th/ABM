@@ -361,6 +361,7 @@ class QuoteHandling(_Strict):
 
     policy: Literal["withhold_and_count"]
     withheld_text: str
+    record_marker: str = Field(min_length=1)
     status: str
 
 

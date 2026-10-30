@@ -113,3 +113,12 @@ using the contracts in `pyproject.toml`), so lower layers never import higher on
   `scripts/gen_loops.py --check`).
 
 Next: [4. Config map](04-config-map.md).
+
+
+## Workspace repair stage (2026-10-31)
+
+`src/exports/repair/` builds the tables of "Download everything" for every workspace: records in
+(`readers.py`), repaired tables, acceptance checks and `Logs/repair_report.md` out
+(`pipeline.repair`), packaged with a README generated from the members (`package.py`). Spec and
+per-workspace settings: `docs/repair/workspace_repair_spec.md`. Offline use on an old export:
+`scripts/repair/regress.py`.

@@ -648,16 +648,18 @@ def map_evidence(
     captures: list[BoardCaptureRow] = []
     if c.jobs_counts is not None:
         for key, label, value, base in c.jobs_counts.lines:
+            shown_label, shown_base = ctx.rendered(label, where), ctx.rendered(base, where)
             captures.append(
                 BoardCaptureRow(
                     ref=ref("BC", len(captures) + 1),
                     row_id=f"board:{key}",
-                    keyword=ctx.rendered(label, where),
+                    keyword=shown_label,
                     matches=value,
-                    read=ctx.rendered(base, where),
+                    read=shown_base,
                 )
             )
-            ctx.registry.add(f"evidence.board.{key}", value, base, f"{value} {label}")
+            # the registry's texts reach the manifest: the printed (checked) forms, never the stored
+            ctx.registry.add(f"evidence.board.{key}", value, shown_base, f"{value} {shown_label}")
     # E: the live board postings that name a lane platform
     live_heading, live = _live_postings(ctx, jobs)
 

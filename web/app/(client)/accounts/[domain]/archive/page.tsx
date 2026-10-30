@@ -16,6 +16,8 @@ const PAGE = 50;
 const MAX_LIMIT = 200;
 // profile copies are internal (the API never lists or serves them), so there is no profile filter
 const KINDS = new Set(["posting", "page", "feed_item", "detection"]);
+// the index columns that filter; each is a query parameter the API takes
+const FILTERS = ["title", "publisher", "published", "source_type", "grade", "event_type", "person", "lane", "collected"] as const;
 
 type Props = { params: Promise<{ domain: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -64,10 +66,16 @@ export default async function ArchivePage({ params, searchParams }: Props) {
   const kind = one(query.kind) && KINDS.has(one(query.kind)!) ? one(query.kind)! : "";
   const limit = Math.min(MAX_LIMIT, Math.max(PAGE, Math.floor(Number(one(query.limit))) || PAGE));
   const offset = Math.max(0, Math.floor(Number(one(query.offset)) || 0));
-  const q = new URLSearchParams({ limit: String(limit) });
+  const filters: Record<string, string> = {};
+  for (const f of FILTERS) {
+    const v = (one(query[f]) ?? "").trim().slice(0, 100);
+    if (v) filters[f] = v;
+  }
+  const q = new URLSearchParams({ limit: String(limit), ...filters });
   if (offset) q.set("offset", String(offset));
   if (kind) q.set("kind", kind);
-  const returnTo = `${base}${kind ? `?kind=${kind}` : ""}`;
+  const kept = new URLSearchParams({ ...(kind ? { kind } : {}), ...filters }).toString();
+  const returnTo = `${base}${kept ? `?${kept}` : ""}`;
   let list: ArchiveList | null = null;
   let failed = false;
   try {
@@ -88,7 +96,7 @@ export default async function ArchivePage({ params, searchParams }: Props) {
   }
   // Show more grows the page up to 200 rows, then moves on by that many
   const shown = (list.offset ?? offset) + (list.items ?? []).length;
-  const grow = (o: number, l: number) => `${base}?${new URLSearchParams({ ...(kind ? { kind } : {}), limit: String(l), ...(o ? { offset: String(o) } : {}) }).toString()}`;
+  const grow = (o: number, l: number) => `${base}?${new URLSearchParams({ ...(kind ? { kind } : {}), ...filters, limit: String(l), ...(o ? { offset: String(o) } : {}) }).toString()}`;
   const showMore = shown < list.total ? (limit < MAX_LIMIT && offset === 0 ? grow(0, Math.min(MAX_LIMIT, limit + PAGE)) : grow(offset + limit, limit)) : null;
-  return <ArchiveIndexView list={list} domain={domain} name={domain} kind={kind} showMore={showMore} />;
+  return <ArchiveIndexView list={list} domain={domain} name={domain} kind={kind} showMore={showMore} filters={filters} />;
 }

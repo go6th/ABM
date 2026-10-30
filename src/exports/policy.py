@@ -21,7 +21,7 @@ GUARANTEE(test_b9_restricted_term_in_a_verbatim_quote_is_withheld_counted_listed
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from account_intelligence.grading.config import GradingConfig
@@ -117,6 +117,50 @@ def leak_hits(text: str, extra_terms: Iterable[str] = ()) -> tuple[str, ...]:
     return tuple(hits)
 
 
+# The pre-delivery guard of the running application (``agents.naming.client_rule``: provider
+# names in any case, the guarded person's name, the vendor tool names, a provider's host), set
+# when ``agents.naming`` is loaded, as the archive's page guard is (``archive_records``). The
+# exports layer may not import the agent layer, and the research run refuses a built file that
+# guard fires on (G9), so the builder applies the same rule to every text it prints: a text the
+# guard refuses is withheld by cell, and the run's file set is never refused at the end.
+_CLIENT_GUARD: Callable[[str], str | None] | None = None
+
+
+def use_client_guard(guard: Callable[[str], str | None] | None) -> None:
+    """Register (or with None remove) the guard ``client_rule`` applies."""
+    global _CLIENT_GUARD  # noqa: PLW0603 - the one registration point, set once at import
+    _CLIENT_GUARD = guard
+
+
+def client_rule(text: str) -> str | None:
+    """The reason the application's client-output guard refuses ``text`` (``third_party_domain``,
+    ``tool_name``, ``provider_name`` or ``guarded_name``), or None when it is clean or no guard is
+    registered."""
+    return _CLIENT_GUARD(text) if _CLIENT_GUARD is not None else None
+
+
+def leak_rule(pattern: str) -> str:
+    """The neutral rule name of one ``leak_hits`` pattern: ``internal_id`` (a provider code or a
+    64 digit hash), ``tool_name`` (a denylist pattern) or ``leak`` (a restricted term: another
+    account, an excluded company or a person the files do not list). Never the pattern itself,
+    which can name an account or a person."""
+    if pattern in ("provider_code", "internal_hash"):
+        return "internal_id"
+    return "tool_name" if pattern in _denylist_sources() else "leak"
+
+
+_DENYLIST: frozenset[str] | None = None
+
+
+def _denylist_sources() -> frozenset[str]:
+    global _DENYLIST  # noqa: PLW0603 - read once, the list is configuration
+    if _DENYLIST is None:
+        from account_intelligence.safety.client_output import load_patterns
+
+        _DENYLIST = frozenset(p.pattern for p in load_patterns())
+    return _DENYLIST
+
+
 def denied_link(url: str) -> bool:
     """True when a link names a data tool by the client-output denylist (the third-party scan's
     own patterns, spec 12): a client file may neither show nor link it."""
@@ -163,16 +207,35 @@ def guarded_names(names: Sequence[tuple[str, bool]]) -> tuple[str, ...]:
     return tuple(sorted(guarded, key=lambda n: (n.casefold(), n)))
 
 
-def restricted_terms(terms: Iterable[str], attribution: str) -> tuple[str, ...]:
+def names_own(term: str, own_names: Iterable[str]) -> bool:
+    """True when ``term`` is the account's own identity or a whole-word part of it: equal to one
+    of ``own_names`` (the account's name, legal name, subsidiaries, domain, careers host) or a
+    word or phrase inside one (matching as the leak scan does: whole words, any case, a dot or
+    hyphen separating words). Every file of the account names it, so a term like that could
+    only ever refuse the account's own files (another account called "Acme" beside an own
+    account "Acme Health", the same company listed twice, a duplicate domain)."""
+    pattern = re.compile(rf"(?<!\w){re.escape(term.strip())}(?!\w)", re.IGNORECASE)
+    return any(pattern.search(name) for name in own_names if name and name.strip())
+
+
+def restricted_terms(
+    terms: Iterable[str], attribution: str, own_names: Iterable[str] = ()
+) -> tuple[str, ...]:
     """The literal terms a client file may not carry, cleaned (B9): blank terms go; a term of
     three characters or fewer goes (it matches too much text to mean another account); a term
     that is the attribution or one of its words goes (a client whose own name is the platform's,
     "6th", would otherwise refuse every file for every other account, as on staging
-    2026-10-16). Sorted, distinct."""
+    2026-10-16); a term that is the account's own identity or a whole-word part of it
+    (``names_own``) goes, since the account's own files name it. Sorted, distinct."""
     own = {attribution.strip().casefold(), *attribution.casefold().split()}
+    identity = tuple(n for n in own_names if n and n.strip())
     kept = {
         t.strip()
         for t in terms
-        if t and t.strip() and len(t.strip()) > 3 and t.strip().casefold() not in own
+        if t
+        and t.strip()
+        and len(t.strip()) > 3
+        and t.strip().casefold() not in own
+        and not names_own(t, identity)
     }
     return tuple(sorted(kept, key=lambda t: (t.casefold(), t)))

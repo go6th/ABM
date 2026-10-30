@@ -39,6 +39,11 @@ def _vendors() -> tuple[str, ...]:
         ("2019–2021", "2019-2021"),
         ("Cloud - data", "Cloud, data"),
         ("Coca-Cola", "Coca-Cola"),
+        # a dash at the edge of a cell: the finished-file check joins cells and refused the
+        # whole Job postings workbook for one such title (staging export 2026-10-30)
+        ("Senior Analyst -", "Senior Analyst"),
+        ("Plan --  ", "Plan"),
+        ("- Lead role", "Lead role"),
         (12, 12),
         (None, None),
     ],

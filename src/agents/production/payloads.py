@@ -25,7 +25,15 @@ from account_intelligence.archive import (
     on_profile_host,
     title_of,
 )
-from account_intelligence.archive_records import Guard, default_guard, news_record, page_record
+from account_intelligence.archive_facts import Account
+from account_intelligence.archive_records import (
+    NEWS2,
+    PAGE2,
+    Guard,
+    default_guard,
+    page_record,
+    web_record,
+)
 from account_intelligence.connectors.payloads import payload_key
 from account_intelligence.platform.ports import PayloadStore
 from agents.ports import RunContext, SourceItem
@@ -72,7 +80,7 @@ class StorePayloads:
             and await self._archivable(ctx, row_key)
         ):
             try:
-                await self.archive.record([await self._copy(item)])
+                await self.archive.record([await self._copy(item, ctx, ref)])
             except Exception as error:  # noqa: BLE001 - an archive failure never fails the pull
                 # the copy is a convenience for the client screens; the pull, the stored item
                 # and the paid call stand (pipeline review 2026-10-29, finding 12)
@@ -102,9 +110,11 @@ class StorePayloads:
             self._consent[ctx.tenant_id] = ok
         return self._consent[ctx.tenant_id]
 
-    async def _copy(self, item: SourceItem) -> ArchiveEntry:
-        """The structured archived copy of a public item: a news article (``news-archive/1``)
-        or any other page (``page-archive/1``), every free-text field through the output guard."""
+    async def _copy(self, item: SourceItem, ctx: RunContext, raw_ref: str) -> ArchiveEntry:
+        """The structured archived copy of a public item: a news article (``news-archive/2``) or
+        any other page (``page-archive/2``), the article cleaned and classified and every
+        free-text field through the output guard. ``raw_ref``, the stored item the copy was made
+        from, is kept beside the row for audit (never served)."""
         assert self.archive is not None
         when = self.archive.now()
         meta = dict(item.meta)
@@ -114,18 +124,10 @@ class StorePayloads:
             # any other page of the profile host that reads as a person's page (a post, a
             # directory entry titled with a name) is an internal profile copy too: never served
             kind = "profile"
-        if meta.get("record") == "news":
-            record = news_record(
-                item.url,
-                title=title,
-                summary=meta.get("summary"),
-                article_text=item.text,
-                category=meta.get("category"),
-                published_date=meta.get("published"),
-                captured_at=when,
-                guard=self.guard,
-            )
-        else:
+        news = meta.get("record") == "news"
+        if kind == "profile":
+            # an internal profile copy keeps the page text as the source returned it: the people
+            # matcher reads it, no client sees it (nothing to clean)
             record = page_record(
                 item.url,
                 item.text,
@@ -135,8 +137,24 @@ class StorePayloads:
                 published_date=meta.get("published"),
                 guard=self.guard,
             )
+            return await self.archive.entry_for_record(
+                item.url, kind, record, title=title, archived_at=when, source_ref=raw_ref
+            )
+        record = web_record(
+            item.url,
+            item.text,
+            schema=NEWS2 if news else PAGE2,
+            title=title,
+            captured_at=when,
+            kind=kind,
+            published_date=meta.get("published"),
+            category=meta.get("category") if news else None,
+            summary=meta.get("summary") if news else None,
+            account=Account(ctx.account_name, ctx.domain),
+            guard=self.guard,
+        )
         return await self.archive.entry_for_record(
-            item.url, kind, record, title=title, archived_at=when
+            item.url, kind, record, title=title, archived_at=when, source_ref=raw_ref
         )
 
     async def view(self, tenant_id: UUID, ref: str) -> PayloadView:

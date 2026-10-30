@@ -494,6 +494,14 @@ class ArchiveListItem(Out):
     # the schema of the structured copy (``news-archive/1``, ``posting-archive/1``), which names
     # the kind of page better than ``kind`` does (a news article is stored as a page)
     record_schema: str | None = None
+    # a page or news copy of the cleaned kind (version 2) also gives the index filter columns
+    publisher: str | None = None
+    published_date: str | None = None
+    source_type: str | None = None
+    fact_grade: str | None = None
+    event_types: str | None = None
+    people: str | None = None
+    lanes: str | None = None
 
 
 class ArchiveList(Out):

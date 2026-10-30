@@ -86,7 +86,16 @@ from tenancy.settings import current as current_settings
 
 # stored objects read at once when a build loads the posting texts and the search payloads
 READS_IN_FLIGHT = 16
-_OTHER_ACCOUNTS = "SELECT name FROM accounts WHERE id <> :a AND name IS NOT NULL ORDER BY name"
+# The names of the client's other accounts. Not an account the user removed (``deleted_at``), and
+# not the same company listed twice (same domain, or the same name): that one is this account
+# itself, and its name would be a "forbidden" term in the title of every file (staging
+# 2026-10-31: the research read, graded and wrote, then the file build refused on a restricted
+# term). A smaller name that is a word inside this account's name is dropped later, in
+# ``readers.common.own_names``.
+_OTHER_ACCOUNTS = (
+    "SELECT name FROM accounts WHERE id <> :a AND name IS NOT NULL AND deleted_at IS NULL"
+    " AND domain IS DISTINCT FROM :d AND lower(btrim(name)) <> lower(btrim(:n)) ORDER BY name"
+)
 _FACT_COLS = (
     "id, attribute_key, coalesce(value_text, value_json #>> '{}') AS value_text, lane, claim_kind,"
     " product_grade, engine_grade, read_in_primary_this_run, may_state_to_prospect,"
@@ -345,7 +354,10 @@ class PgContentReader:
             # 2026-10-30, F5)
             async with self.system_lookup(tid) as lookup:
                 other_names = (
-                    await lookup.execute(text(_OTHER_ACCOUNTS), {"a": account_id})
+                    await lookup.execute(
+                        text(_OTHER_ACCOUNTS),
+                        {"a": account_id, "d": head.domain, "n": head.name or head.domain or ""},
+                    )
                 ).scalars()
                 others = (
                     *await RunInputAdapter(lookup).other_account_names(tid, rid),

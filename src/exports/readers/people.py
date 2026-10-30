@@ -28,6 +28,7 @@ from exports.models import (
     PeopleRow,
     SummaryLine,
 )
+from exports.partial import partial_notes
 from exports.readers.common import MapContext, Mapped, digest, ref
 
 # the stored search operations behind the list (connectors.base Operation values)
@@ -338,10 +339,10 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
     for p in sorted(c.people, key=order):
         code = ctx.code_or_withhold(p.source_code, p.profile_url, where, p.id)
         name = ctx.rendered(p.name, where)
-        if not name.strip():
-            ctx.fail("name_missing", where, p.id)  # nothing printable once sanitised
-            continue
         if code is None:
+            continue
+        if not name.strip():
+            ctx.withhold(where, p.id, "name_missing")  # nothing printable once sanitised
             continue
         if not p.origin or p.origin not in _ORIGIN_ORDER:
             ctx.fail("origin_vocabulary", where, p.id)
@@ -366,7 +367,12 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
                 former_employers=former,
                 found_by=ctx.rendered(_found_by(p, labels), where),
                 profile_url=p.profile_url,
-                second_profile_url=p.second_profile_url or None,
+                # a second address that may not be printed is left off; the person stays listed
+                second_profile_url=(
+                    p.second_profile_url
+                    if p.second_profile_url and not ctx.link_rule(p.second_profile_url)
+                    else None
+                ),
                 location=ctx.rendered(p.location, where) if p.location else "",
                 note="",
                 source_code=code,
@@ -486,8 +492,11 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
     )
     exclusion_lines = _exclusions(excluded, texts, ctx.rules.limits.excel_cell_chars)
     entity = ctx.rendered(_entity_labels(c, texts), where)
+    partial = tuple(ctx.rendered(n, where) for n in partial_notes(c.tracker, "people"))
     paragraphs = tuple(
-        x for x in (what, removed, *exclusion_lines, seniority, texts.judgment_note, entity) if x
+        x
+        for x in (what, removed, *exclusion_lines, seniority, texts.judgment_note, entity, *partial)
+        if x
     )
     model = PeopleModel(
         account=c.account_name,

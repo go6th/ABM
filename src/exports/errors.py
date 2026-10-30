@@ -21,9 +21,19 @@ class ExportError(RuntimeError):
 
     code = "export_error"
 
-    def __init__(self, message: str, items: Iterable[str] = (), *, rule: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        items: Iterable[str] = (),
+        *,
+        rule: str | None = None,
+        where: str | None = None,
+    ) -> None:
         self.items: tuple[str, ...] = tuple(items)
         self.message = message
+        # the file kind (or ``workspace``) the error belongs to, when it names one: the log line
+        # of a failed build says which file and which rule, never the text
+        self.where = where
         # the rule that fired (``banned_dash``, ``orphan_citation``), finer than the class code:
         # a run's stop reason and its log line name the rule, not just "banned_content"
         # (staging 2026-10-21: the class alone said nothing about which check held the files)

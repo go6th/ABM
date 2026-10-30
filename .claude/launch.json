@@ -65,6 +65,24 @@
       "port": 8096
     },
     {
+      "name": "api-tabs",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "set -a; . ./.env; set +a; export PUBLIC_BASE_URL=http://localhost:3008 RESEARCH_ENGINE=hermetic CONNECTORS=off ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= WORKER_URL= PAYLOAD_DIR=/tmp/claude-1000/-home-sakib-ABM-Generator/638d3bd8-2b90-41bf-9c38-0b4090b90eb7/scratchpad/payloads DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_tabs_ui CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_tabs_ui MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_tabs_ui; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8095"
+      ],
+      "port": 8095
+    },
+    {
+      "name": "web-tabs",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd web && NEXT_DIST_DIR=.next-tabs API_ORIGIN=http://127.0.0.1:8095 exec npx next dev -p 3008"
+      ],
+      "port": 3008
+    },
+    {
       "name": "web-caps",
       "runtimeExecutable": "bash",
       "runtimeArgs": [
@@ -72,6 +90,78 @@
         "cd web && NEXT_DIST_DIR=.next-caps API_ORIGIN=http://127.0.0.1:8096 exec npx next dev -p 3007"
       ],
       "port": 3007
+    },
+    {
+      "name": "api-e2e",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "export APP_RW_PASSWORD=\"$(grep '^APP_RW_PASSWORD=' .env | cut -d= -f2-)\"; export APP_ENV=dev RESEARCH_CAPS=off LOG_LEVEL=INFO JWKS_URL=http://127.0.0.1:9090/jwks JWT_ISSUER=http://fake-idp:9090/ JWT_AUDIENCE=account-intelligence-local STAFF_JWT_ISSUER=https://accounts.google.com STAFF_JWT_AUDIENCE=replace-with-google-oauth-client-id STAFF_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs STAFF_WORKSPACE_DOMAIN=example.com STAFF_OPERATOR_EMAILS=operator@example.com SLICE_SECONDS=240 MAX_SLICES=60 TENANT_CONCURRENCY=5 LLM_FAKE=hermetic CONNECTORS=hermetic RESEARCH_ENGINE=graph ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= P_SEARCH_API_KEY= P_SCRAPE_API_KEY= P_SIGNALS_API_KEY= P_SIGNALS_API_TOKEN= P_PEOPLE_API_KEY= P_ORG_API_KEY= PAYLOAD_DIR=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-payloads DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_e2e; export SERVICE_ROLE=api PUBLIC_BASE_URL=http://localhost:3009 WORKER_URL=http://127.0.0.1:8093; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8094"
+      ],
+      "port": 8094
+    },
+    {
+      "name": "worker-e2e",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "export APP_RW_PASSWORD=\"$(grep '^APP_RW_PASSWORD=' .env | cut -d= -f2-)\"; export APP_ENV=dev RESEARCH_CAPS=off LOG_LEVEL=INFO JWKS_URL=http://127.0.0.1:9090/jwks JWT_ISSUER=http://fake-idp:9090/ JWT_AUDIENCE=account-intelligence-local STAFF_JWT_ISSUER=https://accounts.google.com STAFF_JWT_AUDIENCE=replace-with-google-oauth-client-id STAFF_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs STAFF_WORKSPACE_DOMAIN=example.com STAFF_OPERATOR_EMAILS=operator@example.com SLICE_SECONDS=240 MAX_SLICES=60 TENANT_CONCURRENCY=5 LLM_FAKE=hermetic CONNECTORS=hermetic RESEARCH_ENGINE=graph ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= P_SEARCH_API_KEY= P_SCRAPE_API_KEY= P_SIGNALS_API_KEY= P_SIGNALS_API_TOKEN= P_PEOPLE_API_KEY= P_ORG_API_KEY= PAYLOAD_DIR=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-payloads DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_e2e; export SERVICE_ROLE=worker PUBLIC_BASE_URL=http://localhost:3009 WORKER_URL=http://127.0.0.1:8093 ALLOW_UNAUTHENTICATED_TASKS=1; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8093 --no-access-log"
+      ],
+      "port": 8093
+    },
+    {
+      "name": "web-e2e",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd web && NEXT_DIST_DIR=.next-e2e API_ORIGIN=http://127.0.0.1:8094 exec npx next dev -p 3009"
+      ],
+      "port": 3009
+    },
+    {
+      "name": "worker-e2e-scn",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "export APP_RW_PASSWORD=\"$(grep '^APP_RW_PASSWORD=' .env | cut -d= -f2-)\"; export APP_ENV=dev RESEARCH_CAPS=off LOG_LEVEL=INFO JWKS_URL=http://127.0.0.1:9090/jwks JWT_ISSUER=http://fake-idp:9090/ JWT_AUDIENCE=account-intelligence-local STAFF_JWT_ISSUER=https://accounts.google.com STAFF_JWT_AUDIENCE=replace-with-google-oauth-client-id STAFF_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs STAFF_WORKSPACE_DOMAIN=example.com STAFF_OPERATOR_EMAILS=operator@example.com SLICE_SECONDS=240 MAX_SLICES=60 TENANT_CONCURRENCY=5 LLM_FAKE=hermetic CONNECTORS=hermetic RESEARCH_ENGINE=graph ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= P_SEARCH_API_KEY= P_SCRAPE_API_KEY= P_SIGNALS_API_KEY= P_SIGNALS_API_TOKEN= P_PEOPLE_API_KEY= P_ORG_API_KEY= PAYLOAD_DIR=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-payloads DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_e2e; export SERVICE_ROLE=worker PUBLIC_BASE_URL=http://localhost:3009 WORKER_URL=http://127.0.0.1:8093 ALLOW_UNAUTHENTICATED_TASKS=1; export SCENARIO_FILE=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-scenario.json PYTHONPATH=src; exec .venv/bin/python docs/audit/e2e/serve_scenario.py 8093"
+      ],
+      "port": 8093
+    },
+    {
+      "name": "api-e2e-capped",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "export APP_RW_PASSWORD=\"$(grep '^APP_RW_PASSWORD=' .env | cut -d= -f2-)\"; export APP_ENV=dev LOG_LEVEL=INFO JWKS_URL=http://127.0.0.1:9090/jwks JWT_ISSUER=http://fake-idp:9090/ JWT_AUDIENCE=account-intelligence-local STAFF_JWT_ISSUER=https://accounts.google.com STAFF_JWT_AUDIENCE=replace-with-google-oauth-client-id STAFF_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs STAFF_WORKSPACE_DOMAIN=example.com STAFF_OPERATOR_EMAILS=operator@example.com SLICE_SECONDS=240 MAX_SLICES=60 TENANT_CONCURRENCY=5 LLM_FAKE=hermetic CONNECTORS=hermetic RESEARCH_ENGINE=graph ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= P_SEARCH_API_KEY= P_SCRAPE_API_KEY= P_SIGNALS_API_KEY= P_SIGNALS_API_TOKEN= P_PEOPLE_API_KEY= P_ORG_API_KEY= PAYLOAD_DIR=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-payloads DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_e2e; export SERVICE_ROLE=api PUBLIC_BASE_URL=http://localhost:3009 WORKER_URL=http://127.0.0.1:8093; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8094"
+      ],
+      "port": 8094
+    },
+    {
+      "name": "worker-e2e-scn-capped",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "export APP_RW_PASSWORD=\"$(grep '^APP_RW_PASSWORD=' .env | cut -d= -f2-)\"; export APP_ENV=dev LOG_LEVEL=INFO JWKS_URL=http://127.0.0.1:9090/jwks JWT_ISSUER=http://fake-idp:9090/ JWT_AUDIENCE=account-intelligence-local STAFF_JWT_ISSUER=https://accounts.google.com STAFF_JWT_AUDIENCE=replace-with-google-oauth-client-id STAFF_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs STAFF_WORKSPACE_DOMAIN=example.com STAFF_OPERATOR_EMAILS=operator@example.com SLICE_SECONDS=240 MAX_SLICES=60 TENANT_CONCURRENCY=5 LLM_FAKE=hermetic CONNECTORS=hermetic RESEARCH_ENGINE=graph ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= P_SEARCH_API_KEY= P_SCRAPE_API_KEY= P_SIGNALS_API_KEY= P_SIGNALS_API_TOKEN= P_PEOPLE_API_KEY= P_ORG_API_KEY= PAYLOAD_DIR=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-payloads DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_e2e; export SERVICE_ROLE=worker PUBLIC_BASE_URL=http://localhost:3009 WORKER_URL=http://127.0.0.1:8093 ALLOW_UNAUTHENTICATED_TASKS=1; export SCENARIO_FILE=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-scenario.json PYTHONPATH=src; exec .venv/bin/python docs/audit/e2e/serve_scenario.py 8093"
+      ],
+      "port": 8093
+    },
+    {
+      "name": "api-e2e-c",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "export APP_RW_PASSWORD=\"$(grep '^APP_RW_PASSWORD=' .env | cut -d= -f2-)\"; export APP_ENV=dev RESEARCH_CAPS=off LOG_LEVEL=INFO JWKS_URL=http://127.0.0.1:9090/jwks JWT_ISSUER=http://fake-idp:9090/ JWT_AUDIENCE=account-intelligence-local STAFF_JWT_ISSUER=https://accounts.google.com STAFF_JWT_AUDIENCE=replace-with-google-oauth-client-id STAFF_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs STAFF_WORKSPACE_DOMAIN=example.com STAFF_OPERATOR_EMAILS=operator@example.com SLICE_SECONDS=240 MAX_SLICES=60 TENANT_CONCURRENCY=5 LLM_FAKE=hermetic CONNECTORS=hermetic RESEARCH_ENGINE=graph ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= P_SEARCH_API_KEY= P_SCRAPE_API_KEY= P_SIGNALS_API_KEY= P_SIGNALS_API_TOKEN= P_PEOPLE_API_KEY= P_ORG_API_KEY= PAYLOAD_DIR=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-c-payloads DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e_c CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e_c MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_e2e_c; export SERVICE_ROLE=api PUBLIC_BASE_URL=http://localhost:3009 WORKER_URL=http://127.0.0.1:8093; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8094"
+      ],
+      "port": 8094
+    },
+    {
+      "name": "worker-e2e-c",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "export APP_RW_PASSWORD=\"$(grep '^APP_RW_PASSWORD=' .env | cut -d= -f2-)\"; export APP_ENV=dev RESEARCH_CAPS=off LOG_LEVEL=INFO JWKS_URL=http://127.0.0.1:9090/jwks JWT_ISSUER=http://fake-idp:9090/ JWT_AUDIENCE=account-intelligence-local STAFF_JWT_ISSUER=https://accounts.google.com STAFF_JWT_AUDIENCE=replace-with-google-oauth-client-id STAFF_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs STAFF_WORKSPACE_DOMAIN=example.com STAFF_OPERATOR_EMAILS=operator@example.com SLICE_SECONDS=240 MAX_SLICES=60 TENANT_CONCURRENCY=5 LLM_FAKE=hermetic CONNECTORS=hermetic RESEARCH_ENGINE=graph ANTHROPIC_API_KEY= MOONSHOT_API_KEY= OPENAI_API_KEY= P_SEARCH_API_KEY= P_SCRAPE_API_KEY= P_SIGNALS_API_KEY= P_SIGNALS_API_TOKEN= P_PEOPLE_API_KEY= P_ORG_API_KEY= PAYLOAD_DIR=/tmp/claude-1000/-home-sakib-ABM-Generator/bef661d6-7235-4e44-9821-b38ffe9f59f4/scratchpad/e2e-c-payloads DATABASE_URL=postgresql+asyncpg://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e_c CHECKPOINT_DATABASE_URL=postgresql://app_rw:${APP_RW_PASSWORD}@localhost:5432/ai_e2e_c MIGRATOR_DATABASE_URL=postgresql://postgres:dev@localhost:5432/ai_e2e_c; export SERVICE_ROLE=worker PUBLIC_BASE_URL=http://localhost:3009 WORKER_URL=http://127.0.0.1:8093 ALLOW_UNAUTHENTICATED_TASKS=1; exec .venv/bin/uvicorn account_intelligence.api.main:app --port 8093 --no-access-log"
+      ],
+      "port": 8093
     }
   ]
 }

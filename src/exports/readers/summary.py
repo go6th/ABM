@@ -29,6 +29,7 @@ section 9.1).
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter, defaultdict
 from collections.abc import Sequence
@@ -74,6 +75,8 @@ from exports.readers.common import (
 from exports.readers.tracker import SIGNAL_TIERS, map_tracker, tally_line
 from exports.workspace import account_slug
 
+# fact rules that refuse the whole set: an unknown grade is a vocabulary defect, not a statement
+_FATAL_FACT_RULES = frozenset({"grade_vocabulary"})
 SECTION_KINDS = (
     "narrative",
     "caveat",
@@ -101,7 +104,7 @@ def _fact_codes(ctx: MapContext, fact: FactRow, evidence: Sequence[EvidenceRow])
     for ev in evidence:
         if ev.evidence_kind == "search_proof" or ctx.denied(ev.source_code, ev.url):
             continue
-        code = ctx.code_or_fail(ev.source_code, ev.url, "summary.lanes", fact.id)
+        code, _rule = ctx.resolve_code(ev.source_code, ev.url, fact.id)
         if code:
             codes.add(code)
     return tuple(sorted(codes))
@@ -126,8 +129,19 @@ def _lane_tables(
     graded = [f for f in public if f.claim_kind != "absence"]
     if ctx.capped(len(graded), ctx.rules.limits.row_caps.summary_lane_rows, where):
         return (), absences, {}
+    # A fact whose stored grade, flags or statement flag break the statement policy (or that
+    # carries the internal grade) is withheld and listed; an unknown grade is a vocabulary
+    # defect and still refuses the set (B7).
+    refused: set[str] = set()
     for f in public:
-        ctx.flag(fact_violations(f, ctx.grading))
+        found = fact_violations(f, ctx.grading)
+        fatal = [v for v in found if v.code in _FATAL_FACT_RULES]
+        ctx.flag(fatal)
+        if found and not fatal:
+            ctx.withhold(where, f.id, found[0].code)
+            refused.add(f.id)
+    graded = [f for f in graded if f.id not in refused]
+    absences = tuple(f for f in absences if f.id not in refused)
     graded.sort(
         key=lambda f: (
             ctx.cfg.lane_rank(f.lane),
@@ -147,12 +161,16 @@ def _lane_tables(
         codes = _fact_codes(ctx, f, evidence)
         if not ctx.printable(f.value_text, where, f.id):
             continue
-        if not codes and any(ctx.denied(e.source_code, e.url) for e in evidence):
-            # every source of the finding links a data tool: the row is withheld and listed
-            ctx.withhold(where, f.id, "tool_link")
-            continue
         if not codes:
-            ctx.fail("uncited_graded_row", where, f.id)
+            # no source of the finding can be cited: its links name a data tool or another
+            # account, or have no registered code. The row is withheld and listed with the first
+            # rule that refused a source, else as uncited
+            why = [
+                ctx.resolve_code(e.source_code, e.url, f.id)[1]
+                for e in evidence
+                if e.evidence_kind != "search_proof"
+            ]
+            ctx.withhold(where, f.id, next((r for r in why if r), "uncited_graded_row"))
             continue
         sourced = [e for e in evidence if e.evidence_kind != "search_proof"]
         if sourced and all(e.is_aggregator for e in sourced) and f.product_grade != "lead":
@@ -243,15 +261,16 @@ def _sections(
             ctx.fail("section_kind_vocabulary", where, s.id)
             continue
         if len(s.text) > limit:
-            ctx.fail("section_text_length", where, s.id)
+            ctx.withhold(w, s.id, "section_text_length")
             continue
-        if not ctx.printable(s.text, where, s.id):
+        if not ctx.printable(s.text, w, s.id):
             continue
         if s.kind in _CITED_KINDS and not s.codes:
-            ctx.fail("narrative_without_code", where, s.id)
-        for code in s.codes:
-            if not ctx.index.knows(code):
-                ctx.fail("unknown_source_code", where, code)
+            ctx.withhold(w, s.id, "narrative_without_code")
+            continue
+        if any(not ctx.index.knows(code) for code in s.codes):
+            ctx.withhold(w, s.id, "unknown_source_code")  # corrupt provenance, listed
+            continue
         # Content rules on the block's own prose withhold the block (listed in the manifest,
         # counted) and the build goes on: the research stands, one sentence does not hold
         # every file back. Provenance and leaks above still fail the build.
@@ -289,10 +308,13 @@ def _withhold_rule(
         for fid in s.fact_ids
     ):
         return "unconfirmed_stated"
-    if ctx.leaks(s.text) or (s.kind == "hypothesis" and ctx.leaks(s.confirming_question or "")):
-        return "leak"
+    held = ctx.block_rule(sanitise(ctx.aliased(s.text)))
+    if held is None and s.kind == "hypothesis":
+        held = ctx.block_rule(sanitise(ctx.aliased(s.confirming_question or "")))
+    if held is not None:
+        return held
     if s.codes and all(code in ctx.denied_codes for code in s.codes):
-        return "tool_link"
+        return ctx.denied_rules[s.codes[0]]
     if s.kind == "executive_voice":
         return None
     if unregistered(s.text, allowed, _cited_texts(ctx, s, by_fact)):
@@ -771,15 +793,18 @@ def map_summary(
         if f.person_id not in listed:
             continue  # a person not on the list never appears (B9)
         where = "summary.linkedin_findings"
-        code = ctx.code_or_fail(None, f.url, where, f.person_id)
-        row = f"{f.person_id}:{f.url}"
-        if not (ctx.printable(f.claim, where, row) and ctx.printable(f.sentence, where, row)):
-            continue
+        # listed by the person and a short hash of the link, never the address itself
+        held_row = f"{f.person_id}:{hashlib.sha256(f.url.encode()).hexdigest()[:8]}"
+        code = ctx.code_or_withhold(None, f.url, where, held_row)
         if code is None:
+            continue
+        if not (
+            ctx.printable(f.claim, where, held_row) and ctx.printable(f.sentence, where, held_row)
+        ):
             continue
         prose = ctx.prose_violations(f.claim, where)
         if prose:
-            ctx.withhold(where, row, prose[0].code)  # the templated claim is authored prose
+            ctx.withhold(where, held_row, prose[0].code)  # the templated claim is authored prose
             continue
         sentence, withheld = ctx.quote(f.sentence, where)
         findings.append(
@@ -798,7 +823,7 @@ def map_summary(
     voice: list[QuoteBlock] = []
     for s in sections.get("executive_voice", []):
         text, _ = ctx.quote(s.text, f"summary.executive_voice.{s.id}")
-        codes = tuple(x for x in s.codes if ctx.index.knows(x))
+        codes = tuple(x for x in s.codes if ctx.index.knows(x) and x not in ctx.denied_codes)
         if codes and s.speaker:
             voice.append(
                 QuoteBlock(
@@ -814,7 +839,7 @@ def map_summary(
             row_id=s.id,
             text=ctx.rendered(s.text, f"summary.hypothesis.{s.id}"),
             question=ctx.rendered(s.confirming_question or "", f"summary.hypothesis.{s.id}"),
-            codes=tuple(x for x in s.codes if ctx.index.knows(x)),
+            codes=tuple(x for x in s.codes if ctx.index.knows(x) and x not in ctx.denied_codes),
         )
         for s in sections.get("hypothesis", [])
     )

@@ -72,19 +72,24 @@ def test_rowcheck_fails_on_dropped_row() -> None:
     assert result2.status == "failed"
 
 
-def test_rowcheck_fails_closed_without_libreoffice() -> None:
+def test_rowcheck_is_not_run_without_libreoffice() -> None:
+    """An unavailable or timed out converter is not a lost row: the check is ``not_run`` with its
+    reason (listed in the manifest, logged), as the PDF row presence check already was. It used
+    to fail closed, and a converter timeout ended a finished research with no files; a row the
+    script finds lost still fails the check."""
     absent = LibreOffice(binary=None)
     absent.binary = None
     result = docx_rowcheck(b"dummy", absent)
-    assert result.status == "failed"
+    assert result.status == "not_run"
     assert "unavailable" in result.reason.lower() or "not installed" in result.reason.lower()
 
 
-def test_rowcheck_fails_closed_without_pdftotext(monkeypatch) -> None:
+def test_rowcheck_is_not_run_without_pdftotext(monkeypatch) -> None:
     monkeypatch.setattr(shutil, "which", lambda x: None if x == "pdftotext" else "/usr/bin/soffice")
     lo = LibreOffice()
+    monkeypatch.setattr(LibreOffice, "pdf_bytes", lambda self, docx: b"%PDF-1.4")
     result = docx_rowcheck(b"dummy", lo)
-    assert result.status == "failed"
+    assert result.status == "not_run"
     assert "pdftotext" in result.reason
 
 

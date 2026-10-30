@@ -50,6 +50,7 @@ from account_intelligence.runs.lifecycle import RunLimits
 from account_intelligence.workflow.deps import RunDeps
 from account_intelligence.workflow.runner import SliceSettings
 from account_intelligence.workflow.spec import WorkflowSpec, load_spec
+from agents import naming as _client_guard  # noqa: F401 - registers the export builder's guard
 from exports.wiring import build_export_builder
 from llm.choice import RunModels
 

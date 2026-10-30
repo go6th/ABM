@@ -74,11 +74,22 @@ async def test_download_everything_builds_parts_with_every_table_and_a_short_liv
     ready = (await _call(plane, "GET", f"/v1/downloads/{job['job_id']}")).json()
     assert ready["status"] == "ready" and len(ready["parts"]) > 1 and ready["links_expire_at"]
     names: list[str] = []
+    readme = ""
     for part in ready["parts"]:
         got = await _call(plane, "GET", part["url"])
         assert got.status_code == 200 and int(got.headers["content-length"]) == part["bytes"]
-        names += zipfile.ZipFile(io.BytesIO(got.content)).namelist()
+        z = zipfile.ZipFile(io.BytesIO(got.content))
+        names += z.namelist()
+        if "README.txt" in z.namelist():
+            readme = z.read("README.txt").decode("utf-8")
     assert "README.txt" in names
+    # workspace repair: the repair report and the exclusions log ship, every table is in as CSV
+    # and Excel, and every path the README lists is in the archive (and the other way round)
+    from exports.repair.package import readme_paths, validate_readme
+
+    assert {"Logs/repair_report.md", "Logs/exclusions.csv"} <= set(names)
+    assert {f"Tables/{t}.xlsx" for t in ("People", "Job postings", "Coverage")} <= set(names)
+    assert validate_readme(readme, names) == [] and set(readme_paths(readme)) <= set(names)
     assert {"Tables/People.csv", "Tables/People.xlsx", "Tables/Coverage.csv"} <= set(names)
     assert any(n.startswith("Deliverables/") for n in names)
     # a download that broke off continues with a byte range

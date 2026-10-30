@@ -21,7 +21,7 @@ import csv
 import io
 import re
 import zipfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -249,13 +249,19 @@ def check_package(
     specs: Mapping[str, TableSpec],
     api_rows: Mapping[str, Sequence[Mapping[str, Any]]],
     files: Mapping[str, tuple[str, bytes]],
+    withheld: Collection[str] = (),
 ) -> dict[str, ParityResult]:
     """Every table against the file that prints it. ``files`` maps a file kind (``people``,
     ``jobs``, ``tech``, ``summary``) to (extension, bytes). A table whose file is absent is a
-    problem (a package must carry every table)."""
+    problem (a package must carry every table), unless the builder left that file out of the set
+    on purpose (``withheld``: file kinds, ``BuildResult.withheld_files``): the table has no file
+    to be compared with, and the package carries the files the set holds."""
     out: dict[str, ParityResult] = {}
     for kind, spec in specs.items():
         produced = files.get(spec.file_kind)
+        if produced is None and spec.file_kind in withheld:
+            out[kind] = ParityResult(kind, 0, ())
+            continue
         if produced is None:
             out[kind] = ParityResult(kind, 0, (f"{kind}: file {spec.file_kind} missing",))
             continue

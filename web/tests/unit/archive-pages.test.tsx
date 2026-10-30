@@ -144,18 +144,17 @@ const LIST: ArchiveList = {
   total: 120, offset: 0, limit: 50, next_offset: 2,
 };
 
-test("the index lists title, kind, captured, status and location with View and original links", () => {
+test("the index lists title, published, source, grade, events, people, lane and captured with View and original links", () => {
   render(<ArchiveIndexView list={LIST} domain="synthetic-acme.example" name="Synthetic Acme" kind="" showMore="/accounts/synthetic-acme.example/archive?limit=100" />);
   const table = screen.getByRole("table");
-  expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Title", "Kind", "Captured", "Status when captured", "Location", "Links"]);
+  expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Title", "Published", "Publisher", "Source type", "Grade", "Event types", "People named", "Lane", "Collected", "Links"]);
   const rows = within(table).getAllByRole("row").slice(1);
   expect(rows).toHaveLength(2);
   const first = within(rows[0]!);
   expect(first.getByText("Platform Engineer")).toBeTruthy();
   expect(first.getByText("Job posting")).toBeTruthy();
   expect(first.getByText("20 October 2026")).toBeTruthy();
-  expect(first.getByText("Closed")).toBeTruthy();
-  expect(first.getByText("Springfield, US")).toBeTruthy();
+  expect(first.getByText("Springfield, US · Closed")).toBeTruthy();
   expect(first.getByRole("link", { name: "View" }).getAttribute("href")).toBe("/accounts/synthetic-acme.example/archive?url=https%3A%2F%2Fjobs.synthetic-acme.example%2Fp1");
   expect(first.getByRole("link", { name: "original" }).getAttribute("href")).toBe("https://jobs.synthetic-acme.example/p1");
   // a copy with no title lists its address; the address is encoded whole in the View link
@@ -312,4 +311,67 @@ test("the first column opens the copy, so a phone that scrolls the table sideway
   const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
   const title = within(rows[0]!).getAllByRole("cell")[0]!;
   expect(within(title).getByRole("link", { name: "Platform Engineer" }).getAttribute("href")).toBe("/accounts/synthetic-acme.example/archive?url=https%3A%2F%2Fjobs.synthetic-acme.example%2Fp1");
+});
+
+const CLEAN = {
+  schema: "news-archive/2",
+  url: "https://www.agg.synthetic.example/news/1",
+  title: "Acme names Jane Roe CIO",
+  publisher: "agg.synthetic.example",
+  published_date: "2026-09-21",
+  collected_at: "2026-10-28T07:57:40Z",
+  source_type: "AI-generated summary",
+  is_ai_generated: true,
+  fact_grade: "Lead",
+  derived_from: { name: "Acme press release via PR Newswire", url: "https://www.prnewswire.example/release/1" },
+  summary: "Acme named Jane Roe CIO.",
+  tables: [{ title: "Material Details", columns: ["#", "Detail"], rows: [["1", "Jane Roe named CIO"], ["2", "Effective 30 Sep 2026"]] }],
+  events: [{ event_type: "Appointment", summary: "Jane Roe appointed CIO", effective_date: "2026-09-30", announced_date: "2026-09-21", confidence: "Lead" }],
+  people: [{ name: "Jane Roe", new_role: "CIO", previous_role: "Not stated", organization: "Acme", change_type: "Appointed", effective_date: "2026-09-30" }],
+  analysis: [{ author_type: "AI", text: "An early move." }],
+  disclaimer: "AI-generated summary; may contain inaccuracies.",
+  content_hash: "sha256:abc123",
+  duplicate_of: null,
+  corroborates: [],
+  quality: { boilerplate_removed: 9, duplicates_removed: 1, tables_repaired: 1, word_count: 12 },
+};
+
+test("a cleaned news copy shows badges, key facts, people, tables, commentary apart, disclaimer and provenance", () => {
+  const body = "## Background\n\nAcme named Jane Roe CIO.\n\n- first point\n- second point";
+  render(<ArchivedCopyView copy={copy({ url: CLEAN.url, kind: "page", title: CLEAN.title, text: body, record: CLEAN })} domain="synthetic-acme.example" now={NOW} />);
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Acme names Jane Roe CIO");
+  expect(screen.getByText("AI-generated summary")).toBeTruthy();
+  expect(screen.getByText("Lead")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Open primary source" }).getAttribute("href")).toBe("https://www.prnewswire.example/release/1");
+  expect(screen.getByRole("link", { name: "Open original" })).toBeTruthy();
+  const facts = within(screen.getByRole("list", { name: "Key facts" }));
+  expect(facts.getByText("Jane Roe appointed CIO")).toBeTruthy();
+  expect(facts.getByText("effective 30 September 2026")).toBeTruthy();
+  const people = within(screen.getByRole("region", { name: "People changes" }));
+  expect(people.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "New role", "Previous role", "Change", "Effective"]);
+  const table = within(screen.getByRole("region", { name: "Material Details" })).getByRole("table");
+  expect(within(table).getAllByRole("row")).toHaveLength(3);
+  expect(screen.getByRole("heading", { level: 3, name: "Background" })).toBeTruthy();
+  expect(screen.getAllByRole("listitem").map((l) => l.textContent)).toContain("second point");
+  const comm = screen.getByRole("complementary", { name: "Commentary" });
+  expect(comm.textContent).toContain("Third-party / AI commentary — not a fact");
+  expect(comm.textContent).toContain("An early move.");
+  expect(screen.getByText("AI-generated summary; may contain inaccuracies.")).toBeTruthy();
+  const prov = within(screen.getByRole("contentinfo", { name: "Provenance" }));
+  expect(prov.getByText("sha256:abc123")).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/\*\*|\\#|\[\]\(/);
+});
+
+test("a long cleaned article is collapsed and the index filters by column", () => {
+  const long = Array.from({ length: 320 }, (_, i) => `word${i}`).join(" ");
+  render(<ArchivedCopyView copy={copy({ url: CLEAN.url, kind: "page", title: CLEAN.title, text: long, record: { ...CLEAN, tables: [], people: [], events: [], analysis: [] } })} domain="synthetic-acme.example" now={NOW} />);
+  expect(screen.getByText("Show the full article (320 words)")).toBeTruthy();
+  cleanup();
+  render(<ArchiveIndexView list={LIST} domain="synthetic-acme.example" name="Synthetic Acme" kind="page" showMore={null} filters={{ grade: "Lead" }} />);
+  const form = screen.getByRole("form", { name: "Filter the archive" });
+  for (const label of ["Published", "Title", "Publisher", "Source type", "Grade", "Event types", "People named", "Lane", "Collected"]) {
+    expect(within(form).getByLabelText(label)).toBeTruthy();
+  }
+  expect((within(form).getByLabelText("Grade") as HTMLInputElement).value).toBe("Lead");
+  expect(within(form).getByRole("link", { name: "Clear" }).getAttribute("href")).toBe("/accounts/synthetic-acme.example/archive?kind=page");
 });

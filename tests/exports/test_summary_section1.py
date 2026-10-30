@@ -134,10 +134,13 @@ def test_the_new_kinds_follow_the_narrative_withhold_rules(
     assert model.stands_out == () and model.lane_meanings == ()
 
 
-def test_an_uncited_stands_out_block_fails_like_narrative(
+def test_an_uncited_stands_out_block_is_withheld_like_narrative(
     cfg: ExportConfig, grading: GradingConfig
 ) -> None:
+    """An authored block with no source code is never printed; like narrative it is withheld
+    and listed (it no longer fails the build)."""
     c = account()
     ctx = MapContext(_with(c, _stands_out(c, codes=())), cfg, grading)
-    map_summary(ctx, None)
-    assert "narrative_without_code" in {v.code for v in ctx.violations}
+    model = map_summary(ctx, None).model
+    assert "narrative_without_code" in {rule for _w, _row, rule in ctx.withheld_blocks}
+    assert model is not None and model.stands_out == ()

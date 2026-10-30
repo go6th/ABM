@@ -511,8 +511,10 @@ async def test_two_tenants_never_cross() -> None:
             (f"x{uuid4().hex[:6]}.{a.domain}", same_domain.account),
         )
     built = await builder(same_domain, payloads).build_all(str(b.tenant), str(same_domain.run))
-    assert built.status == "failed"  # no narrative of its own: nothing of tenant A was used
-    assert any("missing_narrative" in e for e in built.errors)
+    # no narrative of its own: nothing of tenant A was used; the Summary alone is withheld and
+    # the other files are delivered (a file's defect no longer fails the whole build)
+    assert any(w.startswith("summary:") for w in built.withheld_files)
+    assert all(d.kind != "summary" for d in built.deliverables)
 
 
 async def test_reader_fills_the_posting_fields_and_the_archived_copy_links() -> None:

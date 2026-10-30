@@ -134,8 +134,11 @@ async def test_happy_path_ends_partial_with_its_blockers_named_and_every_invaria
     b = await stack.client("e2e-other")
     run = await stack.start(a)
     state = run_row(run)
-    # Workflow v1 writes no Summary narrative: the builder refuses (missing_narrative)
-    assert (state["status"], state["reason"]) == ("PARTIAL", "build_failed")
+    # Workflow v1 writes no Summary narrative: the builder holds the Summary back alone
+    # (missing_narrative) and builds the other files; this stack has no quality gate, and built
+    # files that no gate checked are never a COMPLETED delivery. (Until 2026-10-31 the builder
+    # refused the whole set: PARTIAL build_failed with no files.)
+    assert (state["status"], state["reason"]) == ("PARTIAL", "gate_not_run")
     assert_legal(transitions, "PARTIAL")
 
     rows = coverage(run)

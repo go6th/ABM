@@ -26,9 +26,11 @@ import asyncio
 import hashlib
 import json
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlsplit
+
+from pydantic import ValidationError
 
 from account_intelligence.grading.config import GradingConfig
 from account_intelligence.tracker.config import load_tracker_config
@@ -46,6 +48,7 @@ from exports.errors import (
     MissingProvenance,
     NotConfigured,
     OrphanCitation,
+    RenderError,
     RowCapExceeded,
     RowConservation,
     SchemaViolation,
@@ -61,7 +64,7 @@ from exports.models import (
     FileKind,
 )
 from exports.ooxml import normalise_package
-from exports.policy import Violation, leak_hits, sanitise
+from exports.policy import Violation, client_rule, leak_hits, leak_rule, sanitise
 from exports.ports import (
     CheckResult,
     ContentReader,
@@ -77,7 +80,9 @@ from exports.readers.jobs import map_jobs
 from exports.readers.people import map_people
 from exports.readers.summary import map_summary
 from exports.readers.tech import map_tech
+from exports.sweep import sweep_model
 from exports.verify import (
+    _CITATION,
     cached_values_check,
     doc_checks,
     docx_row_keys,
@@ -85,8 +90,9 @@ from exports.verify import (
     pdf_row_presence,
     recalc_check,
     scan_package,
-    third_party_blocked,
+    scrub_member,
     third_party_scan,
+    third_party_word,
     xlsx_row_keys,
     xlsx_stack_keys,
 )
@@ -184,7 +190,7 @@ def errors_of(violations: list[Violation]) -> list[ExportError]:
     for code in sorted(grouped):
         cls = _ERROR_OF.get(code, BannedContent)
         items = sorted({f"{v.where}:{v.item}" for v in grouped[code]})
-        out.append(cls(code, items, rule=code))
+        out.append(cls(code, items, rule=code, where=_file_of(grouped[code][0].where)))
     return out
 
 
@@ -218,6 +224,78 @@ class Assembly:
     # what changed since the previous delivery (spec 8.3), computed from the mapped rows before
     # rendering so a re-shared document opens with it; None until mapping is done
     change_note: str | None = None
+    # the files the set does not hold, kind -> the rule that kept each out; the rest is delivered
+    withheld: dict[FileKind, str] = field(default_factory=dict)
+    # strings the last line of defence replaced in a model (``kind:rule`` -> count)
+    late_replaced: Counter[str] = field(default_factory=Counter)
+    # workspace members whose text was scrubbed (member -> replacements)
+    scrubbed: Counter[str] = field(default_factory=Counter)
+    # the workspace zip left out for a rule (the five files are still delivered), else None
+    workspace_withheld: str | None = None
+
+
+# Violations that keep the file they came from out of the set instead of ending the research: a
+# file whose rows would exceed its cap, a Summary with no narrative (every block withheld by a
+# rule, or distill wrote none) or no coverage table. Every other file is built and delivered.
+_FILE_RULES = frozenset({"row_cap", "missing_narrative", "missing_tracker"})
+_KINDS = frozenset(FILE_KINDS)
+
+
+class FileHeld(Exception):  # noqa: N818 - a signal inside one build, never an error to a caller
+    """One file cannot be made clean: it is left out of the set under ``rule`` (``kind:rule`` in
+    the manifest). Raised by ``ExportBuilder._produce``, caught by ``_render_all``."""
+
+    def __init__(self, kind: FileKind, rule: str) -> None:
+        super().__init__(f"{kind}: {rule}")
+        self.kind = kind
+        self.rule = rule
+
+
+def _file_of(where: str) -> FileKind | None:
+    """The file kind a violation's ``where`` names (``summary.lanes`` is the Summary), or None."""
+    head = where.split(".", 1)[0]
+    return head if head in _KINDS else None
+
+
+def _third_party_rules(details: tuple[str, ...]) -> str:
+    """The rules behind a failed third-party scan, comma-joined: ``tool_name``, ``cost_word`` and
+    ``data_tool_host`` (``member: rule`` and ``data_tool_host: host`` details; never the host).
+    The cost word's rule is not named by the word: the manifest lists rule names and is scanned
+    for it."""
+    rules = {
+        "data_tool_host"
+        if d.startswith("data_tool_host")
+        else ("cost_word" if d.endswith(": credits") else d.rsplit(": ", 1)[-1])
+        for d in details
+    }
+    return ",".join(sorted(rules)) or "tool_name"
+
+
+def _held_rule(error: ExportError) -> str | None:
+    """The rule that leaves a file out of the set when ``error`` ends its verification, or None
+    for a structural failure that still refuses the set: a restricted term, a data tool's name or
+    link, the cost word (``leak``, ``tool_name``, ``cost_word``, ``data_tool_host``), a stale
+    phrase, an excluded name, a dash or a citation no source backs, or a renderer that failed."""
+    if isinstance(error, RenderError):
+        return error.rule or error.code
+    if isinstance(error, LeakError | BannedContent | OrphanCitation):
+        return error.rule or error.code
+    return None
+
+
+def _scan_rules(hits: tuple[str, ...]) -> str:
+    """The rules behind the hits of a package scan (``member: pattern``), comma-joined: neutral
+    names only (``leak``, ``tool_name``, ``internal_id``), never the pattern."""
+    return ",".join(sorted({leak_rule(h.split(": ", 1)[1]) for h in hits if ": " in h})) or "leak"
+
+
+def _invalid_model(error: ValidationError) -> SchemaViolation:
+    """A render model that failed its own validation (a bug, never a content rule): which model
+    and field and what kind of error, never the value."""
+    items = sorted(
+        {f"{error.title}.{'.'.join(str(p) for p in e['loc'])}:{e['type']}" for e in error.errors()}
+    )
+    return SchemaViolation("a render model failed validation", items, rule="model_validation")
 
 
 def _filename(cfg: ExportConfig, kind: str, account: str, ext: str) -> str:
@@ -230,12 +308,15 @@ def _content_hash(model: Any, cfg: ExportConfig) -> str:
 
 
 def map_snapshot(
-    content: SnapshotContent, cfg: ExportConfig, grading: GradingConfig
+    content: SnapshotContent,
+    cfg: ExportConfig,
+    grading: GradingConfig,
+    alias: tuple[str, str] | None = None,
 ) -> tuple[dict[str, Mapped[Any]], MapContext]:
     """Map one snapshot to every file's model: the ONE mapping the export builders render and
     the client tables (``views.rowsources``) read, so on-screen rows and exported rows come from
     the same function (VW1). Pure; violations are left on the returned context."""
-    ctx = MapContext(content, cfg, grading)
+    ctx = MapContext(content, cfg, grading, alias=alias)
     people = map_people(ctx)
     jobs = map_jobs(ctx)
     tech = map_tech(ctx)
@@ -254,17 +335,18 @@ def map_snapshot(
         "jobs": jobs,
         "tech": tech,
     }
-    ctx.flag(
-        orphans(
-            {
-                "summary": summary.cited,
-                "people": people.cited,
-                "jobs": jobs.cited,
-                "tech": tech.cited,
-            },
-            evidence.cited,
+    if evidence.model is not None:  # no register to reconcile with when Evidence has no rows
+        ctx.flag(
+            orphans(
+                {
+                    "summary": summary.cited,
+                    "people": people.cited,
+                    "jobs": jobs.cited,
+                    "tech": tech.cited,
+                },
+                evidence.cited,
+            )
         )
-    )
     return mapped, ctx
 
 
@@ -301,6 +383,35 @@ class ExportBuilder:
         self.pdf = pdf
         self.recalc = recalc
 
+    def _client_name(
+        self, content: SnapshotContent
+    ) -> tuple[SnapshotContent, tuple[str, str] | None]:
+        """``(content, alias)``: ``content`` with an account name a client file may not print
+        replaced by one it may (the name goes in every file's title, header, properties and file
+        name, so an account called after a data tool, or with the cost word in its name, refused
+        every file), and ``(stored name, printed name)`` so authored text that names the account
+        says the printed one. The name's refused words are replaced by the record marker; a name
+        that is still refused becomes ``Account`` and a short hash of its domain. A name that is
+        clean is untouched (alias None)."""
+
+        def refused(text: str) -> bool:
+            return bool(
+                leak_hits(sanitise(text))
+                or third_party_word(text)
+                or client_rule(text)
+                or not sanitise(text).strip()
+            )
+
+        name = content.account_name
+        if not refused(name):
+            return content, None
+        marker = self.cfg.rules.quote_handling.record_marker
+        masked = scrub_member(sanitise(name), (), marker)[0]
+        if refused(masked):
+            short = hashlib.sha256((content.domain or name).encode()).hexdigest()[:8]
+            masked = f"Account {short}"
+        return content.model_copy(update={"account_name": masked}), (name, masked)
+
     # ---- pure-ish assembly (renderer subprocess is the only side effect) ----------------------
 
     def assemble(self, content: SnapshotContent, previous: BuildManifest | None = None) -> Assembly:
@@ -308,9 +419,28 @@ class ExportBuilder:
         account's previous delivered manifest, when there is one: the change note is computed
         from it and the mapped rows before rendering, and a re-shared document opens with it."""
         out = Assembly()
-        out.mapped, ctx = map_snapshot(content, self.cfg, self.grading)
-        out.errors.extend(errors_of(ctx.violations))
-        missing = [k for k, m in out.mapped.items() if m.model is None]
+        content, alias = self._client_name(content)
+        try:
+            out.mapped, ctx = map_snapshot(content, self.cfg, self.grading, alias)
+        except ValidationError as error:
+            out.errors.append(_invalid_model(error))
+            return out
+        # a file whose rows exceed its cap, or a Summary with no narrative or coverage table, is
+        # left out and the others are built; every other violation refuses the set
+        for v in ctx.violations:
+            kind = _file_of(v.where)
+            if v.code in _FILE_RULES and kind is not None:
+                out.withheld.setdefault(kind, v.code)
+        out.errors.extend(
+            errors_of(
+                [
+                    v
+                    for v in ctx.violations
+                    if v.code not in _FILE_RULES or _file_of(v.where) is None
+                ]
+            )
+        )
+        missing = [k for k, m in out.mapped.items() if m.model is None and k not in out.withheld]
         if missing and not out.errors:
             out.errors.append(MissingContent("a file could not be mapped", missing))
         if out.errors:
@@ -320,8 +450,21 @@ class ExportBuilder:
         )
         # the opening line of a re-shared document; a first delivery prints nothing
         change_line = out.change_note if previous is not None else None
-        self._render_all(out, content, ctx, change_line)
+        try:
+            self._render_all(out, content, ctx, change_line)
+        except ValidationError as error:
+            out.errors.append(_invalid_model(error))
         if out.errors:
+            return out
+        if not out.files:
+            # nothing is left to deliver: every file was held back, which is a failed build
+            out.errors.append(
+                MissingContent(
+                    "every file was held back",
+                    [f"{k}:{r}" for k, r in sorted(out.withheld.items())],
+                    rule=",".join(sorted(set(out.withheld.values()))),
+                )
+            )
             return out
         self._releases(out, ctx)
         out.manifest = self._manifest(out, content, ctx)
@@ -338,9 +481,10 @@ class ExportBuilder:
         def blocked(text: str) -> str | None:
             # the rule names are neutral: the manifest is scanned like every other member, and
             # it must not carry the very words (a tool's name, "credits") it reports leaving out
-            if leak_hits(text, ctx.restricted):
-                return "leak"
-            return "third_party" if third_party_blocked(text) else None
+            rule = ctx.block_rule(text)
+            if rule is None:
+                return None
+            return "leak" if rule == "leak" else "third_party"
 
         out.releases, left_out = release_members(
             content,
@@ -361,6 +505,9 @@ class ExportBuilder:
     ) -> None:
         account = content.account_name
         for kind in FILE_KINDS:
+            if kind in out.withheld:
+                obs.file_withheld(content.run_id, kind, out.withheld[kind])
+                continue
             mapped = out.mapped[kind]
             model = mapped.model
             assert model is not None
@@ -368,17 +515,95 @@ class ExportBuilder:
             title = name.rsplit(".", 1)[0].replace("_", " ")
             with obs.span(f"exports.render.{kind}", content.run_id, rows=len(mapped.row_ids)):
                 try:
-                    body, parts = self._render(kind, model, title, content, change_line)
-                    out.long_parts += parts
-                    self._verify(kind, body, mapped, ctx, out)
+                    body, parts, model = self._produce(
+                        kind, model, title, content, change_line, mapped, ctx, out
+                    )
+                except FileHeld as held:
+                    out.withheld[kind] = held.rule
+                    obs.file_withheld(content.run_id, kind, held.rule)
+                    obs.file_outcome(kind, "withheld")
+                    continue
                 except ExportError as error:
+                    error.where = error.where or kind
                     out.errors.append(error)
                     obs.file_outcome(kind, "failed")
                     continue
+            out.long_parts += parts
+            out.mapped[kind] = replace(mapped, model=model)
             out.files[kind] = (name, body)
             out.data[kind] = (model.model_dump_json(indent=1) + "\n").encode()
             out.content_hashes[kind] = _content_hash(model, self.cfg)
             obs.file_outcome(kind, "built")
+
+    def _produce(
+        self,
+        kind: FileKind,
+        model: Any,
+        title: str,
+        content: SnapshotContent,
+        change_line: str | None,
+        mapped: Mapped[Any],
+        ctx: MapContext,
+        out: Assembly,
+    ) -> tuple[bytes, int, Any]:
+        """Render and verify one file: ``(body, long text parts, the model it was rendered
+        from)``. When the final check of the produced bytes refuses the file for its content (a
+        restricted term, a data tool's name, the word credits, a stale phrase, an excluded name or
+        a citation no source backs) the model's refused strings are replaced by the withheld note
+        once and the file is rendered again, and a file that is still refused (or whose refused
+        text is in no string of the model: an address, the file's own wording) is left out of the
+        set (``FileHeld``). A research is never ended for a file's content. Structural failures
+        (row conservation, cached values, schema) still raise: the package would be wrong."""
+        swept = False
+        # LOOP(file sweep retry): cap=2 renders (the file, then once more with its refused strings
+        # replaced); exit=verified, FileHeld (still refused or nothing to replace), or a
+        # structural ExportError
+        for _ in range(2):
+            try:
+                body, parts = self._render(kind, model, title, content, change_line)
+                self._verify(kind, body, replace(mapped, model=model), ctx, out)
+                return body, parts, model
+            except ExportError as error:
+                rule = _held_rule(error)
+                if rule is None:
+                    raise
+                if swept or isinstance(error, RenderError):
+                    raise FileHeld(kind, rule) from error
+                swept_model, report = sweep_model(
+                    model,
+                    self._sweeper(kind, ctx),
+                    self.cfg.rules.quote_handling.withheld_text,
+                )
+                if not report.replaced:
+                    raise FileHeld(kind, rule) from error
+                for why, n in report.replaced.items():
+                    out.late_replaced[f"{kind}:{why}"] += n
+                model, swept = swept_model, True
+        raise AssertionError("unreachable")  # pragma: no cover - the loop returns or raises
+
+    def _sweeper(self, kind: FileKind, ctx: MapContext) -> Any:
+        """The test the last line of defence applies to every string of a model: the mapping's
+        own client-output rule plus what the document checks refuse (a stale phrase, an excluded
+        name, a citation no source backs)."""
+        stale = tuple(p for p in self.cfg.rules.stale_phrases.phrases if p)
+        excluded = self._excluded_names()
+        known = frozenset(self._account_source_ids(ctx))
+
+        def blocked(text: str) -> str | None:
+            rule = ctx.block_rule(sanitise(text))
+            if rule is not None:
+                return rule
+            if any(p in text for p in stale):
+                return "stale_phrase"
+            if any(n in text for n in excluded):
+                return "excluded_name"
+            if kind in ("summary", "evidence") and any(
+                c not in known for c in _CITATION.findall(text)
+            ):
+                return "orphan_citation"
+            return None
+
+        return blocked
 
     def _render(
         self,
@@ -420,7 +645,12 @@ class ExportBuilder:
         with obs.span(f"exports.verify.{kind}", ctx.content.run_id):
             hits = scan_package(body, ctx.restricted)
             if hits:
-                raise LeakError(f"{kind}: forbidden content in the produced file", hits)
+                raise LeakError(
+                    f"{kind}: forbidden content in the produced file",
+                    hits,
+                    rule=_scan_rules(hits),
+                    where=kind,
+                )
             books = self.cfg.rules.workbooks
             if kind in ("summary", "evidence"):
                 keys = docx_row_keys(body)
@@ -440,28 +670,35 @@ class ExportBuilder:
                 raise RowConservation(
                     f"{kind}: rows in the file differ from the rows selected",
                     (f"file {len(keys)}", f"selected {len(mapped.refs)}"),
+                    where=kind,
                 )
             if self.pdf is not None and kind in ("summary", "evidence"):
                 result = pdf_row_presence(body, mapped.refs, self.pdf)
                 out.checks.append(result)
                 if result.status == "failed":
-                    raise RowConservation(f"{kind}: rows lost in the PDF rendering", result.details)
+                    raise RowConservation(
+                        f"{kind}: rows lost in the PDF rendering", result.details, where=kind
+                    )
                 result = docx_rowcheck(body, self.pdf)
                 out.checks.append(result)
                 if result.status == "failed":
-                    raise RowConservation(f"{kind}: rowcheck failed", result.details)
+                    raise RowConservation(f"{kind}: rowcheck failed", result.details, where=kind)
             if kind in ("people", "jobs", "tech"):
                 # the stored result of every formula equals the value computed in code (the
                 # file shows numbers in a viewer that does not calculate)
                 result = cached_values_check(body, self._expected(kind, mapped))
                 out.checks.append(result)
                 if result.status == "failed":
-                    raise SchemaViolation(f"{kind}: cached formula values", result.details)
+                    raise SchemaViolation(
+                        f"{kind}: cached formula values", result.details, where=kind
+                    )
             if self.recalc is not None and kind in ("people", "jobs", "tech"):
                 result = recalc_check(body, self._expected(kind, mapped), self.recalc)
                 out.checks.append(result)
                 if result.status == "failed":
-                    raise SchemaViolation(f"{kind}: workbook recalculation", result.details)
+                    raise SchemaViolation(
+                        f"{kind}: workbook recalculation", result.details, where=kind
+                    )
             if kind in ("summary", "evidence"):
                 dashes = self.cfg.rules.banned_dashes
                 result = doc_checks(
@@ -469,9 +706,7 @@ class ExportBuilder:
                     kind,
                     self._account_source_ids(ctx),
                     self.cfg.rules.stale_phrases.phrases,
-                    self.cfg.rules.excluded_names.names
-                    if hasattr(self.cfg.rules, "excluded_names")
-                    else (),
+                    self._excluded_names(),
                     self._verbatim_quotes(kind, model),
                     self._passthrough_texts(kind, model),
                     dashes.characters,
@@ -482,9 +717,17 @@ class ExportBuilder:
                     rules = sorted({d.split(":", 1)[0] for d in result.details})
                     cls = OrphanCitation if rules == ["orphan_citation"] else BannedContent
                     raise cls(
-                        f"{kind}: document checks failed", result.details, rule=",".join(rules)
+                        f"{kind}: document checks failed",
+                        result.details,
+                        rule=",".join(rules),
+                        where=kind,
                     )
             self._third_party(kind, body, ctx, out)
+
+    def _excluded_names(self) -> tuple[str, ...]:
+        """The names the document checks refuse in a Word file (none configured: empty)."""
+        rules = getattr(self.cfg.rules, "excluded_names", None)
+        return tuple(rules.names) if rules is not None else ()
 
     def _third_party(self, kind: str, body: bytes, ctx: MapContext, out: Assembly) -> None:
         """Spec 12 on one file: a data tool name or host or the word "credits" fails it; the
@@ -500,7 +743,10 @@ class ExportBuilder:
             out.domains.setdefault(group, set()).update(hosts)
         if report.result.status == "failed":
             raise BannedContent(
-                f"{kind}: third-party scan failed", report.result.details, rule="tool_name"
+                f"{kind}: third-party scan failed",
+                report.result.details,
+                rule=_third_party_rules(report.result.details),
+                where=kind,
             )
 
     @staticmethod
@@ -632,6 +878,11 @@ class ExportBuilder:
 
     def _manifest(self, out: Assembly, content: SnapshotContent, ctx: MapContext) -> BuildManifest:
         mapped = out.mapped
+        built = [k for k in FILE_KINDS if k in out.files]
+
+        def rows_of(k: FileKind) -> tuple[str, ...]:
+            return mapped[k].row_ids if k in out.files else ()
+
         entries = tuple(
             FileEntry(
                 kind=k,
@@ -641,9 +892,10 @@ class ExportBuilder:
                 content_hash=out.content_hashes[k],
                 rows=len(mapped[k].row_ids),
             )
-            for k in FILE_KINDS
+            for k in built
         )
-        summary = mapped["summary"].model
+        summary = mapped["summary"].model if "summary" in out.files else None
+        cited = mapped["evidence"].cited if "evidence" in out.files else frozenset()
         return BuildManifest(
             run_id=content.run_id,
             account=content.account_name,
@@ -651,14 +903,12 @@ class ExportBuilder:
             snapshot_hash=content.snapshot_hash(),
             theme_hash=self.cfg.theme_hash,
             rules_hash=self.cfg.rules_hash,
-            rows_per_file={k: len(mapped[k].row_ids) for k in FILE_KINDS},
+            rows_per_file={k: len(rows_of(k)) for k in FILE_KINDS},
             snapshot_counts=dict(sorted(content.snapshot_counts.items())),
-            row_ids={k: mapped[k].row_ids for k in FILE_KINDS},
-            row_digests={k: mapped[k].digests for k in FILE_KINDS},
-            refs={k: mapped[k].refs for k in FILE_KINDS},
-            source_codes_cited=tuple(
-                sorted(mapped["evidence"].cited, key=lambda c: int(c.split("-")[1]))
-            ),
+            row_ids={k: rows_of(k) for k in FILE_KINDS},
+            row_digests={k: mapped[k].digests if k in out.files else () for k in FILE_KINDS},
+            refs={k: mapped[k].refs if k in out.files else () for k in FILE_KINDS},
+            source_codes_cited=tuple(sorted(cited, key=lambda c: int(c.split("-")[1]))),
             numbers=ctx.registry.items(),
             count_sentences=ctx.registry.sentences(),
             tracker_tally=summary.tracker_tally if summary else (),
@@ -668,6 +918,9 @@ class ExportBuilder:
             formula_like_cells=ctx.formula_like,
             masked_terms=ctx.masked_terms,
             leaks_withheld=ctx.leaks_withheld,
+            texts_withheld=obs.count_lines(self._text_parts(ctx)),
+            late_replaced=tuple(f"{k}={n}" for k, n in sorted(out.late_replaced.items())),
+            files_withheld=tuple(f"{k}:{r}" for k, r in sorted(out.withheld.items())),
             third_party_domains={g: tuple(sorted(h)) for g, h in sorted(out.domains.items())},
             files=entries,
             loop_exits={
@@ -678,30 +931,32 @@ class ExportBuilder:
             exclusion_hash=content.exclusion_hash,
         )
 
+    @staticmethod
+    def _text_parts(ctx: MapContext) -> Counter[tuple[str, str]]:
+        """The texts the mapping replaced by the withheld note, by part of a file and rule."""
+        parts: Counter[tuple[str, str]] = Counter()
+        for (where, rule), n in ctx.texts_withheld.items():
+            parts[(obs.where_part(where), rule)] += n
+        return parts
+
     def _package(self, out: Assembly, content: SnapshotContent, ctx: MapContext) -> None:
         assert out.manifest is not None
         name = _filename(self.cfg, "workspace", content.account_name, "zip")
         records: dict[str, bytes] = {}
         try:
-            records = self._run_records(content, ctx, out)
-            body = build_workspace(
-                deliverables=out.files,
-                data=out.data,
-                manifest=json.loads(out.manifest.model_dump_json()),
-                rules=self.cfg.rules,
-                theme=self.cfg.theme.zip,
-                account=content.account_name,
-                as_of=content.as_of,
-                extras=records,
-                releases=out.releases,
+            records = self._scrubbed(self._run_records(content, ctx, out), ctx, out)
+            data = self._scrubbed(
+                {f"{k}.json": b for k, b in out.data.items()}, ctx, out, count_as="build"
             )
-            problems = check_zip(body, self.cfg.rules)
-            if problems:
-                raise UnsafePackage("workspace zip failed its safety check", problems)
+            out.data = {k: data[f"{k}.json"] for k in out.data}
+            out.manifest = out.manifest.model_copy(
+                update={
+                    "members_scrubbed": tuple(f"{m}={n}" for m, n in sorted(out.scrubbed.items()))
+                }
+            )
+            body = self._zip(out, content, ctx, records)
             done = frozenset(hashlib.sha256(b).hexdigest() for _, b in out.files.values())
             hits = scan_package(body, ctx.restricted, scanned=done)
-            if hits:
-                raise LeakError("workspace zip: forbidden content", hits)
             report = third_party_scan(
                 body,
                 "workspace",
@@ -710,22 +965,105 @@ class ExportBuilder:
                 scanned=done,
             )
             out.checks.append(report.result)
-            if report.result.status == "failed":
-                raise BannedContent(
-                    "workspace: third-party scan failed", report.result.details, rule="tool_name"
-                )
+            if hits or report.result.status == "failed":
+                # nothing left in the zip is text we could still scrub: the zip alone is left out
+                # (the five files are delivered) rather than the research ended
+                rules = {
+                    *(_scan_rules(hits).split(",") if hits else ()),
+                    *(
+                        _third_party_rules(report.result.details).split(",")
+                        if report.result.status == "failed"
+                        else ()
+                    ),
+                }
+                out.workspace_withheld = ",".join(sorted(rules))
+                obs.file_withheld(content.run_id, "workspace", out.workspace_withheld)
+                return
         except ExportError as error:
+            error.where = error.where or "workspace"
             out.errors.append(error)
             return
         out.workspace = body
         # the zip also holds the run's own records, so they are part of what its hash covers
         out.content_hashes["workspace"] = hashlib.sha256(
             (
-                "".join(out.content_hashes[k] for k in FILE_KINDS)
+                "".join(out.content_hashes[k] for k in FILE_KINDS if k in out.content_hashes)
                 + "".join(hashlib.sha256(records[n]).hexdigest() for n in sorted(records))
             ).encode()
         ).hexdigest()
         out.workspace_name = name
+
+    def _scrubbed(
+        self, members: dict[str, bytes], ctx: MapContext, out: Assembly, *, count_as: str = ""
+    ) -> dict[str, bytes]:
+        """The text members with every restricted term, data tool name, link to a data tool and
+        the word credits replaced by the record marker (the run's own records may mention what a
+        client file may not print; the member stays, scrubbed). Counted by member name; the
+        render-model data (``count_as``) is counted as one group."""
+        marker = self.cfg.rules.quote_handling.record_marker
+        done: dict[str, bytes] = {}
+        for name, body in members.items():
+            if not name.endswith((".json", ".md", ".txt")):
+                done[name] = body
+                continue
+            text, n = scrub_member(body.decode("utf-8", "ignore"), ctx.restricted, marker)
+            if n:
+                out.scrubbed[f"{count_as}/{name}" if count_as else name] += n
+                body = text.encode()
+            done[name] = body
+        return done
+
+    def _scrubbed_value(self, value: Any, ctx: MapContext, out: Assembly) -> Any:
+        """``value`` (a JSON document) with every string scrubbed as a workspace member is: the
+        manifest the zip embeds carries counts and the registry's sentences, and none of them may
+        name a restricted term, a data tool or the cost word."""
+        marker = self.cfg.rules.quote_handling.record_marker
+        if isinstance(value, str):
+            text, n = scrub_member(value, ctx.restricted, marker)
+            if n:
+                out.scrubbed["MANIFEST.json"] += n
+            return text
+        if isinstance(value, list):
+            return [self._scrubbed_value(v, ctx, out) for v in value]
+        if isinstance(value, dict):
+            return {k: self._scrubbed_value(v, ctx, out) for k, v in value.items()}
+        return value
+
+    def _zip(
+        self, out: Assembly, content: SnapshotContent, ctx: MapContext, records: dict[str, bytes]
+    ) -> bytes:
+        """The workspace zip of the files built so far. A package over its size caps is built
+        again without the archived copies (the optional members), listed in the manifest."""
+        assert out.manifest is not None
+        # LOOP(zip size retry): cap=2 builds (with the archived copies, then without them);
+        # exit=built and checked, or UnsafePackage
+        for attempt in (0, 1):
+            try:
+                body = build_workspace(
+                    deliverables=out.files,
+                    data=out.data,
+                    manifest=self._scrubbed_value(
+                        json.loads(out.manifest.model_dump_json()), ctx, out
+                    ),
+                    rules=self.cfg.rules,
+                    theme=self.cfg.theme.zip,
+                    account=content.account_name,
+                    as_of=content.as_of,
+                    extras=records,
+                    releases=out.releases,
+                    withheld=tuple(out.withheld),
+                )
+                problems = check_zip(body, self.cfg.rules)
+                if problems:
+                    raise UnsafePackage("workspace zip failed its safety check", problems)
+                return body
+            except UnsafePackage:
+                if attempt or not out.releases:
+                    raise
+                out.releases = {}
+                held = (*out.manifest.withheld_blocks, "workspace.releases:all:size_cap")
+                out.manifest = out.manifest.model_copy(update={"withheld_blocks": held})
+        raise AssertionError("unreachable")  # pragma: no cover - the loop returns or raises
 
     def _run_records(
         self, content: SnapshotContent, ctx: MapContext, out: Assembly
@@ -756,11 +1094,15 @@ class ExportBuilder:
                 return key.rsplit(".", 1)[-1].replace("_", " ")
             return spec.meaning.split(",")[0].split(" (")[0].strip() or key
 
-        filenames = {kind: name for kind, (name, _body) in out.files.items()}
+        # the planned name of every file (a file left out of the set keeps its name in the pull
+        # log's outputs column); only the built ones are listed as members
+        filenames: dict[FileKind, str] = {
+            k: _filename(self.cfg, k, content.account_name, EXTENSIONS[k]) for k in FILE_KINDS
+        }
 
         def render_model(kind: str) -> Any:
             mapped = out.mapped.get(kind)
-            return mapped.model if mapped is not None else None
+            return mapped.model if mapped is not None and kind in out.files else None
 
         return workspace_members(
             content,
@@ -770,6 +1112,8 @@ class ExportBuilder:
             clean=lambda t: _mask_tools(ctx.mask(sanitise(t)), ctx.cfg.scope.mask),
             internal_reason_texts=reasons,
             releases=len(out.releases),
+            link_rule=ctx.link_rule,
+            present=tuple(out.files),
             restore=RestoreInputs(
                 cfg=self.cfg,
                 filenames=filenames,
@@ -810,10 +1154,40 @@ class ExportBuilder:
         # the whole assembly runs off the event loop: it renders, scans and converts files (the
         # LibreOffice checks wait up to 120 s each), and a blocked loop stops the health check
         # and the task heartbeat (security review 2026-10-29, F4)
-        out = await asyncio.to_thread(
-            self.assemble, content, BuildManifest.model_validate(previous) if previous else None
-        )
-        if out.errors or out.manifest is None or out.workspace is None:
+        try:
+            out = await asyncio.to_thread(
+                self.assemble,
+                content,
+                BuildManifest.model_validate(previous) if previous else None,
+            )
+        except ExportError as error:  # a typed failure of the mapping (a registry clash, a cap)
+            return self._failed(run_id, [error])
+        except Exception as error:  # noqa: BLE001 - a bug in a build ends it PARTIAL, named
+            # an unexpected exception is reported as a failed build with its class (never its
+            # message, which can hold text), not as a crash the run's retries repeat forever
+            obs.build_crashed(error)
+            return self._failed(
+                run_id,
+                [
+                    ExportError(
+                        f"the build raised {type(error).__name__}",
+                        rule="internal_error",
+                        where=None,
+                    )
+                ],
+            )
+        if out.workspace is None and out.workspace_withheld is not None and out.manifest:
+            out.manifest = out.manifest.model_copy(
+                update={
+                    "files_withheld": (
+                        *out.manifest.files_withheld,
+                        f"workspace:{out.workspace_withheld}",
+                    )
+                }
+            )
+        elif out.workspace is None:
+            return self._failed(run_id, out.errors or [MissingContent("nothing assembled")])
+        if out.errors or out.manifest is None:
             return self._failed(run_id, out.errors or [MissingContent("nothing assembled")])
         # the exclusion set is part of the set's identity: the same bytes built under another
         # exclusion list are a new version that records which list it honours (F1)
@@ -834,14 +1208,19 @@ class ExportBuilder:
                 rows=out.manifest.rows_per_file[k],
             )
             for k in FILE_KINDS
+            if k in out.files
         ) + (
-            StoredFile(
-                kind="workspace",
-                filename=out.workspace_name,
-                body=out.workspace,
-                content_hash=out.content_hashes["workspace"],
-                rows=sum(out.manifest.rows_per_file.values()),
-            ),
+            (
+                StoredFile(
+                    kind="workspace",
+                    filename=out.workspace_name,
+                    body=out.workspace,
+                    content_hash=out.content_hashes["workspace"],
+                    rows=sum(out.manifest.rows_per_file.values()),
+                ),
+            )
+            if out.workspace is not None
+            else ()
         )
         existing = await self.store.find_set(tenant_id, run_id, set_hash)
         stored = existing or await self.store.put_set(
@@ -865,9 +1244,11 @@ class ExportBuilder:
                 dict.fromkeys(
                     quote
                     for kind in ("summary", "evidence")
+                    if kind in out.files
                     for quote in self._verbatim_quotes(kind, out.mapped[kind].model)
                 )
             ),
+            withheld_files=out.manifest.files_withheld,
         )
         obs.build_outcome(run_id, "complete", (), out.manifest.rows_per_file)
         for name, outcome in out.manifest.checks.items():
@@ -876,13 +1257,21 @@ class ExportBuilder:
         if out.manifest.withheld_blocks:
             obs.withheld_blocks(run_id, out.manifest.withheld_blocks)
         if out.manifest.leaks_withheld:
-            obs.leaks_withheld(out.manifest.leaks_withheld)
+            obs.leaks_withheld(out.manifest.leaks_withheld, out.manifest.texts_withheld)
+        if out.manifest.late_replaced:
+            obs.late_replaced(run_id, out.manifest.late_replaced)
+        if out.manifest.members_scrubbed:
+            obs.members_scrubbed(run_id, out.manifest.members_scrubbed)
         return result
 
     def _failed(self, run_id: str, errors: list[ExportError]) -> BuildResult:
         rules = rules_of(errors)
-        # the rule and how many items it fired on, so the log names the cause without text
-        detail = ",".join(f"{e.rule or e.code}={len(e.items) or 1}" for e in errors)
+        # the file, the rule and how many items it fired on, so the log names the cause without
+        # text: ``summary.leak=2,evidence.leak=5,jobs.cost_word=1``
+        detail = ",".join(
+            f"{e.where + '.' if e.where else ''}{e.rule or e.code}={len(e.items) or 1}"
+            for e in errors
+        )
         obs.build_outcome(run_id, "failed", rules, {}, detail)
         status = (
             "not_configured" if any(isinstance(e, NotConfigured) for e in errors) else ("failed")

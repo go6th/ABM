@@ -37,7 +37,7 @@ import asyncio
 import hashlib
 import json
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -141,6 +141,14 @@ class ArchiveListItem:
     requisition: str | None = None
     # the structured record's schema (``news-archive/1``): the index names the kind of page by it
     record_schema: str | None = None
+    # a page or news copy (version 2) also gives the columns the archive index filters on
+    publisher: str | None = None
+    published_date: str | None = None
+    source_type: str | None = None
+    fact_grade: str | None = None
+    event_types: str | None = None
+    people: str | None = None
+    lanes: str | None = None
 
 
 def normalized(url: str | None) -> tuple[str, str] | None:
@@ -267,7 +275,15 @@ def copy_from(link: ArchivedLink, body: bytes, *, max_text: int | None = None) -
 
 
 # the free-text fields of a stored body that pass the contact-detail rule when it is served
-_CONTACT_FIELDS = ("text", "article_text", "summary", "description", "title", "headline")
+_CONTACT_FIELDS = (
+    "text",
+    "article_text",
+    "body_markdown",
+    "summary",
+    "description",
+    "title",
+    "headline",
+)
 
 
 def _clean_body(data: dict[str, Any]) -> dict[str, Any]:
@@ -285,7 +301,7 @@ def _clean_body(data: dict[str, Any]) -> dict[str, Any]:
 
 # the field of a structured record that holds its text (posting description, article text, page
 # text); an older plain body keeps its text under ``text``
-_TEXT_FIELDS = ("description", "article_text", "text")
+_TEXT_FIELDS = ("body_markdown", "description", "article_text", "text")
 
 
 def _is_record(data: dict[str, Any]) -> bool:
@@ -427,6 +443,41 @@ async def profile_links(
 
 
 MAX_LIST = 200
+# the archive index columns a client may filter on, and the stored field each reads
+FILTER_COLUMNS: dict[str, str | None] = {
+    "title": None,
+    "publisher": "publisher",
+    "published": "published_date",
+    "source_type": "source_type",
+    "grade": "fact_grade",
+    "event_type": "event_types",
+    "person": "people",
+    "lane": "lanes",
+    "collected": None,
+}
+
+
+def _filter_sql(filters: Mapping[str, str] | None) -> tuple[str, dict[str, str]]:
+    """The WHERE clause and bind values of the column filters (unknown columns and empty values
+    are ignored; the value is a bound parameter, the column names come from ``FILTER_COLUMNS``)."""
+    clauses: list[str] = []
+    values: dict[str, str] = {}
+    for column, wanted in (filters or {}).items():
+        if column not in FILTER_COLUMNS or not wanted.strip():
+            continue
+        needle = "%" + re.sub(r"([%_\\])", r"\\\1", wanted.strip()[:100]) + "%"
+        key = f"f_{column}"
+        field = FILTER_COLUMNS[column]
+        if column == "title":
+            clauses.append(f"n.title ILIKE :{key}")
+        elif column == "collected":
+            clauses.append(f"to_char(n.archived_at, 'YYYY-MM-DD') ILIKE :{key}")
+        else:
+            clauses.append(f"n.meta ->> '{field}' ILIKE :{key}")
+        values[key] = needle
+    return (" WHERE " + " AND ".join(clauses)) if clauses else "", values
+
+
 # bodies of one index page read side by side (the payload store, no paid call)
 _READ_CONCURRENCY = 16
 
@@ -439,12 +490,15 @@ async def list_latest(
     offset: int,
     limit: int,
     kinds: frozenset[str] | None = None,
+    filters: Mapping[str, str] | None = None,
 ) -> tuple[list[ArchivedLink], int]:
     """The copy of each address of the account (the newest structured record, else the newest
     page copy), newest capture first, one page of it and the number of addresses (``kind`` None:
     every kind in ``kinds``, default all). ``limit`` is held to ``MAX_LIST``. A client route
     passes ``kinds=CLIENT_KINDS``: a ``kind`` outside it
-    lists nothing. One pass over the account's rows gives the page and the count."""
+    lists nothing. ``filters`` narrows the newest copies by column (``FILTER_COLUMNS``: a case-
+    insensitive "contains" on the field stored beside the row). One pass over the account's rows
+    gives the page and the count."""
     allowed = KINDS if kinds is None else kinds & KINDS
     if kind is not None and kind not in allowed:
         return [], 0
@@ -457,10 +511,12 @@ async def list_latest(
         " WHERE account_id = :a AND kind = ANY(:ks)"
         " ORDER BY url_hash, (kind = 'page'), archived_at DESC, id DESC"
     )
+    where, fargs = _filter_sql(filters)
+    args.update(fargs)
     rows = (
         await session.execute(
             text(
-                f"WITH n AS ({newest}) SELECT n.*, count(*) OVER () AS total FROM n"
+                f"WITH n AS ({newest}) SELECT n.*, count(*) OVER () AS total FROM n{where}"
                 " ORDER BY n.archived_at DESC, n.id DESC OFFSET :o LIMIT :n"
             ),
             {**args, "o": max(offset, 0), "n": cap},
@@ -472,7 +528,7 @@ async def list_latest(
         total = int(
             (
                 await session.execute(
-                    text(f"SELECT count(*) FROM ({newest}) n"),  # noqa: S608 - fixed text
+                    text(f"SELECT count(*) FROM ({newest}) n{where}"),  # noqa: S608 - fixed text
                     args,
                 )
             ).scalar_one()
@@ -519,6 +575,13 @@ async def list_items(
             location=_str(record.get("location")),
             requisition=_str(record.get("requisition")),
             record_schema=_str(record.get("schema")),
+            publisher=_str(record.get("publisher")),
+            published_date=_str(record.get("published_date")),
+            source_type=_str(record.get("source_type")),
+            fact_grade=_str(record.get("fact_grade")),
+            event_types=_str(record.get("event_types")),
+            people=_str(record.get("people")),
+            lanes=_str(record.get("lanes")),
         )
 
     return list(await asyncio.gather(*(one(link) for link in links)))

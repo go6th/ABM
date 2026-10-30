@@ -28,7 +28,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -109,9 +109,18 @@ def _web_calls(content: SnapshotContent) -> list[PullCall]:
     return [c for c in content.pull_calls if c.operation == "web_search" and c.queries]
 
 
-def web_searches_member(content: SnapshotContent, rules: WorkspaceRules, clean: Clean) -> bytes:
+LinkRule = Callable[[str], str | None]
+
+
+def web_searches_member(
+    content: SnapshotContent,
+    rules: WorkspaceRules,
+    clean: Clean,
+    link_rule: LinkRule | None = None,
+) -> bytes:
     """``data/web_searches.json``: one entry per distinct (query, tool role). A call carries up
-    to five queries and stores one result list, so each of its queries shows that list."""
+    to five queries and stores one result list, so each of its queries shows that list. A result
+    host a client file may not link (``link_rule``: another account's site, say) is not listed."""
     role = rules.pull_log.roles.get("web_search", rules.pull_log.default_role)
     lock = content.entity_lock
     tools = provider_hosts()
@@ -119,7 +128,11 @@ def web_searches_member(content: SnapshotContent, rules: WorkspaceRules, clean: 
     for call in _web_calls(content):
         count = call.result_count if call.result_count is not None else len(call.hits)
         domains = {
-            registrable(h.host) for h in call.hits if h.host and not _is_tool_host(h.host, tools)
+            registrable(h.host)
+            for h in call.hits
+            if h.host
+            and not _is_tool_host(h.host, tools)
+            and not (link_rule and link_rule(f"https://{h.host}/"))
         }
         if count == 0 and not call.hits:
             kept, reason = False, rules.web_searches.dropped_empty
@@ -206,7 +219,7 @@ def pull_log_member(
                         params,
                         pl.not_counted if first.result_count is None else str(first.result_count),
                         f"{sum(c.cost_usd for c in calls):.2f}",
-                        _cell(filenames[kind]) if kind else pl.default_output,
+                        _cell(filenames[kind]) if kind and kind in filenames else pl.default_output,
                     )
                 )
                 + " |"
@@ -277,7 +290,7 @@ def pass1_member(
     return (p1.read + "\n").encode()
 
 
-def urls_member(content: SnapshotContent) -> bytes:
+def urls_member(content: SnapshotContent, link_rule: LinkRule | None = None) -> bytes:
     """``build/urls.json``: the source code to URL map, in code order."""
 
     def order(code: str) -> tuple[int, str]:
@@ -289,20 +302,27 @@ def urls_member(content: SnapshotContent) -> bytes:
         {
             s.code: s.url
             for s in sorted(content.sources, key=lambda s: order(s.code))
-            if not denied_link(s.url)
+            if not denied_link(s.url) and not (link_rule and link_rule(s.url))
         }
     )
 
 
-def techstack_detections_member(content: SnapshotContent, clean: Clean) -> bytes:
+def techstack_detections_member(
+    content: SnapshotContent, clean: Clean, link_rule: LinkRule | None = None
+) -> bytes:
     """``data/techstack_detections.json``: the detection rows as the run stored them (technology,
     first and last seen, evidence link; a link naming a data tool is left out, as everywhere)."""
+
+    def shown(url: str | None) -> str | None:
+        ok = url and not denied_link(url) and not (link_rule and link_rule(url))
+        return url if ok else None
+
     rows = [
         {
             "technology": clean(d.technology),
             "first_seen": d.first_seen,
             "last_seen": d.last_seen,
-            "source_url": d.source_url if d.source_url and not denied_link(d.source_url) else None,
+            "source_url": shown(d.source_url),
         }
         for d in content.detections
     ]
@@ -329,7 +349,7 @@ def _queries(content: SnapshotContent, r: RestoreInputs, clean: Clean) -> list[s
     """The canonical query definitions, each with the figure the run's files show."""
     rs = r.cfg.rules.workspace.restore
     books = r.cfg.rules.workbooks
-    names: dict[FileKind, str] = {k: _cell(r.filenames[k]) for k in FILE_KINDS}
+    names: dict[FileKind, str] = {k: _cell(r.filenames.get(k, k)) for k in FILE_KINDS}
     as_of = content.as_of.isoformat()
     start = months_before(content.as_of, r.cfg.scope.postings_window_months).isoformat()
     lines: list[str] = []
@@ -453,12 +473,14 @@ def _entity_rules(content: SnapshotContent, r: RestoreInputs, clean: Clean) -> l
 _NOT_NAME = re.compile(r"[^a-z0-9]+")
 
 
-def release_name(row: ReleaseRow, rules: WorkspaceRules) -> str:
+def release_name(row: ReleaseRow, rules: WorkspaceRules, clean: Clean | None = None) -> str:
     """The member name of one archived copy: ``data/releases/<day>_<title words>-<hash>.md``. The
     hash is of the address, so the name of a copy never changes while it is kept and two copies
-    never share one."""
+    never share one. The title words are the cleaned title's (``clean``): a data tool's name in
+    a page title never reaches a member name."""
     rel = rules.releases
-    words = _NOT_NAME.sub("-", row.title.casefold()).strip("-")[: rel.slug_chars].strip("-")
+    title = clean(row.title) if clean is not None else row.title
+    words = _NOT_NAME.sub("-", title.casefold()).strip("-")[: rel.slug_chars].strip("-")
     short = hashlib.sha256(row.url.encode()).hexdigest()[:8]
     stem = f"{row.day.isoformat()}_{words}-{short}" if words else f"{row.day.isoformat()}_{short}"
     return f"{rel.folder}/{stem}{rel.extension}"
@@ -504,7 +526,7 @@ def release_members(
         if why is not None:
             left.append((row.url, why))
             continue
-        out[release_name(row, rules)] = body.encode()
+        out[release_name(row, rules, clean)] = body.encode()
     return dict(sorted(out.items())), tuple(left)
 
 
@@ -549,14 +571,18 @@ def workspace_members(
     internal_reason_texts: frozenset[str],
     restore: RestoreInputs,
     releases: int = 0,
+    link_rule: LinkRule | None = None,
+    present: Collection[FileKind] = FILE_KINDS,
 ) -> dict[str, bytes]:
     """``RESTORE.md`` and every required member, in the configured order (a name the config does
-    not list, or one this module does not build, is an error)."""
+    not list, or one this module does not build, is an error). ``present`` names the files the
+    zip holds (a file left out of the set is not listed); ``link_rule`` keeps out of the records
+    a link a client file may not carry."""
     built: dict[str, bytes] = {
         "data/entity_lock.json": entity_lock_member(content, rules),
-        "data/web_searches.json": web_searches_member(content, rules, clean),
-        "data/techstack_detections.json": techstack_detections_member(content, clean),
-        "build/urls.json": urls_member(content),
+        "data/web_searches.json": web_searches_member(content, rules, clean, link_rule),
+        "data/techstack_detections.json": techstack_detections_member(content, clean, link_rule),
+        "build/urls.json": urls_member(content, link_rule),
         "notes/pull_log.md": pull_log_member(content, rules, filenames, clean),
         "notes/pass1.md": pass1_member(content, rules, internal_reason_texts),
         "notes/sense_check.md": sense_check_member(content, rules, label_of, clean),
@@ -566,8 +592,8 @@ def workspace_members(
     # the layout lists every member the zip will hold: the five files, their render data under
     # build/ and the run records
     listed = [
-        *(f"deliverables/{filenames[k]}" for k in FILE_KINDS),
-        *(f"build/{k}.json" for k in FILE_KINDS),
+        *(f"deliverables/{filenames[k]}" for k in FILE_KINDS if k in present),
+        *(f"build/{k}.json" for k in FILE_KINDS if k in present),
         *rules.required_members,
     ]
     out = {RESTORE: restore_member(content, restore, listed, clean, releases)}

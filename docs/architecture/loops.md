@@ -9,10 +9,11 @@ unannotated (the generator's check fails otherwise).
 | CRM reconcile | `src/crm_writeback/service.py:299` | 100 writes per pass | end |
 | agent schema re-ask | `src/agents/production/wiring.py:117` | 2 attempts, then 2 on the Claude default when the chosen model is Kimi K3 | valid reply, SchemaInvalid |
 | alert fan-out | `src/alerts/engine.py:205` | len(recipients) | end |
-| archive copy | `src/account_intelligence/replica/downloads.py:439` | the file's size / 1 MiB | end of file |
-| archive heartbeat | `src/account_intelligence/replica/downloads.py:255` | the build's length / BEAT_S | cancelled when the build ends |
-| archive part upload | `src/account_intelligence/replica/downloads.py:454` | part size / 1 MiB | end of part |
-| archive table rows | `src/account_intelligence/replica/downloads.py:366` | the table's rows | end of the table |
+| archive copy | `src/account_intelligence/replica/downloads.py:460` | the file's size / 1 MiB | end of file |
+| archive heartbeat | `src/account_intelligence/replica/downloads.py:266` | the build's length / BEAT_S | cancelled when the build ends |
+| archive index pages | `src/account_intelligence/archive_backfill.py:123` | pages of 200 to the account total | empty page or total |
+| archive part upload | `src/account_intelligence/replica/downloads.py:475` | part size / 1 MiB | end of part |
+| archive table rows | `src/account_intelligence/replica/downloads.py:398` | the table's rows | end of the table |
 | ask keepalive | `src/account_intelligence/api/routes/ask.py:481` | the source stream's frames plus one keepalive per silent interval | the source ends or fails, or the client goes away |
 | audit chain verification | `src/audit/chain.py:75` | max_batches batches of `batch` rows per pass | complete, first bad row found, batch_cap (the head is checked next pass) |
 | audit verify tenants | `src/account_intelligence/api/routes/tasks.py:425` | every client once per pass | last client |
@@ -36,13 +37,13 @@ unannotated (the generator's check fails otherwise).
 | comparisons | `src/account_intelligence/replica/workbook_formulas.py:536` | the formula's tokens | no comparison sign |
 | connector token refresh | `src/connectors_client/oauth.py:281` | refresh_attempts attempts | refreshed, revoked, scope changed, attempts exhausted (transient: token_refresh_failed) |
 | continuation chain | `src/account_intelligence/replica/auto_resume.py:178` | MAX_AUTO_RESUMES + 8 hops | a run no continuation made |
-| converter re-run | `src/exports/verify.py:298` | 2 attempts | converted, None (not_run with reason) |
+| converter re-run | `src/exports/verify.py:299` | 2 attempts | converted, None (not_run with reason) |
 | copy document for the sandbox | `src/documents/service.py:820` | size / 1 MiB | end of object |
 | count cache trim | `src/account_intelligence/replica/file_tabs.py:643` | one entry over CACHE_COUNTS | within the cap |
 | credit ledger pass | `src/account_intelligence/worker/nightly.py:87` | the tenants with credit activity in the window | end |
 | criterion characters | `src/account_intelligence/replica/workbook_formulas.py:194` | the pattern's characters | end of pattern |
 | crm fetch pass | `src/connectors_client/framework.py:402` | max_pages_per_pass pages per pass | last page, page_cap |
-| dash positions | `src/exports/verify.py:585` | the text length (each find starts after the last hit) | no further occurrence |
+| dash positions | `src/exports/verify.py:591` | the text length (each find starts after the last hit) | no further occurrence |
 | deletion cascade | `src/tenancy/lifecycle.py:387` | max_batches_per_pass erasing batches per pass, plus one empty probe per table | completed, blocked (blocked items remain), batch_cap |
 | delimited lines | `src/research_files/parsers/tabular.py:144` | the file's lines | end of stream |
 | delimited unit rows | `src/research_files/parsers/tabular.py:207` | rows_per_unit rows | unit full, end of rows |
@@ -57,15 +58,19 @@ unannotated (the generator's check fails otherwise).
 | drive download | `src/connectors_client/drive_files.py:234` | max_bytes | end of body or over the cap |
 | drive fetch pass | `src/connectors_client/framework.py:317` | max_pages_per_pass pages and max_items_per_pass items per pass | complete, page_cap or item_cap (a cursor is saved and the next pass resumes) |
 | drop read siblings | `src/research_files/parsers/tabular.py:423` | the elements already read | none left before |
+| drop trailing credentials | `src/exports/repair/names.py:318` | the words of the name | no credential word last |
 | eval repeats | `src/evalgate/runner.py:104` | accounts x repeats_k runs | all cases executed |
 | event evidence | `src/refresh/probe.py:349` | outlets of one item | end |
 | evidence-path | `src/account_intelligence/rag/graphrag.py:123` | entity_count | found or queue empty or max_hops. |
-| export keyset pagination | `src/exports/readers/pg.py:107` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
+| export keyset pagination | `src/exports/readers/pg.py:116` | ceil(snapshot count / keyset_batch) + 1 batches | converged (rows read equal the count), RowConservation (more or fewer rows) |
 | farthest-point-selection | `src/account_intelligence/rag/synthetic.py:140` | count | count reached or candidates empty. |
 | file extraction documents | `src/documents/graph.py:140` | the run's documents | last document |
 | file extraction pages | `src/documents/graph.py:143` | passages / PASSAGE_PAGE | a short page |
 | file extraction schema re-ask | `src/documents/extract.py:248` | 2 attempts | valid reply, dropped batch |
+| file sweep retry | `src/exports/builder.py:564` | 2 renders (the file, then once more with its refused strings replaced) | verified, FileHeld (still refused or nothing to replace), or a structural ExportError |
 | findings extractor | `src/people/findings.py:103` | max_extractor_calls, one call per person | converged, cap_reached |
+| flattened table rows | `src/account_intelligence/archive_clean.py:186` | the cells of one line | fewer cells than a row |
+| formula scan | `src/exports/repair/package.py:214` | the formula's length (1,000 characters) | end of formula |
 | formula tokens | `src/account_intelligence/replica/workbook_formulas.py:142` | the formula's characters (MAX_FORMULA) | end of text |
 | free relationship id | `src/exports/word/render_cli.py:134` | the part's relationships plus one | an unused id |
 | gap pass over the remainder | `src/jobs/pipeline.py:726` | postings of the prior pass, run-level read and extractor caps | all remainder postings processed (one failure is isolated) |
@@ -79,6 +84,7 @@ unannotated (the generator's check fails otherwise).
 | guarded name span | `src/agents/skill_context.py:144` | the word's length | the first non-letter |
 | hand-off recovery clients | `src/account_intelligence/runs/recovery.py:92` | every client once per pass, `limit` items per kind | last client |
 | hash uploaded document | `src/documents/service.py:358` | size / 1 MiB reads | end of object |
+| headline repeats | `src/account_intelligence/archive_clean.py:373` | the lines after the headline | first other line |
 | hyperlink cells | `src/research_files/parsers/tabular.py:519` | MAX_LINK_CELLS per hyperlink, MAX_LINKS per workbook | range end, budget spent |
 | idle expiry | `src/account_intelligence/replica/access.py:100` | one pass over the clients | every client checked or failed |
 | import backfill clients | `src/documents/deliverables.py:544` | every client once per pass, `limit` documents each | last client |
@@ -96,6 +102,7 @@ unannotated (the generator's check fails otherwise).
 | judge re-ask | `src/account_intelligence/grading/judge.py:108` | max_reasks (1) | supported, unsupported, unavailable (claim capped, G12) |
 | lane technologies | `src/people/adapters.py:194` | technologies_per_lane (10), the provider's ceiling in flight | all looked up (the first failure in the list's order is raised after the rest finished). One lookup per technology, side by side: a lookup is a provider job that is polled for up to 150 s, and ten of them one after another held the lane for minutes. |
 | lead verification | `src/account_intelligence/workflow/stages/grading_stages.py:146` | 3 query rounds per Lead and MAX_LEADS Leads | complete, incomplete (budget, no distinct query), no_progress |
+| leading non-name words | `src/account_intelligence/archive_facts.py:341` | the tokens of the candidate | a name token |
 | leading punctuation | `src/parity/from_run.py:98` | len(short) characters | first character alphanumeric |
 | leading signs | `src/account_intelligence/replica/workbook_formulas.py:570` | the formula's tokens | no plus or minus |
 | lease heartbeat | `src/parallel/governor.py:224` | lifetime of the held slot (cancelled on release) | release, lost lease (the slot expires at its TTL and is reclaimed) |
@@ -128,6 +135,7 @@ unannotated (the generator's check fails otherwise).
 | passage split | `src/documents/chunking.py:337` | len(text) / (max_chars - overlap) + 1 spans | end of text |
 | people gap passes | `src/people/pipeline.py:381` | max_gap_passes (2); one association search per gap lane, never repeated | converged, no_progress, cap_reached |
 | people search paging | `src/people/search.py:127` | max_pages_per_source and max_people_per_run | converged, no_progress (no new person, cursor repeat, failed call), cap_reached, budget, deadline |
+| pipe run | `src/account_intelligence/archive_clean.py:256` | the lines of the page | a line without a pipe |
 | plan delimited parts | `src/documents/parts.py:158` | the file's lines | end of file |
 | plan line pieces | `src/documents/parts.py:102` | the file's size / LINE_PIECE pieces at least | end of file |
 | plan text parts | `src/documents/parts.py:208` | the file's lines | end of file |
@@ -142,13 +150,14 @@ unannotated (the generator's check fails otherwise).
 | progress stream | `src/account_intelligence/api/routes/runs.py:798` | sse_max_duration_s seconds, polled every sse_poll_s | finished run, max duration, client gone |
 | provider job poll | `src/account_intelligence/connectors/paginate.py:154` | max_polls with a bounded interval | succeeded, failed, ProviderJobTimeout |
 | ranking rows | `src/parity/gate/workbook.py:272` | rows of the sheet | first blank Platform cell |
-| read siblings | `src/exports/verify.py:106` | the children of the parent (each pass deletes one) | no earlier sibling is left |
+| re-export after a refused check | `src/exports/repair/package.py:500` | 4 attempts | file passes or attempts spent |
+| read siblings | `src/exports/verify.py:107` | the children of the parent (each pass deletes one) | no earlier sibling is left |
 | reindex clients | `src/documents/reindex.py:49` | the workspaces in scope once per run, `limit` documents each | last client |
 | reindex documents | `src/documents/reindex.py:53` | `limit` per client per run | rows exhausted |
 | reingest clients | `src/documents/tables_reingest.py:55` | every client once per run, `limit` documents each | last client |
 | reingest documents | `src/documents/tables_reingest.py:61` | `limit` per client per run | rows exhausted |
 | relationship target prefix strip | `src/exports/ooxml.py:74` | the target's length (each pass removes at least one character) | no leading "../" or "/" left |
-| release pages | `src/exports/readers/pg.py:240` | releases_max / MAX_LIST pages (each page adds a copy or ends the loop) | cap reached, an empty page, or every copy listed |
+| release pages | `src/exports/readers/pg.py:249` | releases_max / MAX_LIST pages (each page adds a copy or ends the loop) | cap reached, an empty page, or every copy listed |
 | remainder text reads | `src/jobs/stage.py:114` | gap remainder, TEXT_CONCURRENCY in flight | all read |
 | renderer output drain | `src/exports/word/renderer.py:82` | the byte cap (max_output_bytes or max_stderr_bytes) in 64 KiB reads | end of stream, cap exceeded (the process is killed) |
 | renderer re-run | `src/exports/word/renderer.py:182` | 1 + reruns (1) attempts per document | converged (rendered), cap_reached (RenderError) |
@@ -169,10 +178,15 @@ unannotated (the generator's check fails otherwise).
 | stall watchdog | `src/obs/stalldump.py:46` | the process lifetime | stop set at shutdown |
 | standard 429 backoff | `src/account_intelligence/platform/llm.py:325` | STANDARD_RATE_ATTEMPTS requests, waits doubling to STANDARD_BACKOFF_S[1] | answered, a non-429 error, attempts used |
 | streamed answer pieces | `src/account_intelligence/replica/model_answer.py:501` | the pieces in the text received so far | no complete piece left, a refused piece |
+| strip lead-in words | `src/exports/repair/names.py:216` | the words of the remainder | a word that is not a lead-in |
+| strip name prefixes | `src/exports/repair/tech.py:99` | the words of a technology name | no prefix word left |
+| strip name suffixes | `src/exports/repair/tech.py:102` | the words of a technology name | no suffix word left |
 | stuck scan | `src/obs/stuck.py:79` | keyset pages of `page` runs until none remain | all scanned |
 | sums | `src/account_intelligence/replica/workbook_formulas.py:554` | the formula's tokens | no plus or minus |
 | tab key suffix | `src/account_intelligence/replica/file_tabs.py:242` | the workbook's sheets | an unused key |
 | table export pages | `src/account_intelligence/replica/table_export.py:53` | the table's rows / page pages | a short page |
+| table rows | `src/account_intelligence/archive_clean.py:215` | the lines of one block | a line without a pipe |
+| table scan | `src/account_intelligence/archive_clean.py:249` | the lines of the page (i advances every pass) | end of the lines |
 | telemetry export drain | `src/obs/exporters.py:64` | queue length and budget_s | empty, budget, exporter failure (counted, the batch dropped) |
 | text joins | `src/account_intelligence/replica/workbook_formulas.py:546` | the formula's tokens | no ampersand |
 | tool rounds | `src/account_intelligence/chat/service.py:406` | MAX_TOOL_ROUNDS tool rounds plus the answer plus MAX_RENDER_NUDGES | the model stops without a tool call (after its nudges), or no tool runner |
@@ -184,10 +198,16 @@ unannotated (the generator's check fails otherwise).
 | tracker sweep conflict | `src/account_intelligence/tracker/service.py:325` | 3 re-reads per row | written, VersionConflict (sweep skips the row) |
 | tracker version conflict | `src/account_intelligence/tracker/service.py:176` | 3 re-reads, rules re-checked each time | written, unchanged, VersionConflict |
 | trailing blank headers | `src/parity/tables.py:860` | len(headers) cells | last header non-empty |
+| trailing blanks | `src/account_intelligence/archive_clean.py:236` | the lines already kept | a non-blank line |
+| trailing non-name words | `src/account_intelligence/archive_facts.py:344` | the tokens of the candidate | a name token |
 | union-find path compression | `src/people/merge.py:81` | the same path length | root reached |
 | union-find path walk | `src/jobs/dedupe.py:60` | number of identities (path halving) | root found |
+| union-find root | `src/account_intelligence/archive_reconcile.py:89` | the number of records (path halving) | a root is reached |
+| union-find root | `src/exports/repair/people.py:138` | the depth of the cluster | the root |
 | union-find root walk | `src/people/merge.py:78` | number of records (each step moves to a parent; unions always point the larger root at the smaller, so there is no cycle) | root reached |
 | unique column name | `src/documents/chunking.py:246` | the table's columns | a name no column has |
+| unique member name | `src/exports/repair/package.py:647` | the members of one archive | a path not in use |
+| unique sheet title | `src/exports/repair/package.py:269` | the sheets of one workbook | a title not in use |
 | unique table name | `src/documents/tables.py:276` | the workspace's tables | a name no table has |
 | unit split | `src/exports/excel/common.py:85` | len(text) parts (each part takes at least one character) | no text left |
 | verification batch | `src/verify/claims.py:112` | max_claims_per_run claims, one re-read each | converged, budget (the rest capped), unavailable (that claim capped) |
@@ -201,3 +221,4 @@ unannotated (the generator's check fails otherwise).
 | xlsx row trailing blanks | `src/research_files/parsers/tabular.py:709` | the row's cells | a value or the header's width |
 | xlsx sheets | `src/research_files/parsers/tabular.py:653` | the workbook's sheets | last sheet |
 | zip parts | `src/documents/parts.py:89` | members | members exhausted |
+| zip size retry | `src/exports/builder.py:1043` | 2 builds (with the archived copies, then without them) | built and checked, or UnsafePackage |

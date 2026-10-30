@@ -169,3 +169,55 @@ def test_concurrent_workers_never_share_a_code(sync_engine: Engine, ctx) -> None
         set_tenant(session, tenant)
         stored = session.scalars(select(Source.source_code).where(Source.account_id == account))
         assert sorted(stored) == codes
+
+
+# ---- titles from the link archive (workspace repair, 2026-10-31) --------------------------------
+def _archived(session: Session, account: UUID, run: UUID, url: str, title: str, kind: str) -> None:
+    from sqlalchemy import text
+
+    from account_intelligence.urls import normalize_url, url_hash
+
+    norm = normalize_url(url)
+    session.execute(
+        text(
+            "INSERT INTO link_archive (account_id, run_id, url, url_normalized, url_hash, kind,"
+            " payload_ref, title, archived_at) VALUES (:a, :r, :u, :n, :h, :k, :p, :t, now())"
+        ),
+        {"a": account, "r": run, "u": url, "n": norm, "h": url_hash(norm), "k": kind,
+         "p": f"ref-{kind}-{title[:6]}", "t": title},
+    )  # fmt: skip
+
+
+def test_a_new_source_takes_the_title_the_page_was_archived_with(db, ctx) -> None:  # type: ignore[no-untyped-def]
+    tenant, account, run = ctx
+    set_tenant(db, tenant)
+    url = "https://news.example.com/titled"
+    _archived(db, account, run, url, "Acme names a new chief officer", "page")
+    assert _source(db, account, run, url).title == "Acme names a new chief officer"
+
+
+def test_a_source_stored_without_a_title_gets_it_when_seen_again(db, ctx) -> None:  # type: ignore[no-untyped-def]
+    tenant, account, run = ctx
+    set_tenant(db, tenant)
+    url = "https://news.example.com/late"
+    assert _source(db, account, run, url).title is None
+    _archived(db, account, run, url, "Quarterly results released", "page")
+    assert _source(db, account, run, url).title == "Quarterly results released"
+
+
+def test_a_title_already_stored_is_kept_and_a_profile_copy_never_lends_one(db, ctx) -> None:  # type: ignore[no-untyped-def]
+    tenant, account, run = ctx
+    set_tenant(db, tenant)
+    kept = get_or_create_source(
+        db, account_id=account, run_id=run, url="https://news.example.com/kept",
+        kind=SourceKind.PRIMARY, title="Own title",
+    )  # fmt: skip
+    _archived(db, account, run, "https://news.example.com/kept", "Other title", "page")
+    assert (
+        _source(db, account, run, "https://news.example.com/kept").title
+        == kept.title
+        == "Own title"
+    )
+    profile = "https://www.linkedin.com/in/some-person"
+    _archived(db, account, run, profile, "Some Person - Head of Things", "profile")
+    assert _source(db, account, run, profile).title is None

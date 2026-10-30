@@ -716,11 +716,24 @@ async def test_materialisation_is_once_per_run_and_matches_the_mapping(seeded: A
 
 
 def test_a_refused_snapshot_is_withheld_not_shown() -> None:
+    """A snapshot with a row the client may not see is refused whole (no table row is shown); the
+    account's own name is never "another account", so forbidding it refuses nothing."""
     from exports.builder import errors_of
 
     content = rich()
-    forbidden = content.model_copy(
+    own = content.model_copy(
         update={"forbidden_terms": (*content.forbidden_terms, content.account_name)}
     )
-    _, ctx = map_snapshot(forbidden, CFG, GRADING)
-    assert errors_of(ctx.violations), "naming the account itself as forbidden must be refused"
+    _, ctx = map_snapshot(own, CFG, GRADING)
+    assert not errors_of(ctx.violations), "the account's own name is not a restricted term"
+
+    internal = content.model_copy(
+        update={
+            "facts": (
+                content.facts[0].model_copy(update={"visibility": "internal"}),
+                *content.facts[1:],
+            )
+        }
+    )
+    _, ctx = map_snapshot(internal, CFG, GRADING)
+    assert "leak" in {e.code for e in errors_of(ctx.violations)}, "a non-public row is refused"

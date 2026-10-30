@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -43,6 +43,21 @@ def _find(session: Session, account_id: UUID, digest: str) -> Source | None:
     ).one_or_none()
 
 
+def _archived_title(session: Session, account_id: UUID, digest: str) -> str | None:
+    """The title of the page as the link archive captured it when the page was read (the newest
+    capture that has one). A profile copy never lends its title: it holds a person's name and
+    headline, and a source row is shown on client tables."""
+    found = session.execute(
+        text(
+            "SELECT title FROM link_archive WHERE account_id = :a AND url_hash = :h"
+            " AND kind <> 'profile' AND coalesce(title, '') <> ''"
+            " ORDER BY archived_at DESC LIMIT 1"
+        ),
+        {"a": account_id, "h": digest},
+    ).scalar_one_or_none()
+    return str(found).strip()[:500] or None if found else None
+
+
 def _mark_seen(
     session: Session,
     source: Source,
@@ -50,6 +65,12 @@ def _mark_seen(
     run_id: UUID | None,
     account_run_id: UUID | None,
 ) -> Source:
+    # a source stored without a title (it was registered before its page was archived, or by a
+    # step that had none) takes the archived page title now; one that has a title keeps it
+    if not source.title:
+        title = _archived_title(session, source.account_id, source.url_hash)
+        if title:
+            source.title = title
     if run_id is not None:
         changed = source.last_seen_run_id != run_id or source.last_seen_account_run_id is not None
         source.last_seen_run_id = run_id
@@ -94,8 +115,9 @@ def get_or_create_source(
     """Return the account's source for ``url``, creating it with the next code if new.
 
     Exactly one of ``run_id`` (legacy lifecycle) or ``account_run_id`` (account lifecycle) is
-    required. For an existing source only the matching last-seen reference changes; the metadata
-    arguments apply to new sources.
+    required. For an existing source the matching last-seen reference changes, and a blank title is
+    filled from the link archive; the metadata arguments apply to new sources (a new source with no
+    title takes the archived page title).
     """
     if (run_id is None) == (account_run_id is None):
         raise ValueError("pass exactly one of run_id or account_run_id")
@@ -106,6 +128,8 @@ def get_or_create_source(
     if existing is not None:
         return _mark_seen(session, existing, run_id=run_id, account_run_id=account_run_id)
 
+    if not (title or "").strip():
+        title = _archived_title(session, account_id, digest)
     number = _allocate_number(session, account_id)
     existing = _find(session, account_id, digest)  # a concurrent worker may have won
     if existing is not None:

@@ -35,6 +35,7 @@ import zipfile
 from bisect import bisect_right
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from lxml import etree
@@ -42,7 +43,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.cell import coordinate_to_tuple
 
 from account_intelligence.config import CONFIG_DIR
-from account_intelligence.safety.client_output import load_patterns
+from account_intelligence.safety.client_output import load_patterns, scrub_text
 from account_intelligence.safety.prefilter import cannot_match
 from exports.config import provider_hosts, registrable
 from exports.ooxml import strip_cached_values
@@ -460,19 +461,22 @@ def _skill_scripts_dir() -> Path:
 def _run_rowcheck(docx: bytes, pdf: PdfRenderPort) -> CheckResult:
     """Run the skill's rowcheck.py on the docx and its PDF rendering.
 
-    Fails closed: if LibreOffice or pdftotext is unavailable, the check fails.
+    A row the script finds lost fails the check. A converter or tool that is unavailable, times
+    out or cannot be run leaves the check ``not_run`` with its reason (listed in the manifest and
+    logged), as the PDF row presence check does: an infrastructure failure is not a lost row, and
+    used to end a finished research with no files (this check failed closed on a timeout).
     """
     pdf_bytes = pdf.pdf_bytes(docx)
     if pdf_bytes is None:
         return CheckResult(
             "docx_rowcheck",
-            "failed",
+            "not_run",
             "Word to PDF converter unavailable ("
             f"{getattr(pdf, 'last_failure', None) or 'not installed or failed'})",
         )
     pdftotext = shutil.which("pdftotext")
     if pdftotext is None:
-        return CheckResult("docx_rowcheck", "failed", "pdftotext not installed")
+        return CheckResult("docx_rowcheck", "not_run", "pdftotext not installed")
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         docx_path = tmp_path / "check.docx"
@@ -489,7 +493,9 @@ def _run_rowcheck(docx: bytes, pdf: PdfRenderPort) -> CheckResult:
                 cwd=tmp,
             )
         except (subprocess.SubprocessError, OSError) as e:
-            return CheckResult("docx_rowcheck", "failed", f"rowcheck execution failed: {e}")
+            return CheckResult(
+                "docx_rowcheck", "not_run", f"rowcheck could not run ({type(e).__name__})"
+            )
     if result.returncode != 0:
         return CheckResult(
             "docx_rowcheck", "failed", result.stdout.strip() or result.stderr.strip()
@@ -719,21 +725,57 @@ def _in(host: str, hosts: Iterable[str]) -> bool:
     return any(host == h or host.endswith("." + h) for h in hosts if h)
 
 
+def third_party_word(text: str) -> str | None:
+    """``cost_word`` or ``data_tool_host`` when ``text`` carries what the third-party scan refuses
+    beyond the client-output denylist (the word the providers use for their own unit, or a link
+    to a data tool's host), else None. The rule is named ``cost_word``, never by the word: the
+    manifest lists rule names and is itself scanned for that word. The denylist's own patterns
+    are ``leak_hits``' and are not tested here."""
+    if not cannot_match(_CREDITS, text) and _CREDITS.search(text):
+        return "cost_word"
+    if "." in text:
+        tools = provider_hosts()
+        for m in _DOMAIN.finditer(text):
+            host = m.group(1).casefold().removeprefix("www.")
+            if not _in(host, _SCHEMA_HOSTS) and (_in(host, tools) or registrable(host) in tools):
+                return "data_tool_host"
+    return None
+
+
+@lru_cache(maxsize=1)
+def _tool_url() -> re.Pattern[str] | None:
+    """A link to a data tool's host (``config/providers.yaml``), through to the next space."""
+    hosts = sorted(provider_hosts(), key=len, reverse=True)
+    if not hosts:
+        return None
+    joined = "|".join(re.escape(h) for h in hosts)
+    return re.compile(rf"https?://(?:[a-z0-9-]+\.)*(?:{joined})(?![a-z0-9-])\S*", re.IGNORECASE)
+
+
+def scrub_member(text: str, restricted: Sequence[str], marker: str) -> tuple[str, int]:
+    """``(text, n)``: a workspace member's text with every restricted term, data tool name, link
+    to a data tool and the word "credits" replaced by ``marker``, and the replacements counted.
+    For the run's own records (pull log, searches, detections), which may mention what a client
+    file may not print: the member stays in the zip, scrubbed, and the zip scans clean."""
+    text, n = scrub_text(text, restricted, marker)
+    pattern = _tool_url()
+    if pattern is not None and "://" in text:
+        text, hosts = pattern.subn(marker, text)
+        n += hosts
+    if not cannot_match(_CREDITS, text):
+        text, words = _CREDITS.subn(marker, text)
+        n += words
+    return text, n
+
+
 def third_party_blocked(text: str) -> str | None:
     """The reason the third-party scan would refuse ``text`` in a client file (``tool_name``,
-    ``credits`` or ``data_tool_host``), or None. A text copied from a page, such as an archived
-    copy, is checked with this before it is put in the workspace zip, so one page that says
-    "credits" leaves that page out and never stops the delivery."""
+    ``cost_word`` or ``data_tool_host``), or None. A text copied from a page, such as an archived
+    copy, is checked with this before it is put in the workspace zip, so one page that says the
+    word leaves that page out and never stops the delivery."""
     if any(not cannot_match(p, text) and p.search(text) for p in load_patterns()):
         return "tool_name"
-    if not cannot_match(_CREDITS, text) and _CREDITS.search(text):
-        return "credits"
-    tools = provider_hosts()
-    for m in _DOMAIN.finditer(text):
-        host = m.group(1).casefold().removeprefix("www.")
-        if not _in(host, _SCHEMA_HOSTS) and (_in(host, tools) or registrable(host) in tools):
-            return "data_tool_host"
-    return None
+    return third_party_word(text)
 
 
 def third_party_scan(

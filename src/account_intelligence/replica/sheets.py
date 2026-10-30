@@ -262,8 +262,10 @@ SHEETS: dict[str, Sheet] = {
             "   WHEN 'not_found' THEN 'Not cross-checked' ELSE '' END AS check,"
             " coalesce(t.first_seen_at, '') AS first_seen, coalesce(t.last_seen_at, '') AS"
             " last_seen,"
+            # source_ref is the page's address (newer rows) or its S-code (older rows)
+            " CASE WHEN t.source_ref ~* '^https?://' THEN t.source_ref ELSE"
             " (SELECT s.url FROM sources s WHERE s.account_id = t.account_id AND s.source_code ="
-            " t.source_ref) AS link"
+            " t.source_ref) END AS link"
             " FROM tech_detections t WHERE t.account_id = :a"
             + NEWEST_DETECTION
             + " UNION ALL "
@@ -1192,6 +1194,11 @@ _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 _DASH = "\u2012\u2013\u2014\u2015"
 _SPACED_DASH = re.compile(f"(?<=\\S)\\s+(?:[{_DASH}]|-{{1,2}})\\s+(?=\\S)")
 _ANY_DASH = re.compile(f"[{_DASH}]")
+# A dash left at either edge of a cell ("Senior Analyst -") has no word on its far side inside the
+# cell, so the spaced-dash rule above misses it; in the whole-workbook text the next cell's word
+# sits beside it and the finished-file check refuses the file (staging export 2026-10-30: the
+# whole Job postings workbook was held back for one such title).
+_EDGE_DASH = re.compile(f"(?:^\\s*(?:[{_DASH}]|-{{1,2}})\\s+)|(?:\\s+(?:[{_DASH}]|-{{1,2}})\\s*$)")
 # The pre-delivery gate's rule for client files (documents.gate): dash characters, or a hyphen
 # used as punctuation between words.
 _GATE_DASHES = re.compile(f"[{_DASH}]|\\S\\s+-{{1,2}}\\s+\\S")
@@ -1207,6 +1214,7 @@ def safe_cell(value: Any, *, shareable: bool) -> tuple[Any, bool]:
     if not isinstance(value, str):
         return value, False
     text_value = _ANY_DASH.sub("-", _SPACED_DASH.sub(", ", value))
+    text_value = _EDGE_DASH.sub("", text_value)
     if shareable:
         from agents.naming import third_party_domain_hits, tool_name_hits
         from agents.skill_context import strip_tool_names

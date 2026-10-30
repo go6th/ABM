@@ -25,7 +25,7 @@ import io
 import json
 import re
 import zipfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date
 
 from exports.config import ContentRules, ZipTheme
@@ -94,19 +94,30 @@ def build_workspace(
     extras: Mapping[str, bytes],
     raw: Sequence[tuple[str, bytes]] = (),
     releases: Mapping[str, bytes] | None = None,
+    withheld: Collection[FileKind] = (),
 ) -> bytes:
     """The workspace zip bytes (see the module docstring). ``extras`` holds ``RESTORE.md`` and
-    exactly the configured ``required_members``."""
+    exactly the configured ``required_members``. ``withheld`` names the client files the set does
+    not hold (a file no client-output rule lets through): the zip holds the others and their
+    data, and the five are accounted for between them."""
     ws = rules.workspace
-    if set(deliverables) != set(FILE_KINDS) or set(data) != set(FILE_KINDS):
+    held = set(withheld)
+    if (
+        set(deliverables) | held != set(FILE_KINDS)
+        or set(deliverables) & held
+        or set(data) != set(deliverables)
+    ):
         raise UnsafePackage("the workspace needs exactly the five client files and their data")
     if set(extras) != {RESTORE, *ws.required_members}:
         raise UnsafePackage("the workspace needs exactly its configured run records")
     members: list[tuple[str, bytes]] = []
     for kind in FILE_KINDS:
-        filename, body = deliverables[kind]
-        members.append((f"deliverables/{filename}", body))
-    members += [(f"{RENDER_DATA_FOLDER}/{kind}.json", data[kind]) for kind in FILE_KINDS]
+        if kind in deliverables:
+            filename, body = deliverables[kind]
+            members.append((f"deliverables/{filename}", body))
+    members += [
+        (f"{RENDER_DATA_FOLDER}/{kind}.json", data[kind]) for kind in FILE_KINDS if kind in data
+    ]
     members += [(name, extras[name]) for name in ws.required_members]
     members += neutral_payload_members(raw, enabled=ws.raw_payloads.neutral_name_copy_enabled)
     # one text file per archived copy, after the run's own data files (the stable sort keeps them

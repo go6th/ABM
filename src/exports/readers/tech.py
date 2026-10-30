@@ -32,6 +32,7 @@ from datetime import date
 from exports.config import ExportConfig, PlatformEntry
 from exports.content import PostingRow
 from exports.models import CountLine, RankRow, StackLine, TeamLine, TechModel, TechRow
+from exports.partial import partial_notes
 from exports.readers.common import MapContext, Mapped, digest, ref
 from exports.readers.jobs import posting_text
 from exports.verify import stack_key
@@ -166,6 +167,7 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
 
     # the Confirmed stack: the organisation's tech stack in the lookup's order
     stack: list[StackLine] = []
+    held_before_stack = ctx.withheld_in(where)
     for x in c.stack:
         if not ctx.printable(x.technology, where, x.id):
             continue
@@ -180,7 +182,7 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
                 lane=stack_lane(ctx.cfg, technology),
             )
         )
-    if len(stack) != len(c.stack):
+    if len(stack) + (ctx.withheld_in(where) - held_before_stack) != len(c.stack):
         return Mapped(None)
     stack_names = tuple(line.technology for line in stack)
 
@@ -241,8 +243,8 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
             team=ctx.rendered(t.name, where),
             lane_technologies=ctx.rendered(t.lane_technologies, where),
             postings=t.postings,
-            first_activity=t.first_activity or "",
-            last_activity=t.last_activity or "",
+            first_activity=ctx.rendered(t.first_activity, where) if t.first_activity else "",
+            last_activity=ctx.rendered(t.last_activity, where) if t.last_activity else "",
             technologies=ctx.rendered(t.technologies, where),
             locations=ctx.rendered(t.locations, where),
             job_functions=ctx.rendered(t.job_functions, where),
@@ -319,7 +321,13 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
         rank_counts=rank_counts,
         title=texts.title.format(account=account),
         base_line=texts.base_line.format(base=base, postings=len(window), months=months),
-        notes=(texts.rank_rule, texts.count_rule, texts.signal_rule, texts.research_by),
+        notes=(
+            texts.rank_rule,
+            texts.count_rule,
+            texts.signal_rule,
+            texts.research_by,
+            *(ctx.rendered(n, where) for n in partial_notes(c.tracker, "tech")),
+        ),
         stack_title=texts.stack_title.format(account=account),
         stack_note=texts.stack_note.format(as_of=_date_text(c.as_of)),
         teams_title=teams_title,

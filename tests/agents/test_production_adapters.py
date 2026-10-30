@@ -302,13 +302,16 @@ class _Archive:
         *,
         title: str | None = None,
         archived_at: datetime | None = None,
+        source_ref: str | None = None,
     ) -> Any:
         from account_intelligence.archive import ArchiveEntry
         from account_intelligence.archive_records import identity_bytes
 
         key = f"archive/{abs(hash(identity_bytes(record)))}"
         self.records[key] = record
-        return ArchiveEntry(url, kind, key, archived_at or T0, "json", title=title)
+        return ArchiveEntry(
+            url, kind, key, archived_at or T0, "json", title=title, source_ref=source_ref
+        )
 
 
 @pytest.mark.asyncio
@@ -351,20 +354,21 @@ async def test_public_items_are_archived_under_their_address_and_private_ones_ar
     ]
     profile, feed, news = (archive.records[e.payload_ref] for e in archive.entries)
     assert profile["schema"] == "page-archive/1" and profile["text"] == text
-    assert feed["schema"] == "page-archive/1" and feed["kind"] == "feed_item"
-    # a news item becomes the news record: headline, publisher, date, category, summary, text
-    assert news == {
-        "schema": "news-archive/1",
-        "url": "https://www.news.example/a/1",
-        "title": "Acme names a new CIO",
-        "publisher": "news.example",
-        "published_date": "2026-09-30",
-        "category": "leadership change",
-        "summary": "Acme appointed a CIO.",
-        "article_text": "Acme names a new CIO\nThe sentence.",
-        "captured_at": T0.isoformat(),
-        "source": "6th agents",
-    }
+    assert feed["schema"] == "page-archive/2" and feed["kind"] == "feed_item"
+    # a news item becomes the cleaned news record: headline, publisher, date, category, summary,
+    # the article without its headline line, and the source classified
+    assert news["schema"] == "news-archive/2"
+    assert (news["title"], news["publisher"], news["published_date"]) == (
+        "Acme names a new CIO",
+        "news.example",
+        "2026-09-30",
+    )
+    assert (news["category"], news["summary"]) == ("leadership change", "Acme appointed a CIO.")
+    assert news["body_markdown"] == "The sentence." and "article_text" not in news
+    assert (news["collected_at"], news["source"]) == (T0.isoformat(), "6th agents")
+    assert (news["source_type"], news["is_primary"], news["fact_grade"]) == ("Other", False, "Lead")
+    # every copy keeps the reference of the stored item it was made from (audit only)
+    assert all(str(e.source_ref).startswith("tenants/") for e in archive.entries)
 
 
 @pytest.mark.asyncio

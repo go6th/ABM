@@ -75,6 +75,26 @@ def scan_text(text: str, extra_terms: Iterable[str] = ()) -> tuple[Hit, ...]:
     return tuple(hits)
 
 
+def scrub_text(text: str, extra_terms: Iterable[str] = (), marker: str = "") -> tuple[str, int]:
+    """``(text, n)``: ``text`` with every match of the denylist and of the literal ``extra_terms``
+    (whole words, any case) replaced by ``marker``, and the number of replacements. For a text a
+    file may carry but whose matches it may not (a pull log, a record): the same patterns
+    ``scan_text`` finds, so a scrubbed text scans clean."""
+    scanned = Scanned(text)
+    count = 0
+    for p in load_patterns():
+        if not scanned.cannot_match(p):
+            text, n = p.subn(marker, text)
+            count += n
+    terms = tuple(t for t in extra_terms if t)
+    if terms:
+        index = _term_index(terms)
+        for i in index.candidates(Scanned(text)):
+            text, n = index.patterns[i].subn(marker, text)
+            count += n
+    return text, count
+
+
 def assert_client_safe(texts: Iterable[str], extra_terms: Iterable[str] = ()) -> None:
     """Raise ``ClientOutputLeak`` if any text would leak; call before every client export."""
     terms = tuple(extra_terms)

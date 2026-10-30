@@ -36,6 +36,11 @@ whole.
    Evidence, People list, Job postings, Tech stack and teams). A file-only run makes none.
 8. ``rows_dropped``: every row the builder recorded for a file (its manifest ``refs``) is in the
    file, and in a Word file each appears once and in order (no row lost at a page or a table).
+   ``client_output`` (file-level): a file the export builder itself left out of the set
+   (``files_withheld`` in the stored manifest: a restricted term, a data tool's name or the word
+   credits it could not make clean, or a Summary with no narrative) is reported as a held file,
+   so the run ends PARTIAL ``files_withheld`` and the other files are delivered; such a file is
+   not a missing file for ``deliverable_set``.
 9. ``third_party_domains``: no client file names a data provider's host (the providers' hosts
    from ``config/providers.yaml`` join the shared scanner's terms).
 
@@ -92,8 +97,30 @@ def _strings(value: Any) -> list[str]:
 # the checks whose items name one client file (``<file kind>:<detail>``): a failure holds back
 # that file only (see the module docstring); every other check is run-level
 FILE_CHECKS = frozenset(
-    {"client_dashes", "client_terms", "third_party_domains", "rows_dropped", "leak_check"}
+    {
+        "client_dashes",
+        "client_terms",
+        "third_party_domains",
+        "rows_dropped",
+        "leak_check",
+        "client_output",
+    }
 )
+
+
+def builder_withheld(manifests: Iterable[Any]) -> dict[str, str]:
+    """The client files the export builder left out of the set, ``{kind: rule}``, from the
+    ``files_withheld`` list (``kind:rule``) its stored manifests carry. The workspace zip is not a
+    client file and is not listed."""
+    held: dict[str, str] = {}
+    for manifest in manifests:
+        if not isinstance(manifest, dict):
+            continue
+        for item in manifest.get("files_withheld") or ():
+            kind, _, rule = str(item).partition(":")
+            if kind in CLIENT_FILES:
+                held.setdefault(kind, rule)
+    return held
 
 
 def withheld_files(defects: Iterable[Mapping[str, Any]]) -> dict[str, list[str]]:
@@ -276,10 +303,15 @@ class PreDeliveryGate:
         failing["client_dashes"] = []
         failing["client_terms"] = []
         failing["leak_check"] = []
+        # a file the builder left out (not a missing file) is held back by name and rule
+        left_out = builder_withheld(f.manifest_json for f in files)
+        failing["client_output"] = [f"{kind}:{rule}" for kind, rule in sorted(left_out.items())]
         # a file-only run makes no client file (its facts are private); its linked public run
         # makes them, and is gated as a company run
         failing["deliverable_set"] = (
-            [] if meta.input_mode == "file" else sorted(CLIENT_FILES - {str(f.kind) for f in files})
+            []
+            if meta.input_mode == "file"
+            else sorted(CLIENT_FILES - {str(f.kind) for f in files} - set(left_out))
         )
         failing["rows_dropped"] = []
         failing["third_party_domains"] = []

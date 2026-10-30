@@ -684,7 +684,7 @@ async def test_ranking_sheet_is_first_and_its_formulas_are_registered(
 # ---- 5. third-party scan -----------------------------------------------------------------------
 
 
-async def test_third_party_scan_groups_hosts_and_fails_on_credits(
+async def test_third_party_scan_groups_hosts_and_withholds_the_cost_word(
     make_builder: Make, cfg: ExportConfig
 ) -> None:
     c = account()
@@ -707,15 +707,22 @@ async def test_third_party_scan_groups_hosts_and_fails_on_credits(
     assert groups["aggregators"] == ("boards.example",)
     assert "press.example" in groups["other"]
     assert "jobs.alpha" not in str(groups)
-    # the word "credits" in any client file fails the set
+    # the word "credits" is never printed in a client file: the text that carries it is withheld
+    # where it is printed and listed by rule; the set is delivered (it used to fail the whole
+    # build, and the log called the rule tool_name)
     first = c.postings[0].model_copy(update={"description": "Earn credits here."})
-    result, _ = await _build(
+    result, files = await _build(
         make_builder, c.model_copy(update={"postings": (first, *c.postings[1:])})
     )
-    assert result.status == "failed" and any("credits" in e for e in result.errors)
+    assert result.status == "complete", result.errors
+    assert not result.withheld_files
+    assert any(":cost_word=" in t for t in result.manifest.texts_withheld)
+    assert "credits" not in "".join(_texts(b) for b in files.values()).lower()
 
 
-async def test_a_data_tool_host_fails_the_build(make_builder: Make, cfg: ExportConfig) -> None:
+async def test_a_data_tool_host_is_withheld_not_fatal(
+    make_builder: Make, cfg: ExportConfig
+) -> None:
     from exports.config import provider_hosts
 
     host = next(h for h in provider_hosts() if "parallel" in h)
@@ -729,5 +736,7 @@ async def test_a_data_tool_host_fails_the_build(make_builder: Make, cfg: ExportC
     result, _ = await _build(
         make_builder, c.model_copy(update={"postings": postings, "sources": tuple(src.rows)})
     )
-    assert result.status == "failed"
-    assert any("data_tool_host" in e for e in result.errors), result.errors
+    # a posting on a data tool's own host is withheld and listed, never printed or linked (the
+    # third-party scan used to fail the whole build on it)
+    assert result.status == "complete", result.errors
+    assert any(b.endswith(":tool_link") for b in result.manifest.withheld_blocks)

@@ -148,11 +148,13 @@ def test_people_rows_conserved_in_order(people: list[tuple[str, str, str]]) -> N
     ctx = MapContext(content, CFG, GRADING)
     mapped = map_people(ctx)
     # a generated name may contain a denylisted pattern (a leak) or nothing printable once
-    # sanitised (name_missing): both are typed refusals, never an exception
-    assert all(v.code in ("leak", "name_missing") for v in ctx.violations)
-    if mapped.model is None:
-        assert any(v.code == "name_missing" for v in ctx.violations)
-        return
+    # sanitised (name_missing). A name with nothing printable is withheld and listed
+    # (``name_missing``); a name the leak scan refuses is replaced by the withheld note: never an
+    # exception, never a violation that refuses the set
+    assert not ctx.violations
+    withheld = {row for _, row, rule in ctx.withheld_blocks if rule == "name_missing"}
+    rows = [p for p in rows if p.id not in withheld]
+    assert mapped.model is not None
     body, _ = render_people(mapped.model, CFG, "Synthetic People")
     ref_col = CFG.rules.workbooks.ref_column(CFG.rules.workbooks.people)
     assert xlsx_row_keys(body, "People", ref_col) == mapped.refs

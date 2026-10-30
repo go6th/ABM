@@ -135,7 +135,8 @@ async def create_export(
         if not produced:
             pkg = packages.blocked(body.kind, "build_failed")
         elif body.kind == "files":
-            pkg = packages.files_package(produced, api)
+            left_out = [i.split(":", 1)[0] for i in (build_manifest.files_withheld or ())]
+            pkg = packages.files_package(produced, api, left_out)
         else:
             builder = request.app.state.container.builder
             converter = getattr(builder, "pdf", None)

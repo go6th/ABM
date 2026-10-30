@@ -65,14 +65,24 @@ async def test_the_base_account_builds(make_builder: Make) -> None:
 # ---- B3 row conservation and caps ----------------------------------------------------------
 
 
-async def test_b3_row_cap_fails_instead_of_truncating(
+async def test_b3_row_cap_withholds_the_file_instead_of_truncating(
     make_builder: Make, cfg: ExportConfig
 ) -> None:
     caps = cfg.rules.limits.row_caps.model_copy(update={"postings": 2})
     limits = cfg.rules.limits.model_copy(update={"row_caps": caps})
     small = cfg.model_copy(update={"rules": cfg.rules.model_copy(update={"limits": limits})})
     result, store = await run(make_builder, account(n_postings=3), config=small)
-    assert_failed(result, store, "row_cap_exceeded", "row_cap")
+    # never truncated: the file over its cap is left out whole (it used to refuse the whole set,
+    # build_failed, after the research had been paid for); the other four files are delivered
+    assert result.status == "complete", result.errors
+    assert result.withheld_files == ("jobs:row_cap",)
+    assert {d.kind for d in result.deliverables} == {
+        "summary",
+        "evidence",
+        "people",
+        "tech",
+        "workspace",
+    }
 
 
 class DroppingRenderer(InProcessRenderer):
@@ -143,12 +153,13 @@ async def test_b4_person_link_not_in_the_registry_is_withheld(make_builder: Make
     assert_row_withheld(result, "people", people[1].id, "missing_source_code", len(people) - 1)
 
 
-async def test_b4_person_with_an_unknown_stored_code_fails(make_builder: Make) -> None:
+async def test_b4_person_with_an_unknown_stored_code_is_withheld(make_builder: Make) -> None:
     c = account()
     people = list(c.people)
     people[1] = people[1].model_copy(update={"source_code": "S-9999"})
-    result, store = await run(make_builder, c.model_copy(update={"people": tuple(people)}))
-    assert_failed(result, store, "unknown_source_code")
+    result, _store = await run(make_builder, c.model_copy(update={"people": tuple(people)}))
+    # corrupt provenance is listed, never printed and never quiet; it no longer stops the set
+    assert_row_withheld(result, "people", people[1].id, "unknown_source_code", len(people) - 1)
 
 
 async def test_b4_detection_without_a_url_is_withheld(make_builder: Make) -> None:
@@ -163,18 +174,25 @@ async def test_b4_detection_without_a_url_is_withheld(make_builder: Make) -> Non
 # ---- B5 citations ----------------------------------------------------------------------------
 
 
-async def test_b5_invented_code_is_an_orphan(make_builder: Make) -> None:
+async def test_b5_invented_code_is_never_printed(make_builder: Make) -> None:
     c = with_section(account(), "narrative", codes=("S-9999",))
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "orphan_citation", "unknown_source_code")
+    # the block that cites a code the registry does not know is withheld and listed; it was the
+    # only narrative block, so the Summary is held back alone (it used to refuse the whole set)
+    assert result.status == "complete", result.errors
+    assert any(b.endswith(":unknown_source_code") for b in result.manifest.withheld_blocks)
+    assert result.withheld_files == ("summary:missing_narrative",)
+    for d in result.deliverables:
+        if d.kind in ("summary", "evidence"):
+            assert "S-9999" not in docx_text(store.objects[d.object_key])
 
 
 async def test_b5_stored_code_not_in_the_registry(make_builder: Make) -> None:
     c = account()
     people = list(c.people)
     people[0] = people[0].model_copy(update={"source_code": "S-8888"})
-    result, store = await run(make_builder, c.model_copy(update={"people": tuple(people)}))
-    assert_failed(result, store, "unknown_source_code")
+    result, _store = await run(make_builder, c.model_copy(update={"people": tuple(people)}))
+    assert_row_withheld(result, "people", people[0].id, "unknown_source_code", len(people) - 1)
 
 
 async def test_b5_graded_row_without_a_source(make_builder: Make) -> None:
@@ -182,12 +200,17 @@ async def test_b5_graded_row_without_a_source(make_builder: Make) -> None:
     ev = list(c.evidence)
     ev[2] = ev[2].model_copy(update={"source_code": None, "url": "https://nowhere.example/x"})
     result, store = await run(make_builder, c.model_copy(update={"evidence": tuple(ev)}))
-    assert_failed(result, store, "missing_source_code", "uncited_graded_row")
+    # a graded finding no registered source backs is never printed; it is listed as withheld
+    # (it used to refuse the whole set)
+    assert_withheld(result, store, "missing_source_code", c.facts[2].value_text)
 
 
 async def test_b5_narrative_sentence_without_a_code(make_builder: Make) -> None:
     result, store = await run(make_builder, with_section(account(), "narrative", codes=()))
-    assert_failed(result, store, "narrative_without_code")
+    # the uncited block is withheld and listed; it was the only narrative block
+    assert result.status == "complete", result.errors
+    assert any(b.endswith(":narrative_without_code") for b in result.manifest.withheld_blocks)
+    assert result.withheld_files == ("summary:missing_narrative",)
 
 
 # ---- B6 numbers ------------------------------------------------------------------------------
@@ -201,8 +224,9 @@ async def test_b6_number_not_in_the_registry_or_the_cited_rows(make_builder: Mak
     # the only narrative block withheld: no narrative, and the reason names the rule
     c = with_section(account(), "narrative", text="The account has 17 synthetic teams.")
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "missing_narrative")
-    assert any("withheld (unregistered_number)" in e for e in result.errors), result.errors
+    # the Summary is held back alone and the rule is listed (it used to refuse the whole set)
+    assert result.status == "complete" and result.withheld_files == ("summary:missing_narrative",)
+    assert any(b.endswith(":unregistered_number") for b in result.manifest.withheld_blocks)
 
 
 def assert_withheld(result: BuildResult, store: MemoryStore, rule: str, text: str) -> None:
@@ -235,13 +259,22 @@ async def test_b6_number_present_in_a_cited_row_passes(make_builder: Make) -> No
 
 
 async def test_b7_confirmed_without_the_primary_read_flag(make_builder: Make) -> None:
-    result, store = await run(make_builder, with_fact(account(), 0, read_in_primary_this_run=False))
-    assert_failed(result, store, "schema_violation", "confirmed_without_primary_read")
+    c = with_fact(account(), 0, read_in_primary_this_run=False)
+    result, store = await run(make_builder, c)
+    # a Confirmed finding never read in a primary source is not printed: withheld and listed. It
+    # is the only fact the narrative rests on, so the Summary is held back alone
+    assert result.status == "complete", result.errors
+    assert any(
+        b.endswith(":confirmed_without_primary_read") for b in result.manifest.withheld_blocks
+    )
+    assert result.withheld_files == ("summary:missing_narrative",)
 
 
 async def test_b7_probable_phrased_as_a_statement(make_builder: Make) -> None:
-    result, store = await run(make_builder, with_fact(account(), 1, may_state_to_prospect=True))
-    assert_failed(result, store, "statement_flag_disagrees")
+    c = with_fact(account(), 1, may_state_to_prospect=True)
+    result, store = await run(make_builder, c)
+    # the finding that would be stated without being Confirmed is not printed (a row, listed)
+    assert_withheld(result, store, "statement_flag_disagrees", c.facts[1].value_text)
 
 
 async def test_b7_grade_outside_the_vocabulary(make_builder: Make) -> None:
@@ -250,8 +283,9 @@ async def test_b7_grade_outside_the_vocabulary(make_builder: Make) -> None:
 
 
 async def test_b7_hypothesis_without_its_question(make_builder: Make) -> None:
-    result, store = await run(make_builder, with_fact(account(), 2, confirming_question=None))
-    assert_failed(result, store, "schema_violation", "question_missing")
+    c = with_fact(account(), 2, confirming_question=None)
+    result, store = await run(make_builder, c)
+    assert_withheld(result, store, "question_missing", c.facts[2].value_text)
     # a stored hypothesis block without its question is withheld, not a failed build
     c = account()
     held = next(s.text for s in c.sections if s.kind == "hypothesis")
@@ -285,9 +319,10 @@ async def test_b7_narrative_stating_an_unconfirmed_fact(make_builder: Make) -> N
         text="The synthetic account is moving platforms.",
     )
     result, store = await run(make_builder, c)
-    # the statement is withheld; it was the only narrative block, so the Summary has none
-    assert_failed(result, store, "missing_narrative")
-    assert any("withheld (unconfirmed_stated)" in e for e in result.errors), result.errors
+    # the statement is withheld; it was the only narrative block, so the Summary is held back
+    # alone (it used to refuse the whole set)
+    assert result.status == "complete" and result.withheld_files == ("summary:missing_narrative",)
+    assert any(b.endswith(":unconfirmed_stated") for b in result.manifest.withheld_blocks)
     question = with_section(
         account(),
         "narrative",
@@ -322,7 +357,9 @@ async def test_b8_private_section_never_reaches_a_file(make_builder: Make) -> No
 async def test_b8_internal_grade_never_reaches_a_file(make_builder: Make) -> None:
     c = with_fact(account(), 1, product_grade="internal")
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "internal_in_public_file")
+    # an internal-grade finding never reaches a file; it is withheld and listed, and the
+    # research keeps its other files (a private ROW is still a failed build, above)
+    assert_withheld(result, store, "internal_in_public_file", c.facts[1].value_text)
 
 
 # ---- B9 identity and leak scrub --------------------------------------------------------------
@@ -482,9 +519,16 @@ async def test_missing_narrative_refuses_the_summary(make_builder: Make) -> None
     c = account()
     c = c.model_copy(update={"sections": tuple(s for s in c.sections if s.kind != "narrative")})
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "missing_content", "missing_narrative")
-    # the reason is readable: how many facts were Confirmed and why none could be stated
-    assert any("Confirmed facts of" in e and "reason:" in e for e in result.errors), result.errors
+    # the Summary is held back alone; the other files are delivered
+    assert result.status == "complete", result.errors
+    assert result.withheld_files == ("summary:missing_narrative",)
+    assert {d.kind for d in result.deliverables} == {
+        "evidence",
+        "people",
+        "jobs",
+        "tech",
+        "workspace",
+    }
 
 
 async def test_section_kind_outside_the_vocabulary(make_builder: Make) -> None:
@@ -498,13 +542,13 @@ async def test_section_kind_outside_the_vocabulary(make_builder: Make) -> None:
 
 
 async def test_b15_every_error_is_listed_at_once(make_builder: Make) -> None:
-    c = with_fact(account(), 0, read_in_primary_this_run=False)
+    c = with_fact(account(), 0, product_grade="certain")
     c = with_section(c, "caveat", visibility="private")
     result, store = await run(make_builder, c)
-    assert_failed(result, store, "confirmed_without_primary_read", "non_public_row")
+    assert_failed(result, store, "grade_vocabulary", "non_public_row")
     # the rules, not the classes, are what the run records as its stop reason
-    assert result.codes == ("confirmed_without_primary_read", "non_public_row")
-    assert BuildFailed(result).codes == "confirmed_without_primary_read,non_public_row"
+    assert result.codes == ("grade_vocabulary", "non_public_row")
+    assert BuildFailed(result).codes == "grade_vocabulary,non_public_row"
 
 
 class FailingRenderer(InProcessRenderer):
@@ -514,13 +558,19 @@ class FailingRenderer(InProcessRenderer):
         raise RenderError("exit 3")
 
 
-async def test_b15_a_render_failure_stores_nothing(cfg: ExportConfig, grading: Any) -> None:
+async def test_b15_a_render_failure_holds_back_the_files_it_failed_on(
+    cfg: ExportConfig, grading: Any
+) -> None:
     c = account()
     store = MemoryStore()
     result = await ExportBuilder(FakeReader(c), store, FailingRenderer(), cfg, grading).build_all(
         c.tenant_id, c.run_id
     )
-    assert_failed(result, store, "render_failed")
+    # the renderer failed on both Word files: they are left out under ``render_failed`` and the
+    # three workbooks are delivered (a renderer crash used to end the whole research)
+    assert result.status == "complete", result.errors
+    assert result.withheld_files == ("evidence:render_failed", "summary:render_failed")
+    assert {d.kind for d in result.deliverables} == {"people", "jobs", "tech", "workspace"}
 
 
 async def test_b15_missing_adapters_are_not_configured(cfg: ExportConfig, grading: Any) -> None:
@@ -601,4 +651,12 @@ async def test_b11_text_with_nothing_printable_is_refused(make_builder: Make, ta
         held = next(s.text for s in account().sections if s.kind == "executive_voice")
         assert_withheld(result, store, "speaker_missing", held)
         return
-    assert_failed(result, store, "schema_violation", "text_missing")
+    # the row or block with nothing printable is withheld and listed (it used to refuse the whole
+    # set); an id is never printed in its place
+    assert result.status == "complete", result.errors
+    assert any(b.endswith(":text_missing") for b in result.manifest.withheld_blocks), (
+        result.manifest.withheld_blocks
+    )
+    for d in result.deliverables:
+        if d.kind in ("summary", "evidence"):
+            assert junk not in docx_text(store.objects[d.object_key])

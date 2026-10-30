@@ -688,6 +688,11 @@ BUILD_RULE_TEXT = {
     "unregistered_number": "a number no count or source backs",
     "leak": "a term a client file may never carry",
     "tool_name": "a data provider named in a client file",
+    "cost_word": "a word a client file may never carry",
+    "data_tool_host": "a link to a data provider in a client file",
+    "internal_id": "an internal identifier in a client file",
+    "render_failed": "the file could not be written",
+    "missing_tracker": "no coverage table to print",
     "row_cap": "more rows than a file may hold",
     "missing_source_code": "a row without a registered source",
     "missing_url": "a row without a link",
@@ -703,6 +708,7 @@ GATE_CHECK_TEXT = {
     "fact_citations": "a finding without a source",
     "client_dashes": "a dash used as punctuation in a client file",
     "client_terms": "a term a client file may never carry",
+    "client_output": "text the distribution rules do not let this file carry",
     "third_party_domains": "a data provider named in a client file",
     "rows_dropped": "a row lost between the data and a file",
     "leak_check": "text too close to your uploaded files",
@@ -738,10 +744,29 @@ def withheld_text(defects: Sequence[Mapping[str, Any]]) -> str:
     held = withheld_files(defects)
     if not held:
         return STOP_TEXT["files_withheld"]
+    # the rule a file the builder left out was held under (``client_output`` items read
+    # ``kind:rule``), in words
+    rules: dict[str, list[str]] = {}
+    for d in defects:
+        kind, _, rule = str(d.get("item") or "").partition(":")
+        if d.get("check") == "client_output" and rule:
+            rules.setdefault(kind, []).extend(r for r in rule.split(",") if r)
     parts = []
     for kind in DELIVERABLE_ORDER:
         if kind in held:
-            why = "; ".join(GATE_CHECK_TEXT.get(c, c.replace("_", " ")) for c in held[kind])
+            words = [
+                BUILD_RULE_TEXT.get(r, r.replace("_", " "))
+                for r in dict.fromkeys(rules.get(kind, []))
+            ]
+            why = "; ".join(
+                [
+                    GATE_CHECK_TEXT.get(c, c.replace("_", " "))
+                    for c in held[kind]
+                    if c != "client_output"
+                ]
+                + words
+                or [GATE_CHECK_TEXT["client_output"]]
+            )
             parts.append(f"{DELIVERABLE_LABEL[kind]} ({why})")
     return WITHHELD_TEXT.format(files=", ".join(parts), why="see Coverage")
 
@@ -869,6 +894,13 @@ async def newest_files(session: Any, account_id: UUID) -> list[Any]:
                 text(
                     "SELECT DISTINCT ON (d.kind) d.id, d.kind, d.filename, d.size_bytes,"
                     " d.built_at, d.run_id, d.manifest_json->>'exclusion_hash' AS xh,"
+                    # the files the account's most recent build left out of its set, and its run:
+                    # an older file of such a kind must not stand in for the missing one
+                    " (SELECT x.manifest_json->'files_withheld' FROM deliverables x"
+                    "   WHERE x.account_id = d.account_id"
+                    "   ORDER BY x.built_at DESC, x.version DESC LIMIT 1) AS latest_withheld,"
+                    " (SELECT x.run_id FROM deliverables x WHERE x.account_id = d.account_id"
+                    "   ORDER BY x.built_at DESC, x.version DESC LIMIT 1) AS latest_run,"
                     " (SELECT g.defects FROM run_gate_results g WHERE g.run_id = d.run_id"
                     "   ORDER BY g.created_at DESC, g.id DESC LIMIT 1) AS defects,"
                     " (SELECT g.verdict FROM run_gate_results g WHERE g.run_id = d.run_id"
@@ -886,9 +918,14 @@ def _held_by_gate(row: Any) -> bool:
     """Whether the run's stored verdict holds this file back: a file-level defect naming its
     kind, or a run-level defect (a step without proof, a fact without a source, a client file
     missing), which holds back every file of the run (orchestration review 2026-10-30, F8)."""
-    from documents.gate import run_level_failed, withheld_files
+    from documents.gate import builder_withheld, run_level_failed, withheld_files
 
     defects = list(row.defects or [])
+    # a kind the account's latest build left out is held even before its gate verdict exists, and
+    # the file of an earlier research never stands in for it
+    left_out = builder_withheld([{"files_withheld": list(row.latest_withheld or [])}])
+    if row.kind in left_out and row.run_id != row.latest_run:
+        return True
     return row.kind in withheld_files(defects) or (
         row.verdict == "fail" and run_level_failed(defects)
     )
@@ -899,14 +936,18 @@ async def stale_kinds(session: Any, account_id: UUID) -> list[str]:
     tenant's current one (F1): such a file is neither listed nor served until the account's
     files are built again. A file built before the hash was recorded counts as built with no
     exclusions, so it is stale exactly when the tenant has some."""
+    from documents.gate import builder_withheld
     from exports.readers.exclusions import NO_EXCLUSIONS
     from views.materialize import current_exclusion_hash
 
     current = await current_exclusion_hash(session)
+    # a kind the account's latest build left out has no newer file to wait for: building again
+    # for it on every page view would only leave it out again
     return [
         r.kind
         for r in await newest_files(session, account_id)
         if (r.xh or NO_EXCLUSIONS) != current
+        and r.kind not in builder_withheld([{"files_withheld": list(r.latest_withheld or [])}])
     ]
 
 

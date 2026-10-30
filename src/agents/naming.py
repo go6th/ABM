@@ -44,6 +44,7 @@ from account_intelligence import archive_records as AR
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.safety.client_output import scan_text
 from agents.errors import GuardViolation
+from exports.policy import use_client_guard
 
 _WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 
@@ -291,6 +292,25 @@ def archive_guard(text: str) -> tuple[str, bool]:
 
 # every archive writer that is given no guard uses this one (one write-time guard path)
 AR.use_default_guard(archive_guard)
+
+
+def client_rule(text: str) -> str | None:
+    """The reason ``assert_client_clean`` would refuse one text, or None: ``third_party_domain``,
+    ``tool_name``, ``provider_name`` or ``guarded_name`` (the kind of the first hit; never the
+    matched text). The export builder applies this rule to every text it prints
+    (``exports.policy.use_client_guard``), so a file it makes is never refused here."""
+    if third_party_domain_hits(text):
+        return "third_party_domain"
+    if tool_name_hits(text):
+        return "tool_name"
+    kinds = {kind for kind, _offset in client_hits(text)}
+    for kind, rule in (("provider", "provider_name"), ("name", "guarded_name")):
+        if kind in kinds:
+            return rule
+    return "tool_name" if kinds else None
+
+
+use_client_guard(client_rule)
 
 
 def assert_client_clean(texts: Iterable[str], extra_terms: Iterable[str] = ()) -> None:

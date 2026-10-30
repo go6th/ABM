@@ -167,6 +167,9 @@ def build_export(
             for p in people
             if p.status == "excluded"
             and p.name
+            # a name the client-output scanner denies is not listed (it used to fail the whole
+            # build at the scan below); the person stays counted in the summary lines
+            and not scan_text(p.name)
             and p.person_key not in erased
             and (p.classification.rule_id or "").startswith(TITLE_EXCLUSION_PREFIX)
         )

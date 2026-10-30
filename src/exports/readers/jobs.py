@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from exports.config import PlatformEntry, registrable
 from exports.content import PostingRow, SnapshotContent
 from exports.models import CountLine, JobRow, JobsModel, PlatformClassCounts
+from exports.partial import partial_notes
 from exports.readers.common import MapContext, Mapped, digest, months_before, ref
 from jobs.normalise import strip_pii
 from jobs.snapshot import requisition_of
@@ -436,7 +437,10 @@ def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
         class_labels=class_labels,
         matrix=tuple(matrix),
         summary_title=ctx.rendered(texts.title.format(**fields), where),
-        summary_notes=tuple(ctx.rendered(t.format(**fields), where) for t in texts.paragraphs),
+        summary_notes=(
+            *(ctx.rendered(t.format(**fields), where) for t in texts.paragraphs),
+            *(ctx.rendered(n, where) for n in partial_notes(c.tracker, "jobs")),
+        ),
         prefix=prefix,
         matrix_heading=ctx.rendered(texts.matrix_heading.format(**fields), where),
     )

@@ -468,7 +468,10 @@ async def load_workspace(
                 "SELECT t.id, t.account_id, t.technology, t.cross_check_result, t.created_at,"
                 " s.url, s.title AS source_title"
                 " FROM tech_detections t LEFT JOIN sources s ON s.account_id = t.account_id AND"
-                " s.source_code = t.source_ref WHERE true" + NEWEST_DETECTION + " LIMIT 2000"
+                # the pipeline stores the page's address in source_ref; older rows hold the S-code
+                " (s.source_code = t.source_ref OR s.url = t.source_ref) WHERE true"
+                + NEWEST_DETECTION
+                + " LIMIT 2000"
             )
         )
     ).all():

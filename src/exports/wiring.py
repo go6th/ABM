@@ -11,6 +11,12 @@
 
 ``EXPORT_RENDER_CHECKS=on`` adds the LibreOffice PDF row-presence and recalculation checks to every
 build (the converter must be installed in the image; the full gate stays behind ``GatePort``).
+
+The builder applies the agent layer's own client-output guard (``agents.naming.client_rule``, the
+rule G9 applies to every stored file) to every text it prints. The exports layer may not import
+the agent layer, so ``agents.naming`` registers the guard when it is loaded
+(``exports.policy.use_client_guard``): the application container and the research graph both
+import it before any build runs, and a test pins that.
 """
 
 from __future__ import annotations

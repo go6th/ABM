@@ -4,15 +4,21 @@ with everything collected for the user who asks, built in the background.
 What the archive holds:
 
 * ``Deliverables/``: the account's current deliverable files;
-* ``Tables/``: every deep-dive table whole, as CSV and as Excel (``replica.table_export``: the
-  client-file rules on every cell; a shareable workbook that still fails its last check is left
-  out and named in ``README.txt``; Excel sheets continue past 1,048,576 rows);
+* ``Tables/``: every table of the account, repaired by the workspace repair stage
+  (``exports.repair``, spec ``docs/repair/workspace_repair_spec.md``) and written as CSV and Excel:
+  de-duplicated on a stable key, entity tagged, dated from the source (the collection time is its
+  own column), every cell filled or marked, the client-file rules on every cell (a workbook a
+  safety check would hold back has the offending cell fixed, never dropped to CSV only);
+* ``Logs/``: the repair report (before and after, acceptance checks, what is still Not done and
+  what the user must enable) and the log of every dropped row;
 * ``Internal - your files/``: the user's own uploaded files of this account and the Internal Only
   file findings. Internal material never enters a shareable file: this archive is the user's own.
 
 Raw provider responses are left out (owner decision default). The archive is written to object
 storage in zip parts of about ``PART_BYTES`` (a part holds whole files, so one very large file
-makes its part larger); nothing holds the archive, a table or a file in memory. Compressing and
+makes its part larger); nothing holds the archive or a file in memory, and the repair stage holds
+one workspace's tables (tens of megabytes: posting texts are the bulk) while it builds them, in a
+worker thread. Compressing and
 copying into a part run in a worker thread, one file at a time: the archive is CPU and disk work,
 and on the event loop it stalled every other request of the worker, its liveness probe included,
 until Cloud Run killed the instance and a research slice on it (staging, 2026-10-20). A part is
@@ -213,8 +219,13 @@ async def build(tenant_id: UUID, job_id: UUID, src: Sources) -> str:
     writer = _Parts(tenant_id, job_id, name, work, src)
     beat = asyncio.create_task(_beat(tenant_id, job_id, src))
     try:
-        notes = await _fill(tenant_id, account_id, user_id, name, writer, work, src)
-        await writer.add_bytes("README.txt", _readme(name, notes).encode("utf-8"))
+        profile, notes = await _fill(tenant_id, account_id, user_id, name, writer, work, src)
+        # the README is written from the members that exist and refused when it lists a path
+        # that is not in the archive (workspace repair, 2026-10-30)
+        from exports.repair.package import clean_text, finish_readme
+
+        readme = clean_text(finish_readme(profile, writer.names, notes))
+        await writer.add_bytes("README.txt", readme.encode("utf-8"))
         parts = await writer.close()
     except Exception as error:  # noqa: BLE001 - the job records why; nothing half-built stays
         beat.cancel()
@@ -275,12 +286,27 @@ async def _fill(
     writer: _Parts,
     work: Path,
     src: Sources,
-) -> list[str]:
-    """Add every deliverable, table and file of the user's; what was left out, in words."""
-    from account_intelligence.replica import sheets as SH
-    from account_intelligence.replica import table_export as TX
-    from account_intelligence.replica import workspace as W
+) -> tuple[Any, list[str]]:
+    """Add every deliverable, repaired table and file of the user's. Returns the workspace
+    profile and what was left out or is not done, in words (the README prints them).
 
+    The tables are not the screens' live queries: they are the repair stage's tables
+    (``exports.repair``), built for this workspace from its raw pulls, de-duplicated, entity
+    tagged, dated from the source, filled or marked, and checked (acceptance checks, repair
+    report and exclusions log in ``Logs/``). The stage reads everything about the workspace from
+    its own data (``exports.repair.profile``), so every account gets the same treatment."""
+    import json
+
+    from account_intelligence.replica import repair_guard
+    from account_intelligence.replica import sheets as SH
+    from account_intelligence.replica import workspace as W
+    from agents.config import load_skill_config
+    from exports.repair import package as PK
+    from exports.repair import pipeline as RP
+    from exports.repair import readers as RD
+    from exports.repair.profile import load_profile
+
+    repair_guard.install()  # the client-file rules the packager works through
     notes: list[str] = []
     now = datetime.now(UTC)
     async with src.txn(tenant_id) as s:
@@ -311,41 +337,47 @@ async def _fill(
                 {"a": account_id},
             )
         ).all()
+        profile = await load_profile(s, account_id, user_id, now, load_skill_config().scope)
+        inp = await RD.load_input(
+            s,
+            profile,
+            account_id,
+            user_id,
+            payload=src.payloads.get,
+            tracker_labels=json.loads(SH.tracker_labels()),
+        )
     for d in deliverables:
         key = keys.get(d["id"])
         if key:
-            await writer.add_bytes(f"Deliverables/{d['filename']}", await src.payloads.get(key))
-    # every sheet; a sheet the delivered files print is the files' own table (``file_run``,
-    # materialised when the sheets were last viewed), the Platform picture only once delivered
-    for sheet in (*SH.SHEETS, *(k for k in SH.FILE_TABLES if k not in SH.SHEETS)):
-        async with src.txn(tenant_id) as s:
-            run = await SH.file_run(s, account_id, sheet)
-        if sheet not in SH.SHEETS and run is None:
-            continue
-        q = SH.parse(sheet, None, None, None, run_id=run)
-        title = q.sheet.title.replace("/", "-")
-        csv_path = work / f"{sheet}.csv"
-        async with src.txn(tenant_id) as s:
-            with csv_path.open("wb") as out:
-                rows = _yielding(TX.rows(s, q, account_id, user_id, now))
-                async for chunk in TX.csv_chunks(q, rows):
-                    out.write(chunk)
-        await writer.add_file(f"Tables/{title}.csv", csv_path)
-        xlsx_path = work / f"{sheet}.xlsx"
-        try:
-            async with src.txn(tenant_id) as s:
-                rows = _yielding(TX.rows(s, q, account_id, user_id, now))
-                await TX.write_xlsx(xlsx_path, q, name, rows)
-            await writer.add_file(f"Tables/{title}.xlsx", xlsx_path)
-        except SH.ExportBlocked:
-            notes.append(f"Tables/{title}.xlsx was held back by a safety check (the CSV is in).")
-        csv_path.unlink(missing_ok=True)
-        xlsx_path.unlink(missing_ok=True)
+            body = await src.payloads.get(key)
+            inp.deliverables[d["filename"]] = body
+            await writer.add_bytes(f"Deliverables/{d['filename']}", body)
     folder = "Internal - your files"
     for n, row in enumerate(internal, start=1):
         stamp = row.created_at.strftime("%Y-%m-%d")
         await writer.add_bytes(
             f"{folder}/File findings {stamp} ({n}).docx", await src.payloads.get(row.object_key)
+        )
+    # the repair stage is CPU work (dedupe, workbooks, the safety scan): off the event loop, as
+    # the archive's other CPU work is (a stalled loop killed the worker on 2026-10-20)
+    result = await asyncio.to_thread(RP.repair, profile, inp)
+    members, table_notes = await asyncio.to_thread(
+        PK.build_members,
+        profile,
+        result.tables,
+        deliverables={},
+        report_md=result.report_md,
+        reserved=[f"{folder}/{row.name}" for row in documents],
+    )
+    for arcname in sorted(members):
+        await writer.add_bytes(arcname, members[arcname])
+    notes += table_notes
+    failed = [c.name for c in result.checks if not c.passed]
+    if failed:
+        notes.append(
+            "Acceptance checks that did not pass: "
+            + ", ".join(failed)
+            + " (Logs/repair_report.md has the numbers)."
         )
     for row in documents:
         try:
@@ -355,7 +387,7 @@ async def _fill(
             continue
         with reader:
             await writer.add_stream(f"{folder}/{row.name}", reader)
-    return notes
+    return profile, notes
 
 
 async def _yielding(source: AsyncIterator[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
@@ -366,21 +398,6 @@ async def _yielding(source: AsyncIterator[dict[str, Any]]) -> AsyncIterator[dict
     async for row in source:
         yield row
         await asyncio.sleep(0)
-
-
-def _readme(name: str, notes: list[str]) -> str:
-    lines = [
-        f"Everything collected for {name}.",
-        "",
-        "Deliverables: the current files of the account.",
-        "Tables: every table whole, as CSV and as Excel.",
-        "Internal - your files: your own uploaded files and what was found in them. Internal:"
-        " do not share.",
-        "Raw provider responses are not included.",
-    ]
-    if notes:
-        lines += ["", *notes]
-    return "\r\n".join(lines) + "\r\n"
 
 
 class _Parts:
@@ -396,6 +413,7 @@ class _Parts:
         self.pending: list[tuple[int, Path]] = []
         self.n = 0
         self.files = 0
+        self.names: list[str] = []  # every member written (the README is checked against them)
         self.zip: zipfile.ZipFile | None = None
         self.path: Path | None = None
 
@@ -422,16 +440,19 @@ class _Parts:
         """One small file."""
         await asyncio.to_thread(lambda: self._current().writestr(arcname, data))
         self.files += 1
+        self.names.append(arcname)
 
     async def add_file(self, arcname: str, path: Path) -> None:
         """One file from local disk (streamed)."""
         await asyncio.to_thread(lambda: self._current().write(path, arcname))
         self.files += 1
+        self.names.append(arcname)
 
     async def add_stream(self, arcname: str, reader: IO[bytes]) -> None:
         """One file from a reader, copied in blocks."""
         await asyncio.to_thread(self._copy, arcname, reader)
         self.files += 1
+        self.names.append(arcname)
 
     def _copy(self, arcname: str, reader: IO[bytes]) -> None:
         with self._current().open(arcname, "w", force_zip64=True) as out:
