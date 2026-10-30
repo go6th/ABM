@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **213**.
-- Frontend literal call sites found: **85**.
-- Frontend call sites mapped to backend operations: **81**.
-- Backend operations without a direct frontend call site: **140**.
+- Backend operations in OpenAPI: **221**.
+- Frontend literal call sites found: **86**.
+- Frontend call sites mapped to backend operations: **82**.
+- Backend operations without a direct frontend call site: **147**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -59,6 +59,7 @@ calls are listed only when their wrapper has a statically visible literal call s
 | `web/app/operator/(console)/view/page.tsx` | generated operator operation reference | `GET /operator/v1/view/workspace` | — | ViewAsWorkspace | operator; roles=operator, support; principal=operator_support; tenant=operator_grant; audit=read |
 | `web/app/readyz/route.ts` | server API fetch | `GET /readyz` | — | Ready | public health probe |
 | `web/components/accounts/AddAccount.tsx` | tenant client | `POST /v1/accounts/from-library` | FromLibrary (required) | LibraryAdded | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
+| `web/components/accounts/DeleteAccount.tsx` | tenant client | `DELETE /v1/accounts/{domain}` | AccountDeleteBody (required) | AccountDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/accounts/DownloadEverything.tsx` | tenant client | `POST /v1/accounts/{domain}/download-everything` | EverythingBody (required) | DownloadJob | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `web/components/accounts/RefreshForm.tsx` | tenant client | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `web/components/ask/ChatList.tsx` | tenant client | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
@@ -118,6 +119,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 
 | Method and path | Request schema | Success schema | Access rule |
 |---|---|---|---|
+| `DELETE /v1/accounts/{domain}` | AccountDeleteBody (required) | AccountDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `DELETE /v1/chat/provider-key` | — | TenantModelKeyDeleted (200) | tenant; roles=admin; principal=jwt, session; tenant=session; audit=admin |
 | `DELETE /v1/chat/threads/{thread_id}` | — | ChatThreadDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=none |
 | `DELETE /v1/documents/{document_id}` | — | DocumentDeleted (200) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
@@ -155,6 +157,12 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /v1/accounts/{domain}/deliverables/download` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/accounts/{domain}/file-analysis` | — | FileAnalysisRun (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/history` | — | History (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/parity/bundle` | — | ParityBundle (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/parity/files/{name}` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
+| `GET /v1/accounts/{domain}/parity/manifest` | — | ParityManifest (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/parity/screen` | — | ParityScreen (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/parity/tables/{table}` | — | ParityTablePage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/parity/versions` | — | ParityVersions (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/refresh` | — | RefreshOptions (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/sheets/{sheet}` | — | Sheet (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/sheets/{sheet}/cell` | — | SheetCellText (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
@@ -255,6 +263,7 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `POST /v1/accounts` | AccountBody (required) | AccountAdded (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/accounts/from-library` | FromLibrary (required) | LibraryAdded (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/accounts/{domain}/download-everything` | EverythingBody (required) | DownloadJob (202) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
+| `POST /v1/accounts/{domain}/parity/edits` | ParityEdit (required) | ParityVersionInfo (201) | tenant; roles=admin, analyst; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/accounts/{domain}/refresh` | RefreshBody (required) | RefreshStarted (201) | tenant; roles=admin, analyst, seller; principal=jwt, session; tenant=session; audit=run |
 | `POST /v1/alerts/{alert_id}/feedback` | Rating (required) | AlertRated (201) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=none |
 | `POST /v1/auth/email/resend` | EmailBody (required) | EmailVerificationSent (202) | tenant; roles=—; principal=anonymous; tenant=none; audit=none |

@@ -104,9 +104,10 @@ _ACCOUNTS = text(
       (SELECT j.finished_at FROM research_jobs j WHERE j.account_id = a.id AND j.status = 'done'
         ORDER BY j.finished_at DESC LIMIT 1) AS job_done
     FROM accounts a
+    WHERE a.deleted_at IS NULL
     """
 )
-_ONE_ACCOUNT = text(_ACCOUNTS.text + " WHERE a.id = :account")
+_ONE_ACCOUNT = text(_ACCOUNTS.text + " AND a.id = :account")
 
 
 def _state(row: Any, new_signals: int) -> str:
@@ -311,7 +312,14 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         moved = distinct
         changed_lanes = {f.lane for f in moved if f.lane}
         all_lanes = (
-            (await session.execute(text("SELECT DISTINCT unnest(lanes) AS lane FROM accounts")))
+            (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT unnest(lanes) AS lane FROM accounts"
+                        " WHERE deleted_at IS NULL"
+                    )
+                )
+            )
             .scalars()
             .all()
         )
@@ -851,7 +859,7 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
     }
 
 
-async def _newest_files(session: Any, account_id: UUID) -> list[Any]:
+async def newest_files(session: Any, account_id: UUID) -> list[Any]:
     """The newest stored version of each deliverable kind of the account, with the latest stored
     gate verdict of its run (``verdict``, ``defects``) and the exclusion set it was built with
     (``xh``: the manifest's ``exclusion_hash``, None for a file built before it was recorded)."""
@@ -897,7 +905,7 @@ async def stale_kinds(session: Any, account_id: UUID) -> list[str]:
     current = await current_exclusion_hash(session)
     return [
         r.kind
-        for r in await _newest_files(session, account_id)
+        for r in await newest_files(session, account_id)
         if (r.xh or NO_EXCLUSIONS) != current
     ]
 
@@ -916,7 +924,7 @@ async def deliverables(session: Any, account_id: UUID) -> list[dict[str, Any]]:
     current = await current_exclusion_hash(session)
     rows = [
         r
-        for r in await _newest_files(session, account_id)
+        for r in await newest_files(session, account_id)
         if not _held_by_gate(r) and (r.xh or NO_EXCLUSIONS) == current
     ]
     rows = sorted(rows, key=lambda r: DELIVERABLE_ORDER.index(r.kind))

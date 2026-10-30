@@ -290,7 +290,8 @@ async def reserve_turn(
         if account_id is not None:
             account = (
                 await session.execute(
-                    text("SELECT 1 FROM accounts WHERE id = :a"), {"a": account_id}
+                    text("SELECT 1 FROM accounts WHERE id = :a AND deleted_at IS NULL"),
+                    {"a": account_id},
                 )
             ).first()
             if account is None:

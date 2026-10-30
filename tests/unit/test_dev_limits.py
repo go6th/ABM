@@ -59,3 +59,19 @@ def test_caps_off_lifts_job_people_and_agent_caps_in_staging(
     assert load_jobs_config.__wrapped__().caps["max_page_reads"] == UNCAPPED
     assert load_people_config.__wrapped__().caps["max_people_per_run"] == UNCAPPED
     assert all(c.budgets.tool_calls == UNCAPPED for c in load_registry().values())
+
+
+def test_a_model_agent_has_no_token_ceiling_with_the_caps_off(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Staging 2026-10-30: the per-agent token budget with the caps off was a count-sized
+    1,000,000, and a reading step on a large account used more, so 95 groups of facts were
+    dropped unread. With the caps off a model agent's token budget is effectively unlimited."""
+    from account_intelligence.dev_limits import UNCAPPED_TOKENS
+    from agents.contracts import load_registry
+
+    monkeypatch.setenv("RESEARCH_CAPS", "off")
+    model_agents = [a for a in load_registry().values() if a.model_tier is not None]
+    assert model_agents
+    for agent in model_agents:
+        assert agent.budgets.tokens == UNCAPPED_TOKENS >= 10**11
+    monkeypatch.delenv("RESEARCH_CAPS")
+    assert all(a.budgets.tokens < 10**9 for a in load_registry().values())

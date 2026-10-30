@@ -225,7 +225,10 @@ class DocumentService:
                 from sqlalchemy import text
 
                 found = (
-                    await s.execute(text("SELECT 1 FROM accounts WHERE id = :a"), {"a": account_id})
+                    await s.execute(
+                        text("SELECT 1 FROM accounts WHERE id = :a AND deleted_at IS NULL"),
+                        {"a": account_id},
+                    )
                 ).first()
                 if found is None:
                     raise DocumentError("account_not_found", "The account was not found.")

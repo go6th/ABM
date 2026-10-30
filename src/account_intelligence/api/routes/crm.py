@@ -71,7 +71,9 @@ class Approval(BaseModel):
 
 async def _account(s: Any, domain: str) -> UUID:
     row = (
-        await s.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+        await s.execute(
+            text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"), {"d": domain}
+        )
     ).first()
     if row is None:
         raise HTTPException(404, "not found")

@@ -78,7 +78,7 @@ async def test_refresh_options_use_the_accounts_history(world: dict[str, Any]) -
     view = (await _call(plane, "GET", "/v1/accounts/highmark.example/refresh")).json()
     by = {o["scope"]: o for o in view["options"]}
     assert by["jobs"]["credits"] == CR.rates().estimates["jobs"].credits
-    assert by["full"]["credits"] == 125  # the last full refresh used 120; the floor (half of 250) is 125
+    assert by["full"]["credits"] == 125  # floor: half of 250
     assert view["allowed"] is True and view["open_job"] is None
     assert view["refreshed_days_ago"] == 2
 

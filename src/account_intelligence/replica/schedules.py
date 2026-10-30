@@ -86,7 +86,8 @@ async def view(session: Any, now: datetime) -> dict[str, Any]:
             text(
                 "SELECT id, domain, coalesce(name, domain) AS name, coalesce(refresh_cadence,"
                 " 'off') AS cadence,"
-                " refresh_scope, next_refresh_at FROM accounts ORDER BY coalesce(name, domain)"
+                " refresh_scope, next_refresh_at FROM accounts WHERE deleted_at IS NULL"
+                " ORDER BY coalesce(name, domain)"
             )
         )
     ).all()
@@ -159,7 +160,7 @@ async def tick(now: datetime, start: Start) -> dict[str, int]:
                     text(
                         "SELECT refresh_cadence, refresh_scope, added_by, owner_user_id,"
                         " next_refresh_at FROM accounts"
-                        " WHERE id = :a FOR UPDATE"
+                        " WHERE id = :a AND deleted_at IS NULL FOR UPDATE"
                     ),
                     {"a": account_id},
                 )

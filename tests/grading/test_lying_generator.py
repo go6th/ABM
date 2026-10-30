@@ -477,11 +477,10 @@ async def test_g13_independent_groups_with_different_values_conflict() -> None:
     assert len(r.graded) == 2
     for g in r.graded:
         assert g.engine_grade == "CONFLICTING" and "conflicting" in g.flags
-        assert (
-            g.product_grade == "probable"
-            and not g.read_in_primary_this_run
-            and g.confirming_question
-        )
+        assert not g.read_in_primary_this_run and g.confirming_question
+    # the conflict caps a grade, it never raises one: the finding backed by a news feed alone is
+    # a Lead (aggregator support never makes a finding Probable), the other one is Probable
+    assert sorted(g.product_grade for g in r.graded) == ["lead", "probable"]
     r = await run([jane, {k: v for k, v in john.items() if k != "confirming_question"}], w=w)
     assert r.drop_counts == {"missing_confirming_question": 1}
 

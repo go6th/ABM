@@ -514,6 +514,18 @@ class Settings(BaseSettings):
     export_render_checks: Literal["on", "off"] = var(
         "off", purpose="Run LibreOffice render checks on every export."
     )
+    parity_bundle: Literal["on", "off"] = var(
+        "off",
+        purpose=(
+            "Build the output parity bundle (src/parity) beside the export build of every"
+            " finished run and serve it on the account workspace; needs Node, the built Word"
+            " renderer and LibreOffice in the image."
+        ),
+    )
+    parity_docx_cli: str | None = var(
+        purpose="Path of the parity Word renderer command (render/docx/dist/cli.js) when the"
+        " package is installed outside the repository."
+    )
 
     @model_validator(mode="after")
     def _profile_rules(self) -> Settings:

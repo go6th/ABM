@@ -68,6 +68,7 @@ READERS: frozenset[str] = frozenset(
         "obs.catalog",
         "obs.dashboards",
         "parallel.config",
+        "parity.config",
         "people.config",
         "people.technology",
         "pilot.feedback",

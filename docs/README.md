@@ -31,6 +31,7 @@ The folder map of the whole repository is `../PROJECT_STRUCTURE.md`.
 | `abm/` | the ABM research skill as agents: source map, agent catalogue, conversions, lessons, reconciliation, the reader's guide |
 | `architecture/`, `data_layer/`, `workflow/`, `tracker/` | module map, loops, input modes; table conventions; the 13 stages; the tracker |
 | `grading/`, `jobs/`, `people/`, `exports/`, `spend/`, `parallel/`, `verify/`, `evals/`, `routing/` | one folder per subsystem: rules, rubrics, counts, mutation evidence, decisions |
+| `testing/` | mutation testing: how to run it, the 90 percent bar, the score per file and the list of equivalent mutants the gate reads |
 | `providers/` | the provider contracts: per-provider notes, cassettes and golden replies, vendor source extracts (the only place vendor documents live) |
 | `deploy/` | `ARCHITECTURE.md` (what Terraform builds, sizes, cost), `RUNBOOK.md` (setup, deploy, rollback, rotation, restore), `SECURITY_AUDIT.md`, `agents/` (the Phase 4C hardening notes the code comments cite) |
 | `runbooks/` | one runbook per alert (linted by `scripts/check_runbooks.py`) plus `queries/` |

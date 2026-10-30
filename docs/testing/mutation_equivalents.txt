@@ -1,0 +1,93 @@
+# Mutants that no test can tell from the original, one per line: "<mutant id> :: <reason>".
+# Read by scripts/mutation_report.py: a listed survivor is not counted against the 90 percent bar.
+# The ids are mutmut 3.8 ids (module, function, mutation number) of the sources of 2026-10-30;
+# when a module changes, regenerate with `mutmut results` and review each survivor again (the
+# report names any listed id that no longer survives). Reasons are grouped; the audit of how each
+# was judged is docs/audit/2026-10-30-mutation-testing.md.
+
+account_intelligence.archive_records.x_identity_bytes__mutmut_5 :: None is falsy, like False
+account_intelligence.archive_records.x_publisher_of__mutmut_8 :: the strip set gains the letter X; a lower case host never holds X
+account_intelligence.archive_records.x_snapshot_bytes__mutmut_3 :: None is falsy, like False
+account_intelligence.replica.credits.x_estimate_resume__mutmut_15 :: with nothing planned or all steps left the share is 1 or the whole estimate, the same value
+account_intelligence.replica.credits.x_estimate_resume__mutmut_16 :: with nothing planned or all steps left the share is 1 or the whole estimate, the same value
+account_intelligence.replica.credits.x_estimate_resume__mutmut_18 :: with nothing planned or all steps left the share is 1 or the whole estimate, the same value
+account_intelligence.replica.credits.x_usd_to_credits__mutmut_7 :: a spend of zero rounds to zero credits either way
+account_intelligence.runs.recovery.x__expire_wait__mutmut_35 :: the slice count is read only when the run was resumed
+account_intelligence.safety.prefilter.x_fold__mutmut_13 :: upper case I folds to i like the replacement
+account_intelligence.safety.prefilter.x_fold__mutmut_17 :: upper case I folds to i like the replacement
+account_intelligence.safety.prefilter.xǁScannedǁ_contains__mutmut_15 :: slicing of a large text: the same words and the same answer, only the memory use or the number of passes differs
+account_intelligence.safety.prefilter.xǁScannedǁ_contains__mutmut_2 :: slicing of a large text: the same words and the same answer, only the memory use or the number of passes differs
+account_intelligence.safety.prefilter.xǁScannedǁwords__mutmut_1 :: slicing of a large text: the same words and the same answer, only the memory use or the number of passes differs
+account_intelligence.safety.prefilter.xǁScannedǁwords__mutmut_15 :: slicing of a large text: the same words and the same answer, only the memory use or the number of passes differs
+account_intelligence.safety.prefilter.xǁScannedǁwords__mutmut_16 :: slicing of a large text: the same words and the same answer, only the memory use or the number of passes differs
+account_intelligence.safety.prefilter.xǁScannedǁwords__mutmut_22 :: slicing of a large text: the same words and the same answer, only the memory use or the number of passes differs
+account_intelligence.safety.prefilter.xǁTermIndexǁcandidates__mutmut_3 :: an index with no word and no always-run term has nothing to pick: the early return and the empty pick are both the empty list
+account_intelligence.tracker.machine.x_transition_row__mutmut_10 :: a missing entry or condition is falsy either way (None or an empty list)
+account_intelligence.tracker.machine.x_transition_row__mutmut_12 :: a missing entry or condition is falsy either way (None or an empty list)
+account_intelligence.tracker.machine.x_transition_row__mutmut_127 :: a missing entry or condition is falsy either way (None or an empty list)
+account_intelligence.tracker.machine.x_transition_row__mutmut_129 :: a missing entry or condition is falsy either way (None or an empty list)
+account_intelligence.urls.x_clean_http_url__mutmut_10 :: a space is not in the unusable set, so removing it or replacing it by letters changes no match
+account_intelligence.urls.x_clean_http_url__mutmut_11 :: a space is not in the unusable set, so removing it or replacing it by letters changes no match
+account_intelligence.urls.x_normalize_url__mutmut_15 :: the strip set gains the letter X; a lower case host never holds X
+account_intelligence.urls.x_normalize_url__mutmut_27 :: a path of one character is "/" and stripping it gives "/" again
+account_intelligence.urls.x_strip_secrets__mutmut_28 :: only the key before the first "=" is read
+account_intelligence.urls.x_strip_secrets__mutmut_31 :: only the key before the first "=" is read
+account_intelligence.urls.x_url_hash__mutmut_4 :: the codec name in upper case is the same codec
+agents.production.jobs_carry.x_carry_job_facts__mutmut_113 :: a fact reached through its evidence always has evidence rows
+agents.production.jobs_carry.x_carry_job_facts__mutmut_115 :: a fact reached through its evidence always has evidence rows
+exports.change_note.x__rows__mutmut_10 :: the lengths are checked just before, so strict= can never fire
+exports.change_note.x__rows__mutmut_6 :: the lengths are checked just before, so strict= can never fire
+exports.change_note.x__rows__mutmut_9 :: the lengths are checked just before, so strict= can never fire
+exports.contenturls.x_clean_urls__mutmut_59 :: an empty address cleans to None, like the skipped branch
+exports.contenturls.x_clean_urls__mutmut_80 :: an empty address cleans to None, like the skipped branch
+exports.contenturls.x_clean_urls__mutmut_95 :: an empty address cleans to None, like the skipped branch
+exports.numbers.x_numbers_in__mutmut_6 :: a source code is followed by a non-word character, so any separator in its place reads the same numbers
+exports.ooxml.x__pack__mutmut_17 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.ooxml.x__pack__mutmut_20 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.ooxml.x__pack__mutmut_21 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.ooxml.x__pack__mutmut_26 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.ooxml.x__pack__mutmut_27 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.ooxml.x__pack__mutmut_30 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.ooxml.x__pack__mutmut_31 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.ooxml.x__sheet_parts__mutmut_10 :: parser hardening (no entity expansion): the sheet names are attributes, which are expanded either way, and no external resource is reachable
+exports.ooxml.x__sheet_parts__mutmut_12 :: parser hardening (no entity expansion): the sheet names are attributes, which are expanded either way, and no external resource is reachable
+exports.ooxml.x__sheet_parts__mutmut_3 :: parser hardening (no entity expansion): the sheet names are attributes, which are expanded either way, and no external resource is reachable
+exports.ooxml.x__sheet_parts__mutmut_5 :: parser hardening (no entity expansion): the sheet names are attributes, which are expanded either way, and no external resource is reachable
+exports.ooxml.x__strip_refs__mutmut_4 :: the codec name in upper case is the same codec
+exports.ooxml.x_cache_formula_values__mutmut_71 :: the codec name in upper case is the same codec
+exports.ooxml.x_cache_formula_values__mutmut_73 :: the codec name in upper case is the same codec
+exports.ooxml.x_strip_cached_values__mutmut_40 :: the codec name in upper case is the same codec
+exports.ooxml.x_strip_cached_values__mutmut_44 :: the codec name in upper case is the same codec
+exports.ooxml.x_strip_cached_values__mutmut_57 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.ooxml.x_strip_cached_values__mutmut_60 :: zipfile.writestr takes the method and level passed, and the default level is 6
+exports.ooxml.x_strip_cached_values__mutmut_7 :: None and False are both falsy where the flag is read
+exports.policy.x_split_for_cell__mutmut_6 :: at equal length the split yields the same single part
+exports.workspace.x_build_workspace__mutmut_154 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.workspace.x_build_workspace__mutmut_157 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.workspace.x_build_workspace__mutmut_158 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.workspace.x_build_workspace__mutmut_163 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.workspace.x_build_workspace__mutmut_164 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.workspace.x_build_workspace__mutmut_167 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.workspace.x_build_workspace__mutmut_168 :: zipfile.writestr takes the method and level passed, resets a falsy external_attr to 0o600 << 16, and the default level is 6
+exports.workspace.x_build_workspace__mutmut_56 :: only the first path segment is read; a different maxsplit leaves it the same
+exports.workspace.x_build_workspace__mutmut_60 :: only the first path segment is read; a different maxsplit leaves it the same
+jobs.counts.x__block__mutmut_13 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x__block__mutmut_28 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x__block__mutmut_29 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x__block__mutmut_30 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x__block__mutmut_32 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x__block__mutmut_33 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x__block__mutmut_34 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x_compute_counts__mutmut_24 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x_compute_counts__mutmut_27 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x_compute_counts__mutmut_28 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.counts.x_compute_counts__mutmut_29 :: guard that the typed rows make unreachable (pragma no cover in the module): a class, sentence or platform count that cannot differ by construction
+jobs.heuristic.x_platform_windows__mutmut_14 :: rfind with start None is start 0
+jobs.incremental.x__is_base__mutmut_3 :: either spelling of the missing value differs from "converged"
+jobs.snapshot.x_build_snapshot__mutmut_26 :: the status is typed open, closed or unknown, so the fallback word is the status itself
+jobs.snapshot.x_build_snapshot__mutmut_80 :: None and False are both falsy where the flag is read
+spend.money.x_format_usd__mutmut_6 :: the strip set gains the letter X; a formatted number never holds X
+spend.money.x_format_usd__mutmut_9 :: a formatted number holds one dot: partition and rpartition agree
+spend.report.x__line__mutmut_23 :: at an advisory of zero both branches flag spend above zero
+spend.report.x_build_report__mutmut_71 :: the threshold of a category or operation line is unused: those lines carry no advisory figure
+spend.report.x_build_report__mutmut_80 :: the threshold of a category or operation line is unused: those lines carry no advisory figure

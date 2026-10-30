@@ -797,3 +797,33 @@ dl.kpi-tiles dd { margin: 0; }
   .arc-steps li::after { top: 17px; left: 5px; right: auto; width: 2px; height: calc(100% + 4px); }
   .arc-top .grow { flex-basis: 100%; }
 }
+/* the delete-account confirmation: a panel over the page that takes the domain typed back */
+.confirm-backdrop { position: fixed; inset: 0; background: rgba(20, 24, 33, 0.35); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 40; }
+.confirm-panel { width: min(440px, 100%); }
+
+/* ---------- Delivered files from the parity bundle ---------- */
+.parity { display: flex; flex-direction: column; gap: 10px; }
+.parity .h2 { font-size: 16px; margin: 0; }
+.parity .sheet-tabs button { padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--muted); background: none; border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; cursor: pointer; }
+.parity .sheet-tabs button:hover { color: var(--accent); }
+.parity .sheet-tabs button[aria-selected="true"] { color: var(--ink); background: var(--surface); border-color: var(--line); }
+.parity-prose { padding: 16px 18px; }
+.parity-prose h3 { font-size: 14px; margin: 14px 0 6px; }
+.parity-prose h4 { font-size: 13px; margin: 10px 0 4px; color: var(--text-3); }
+.parity-prose p, .parity-prose li { font-size: 13px; line-height: 1.5; }
+.parity-counts { padding: 12px 14px; }
+.parity-count-grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+.parity-count-grid table.xl caption { text-align: left; font-weight: 600; font-size: 13px; padding: 4px 0; }
+.parity-count-grid table.xl th[scope="row"] { font-weight: 500; text-align: left; }
+.parity .warn-bar, .parity-counts .warn-bar { background: var(--warn-card); border: 1px solid var(--warn-card-line); color: var(--warn-ink); border-radius: var(--r-field); padding: 8px 12px; font-size: 13px; margin-bottom: 8px; }
+.parity-table .pad { padding: 8px 12px; }
+.parity-table .state.small { padding: 12px; }
+/* the workbooks' own fill colours behind a priority or rank letter (parity.tables) */
+.pchip { display: inline-block; min-width: 22px; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 12px; text-align: center; color: #1f2937; }
+.pchip.fill-DDEFE0 { background: #ddefe0; }
+.pchip.fill-FFF1CC { background: #fff1cc; }
+.pchip.fill-EEEEEE { background: #eeeeee; }
+.pchip.fill-C6EFCE { background: #c6efce; }
+.pchip.fill-FFEB9C { background: #ffeb9c; }
+.pchip.fill-E7E6E6 { background: #e7e6e6; }
+@media (min-width: 900px) { .parity-count-grid { grid-template-columns: 3fr 2fr; } }

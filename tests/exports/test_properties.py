@@ -212,7 +212,10 @@ def test_summary_mapping_is_total_pure_and_conserves_rows(content: SnapshotConte
     def run() -> tuple[object, list[tuple[str, str, str]]]:
         ctx = MapContext(content, CFG, GRADING)
         mapped = map_summary(ctx, map_people(ctx).model)
-        return mapped, sorted((v.code, v.where, v.item) for v in ctx.violations)
+        listed = sorted((v.code, v.where, v.item) for v in ctx.violations)
+        # a row the mapping withholds (and lists) is accounted for like a refused one
+        held = sorted(("withheld", where, row) for where, row, _ in ctx.withheld_blocks)
+        return mapped, listed + held
 
     first, violations = run()
     second, again = run()

@@ -133,6 +133,8 @@ or a value has the wrong type (errors name the variable, never the value).
 | `RESEARCH_ENGINE` | Research job engine: graph (the run lifecycle on the ABM agent graph; cloud default), hermetic (no outside call; dev and test default) or skill (the skill executor, refused until it is built). | no | - | - | api, worker |
 | `EXPORT_RENDERER` | Word renderer override (see exports.wiring). | no | - | - | api, worker |
 | `EXPORT_RENDER_CHECKS` | Run LibreOffice render checks on every export. | no | - | - | api, worker |
+| `PARITY_BUNDLE` | Build the output parity bundle (src/parity) beside the export build of every finished run and serve it on the account workspace; needs Node, the built Word renderer and LibreOffice in the image. | no | - | - | api, worker |
+| `PARITY_DOCX_CLI` | Path of the parity Word renderer command (render/docx/dist/cli.js) when the package is installed outside the repository. | no | - | - | api, worker |
 
 ## Web server
 

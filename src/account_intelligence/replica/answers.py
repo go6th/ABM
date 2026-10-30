@@ -299,7 +299,7 @@ async def load_workspace(
                 "   AND r.status IN ('COMPLETED', 'PARTIAL')) AS run_done,"
                 " (SELECT count(*) FROM account_runs r WHERE r.account_id = a.id"
                 "   AND r.status IN ('COMPLETED', 'PARTIAL')) AS runs"
-                " FROM accounts a ORDER BY coalesce(a.name, a.domain)"
+                " FROM accounts a WHERE a.deleted_at IS NULL ORDER BY coalesce(a.name, a.domain)"
             )
         )
     ).all()

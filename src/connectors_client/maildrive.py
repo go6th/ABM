@@ -1043,7 +1043,7 @@ async def sync_connection(
             await s.execute(
                 text(
                     "SELECT id, domain, coalesce(name, domain) AS name FROM accounts"
-                    " WHERE owner_user_id = :u"
+                    " WHERE owner_user_id = :u AND deleted_at IS NULL"
                 ),
                 {"u": owner},
             )

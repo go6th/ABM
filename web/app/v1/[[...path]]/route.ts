@@ -63,7 +63,15 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
   const limit = bodyLimit(request.method, request.nextUrl.pathname);
   const declared = declaredLength(request.headers.get("content-length"));
   if (declared !== null && declared > limit) return problem(413, "Request too large", "The request body is too large.");
-  const capped = request.method !== "GET" && request.method !== "HEAD" && request.body && declared !== 0
+  // A DELETE body is small (a confirmation): it is read whole and sent with its length. A body
+  // streamed without a length did not reach the API from the deployed service (the delete dialog
+  // answered 422 "invalid request" there), so the length is always sent for DELETE.
+  let buffered: ArrayBuffer | null = null;
+  if (request.method === "DELETE" && request.body && declared !== 0) {
+    buffered = await request.arrayBuffer();
+    if (buffered.byteLength > limit) return problem(413, "Request too large", "The request body is too large.");
+  }
+  const capped = request.method !== "GET" && request.method !== "HEAD" && request.method !== "DELETE" && request.body && declared !== 0
     ? capBody(request.body, limit)
     : null;
 
@@ -71,7 +79,7 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
     const upstream = await fetch(targetUrl.toString(), {
       method: request.method,
       headers: forwardHeaders,
-      body: capped?.stream,
+      body: buffered && buffered.byteLength > 0 ? buffered : capped?.stream,
       ...(capped ? { duplex: "half" } : {}),
       redirect: "manual",
       cache: "no-store",

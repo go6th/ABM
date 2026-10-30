@@ -264,7 +264,9 @@ async def test_b7_aggregator_only_support_must_be_a_labelled_lead(make_builder: 
     ev = list(c.evidence)
     ev[1] = ev[1].model_copy(update={"is_aggregator": True})  # fact 1 is Probable
     result, store = await run(make_builder, c.model_copy(update={"evidence": tuple(ev)}))
-    assert_failed(result, store, "aggregator_not_lead")
+    # a Probable finding backed by aggregators alone is a grading defect: that one row is
+    # withheld and listed, the research keeps its files (it used to fail the whole build)
+    assert_withheld(result, store, "aggregator_not_lead", c.facts[1].value_text)
     ev = list(c.evidence)
     ev[3] = ev[3].model_copy(update={"is_aggregator": True})  # fact 3 is a Lead: labelled
     ok = c.model_copy(update={"evidence": tuple(ev)})

@@ -108,7 +108,7 @@ async def view(s: Any, job_id: UUID, now: datetime) -> dict[str, Any] | None:
             text(
                 "SELECT d.id, d.status, d.parts, d.files, d.total_bytes, d.failure, d.expires_at,"
                 " a.domain FROM download_jobs d JOIN accounts a ON a.id = d.account_id"
-                " WHERE d.id = :j"
+                " WHERE d.id = :j AND a.deleted_at IS NULL"
             ),
             {"j": job_id},
         )

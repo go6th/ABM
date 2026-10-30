@@ -2946,3 +2946,159 @@ class ConsoleDefaults(Out):
 
 
 AccountWorkspace.model_rebuild()
+
+
+# ---- output parity (the account bundle, its files and tables) ------------------------------
+
+
+class ParityColumn(Out):
+    """One column of a parity table: key, header, kind (text, long, num, link, priority, rank,
+    grade, status, id), the link label of a link column and the chip fills of a priority or rank
+    column (the workbook's own colours)."""
+
+    key: str
+    header: str
+    kind: str
+    link_label: str | None = None
+    fills: dict[str, str] | None = None
+
+
+class ParityTableRef(Out):
+    """One table of a delivered file: its id, file, sheet (workbooks) or title (Word files), the
+    columns and how many rows it holds; ``paginated`` tables (Jobs, People) page on the server."""
+
+    id: str
+    file: str
+    sheet: str | None = None
+    title: str
+    paginated: bool
+    columns: list[ParityColumn]
+    total: int
+
+
+class ParityCell(Out):
+    """One cell: its text as the file prints it and, for a link, the address."""
+
+    text: str
+    href: str | None = None
+
+
+class ParityTablePage(Out):
+    """A page of one table's rows, in the file's order."""
+
+    id: str
+    file: str
+    title: str
+    columns: list[ParityColumn]
+    total: int
+    offset: int
+    limit: int
+    rows: list[list[ParityCell]]
+
+
+class ParityFile(Out):
+    """One stored file of a built version (the manifest entry)."""
+
+    name: str
+    file: str | None = None
+    size: int
+    sha256: str
+    mime: str
+
+
+class ParityVersionInfo(Out):
+    """One version of an account's bundle: built (served) or failed (the gate report says why)."""
+
+    version: int
+    status: str
+    run_id: str
+    created_at: str
+    gate_passed: bool
+    gate_failures: list[str] = []
+    # why a built version is not served now (the tenant's exclusions changed since it was built,
+    # a person it lists was erased since, or its run's quality check failed at run level);
+    # None while it is served
+    held_back: str | None = None
+
+
+class ParityVersions(Out):
+    """Every version of the account, newest first."""
+
+    versions: list[ParityVersionInfo]
+
+
+class ParityBundle(Out):
+    """The bundle document of a version (``prose.internal_only`` and the pursuing client's real
+    name only for an admin)."""
+
+    version: int
+    status: str
+    run_id: str
+    created_at: str
+    bundle: JsonObject
+
+
+class ParityManifest(Out):
+    """The manifest of a built version: the files with their sizes and digests and the
+    recalculated Summary values per workbook."""
+
+    version: int
+    status: str
+    run_id: str
+    created_at: str
+    bundle_version: str
+    files: list[ParityFile]
+    summary: dict[str, dict[str, Any]]
+
+
+class ParityCountRows(Out):
+    """The row fields the web's count module needs (``web/lib/parity/counts.ts``): every job
+    row's platforms, entity, status, class and title, every person's level, seniority, lane and
+    priority."""
+
+    jobs_rows: list[JsonObject]
+    people_rows: list[JsonObject]
+
+
+class ParityScreen(Out):
+    """Everything the account workspace draws from a version in one read: the meta block
+    (client view), the computed numbers, the manifest summary, the tables of every file in
+    document order, the prose (client view), the rows the count module needs and the files."""
+
+    version: int
+    status: str
+    run_id: str
+    created_at: str
+    # true when this version is of the same research as the delivered files the account's Files
+    # card and file tabs show (or no file is delivered yet); false: an earlier research
+    current: bool = True
+    meta: JsonObject
+    computed: JsonObject
+    ranking: JsonObject
+    summary: dict[str, dict[str, Any]]
+    tables: list[ParityTableRef]
+    prose: JsonObject
+    count_rows: ParityCountRows
+    files: list[ParityFile]
+    download_all: str | None = None
+
+
+class ParityOverride(BaseModel):
+    """One analyst correction to a person: by name; priority, lane or note."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    priority: Literal["A", "B", "C"] | None = None
+    lane: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class ParityEdit(BaseModel):
+    """An edit request: the version it corrects (the newest built one when absent) and the
+    corrections; the reply is the new version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int | None = Field(default=None, ge=1)
+    overrides: list[ParityOverride] = Field(min_length=1, max_length=200)

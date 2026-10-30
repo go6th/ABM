@@ -72,7 +72,7 @@ async def test_save_and_load_round_trip_and_reentry_makes_no_call() -> None:
 
 
 async def test_heuristic_classifications_are_stored_and_read_back() -> None:
-    """Migration 0088 widens classified_by: the heuristic's classes survive a save and a load."""
+    """Migration 0095 widens classified_by: the heuristic's classes survive a save and a load."""
     w = make_world()
     repo, (result, _) = await _saved(w)
     by = fetch(

@@ -18,6 +18,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 COPY runtime/abm-render-tools/package.json runtime/abm-render-tools/package-lock.json /opt/abm-render-tools/
 RUN npm ci --prefix /opt/abm-render-tools --ignore-scripts
+# The output parity Word renderer (render/docx, TypeScript on the docx package): installed and
+# compiled here, then only its build and runtime dependencies are copied into the image.
+COPY render/docx/package.json render/docx/package-lock.json render/docx/tsconfig.json /opt/render-docx/
+COPY render/docx/src /opt/render-docx/src
+RUN npm ci --prefix /opt/render-docx --ignore-scripts \
+ && npm run build --prefix /opt/render-docx \
+ && find /opt/render-docx/dist -name '*.map' -delete \
+ && npm prune --omit=dev --prefix /opt/render-docx
 COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
 # The document retrieval model (bge-small-en-v1.5, ONNX, about 130 MB), downloaded once at build
@@ -40,11 +48,16 @@ WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
 COPY --from=build /app/models /app/models
 COPY --from=build /opt/abm-render-tools /opt/abm-render-tools
+COPY --from=build /opt/render-docx/dist /opt/render-docx/dist
+COPY --from=build /opt/render-docx/node_modules /opt/render-docx/node_modules
+COPY --from=build /opt/render-docx/package.json /opt/render-docx/package.json
+# source maps are not shipped: the release gate rejects them (node packages from apt and npm)
+RUN find /usr/share/nodejs /opt/abm-render-tools /opt/render-docx -name '*.map' -delete
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY config ./config
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 CONFIG_DIR=/app/config FASTEMBED_CACHE_PATH=/app/models HF_HUB_OFFLINE=1 PORT=8080 \
-    SERVICE_ROLE=api NODE_PATH=/opt/abm-render-tools/node_modules
+    SERVICE_ROLE=api NODE_PATH=/opt/abm-render-tools/node_modules PARITY_DOCX_CLI=/opt/render-docx/dist/cli.js
 # EVAL_MODEL / EVAL_EFFORT (the live tabular eval's model and effort) are environment, not image,
 # settings: the api service's Terraform env (infra/stack/main.tf) and compose.yml set them.
 USER 10001

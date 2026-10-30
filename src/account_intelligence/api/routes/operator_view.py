@@ -40,7 +40,7 @@ async def accounts(
                     "SELECT a.domain, r.status FROM accounts a LEFT JOIN LATERAL"
                     " (SELECT status FROM account_runs WHERE account_id = a.id"
                     " ORDER BY created_at DESC LIMIT 1) r ON true"
-                    " ORDER BY a.domain LIMIT 200"
+                    " WHERE a.deleted_at IS NULL ORDER BY a.domain LIMIT 200"
                 )
             )
         ).all()
@@ -100,7 +100,8 @@ async def workspace(
                     "   AND NOT coalesce(p.internal_only, false)) AS people,"
                     " (SELECT count(*) FROM signal_events g WHERE g.account_id = a.id) AS signals,"
                     " (SELECT count(*) FROM sources o WHERE o.account_id = a.id) AS sources"
-                    " FROM accounts a ORDER BY coalesce(a.name, a.domain) LIMIT 500"
+                    " FROM accounts a WHERE a.deleted_at IS NULL"
+                    " ORDER BY coalesce(a.name, a.domain) LIMIT 500"
                 )
             )
         ).all()

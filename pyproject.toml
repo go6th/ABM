@@ -48,7 +48,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/parallel", "src/llm", "src/verify", "src/evalgate", "src/obs", "src/tenancy", "src/identity", "src/audit", "src/views", "src/connectors_client", "src/metering", "src/admin", "src/pilot", "src/refresh", "src/signals", "src/alerts", "src/governance", "src/crm_writeback", "src/opendoor", "src/crosscut", "src/datamodel", "src/contracts", "src/quality", "src/privacy", "src/security", "src/unitcost", "src/metrics", "src/registers", "src/agents", "src/documents", "src/research_files", "src/devstore"]
+packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "src/exports", "src/parallel", "src/llm", "src/verify", "src/evalgate", "src/obs", "src/tenancy", "src/identity", "src/audit", "src/views", "src/connectors_client", "src/metering", "src/admin", "src/pilot", "src/refresh", "src/signals", "src/alerts", "src/governance", "src/crm_writeback", "src/opendoor", "src/crosscut", "src/datamodel", "src/contracts", "src/quality", "src/privacy", "src/security", "src/unitcost", "src/metrics", "src/registers", "src/agents", "src/documents", "src/research_files", "src/devstore", "src/parity"]
 
 # The passage embedder (documents.embed.FastEmbedder) runs bge-small through onnxruntime. The two
 # runtimes cannot share a virtualenv (both install the ``fastembed`` and ``onnxruntime`` modules),
@@ -56,8 +56,8 @@ packages = ["src/account_intelligence", "src/jobs", "src/people", "src/spend", "
 # the worker image syncs ``--no-group cpu --group gpu`` and embeds on its NVIDIA L4 (Cloud Run
 # mounts the driver, CUDA 13; the ``[cuda,cudnn]`` extras ship the runtime libraries as wheels).
 [dependency-groups]
-cpu = ["fastembed==0.8.0"]
-gpu = ["fastembed-gpu==0.8.0", "onnxruntime-gpu[cuda,cudnn]==1.31.0", "pandas==3.0.6"]  # the worker image pinned pandas ad hoc
+cpu = ["fastembed==0.9.1"]
+gpu = ["fastembed-gpu==0.9.1", "onnxruntime-gpu[cuda,cudnn]==1.31.0", "pandas==3.0.6"]  # the worker image pinned pandas ad hoc
 dev = [
     "bandit>=1.7",
     "hypothesis>=6.100",
@@ -82,7 +82,8 @@ target-version = "py311"
 src = ["src", "."]
 # config/skill/archive holds the owner's skill package byte for byte (its own scripts and
 # examples, never edited here), so it is not linted as app code
-extend-exclude = [".claude", "_review", "docs", "config/skill/archive"]
+# scripts/parity/parity_check.py is the owner's checker, kept verbatim
+extend-exclude = [".claude", "_review", "docs", "config/skill/archive", "scripts/parity/parity_check.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
@@ -119,7 +120,7 @@ markers = [
 # SQLAlchemy's async layer runs on greenlets: without this, lines after an awaited query are
 # reported as never run
 concurrency = ["greenlet", "thread"]
-source_pkgs = ["account_intelligence", "jobs", "people", "spend", "exports", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot", "refresh", "signals", "alerts", "governance", "crm_writeback", "opendoor", "crosscut", "datamodel", "contracts", "quality", "privacy", "security", "unitcost", "metrics", "registers", "agents", "documents", "research_files", "devstore"]
+source_pkgs = ["account_intelligence", "jobs", "people", "spend", "exports", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot", "refresh", "signals", "alerts", "governance", "crm_writeback", "opendoor", "crosscut", "datamodel", "contracts", "quality", "privacy", "security", "unitcost", "metrics", "registers", "agents", "documents", "research_files", "devstore", "parity"]
 branch = true
 
 [tool.coverage.report]
@@ -133,7 +134,7 @@ show_missing = true
 
 # W1 (single write paths) and layering: lower layers never import higher ones. Run: lint-imports
 [tool.importlinter]
-root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot", "refresh", "signals", "alerts", "governance", "crm_writeback", "opendoor", "crosscut", "datamodel", "contracts", "quality", "privacy", "security", "unitcost", "metrics", "registers", "agents", "documents", "research_files", "devstore"]
+root_packages = ["account_intelligence", "jobs", "people", "spend", "exports", "parallel", "llm", "verify", "evalgate", "obs", "tenancy", "identity", "audit", "views", "connectors_client", "metering", "admin", "pilot", "refresh", "signals", "alerts", "governance", "crm_writeback", "opendoor", "crosscut", "datamodel", "contracts", "quality", "privacy", "security", "unitcost", "metrics", "registers", "agents", "documents", "research_files", "devstore", "parity"]
 
 [[tool.importlinter.contracts]]
 name = "runs, identity, metering and app never import the api (ratchet: shrink, never grow)"
@@ -332,9 +333,13 @@ source_modules = ["obs"]
 forbidden_modules = ["account_intelligence.api", "account_intelligence.app", "account_intelligence.workflow"]
 
 # Mutation check (section 9): the pure rule modules whose boundaries decide statuses and counts.
-# Run: uv run --with "mutmut>=3.2,<4" mutmut run   (keys verified in mutmut 3.8.0 configuration)
+# Run: make mutation   (= uv run --with "mutmut>=3.8,<4" mutmut run --max-children 3; docs/testing/mutation.md)
+# mutmut 3.8 keys: source_paths (files mutated), pytest_add_cli_args_test_selection (the only tests run
+# per mutant: hermetic unit tests, no database, no network), also_copy (read by the tests at run time).
+# Every file below is pure logic or takes its session/transaction as an argument that the kill tests
+# replace with a recording fake. Threshold: 90 percent of the non-equivalent mutants of each file killed.
 [tool.mutmut]
-paths_to_mutate = [
+source_paths = [
     "src/account_intelligence/tracker/derive.py",
     "src/account_intelligence/tracker/machine.py",
     "src/account_intelligence/tracker/completion.py",
@@ -354,18 +359,25 @@ paths_to_mutate = [
     "src/exports/citations.py",
     "src/exports/change_note.py",
     "src/exports/workspace.py",
+    # added 2026-10-30 (pure modules of the parity release)
+    "src/jobs/heuristic.py",
+    "src/jobs/incremental.py",
+    "src/jobs/normalise.py",
+    "src/jobs/snapshot.py",
+    "src/people/level.py",
+    "src/people/lane.py",
+    "src/people/priority.py",
+    "src/people/si_firms.py",
+    "src/account_intelligence/urls.py",
+    "src/account_intelligence/safety/prefilter.py",
+    "src/account_intelligence/archive_records.py",
+    "src/exports/contenturls.py",
+    "src/exports/ooxml.py",
+    "src/agents/production/jobs_carry.py",
+    "src/account_intelligence/runs/recovery.py",
+    "src/account_intelligence/replica/credits.py",
 ]
-tests_dir = [
-    "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
-    "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
-    "tests/spend/test_core.py", "tests/spend/test_properties.py",
-    "tests/spend/test_mutation_kills.py",
-    "tests/jobs/test_gap_and_resume.py", "tests/jobs/test_gap_rules.py",
-    "tests/exports/test_policy.py", "tests/exports/test_pure_rules.py",
-    "tests/exports/test_workspace.py", "tests/exports/test_mapping_edges.py",
-    "tests/exports/test_mutation_kills.py",
-]
-also_copy = ["config/", "scripts/", ".claude/", "evals/", "tests/", "docs/", "src/"]
+also_copy = ["config/", "scripts/", ".claude/skills/", "evals/", "tests/", "docs/", "src/"]
 pytest_add_cli_args_test_selection = [
     "tests/tracker/test_tables.py", "tests/tracker/test_edges.py", "tests/tracker/test_mutation_kills.py",
     "tests/jobs/test_core.py", "tests/jobs/test_properties.py", "tests/jobs/test_golden.py",
@@ -375,6 +387,17 @@ pytest_add_cli_args_test_selection = [
     "tests/exports/test_policy.py", "tests/exports/test_pure_rules.py",
     "tests/exports/test_workspace.py", "tests/exports/test_mapping_edges.py",
     "tests/exports/test_mutation_kills.py",
+    # added 2026-10-30
+    "tests/jobs/test_heuristic.py", "tests/jobs/test_incremental.py", "tests/jobs/test_snapshot.py",
+    "tests/unit/test_urls.py", "tests/unit/test_prefilter.py", "tests/replica/test_archive_records.py",
+    "tests/people/test_si_firms.py", "tests/people/test_pure.py", "tests/people/test_rubric.py",
+    "tests/jobs/test_mutation_kills_rules.py", "tests/people/test_mutation_kills_rules.py",
+    "tests/unit/test_mutation_kills_urls_prefilter.py", "tests/replica/test_mutation_kills_records.py",
+    "tests/exports/test_mutation_kills_urls_ooxml.py", "tests/exports/test_mutation_kills_workspace_rules.py",
+    "tests/spend/test_mutation_kills_messages.py", "tests/spend/test_mutation_kills_reconcile.py",
+    "tests/tracker/test_mutation_kills_round2.py", "tests/jobs/test_mutation_kills_counts_window_gap.py",
+    "tests/agents/test_mutation_kills_jobs_carry.py", "tests/runs/test_mutation_kills_recovery.py",
+    "tests/replica/test_mutation_kills_credits.py", "tests/replica/test_mutation_kills_credits_ledger.py",
 ]
 
 [tool.uv]

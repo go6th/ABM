@@ -21,6 +21,9 @@ CLI = {
     "src/evalgate/cli.py",
     "src/account_intelligence/worker/__main__.py",
     "src/account_intelligence/config.py",
+    "src/parity/gate/__main__.py",
+    "src/parity/render.py",
+    "src/parity/workspace.py",
 }
 CREATE = {
     "create_counter",

@@ -156,7 +156,11 @@ def _lane_tables(
             continue
         sourced = [e for e in evidence if e.evidence_kind != "search_proof"]
         if sourced and all(e.is_aggregator for e in sourced) and f.product_grade != "lead":
-            ctx.fail("aggregator_not_lead", where, f.id)
+            # a finding backed by aggregators alone may only be printed as a Lead. One that
+            # carries a higher grade is a grading defect: the row is withheld and listed, not
+            # the whole research (staging 2026-10-30: 16 such rows ended the run with no files)
+            ctx.withhold(where, f.id, "aggregator_not_lead")
+            continue
         if f.product_grade not in _GRADE_ORDER:
             continue  # refused by fact_violations
         may_state = statement_policy(f.product_grade, ctx.grading)  # type: ignore[arg-type]

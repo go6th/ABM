@@ -47,6 +47,19 @@ def digest(model: BaseModel) -> str:
     return hashlib.sha256(model.model_dump_json().encode()).hexdigest()
 
 
+def restricted_of(content: SnapshotContent, attribution: str) -> tuple[str, ...]:
+    """The literal terms no client file built from ``content`` may carry (B9): the snapshot's
+    forbidden terms (the other accounts' names, the tenant's excluded companies) and the names
+    of people the files do not list. People excluded by title are listed by name with the reason
+    on the People List Summary sheet (master prompt v2 9.3), so their names are not guarded;
+    every other unlisted name still is. The export build and the parity bundle's render both
+    scan their files for exactly this set."""
+    counts = content.people_counts
+    disclosed = {n.casefold() for n, *_rest in (counts.excluded if counts else ())}
+    guarded = [n for n in guarded_names(content.people_names) if n.casefold() not in disclosed]
+    return restricted_terms([*content.forbidden_terms, *guarded], attribution)
+
+
 @dataclass(frozen=True)
 class Mapped(Generic[M]):
     """A mapped file: the model (None when mapping failed), its rows and the codes it cites."""
@@ -101,14 +114,7 @@ class MapContext:
         # people excluded by title are listed by name with the reason on the People List Summary
         # sheet (master prompt v2 9.3), so their names are not guarded; every other unlisted
         # name still is
-        counts = self.content.people_counts
-        disclosed = {n.casefold() for n, *_rest in (counts.excluded if counts else ())}
-        guarded = [
-            n for n in guarded_names(self.content.people_names) if n.casefold() not in disclosed
-        ]
-        self.restricted: tuple[str, ...] = restricted_terms(
-            [*self.content.forbidden_terms, *guarded], self.rules.attribution.name
-        )
+        self.restricted: tuple[str, ...] = restricted_of(self.content, self.rules.attribution.name)
         # out-of-scope platform names (scope.yaml never_report) are masked in every rendered
         # text and quote, the replacements counted in ``masked_terms``
         self.masked_terms = 0

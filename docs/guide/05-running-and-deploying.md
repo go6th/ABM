@@ -46,6 +46,12 @@ scratch database). The generated references (`docs/api/openapi.json`, `docs/WIRI
 `docs/architecture/loops.md`, …) must be regenerated when their source changes; `scripts/README.md`
 says which script does which, and `make static` fails when one is stale.
 
+**Mutation testing** (are the tests able to notice a wrong rule?): `make mutation` mutates 35 pure
+or fake-driven modules (counts, windows, spend, tracker, exports, link archive, credits) with the
+hermetic tests only, takes about 10 minutes and fails under 90 percent of the non-equivalent
+mutants of any module. `make mutation-report` reads the last run. Method, score table and the
+rules for adding a module: [`docs/testing/mutation.md`](../testing/mutation.md).
+
 ## 5.3 Where it runs in the cloud
 
 * Google Cloud project `abmgenerator`, region `us-central1`. Staging is reached at

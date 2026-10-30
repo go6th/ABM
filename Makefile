@@ -17,7 +17,7 @@ MIGRATION_ENV = MIGRATOR_DATABASE_URL="$(MIGRATOR_DATABASE_URL)" \
 .PHONY: help install up replica-up replica-down down reset emulators db-shell migrate migration run fmt lint types test check \
 	test-isolation static infra-fmt infra-validate image build smoke deploy-staging obs-verify \
 	seed e2e contract wiring scan verify doctor up-deps env-check load-smoke backup-restore fuzz \
-	infra-test logs clean verify-wiring smoke-live release-check load-staging
+	infra-test logs clean verify-wiring smoke-live release-check load-staging mutation mutation-report
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -86,6 +86,13 @@ test-isolation: ## PostgreSQL tenant isolation hard gate
 test: ## Isolation suite first, then everything except evals
 	$(MAKE) test-isolation
 	$(TEST_ENV) $(UV) run --frozen pytest -m "not eval and not live" --cov
+
+mutation: ## Mutation testing of the pure-logic modules, then the 90 percent bar (about 15 minutes, 3 workers)
+	$(UV) run --frozen --with "mutmut>=3.8,<4" mutmut run --max-children 3
+	$(UV) run --frozen python scripts/mutation_report.py
+
+mutation-report: ## The per-module score of the last mutation run; fails under 90 percent
+	$(UV) run --frozen python scripts/mutation_report.py
 
 check: ## Full pre-PR gate against a scratch database (needs psql)
 	DATABASE_URL="$(DATABASE_URL)" \

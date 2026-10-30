@@ -650,6 +650,7 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         GcsPayloadStore,
         SecretManagerSecrets,
         verify_task_token,
+        widen_pool,
     )
     from account_intelligence.platform.llm import (
         AnthropicLlm,
@@ -672,7 +673,9 @@ def _cloud(env: Mapping[str, str], app_env: str, spec: WorkflowSpec) -> Containe
         documents_queue=env.get("TASKS_QUEUE_DOCUMENTS"),
         jobs_queue=env.get("TASKS_QUEUE_JOBS"),
     )
-    payloads = GcsPayloadStore(gcs.Client(project=project), _require(env, "PAYLOAD_BUCKET"))
+    payloads = GcsPayloadStore(
+        widen_pool(gcs.Client(project=project)), _require(env, "PAYLOAD_BUCKET")
+    )
     access = env.get("LLM_ACCESS", "anthropic_api")
     if access == "vertex_ai":
         llm: LlmPort = AnthropicLlm(

@@ -461,16 +461,27 @@ async def add_account(
     """Add an account to the tenant's list without starting a run (the client app's "add an
     account"); returns (account id, created). Accounts are not capped: a user's researches and
     chats are (``replica.limits``, owner decision 2026-10-14). The one writer of ``accounts``
-    besides ``create_run`` (W1)."""
+    besides ``create_run`` and ``delete_account`` (W1)."""
     # private workspaces (0063): an account is one user's; the owner is the person adding it,
     # else the acting user, so a system job adding for someone names them
     owner = {"d": domain, "by": added_by}
     mine = "domain = :d AND owner_user_id = coalesce(CAST(:by AS text), app_user())"
-    existing: Any = (
-        await session.execute(text(f"SELECT id FROM accounts WHERE {mine}"), owner)  # noqa: S608
-    ).scalar_one_or_none()
-    if existing is not None:
-        return UUID(str(existing)), False
+    found: Any = (
+        await session.execute(
+            text(f"SELECT id, deleted_at FROM accounts WHERE {mine}"),  # noqa: S608
+            owner,
+        )
+    ).first()
+    if found is not None:
+        if found.deleted_at is None:
+            return UUID(str(found.id)), False
+        # the user removed this account earlier: adding it again brings it back with its
+        # history (the row was marked, never removed), counted as a new addition
+        await session.execute(
+            text("UPDATE accounts SET deleted_at = NULL, deleted_by = NULL WHERE id = :i"),
+            {"i": found.id},
+        )
+        return UUID(str(found.id)), True
     created = (
         await session.execute(
             text(
@@ -983,3 +994,52 @@ async def waiting(s: AsyncSession, run_id: UUID) -> Any:
             {"r": run_id},
         )
     ).first()
+
+
+class AccountBusy(RuntimeError):
+    """The account has a research running: it cannot be removed until that stops."""
+
+
+async def delete_account(
+    session: AsyncSession, domain: str, *, deleted_by: str
+) -> tuple[UUID, datetime] | None:
+    """Remove the user's account from the workspace: the row is marked ``deleted_at`` (never
+    removed: runs, facts, files and ledgers stay for audit and billing) and every listing and
+    lookup hides it from then on; ``add_account`` on the same domain brings it back. None when
+    the account is not the user's or already removed; ``AccountBusy`` while a research of it is
+    still running (stop it first, so no worker writes to an account the user cannot see)."""
+    found: Any = (
+        await session.execute(
+            text(
+                "SELECT a.id, (EXISTS (SELECT 1 FROM account_runs r WHERE r.account_id = a.id"
+                "   AND r.status NOT IN ('COMPLETED', 'PARTIAL', 'FAILED', 'CANCELED',"
+                "   'BUDGET_EXCEEDED'))"
+                # a research job that has not made its run yet (queued, waiting for credits)
+                # would start on the account and bring it back
+                "   OR EXISTS (SELECT 1 FROM research_jobs j WHERE j.account_id = a.id"
+                "   AND j.status IN ('waiting_credit_limit', 'queued', 'running')"
+                # a job whose run already ended is not open (the sweep settles it)
+                "   AND NOT EXISTS (SELECT 1 FROM account_runs e WHERE e.id = j.run_id"
+                "   AND e.status IN ('COMPLETED', 'PARTIAL', 'FAILED', 'CANCELED',"
+                "   'BUDGET_EXCEEDED')))) AS busy"
+                " FROM accounts a WHERE a.domain = :d AND a.deleted_at IS NULL"
+            ),
+            {"d": domain},
+        )
+    ).first()
+    if found is None:
+        return None
+    if found.busy:
+        raise AccountBusy(domain)
+    when: Any = (
+        await session.execute(
+            text(
+                "UPDATE accounts SET deleted_at = now(), deleted_by = :by"
+                " WHERE id = :i AND deleted_at IS NULL RETURNING deleted_at"
+            ),
+            {"i": found.id, "by": deleted_by},
+        )
+    ).scalar_one_or_none()
+    if when is None:
+        return None
+    return UUID(str(found.id)), when

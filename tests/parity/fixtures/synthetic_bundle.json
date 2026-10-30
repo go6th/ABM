@@ -1,0 +1,817 @@
+{
+ "schema_version": "1.0.0",
+ "meta": {
+  "account_short": "Acme",
+  "account_legal": "Acme Widgets Ltd",
+  "domain": "acme.example",
+  "careers_site": "jobs.acme.example",
+  "run_date": "2 March 2026",
+  "pull_date": "1 March 2026",
+  "pull_date_short": "1 Mar 2026",
+  "window": {
+   "from": "2025-03-01",
+   "to": "2026-03-01"
+  },
+  "window_display": {
+   "from": "1 March 2025",
+   "to": "1 March 2026"
+  },
+  "pursuing_client_display": "Client",
+  "pursuing_client_aliases": [],
+  "byline": "Research by 6th agents.",
+  "lanes": [
+   "Salesforce",
+   "MuleSoft",
+   "ServiceNow",
+   "SAP",
+   "Tableau",
+   "Veeva",
+   "Workday"
+  ],
+  "people_lanes": [
+   "Salesforce and commercial",
+   "Salesforce (MuleSoft and integration)",
+   "ServiceNow and shared services",
+   "SAP and ERP",
+   "Veeva and life sciences systems",
+   "Analytics, data and AI",
+   "Technology, digital and IT leadership",
+   "Business leadership and other"
+  ],
+  "entities": [
+   {
+    "label": "Acme",
+    "counted_as_account": true
+   },
+   {
+    "label": "Widgetco (divested business)",
+    "counted_as_account": false,
+    "phrase": "Widgetco positions",
+    "patterns": [
+     "Widgetco"
+    ]
+   }
+  ],
+  "out_of_scope_platforms": [
+   "Databricks",
+   "Siebel",
+   "ServiceMax"
+  ],
+  "live_capture_count": 1,
+  "feed_unique_links": 50,
+  "raw_board_counts": {
+   "Salesforce": 3,
+   "SAP": 4
+  },
+  "source_ids": {
+   "feed": "S2",
+   "detections": "S3",
+   "teams": "S3",
+   "news_feed": "S4",
+   "live_board": "S5"
+  }
+ },
+ "sources": {
+  "S1": {
+   "name": "Acme names a Chief Information Officer",
+   "url": "https://news.acme.example/cio",
+   "type": "Company release",
+   "date": "1 Feb 2026",
+   "how": "Page read",
+   "supports": "New CIO"
+  },
+  "S2": {
+   "name": "Job postings pull, 12 months",
+   "url": "https://jobs.acme.example/",
+   "type": "Data pull",
+   "date": "1 Mar 2026",
+   "how": "Structured job feed",
+   "supports": "All posting counts"
+  },
+  "S3": {
+   "name": "Technology detections pull",
+   "url": "https://detections.example/acme",
+   "type": "Data pull",
+   "date": "1 Mar 2026",
+   "how": "Detection feed",
+   "supports": "Stack detections and teams"
+  },
+  "S4": {
+   "name": "News feed pull, 12 months",
+   "url": "https://news.example/feed/acme",
+   "type": "Data pull",
+   "date": "1 Mar 2026",
+   "how": "News feed",
+   "supports": "News feed events"
+  },
+  "S5": {
+   "name": "Careers board capture",
+   "url": "https://jobs.acme.example/live",
+   "type": "Live capture",
+   "date": "1 Mar 2026",
+   "how": "Board read",
+   "supports": "Live postings"
+  }
+ },
+ "jobs_read": {
+  "J1": {
+   "name": "SAP Architect (Springfield, open, first seen 2026-02-20)",
+   "url": "https://jobs.acme.example/job/1",
+   "plats": "SAP",
+   "cls": "Build role",
+   "what": "Builds S/4HANA.",
+   "status": "Open",
+   "f": "2026-02-20",
+   "ent": "Acme"
+  }
+ },
+ "jobs_rows": [
+  {
+   "requisition": "R-1000",
+   "title": "SAP Architect",
+   "platforms": [
+    "SAP"
+   ],
+   "cls": "Build role",
+   "status": "Open",
+   "first_seen": "2026-02-20",
+   "last_seen": "2026-03-01",
+   "location": "Springfield, United States",
+   "seniority": "mid_senior",
+   "entity": "Acme",
+   "what": "Builds S/4HANA.",
+   "platform_sentences": "SAP: Uses SAP daily.",
+   "description": "SAP Architect. Uses SAP daily.",
+   "url": "https://jobs.acme.example/job/1"
+  },
+  {
+   "requisition": "R-1002",
+   "title": "CRM Manager – Commercial",
+   "platforms": [
+    "Salesforce",
+    "SAP"
+   ],
+   "cls": "Admin and owner role",
+   "status": "Open",
+   "first_seen": "2026-01-15",
+   "last_seen": "2026-03-01",
+   "location": "Springfield, United States",
+   "seniority": "mid_senior",
+   "entity": "Acme",
+   "what": "",
+   "platform_sentences": "Salesforce: Uses Salesforce daily. || SAP: Uses SAP daily.",
+   "description": "CRM Manager – Commercial. Uses Salesforce and SAP daily.",
+   "url": "https://jobs.acme.example/job/2"
+  },
+  {
+   "title": "Sales Representative",
+   "platforms": [
+    "Salesforce"
+   ],
+   "cls": "Working tool",
+   "status": "Closed",
+   "first_seen": "2025-11-02",
+   "last_seen": "2025-12-30",
+   "location": "Springfield, United States",
+   "seniority": "mid_senior",
+   "entity": "Acme",
+   "what": "",
+   "platform_sentences": "Salesforce: Uses Salesforce daily.",
+   "description": "Sales Representative. Uses Salesforce daily.",
+   "url": "https://jobs.acme.example/job/3"
+  },
+  {
+   "requisition": "R-1004",
+   "title": "Service Desk Analyst",
+   "platforms": [
+    "ServiceNow"
+   ],
+   "cls": "User role",
+   "status": "Closed",
+   "first_seen": "2025-10-10",
+   "last_seen": "2025-11-01",
+   "location": "Springfield, United States",
+   "seniority": "",
+   "entity": "Acme",
+   "what": "",
+   "platform_sentences": "ServiceNow: Uses ServiceNow daily.",
+   "description": "Service Desk Analyst. Uses ServiceNow daily.",
+   "url": "https://jobs.acme.example/job/4"
+  },
+  {
+   "requisition": "R-1005",
+   "title": "Data Analyst",
+   "platforms": [
+    "Tableau"
+   ],
+   "cls": "Working tool",
+   "status": "Open",
+   "first_seen": "2026-02-01",
+   "last_seen": "2026-03-01",
+   "location": "Springfield, United States",
+   "seniority": "mid_senior",
+   "entity": "Widgetco (divested business)",
+   "what": "",
+   "platform_sentences": "Tableau: Uses Tableau daily.",
+   "description": "Data Analyst. Uses Tableau daily.",
+   "url": "https://jobs.acme.example/job/5"
+  },
+  {
+   "requisition": "R-1006",
+   "title": "Clinical Systems Lead",
+   "platforms": [
+    "Veeva",
+    "Workday"
+   ],
+   "cls": "Build role",
+   "status": "Open",
+   "first_seen": "2026-02-28",
+   "last_seen": "2026-03-01",
+   "location": "Lyon, France, live board capture",
+   "seniority": "mid_senior",
+   "entity": "Acme",
+   "what": "",
+   "platform_sentences": "Veeva: Uses Veeva daily. || Workday: Uses Workday daily.",
+   "description": "Clinical Systems Lead. Uses Veeva and Workday daily.",
+   "url": "https://jobs.acme.example/job/6"
+  }
+ ],
+ "people_rows": [
+  {
+   "name": "Pat Example",
+   "title": "Chief Information Officer",
+   "level": 1,
+   "senior": true,
+   "lane": "Technology, digital and IT leadership",
+   "priority": "A",
+   "former_si": "",
+   "found_by": "title search source 1 (leadership and platform)",
+   "profile_url": "https://profiles.example/in/pat-example",
+   "location": "Springfield, United States",
+   "note": "",
+   "employer_label": "Acme"
+  },
+  {
+   "name": "Chris Sample",
+   "title": "Director of Global CRM Technology",
+   "level": 4,
+   "senior": true,
+   "lane": "Salesforce and commercial",
+   "priority": "A",
+   "former_si": "Accenture (2010 to 2014)",
+   "found_by": "title search source 1 (leadership and platform)",
+   "profile_url": "https://profiles.example/in/chris-sample",
+   "location": "Springfield, United States",
+   "note": "",
+   "employer_label": "Acme"
+  },
+  {
+   "name": "Alex Fixture",
+   "title": "Senior Manager, SAP Basis",
+   "level": 7,
+   "senior": true,
+   "lane": "SAP and ERP",
+   "priority": "A",
+   "former_si": "",
+   "found_by": "title search source 1 (leadership and platform)",
+   "profile_url": "https://profiles.example/in/alex-fixture",
+   "location": "Springfield, United States",
+   "note": "",
+   "employer_label": "Acme"
+  },
+  {
+   "name": "Sam Placeholder",
+   "title": "Manager, Tableau Reporting",
+   "level": 8,
+   "senior": false,
+   "lane": "Analytics, data and AI",
+   "priority": "A",
+   "former_si": "",
+   "found_by": "title search source 1 (leadership and platform)",
+   "profile_url": "https://profiles.example/in/sam-placeholder",
+   "location": "Springfield, United States",
+   "note": "",
+   "employer_label": "Acme"
+  },
+  {
+   "name": "Jo Specimen",
+   "title": "Salesforce Developer",
+   "level": 9,
+   "senior": false,
+   "lane": "Salesforce and commercial",
+   "priority": "A",
+   "former_si": "",
+   "found_by": "title search source 1 (leadership and platform)",
+   "profile_url": "https://profiles.example/in/jo-specimen",
+   "location": "Springfield, United States",
+   "note": "",
+   "employer_label": "Acme"
+  },
+  {
+   "name": "Robin Dummy",
+   "title": "Vice President, Finance",
+   "level": 2,
+   "senior": true,
+   "lane": "Business leadership and other",
+   "priority": "C",
+   "former_si": "",
+   "found_by": "Leadership page",
+   "location": "Springfield, United States",
+   "note": "Named on the leadership page.",
+   "employer_label": "Acme"
+  },
+  {
+   "name": "Lee Invented",
+   "title": "Head of Shared Services",
+   "level": 6,
+   "senior": true,
+   "lane": "ServiceNow and shared services",
+   "priority": "A",
+   "former_si": "",
+   "found_by": "title search source 1 (leadership and platform)",
+   "profile_url": "https://profiles.example/in/lee-invented",
+   "location": "Springfield, United States",
+   "note": "",
+   "employer_label": "Acme Services"
+  }
+ ],
+ "people_excluded": {
+  "domain": [
+   "Kim Elsewhere"
+  ],
+  "security": [
+   "Sam Secure (Director, IT Security)",
+   "Sam Secure (IT Audit Lead)"
+  ],
+  "unresolved": [],
+  "below_rule_no_stack": [
+   "Dana Junior",
+   "Max Junior"
+  ]
+ },
+ "overrides": [
+  {
+   "name": "Chris Sample",
+   "priority": "A"
+  }
+ ],
+ "stack_rows": [
+  {
+   "business_function": "Sales",
+   "category": "CRM",
+   "technology": "Salesforce",
+   "postings": 12,
+   "lane": "Salesforce"
+  },
+  {
+   "business_function": "Finance",
+   "category": "ERP",
+   "technology": "SAP S/4HANA",
+   "postings": 9,
+   "lane": "SAP"
+  },
+  {
+   "business_function": "Engineering",
+   "category": "Languages",
+   "technology": "C#",
+   "postings": 3,
+   "lane": ""
+  }
+ ],
+ "team_rows": [
+  {
+   "team": "Commercial Operations",
+   "lane_technologies": "Salesforce, SAP",
+   "postings": 40,
+   "first_activity": "",
+   "last_activity": "2026-02-10",
+   "technologies": "Salesforce (30); SAP (12)",
+   "locations": "Springfield, United States (25); Lyon, France (15)",
+   "job_functions": "Sales (30); Finance (10)"
+  },
+  {
+   "team": "Clinical IT",
+   "lane_technologies": "Veeva Vault",
+   "postings": 8,
+   "first_activity": "2025-05-01",
+   "last_activity": "2026-01-20",
+   "technologies": "Veeva Vault (8)",
+   "locations": "Lyon, France (8)",
+   "job_functions": "Information Technology (8)"
+  }
+ ],
+ "ranking": {
+  "base": 8,
+  "rows": [
+   {
+    "platform": "SAP",
+    "category": "ERP",
+    "lane": "SAP",
+    "count": 3,
+    "open": 3,
+    "last_seen": "2026-03-01",
+    "in_stack": "Yes",
+    "checked": "Yes"
+   },
+   {
+    "platform": "Salesforce",
+    "category": "CRM",
+    "lane": "Salesforce",
+    "count": 2,
+    "open": 1,
+    "last_seen": "2026-03-01",
+    "in_stack": "Yes",
+    "checked": "No"
+   },
+   {
+    "platform": "Power BI",
+    "category": "Analytics and BI",
+    "lane": "Data and AI",
+    "count": 2,
+    "open": 1,
+    "last_seen": "2026-01-10",
+    "in_stack": "No",
+    "checked": "No"
+   }
+  ],
+  "seen_once": [
+   {
+    "platform": "ServiceNow",
+    "category": "IT service management",
+    "lane": "ServiceNow"
+   },
+   {
+    "platform": "Veeva",
+    "category": "Life sciences CRM and content",
+    "lane": "Veeva"
+   },
+   {
+    "platform": "Workday",
+    "category": "HR and finance",
+    "lane": "Outside the lanes"
+   },
+   {
+    "platform": "HubSpot",
+    "category": "Marketing and CRM",
+    "lane": "Outside the lanes"
+   }
+  ]
+ },
+ "computed": {
+  "jobs_counts": {
+   "Salesforce": {
+    "total": 2,
+    "open": 1,
+    "build": 0,
+    "admin": 1,
+    "tool": 1,
+    "user": 0
+   },
+   "MuleSoft": {
+    "total": 0,
+    "open": 0,
+    "build": 0,
+    "admin": 0,
+    "tool": 0,
+    "user": 0
+   },
+   "ServiceNow": {
+    "total": 1,
+    "open": 0,
+    "build": 0,
+    "admin": 0,
+    "tool": 0,
+    "user": 1
+   },
+   "SAP": {
+    "total": 2,
+    "open": 2,
+    "build": 1,
+    "admin": 1,
+    "tool": 0,
+    "user": 0
+   },
+   "Tableau": {
+    "total": 0,
+    "open": 0,
+    "build": 0,
+    "admin": 0,
+    "tool": 0,
+    "user": 0
+   },
+   "Veeva": {
+    "total": 1,
+    "open": 1,
+    "build": 1,
+    "admin": 0,
+    "tool": 0,
+    "user": 0
+   },
+   "Workday": {
+    "total": 1,
+    "open": 1,
+    "build": 1,
+    "admin": 0,
+    "tool": 0,
+    "user": 0
+   }
+  },
+  "ent_counts": {
+   "Acme": 5,
+   "Widgetco (divested business)": 1
+  },
+  "lane_rows_account": 5,
+  "lane_rows_all": 6,
+  "people_total": 7,
+  "senior": 5,
+  "prio": {
+   "A": 4,
+   "B": 0,
+   "C": 1
+  },
+  "excluded": {
+   "domain": 1,
+   "security": 2,
+   "unresolved": 0,
+   "below_rule_no_stack": 2
+  },
+  "pf": {
+   "senior_with_profiles": 4,
+   "tenure_median": 6.0
+  },
+  "tracker_tally": {
+   "Partial": 1,
+   "Done": 2,
+   "Not done": 1
+  }
+ },
+ "prose": {
+  "glossary": "Internal names used by Acme and written out here: AOS is the Acme Operating System.",
+  "narrative": {
+   "picture": [
+    "Acme is an invented widget maker with two segments."
+   ],
+   "stands_out": [
+    "A new CIO with a data brief (S1)."
+   ],
+   "lanes": [
+    [
+     "Salesforce",
+     "Confirmed in use as the CRM (S2)."
+    ],
+    [
+     "SAP",
+     "Confirmed: S/4HANA program in flight (J1)."
+    ]
+   ],
+   "wrong": [
+    "Titles are self reported."
+   ],
+   "sharpen": [
+    "Ask which Salesforce clouds are licensed."
+   ]
+  },
+  "news": [
+   [
+    "1 Feb 2026",
+    "Acme names a Chief Information Officer",
+    "Read",
+    "S1",
+    "Tier 1 owner of the lanes"
+   ]
+  ],
+  "news_not_covered": "The timeline does not cover product launches outside the lanes.",
+  "baseline": [
+   "Revenue: fiscal 2025 $1,200 million (S2).",
+   "Segments: Widgets and Gadgets (S2)."
+  ],
+  "signals": {
+   "Tier 1": [
+    [
+     "New CIO effective 1 Feb 2026",
+     "Confirmed",
+     "All lanes",
+     "1 Feb 2026",
+     "S1"
+    ]
+   ],
+   "Tier 2": [],
+   "Tier 3": [
+    [
+     "Shared services hub opened",
+     "Probable",
+     "ServiceNow",
+     "2025",
+     "S2"
+    ]
+   ],
+   "Context and history": []
+  },
+  "platform": [
+   [
+    "Salesforce",
+    "In use as the CRM",
+    "Confirmed",
+    "S2, J1"
+   ],
+   [
+    "SAP",
+    "S/4HANA program",
+    "Confirmed",
+    "J1"
+   ]
+  ],
+  "hiring_interpretation": "What a year of postings says (interpretation): SAP is the platform Acme builds with its own people.",
+  "people_text": {
+   "built": "The list was built from two title searches on the acme.example domain (S1).",
+   "profiles": "Full profiles were read for 4 of the 5 senior people.",
+   "exclusions": "Exclusions on the workbook Summary sheet name every removed security, IT compliance and IT audit title."
+  },
+  "key_people": [
+   [
+    "Pat Example",
+    "Chief Information Officer",
+    "Technology, digital and IT leadership",
+    "A",
+    "https://profiles.example/in/pat-example",
+    "Joined in 2026 (S1)."
+   ]
+  ],
+  "profile_findings": [
+   [
+    "Tenure",
+    "Median tenure 6 years",
+    "Confirmed",
+    "A stable team"
+   ]
+  ],
+  "status_changes": [
+   [
+    "Pat Example",
+    "CIO at Other Co",
+    "CIO at Acme",
+    "S1"
+   ]
+  ],
+  "people_interpretation": [
+   "The buying centre for the Salesforce lane is two people deep."
+  ],
+  "hypotheses": [
+   [
+    "Acme will consolidate its CRM instances in 2026.",
+    "Which CRM instances are in scope this year?"
+   ]
+  ],
+  "cautions": [
+   "Never open with the recall."
+  ],
+  "first_call": [
+   "Who is the S/4HANA partner?"
+  ],
+  "waiting": [
+   "Confirm the prior customer status."
+  ],
+  "tracker_p1": [
+   [
+    "Prior customer status",
+    "Partial",
+    "High",
+    "Client confirmation",
+    "Mail searched",
+    "Confirm with the Client"
+   ]
+  ],
+  "tracker_p2": [
+   [
+    "Posts and comments",
+    "Done",
+    "Medium",
+    "Nothing",
+    "Pulled",
+    "None"
+   ],
+   [
+    "Patents",
+    "Not done",
+    "Optional",
+    "Nothing",
+    "Not searched",
+    "Search"
+   ],
+   [
+    "Earnings calls",
+    "Done",
+    "High",
+    "Nothing",
+    "Read",
+    "None"
+   ]
+  ],
+  "evidence": {
+   "extracts": [
+    {
+     "id": "S1",
+     "title": "Acme names a Chief Information Officer (1 Feb 2026)",
+     "url": "https://news.acme.example/cio",
+     "quotes": [
+      "Pat Example joins as Chief Information Officer."
+     ]
+    }
+   ],
+   "live_rows": [
+    [
+     "Clinical Systems Lead",
+     "https://jobs.acme.example/job/6",
+     "Veeva, Workday",
+     "Acme",
+     "Yes",
+     "Build role"
+    ]
+   ],
+   "live_lane_count": 1,
+   "leads": [
+    [
+     "Partner for ServiceNow",
+     "No posting names one",
+     "Not found",
+     ""
+    ]
+   ],
+   "detections": [
+    [
+     "Salesforce",
+     "2025-03-01",
+     "2026-02-20",
+     0.95,
+     12,
+     1
+    ],
+    [
+     "SAP",
+     "2025-04-01",
+     "2026-02-28",
+     0.9,
+     9,
+     0
+    ]
+   ],
+   "news_events": [
+    [
+     "2026-02-01",
+     "hires",
+     "Acme names a Chief Information Officer",
+     "news.acme.example"
+    ]
+   ],
+   "news_events_heading": "News feed events (S4), newest first, 1 event; feed only unless the Summary table says Read",
+   "board_paragraph": "The live careers site jobs.acme.example was searched on 1 March 2026 for each lane keyword (S5). 1 live posting not yet in the structured feed was captured in full.",
+   "part_c_closing": "Classification of the remaining lane postings was done by reading the platform sentences of every posting.",
+   "part_b_intro": "Each posting below was opened and read in full. Entity shows whether the posting is an Acme position.",
+   "part_g": "Every page read in this run was saved as text in the workspace folder data/releases.",
+   "detections_note": "First seen and last seen are the dates the technology name appeared in Acme's public material.",
+   "teams_note": "The 2 largest teams whose public records name a lane platform are in the Platform teams sheet."
+  },
+  "workbook_notes": {
+   "people": [
+    "This is the single people list for the Acme (Acme Widgets Ltd) account. Pulled by 6th agents on 1 March 2026.",
+    "Rows removed before this list: 1 row whose employer domain was not acme.example; 2 rows below the seniority rule whose titles name no platform or technology.",
+    "Seniority rule: Director and above, Head, and Senior Manager.",
+    "Titles are self reported on public profiles and are not verified.",
+    "Entity labels: rows labelled Acme Services are Acme entities and are kept."
+   ],
+   "jobs": [
+    "Every posting on the Acme careers site first seen in the last 12 months that names a platform.",
+    "Entity: Acme means an Acme position. Widgetco (divested business) means a posting for the divested business.",
+    "Class: Build role means the platform is the job. Admin and owner role runs the platform. Working tool means daily use. User role is everything else."
+   ],
+   "stack": {
+    "confirmed_title": "Acme: technologies seen in use, by business function and category",
+    "confirmed_note": "Pulled by 6th agents on 1 March 2026 from public job postings and team records.",
+    "teams_title": "Acme: teams whose public records name a lane platform (2 largest of 10 matching teams)",
+    "teams_note": "Pulled by 6th agents. Team names are as the source records them.",
+    "ranking_notes": [
+     "How the rank is set. A: named in 15 percent or more of the base and in at least 5 postings. B: named in 5 percent or more of the base and in at least 3 postings. C: named in at least 2 postings.",
+     "Each posting counts once per platform.",
+     "A platform named in hiring is a signal of skills the account wants.",
+     "Research by 6th agents."
+    ]
+   },
+   "people_security_line_at": 2,
+   "jobs_other_entities_label": "Rows that are Widgetco positions"
+  },
+  "internal_only": {
+   "title_suffix": "Acme (Acme Widgets Ltd)",
+   "dates": "1 to 2 March 2026",
+   "items": [
+    [
+     "Call notes, 1 Jan 2026.",
+     "Acme was named among past accounts."
+    ]
+   ],
+   "why": [
+    "Coordinate before outreach."
+   ],
+   "instead": "Prior customer status: Partial."
+  }
+ }
+}

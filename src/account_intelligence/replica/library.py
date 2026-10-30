@@ -398,8 +398,8 @@ async def available(session: Any) -> list[dict[str, Any]]:
         await session.execute(
             text(
                 "SELECT l.id, l.name, l.domain, l.deliverables_found,"
-                " EXISTS (SELECT 1 FROM accounts a WHERE a.library_account_id = l.id"
-                "   OR a.domain = l.domain) AS in_workspace"
+                " EXISTS (SELECT 1 FROM accounts a WHERE (a.library_account_id = l.id"
+                "   OR a.domain = l.domain) AND a.deleted_at IS NULL) AS in_workspace"
                 " FROM library_accounts l WHERE l.superseded_at IS NULL ORDER BY l.name"
             )
         )

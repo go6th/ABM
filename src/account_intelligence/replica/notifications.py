@@ -52,7 +52,8 @@ async def latest(session: Any, user_id: str, limit: int = 20) -> list[Any]:
                     " j.scope, j.topic, j.credits_used, j.failure_reason"
                     " FROM notifications n LEFT JOIN accounts a ON a.id = n.account_id"
                     " LEFT JOIN research_jobs j ON j.id = n.job_id"
-                    " WHERE n.user_id = :u ORDER BY (n.read_at IS NULL) DESC, n.created_at DESC"
+                    " WHERE n.user_id = :u AND (n.account_id IS NULL OR a.deleted_at IS NULL)"
+                    " ORDER BY (n.read_at IS NULL) DESC, n.created_at DESC"
                     " LIMIT :n"
                 ),
                 {"u": user_id, "n": limit},

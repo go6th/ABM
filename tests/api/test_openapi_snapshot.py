@@ -35,6 +35,7 @@ NOT_JSON = {
     ("get", "/v1/accounts/{domain}/sheets/{sheet}/xlsx"),  # an Excel workbook
     ("get", "/v1/accounts/{domain}/sheets/{sheet}/csv"),  # the whole table as CSV
     ("get", "/v1/downloads/{job_id}/parts/{n}"),  # one zip part of Download everything
+    ("get", "/v1/accounts/{domain}/parity/files/{name}"),  # a stored parity file
 }
 
 

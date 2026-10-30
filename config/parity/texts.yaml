@@ -1,0 +1,23 @@
+# The fixed sentences a product run writes into its AccountBundle prose when the research stored
+# no authored text for them (parity.from_run). Every placeholder is a number the bundle computes
+# ({people_total}, {senior}, {prio_a}, {lane_rows_account}, {excluded_*}) or a name or date of
+# the account ({account}, {legal}, {domain}, {run_date}, {pull_date}, {window_from}, {window_to},
+# {byline}); no number is typed here, so the gate's number check holds for every account. The
+# workbook notes come from config/export_rules.yaml sheet_texts; these are the Word file's own.
+glossary: "Lane means one of the platform families this research follows. Grade is the strength of the evidence behind a row. Priority A, B and C on a person is our judgment from the title alone. Entity says whose position a posting is. Source IDs (S) point to the register in the Sources and Evidence file and job IDs (J) to the postings read in full."
+news_not_covered: "Items the feed carried that no primary source confirmed are listed in the Sources and Evidence file under leads, not here."
+hiring_interpretation: "Read the table as a hiring signal, not as proof of use: a posting that names a platform shows the skills {account} is buying, and only the build and admin rows say a platform is being built or run. Of the {lane_rows_account} postings naming a lane platform, the open ones are the current demand; the Job Postings workbook carries every posting with its class and the sentences it was read by."
+people_text_built: "The People List holds {people_total} people found by title search on the account's domains, by technology association search and by name in the research, merged on profile link and name. {senior} of them meet the seniority rule and {prio_a} of those are priority A."
+people_text_profiles: "The findings below come from the full profiles read during the run; a topic with no finding is left out rather than guessed."
+people_text_exclusions: "Rows removed before the list: {excluded_domain} whose current employer is not the account, {excluded_security} security, IT compliance and IT audit people at the account owner's instruction, {excluded_unresolved} without a profile link, and {excluded_below_rule_no_stack} below the seniority rule whose titles name no platform."
+people_interpretation:
+  - "Priority A people are the ones to open with: their titles name a lane platform and they sit at Director level or above, or Head."
+  - "A person listed with a note was also seen in another lane or in a source; the note says which."
+  - "Former consulting employers are read from the full profile and cover any point in a career; Not pulled means no full profile was read."
+cautions:
+  - "Sensitive findings, such as a breach, a layoff or a lawsuit, are preparation for the conversation and never an opener."
+waiting_none: "Nothing is waiting on the account owner."
+part_g: "Open each source link and save the page as PDF with its address and date; the register's ID is the file name to use. Postings close without notice, so save the ones cited the same day."
+detections_note: "A detection is a lead, not proof of use: a first and last seen date range alone is not a finding. The score and the posting and page counts are the detection feed's own."
+teams_note: "No team records were stored for this run; the Platform teams sheet of the Tech Stack and Teams workbook carries the header only."
+board_paragraph: "Live postings were captured from the careers board on {pull_date}; every capture that names a lane platform is listed with whether it was read in full."

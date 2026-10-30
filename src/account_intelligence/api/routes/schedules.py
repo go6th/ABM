@@ -51,7 +51,9 @@ async def save_cadence(
     """Save the cadence now and return the updated view."""
     now = datetime.now(UTC)
     async with tenant_txn(ident.tenant_id) as s:
-        found = await s.scalar(text("SELECT 1 FROM accounts WHERE id = :a"), {"a": account_id})
+        found = await s.scalar(
+            text("SELECT 1 FROM accounts WHERE id = :a AND deleted_at IS NULL"), {"a": account_id}
+        )
         if not found:
             raise HTTPException(404, "not found")
         try:

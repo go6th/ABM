@@ -37,6 +37,7 @@ OWNERS: dict[str, set[str]] = {
         "datamodel/entity_lock.py",  # entity_lock and entity_lock_at only (migration 0083)
         "replica/schedules.py",  # refresh_cadence and next_refresh_at only
     },
+    "account_bundles": {"parity/service.py"},
     "job_postings": {"jobs/repo.py"},
     "job_posting_platform_sentences": {"jobs/repo.py"},
     "job_posting_classifications": {"jobs/repo.py"},

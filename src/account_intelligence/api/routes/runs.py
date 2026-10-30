@@ -238,7 +238,10 @@ async def _company_domain(s: Any, body: RunBody) -> str:
         return body.company.domain
     rows = (
         await s.execute(
-            text("SELECT domain FROM accounts WHERE lower(name) = lower(:n) LIMIT 2"),
+            text(
+                "SELECT domain FROM accounts WHERE lower(name) = lower(:n)"
+                " AND deleted_at IS NULL LIMIT 2"
+            ),
             {"n": body.company.company_name.strip()},
         )
     ).all()
@@ -295,7 +298,7 @@ async def _resumable(s: Any, run_id: UUID, domain: str) -> UUID:
         await s.execute(
             text(
                 "SELECT a.domain FROM account_runs r JOIN accounts a ON a.id = r.account_id"
-                " WHERE r.id = :r"
+                " WHERE r.id = :r AND a.deleted_at IS NULL"
             ),
             {"r": run_id},
         )
@@ -361,7 +364,7 @@ async def list_runs(
                 text(
                     "SELECT r.id, r.status, r.created_at, r.input_mode, a.domain"
                     " FROM account_runs r JOIN accounts a ON a.id = r.account_id"
-                    " WHERE (CAST(:at AS timestamptz) IS NULL"
+                    " WHERE a.deleted_at IS NULL AND (CAST(:at AS timestamptz) IS NULL"
                     " OR (r.created_at, r.id) < (CAST(:at AS timestamptz), CAST(:id AS uuid)))"
                     " ORDER BY r.created_at DESC, r.id DESC LIMIT :n"
                 ),
@@ -433,7 +436,8 @@ async def get_run(
                     " coalesce(r.run_input->>'linked_file_run', (SELECT c.id::text FROM"
                     " account_runs c WHERE c.run_input->>'linked_file_run' = r.id::text"
                     " LIMIT 1)) AS linked"
-                    " FROM account_runs r JOIN accounts a ON a.id = r.account_id WHERE r.id = :r"
+                    " FROM account_runs r JOIN accounts a ON a.id = r.account_id"
+                    " WHERE r.id = :r AND a.deleted_at IS NULL"
                 ),
                 {"r": run_id},
             )

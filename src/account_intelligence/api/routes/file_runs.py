@@ -66,7 +66,10 @@ async def _documents(s: Any, body: Any) -> tuple[Any, list[Any]]:
     bound = {d.account_id for d in docs if d.account_id is not None}
     if account_id is not None:
         found = (
-            await s.execute(text("SELECT id FROM accounts WHERE id = :a"), {"a": account_id})
+            await s.execute(
+                text("SELECT id FROM accounts WHERE id = :a AND deleted_at IS NULL"),
+                {"a": account_id},
+            )
         ).first()
         if found is None:
             raise APIProblem(

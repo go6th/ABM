@@ -21,6 +21,10 @@ from collections.abc import Mapping
 from decimal import Decimal
 
 UNCAPPED = 1_000_000
+# a per-agent TOKEN budget with the caps off: one reading step uses more than a million tokens on a
+# large account (staging 2026-10-30: 95 reading groups were dropped as budget_exceeded, so their
+# facts were never read), so a count-sized UNCAPPED is not "no limit" for tokens
+UNCAPPED_TOKENS = 1_000_000_000_000
 # the run budget with the caps off: far above any run, inside account_runs.budget_usd numeric(12,4)
 UNCAPPED_BUDGET_USD = Decimal("1000000")
 # slice length on the uncapped local stack (production keeps the configured 240 s)

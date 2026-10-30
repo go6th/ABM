@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -73,6 +74,7 @@ class Harness:
     runs: FakeRuns = field(default_factory=FakeRuns)
     internal: FakeInternal | None = None
     llm: FakeLlm | None = None
+    parity: Any | None = None
 
     def __post_init__(self) -> None:
         self.provider = StubLedgerProvider(self.world, self.cfg, self.credit)
@@ -105,6 +107,7 @@ class Harness:
             internal=self.internal,
             free_operations=FREE_NEEDS,
             pipelines=self.pipelines,
+            parity=self.parity,
         )
         return AbmRunService(deps, self.runs, self.saver)
 

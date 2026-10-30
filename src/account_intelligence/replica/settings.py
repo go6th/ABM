@@ -92,7 +92,8 @@ async def client_settings(session: Any) -> ClientSettings:
 async def accounts_used(session: Any, user_id: str) -> int:
     """How many accounts this user has added to the workspace."""
     value = await session.scalar(
-        text("SELECT count(*) FROM accounts WHERE added_by = :u"), {"u": user_id}
+        text("SELECT count(*) FROM accounts WHERE added_by = :u AND deleted_at IS NULL"),
+        {"u": user_id},
     )
     return int(value or 0)
 

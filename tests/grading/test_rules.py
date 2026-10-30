@@ -326,6 +326,18 @@ def test_judge_must_differ_from_the_generator(cfg: GradingConfig, tmp_path: Path
     [
         (ProductInputs("no_evidence", None, False), "hypothesis", "no_evidence"),
         (ProductInputs("conflicting", "CONFLICTING", True), "probable", "conflicting"),
+        # conflicting feeds are still only a Lead: the cap is a ceiling, never a promotion
+        (
+            ProductInputs("conflicting", "CONFLICTING", False, aggregator_only=True),
+            "lead",
+            "conflicting",
+        ),
+        # but a page read at the source keeps the cap
+        (
+            ProductInputs("conflicting", "CONFLICTING", True, aggregator_only=True),
+            "probable",
+            "conflicting",
+        ),
         (ProductInputs("graded", "A", True, internal_only=True), "internal", "internal_only"),
         (
             ProductInputs("graded", "A", True, internal_only=True, internal_authoritative=True),

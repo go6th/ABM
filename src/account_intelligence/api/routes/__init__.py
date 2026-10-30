@@ -30,6 +30,7 @@ from account_intelligence.api.routes import (
     operator_admin,
     operator_view,
     ops,
+    parity,
     research,
     runs,
     schedules,
@@ -70,6 +71,7 @@ v1_router.include_router(settings.router)
 v1_router.include_router(settings.branding_router)
 v1_router.include_router(audit.router)
 v1_router.include_router(account_workspace.router)
+v1_router.include_router(parity.router)
 v1_router.include_router(accounts.router)
 v1_router.include_router(views.router)
 v1_router.include_router(exports.router)

@@ -19,6 +19,7 @@ vi.mock("@/components/accounts/UploadedFilesCard", () => ({ UploadedFilesCard: (
 vi.mock("@/components/accounts/AccountAsk", () => ({ AccountAsk: () => <div /> }));
 vi.mock("@/components/accounts/ResumeResearch", () => ({ ResumeResearch: () => <div /> }));
 vi.mock("@/components/accounts/ResearchProgress", () => ({ ResearchProgress: () => <div /> }));
+vi.mock("@/components/accounts/DeleteAccount", () => ({ DeleteAccount: () => <div /> }));
 
 import { ServerApiError } from "@/lib/server-api";
 import AccountWorkspacePage from "@/app/(client)/accounts/[domain]/page";

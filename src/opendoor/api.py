@@ -60,7 +60,8 @@ async def page(s: Any, cursor: str | None, limit: int = PAGE) -> dict[str, Any]:
             text(
                 "SELECT e.id, a.domain, e.signal_type, e.fingerprint, e.grade, e.lead, e.sensitive,"
                 " e.score, e.detected_at, e.fact_id FROM signal_events e JOIN accounts a"
-                " ON a.id = e.account_id WHERE (CAST(:at AS timestamptz) IS NULL"
+                " ON a.id = e.account_id WHERE a.deleted_at IS NULL"
+                " AND (CAST(:at AS timestamptz) IS NULL"
                 " OR (e.detected_at, e.id) > (CAST(:at AS timestamptz), CAST(:id AS uuid)))"
                 " ORDER BY e.detected_at, e.id LIMIT :n"
             ),

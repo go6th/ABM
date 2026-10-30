@@ -8,6 +8,7 @@ and checked for drift). Run them with `uv run --frozen python scripts/<name>.py`
 
 | Script | Checks | Run by |
 | --- | --- | --- |
+| `mutation_report.py` | the per-module score of the last `mutmut run` against the 90 percent bar (`docs/testing/mutation.md`) | `make mutation` |
 | `check_comments.py` | every Python, SQL and YAML file explains itself in its header | `make static` |
 | `check_guarantees.py` | every `GUARANTEE(<test>)` tag names a test that exists | `make static` |
 | `gen_loops.py --check` | every bounded loop carries a `LOOP(name): cap=…; exit=…` comment; `docs/architecture/loops.md` is current | `make static` |

@@ -136,6 +136,9 @@ T = TypeVar("T")
 MAX_SPEND_PAUSES = 3
 # one planned row's pull may take this long (a third of a 1650 s slice); past it the row is a gap
 PULL_ROW_CEILING_S = 540
+# the parity bundle's render beside the export build (PARITY_BUNDLE=on) may take this long; past
+# it the run goes on without a bundle (it never holds the run's delivery)
+PARITY_CEILING_S = 420
 STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "people")
 # extraction calls in flight at once per step (each call is independent; see _interpret). Each is
 # a one-request Message Batch that takes minutes on the provider's side, so the node's duration is
@@ -184,6 +187,8 @@ class AbmDeps:
     free_operations: frozenset[str] = frozenset()
     # the code pipelines after the reading step (None: the node records "not available yet")
     pipelines: PipelinePort | None = None
+    # the output parity bundle built beside the export build (None: the switch is off)
+    parity: Any | None = None
 
 
 class AbmState(TypedDict, total=False):
@@ -1405,7 +1410,24 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 assert_client_clean(await deps.builder.texts(ctx, file_id))
         except GuardViolation as leak:
             return _fail(leak.code)
-        return {"client_files": list(client), "internal_files": list(internal)}
+        out: dict[str, Any] = {"client_files": list(client), "internal_files": list(internal)}
+        if deps.parity is not None:
+            # the parity bundle version (PARITY_BUNDLE=on): its own gate, its own record; a
+            # failure there never changes the run's outcome, the delivered files still deliver
+            try:
+                async with asyncio.timeout(PARITY_CEILING_S):
+                    parity = await deps.parity.build(ctx)
+            except Exception as error:  # noqa: BLE001 - recorded, never the run's failure
+                _log.warning("build.parity_failed", extra={"error_class": type(error).__name__})
+                parity = {"skipped": type(error).__name__}
+            # counters are integers summed across slices: the version built (0 when none)
+            # and whether its gate passed; the reason for a skip is in the log
+            out["counters"] = {
+                "parity_version": int(parity.get("version") or 0),
+                "parity_built": 1 if parity.get("status") == "built" else 0,
+                "parity_skipped": 1 if parity.get("skipped") else 0,
+            }
+        return out
 
     async def gate(state: AbmState) -> dict[str, Any]:
         """Step 7 (code): the quality gate and the coverage verdict (G1)."""

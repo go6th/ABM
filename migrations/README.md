@@ -30,4 +30,11 @@ Landmarks: `0001_core` (tenants, accounts, facts, wallets), `0002_rls`, `0004_ru
 `0005_sources`, `0008_tracker`, `0009_grading`, `0012_job_pipeline`, `0014_people_pipeline`,
 `0041_abm_agents` and `0042_abm_distill` (the research graph), `0045_chat`, `0047_local_auth`,
 `0049_research_cache`, `0050_durable_runs`, `0051_research_files`, `0053_replica` (the product
-screens), `0063_private_workspaces`, `0067_resumable_research`, `0074_retrieval_indexes`, `0077_table_store`, `0078_raw_files`, `0086_link_archive`, `0087_posting_fields`, `0088_posting_heuristic`, `0090_tech_stack_items`, `0091_erase_new_tables`, `0092_archive_erasure_meta`, `0093_leakage_fix_wave_d2` (current).
+screens), `0063_private_workspaces`, `0067_resumable_research`, `0074_retrieval_indexes`, `0077_table_store`, `0078_raw_files`, `0086_link_archive`, `0087_account_delete`, `0088_account_bundles`, `0090_tech_stack_items`, `0091_erase_new_tables`, `0092_archive_erasure_meta`, `0093_leakage_fix_wave_d2`, `0094_posting_fields`, `0095_posting_heuristic` (current).
+
+Numbering note (2026-10-30): two branches each wrote a 0087 and a 0088. The account-delete (0087)
+and account-bundle (0088) migrations ran on staging first, then 0089 to 0093 were applied on top
+of them, so the posting-fields and posting-heuristic migrations became 0094 and 0095. They are
+idempotent (`IF NOT EXISTS` columns, a guarded constraint), so they apply on a database that never
+ran them and on one that holds any piece of them. Never renumber a migration that has run on
+staging; add the next number instead.

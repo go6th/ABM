@@ -140,7 +140,8 @@ async def ask(
                 raise APIProblem(404, "not_found", "Not found", "not found")
         if body.account_id is not None:
             held = await session.scalar(
-                text("SELECT 1 FROM accounts WHERE id = :a"), {"a": body.account_id}
+                text("SELECT 1 FROM accounts WHERE id = :a AND deleted_at IS NULL"),
+                {"a": body.account_id},
             )
             if not held:
                 raise APIProblem(404, "not_found", "Not found", "not found")

@@ -3,7 +3,7 @@
 // never carries a query string.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { GET, POST, PUT } from "@/app/v1/[[...path]]/route";
+import { DELETE, GET, POST, PUT } from "@/app/v1/[[...path]]/route";
 import { apiOrigin } from "@/lib/api-origin";
 import { bodyLimit, capBody, declaredLength, JSON_BODY_LIMIT, JSON_TIMEOUT_MS, proxyTimeout, TRANSFER_TIMEOUT_MS } from "@/lib/proxy-body";
 
@@ -150,5 +150,16 @@ describe("the API origin", () => {
     const reply = await GET(new NextRequest("https://app.example/v1/me"));
     expect(reply.status).toBe(503);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("DELETE bodies", () => {
+  it("forwards the confirmation with its length, so the API receives the body", async () => {
+    const body = JSON.stringify({ confirm: "acme.example" });
+    await DELETE(post("/v1/accounts/acme.example", { body }, "DELETE"));
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    const sent = new TextDecoder().decode(init.body as ArrayBuffer);
+    expect(sent).toBe(body);
+    expect(init.body).toBeInstanceOf(ArrayBuffer);
   });
 });

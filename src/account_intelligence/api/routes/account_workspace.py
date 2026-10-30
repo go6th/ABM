@@ -109,7 +109,9 @@ async def account_id_of(session: Any, domain: str) -> UUID:
     """The account of this tenant with that domain, or 404 (another tenant's looks the same)."""
     if not re.fullmatch(DOMAIN, domain):
         raise HTTPException(404, "not found")
-    found = await session.scalar(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+    found = await session.scalar(
+        text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"), {"d": domain}
+    )
     if found is None:
         raise HTTPException(404, "not found")
     return UUID(str(found))

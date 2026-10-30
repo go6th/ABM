@@ -100,7 +100,9 @@ async def client_row(s: Any, tenant_id: Any, now: datetime) -> dict[str, Any]:
             {"since": now - timedelta(days=30)},
         )
     ).one()
-    accounts = int(await s.scalar(text("SELECT count(*) FROM accounts")) or 0)
+    accounts = int(
+        await s.scalar(text("SELECT count(*) FROM accounts WHERE deleted_at IS NULL")) or 0
+    )
     q = (
         await s.execute(
             text(
@@ -186,7 +188,8 @@ async def users(s: Any, now: datetime) -> list[dict[str, Any]]:
         text(
             "SELECT m.user_id, coalesce(u.email, u.display_name, m.user_id) AS email, m.role,"
             " m.access_state, m.last_active_at, m.ended_at,"
-            " (SELECT count(*) FROM accounts a WHERE a.added_by = m.user_id) AS accounts,"
+            " (SELECT count(*) FROM accounts a WHERE a.added_by = m.user_id"
+            "   AND a.deleted_at IS NULL) AS accounts,"
             " (SELECT count(*) FROM chat_turns t JOIN chat_threads h ON h.id = t.thread_id"
             "   WHERE h.owner_user_id = m.user_id AND t.created_at >= :since) AS questions"
             " FROM memberships m LEFT JOIN users u ON u.subject = m.user_id"

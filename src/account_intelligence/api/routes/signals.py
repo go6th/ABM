@@ -67,6 +67,8 @@ async def inbox(request: Request, ident: Identity = Depends(authorize)) -> dict[
                     "SELECT DISTINCT a.id, a.rule_id, a.tier, a.lead, a.subject, a.body,"
                     " a.created_at"
                     " FROM alerts a JOIN alert_outbox o ON o.alert_id = a.id WHERE o.recipient = :u"
+                    " AND NOT EXISTS (SELECT 1 FROM accounts x WHERE x.id = a.account_id"
+                    "   AND x.deleted_at IS NOT NULL)"
                     " ORDER BY a.created_at DESC, a.id LIMIT 200"
                 ),
                 {"u": ident.user_id},
@@ -173,7 +175,10 @@ async def save_settings(
                 str(r.id)
                 for r in (
                     await s.execute(
-                        text("SELECT id FROM accounts WHERE id = ANY(CAST(:ids AS uuid[]))"),
+                        text(
+                            "SELECT id FROM accounts WHERE id = ANY(CAST(:ids AS uuid[]))"
+                            " AND deleted_at IS NULL"
+                        ),
                         {"ids": body.muted_accounts},
                     )
                 ).all()
@@ -261,7 +266,10 @@ async def account_history(
         if rule.excludes_company(domain):
             raise HTTPException(404, "not found")
         acc = (
-            await s.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+            await s.execute(
+                text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"),
+                {"d": domain},
+            )
         ).first()
         if acc is None:
             raise HTTPException(404, "not found")

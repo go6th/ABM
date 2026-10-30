@@ -19,7 +19,9 @@ export default defineConfig({
       url: `${apiOrigin}/fake-idp/tenants`,
       reuseExistingServer: true,
       timeout: 120_000,
-      env: { APP_ENV: "test", E2E_WEB_ORIGIN: webOrigin },
+      // LLM_FAKE: the fake model counts as set up, so a research can be started from the form;
+      // PARITY_BUNDLE: every driven run also renders its parity bundle version (e2e/parity.spec.ts)
+      env: { APP_ENV: "test", E2E_WEB_ORIGIN: webOrigin, LLM_FAKE: "hermetic", PARITY_BUNDLE: "on" },
     },
     {
       command: "node .next/standalone/server.js",

@@ -253,7 +253,8 @@ async def list_exports(
                 text(
                     "SELECT p.id, p.run_id, p.kind, p.status, p.reason, p.files, p.parity,"
                     " p.created_at FROM export_packages p JOIN accounts a ON a.id = p.account_id"
-                    " WHERE a.domain = :d ORDER BY p.created_at DESC, p.id DESC LIMIT 50"
+                    " WHERE a.domain = :d AND a.deleted_at IS NULL"
+                    " ORDER BY p.created_at DESC, p.id DESC LIMIT 50"
                 ),
                 {"d": domain},
             )
@@ -265,8 +266,11 @@ async def _package(s: Any, package_id: UUID) -> Any:
     row = (
         await s.execute(
             text(
-                "SELECT id, run_id, kind, status, reason, files, parity, created_at"
-                " FROM export_packages WHERE id = :i"
+                "SELECT p.id, p.run_id, p.kind, p.status, p.reason, p.files, p.parity,"
+                " p.created_at FROM export_packages p WHERE p.id = :i"
+                # a package of an account the user deleted is gone with it
+                " AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = p.account_id"
+                "   AND a.deleted_at IS NOT NULL)"
             ),
             {"i": package_id},
         )

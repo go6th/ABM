@@ -26,6 +26,21 @@ from uuid import UUID
 
 from account_intelligence.platform.ports import NotConfigured
 
+GCS_POOL_SIZE = 64
+
+
+def widen_pool(client: Any, size: int = GCS_POOL_SIZE) -> Any:
+    """Give the Cloud Storage client's HTTP session a connection pool as large as the reads that
+    run side by side. The default pool keeps 10 connections while the research reads up to 32
+    stored objects at once, so urllib3 logged "connection pool is full" in every slice on
+    staging (known problem 11) and opened a new TLS connection for each discarded one."""
+    from requests.adapters import HTTPAdapter
+
+    session = getattr(client, "_http", None)
+    if session is not None and hasattr(session, "mount"):
+        session.mount("https://", HTTPAdapter(pool_connections=size, pool_maxsize=size))
+    return client
+
 
 class GcsPayloadStore:
     """Raw payloads in one bucket. ``if_generation_match=0`` makes a put create-only: keys are

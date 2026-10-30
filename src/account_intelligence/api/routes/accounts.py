@@ -3,6 +3,9 @@
 * ``GET /v1/accounts``: the tenant's accounts with their latest run (excluded companies are
   hidden: render time).
 * ``POST /v1/accounts``: add an account (refused for an excluded company: pull time).
+* ``DELETE /v1/accounts/{domain}``: remove an account from the workspace after the user confirms
+  by sending the domain back (``confirm``); the row is marked, never removed, and the account
+  disappears from every listing; adding it again revives it (owner request 2026-10-27).
 * ``GET /v1/accounts/{domain}/tables/{table}``: one page of a client table (people, jobs, tech,
   facts, coverage) for the account's latest finished run (or ``run_id``), filtered, sorted and
   searched in SQL from a validated spec or a saved view, keyset paginated. ``{domain}`` and any
@@ -41,6 +44,7 @@ from views.tables import TABLES, specs
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 register("GET", "/v1/accounts", tenant_route("read_public", "read"))
 register("POST", "/v1/accounts", tenant_route("add_account", "run"))
+register("DELETE", "/v1/accounts/{domain}", tenant_route("add_account", "run"))
 register("GET", "/v1/accounts/{domain}/tables/{table}", tenant_route("read_public", "read"))
 register("GET", "/v1/accounts/{domain}", tenant_route("read_public", "read"))
 DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
@@ -92,7 +96,8 @@ async def list_accounts(
                     "SELECT a.id, a.domain, a.name, r.id AS run_id, r.status, r.created_at"
                     " FROM accounts a LEFT JOIN LATERAL (SELECT id, status, created_at"
                     " FROM account_runs WHERE account_id = a.id ORDER BY created_at DESC LIMIT 1)"
-                    " r ON true WHERE (CAST(:after AS text) IS NULL OR a.domain > :after)"
+                    " r ON true WHERE a.deleted_at IS NULL"
+                    " AND (CAST(:after AS text) IS NULL OR a.domain > :after)"
                     " AND (CAST(:sp AS text) IS NULL OR a.domain ILIKE :sp OR a.name ILIKE :sp)"
                     " ORDER BY a.domain LIMIT :n"
                 ),
@@ -167,6 +172,55 @@ async def add_account(
     return {"domain": body.domain, "account_id": str(account_id), "created": created}
 
 
+class AccountDeleteBody(BaseModel):
+    """The confirmation: the domain typed back. No tenant field."""
+
+    model_config = ConfigDict(extra="forbid")
+    confirm: str = Field(max_length=253)
+
+
+@router.delete("/{domain}", response_model=C.AccountDeleted)
+async def delete_account(
+    domain: str,
+    body: AccountDeleteBody,
+    request: Request,
+    ident: Identity = Depends(authorize),
+) -> dict[str, Any]:
+    """Remove an account from the workspace. The user confirms by sending the domain back; a
+    confirmation that does not match is refused before anything happens. The account's research
+    stays stored and hidden; a research still running on it must be stopped first."""
+    if not re.fullmatch(DOMAIN, domain):
+        raise HTTPException(404, "not found")
+    if body.confirm.strip().lower() != domain:
+        raise APIProblem(
+            422,
+            "confirmation_mismatch",
+            "Confirmation did not match",
+            "Type the account's domain exactly to confirm the deletion.",
+        )
+    async with tenant_txn(ident.tenant_id) as s:
+        try:
+            removed = await lifecycle.delete_account(s, domain, deleted_by=ident.user_id)
+        except lifecycle.AccountBusy:
+            raise APIProblem(
+                409,
+                "account_busy",
+                "A research is still running",
+                "Stop the research on this account, then delete it.",
+            ) from None
+        if removed is None:
+            raise HTTPException(404, "not found")
+        await audit_action(
+            s,
+            request,
+            audit_class="run",
+            action="account_delete",
+            resource_type="account",
+            resource_id=domain,
+        )
+    return {"domain": domain, "deleted_at": removed[1].isoformat()}
+
+
 @router.get("/{domain}", response_model=C.AccountDetail)
 async def read_account(
     domain: str, request: Request, ident: Identity = Depends(authorize)
@@ -181,7 +235,10 @@ async def read_account(
             raise HTTPException(404, "not found")
         acc = (
             await s.execute(
-                text("SELECT id, domain, name, created_at FROM accounts WHERE domain = :d"),
+                text(
+                    "SELECT id, domain, name, created_at FROM accounts WHERE domain = :d"
+                    " AND deleted_at IS NULL"
+                ),
                 {"d": domain},
             )
         ).first()
@@ -232,7 +289,9 @@ async def resolve_run(
     if not re.fullmatch(DOMAIN, domain) or rule.excludes_company(domain):
         raise HTTPException(404, "not found")
     account = (
-        await s.execute(text("SELECT id FROM accounts WHERE domain = :d"), {"d": domain})
+        await s.execute(
+            text("SELECT id FROM accounts WHERE domain = :d AND deleted_at IS NULL"), {"d": domain}
+        )
     ).scalar_one_or_none()
     if account is None:
         raise HTTPException(404, "not found")

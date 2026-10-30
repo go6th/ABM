@@ -160,6 +160,67 @@ async def test_a_client_run_takes_the_tenant_settings(plane: Plane, browser: Bro
 
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
+async def test_an_account_is_deleted_only_with_its_domain_typed_back_and_comes_back_on_add(
+    plane: Plane, browser: Browser
+) -> None:
+    """Deleting asks for the domain as confirmation and refuses a mismatch; the account then
+    leaves every list and lookup (its runs stay stored); a running research blocks it; adding
+    the same domain again revives it."""
+    t, _ = await _admin(plane, browser, "ws5-delete")
+    added = await browser.call("POST", "/v1/accounts", json={"domain": "gone-ws5.example"})
+    assert added.status_code == 201, added.text
+    wrong = await browser.call(
+        "DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": "other.example"}
+    )
+    assert wrong.status_code == 422 and wrong.json()["type"].endswith("confirmation_mismatch")
+    assert [a["domain"] for a in (await browser.client.get("/v1/accounts")).json()["accounts"]] == [
+        "gone-ws5.example"
+    ]
+    started = await browser.call(
+        "POST",
+        "/v1/runs",
+        json={"domain": "gone-ws5.example"},
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert started.status_code == 202, started.text
+    busy = await browser.call(
+        "DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": "gone-ws5.example"}
+    )
+    assert busy.status_code == 409 and busy.json()["type"].endswith("account_busy")
+    with psycopg.connect(ADMIN_DSN) as c:
+        c.execute(
+            "UPDATE account_runs SET status = 'CANCELED', finished_at = now() WHERE id = %s",
+            (started.json()["run_id"],),
+        )
+        c.commit()
+    gone = await browser.call(
+        "DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": " Gone-WS5.example "}
+    )
+    assert gone.status_code == 200, gone.text
+    assert gone.json()["domain"] == "gone-ws5.example" and gone.json()["deleted_at"]
+    assert (await browser.client.get("/v1/accounts")).json()["accounts"] == []
+    assert (await browser.client.get("/v1/accounts/gone-ws5.example")).status_code == 404
+    assert (await browser.client.get("/v1/accounts/gone-ws5.example/workspace")).status_code == 404
+    again = await browser.call(
+        "DELETE", "/v1/accounts/gone-ws5.example", json={"confirm": "gone-ws5.example"}
+    )
+    assert again.status_code == 404
+    with psycopg.connect(ADMIN_DSN) as c:
+        kept = c.execute(
+            "SELECT deleted_by, (SELECT count(*) FROM account_runs r WHERE r.account_id = a.id)"
+            " FROM accounts a WHERE a.tenant_id = %s AND a.domain = %s",
+            (t, "gone-ws5.example"),
+        ).fetchone()
+    assert kept is not None and kept[0] and kept[1] == 1  # marked, with its run kept
+    back = await browser.call("POST", "/v1/accounts", json={"domain": "gone-ws5.example"})
+    assert back.status_code == 201 and back.json()["created"] is True
+    assert [a["domain"] for a in (await browser.client.get("/v1/accounts")).json()["accounts"]] == [
+        "gone-ws5.example"
+    ]
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
 async def test_polling_with_etag_and_a_bounded_event_stream(
     plane: Plane, browser: Browser, monkeypatch: pytest.MonkeyPatch
 ) -> None:

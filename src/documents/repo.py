@@ -108,8 +108,14 @@ async def many(s: AsyncSession, ids: Sequence[UUID]) -> list[Any]:
 
 
 async def list_for(s: AsyncSession, account_id: UUID | None, limit: int = 200) -> list[Any]:
-    """The tenant's documents, newest first (one account's when ``account_id`` is given)."""
-    where = "WHERE account_id = :a" if account_id is not None else ""
+    """The tenant's documents, newest first (one account's when ``account_id`` is given; the
+    uploads of an account the user deleted are not listed under it)."""
+    where = (
+        "WHERE account_id = :a AND EXISTS (SELECT 1 FROM accounts x WHERE x.id = :a"
+        " AND x.deleted_at IS NULL)"
+        if account_id is not None
+        else ""
+    )
     rows = await s.execute(
         text(f"SELECT {_COLS} FROM documents {where} ORDER BY created_at DESC, id LIMIT :l"),  # nosec B608 -- fixed columns and a fixed filter.
         {"a": account_id, "l": limit},

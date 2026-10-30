@@ -246,7 +246,7 @@ async def resume_research(
         domain = await s.scalar(
             text(
                 "SELECT a.domain FROM account_runs r JOIN accounts a ON a.id = r.account_id"
-                " WHERE r.id = :r"
+                " WHERE r.id = :r AND a.deleted_at IS NULL"
             ),
             {"r": body.run_id},
         )

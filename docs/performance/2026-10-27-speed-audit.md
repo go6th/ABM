@@ -60,3 +60,34 @@ workspace case is a cold instance parsing a workbook (hypothesis, not reproduced
 Recommended, not applied: API to 2 vCPU with CPU throttling off (the SSE streams share one
 throttled vCPU with every request). Not done: `/v1/me` still runs ~12 sequential queries,
 `workspace()` ~24, and each open stream polls the database every second.
+
+
+## 3. Afternoon: the next bottlenecks (2026-10-27, second pass)
+
+Measured on the test harness (`tests/agents/test_speed_measure.py`: every outside port slowed by a
+fixed delay, calls counted, so the serial time is known): one research with 91 provider calls
+at 30 ms, three pipelines at 250 ms, nine payload reads at 2 ms and two file builds at 150 ms.
+
+| | Serial waits | Elapsed before | Elapsed after |
+| --- | --- | --- | --- |
+| whole research on the harness | 3.80 s | 2.00 s | 1.31 s |
+
+| # | Cause | Evidence | Fix |
+| --- | --- | --- | --- |
+| 9 | A row's three or more queries ran one after another inside the row fan-out | `agents/pull/agent.pull_row` looped `for query in public` | the row's queries run four at a time (`QUERY_CONCURRENCY`); a cap refusal stops new queries while the ones in flight finish and store; outcomes are read in query order, so the manifest is unchanged |
+| 10 | With the caps off every page a search returned is read in full, one after another (two to seventeen seconds each) | `provider._read_own_pages` and `_read_off_site_pages` awaited each `call_need` in a loop | reads four at a time (`READ_CONCURRENCY`), results kept in the search's order, an unreadable page still skipped; `tests/agents/test_production_adapters.py::test_the_pages_a_search_found_are_read_side_by_side`: 12 reads at 50 ms took under 0.36 s (0.6 s one at a time) |
+| 11 | The three code pipelines ran in series: jobs (minutes), then detections (one feed), then people | `graph.pipelines` | jobs and detections side by side; people after them (it grades through the same engine and reads the executive facts) |
+| 12 | The careers page choice (a model call) waited for the slowest extraction call | `graph.interpret` | runs beside the extraction (`_all_or_none`) |
+| 13 | Hundreds of payloads were read back one object-store round trip at a time before the first extraction call; person-name searches and targeted pulls stored and re-read each item one by one | `graph._views`, `person_searches`, `targeted_pulls` | sixteen at a time (`STORE_CONCURRENCY`), order kept |
+| 14 | The client file set and the Internal Only file were built one after the other | `graph.build` | both builds side by side |
+
+Call volume is unchanged by every change above: the same calls are made, they overlap.
+
+Not changed, for the owner: the slice length (1650 s; a slice boundary still loses work in
+flight and the Cloud Tasks dispatch deadline bounds it), the scrape rate (`p_scrape` 1/s is a
+placeholder marked VERIFY in `config/providers.yaml`; the page reads now overlap but the token
+bucket still paces them to one a second until the plan's limit is known), and the governor
+ceilings (4 per provider, 8 for search). The end-to-end minutes on a real account remain an
+estimate until one run is made on this code; today's finding that no model call completed on
+staging since 2026-10-26 18:35 (the sibling session's deploy names the hanging call) is the
+first thing to read on that run.

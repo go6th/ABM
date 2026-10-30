@@ -47,6 +47,11 @@ def _rule(rule: str, x: ProductInputs, cfg: GradingConfig) -> ProductGrade | Non
         # out Probable and guard G2 ended a three-hour research)
         if x.unread_match and not x.read_in_primary:
             return "lead"
+        # the same for support from aggregators alone: conflicting feeds are still only a Lead
+        # (staging 2026-10-30: 16 conflicting aggregator-only findings came out Probable and the
+        # file build refused the whole research, check B7 aggregator_not_lead)
+        if x.aggregator_only and not x.read_in_primary:
+            return "lead"
         return p.conflicting_max_product_grade
     if rule == "internal_only":
         # Never Confirmed from internal material alone unless the client marked it authoritative.

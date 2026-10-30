@@ -82,7 +82,9 @@ async def current_user(request: Request, ident: Identity = Depends(authorize)) -
         ).all()
         limits_now = await client_settings(s)
         used = await accounts_used(s, ident.user_id)
-        total = int(await s.scalar(text("SELECT count(*) FROM accounts")) or 0)
+        total = int(
+            await s.scalar(text("SELECT count(*) FROM accounts WHERE deleted_at IS NULL")) or 0
+        )
         enabled_flags = {
             str(flag_row.flag): flags.evaluate(
                 dict(flag_row.rule), str(flag_row.flag), ident.tenant_id, plan
