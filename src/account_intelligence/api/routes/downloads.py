@@ -29,7 +29,7 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.ratelimit import limit_user
-from account_intelligence.api.routes.account_workspace import account_id_of
+from account_intelligence.api.routes.account_workspace import account_id_of, prepare_delivered
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import downloads as D
 
@@ -67,6 +67,10 @@ async def start_everything(
     container = request.app.state.container
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
+    # files and tables built under an older exclusion list are built again before the archive
+    # is queued, so Download everything never carries an excluded person (F1)
+    await prepare_delivered(request, ident, account_id)
+    async with tenant_txn(ident.tenant_id) as s:
         job_id = await D.start(s, account_id, body.request_id)
         await audit_action(
             s,

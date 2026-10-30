@@ -71,8 +71,10 @@ class LedgerSource:
     async def search_board(self, lane: str, keyword: str) -> SourceBatch:
         return await self._once(("board", keyword), lambda: self.inner.search_board(lane, keyword))
 
-    async def pull_window(self, start: date, end: date) -> SourceBatch:
-        return await self._once(("feed", f"{start}"), lambda: self.inner.pull_window(start, end))
+    async def pull_window(self, start: date, end: date, since: date | None = None) -> SourceBatch:
+        return await self._once(
+            ("feed", f"{since or start}"), lambda: self.inner.pull_window(start, end, since)
+        )
 
 
 class LedgerPages:

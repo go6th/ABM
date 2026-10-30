@@ -1,7 +1,7 @@
 """The table store on Postgres (tabular questions, 2026-10-17): an uploaded workbook's rows are
 kept whole and typed, described and queried as complete sets; two ingests of one file are
 identical; unknown columns are a structured error; a table past the passage cap fails its part.
-SYNTHETIC workbook of the GSK Job Postings shape (``tests.documents.fixtures``)."""
+SYNTHETIC workbook of the Holdings Job Postings shape (``tests.documents.fixtures``)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ QUESTION_WHERE = [
 
 async def _ingest(tenant: UUID, tmp_path: Path, account: UUID, data: bytes) -> UUID:
     svc = service(tmp_path)
-    done = await upload(svc, tenant, "GSK_Job_Postings.xlsx", data, account)
+    done = await upload(svc, tenant, "Holdings_Job_Postings.xlsx", data, account)
     doc = UUID(done["document_id"])
     assert await svc.process(tenant, doc) == "indexed"
     return doc
@@ -51,8 +51,8 @@ async def test_a_tabular_question_is_answered_from_the_table_store_not_a_sample(
     """The golden tabular question over the store with a real Postgres: the strict query is
     empty (with the relax directive), the relaxed one is complete, deduplicated, sorted and
     projected, and the 5,001st match is an error, never a silent cut."""
-    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
-    doc = await _ingest(tenant_a, tmp_path, account, fixtures.gsk_job_postings_xlsx())
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
+    doc = await _ingest(tenant_a, tmp_path, account, fixtures.holdings_job_postings_xlsx())
     assert doc_row(doc)["status"] == "indexed"
     jobs = await _jobs(tenant_a, account)
     assert jobs.row_count == 644 and jobs.business_key == "requisition"
@@ -69,7 +69,7 @@ async def test_a_tabular_question_is_answered_from_the_table_store_not_a_sample(
     )
     assert len(first[0]) < 1500 and "Full description" not in first[0]
     assert len(first[1]["full_description"]) > 5000 and first[1]["first_seen"] == "2026-03-01"
-    assert first[1]["requisition"] == 446999 and "Full description" in "; ".join(
+    assert first[1]["requisition"] == 546999 and "Full description" in "; ".join(
         r[0]
         for r in admin(
             "SELECT content FROM document_passages WHERE document_id = %s AND"
@@ -104,14 +104,14 @@ async def test_a_tabular_question_is_answered_from_the_table_store_not_a_sample(
     owner = [r for r in unique["rows"] if r["cells"]["class"] in fixtures.OWNER_CLASSES]
     assert len(owner) == 4
     named = {r["cells"]["requisition"] for r in unique["rows"]}
-    assert set(fixtures.GSK_FALSE_POSITIVES) <= named
+    assert set(fixtures.HOLDINGS_FALSE_POSITIVES) <= named
     # the survivor of a duplicate requisition is the row seen last
     twice = await _query(
-        tenant_a, jobs, where=[{"column": "requisition", "op": "eq", "value": 446999}]
+        tenant_a, jobs, where=[{"column": "requisition", "op": "eq", "value": 546999}]
     )
     assert twice["row_count"] == 2
     latest = max(twice["rows"], key=lambda r: r["cells"]["last_seen"])
-    kept = next(r for r in unique["rows"] if r["cells"]["requisition"] == 446999)
+    kept = next(r for r in unique["rows"] if r["cells"]["requisition"] == 546999)
     assert kept["row"] == latest["row"]
     several = await _query(
         tenant_a,
@@ -124,14 +124,14 @@ async def test_a_tabular_question_is_answered_from_the_table_store_not_a_sample(
 async def test_query_table_returns_complete_sets(tenant_a: UUID, tmp_path: Path) -> None:
     """Acceptances 3/4 of the data-access brief on their own: a filtered result is the whole
     set, never a top-k sample — payload on request, ordering honoured, null cells queryable."""
-    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
-    await _ingest(tenant_a, tmp_path, account, fixtures.gsk_job_postings_xlsx())
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
+    await _ingest(tenant_a, tmp_path, account, fixtures.holdings_job_postings_xlsx())
     jobs = await _jobs(tenant_a, account)
     # payload on request; ordering; a filtered result is the whole set, never a top-k
     with_text = await _query(
         tenant_a,
         jobs,
-        where=[{"column": "requisition", "op": "eq", "value": 446999}],
+        where=[{"column": "requisition", "op": "eq", "value": 546999}],
         columns=["title", "full_description"],
         limit=1,
     )
@@ -151,8 +151,8 @@ async def test_query_table_returns_complete_sets(tenant_a: UUID, tmp_path: Path)
 
 
 async def test_query_table_refuses_unknown_columns(tenant_a: UUID, tmp_path: Path) -> None:
-    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
-    await _ingest(tenant_a, tmp_path, account, fixtures.gsk_job_postings_xlsx())
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
+    await _ingest(tenant_a, tmp_path, account, fixtures.holdings_job_postings_xlsx())
     jobs = await _jobs(tenant_a, account)
     with pytest.raises(T.QueryError) as unknown:
         T.parse(jobs, {"where": [{"column": "platform", "op": "eq", "value": "x"}]})
@@ -181,8 +181,8 @@ async def test_query_table_refuses_unknown_columns(tenant_a: UUID, tmp_path: Pat
 
 
 async def test_two_ingests_of_one_workbook_are_identical(tenant_a: UUID, tmp_path: Path) -> None:
-    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
-    data = fixtures.gsk_job_postings_xlsx()
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
+    data = fixtures.holdings_job_postings_xlsx()
     # two service instances over THE SHARED root (0078: the raw store is content-addressed, so
     # the second ingest reuses the first's object, exactly as two worker replicas share a bucket)
     one = await _ingest(tenant_a, tmp_path, account, data)
@@ -219,13 +219,13 @@ async def test_two_ingests_of_one_workbook_are_identical(tenant_a: UUID, tmp_pat
 async def test_a_table_past_the_passage_cap_fails_its_part(tenant_a: UUID, tmp_path: Path) -> None:
     from documents.config import load_config
 
-    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
     svc = service(tmp_path)
     cfg = load_config()
     svc.cfg = cfg.model_copy(
         update={"parsing": cfg.parsing.model_copy(update={"max_passages": 50})}
     )
-    done = await upload(svc, tenant_a, "crm.xlsx", fixtures.gsk_job_postings_xlsx(), account)
+    done = await upload(svc, tenant_a, "crm.xlsx", fixtures.holdings_job_postings_xlsx(), account)
     doc = UUID(done["document_id"])
     assert await svc.process(tenant_a, doc) == "failed"
     status = await svc.status(tenant_a, doc)
@@ -247,7 +247,7 @@ async def test_reingest_tables_queues_pre_store_documents_once(
     from account_intelligence.db.session import tenant_txn, untenanted_session
     from documents.tables_reingest import reingest_tables
 
-    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
     svc = service(tmp_path)
     done = await upload(svc, tenant_a, "crm.xlsx", fixtures.crm_xlsx(), account)
     stored = UUID(done["document_id"])
@@ -360,7 +360,7 @@ async def test_reindex_requeues_the_workspace_indexed_documents_only(
     from account_intelligence.db.session import untenanted_session
     from documents.reindex import reindex_documents
 
-    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
     svc = service(tmp_path)
     first = UUID(
         (await upload(svc, tenant_a, "re-a.xlsx", fixtures.crm_xlsx(), account))["document_id"]
@@ -377,7 +377,7 @@ async def test_reindex_requeues_the_workspace_indexed_documents_only(
                 tenant_b,
                 "re-c.xlsx",
                 fixtures.crm_xlsx(),
-                _make_account(tenant_b, f"gsk-{uuid4().hex[:6]}.example"),
+                _make_account(tenant_b, f"holdings-{uuid4().hex[:6]}.example"),
             )
         )["document_id"]
     )
@@ -464,8 +464,8 @@ async def test_read_rows_returns_whole_rows_payload_included(
 ) -> None:
     from account_intelligence.replica.tools import TableTools
 
-    account = _make_account(tenant_a, f"gsk-{uuid4().hex[:6]}.example")
-    await _ingest(tenant_a, tmp_path, account, fixtures.gsk_job_postings_xlsx())
+    account = _make_account(tenant_a, f"holdings-{uuid4().hex[:6]}.example")
+    await _ingest(tenant_a, tmp_path, account, fixtures.holdings_job_postings_xlsx())
     jobs = await _jobs(tenant_a, account)
     tools = TableTools(lambda: tenant_txn(tenant_a, user="user-1"), [jobs])
     # a table is described before anything is read from it

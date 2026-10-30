@@ -163,19 +163,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await connector.close_async()
 
 
-async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
-    """One orphan sweep with the container's wiring (``runs.sweeper.sweep``)."""
-    from datetime import UTC, datetime
-
-    from account_intelligence.db.session import session_factory, tenant_txn
+def _tracker_factory(container: Any) -> Any:
+    """``session -> TrackerService`` with the container's coverage owners (the sweeper's)."""
     from account_intelligence.grading.config import load_grading_config
-    from account_intelligence.runs.sweeper import sweep
     from account_intelligence.tracker.adapters import LedgerCallAdapter, RunInputAdapter
     from account_intelligence.tracker.repo import CoverageRepo
     from account_intelligence.tracker.service import TrackerService
-
-    container = app.state.container
-    settings = __import__("account_intelligence.config", fromlist=["load_settings"]).load_settings()
 
     def tracker_for(s: Any) -> TrackerService:
         """The tracker on one tenant transaction."""
@@ -185,6 +178,20 @@ async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
             RunInputAdapter(s),
             owners=container.spec.coverage_owners,
         )
+
+    return tracker_for
+
+
+async def sweep_once(app: FastAPI, now: Any | None = None) -> Any:
+    """One orphan sweep with the container's wiring (``runs.sweeper.sweep``)."""
+    from datetime import UTC, datetime
+
+    from account_intelligence.db.session import session_factory, tenant_txn
+    from account_intelligence.runs.sweeper import sweep
+
+    container = app.state.container
+    settings = __import__("account_intelligence.config", fromlist=["load_settings"]).load_settings()
+    tracker_for = _tracker_factory(container)
 
     return await sweep(
         session_factory(),
@@ -263,6 +270,36 @@ async def sweep_pass(app: FastAPI) -> None:
             _logger.info("jobs.closed", extra={"count": closed})
     except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
         _logger.warning("jobs.close_failed", extra={"error_class": type(error).__name__})
+    try:
+        await _recover_handoffs(app)
+    except Exception as error:  # noqa: BLE001 - the sweeper must outlive one bad pass
+        _logger.warning("recovery.failed", extra={"error_class": type(error).__name__})
+
+
+async def _recover_handoffs(app: FastAPI) -> Any:
+    """Start what was committed but never handed to the worker: queued jobs, runs that never
+    began slice 0, waits past their deadline (``runs.recovery``, orchestration review F6)."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from account_intelligence.db.session import untenanted_session
+    from account_intelligence.replica import jobs
+    from account_intelligence.runs.recovery import recover
+
+    container = app.state.container
+    async with untenanted_session() as plain:
+        tenants = [
+            UUID(str(r.tenant_id))
+            for r in await plain.execute(text("SELECT tenant_id FROM operator_tenant_overview()"))
+        ]
+    return await recover(
+        tenants,
+        jobs.run_or_enqueue,
+        container.scheduler,
+        _tracker_factory(container),
+        datetime.now(UTC),
+    )
 
 
 async def _close_ended_jobs(limit: int = 100) -> int:

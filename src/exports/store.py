@@ -139,15 +139,18 @@ class PgDeliverableStore:
     async def previous_manifest(
         self, tenant_id: str, account_id: str, run_id: str
     ) -> dict[str, object] | None:
-        """The manifest stored with the account's latest workspace before this run's sets."""
+        """The manifest stored with the account's latest workspace of ANOTHER run: the change note
+        compares this run with the previous research, so a rebuild of the run (a fixed bug, an
+        exclusion added later) is never compared with its own earlier set (leakage review
+        2026-10-30, F7)."""
         async with self.txn(UUID(tenant_id)) as s:
             row = (
                 await s.execute(
                     text(
                         "SELECT manifest_json FROM deliverables WHERE account_id = :a AND kind ="
-                        " 'workspace' ORDER BY version DESC LIMIT 1"
+                        " 'workspace' AND run_id <> :r ORDER BY version DESC LIMIT 1"
                     ),
-                    {"a": UUID(account_id)},
+                    {"a": UUID(account_id), "r": UUID(run_id)},
                 )
             ).first()
         return dict(row.manifest_json) if row else None
@@ -214,7 +217,13 @@ class PgDeliverableStore:
                             "key": key,
                             "m": manifest_json
                             if f.kind == "workspace"
-                            else json.dumps({"rows": f.rows, "content_hash": f.content_hash}),
+                            else json.dumps(
+                                {
+                                    "rows": f.rows,
+                                    "content_hash": f.content_hash,
+                                    "exclusion_hash": manifest.get("exclusion_hash", ""),
+                                }
+                            ),
                             "ch": f.content_hash,
                             "sh": snapshot_hash,
                             "th": theme_hash,

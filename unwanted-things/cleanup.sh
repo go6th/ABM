@@ -22,3 +22,12 @@ cd "$(dirname "$0")/.."
 # 5. Older scratch test databases in the local cluster (ai_test_*). List them first:
 #    docker exec -e PGPASSWORD=dev abmgenerator-db-1 psql -U postgres -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'ai_test_%'"
 #    then drop the ones no session is using, one by one.
+
+# 6. The real account's workspace zip and its tests are still in git HISTORY (they were committed
+#    before 2026-10-30; the files themselves are parked in unwanted-things/real-account-fixtures/).
+#    To remove them from history (rewrites every commit id, needs a force push and every clone
+#    re-cloned; take a backup branch first), after `pip install git-filter-repo`:
+# git branch backup/before-history-purge
+# git filter-repo --invert-paths --path tests/fixtures/gsk --path tests/documents/test_tables_real_gsk.py --path tests/evals/test_tabular_gsk_live.py --path evals/tabular_gsk --path web/shots
+#    and, once nobody needs the parked copies any more:
+# rm -rf unwanted-things/real-account-fixtures

@@ -14,7 +14,16 @@ import re
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from account_intelligence.connectors.base import Operation, ProviderCode
 
@@ -100,13 +109,29 @@ class FeedArgs(_Args):
 
     The two flags are the job openings feed's documented filters (``docs/providers/
     p_signals.md``) and are sent for that feed only: ``active_only`` asks for the postings open
-    today (the incremental status refresh), ``with_description_only`` leaves out postings the
-    provider has no text for (nothing to match or read)."""
+    today (the incremental status refresh); ``with_description_only`` leaves out postings the
+    provider has no text for. It is OFF by default and no caller sets it (review 2026-10-29,
+    finding 9): a posting without a description can still be page-read and become a row, so the
+    first pull must be the whole window; the pipeline records how many postings came without a
+    description (``PipelineResult.description_less``).
+
+    A flag that holds its default is left out of the serialised arguments, so the ledger key
+    (``args_hash`` over ``model_dump``) of every request that does not use a flag is the one it
+    had before the flags existed: a run created before a release and resumed after it, and the
+    research cache, still match."""
 
     domain: Domain
     since: date | None = None
     active_only: bool = False
-    with_description_only: bool = True
+    with_description_only: bool = False
+
+    @model_serializer(mode="wrap")
+    def _omit_default_flags(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        data: dict[str, object] = handler(self)
+        for name in ("active_only", "with_description_only"):
+            if data.get(name) is False:
+                del data[name]
+        return data
 
 
 class OrgResolveArgs(_Args):

@@ -47,6 +47,33 @@ STEPS_WITH_PULLS = frozenset({"pass1", "pass2", "people"})
 
 
 @dataclass(frozen=True)
+class FollowRule:
+    """Links of the account's own pages that a row follows after reading them
+    (``pull_plan.yaml`` ``follow``; ``agents.production.links``)."""
+
+    # words a followed link's path must carry (a newsroom row: news, press, release)
+    include: tuple[str, ...]
+    # followed pages read per query of the row (each is a live scrape, one provider credit)
+    per_query: int
+    # the scope window (``scope.yaml`` windows_months key) a dated link must fall inside
+    window: str | None = None
+
+
+@dataclass(frozen=True)
+class AlsoOn:
+    """Other places a row's query is searched, beyond the open web and the account's own site
+    (``pull_plan.yaml`` ``also_on``): a public register (filings) or the newswires that carry the
+    company's releases. The search is restricted to ``domains`` and the first ``reads`` pages it
+    finds there are read in full."""
+
+    domains: tuple[str, ...]
+    reads: int
+    # the scope window (``scope.yaml`` windows_months key) the search is bounded to (its results
+    # must be newer than the window), None for no bound
+    window: str | None = None
+
+
+@dataclass(frozen=True)
 class PlanRow:
     """How Phase 1 pulls one coverage row."""
 
@@ -63,6 +90,10 @@ class PlanRow:
     # a code pipeline owns the row after Phase 1 ("jobs": the job pipeline reads and classifies
     # the postings; "tech": detections are written as dated rows); the extractor skips it
     pipeline: str | None = None
+    # the own-site links the row follows after its reads (None: none)
+    follow: FollowRule | None = None
+    # the extra restricted search of the row's query (None: none)
+    also_on: AlsoOn | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +192,59 @@ def _row_queries(plan_doc: Mapping[str, Any], min_phrasings: int) -> dict[str, t
             if names - QUERY_FIELDS or not names & {"account", "domain"}:
                 raise AgentConfigInvalid(f"pull_plan.queries.{key}: bad template {template!r}")
         out[str(key)] = items
+    return out
+
+
+FOLLOW_WINDOWS = frozenset({"news", "postings", "detections"})
+MAX_FOLLOW_PER_QUERY = 20
+
+
+def _follow_rules(plan_doc: Mapping[str, Any]) -> dict[str, FollowRule]:
+    """``pull_plan.yaml`` ``follow``: per own-site row, the words a followed link's path carries,
+    how many links a query follows and the window a dated link must fall inside."""
+    section = plan_doc.get("follow")
+    if section is None:
+        return {}
+    out: dict[str, FollowRule] = {}
+    for key, spec in _val(section, "follow").items():
+        include = tuple(str(w).strip().lower() for w in spec["include"])
+        per_query = int(spec["per_query"])
+        window = spec.get("window")
+        if not include or any(not w for w in include):
+            raise AgentConfigInvalid(f"pull_plan.follow.{key}: no words")
+        if not 1 <= per_query <= MAX_FOLLOW_PER_QUERY:
+            raise AgentConfigInvalid(f"pull_plan.follow.{key}: per_query out of range")
+        if window is not None and str(window) not in FOLLOW_WINDOWS:
+            raise AgentConfigInvalid(f"pull_plan.follow.{key}: unknown window {window!r}")
+        out[str(key)] = FollowRule(include, per_query, str(window) if window else None)
+    return out
+
+
+_HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+MAX_ALSO_ON_DOMAINS = 10
+MAX_ALSO_ON_READS = 6
+
+
+def _also_on_rules(plan_doc: Mapping[str, Any]) -> dict[str, AlsoOn]:
+    """``pull_plan.yaml`` ``also_on``: per row, the plain host names its query is also searched on,
+    how many of the pages found there are read and the window bounding the search."""
+    section = plan_doc.get("also_on")
+    if section is None:
+        return {}
+    out: dict[str, AlsoOn] = {}
+    for key, spec in _val(section, "also_on").items():
+        domains = tuple(str(d).strip().lower() for d in spec["domains"])
+        reads = int(spec["reads"])
+        window = spec.get("window")
+        if not domains or len(domains) > MAX_ALSO_ON_DOMAINS:
+            raise AgentConfigInvalid(f"pull_plan.also_on.{key}: bad domain list")
+        if any(not _HOSTNAME.match(d) for d in domains):
+            raise AgentConfigInvalid(f"pull_plan.also_on.{key}: a domain is not a plain host name")
+        if not 1 <= reads <= MAX_ALSO_ON_READS:
+            raise AgentConfigInvalid(f"pull_plan.also_on.{key}: reads out of range")
+        if window is not None and str(window) not in FOLLOW_WINDOWS:
+            raise AgentConfigInvalid(f"pull_plan.also_on.{key}: unknown window {window!r}")
+        out[str(key)] = AlsoOn(domains, reads, str(window) if window else None)
     return out
 
 
@@ -290,6 +374,8 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
     run, plan_doc = docs["run"], docs["pull_plan"]
     min_phrasings = int(_val(run["phrasing"]["min_phrasings"], "min_phrasings"))
     row_queries = _row_queries(plan_doc, min_phrasings)
+    follow = _follow_rules(plan_doc)
+    also_on = _also_on_rules(plan_doc)
     plan: dict[str, PlanRow] = {}
     for key, spec in plan_doc["rows"].items():
         if spec["step"] not in STEPS_WITH_PULLS:
@@ -308,7 +394,15 @@ def load_skill_config(config_dir: Path | None = None) -> SkillConfig:
             row_queries.get(str(key), ()),
             bool(spec.get("own_site", False)),
             str(pipeline) if pipeline is not None else None,
+            follow.get(str(key)),
+            also_on.get(str(key)),
         )
+    for key in also_on:
+        if key not in plan or plan[key].pipeline is not None or plan[key].people:
+            raise AgentConfigInvalid(f"pull_plan.also_on.{key}: not a web row")
+    for key in follow:
+        if key not in plan or not plan[key].own_site:
+            raise AgentConfigInvalid(f"pull_plan.follow.{key}: not an own_site row")
     if set(row_queries) - set(plan):
         raise AgentConfigInvalid(
             f"pull_plan.queries: unknown rows {sorted(set(row_queries) - set(plan))}"

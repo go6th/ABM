@@ -412,3 +412,59 @@ async def test_workflow_people_stage_without_providers_is_honest_and_replays() -
     assert again["coverage_reports"]["employee_content_github"] == {"status": "not_done"}
     assert fetch("SELECT count(*) FROM people_pipeline_runs WHERE run_id = %s", w.run)[0][0] == 1
     _ = uuid4()
+
+
+@pytest.mark.asyncio
+async def test_the_technology_lookups_of_a_lane_run_side_by_side_and_stay_in_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each lookup is a provider job polled for up to 150 s; the lane's technologies were looked
+    up one after another. They run together (no more at the provider than its ceiling) and the
+    page keeps the list's order."""
+    import asyncio
+
+    from parallel.config import load_parallel_config
+
+    ceiling = load_parallel_config().providers.ceiling("p_org")
+    flight = {"now": 0, "peak": 0}
+    order: list[str] = []
+
+    async def fake(op: Operation, args: Any, ctx: Any, runtime: Any) -> Any:
+        if op is Operation.ORG_RESOLVE:
+            org = OrganizationRecord(
+                kind="organization",
+                provenance=_prov(Operation.ORG_RESOLVE),
+                lineage_hint=None,
+                input_domain=DOMAIN,
+                matched=True,
+                organization_id=7,
+                slug=None,
+                name=None,
+                url=None,
+                employee_count=None,
+                industry=None,
+                headquarters_country=None,
+            )
+            return ConnectorResult(status="done", records=(org,), call_refs=("o1",))
+        if op is Operation.ORG_TECH_STACK:
+            records = tuple(_tech(f"Salesforce {i}", f"sf-{i}", 20 - i, i) for i in range(8))
+            return ConnectorResult(status="done", records=records, call_refs=("s1",))
+        flight["now"] += 1
+        flight["peak"] = max(flight["peak"], flight["now"])
+        await asyncio.sleep(0.03 if args.technology_slug.endswith("0") else 0.01)
+        flight["now"] -= 1
+        order.append(args.technology_slug)
+        return ConnectorResult(
+            status="done",
+            records=(_person(int(args.technology_slug[-1]), None),),
+            call_refs=(f"t-{args.technology_slug}",),
+        )
+
+    monkeypatch.setattr(adapters, "call_operation", fake)
+    search = adapters.ConnectorPeopleSearch(_deps(), ALL_OPS, load_people_config())
+    page = await search.search_association("salesforce", ("IT",), None)
+    assert 1 < flight["peak"] <= ceiling  # together, but never past the provider's slots
+    # the slowest lookup (sf-0, the first in the list) finished after a later one and is still
+    # the first of the page
+    assert order.index("sf-0") > order.index("sf-1")
+    assert [r.source_record_id for r in page.records][0].endswith("#1.0")

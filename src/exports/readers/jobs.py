@@ -23,6 +23,7 @@ from exports.content import PostingRow, SnapshotContent
 from exports.models import CountLine, JobRow, JobsModel, PlatformClassCounts
 from exports.readers.common import MapContext, Mapped, digest, months_before, ref
 from jobs.normalise import strip_pii
+from jobs.snapshot import requisition_of
 
 # the five classes the job pipeline stores (every exported posting has one: the heuristic
 # decides the postings no reading does, ``jobs.heuristic``; ``unclassified`` is a pipeline error)
@@ -47,13 +48,6 @@ _MONTHS = (
 def long_date(day: date) -> str:
     """``19 October 2026`` (the reference Summary's date form; no locale involved)."""
     return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
-
-
-def requisition_of(text: str, pattern: str) -> str:
-    """The job ID the posting text prints after a job ID label (``workbooks.jobs
-    .requisition_pattern``), else blank: never made up from the link or the feed's own key."""
-    found = re.search(pattern, text or "")
-    return found.group(1) if found else ""
 
 
 def posting_text(p: PostingRow) -> str:
@@ -268,7 +262,7 @@ def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
         ),
     )
     rows: list[JobRow] = []
-    for i, p in enumerate(ordered, start=1):
+    for p in ordered:
         code = ctx.code_or_withhold(None, p.url, where, p.posting_key)
         if not ctx.printable(p.title, where, p.posting_key) or code is None or not p.url:
             continue
@@ -293,9 +287,9 @@ def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
         archive = p.archive_url if p.archive_url.startswith(("https://", "http://")) else ""
         rows.append(
             JobRow(
-                ref=ref("J", i),
+                ref=ref("J", len(rows) + 1),  # listed rows only: refs never skip a number
                 row_id=p.posting_key,
-                title=ctx.rendered(p.title, where),
+                title=ctx.titled(p.title, where),
                 status=labels.posting_status[p.status],
                 posting_class=labels.posting_class[key],
                 platforms=ctx.rendered(", ".join(platforms), where),
@@ -370,7 +364,7 @@ def map_jobs(ctx: MapContext) -> Mapped[JobsModel]:
         ),
         CountLine(
             key="file.withheld",
-            label="Postings not listed (no posting link)",
+            label="Postings not listed (no usable posting link)",
             value=withheld,
             base="postings recorded for this run",
         ),

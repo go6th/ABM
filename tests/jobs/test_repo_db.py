@@ -211,6 +211,16 @@ def _second_run(w: World) -> UUID:
     return run
 
 
+def _finish_run(run: UUID, status: str = "COMPLETED") -> None:
+    """End a run in both run tables (a delivered file belongs to a run that ended)."""
+    with psycopg.connect(admin_dsn(), autocommit=True) as c:
+        # the completion guard wants a seeded tracker, which is not what these tests are about
+        c.execute("SET session_replication_role = replica")
+        c.execute(
+            "UPDATE account_runs SET status = %s, finished_at = now() WHERE id = %s", (status, run)
+        )
+
+
 def _delivered(w: World, run: UUID) -> None:
     """A delivered Job Postings file for ``run`` (the row ``delivered_run`` reads)."""
     digest = "0" * 64
@@ -288,6 +298,10 @@ async def test_incremental_fields_round_trip_and_the_previous_run_is_this_accoun
     async with tenant_txn(w.tenant) as s:
         assert await previous_delivered_run(s, w.account) is None
     _delivered(w, w.run)
+    # a run that has not ended is not a base (review 2026-10-29, finding 7)
+    async with tenant_txn(w.tenant) as s:
+        assert await previous_delivered_run(s, w.account) is None
+    _finish_run(w.run)
     async with tenant_txn(w.tenant) as s:
         assert await previous_delivered_run(s, w.account) == (w.run, first.as_of)  # type: ignore[attr-defined]
         assert await previous_delivered_run(s, other_account.account) is None

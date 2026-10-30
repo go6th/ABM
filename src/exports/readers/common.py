@@ -23,6 +23,7 @@ from account_intelligence.grading.config import GradingConfig
 from exports.citations import SourceIndex
 from exports.config import ExportConfig, SkillAttribute, SkillVocabulary, skill_vocabulary
 from exports.content import SnapshotContent
+from exports.contenturls import clean_urls
 from exports.numbers import NumberRegistry
 from exports.policy import (
     Violation,
@@ -36,6 +37,9 @@ from exports.policy import (
 )
 
 M = TypeVar("M", bound=BaseModel)
+
+# the longest title a file prints (a posting's or a person's); one over it is cut and counted
+TITLE_MAX = 1_000
 
 
 def digest(model: BaseModel) -> str:
@@ -73,12 +77,20 @@ class MapContext:
     leaks_withheld: int = 0
     # the research skill's vocabulary: attribute tiers and meanings, the news window
     skill: SkillVocabulary = field(default_factory=skill_vocabulary)
+    # ids of rows whose stored address was unusable (set by ``clean_urls``)
+    bad_url_rows: frozenset[str] = frozenset()
+    # titles printed cut at ``TITLE_MAX`` characters (counted in the manifest, never silent)
+    titles_cut: int = 0
 
     def attribute(self, key: str) -> SkillAttribute | None:
         """The spec of a stored attribute key, or None outside the vocabulary."""
         return self.skill.attribute(key)
 
     def __post_init__(self) -> None:
+        # every address repaired or removed before any mapper reads it (a bad link withholds
+        # its row; it never reaches a render model as a validation error)
+        self.content, dropped, self.bad_url_rows = clean_urls(self.content)
+        self.withheld_blocks.extend(dropped)
         self.index = SourceIndex(self.content.sources)
         # registered sources whose link names a data tool (a vendor's public company page): a
         # client file may not link them, so every row that rests on them is withheld (staging
@@ -146,6 +158,24 @@ class MapContext:
             self.formula_like += 1
         return clean
 
+    def titled(self, text: str | None, where: str) -> str:
+        """``rendered`` for a title the file prints as it is (a posting's, a person's): the
+        reference files hold no dash as punctuation, so a spaced dash or hyphen becomes a comma
+        and a lone en or em dash a hyphen (the rule the website's table download applies). Only
+        the printed copy changes, never the stored title. A title longer than ``TITLE_MAX``
+        characters is cut with an ellipsis and counted (``titles_cut``): no real title is that
+        long, and a 40,000 character one used to stop all five files at the Word cell limit."""
+        return self.short(dashless(self.rendered(text, where)))
+
+    def short(self, text: str) -> str:
+        """``text`` cut at ``TITLE_MAX`` characters with an ellipsis, the cut counted
+        (``titles_cut``). Applied where a name or title is also a row's key or must fit a Word
+        table cell: the file and the row keys then agree."""
+        if len(text) <= TITLE_MAX:
+            return text
+        self.titles_cut += 1
+        return text[: TITLE_MAX - 1].rstrip() + "\u2026"
+
     def prose_violations(self, text: str, where: str) -> tuple[Violation, ...]:
         """The D-24 prose rules (banned dashes, stale phrases, abbreviations, partner framings)
         on authored prose. The caller withholds the block on a violation; the rules never fail
@@ -183,7 +213,7 @@ class MapContext:
         """The registered code of a row: the stored code when the registry knows it, else the
         registry's code for the URL; otherwise a B4 violation and None. Never invented."""
         if not url:
-            self.fail("missing_url", where, row_id)
+            self.fail("bad_url" if row_id in self.bad_url_rows else "missing_url", where, row_id)
             return None
         if code is not None:
             if self.index.knows(code):
@@ -204,7 +234,9 @@ class MapContext:
         only evidence was a feed record held back all five files). A stored code the registry
         does not know is still a failure (corrupt provenance, never withheld quietly)."""
         if not url:
-            self.withhold(where, row_id, "missing_url")
+            self.withhold(
+                where, row_id, "bad_url" if row_id in self.bad_url_rows else "missing_url"
+            )
             return None
         if self.denied(code, url):
             self.withhold(where, row_id, "tool_link")
@@ -237,6 +269,19 @@ class MapContext:
             self.fail("row_cap", where, f"{n}>{cap}")
             return True
         return False
+
+
+# a dash used as punctuation: a figure dash, en dash, em dash or horizontal bar, or one or two
+# hyphens, between words (the website's table download applies the same two steps)
+_DASHES = "\u2012\u2013\u2014\u2015"
+_SPACED_DASH = re.compile(f"(?<=\\S)\\s+(?:[{_DASHES}]|-{{1,2}})\\s+(?=\\S)")
+_ANY_DASH = re.compile(f"[{_DASHES}]")
+
+
+def dashless(text: str) -> str:
+    """``text`` without a dash as punctuation: " - " between words becomes ", ", any other dash
+    character becomes a hyphen."""
+    return _ANY_DASH.sub("-", _SPACED_DASH.sub(", ", text))
 
 
 def ref(prefix: str, i: int) -> str:

@@ -27,6 +27,7 @@ from typing import Any
 
 from crosscut.fanout import fan_out_all
 from jobs.gap import gap_remainder
+from jobs.models import Posting
 from jobs.pipeline import JobsPipeline, PipelineResult, replayed
 from jobs.ports import CoverageEvidencePort, GradingPort, PayloadStore, PostingRepo, RunInputPort
 
@@ -69,11 +70,7 @@ async def run_jobs(
         if result.pass_no >= max_passes:
             result = _with_gap(result, "cap_reached")
             break
-        texts = {
-            p.posting_key: await payloads.get_text(p.text_ref)
-            for p in result.postings
-            if p.text_ref
-        }
+        texts = await _remainder_texts(result, payloads)
         nxt = await pipeline.gap_pass(result, texts, lanes_off)
         if nxt.exit_reasons["gap"] == "pending" and nxt.pass_no >= max_passes:
             nxt = _with_gap(nxt, "cap_reached")
@@ -95,6 +92,30 @@ async def run_jobs(
 
 def _with_gap(result: PipelineResult, reason: str) -> PipelineResult:
     return replace(result, exit_reasons={**result.exit_reasons, "gap": reason})
+
+
+async def _remainder_texts(result: PipelineResult, payloads: PayloadStore) -> dict[str, str]:
+    """The stored texts of the gap remainder only (the other postings are not reprocessed and
+    their claims stand), read side by side. A copy that cannot be read back is left out: the
+    posting is processed without it (and read again once, if it never was) instead of the stage
+    failing after the paid pass (review 2026-10-29, finding 15)."""
+    keys = set(gap_remainder(result.postings))
+    refs = [
+        (p.posting_key, p.text_ref) for p in result.postings if p.posting_key in keys and p.text_ref
+    ]
+
+    async def read(item: tuple[str, str]) -> tuple[str, str | None]:
+        try:
+            return item[0], await payloads.get_text(item[1])
+        except Exception:  # noqa: BLE001 - a missing or unreadable copy only costs its re-read
+            return item[0], None
+
+    # LOOP(remainder text reads): cap=gap remainder, TEXT_CONCURRENCY in flight; exit=all read
+    return {
+        key: body
+        for key, body in await fan_out_all(refs, read, limit=TEXT_CONCURRENCY)
+        if body is not None
+    }
 
 
 async def _carried_texts(previous: Any, payloads: PayloadStore) -> dict[str, str]:
@@ -125,12 +146,25 @@ async def _store_texts(
 ) -> PipelineResult:
     """Store the text of every posting the pass processed; others keep their ``text_ref``."""
     texts = pipeline.last_texts
+    stored = [p for p in result.postings if p.posting_key in texts and texts[p.posting_key]]
+
+    async def put(posting: Posting) -> str:
+        return await payloads.put_text(run_id, texts[posting.posting_key])
+
+    # LOOP(posting text writes): cap=postings processed, TEXT_CONCURRENCY in flight; exit=all
+    # written. One object-store write each (a content-addressed key, so a repeat stores nothing
+    # new); written one after another a research of two thousand postings spent minutes here.
+    refs = dict(
+        zip(
+            (p.posting_key for p in stored),
+            await fan_out_all(stored, put, limit=TEXT_CONCURRENCY),
+            strict=True,
+        )
+    )
     postings = []
     for posting in result.postings:
         if posting.posting_key not in texts:
             postings.append(posting)
             continue
-        text = texts[posting.posting_key]
-        ref = await payloads.put_text(run_id, text) if text else None
-        postings.append(posting.model_copy(update={"text_ref": ref}))
+        postings.append(posting.model_copy(update={"text_ref": refs.get(posting.posting_key)}))
     return replace(result, postings=tuple(postings))

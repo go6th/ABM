@@ -10,6 +10,7 @@ says so: rules and caps are ``status: proposal`` (D-16, D-17).
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -80,6 +81,10 @@ class JobsConfig:
     read_excerpts: bool = False
     # the Working tool / User role rule for a posting no reading decided (``jobs.heuristic``)
     heuristic: HeuristicRules = HeuristicRules(working_tool_cues=())
+    # hash of what decides which platforms a posting names (lanes, platforms, aliases and case
+    # rules). A carried posting is never matched again, so a research whose lexicon differs from
+    # the previous one's must pull the whole window (``jobs.incremental``, review 2026-10-29 #19)
+    lexicon_hash: str = ""
 
     @property
     def case_sensitive_platforms(self) -> frozenset[str]:
@@ -131,6 +136,23 @@ def _lanes(data: dict[str, Any]) -> tuple[Lane, ...]:
             )
         )
     return tuple(lanes)
+
+
+def lexicon_hash_of(lanes: tuple[Lane, ...]) -> str:
+    """SHA-256 over the matching inputs of the lanes: id, platforms with aliases, case rules."""
+    blob = json.dumps(
+        [
+            [
+                lane.id,
+                sorted([name, list(aliases)] for name, aliases in lane.platforms.items()),
+                sorted(lane.case_sensitive),
+            ]
+            for lane in lanes
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(blob.encode()).hexdigest()
 
 
 def _rules(data: dict[str, Any]) -> tuple[Rule, ...]:
@@ -191,8 +213,9 @@ def load_jobs_config(directory: Path | None = None) -> JobsConfig:
             caps.update({k: UNCAPPED for k in ("max_page_reads", "max_extractor_calls")})
         template = jobs["templates"]["count_sentence"]
         _need_provenance(template, "count_sentence template")
+        parsed_lanes = _lanes(lanes)
         return JobsConfig(
-            lanes=_lanes(lanes),
+            lanes=parsed_lanes,
             rules=_rules(rubric),
             full_text_required_classes=required,
             caps=caps,
@@ -200,6 +223,21 @@ def load_jobs_config(directory: Path | None = None) -> JobsConfig:
             config_hash=hashlib.sha256((h1 + h2 + h3).encode()).hexdigest(),
             read_excerpts=uncapped,
             heuristic=_heuristic(rubric),
+            lexicon_hash=lexicon_hash_of(parsed_lanes),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ConfigError(f"invalid job pipeline configuration: {exc}") from exc
+
+
+@lru_cache(maxsize=1)
+def export_rule_texts() -> dict[str, Any]:
+    """What the posting snapshot prints from ``export_rules.yaml``: the Requisition pattern of the
+    Job Postings workbook and the class labels (read here, with the other configuration of this
+    package, so no other module opens a YAML file)."""
+    raw = yaml.safe_load((CONFIG_DIR / "export_rules.yaml").read_text())
+    jobs = ((raw or {}).get("workbooks") or {}).get("jobs") or {}
+    labels = (raw or {}).get("labels") or {}
+    return {
+        "pattern": str(jobs.get("requisition_pattern") or ""),
+        "classes": dict(labels.get("posting_class") or {}),
+    }

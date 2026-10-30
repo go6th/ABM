@@ -7,7 +7,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Sheet } from "@/lib/gen/api.gen";
-import { SheetView } from "@/components/accounts/SheetView";
+import { rowKeys, SheetView } from "@/components/accounts/SheetView";
 
 afterEach(() => cleanup());
 
@@ -64,7 +64,7 @@ test("a link with an archived copy shows the copy beside it, a link without one 
       {
         ...sheet.rows[0]!,
         archives: {
-          profile_url: { href: "/v1/accounts/synthetic.example/archive?url=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fsynthetic-director", archived_at: "2026-10-27T09:00:00+00:00" },
+          profile_url: { href: "/accounts/synthetic.example/archive?url=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fsynthetic-director", archived_at: "2026-10-27T09:00:00+00:00" },
           link: { href: "https://evil.example/not-ours", archived_at: "2026-10-27T09:00:00+00:00" },
         },
       },
@@ -73,10 +73,10 @@ test("a link with an archived copy shows the copy beside it, a link without one 
   render(<SheetView sheet={archived} domain="synthetic.example" base="/accounts/synthetic.example/people" moreHref={null} />);
   const table = screen.getByRole("table");
   const copies = within(table).getAllByRole("link", { name: "archived" });
-  // the profile's copy opens the API's same-origin page; the source link's copy pointed off
+  // the profile's copy opens the website's own archive page; the source link's copy pointed off
   // the origin and is not shown
   expect(copies).toHaveLength(1);
-  expect(copies[0]!.getAttribute("href")).toBe("/v1/accounts/synthetic.example/archive?url=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fsynthetic-director");
+  expect(copies[0]!.getAttribute("href")).toBe("/accounts/synthetic.example/archive?url=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fsynthetic-director");
   expect(copies[0]!.getAttribute("title")).toBe("Archived copy, captured 2026-10-27");
   expect(within(table).getByRole("link", { name: "Open profile" })).toBeTruthy();
 });
@@ -112,7 +112,9 @@ test("two link columns in one row both open their own address with the file's ow
   render(<SheetView sheet={jobs} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
   const table = screen.getByRole("table");
   expect(within(table).getByRole("link", { name: "Open posting" }).getAttribute("href")).toBe("https://jobs.example/posting-1");
-  expect(within(table).getByRole("link", { name: "Open archived copy" }).getAttribute("href")).toBe("https://web.example/v1/accounts/x/archive?url=https%3A%2F%2Fjobs.example%2Fposting-1");
+  // the file's archived link carries the public origin of the day (or the older API path); the
+  // table opens it as the website's own page, same origin, so the session is sent
+  expect(within(table).getByRole("link", { name: "Open archived copy" }).getAttribute("href")).toBe("/accounts/x/archive?url=https%3A%2F%2Fjobs.example%2Fposting-1");
 });
 
 test("a cell's fill token becomes its class; an unknown token styles nothing", () => {
@@ -180,6 +182,57 @@ test("the buttons of a file-shaped tab keep the view: chips, sort headings, Show
   expect(screen.queryByRole("link", { name: /^Archived link/ })).toBeNull();
   // the downloads and Show more rows carry the filter and the sort
   expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href")).toBe("/v1/accounts/synthetic.example/sheets/jobs/csv?filter=status_open&sort=c1&dir=asc");
-  expect(screen.getByRole("link", { name: "Open in Excel" }).getAttribute("href")).toBe("/v1/accounts/synthetic.example/sheets/jobs/xlsx?filter=status_open&sort=c1&dir=asc");
+  expect(screen.getByRole("link", { name: "Download table as Excel" }).getAttribute("href")).toBe("/v1/accounts/synthetic.example/sheets/jobs/xlsx?filter=status_open&sort=c1&dir=asc");
   expect(screen.getByRole("link", { name: "Show more rows" }).getAttribute("href")).toBe("/accounts/synthetic.example/jobs?limit=400");
+});
+
+// --- fix wave C (2026-10-29): row identity, one number format, wrapping titles -----------------
+
+function two(): Sheet {
+  const cut = (n: number, title: string, text: string) => ({
+    n,
+    cells: { c1: title, c2: "A", c3: text, c4: "Open posting", c5: "" },
+    links: { c4: `https://jobs.example/${title}` },
+    cut: { c3: 5400 },
+    link: null,
+  });
+  return { ...jobs, total: 2, rows: [cut(1, "Alpha", "Alpha description cut…"), cut(2, "Beta", "Beta description cut…")] };
+}
+
+test("an expanded cell stays with its own posting when the table is sorted again", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ n: 1, col: "c3", text: "ALPHA whole description", href: null }), { status: 200, headers: { "content-type": "application/json" } }));
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    const first = two();
+    const { rerender } = render(<SheetView sheet={first} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
+    fireEvent.click(screen.getAllByRole("button", { name: /Show the whole Full description cell of row 1/ })[0]!);
+    await waitFor(() => expect(screen.getByText("ALPHA whole description")).toBeTruthy());
+    // sorted the other way: Beta is now row 1 and Alpha row 2
+    const flipped: Sheet = { ...first, dir: "desc", rows: [{ ...first.rows[1]!, n: 1 }, { ...first.rows[0]!, n: 2 }] };
+    rerender(<SheetView sheet={flipped} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
+    const rows = screen.getAllByRole("row").slice(1);
+    // Beta (now first) must not show Alpha's whole description; Alpha keeps its own
+    expect(within(rows[0]!).queryByText("ALPHA whole description")).toBeNull();
+    expect(within(rows[0]!).getByText("Beta description cut…")).toBeTruthy();
+    expect(within(rows[1]!).getByText("ALPHA whole description")).toBeTruthy();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("two rows that print the same still get their own keys", () => {
+  const same = { n: 1, cells: { a: "x" }, links: {}, link: null };
+  expect(new Set(rowKeys([same, { ...same, n: 2 }])).size).toBe(2);
+});
+
+test("the number of a cut cell reads the same wherever it is rendered", () => {
+  render(<SheetView sheet={two()} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
+  expect(screen.getAllByRole("button", { name: /Show the whole/ })[0]!.textContent).toBe("Show all (5,400 characters)");
+});
+
+test("a long title wraps in its cell instead of widening the table", () => {
+  const long: Sheet = { ...jobs, rows: [{ ...jobs.rows[0]!, cells: { ...jobs.rows[0]!.cells, c1: "Senior Salesforce Marketing Cloud Engineering and Platform Operations Manager, Global" } }] };
+  render(<SheetView sheet={long} domain="synthetic.example" base="/accounts/synthetic.example/jobs" moreHref={null} />);
+  const title = within(screen.getByRole("table")).getByText(/Senior Salesforce Marketing Cloud/).closest("td");
+  expect(title?.className).toContain("wrap");
 });

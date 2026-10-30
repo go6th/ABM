@@ -10,6 +10,7 @@ URL and sentence as evidence.
 ``resolve_unlinked`` serves the other gap: a record the people source returned WITHOUT a profile
 link (it would end "unresolved" and off the list, P2). One resolver query per such record, the
 same one-exact-match rule, and the record keeps everything it had with the profile link added.
+Only a page that names this account as the employer is accepted, never a name alone.
 """
 
 from __future__ import annotations
@@ -169,7 +170,13 @@ async def resolve_unlinked(
         matches: dict[str, RawPerson] = {}
         for found in page.records:
             url = canonical_profile_url(found.profile_url, cfg.profile_url)
-            if url and names_equal(found.name, record.name):
+            # the page must say the person works at THIS account (the resolver sets the
+            # employer from the page's company): a name alone attaches nobody's profile
+            # (pipeline review 16, security review F7)
+            same_employer = found.employer_domain is not None and (
+                record.employer_domain is None or record.employer_domain == found.employer_domain
+            )
+            if url and same_employer and names_equal(found.name, record.name):
                 matches.setdefault(url, found)
         if len(matches) == 1:
             found = next(iter(matches.values()))

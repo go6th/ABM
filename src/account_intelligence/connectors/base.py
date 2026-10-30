@@ -51,6 +51,24 @@ class Operation(StrEnum):
     ORG_TEAMS = "org_teams"
 
 
+# Operations answered by one request (a search, one page, one record lookup). A code pipeline
+# waits at most ``SINGLE_CALL_CEILING_S`` for one of them and then names a gap: with the research
+# caps off a provider may be waited on for 1200 s, longer than the 1650 s slice, and one call that
+# never answers held a node in three slices in a row (orchestration review F9; known problem 1).
+# The feeds (job openings, news, technology detections) and people lists paginate for many
+# minutes on a large account by design; they are bounded by the slice and resume in the next one.
+SINGLE_REQUEST_OPERATIONS = frozenset(
+    {
+        Operation.WEB_SEARCH,
+        Operation.READ_PAGE,
+        Operation.SCRAPE_JOB_PAGE,
+        Operation.PROFILE_ENRICHMENT,
+        Operation.ORG_RESOLVE,
+        Operation.ORG_TECH_STACK,
+    }
+)
+SINGLE_CALL_CEILING_S = 300.0
+
 OPERATION_PROVIDER: Mapping[Operation, ProviderCode] = {
     Operation.WEB_SEARCH: ProviderCode.P_SEARCH,
     Operation.READ_PAGE: ProviderCode.P_SEARCH,

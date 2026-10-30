@@ -29,6 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence import archive as LA
+from account_intelligence import archive_records as AR
 from account_intelligence.grading.schema import ProposedSourced
 from people.merge import MergeEvent
 from people.models import (
@@ -96,13 +97,24 @@ class PgPeopleRepo:
     """Persistence for one tenant and account."""
 
     def __init__(
-        self, txn: TxnFactory, tenant_id: UUID, account_id: UUID, payloads: Any, key_for: KeyFor
+        self,
+        txn: TxnFactory,
+        tenant_id: UUID,
+        account_id: UUID,
+        payloads: Any,
+        key_for: KeyFor,
+        guard: AR.Guard = AR.default_guard,
+        on_archive_failure: Callable[[Exception], None] = lambda _error: None,
     ) -> None:
         self.txn = txn
         self.tenant_id = tenant_id
         self.account_id = account_id
         self.payloads = payloads
         self.key_for = key_for
+        self.guard = guard
+        # called with the error when an archive write fails; the research goes on (the package
+        # may not import observability: the application passes a logger)
+        self.on_archive_failure = on_archive_failure
 
     # ---- search pages -----------------------------------------------------------------------
 
@@ -341,25 +353,42 @@ class PgPeopleRepo:
     # ---- the run ------------------------------------------------------------------------------
 
     async def _archive_entries(self, people: Sequence[Person]) -> list[LA.ArchiveEntry]:
-        """The archived copy of every person's profile page: the record the source returned
-        (name, title, headline, location), stored as a small body so the People List row can
-        open what was captured once the live profile link dies (never erased people, never
-        internal-only rows)."""
+        """The archived copy of each LISTED person's profile page: the record the source returned
+        (name, title, headline, location), stored as a small body. Only the people the People
+        List prints are archived (``in_scope``, not merged into another row, not internal-only):
+        an excluded, out-of-scope, review or merged person, or a name that is not a person, gets
+        no copy at all (security review 2026-10-29, F1). The copy is an internal input of the
+        profile matcher (``LA.profile_links``); no client route serves a ``profile`` copy. An
+        object store failure for one copy skips that copy, never the research (F, pipeline 12)."""
         out: list[LA.ArchiveEntry] = []
         now = datetime.now(UTC)
         for p in people:
             url = p.profile_url_raw or p.profile_url
-            if not url or p.internal_only or LA.normalized(url) is None:
+            if (
+                p.classification.status != "in_scope"
+                or p.merged_into is not None
+                or p.internal_only
+                or not url
+                or LA.normalized(url) is None
+            ):
                 continue
-            lines = [p.name, p.title, p.headline, p.location]
-            body_text = "\n".join(x for x in lines if x)
-            if not body_text:
+            if not any((p.name, p.title, p.headline, p.location)):
                 continue
-            body = LA.archive_body(
-                url, body_text, title=p.name, captured_at=now, kind="profile", source_ref=p.raw_ref
+            record = AR.profile_record(
+                url,
+                name=p.name or "",
+                job_title=p.title,
+                headline=p.headline,
+                location=p.location,
+                captured_at=now,
+                guard=self.guard,
             )
-            key = LA.archive_key(self.tenant_id, self.account_id, body)
-            ref = await self.payloads.put(key, body)
+            key = LA.archive_key(self.tenant_id, self.account_id, AR.identity_bytes(record))
+            try:
+                ref = await self.payloads.put(key, AR.snapshot_bytes(record))
+            except Exception as error:  # noqa: BLE001 - an archive failure never fails the research
+                self.on_archive_failure(error)
+                continue
             out.append(
                 LA.ArchiveEntry(
                     url=url,
@@ -368,6 +397,7 @@ class PgPeopleRepo:
                     archived_at=now,
                     title=p.name,
                     source_ref=p.raw_ref,
+                    meta=AR.index_meta(record),
                 )
             )
         return out
@@ -499,7 +529,11 @@ class PgPeopleRepo:
         ).encode()
         claims_ref = await self.payloads.put(self.key_for("people", "claims.json"), claims_body)
         merge_rule = {e.key: e.rule_id for e in record.merge_events}
-        archived = await self._archive_entries(record.people)
+        try:
+            archived = await self._archive_entries(record.people)
+        except Exception as error:  # noqa: BLE001 - an archive failure never fails the research
+            self.on_archive_failure(error)
+            archived = []
         async with self.txn(self.tenant_id) as s:
             ids: dict[str, UUID] = {}
             ordered = sorted(record.people, key=lambda p: (p.merged_into is not None, p.person_key))
@@ -513,7 +547,12 @@ class PgPeopleRepo:
                     await self._event(
                         s, run, p.person_key, "scope", None, p.classification.rule_id or "scope"
                     )
-            await LA.record(s, self.tenant_id, self.account_id, run, archived)
+            try:
+                # a savepoint: a failed archive insert leaves the people rows standing
+                async with s.begin_nested():
+                    await LA.record(s, self.tenant_id, self.account_id, run, archived)
+            except Exception as error:  # noqa: BLE001 - an archive failure never fails the research
+                self.on_archive_failure(error)
             await s.execute(
                 text(
                     "INSERT INTO people_pipeline_runs (run_id, tenant_id, account_id, as_of,"
@@ -691,6 +730,34 @@ class PgPeopleRepo:
                 )
                 keys.extend(found)
             keys = sorted(set(keys))
+            # what the archive must forget, read BEFORE the personal fields are nulled: the
+            # person's names and every address they were known by
+            known = (
+                await s.execute(
+                    text(
+                        "SELECT name, profile_url, profile_url_canonical FROM people"
+                        " WHERE account_id = :a AND person_key = ANY(:k) AND erased_at IS NULL"
+                    ),
+                    {"a": self.account_id, "k": keys},
+                )
+            ).all()
+            raw_urls: list[str | None] = list(
+                (
+                    await s.execute(
+                        text(
+                            "SELECT profile_url_raw FROM person_sources WHERE account_id = :a"
+                            " AND person_key = ANY(:k) AND erased_at IS NULL"
+                        ),
+                        {"a": self.account_id, "k": keys},
+                    )
+                ).scalars()
+            )
+            archive_urls = [
+                profile_url,
+                *(u for row in known for u in (row.profile_url, row.profile_url_canonical)),
+                *raw_urls,
+            ]
+            archive_names = sorted({row.name for row in known if row.name})
             erased = (
                 await s.execute(
                     text(
@@ -735,6 +802,28 @@ class PgPeopleRepo:
                 )
             for row in erased:
                 await self._event(s, row.run_id, row.person_key, "erase", None, "erase", "operator")
+            # the archive keeps a copy of the profile the person was listed with, and search
+            # results titled with their name: delete those index rows (erase_archive_urls, which
+            # needs the tombstone above). The stored bodies cannot be deleted (the payload store
+            # has no delete); no route reaches a body without its index row.
+            if erased:
+                for i, name in enumerate(archive_names or [None]):
+                    await LA.erase_urls(s, self.account_id, archive_urls if i == 0 else [], name)
+                # the web tables of every run of the account were materialised with the person
+                # in them: discard them (derived rows, ``reset_view_run``), so the next read
+                # builds them again from the rows above, which no longer list the person
+                # (leakage review 2026-10-30, F8). Delivered files stay as delivered until the
+                # next build (counsel's decision, D-06).
+                runs: list[Any] = list(
+                    (
+                        await s.execute(
+                            text("SELECT run_id FROM view_materializations WHERE account_id = :a"),
+                            {"a": self.account_id},
+                        )
+                    ).scalars()
+                )
+                for run in runs:
+                    await s.execute(text("SELECT reset_view_run(:r)"), {"r": run})
         return len(erased)
 
 

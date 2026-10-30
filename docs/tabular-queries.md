@@ -77,7 +77,7 @@ and query again before answering.
 matching rows (after `distinct_on`); `truncated` is true only when `limit` was hit; more than
 5,000 matches is the structured error `filter_too_wide` (narrow the filter), never a silent
 cut. Every row carries `{table, row, member}`, so `documents.chunking.cite` cites it as it cites
-the passage ("GSK_Job_Postings.xlsx, row 17 of Jobs"). Payload columns (the long description)
+the passage ("Holdings_Job_Postings.xlsx, row 17 of Jobs"). Payload columns (the long description)
 are returned only when named in `columns`.
 
 Semantics: `eq`/`neq`/`in` on text are case-insensitive; dates compare as dates (ISO
@@ -157,9 +157,9 @@ documents show "parsing" then "indexed" again in the file list while it runs.
 
 ## Observability
 
-Every Ask turn logs `ask.route` with `route`, `reason`, `matched_columns` and
-`matched_values` (the lexicon hits that carried the route — column names and low-cardinality
-value terms, never free text), `outcome` (model or local),
+Every Ask turn logs `ask.route` with `route`, `matched_column_count` and
+`matched_value_count` (how many lexicon hits carried the route; never which ones, because the
+values are the caller's own table cells, and no reason text either), `outcome` (model or local),
 `tools_called`, `predicates` (column and operator only, never values), `row_count` (the last
 query's), `relaxed_predicate` (the one column the model dropped between two queries of the same
 table), `dedup_removed` and `empty_results`. With tables in the workspace an answer whose text

@@ -110,6 +110,13 @@ def withheld_files(defects: Iterable[Mapping[str, Any]]) -> dict[str, list[str]]
     return {k: v for k, v in held.items() if v}
 
 
+def run_level_failed(defects: Iterable[Mapping[str, Any]]) -> bool:
+    """Whether a stored FAIL verdict holds back every file of its run: a defect of a run-level
+    check, or so many defects that the stored list (200) was cut and may have lost one."""
+    items = list(defects)
+    return len(items) >= 200 or any(str(d.get("check") or "") not in FILE_CHECKS for d in items)
+
+
 def _builder_verified(row: Any, data: bytes) -> bool:
     """Whether ``data`` is a file the export builder made, or a copy of a published library
     account, and is unchanged since: the deliverable carries the snapshot it was built from
@@ -286,7 +293,7 @@ class PreDeliveryGate:
 
         assert self.cfg is not None
         checker = LeakChecker(self.cfg.leak, self.embedder, private, public, nearest)
-        from exports.verify import scan_package
+        from exports.verify import scan_package, third_party_scan
 
         for f in files:
             data = await self.payloads.get(str(f.object_key))
@@ -307,6 +314,21 @@ class PreDeliveryGate:
                     failing["client_terms"].append(f"{f.kind}:{len(hits)}")
             lowered = body.lower()
             named = [h for h in hosts if h in lowered]
+            if not _builder_verified(f, data):
+                # a file the builder did not make: the host check covers every member (hyperlink
+                # targets, comments, workbook names, custom properties, nested files), as the
+                # builder's own scan does, not only the visible text (F11)
+                try:
+                    report = third_party_scan(data, str(f.kind))
+                except zipfile.BadZipFile:
+                    report = None
+                if report is not None:
+                    named += [
+                        d.split(": ", 1)[1]
+                        for d in report.result.details
+                        if d.startswith("data_tool_host: ")
+                    ]
+                    named = sorted(set(named))
             if named:
                 failing["third_party_domains"].append(f"{f.kind}:{len(named)}")
             lost = rows_lost(str(f.kind), data, body, f.manifest_json or {})

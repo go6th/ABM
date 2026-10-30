@@ -155,6 +155,9 @@ async def test_a_run_that_graded_no_fact_finishes_with_no_new_findings(h: Harnes
     assert state["outcome"] == "completed" and state["error_code"] == "no_new_findings"
     assert built == []  # nothing to build, so the builder is never asked
     assert state["settled"] is True
+    # and no paid planner call is made over an empty fact list (orchestration review F13)
+    assert h.llm is not None
+    assert h.llm.calls["abm_sense_check"] == 0 and h.llm.calls["abm_distill"] == 0
 
 
 def test_no_new_findings_is_a_finished_run_not_a_stop() -> None:

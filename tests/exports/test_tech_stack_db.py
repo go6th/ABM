@@ -92,8 +92,9 @@ def _as_app_rw(
 async def test_the_step_stores_each_item_once_in_the_lookups_order() -> None:
     w = make_world()
     step = _step(w)
-    written = await step._insert_stack(RECORDS)
+    written, skipped = await step._insert_stack(RECORDS)
     assert written == 3  # the repeat and the nameless item are not stored
+    assert skipped == 1  # the nameless item is counted, never dropped silently (review 24)
     rows = _rows(w)
     assert [r[:5] for r in rows] == [
         ("Sales", "Customer Relationship Manager (CRM)", "Salesforce", 1769, 0),
@@ -102,8 +103,23 @@ async def test_the_step_stores_each_item_once_in_the_lookups_order() -> None:
     ]
     assert {r[5] for r in rows} == {"test-owner"}  # owned like the account
     # a replay (a resumed slice) writes nothing twice
-    assert await step._insert_stack(RECORDS) == 0
+    assert await step._insert_stack(RECORDS) == (0, 1)
     assert len(_rows(w)) == 3
+
+
+async def test_the_rows_name_the_accounts_owner_whoever_writes_them() -> None:
+    """A worker in system scope may carry another acting user (or none): the stack still belongs
+    to the account's owner, as the link archive does (security review 2026-10-29, F14)."""
+    from account_intelligence.db.session import _ACTOR
+
+    w = make_world()
+    token = _ACTOR.set("someone-else")
+    try:
+        written, _ = await _step(w)._insert_stack(RECORDS[:2])
+    finally:
+        _ACTOR.reset(token)
+    assert written == 2
+    assert {r[5] for r in _rows(w)} == {"test-owner"}
 
 
 async def test_the_database_refuses_blank_negative_and_repeated_rows_and_any_change() -> None:
@@ -226,7 +242,7 @@ async def test_the_step_replays_the_lookup_the_run_made_and_stores_it(
     monkeypatch.setattr(pipelines, "call_operation", fake_call)
     out = await _step(w).write_stack(SimpleNamespace())  # type: ignore[arg-type]
     assert out.exits == {"stack": "written"}
-    assert out.counters == {"stack_rows": 3, "stack_records": 5}
+    assert out.counters == {"stack_rows": 3, "stack_records": 5, "stack_skipped_empty": 1}
     assert [type(a).__name__ for _op, a in seen] == ["OrgResolveArgs", "OrgTechStackArgs"]
     assert seen[1][1].organization_id == 7
     assert len(_rows(w)) == 3
@@ -246,3 +262,33 @@ async def test_the_step_replays_the_lookup_the_run_made_and_stores_it(
     monkeypatch.setattr(pipelines, "call_operation", no_match)
     out = await _step(w2).write_stack(SimpleNamespace())  # type: ignore[arg-type]
     assert out.exits == {"stack": "not_matched"} and _rows(w2) == []
+
+
+async def test_the_step_uses_the_first_matched_organisation_that_has_an_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase 1 looks the stack up under the first matched record WITH an id; so does the step
+    (a matched record without one in front of it is no reason to find no stack)."""
+    w = make_world()
+    _ledger_stack_call(w)
+    seen: list[Any] = []
+
+    async def fake_call(op: Any, args: Any, *_a: Any, **_k: Any) -> Any:
+        seen.append(args)
+        if "resolve" in str(op).lower():
+            return SimpleNamespace(
+                records=[
+                    OrganizationRecord.model_construct(
+                        kind="organization", matched=True, organization_id=None
+                    ),
+                    OrganizationRecord.model_construct(
+                        kind="organization", matched=True, organization_id=9
+                    ),
+                ]
+            )
+        return SimpleNamespace(records=RECORDS[:1])
+
+    monkeypatch.setattr(pipelines, "call_operation", fake_call)
+    out = await _step(w).write_stack(SimpleNamespace())  # type: ignore[arg-type]
+    assert out.exits == {"stack": "written"}
+    assert seen[1].organization_id == 9

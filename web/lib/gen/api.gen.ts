@@ -305,12 +305,36 @@ export const Archive = z.object({
 }).strict();
 export type Archive = z.infer<typeof Archive>;
 
+export const ArchiveListItem = z.object({
+  "archived_at": z.string(),
+  "kind": z.string(),
+  "location": z.string().nullable().optional(),
+  "record_schema": z.string().nullable().optional(),
+  "requisition": z.string().nullable().optional(),
+  "status_at_capture": z.string().nullable().optional(),
+  "title": z.string().nullable().optional(),
+  "url": z.string(),
+}).strict();
+export type ArchiveListItem = z.infer<typeof ArchiveListItem>;
+
+export const ArchiveList = z.object({
+  "items": z.array(ArchiveListItem).optional(),
+  "limit": z.number().int(),
+  "next_offset": z.number().int().nullable().optional(),
+  "offset": z.number().int(),
+  "total": z.number().int(),
+}).strict();
+export type ArchiveList = z.infer<typeof ArchiveList>;
+
 export const ArchivedCopy = z.object({
   "archived_at": z.string(),
   "kind": z.string(),
+  "record": z.record(z.string(), z.unknown()).nullable().optional(),
   "text": z.string(),
   "title": z.string().nullable().optional(),
+  "truncated": z.boolean().optional(),
   "url": z.string(),
+  "withheld": z.array(z.string()).optional(),
 }).strict();
 export type ArchivedCopy = z.infer<typeof ArchivedCopy>;
 
@@ -3570,6 +3594,7 @@ export const operations = {
   "POST /v1/accounts/from-library": { method: "POST", path: "/v1/accounts/from-library", plane: "tenant", status: 201, request: FromLibrary, requestRequired: true, response: LibraryAdded },
   "GET /v1/accounts/{domain}": { method: "GET", path: "/v1/accounts/{domain}", plane: "tenant", status: 200, request: null, requestRequired: false, response: AccountDetail },
   "GET /v1/accounts/{domain}/archive": { method: "GET", path: "/v1/accounts/{domain}/archive", plane: "tenant", status: 200, request: null, requestRequired: false, response: ArchivedCopy },
+  "GET /v1/accounts/{domain}/archive/list": { method: "GET", path: "/v1/accounts/{domain}/archive/list", plane: "tenant", status: 200, request: null, requestRequired: false, response: ArchiveList },
   "GET /v1/accounts/{domain}/deliverables": { method: "GET", path: "/v1/accounts/{domain}/deliverables", plane: "tenant", status: 200, request: null, requestRequired: false, response: DeliverableFiles },
   "GET /v1/accounts/{domain}/deliverables/download": { method: "GET", path: "/v1/accounts/{domain}/deliverables/download", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/accounts/{domain}/download-everything": { method: "POST", path: "/v1/accounts/{domain}/download-everything", plane: "tenant", status: 202, request: EverythingBody, requestRequired: true, response: DownloadJob },

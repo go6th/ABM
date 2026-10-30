@@ -9,7 +9,14 @@ materialised as ``withheld`` with no rows: the tables show the reason, and the e
 refused for the same reason. Two concurrent requests serialise on a per-run advisory lock; the
 second finds the first's result.
 
+The exclusion set the rows were filtered with (``exclusion_hash``) is stored with the run. A
+read after the tenant changed its exclusions finds a stale materialisation and builds it again:
+``reset_view_run`` (a definer function; the application role has no DELETE on these derived
+tables) removes the run's old rows and the new ones are inserted in the same transaction (leakage
+review 2026-10-30, F1).
+
 GUARANTEE(test_materialisation_is_once_per_run_and_matches_the_mapping)
+GUARANTEE(test_an_exclusion_added_after_a_run_reaches_every_surface)
 """
 
 from __future__ import annotations
@@ -30,6 +37,8 @@ from account_intelligence.runs.transitions import TERMINAL
 from exports.builder import errors_of, map_snapshot
 from exports.config import ExportConfig
 from exports.ports import ContentReader
+from exports.readers.exclusions import exclusion_hash
+from tenancy import settings as tenant_settings
 from views.rowsources import rows_of
 from views.rowsources.common import ViewRow, rows_hash
 
@@ -54,13 +63,52 @@ class Materialized:
     reason: str | None
     counts: dict[str, int]
     rows_hash: str
+    exclusion_hash: str | None = None
+
+
+async def current_exclusion_hash(s: AsyncSession) -> str:
+    """The hash of the context tenant's CURRENT exclusion set (``none`` for no exclusions). Stored
+    settings that no longer validate give ``invalid``, which no stored file or table carries: the
+    files are held back and the page still loads (a build refuses the same settings)."""
+    try:
+        current = await tenant_settings.current(s)
+    except tenant_settings.SettingsInvalid:
+        return "invalid"
+    return exclusion_hash(tenant_settings.ExclusionFilter.of(current.settings))
+
+
+async def exclusions_changed_since(s: AsyncSession, at: datetime) -> bool:
+    """Whether the tenant's exclusion set is another one than the one in force at ``at`` (the
+    latest settings version saved by then; none: no exclusions). A package or file made before
+    the change still holds what the tenant excluded since."""
+    then = (
+        await s.execute(
+            text(
+                "SELECT settings_json FROM tenant_settings_versions WHERE created_at <= :at"
+                " ORDER BY version DESC LIMIT 1"
+            ),
+            {"at": at},
+        )
+    ).scalar_one_or_none()
+    if then is None:
+        before = "none"
+    else:
+        try:
+            before = exclusion_hash(
+                tenant_settings.ExclusionFilter.of(
+                    tenant_settings.TenantSettings.model_validate(then)
+                )
+            )
+        except ValueError:
+            return True
+    return before != await current_exclusion_hash(s)
 
 
 async def _existing(s: AsyncSession, run_id: UUID) -> Materialized | None:
     row: Any = (
         await s.execute(
             text(
-                "SELECT run_id, account_id, status, reason, counts, rows_hash"
+                "SELECT run_id, account_id, status, reason, counts, rows_hash, exclusion_hash"
                 " FROM view_materializations WHERE run_id = :r"
             ),
             {"r": run_id},
@@ -69,8 +117,20 @@ async def _existing(s: AsyncSession, run_id: UUID) -> Materialized | None:
     if row is None:
         return None
     return Materialized(
-        row.run_id, row.account_id, row.status, row.reason, dict(row.counts or {}), row.rows_hash
+        row.run_id,
+        row.account_id,
+        row.status,
+        row.reason,
+        dict(row.counts or {}),
+        row.rows_hash,
+        row.exclusion_hash,
     )
+
+
+def is_current(found: Materialized, current: str) -> bool:
+    """Whether a materialisation was filtered with ``current``. One stored before the hash was
+    recorded counts as current only when the tenant has no exclusions at all."""
+    return (found.exclusion_hash or "none") == current
 
 
 async def materialize(
@@ -85,7 +145,8 @@ async def materialize(
     """The run's materialisation, building it on first use."""
     async with txn(tenant_id) as s:
         found = await _existing(s, run_id)
-        if found is not None:
+        wanted = await current_exclusion_hash(s)
+        if found is not None and is_current(found, wanted):
             return found
         run: Any = (
             await s.execute(
@@ -109,8 +170,11 @@ async def materialize(
             {"r": str(run_id)},
         )
         found = await _existing(s, run_id)
-        if found is not None:
+        if found is not None and is_current(found, wanted):
             return found
+        if found is not None:
+            # a materialisation made under another exclusion list: replace it whole
+            await s.execute(text("SELECT reset_view_run(:r)"), {"r": run_id})
         batch = [
             {
                 "run": run_id,
@@ -142,8 +206,8 @@ async def materialize(
         await s.execute(
             text(
                 "INSERT INTO view_materializations (run_id, account_id, counts, rows_hash,"
-                " settings_version, status, reason, created_at) VALUES (:r, :a,"
-                " CAST(:c AS jsonb), :h, :v, :st, :why, :now)"
+                " settings_version, status, reason, created_at, exclusion_hash) VALUES (:r, :a,"
+                " CAST(:c AS jsonb), :h, :v, :st, :why, :now, :xh)"
             ),
             {
                 "r": run_id,
@@ -154,9 +218,12 @@ async def materialize(
                 "st": status,
                 "why": reason,
                 "now": now,
+                "xh": content.exclusion_hash or "none",
             },
         )
-    return Materialized(run_id, run.account_id, status, reason, counts, digest)
+    return Materialized(
+        run_id, run.account_id, status, reason, counts, digest, content.exclusion_hash or "none"
+    )
 
 
 async def api_rows(s: AsyncSession, run_id: UUID, table: str) -> list[dict[str, Any]]:

@@ -9,11 +9,14 @@
    digest, so it appears nowhere in the repository).
 
 A provider whose display name is also an ordinary English word (``WORD_NAMES``: "Parallel") is
-matched only as the vendor's name: the capitalised word inside a sentence ("we used Parallel to
-read pages"), or the word in any case followed by a product word ("parallel search API"). The
-English use ("work in parallel", "parallel processing", "Parallel processing is fast.") is not a
-hit; the owner's reference Jobs sheet was held back whole for it (audit 2026-10-29, F1). Every
-other provider name is caught in any case, anywhere.
+DENIED by default: it is a hit in every case and position (capitalised anywhere, including the
+start of a sentence, UPPER CASE, ``Parallel's``, after ``provider:`` or ``via``, inside a domain
+or a compound tool name). Only the lowercase English phrases "in parallel" and "parallel
+processing/execution/workflows/computing/tasks/teams/lines/universe/to/with" are exempt, so a job
+description that says "works in parallel with data engineers" passes and a capitalised "Parallel
+processing" costs one withheld cell, never a leak (security review 2026-10-29, F3). Every other
+provider name is caught in any case, anywhere. The text is also checked in NFKC form with
+zero-width characters removed, so a lookalike spelling does not slip past.
 
 Hits carry the pattern kind and offset, never the matched text.
 
@@ -30,30 +33,41 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
 
+from account_intelligence import archive_records as AR
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.safety.client_output import scan_text
 from agents.errors import GuardViolation
 
 _WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 
-# Provider display names (casefolded) that are also ordinary English words. They match only as
-# the vendor's name (see the module docstring); the configured display name's own case is the
-# vendor form.
+# Provider display names (casefolded) that are also ordinary English words. They are DENIED by
+# default: the name is a hit in every case and position, and only the lowercase English phrases
+# of ``_ENGLISH_BEFORE`` / ``_ENGLISH_AFTER`` are exempt (security review 2026-10-29, F3: an
+# allow-by-position rule let "Source: Parallel", "Parallel returned 4 results.", "provider:
+# parallel", "pulled via parallel", "PARALLEL" and "Parallel's API" through).
 WORD_NAMES: frozenset[str] = frozenset({"parallel"})
-# A word-like provider name followed by one of these is the vendor, whatever its case.
-_PRODUCT_WORDS = (
-    "api", "search", "fetch", "extract", "task", "tasks", "sdk", "web", "ai", "platform",
-    "inc", "labs", "connector", "mcp", "crawler",
-)  # fmt: skip
-# What ends a sentence (or opens a quote or bracket): a capitalised word-like name right after
-# one of these is read as ordinary English ("Parallel processing is fast."), not as the vendor.
-_SENTENCE_END = frozenset(".!?:;\"'([\u2018\u201c\n")
+# The word is ordinary English only when it is written in lowercase AND sits in one of these
+# phrases: "in parallel" ("run/runs/running/works/working in parallel" end in it), or followed
+# by one of the nouns/prepositions below. A false positive costs one cell, a false negative is a
+# leak, so a capitalised or upper-case "Parallel processing" is withheld.
+_ENGLISH_BEFORE = re.compile(r"(?<!\w)in\s+$", re.I)
+_ENGLISH_AFTER = re.compile(
+    r"^\s+(?:processing|execution|workflows?|computing|tasks?|teams?|lines?|universe|to|with)"
+    r"(?!\w)",
+    re.I,
+)
+# how far to look around a match for the phrase (never the whole text: the scan is linear)
+_LOOK_BEFORE = 8
+_LOOK_AFTER = 24
+# a text with more vendor hits than this is a hit already: stop counting
+_MAX_VENDOR_HITS = 1000
 
 
 def word_digest(word: str) -> str:
@@ -93,28 +107,32 @@ def is_word_name(term: str) -> bool:
 
 
 @lru_cache(maxsize=64)
-def _vendor_patterns(term: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
-    """The two patterns of a word-like provider name: its configured (capitalised) form as a
-    whole word, and the word in any case followed by a product word."""
-    word = re.escape(term.strip())
-    vendor = word if term.strip() != term.strip().casefold() else word[:1].upper() + word[1:]
-    products = "|".join(_PRODUCT_WORDS)
-    return (
-        re.compile(rf"(?<!\w){vendor}(?!\w)"),
-        re.compile(rf"(?<!\w){word}(?!\w)(?=\s+(?:{products})(?!\w))", re.I),
-    )
+def _vendor_pattern(term: str) -> re.Pattern[str]:
+    """The word-like provider name as a whole word in any case (a hyphen, a dot or an
+    apostrophe ends the word: ``parallel-search``, a dotted ``parallel.<tld>`` form and
+    ``Parallel's`` match)."""
+    return re.compile(rf"(?<!\w){re.escape(term.strip().casefold())}(?!\w)", re.I)
+
+
+def _english_use(text: str, start: int, end: int) -> bool:
+    """True when the match is the lowercase English word inside an allow-listed phrase."""
+    if text[start:end] != text[start:end].casefold():
+        return False
+    before = text[max(0, start - _LOOK_BEFORE) : start]
+    after = text[end : end + _LOOK_AFTER]
+    return bool(_ENGLISH_BEFORE.search(before) or _ENGLISH_AFTER.match(after))
 
 
 def _vendor_hits(text: str, term: str) -> list[int]:
-    """Offsets where a word-like provider name is the vendor: capitalised inside a sentence, or
-    followed by a product word in any case."""
-    capitalised, product = _vendor_patterns(term)
-    hits = {m.start() for m in product.finditer(text)}
-    for m in capitalised.finditer(text):
-        before = text[: m.start()].rstrip(" \t")
-        if before and before[-1] not in _SENTENCE_END:
-            hits.add(m.start())
-    return sorted(hits)
+    """Offsets where a word-like provider name is NOT one of the allow-listed English uses
+    (deny by default). One linear pass; each match looks at a few characters around it only."""
+    hits: list[int] = []
+    for m in _vendor_pattern(term).finditer(text):
+        if not _english_use(text, m.start(), m.end()):
+            hits.append(m.start())
+            if len(hits) >= _MAX_VENDOR_HITS:
+                break
+    return hits
 
 
 @lru_cache(maxsize=64)
@@ -141,14 +159,30 @@ def digest_hits(text: str) -> tuple[int, ...]:
     return tuple(m.start() for m in _WORD.finditer(text) if word_digest(m.group()) in forbidden)
 
 
+_INVISIBLE = dict.fromkeys(
+    map(ord, "\u200b\u200c\u200d\u2060\ufeff\u00ad\u200e\u200f\u202a\u202b\u202c\u202d\u202e")
+)
+
+
+def _folded(text: str) -> str:
+    """The text in NFKC form without zero-width and bidi control characters (what a reader sees),
+    so ``Para\u200bllel`` or a full-width ``Parallel`` is matched like the plain word."""
+    if text.isascii():
+        return text
+    return unicodedata.normalize("NFKC", text).translate(_INVISIBLE)
+
+
 def client_hits(text: str, extra_terms: Iterable[str] = ()) -> tuple[tuple[str, int], ...]:
     """Every hit as ``(kind, offset)``: ``denylist``, ``provider`` or ``name``."""
+    extra = tuple(extra_terms)
+    pattern, words = _term_patterns((*provider_terms(), *extra))
     hits = [("denylist", h.start) for h in scan_text(text)]
-    pattern, words = _term_patterns((*provider_terms(), *tuple(extra_terms)))
-    if pattern is not None:
-        hits += [("provider", m.start()) for m in pattern.finditer(text)]
-    for word in words:
-        hits += [("provider", offset) for offset in _vendor_hits(text, word)]
+    # the text as written and as a reader sees it (offsets of the folded form are only a count)
+    for seen in dict.fromkeys((text, _folded(text))):
+        if pattern is not None:
+            hits += [("provider", m.start()) for m in pattern.finditer(seen)]
+        for word in words:
+            hits += [("provider", offset) for offset in _vendor_hits(seen, word)]
     hits += [("name", offset) for offset in digest_hits(text)]
     return tuple(sorted(set(hits)))
 
@@ -244,6 +278,19 @@ def scrub_client_text(text: str) -> tuple[str, bool]:
     (the caller shows a neutral marker) instead of failing the whole response."""
     cleaned, reason = _scrubbed(text)
     return (cleaned, False) if reason is None else (cleaned, True)
+
+
+def archive_guard(text: str) -> tuple[str, bool]:
+    """The guard every free-text field of a link-archive copy passes: the page guard (tool names
+    scrubbed; a provider term, person name or provider domain withholds) and the platform
+    denylist (broker names, credit figures). A refused field is blanked in the copy, never the
+    whole copy (``account_intelligence.archive_records``)."""
+    shown, withheld = scrub_client_text(text)
+    return shown, withheld or bool(scan_text(shown))
+
+
+# every archive writer that is given no guard uses this one (one write-time guard path)
+AR.use_default_guard(archive_guard)
 
 
 def assert_client_clean(texts: Iterable[str], extra_terms: Iterable[str] = ()) -> None:

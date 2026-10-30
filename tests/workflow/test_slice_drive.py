@@ -199,6 +199,7 @@ async def _run_slice(
     *,
     limit: int = 3,
     replies: tuple[int, ...] = (0, 0),
+    calls: tuple[int, ...] = (0, 0),
 ) -> Any:
     """One slice of ``graph`` with a 10 ms timer; ``counts`` is the no-progress counter as the
     run row would hold it (one element), updated the way ``lifecycle.count_no_progress`` does."""
@@ -228,7 +229,13 @@ async def _run_slice(
     async def model_replies(_s: Any, _run: Any) -> int:
         return next(seen)
 
+    seen_calls = iter(calls)
+
+    async def completed_calls(_s: Any, _run: Any) -> int:
+        return next(seen_calls)
+
     monkeypatch.setattr(lifecycle, "model_replies", model_replies)
+    monkeypatch.setattr(lifecycle, "completed_calls", completed_calls)
     monkeypatch.setattr(lifecycle, "count_no_progress", count_no_progress)
     monkeypatch.setattr(runner, "_end_no_progress", end_no_progress)
     settings = runner.SliceSettings(slice_seconds=0.01, max_no_progress_slices=limit)

@@ -26,6 +26,8 @@ x-app-env: &app-env
   # research cache index: finished provider calls are reused across runs of one tenant
   # (config/research_cache.yaml); the rows live in Postgres, Redis only speeds the lookup
   REDIS_URL: redis://redis:6379/0
+  # owner decision 2026-10-30, for the time being: every research cap is off (src/account_intelligence/dev_limits.py)
+  RESEARCH_CAPS: "off"
 
 services:
   db:

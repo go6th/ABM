@@ -275,7 +275,9 @@ async def _deletion_step(
                 await lifecycle.approve(s, request_id, actor=who.staff_id, now=now)
                 out = {"request_id": request_id, "approved_by": who.staff_id}
             else:
-                result = await lifecycle.execute(s, request_id, actor=who.staff_id, now=now)
+                result = await lifecycle.execute(
+                    s, request_id, actor=who.staff_id, now=now, objects=plane_of(request).objects
+                )
                 out = {
                     "request_id": request_id,
                     "erased": result.erased,

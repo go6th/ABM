@@ -1,8 +1,9 @@
-"""A provider whose display name is also an ordinary English word is caught as the vendor only
-(``agents.naming.WORD_NAMES``): "work in parallel" in a job description is not a leak, "Parallel
-search API" and "we used Parallel" are. Every other provider name is caught in any case. The
-withholding form of the guard (``scrub_client_text``) keeps a page and marks the cell. SYNTHETIC
-text only; the provider terms come from the configuration."""
+"""A provider whose display name is also an ordinary English word is DENIED by default
+(``agents.naming.WORD_NAMES``): every case and position is a hit; only the lowercase English
+phrases ("works in parallel with", "parallel processing") are exempt (security review
+2026-10-29, F3). Every other provider name is caught in any case. The withholding form of the
+guard (``scrub_client_text``) keeps a page and marks the cell. SYNTHETIC text only; the provider
+terms come from the configuration."""
 
 from __future__ import annotations
 
@@ -38,17 +39,18 @@ def _display(term: str) -> str:
     "phrase",
     [
         "The team works in {w} with the data engineers.",
+        "works in {w} with data engineers",
         "{w} processing experience is a plus.",
-        "{W} processing is a plus.",  # capitalised at the start of a sentence
-        "Skills: {W}; SQL; Python.",  # after a colon
-        "Run the loaders in {w}. {W} loads finish sooner.",
-        "({W}) loads run together.",  # after an opening bracket
-        "{W}\n{W}",  # at the start of a line
+        "Run the loaders in {w}. Then ship.",
+        "Jobs run in {w}",
+        "The two lines are {w} to the road.",
+        "{w} execution of tasks and {w} workflows",
+        "Experience with {w} computing and {w} teams",
     ],
 )
-def test_the_english_word_is_not_a_leak(phrase: str) -> None:
+def test_the_lowercase_english_phrase_is_not_a_leak(phrase: str) -> None:
     word = WORDS[0]
-    text = phrase.format(w=word.casefold(), W=_display(word))
+    text = phrase.format(w=word.casefold())
     assert client_hits(text) == (), text
     assert scrub_client_text(text) == (text, False)
     assert sanitize_client_value({"cells": [text]}) == {"cells": [text]}
@@ -58,25 +60,55 @@ def test_the_english_word_is_not_a_leak(phrase: str) -> None:
 @pytest.mark.parametrize(
     "phrase",
     [
+        "{W}",
+        "Source: {W}",
+        "{W} returned 4 results.",
+        "provider: {w}",
+        "pulled via {w}",
+        "{U}",
+        "{W}'s API",
+        "{W} processing is fast.",  # a capitalised sentence start is withheld, never a leak
+        "Skills: {W}; SQL; Python.",
+        "({W}) loads run together.",
+        "{W}\n{W}",
         "Pages were read with the {W} search API.",
         "{w} search API",
         "{W} API",
-        "Data from {W}.",  # the capitalised name inside a sentence
+        "Data from {W}.",
         "We used {W} to read 300 pages",
         "Sourced via {W}, then checked.",
+        "by {w}",
+        "source: {w}",
+        "{w}.ai",
+        "see {w}-search",
+        "works in {W} with data engineers",  # the capitalised word is the name, even in a phrase
+        "Pa\u200bral\u200blel",  # zero-width characters do not hide it
+        "\uff30arallel",  # a full-width capital is the same word to a reader
     ],
 )
-def test_the_vendor_name_is_a_leak(phrase: str) -> None:
+def test_the_vendor_name_is_a_leak_in_every_position(phrase: str) -> None:
     word = WORDS[0]
-    text = phrase.format(w=word.casefold(), W=_display(word))
+    text = phrase.format(w=word.casefold(), W=_display(word), U=word.upper())
     assert any(kind == "provider" for kind, _ in client_hits(text)), text
-    # the withholding guard scrubs the vendor's compound tool name ("Parallel Search") to the
-    # attribution first; the bare name left in a sentence withholds the cell
     cleaned, held = scrub_client_text(text)
     assert held or _display(word) not in cleaned, (text, cleaned)
     if held:
         with pytest.raises(GuardViolation):
             sanitize_client_value(text)
+
+
+@pytest.mark.skipif(not WORDS, reason="no word-like provider name configured")
+def test_a_hostile_page_of_vendor_names_is_scanned_in_linear_time() -> None:
+    """The scan looks a few characters around each match, never at the text before it (the old
+    code copied the text before every match: 840 KB of hostile text took 1.9 s on the loop)."""
+    import time
+
+    word = _display(WORDS[0])
+    small = f"we work in {word}. " * 20_000
+    big = small * 8
+    started = time.perf_counter()
+    assert client_hits(big)
+    assert time.perf_counter() - started < 2.0
 
 
 @pytest.mark.parametrize("term", NAMES)

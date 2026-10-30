@@ -246,7 +246,8 @@ async def test_pipelines_run_after_the_reading_step_and_report_their_rows(make) 
 
 @pytest.mark.asyncio
 async def test_a_store_error_in_the_detections_writer_blocks_its_row(make) -> None:  # type: ignore[no-untyped-def]
-    """A database or feed error while writing detections ends the tech row ``source_failed``;
+    """A database or feed error while writing detections ends the tech row ``source_failed``
+    (Partial: the feed was pulled in Phase 1, so the real tracker would otherwise read it Done);
     the jobs and people pipelines, the sense check and the build still run (never a run that
     ends on one store error, owner order 2026-10-24)."""
     h = make(worlds.rich())
@@ -261,7 +262,7 @@ async def test_a_store_error_in_the_detections_writer_blocks_its_row(make) -> No
     assert h.pipelines.jobs_runs == 1 and state["counters"]["jobs_claims"] == 1
     tech_key = next(k for k, row in h.cfg.plan.items() if row.pipeline == "tech")
     row = h.tracker.rows_by_run[record.run_id][tech_key]
-    assert row.status == "blocked" and row.reason == "source_failed"
+    assert row.status == "partial" and row.reason == "source_failed"
 
 
 @pytest.mark.asyncio
@@ -361,15 +362,16 @@ async def test_an_own_site_row_searches_the_account_site_and_reads_what_it_finds
         _ctx(), "web_search", "acme quarterly results 2026", "earnings_filings"
     )
     routes = [s[0] for s in seen]
-    # open search, its off-site read, the own-site search, the own page read in full
-    assert routes == [
-        "open_web_search",
-        "read_known_page",
-        "open_web_search",
-        "job_boards_and_pages",
-    ]
+    # the open search, the register search (earnings_filings has an ``also_on`` rule) and the
+    # own-site search run together, then the off-site read and the own page read in full run
+    # together
+    assert routes[:3] == ["open_web_search"] * 3
+    assert sorted(routes[3:]) == ["job_boards_and_pages", "read_known_page"]
+    assert seen[0][1].include_domains == ()
+    assert seen[1][1].include_domains == ("sec.gov",)
     assert seen[2][1].include_domains == ("acme.example",)
-    assert seen[3][1].url == "https://acme.example/ir/q3"
+    scraped = [s[1].url for s in seen if s[0] == "job_boards_and_pages"]
+    assert scraped == ["https://acme.example/ir/q3"]
     assert "s2" in result.call_refs
 
 
@@ -402,8 +404,10 @@ async def test_the_news_feed_is_joined_by_the_newsroom_search(monkeypatch) -> No
     monkeypatch.setattr(provider_module, "call_need", fake)
     adapter = ConnectorProvider(_Runtime(), uuid4(), skill=CFG)  # type: ignore[arg-type]
     await adapter.call(_ctx(), "structured_signals", "Acme press release 2026", "company_news")
-    assert [s[0] for s in seen] == ["news_tech_job_feeds", "open_web_search"]
+    # the feed, the newsroom search and the newswire search (company_news has an ``also_on`` rule)
+    assert [s[0] for s in seen] == ["news_tech_job_feeds", "open_web_search", "open_web_search"]
     assert seen[1][1].include_domains == ("acme.example",)
+    assert "businesswire.com" in seen[2][1].include_domains and seen[2][1].after_date is not None
     # the posting feed is anchored to the run's month, as the job pipeline anchors it
     from datetime import date
 

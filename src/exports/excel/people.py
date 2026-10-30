@@ -199,4 +199,4 @@ def render_people(model: PeopleModel, cfg: ExportConfig, title: str) -> tuple[by
     total_rows = {lay.level_total, lay.lane_total}
     for f in formulas:
         book.formula(f, bold=f.row in total_rows)
-    return book.bytes(title, model.as_of), 0
+    return book.bytes(title, model.as_of), book.counted

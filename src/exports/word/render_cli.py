@@ -18,9 +18,13 @@ from __future__ import annotations
 
 import copy
 import io
+import re
 import sys
+import weakref
+import zipfile
 from functools import lru_cache
 from typing import Any
+from xml.sax.saxutils import escape  # nosec B406 -- escapes generated XML; parses nothing.
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
@@ -32,6 +36,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+from lxml import etree
 from pydantic import ValidationError
 
 from exports.config import Font, WordTheme
@@ -109,10 +114,47 @@ def _append_run(p: Any, text: str, spec: Font) -> None:
     p.append(_run(text, spec))
 
 
+class _LinkIds:
+    """The external hyperlink relationships of one document part: one per distinct target, made
+    in constant time. python-docx's ``relate_to`` walks every relationship of the part to find a
+    match and again to find a free id, so a document with thousands of links took quadratic
+    time (7,000 postings: minutes). Ids are handed out in order of first use, the same ids
+    ``relate_to`` would give (a part without gaps), so the file is byte for byte the same."""
+
+    def __init__(self, part: Any) -> None:
+        self.rels = part.rels
+        self.ids: dict[str, str] = {}
+        self.next = len(self.rels) + 1
+
+    def rid(self, href: str) -> str:
+        found = self.ids.get(href)
+        if found is not None:
+            return found
+        # LOOP(free relationship id): cap=the part's relationships plus one; exit=an unused id
+        while f"rId{self.next}" in self.rels:
+            self.next += 1
+        rid = f"rId{self.next}"
+        self.next += 1
+        self.rels.add_relationship(RT.HYPERLINK, href, rid, is_external=True)
+        self.ids[href] = rid
+        return rid
+
+
+_LINKS: weakref.WeakKeyDictionary[Any, _LinkIds] = weakref.WeakKeyDictionary()
+
+
+def _link_id(part: Any, href: str) -> str:
+    """The relationship id of the external hyperlink to ``href`` on ``part``."""
+    ids = _LINKS.get(part)
+    if ids is None:
+        ids = _LINKS[part] = _LinkIds(part)
+    return ids.rid(href)
+
+
 def _append_link(p: Any, text: str, href: str, spec: Font, part: Any) -> None:
     """A hyperlink run: ``w:hyperlink`` over an external relationship to ``href`` (the same
     target gets one relationship, however often it is linked)."""
-    rid = part.relate_to(href, RT.HYPERLINK, is_external=True)
+    rid = _link_id(part, href)
     link = OxmlElement("w:hyperlink")
     link.set(qn("r:id"), rid)
     link.set(qn("w:history"), "1")
@@ -254,6 +296,9 @@ def _table(doc: Any, block: TableBlock, theme: WordTheme) -> None:
     label = body.model_copy(update={"bold": True}) if theme.table.bold_label_column else body
     fills = theme.fills
     part = doc.part
+    if len(block.rows) >= STREAM_ROWS:
+        _table_rows_streamed(doc, tbl, block, theme, twips, label)
+        return
     # rows are built from a template row (python-docx's add_row and cell accessors walk the
     # table and re-create properties per cell: the renderer's hot path on large tables)
     for r, values in enumerate((block.headers, *block.rows)):
@@ -270,6 +315,137 @@ def _table(doc: Any, block: TableBlock, theme: WordTheme) -> None:
                     _shade(tc.find(qn("w:tcPr")), fill)
             _append_cell(tc.find(qn("w:p")), cell, spec, theme, part)
         tbl._tbl.append(tr)
+
+
+# A table of this many body rows is written as text, not as a tree of elements: a Word table of a
+# million cells held as an element tree took over a gigabyte at 7,000 postings (fix wave C). The
+# rows are the same XML (``tests/exports/test_fix_wave_c.py`` compares both, canonically) and are
+# put into the saved document in place of a marker row.
+STREAM_ROWS = 400
+_MARK = "@@ROWS-{}@@"
+_BAD_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
+@lru_cache(maxsize=64)
+def _rpr_xml(spec: Font) -> str:
+    """``_rpr(spec)`` as XML text without the namespace declaration (the document root has it)."""
+    return re.sub(r' xmlns:\w+="[^"]*"', "", etree.tostring(_rpr(spec)).decode())
+
+
+def _run_xml(text: str, spec: Font) -> str:
+    """``_run`` as text: the run properties, then each line in a ``w:t``, a ``w:br`` between."""
+    lines = _BAD_XML.sub("", text).split("\n")
+    body = "<w:br/>".join(f'<w:t xml:space="preserve">{escape(line)}</w:t>' for line in lines)
+    return f"<w:r>{_rpr_xml(spec)}{body}</w:r>"
+
+
+def _cell_xml(cell: Cell, spec: Font, theme: WordTheme, part: Any) -> str:
+    """``_append_cell`` as text: plain text, or its runs in order, links as hyperlinks."""
+    if isinstance(cell, str):
+        return _run_xml(cell, spec)
+    link = _link_font(theme, spec)
+    out = []
+    for run in cell:
+        if run.href:
+            rid = _link_id(part, run.href)
+            out.append(
+                f'<w:hyperlink r:id="{rid}" w:history="1">{_run_xml(run.text, link)}</w:hyperlink>'
+            )
+        else:
+            out.append(_run_xml(run.text, spec))
+    return "".join(out)
+
+
+def _row_xml(
+    theme: WordTheme, twips: list[int], header: bool, cells: list[tuple[str, str | None]]
+) -> str:
+    """``_row_template`` plus the content of each cell, as text. ``cells`` is per column the
+    content XML and the fill (None: no fill)."""
+    flags = ""
+    if theme.table.row_cant_split:
+        flags += "<w:cantSplit/>"
+    if header and theme.table.repeat_header_row:
+        flags += "<w:tblHeader/>"
+    tcs = []
+    for width, (content, fill) in zip(twips, cells, strict=True):
+        shade = ""
+        fill = theme.table.header_fill if header else fill
+        if fill:
+            shade = f'<w:shd w:val="clear" w:color="auto" w:fill="{fill}"/>'
+        tcs.append(
+            f'<w:tc><w:tcPr><w:tcW w:w="{width}" w:type="dxa"/>{shade}</w:tcPr>'
+            f'<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr>{content}</w:p></w:tc>'
+        )
+    return f"<w:tr><w:trPr>{flags}</w:trPr>{''.join(tcs)}</w:tr>"
+
+
+def _table_rows_streamed(
+    doc: Any, tbl: Table, block: TableBlock, theme: WordTheme, twips: list[int], label: Font
+) -> None:
+    """The header and body rows of ``tbl`` as text, spliced into the document when it is saved
+    (``_splice``); the table gets one marker row now. Hyperlink relationships are made here, so
+    they are in the package when it is saved."""
+    body = theme.fonts.table_body
+    part = doc.part
+    rows = [
+        _row_xml(
+            theme,
+            twips,
+            True,
+            [(_cell_xml(c, theme.fonts.table_header, theme, part), None) for c in block.headers],
+        )
+    ]
+    for values in block.rows:
+        rows.append(
+            _row_xml(
+                theme,
+                twips,
+                False,
+                [
+                    (
+                        _cell_xml(cell, label if k == block.label_column else body, theme, part),
+                        theme.fills.get(cell_text(cell)),
+                    )
+                    for k, cell in enumerate(values)
+                ],
+            )
+        )
+    pending: list[list[str]] = doc.__dict__.setdefault("_pending_rows", [])
+    marker = OxmlElement("w:tr")
+    tc = OxmlElement("w:tc")
+    p = OxmlElement("w:p")
+    _append_run(p, _MARK.format(len(pending)), body)
+    tc.append(p)
+    marker.append(tc)
+    tbl._tbl.append(marker)
+    pending.append(rows)
+
+
+def _splice(data: bytes, pending: list[list[str]]) -> bytes:
+    """``data`` (a saved docx) with each marker row replaced by the rows written as text."""
+    out = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(data)) as src,
+        zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst,
+    ):
+        for info in src.infolist():
+            raw = src.read(info)
+            if info.filename != "word/document.xml":
+                dst.writestr(info, raw, compress_type=zipfile.ZIP_DEFLATED)
+                continue
+            text = raw.decode("utf-8")
+            with dst.open(zipfile.ZipInfo(info.filename, date_time=info.date_time), "w") as w:
+                cursor = 0
+                for k, rows in enumerate(pending):
+                    at = text.index(_MARK.format(k))
+                    start = text.rfind("<w:tr>", 0, at)
+                    end = text.index("</w:tr>", at) + len("</w:tr>")
+                    w.write(text[cursor:start].encode("utf-8"))
+                    for row in rows:
+                        w.write(row.encode("utf-8"))
+                    cursor = end
+                w.write(text[cursor:].encode("utf-8"))
+    return out.getvalue()
 
 
 def _footer(doc: Any, page_label: str, theme: WordTheme) -> None:
@@ -383,7 +559,8 @@ def render(spec: DocumentSpec) -> bytes:
             _spacing(doc.add_paragraph(), 0, sp.paragraph_after_pt)
     out = io.BytesIO()
     doc.save(out)
-    return out.getvalue()
+    pending = doc.__dict__.get("_pending_rows")
+    return _splice(out.getvalue(), pending) if pending else out.getvalue()
 
 
 def main() -> int:

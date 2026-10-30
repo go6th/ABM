@@ -22,6 +22,7 @@ for ``built_at`` on the database record.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections import Counter
@@ -60,7 +61,7 @@ from exports.models import (
     FileKind,
 )
 from exports.ooxml import normalise_package
-from exports.policy import Violation, sanitise
+from exports.policy import Violation, leak_hits, sanitise
 from exports.ports import (
     CheckResult,
     ContentReader,
@@ -77,22 +78,25 @@ from exports.readers.people import map_people
 from exports.readers.summary import map_summary
 from exports.readers.tech import map_tech
 from exports.verify import (
+    cached_values_check,
     doc_checks,
     docx_row_keys,
     docx_rowcheck,
     pdf_row_presence,
     recalc_check,
     scan_package,
+    third_party_blocked,
     third_party_scan,
     xlsx_row_keys,
     xlsx_stack_keys,
 )
 from exports.word.compose import compose_evidence, compose_summary
 from exports.workspace import account_slug, build_workspace, check_zip
-from exports.workspace_files import RestoreInputs, workspace_members
+from exports.workspace_files import RestoreInputs, release_members, workspace_members
 
 _ERROR_OF: dict[str, type[ExportError]] = {
     "missing_url": MissingProvenance,
+    "bad_url": MissingProvenance,
     "missing_source_code": MissingProvenance,
     "unknown_source_code": OrphanCitation,
     "orphan_citation": OrphanCitation,
@@ -153,6 +157,24 @@ class BuildFailed(ExportError, BuildIncomplete):
         ExportError.__init__(self, self.reason, result.errors)
 
 
+def check_summary(checks: list[CheckResult]) -> dict[str, str]:
+    """One line per check name for the manifest: the worst outcome of its runs (``failed`` over
+    ``not_run`` over ``passed``), with the distinct reasons of a check that did not run."""
+    order = {"passed": 0, "not_run": 1, "failed": 2}
+    worst: dict[str, str] = {}
+    why: dict[str, list[str]] = {}
+    for c in checks:
+        if order[c.status] >= order.get(worst.get(c.name, "passed"), 0):
+            worst[c.name] = c.status
+        if c.status != "passed" and c.reason and c.reason not in why.setdefault(c.name, []):
+            why[c.name].append(c.reason)
+    out: dict[str, str] = {}
+    for name, status in sorted(worst.items()):
+        reasons = "; ".join(why.get(name, []))
+        out[name] = status if status == "passed" or not reasons else f"{status}: {reasons}"
+    return out
+
+
 def errors_of(violations: list[Violation]) -> list[ExportError]:
     """Group violations into typed errors (one per code), items are row ids or patterns."""
     grouped: dict[str, list[Violation]] = {}
@@ -186,6 +208,8 @@ class Assembly:
     manifest: BuildManifest | None = None
     workspace: bytes | None = None
     workspace_name: str = ""
+    # data/releases/: member name -> text, one per archived copy the zip carries
+    releases: dict[str, bytes] = field(default_factory=dict)
     errors: list[ExportError] = field(default_factory=list)
     checks: list[CheckResult] = field(default_factory=list)
     long_parts: int = 0
@@ -279,9 +303,7 @@ class ExportBuilder:
 
     # ---- pure-ish assembly (renderer subprocess is the only side effect) ----------------------
 
-    def assemble(
-        self, content: SnapshotContent, previous: BuildManifest | None = None
-    ) -> Assembly:
+    def assemble(self, content: SnapshotContent, previous: BuildManifest | None = None) -> Assembly:
         """Map, render, verify and package one snapshot (no storage). ``previous`` is the
         account's previous delivered manifest, when there is one: the change note is computed
         from it and the mapped rows before rendering, and a re-shared document opens with it."""
@@ -301,9 +323,34 @@ class ExportBuilder:
         self._render_all(out, content, ctx, change_line)
         if out.errors:
             return out
+        self._releases(out, ctx)
         out.manifest = self._manifest(out, content, ctx)
         self._package(out, content, ctx)
         return out
+
+    def _releases(self, out: Assembly, ctx: MapContext) -> None:
+        """The text files of the archived copies (``data/releases/``). A copy a client-output
+        rule refuses (a restricted term, a data tool's name or link, the word credits) is left
+        out of the zip and listed in the manifest by a hash of its address; it never stops the
+        delivery."""
+        content = ctx.content
+
+        def blocked(text: str) -> str | None:
+            # the rule names are neutral: the manifest is scanned like every other member, and
+            # it must not carry the very words (a tool's name, "credits") it reports leaving out
+            if leak_hits(text, ctx.restricted):
+                return "leak"
+            return "third_party" if third_party_blocked(text) else None
+
+        out.releases, left_out = release_members(
+            content,
+            self.cfg.rules.workspace,
+            lambda t: _mask_tools(ctx.mask(sanitise(t)), ctx.cfg.scope.mask),
+            blocked,
+        )
+        for url, why in left_out:
+            digest = hashlib.sha256(url.encode()).hexdigest()[:8]
+            ctx.withheld_blocks.append(("workspace.releases", digest, why))
 
     def _render_all(
         self,
@@ -403,6 +450,13 @@ class ExportBuilder:
                 out.checks.append(result)
                 if result.status == "failed":
                     raise RowConservation(f"{kind}: rowcheck failed", result.details)
+            if kind in ("people", "jobs", "tech"):
+                # the stored result of every formula equals the value computed in code (the
+                # file shows numbers in a viewer that does not calculate)
+                result = cached_values_check(body, self._expected(kind, mapped))
+                out.checks.append(result)
+                if result.status == "failed":
+                    raise SchemaViolation(f"{kind}: cached formula values", result.details)
             if self.recalc is not None and kind in ("people", "jobs", "tech"):
                 result = recalc_check(body, self._expected(kind, mapped), self.recalc)
                 out.checks.append(result)
@@ -610,7 +664,7 @@ class ExportBuilder:
             tracker_tally=summary.tracker_tally if summary else (),
             withheld_sentences=ctx.withheld,
             withheld_blocks=tuple(f"{w}:{row}:{rule}" for w, row, rule in ctx.withheld_blocks),
-            long_text_parts=out.long_parts,
+            long_text_parts=out.long_parts + ctx.titles_cut,
             formula_like_cells=ctx.formula_like,
             masked_terms=ctx.masked_terms,
             leaks_withheld=ctx.leaks_withheld,
@@ -620,6 +674,8 @@ class ExportBuilder:
                 "renderer": getattr(self.renderer, "last_exit", "not_run"),
                 "keyset": "converged",
             },
+            checks=check_summary(out.checks),
+            exclusion_hash=content.exclusion_hash,
         )
 
     def _package(self, out: Assembly, content: SnapshotContent, ctx: MapContext) -> None:
@@ -637,6 +693,7 @@ class ExportBuilder:
                 account=content.account_name,
                 as_of=content.as_of,
                 extras=records,
+                releases=out.releases,
             )
             problems = check_zip(body, self.cfg.rules)
             if problems:
@@ -650,6 +707,7 @@ class ExportBuilder:
                 "workspace",
                 account_hosts=self._account_hosts(content),
                 aggregator_hosts=self._source_hosts(content, "aggregator"),
+                scanned=done,
             )
             out.checks.append(report.result)
             if report.result.status == "failed":
@@ -711,6 +769,7 @@ class ExportBuilder:
             label_of=label_of,
             clean=lambda t: _mask_tools(ctx.mask(sanitise(t)), ctx.cfg.scope.mask),
             internal_reason_texts=reasons,
+            releases=len(out.releases),
             restore=RestoreInputs(
                 cfg=self.cfg,
                 filenames=filenames,
@@ -748,11 +807,20 @@ class ExportBuilder:
         # the previous delivered manifest first: the change note is computed from it and the
         # mapped rows before rendering, and both documents open with it (spec 8.3)
         previous = await self.store.previous_manifest(tenant_id, content.account_id, run_id)
-        out = self.assemble(content, BuildManifest.model_validate(previous) if previous else None)
+        # the whole assembly runs off the event loop: it renders, scans and converts files (the
+        # LibreOffice checks wait up to 120 s each), and a blocked loop stops the health check
+        # and the task heartbeat (security review 2026-10-29, F4)
+        out = await asyncio.to_thread(
+            self.assemble, content, BuildManifest.model_validate(previous) if previous else None
+        )
         if out.errors or out.manifest is None or out.workspace is None:
             return self._failed(run_id, out.errors or [MissingContent("nothing assembled")])
+        # the exclusion set is part of the set's identity: the same bytes built under another
+        # exclusion list are a new version that records which list it honours (F1)
         set_hash = hashlib.sha256(
-            json.dumps(out.content_hashes, sort_keys=True).encode()
+            json.dumps(
+                {**out.content_hashes, "exclusions": content.exclusion_hash}, sort_keys=True
+            ).encode()
         ).hexdigest()
         note = out.change_note or rows_change_note(None, {})
         out.manifest = out.manifest.model_copy(update={"change_note": note})
@@ -802,6 +870,9 @@ class ExportBuilder:
             ),
         )
         obs.build_outcome(run_id, "complete", (), out.manifest.rows_per_file)
+        for name, outcome in out.manifest.checks.items():
+            if outcome.startswith("not_run"):
+                obs.check_not_run(run_id, name, outcome)
         if out.manifest.withheld_blocks:
             obs.withheld_blocks(run_id, out.manifest.withheld_blocks)
         if out.manifest.leaks_withheld:

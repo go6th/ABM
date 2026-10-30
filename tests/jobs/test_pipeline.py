@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from jobs.gap import is_remainder
 from jobs.pipeline import ROW_BOARD, ROW_PULL, ROW_READ
 from jobs.stage import run_jobs
 from tests.fakes.jobs import Corpus, FakeRunInput, Recorder
@@ -84,14 +85,16 @@ async def test_caps_bound_escalation_and_extractor_calls(corpus: Corpus) -> None
     assert result.exit_reasons["extractor"] == "cap_reached"
     by_key = {p.posting_key: p for p in result.postings}
     assert by_key["id:j8"].full_text_missing and not by_key["id:j8"].read
-    # a candidate past the extractor budget gets the heuristic (never left unclassified)
-    capped = [
-        p
+    # a candidate past the extractor budget is NOT given the heuristic's class (a final, wrong
+    # label on the most valuable kind of posting): it stays unclassified with the retryable
+    # reason ``cap`` (review 2026-10-29, finding 10)
+    capped = [p for p in result.postings if p.classification and p.classification.reason == "cap"]
+    assert capped and all(p.classification.classified_by == "none" for p in capped)
+    assert all(p.posting_class == "unclassified" and is_remainder(p) for p in capped)
+    assert not any(
+        p.classification and p.classification.reason == "heuristic_after_cap"
         for p in result.postings
-        if p.classification and p.classification.reason == "heuristic_after_cap"
-    ]
-    assert capped and all(p.classification.classified_by == "heuristic" for p in capped)
-    assert all(p.posting_class in ("working_tool", "user") for p in capped)
+    )
     assert {e[0]: e for e in rec.evidence}[ROW_READ][3] is True
 
 

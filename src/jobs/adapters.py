@@ -13,11 +13,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Iterable, Sequence
 from datetime import date
 from typing import Any
 
-from account_intelligence.connectors.base import Operation
+from account_intelligence.connectors.base import (
+    OPERATION_PROVIDER,
+    SINGLE_CALL_CEILING_S,
+    SINGLE_REQUEST_OPERATIONS,
+    Operation,
+)
 from account_intelligence.connectors.errors import ConnectorError, RetryableProviderError
 from account_intelligence.connectors.models import (
     FeedArgs,
@@ -29,20 +36,39 @@ from account_intelligence.connectors.models import (
 )
 from account_intelligence.connectors.service import call_operation
 from account_intelligence.tracker.model import Actor, ReasonCode
+from crosscut.gates import ProviderGates
 from jobs.models import PageText, RawPosting, SourceBatch
 from jobs.ports import SourceUnavailable
+
+# the operations whose calls pass a provider gate (``parallel.gates``): a posting's page read
+# (scrape) and the board searches (search) run side by side, many more than the provider's slots
+GATED_OPERATIONS = frozenset({Operation.SCRAPE_JOB_PAGE, Operation.WEB_SEARCH, Operation.READ_PAGE})
 
 
 class _Calls:
     def __init__(self, deps: Any) -> None:
         self.deps = deps
+        self._gates = ProviderGates()
 
     async def call(self, op: Operation, args: Any) -> Any:
         """One connector call with the retry-ownership rule (re-raise below the node budget)."""
         if self.deps.connectors is None:
             raise SourceUnavailable("not_available_yet")
         try:
-            return await call_operation(op, args, self.deps.call_context(), self.deps.connectors)
+            # one request is waited for a bounded time; a feed is bounded by the slice only.
+            # The wait for this research's own gate is not part of that time: it is queueing, not
+            # a slow source
+            async with contextlib.AsyncExitStack() as stack:
+                if op in GATED_OPERATIONS:
+                    await stack.enter_async_context(self._gates(OPERATION_PROVIDER[op].value))
+                async with asyncio.timeout(
+                    SINGLE_CALL_CEILING_S if op in SINGLE_REQUEST_OPERATIONS else None
+                ):
+                    return await call_operation(
+                        op, args, self.deps.call_context(), self.deps.connectors
+                    )
+        except TimeoutError as error:
+            raise SourceUnavailable("source_slow") from error
         except RetryableProviderError as error:
             if (error.attempt or 1) < self.deps.retry_max_attempts:
                 raise
@@ -59,7 +85,6 @@ class ConnectorPostingSource(_Calls):
         deps: Any,
         careers_host: str | None,
         blocked_hosts: Iterable[str] = (),
-        since_override: date | None = None,
     ) -> None:
         super().__init__(deps)
         # a verified host is often "www.<domain>"; search filters take the bare lowercase host
@@ -68,19 +93,21 @@ class ConnectorPostingSource(_Calls):
         # the entity lock's look-alike hosts (master prompt v2 section 3): a posting there is
         # another company's and is dropped before it is stored, counted in ``dropped``
         self.blocked_hosts = frozenset(h.lower() for h in blocked_hosts if h)
+        # look-alike records dropped by the board searches and the window pull. The active pull
+        # sees the same postings again; its drops are on its own batch (``SourceBatch.dropped``)
+        # and never added here (review 2026-10-29, finding 27)
         self.dropped = 0
-        # an incremental run's delta bound (``jobs.incremental.postings_since`` of the run
-        # input); None pulls the whole window
-        self.since_override = since_override
 
-    def _lookalike(self, url: str | None) -> bool:
+    def _lookalike(self, url: str | None, *, count: bool = True) -> bool:
+        """True when the address is on a look-alike host; counted in ``dropped`` unless the call
+        is the active pull (which only sees records the window pull already counted)."""
         if not self.blocked_hosts or not url:
             return False
         from datamodel.hosts import host_of, registrable
 
         host = host_of(url)
         bad = registrable(host) in self.blocked_hosts or host in self.blocked_hosts
-        if bad:
+        if bad and count:
             self.dropped += 1
         return bad
 
@@ -93,8 +120,12 @@ class ConnectorPostingSource(_Calls):
             WebSearchArgs(queries=(f"{keyword} jobs",), include_domains=(self.careers_host,)),
         )
         hits = []
+        dropped = 0
         for record in result.records:
-            if not isinstance(record, WebPageRecord) or self._lookalike(record.url):
+            if not isinstance(record, WebPageRecord):
+                continue
+            if self._lookalike(record.url):
+                dropped += 1
                 continue
             hits.append(
                 RawPosting(
@@ -115,9 +146,10 @@ class ConnectorPostingSource(_Calls):
             complete=result.status == "done",
             exit_reason=result.stop_reason or "exhausted",
             reported_count=result.counts.read,
+            dropped=dropped,
         )
 
-    async def pull_window(self, start: date, end: date) -> SourceBatch:
+    async def pull_window(self, start: date, end: date, since: date | None = None) -> SourceBatch:
         """The job openings feed for the window, pulled once (replayed from the ledger on
         re-entry). Postings first seen before ``start`` are not asked for: without the bound the
         feed pages through the account's whole history and stops at the page cap. The bound is
@@ -125,12 +157,14 @@ class ConnectorPostingSource(_Calls):
         pull uses (``agents.production.provider``): the pull is paid once a month per account,
         and a posting the anchor adds before ``start`` is classified out of window by date.
 
-        An incremental run (``since_override``, decided once at run creation) asks only for
-        postings first seen since the previous research minus the overlap: a new ledger key, paid
-        once and replayed on resume, the same key Phase 1 used."""
-        since = self.since_override or start.replace(day=1)
+        An incremental run (``since``, given by the pipeline only when it loaded the previous
+        research's record) asks only for postings first seen since the previous research minus
+        the overlap: a new ledger key, paid once and replayed on resume, the same key Phase 1
+        used. The posting filter ``with_description_only`` is not sent: a posting without a
+        description can still be page-read and become a row."""
+        bound = since or start.replace(day=1)
         result = await self.call(
-            Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain, since=since)
+            Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain, since=bound)
         )
         return self._feed_batch(result)
 
@@ -141,12 +175,16 @@ class ConnectorPostingSource(_Calls):
         result = await self.call(
             Operation.JOB_OPENINGS, FeedArgs(domain=self.deps.domain, active_only=True)
         )
-        return self._feed_batch(result)
+        return self._feed_batch(result, count=False)
 
-    def _feed_batch(self, result: Any) -> SourceBatch:
+    def _feed_batch(self, result: Any, count: bool = True) -> SourceBatch:
         rows = []
+        dropped = 0
         for record in result.records:
-            if not isinstance(record, JobOpeningRecord) or self._lookalike(record.url):
+            if not isinstance(record, JobOpeningRecord):
+                continue
+            if self._lookalike(record.url, count=count):
+                dropped += 1
                 continue
             rows.append(
                 RawPosting(
@@ -172,6 +210,7 @@ class ConnectorPostingSource(_Calls):
             call_refs=tuple(result.call_refs),
             complete=result.status == "done",
             exit_reason=result.stop_reason or "exhausted",
+            dropped=dropped,
         )
 
 
@@ -261,8 +300,9 @@ class ProposalSink:
 
 class RunJobsInput:
     """``RunInputPort`` from the run row: lanes switched off, the run's ``as_of`` date and, for
-    an incremental run, the previous delivered run whose postings are carried
-    (``postings_previous_run`` in the run input, read back through the repo: same tenant and
+    an incremental run, the previous delivered research whose postings are carried: either
+    loaded already (``previous``; the caller needs it before it builds the pipeline) or named
+    (``postings_previous_run`` in the run input) and read back through the repo (same tenant and
     account only)."""
 
     def __init__(
@@ -270,10 +310,12 @@ class RunJobsInput:
         lanes_off: frozenset[str],
         as_of: date,
         *,
+        previous: Any | None = None,
         previous_run_id: str | None = None,
         repo: Any | None = None,
     ) -> None:
         self._off, self._as_of = lanes_off, as_of
+        self._previous = previous
         self._previous_run_id, self._repo = previous_run_id, repo
 
     async def lanes_off(self) -> frozenset[str]:
@@ -286,6 +328,8 @@ class RunJobsInput:
 
     async def previous_postings(self) -> Any:
         """The previous delivered research's stored postings (``PreviousPostings``), or None."""
+        if self._previous is not None:
+            return self._previous
         if not self._previous_run_id or self._repo is None:
             return None
         return await self._repo.load_previous(self._previous_run_id)

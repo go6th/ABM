@@ -50,6 +50,15 @@ def leaks_withheld(count: int) -> None:
     _logger.info("exports.leaks_withheld", extra={"count": count})
 
 
+def check_not_run(run_id: str, name: str, outcome: str) -> None:
+    """Log (a warning) a verification check that did not run in a delivered set, with its reason:
+    the set was built without that check, which the manifest also lists."""
+    _logger.warning(
+        "exports.check_not_run",
+        extra={"reason": outcome[:200], "error_code": name},
+    )
+
+
 def file_outcome(kind: str, outcome: str) -> None:
     """Count one file by kind and outcome."""
     _files.add(1, {"kind": kind, "outcome": outcome})

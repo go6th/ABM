@@ -37,11 +37,11 @@ discard it, build on it. Do not commit until the owner says "commit".
 - Tests: shapes, passage metadata, cell typing, tokenizer calibration, table store DB suite,
   reingest/reindex passes, single-write-path ownership (raw_files registered).
 - Acceptance test 1 (golden Ask): `tests/documents/test_tables_golden.py` — a scripted tabular
-  model answers the golden GSK question byte-identically across 5 runs
-  (`test_the_golden_gsk_question_answers_identically_five_times_with_stub_model`). The real
-  workbook: `tests/documents/test_tables_real_gsk.py` pins the sheet's truth without a model,
-  and `tests/evals/test_tabular_gsk_live.py` (marker `live`) asks the five owner questions of
-  the real model, five runs each: canonical tool-call traces must converge (≥3 of 5 identical;
+  model answers the golden question byte-identically across 5 runs
+  (`test_the_golden_holdings_question_answers_identically_five_times_with_stub_model`). The same
+  workbook inside a synthetic workspace zip: `tests/documents/test_tables_workspace_zip.py` pins
+  the sheet's truth without a model, and `tests/evals/test_tabular_live.py` (marker `live`) asks
+  the five questions of the real model, five runs each: canonical tool-call traces must converge (≥3 of 5 identical;
   a batched cloud model at temperature 0 is not bit-identical), every answer checked.
 - Acceptance test 13 (redaction never leaks):
   `test_pii_never_reaches_store_or_tools` in

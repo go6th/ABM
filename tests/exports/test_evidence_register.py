@@ -51,13 +51,13 @@ def test_headers_follow_the_reference(cfg: ExportConfig) -> None:
 
 def test_title_and_opening_line(cfg: ExportConfig, grading: GradingConfig) -> None:
     c = account(name="BD").model_copy(
-        update={"entity_lock": {"legal_name": "Becton, Dickinson and Company"}}
+        update={"entity_lock": {"legal_name": "Synthetic Holdings Company"}}
     )
     model, _ = _mapped(c, cfg, grading)
     spec = compose_evidence(model, cfg, "BD Sources and Evidence")
     title = spec.blocks[0]
     assert isinstance(title, TitleBlock)
-    assert title.text == "BD (Becton, Dickinson and Company): Sources and Evidence"
+    assert title.text == "BD (Synthetic Holdings Company): Sources and Evidence"
     day = c.as_of
     assert title.subtitle.startswith(f"Research date {day.day} {day:%B %Y}. Companion to BD_")
     assert "Account_Summary.docx" in title.subtitle
@@ -191,10 +191,10 @@ def test_an_archived_copy_is_linked_under_the_source_and_the_posting(
     # Part I: the plain line, then the archived address under it
     texts = [b.text for b in spec.blocks if getattr(b, "style", None) == "note"]
     at = texts.index(labels.url_line.format(code="S-0001", url="https://alpha.example/news/item-0"))
-    assert texts[at + 1] == labels.archived_line.format(
-        url="https://archive.example/copies/S-0001"
+    assert texts[at + 1] == labels.archived_line.format(url="https://archive.example/copies/S-0001")
+    assert texts[at + 2] == labels.url_line.format(
+        code="S-0002", url="https://alpha.example/news/item-1"
     )
-    assert texts[at + 2] == labels.url_line.format(code="S-0002", url="https://alpha.example/news/item-1")
     # no link in a file is a bare URL printed as text: every Source and Posting cell links
     for name in ("sources", "job_reads", "lane_reads"):
         for row in _table(spec, name).rows:

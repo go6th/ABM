@@ -107,7 +107,11 @@ async def _end_one(
     """End one orphaned run; None when it is no longer an orphan (or not readable here)."""
     async with txn(tenant_id) as s:
         raw = (
-            await s.execute(text("SELECT status FROM account_runs WHERE id = :r"), {"r": run_id})
+            # FOR UPDATE: a slice that begins in this second waits for the verdict and then reads a
+            # terminal run, instead of driving a run the sweeper is ending (staging 2026-10-30)
+            await s.execute(
+                text("SELECT status FROM account_runs WHERE id = :r FOR UPDATE"), {"r": run_id}
+            )
         ).scalar_one_or_none()
         if raw is None:
             return None

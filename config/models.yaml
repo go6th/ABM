@@ -36,7 +36,7 @@ profiles:
     input_usd_per_mtok: 2.00
     output_usd_per_mtok: 10.00
   # on the allowlist for the Ask route classifier (`helpers`); no research task routes here until
-  # a Haiku 5.5 eval on the GSK workspace passes (token review item 9)
+  # a Haiku 5.5 eval on the synthetic tabular workspace passes (token review item 9)
   helper_haiku:
     provider: anthropic
     model: claude-haiku-5-5
@@ -164,7 +164,7 @@ prompt_cache_gate:
 # one layer; the research, Ask and eval surfaces all run on Kimi K3, Claude Fable 5.1 or Claude
 # Opus 5.5 — switching is config here, never code). `chat`: Ask answers and follow-up chat; the
 # model is the conversation's analysis model (the choices block below), so only effort lives
-# here. `eval`: the live tabular eval suite (tests/evals/test_tabular_gsk_live.py); its model
+# here. `eval`: the live tabular eval suite (tests/evals/test_tabular_live.py); its model
 # must be one of the choices models, overridable per run with EVAL_MODEL / EVAL_EFFORT.
 # Ask and chat run at medium effort (token review item 4, 2026-10-20: was high; thinking is
 # billed as output).

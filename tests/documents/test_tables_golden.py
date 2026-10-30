@@ -1,12 +1,12 @@
-"""The golden GSK question end to end (tabular questions, 2026-10-17), against the SYNTHETIC
-workbook of ``tests.documents.fixtures`` (the owner's real file is exercised by
-``tests/documents/test_tables_real_gsk.py`` and the live eval in ``tests/evals``): the
+"""The golden holdings question end to end (tabular questions, 2026-10-17), against the SYNTHETIC
+workbook of ``tests.documents.fixtures`` (the same workbook inside a workspace zip is exercised by
+``tests/documents/test_tables_workspace_zip.py`` and the live eval in ``tests/evals``): the
 router sends it to the table tools; a model that follows the tabular rules (scripted here: no
 live model call) describes the table, queries it with the three predicates, finds nothing,
 relaxes the status alone, deduplicates on the requisition and names the false positives; the
 answer is the same, byte for byte, five runs over.
 
-GUARANTEE(test_the_golden_gsk_question_answers_identically_five_times_with_stub_model)
+GUARANTEE(test_the_golden_holdings_question_answers_identically_five_times_with_stub_model)
 """
 
 from __future__ import annotations
@@ -89,7 +89,8 @@ class ScriptedTabularModel:
         strict = await run("query_table", payload)
         yield ChatEvent("tool", tool={"name": "query_table"})
         lines = [
-            "**GSK**: no open Salesforce-related posting was first seen on or after 1 March"
+            "**Synthetic Holdings**: no open Salesforce-related posting was first seen on or after"
+            " 1 March"
             f" 2026: the filter returns 0 rows (none) {cite}."
         ]
         if strict["row_count"] == 0:
@@ -228,7 +229,8 @@ class ScriptedRenderModel(ScriptedTabularModel):
         false = [r for r in rows if r not in genuine]
         payload = {
             "headline": (
-                "**GSK**: no Salesforce-related posting opened since 1 March 2026; relaxing the"
+                "**Synthetic Holdings**: no Salesforce-related posting opened since 1 March 2026;"
+                " relaxing the"
                 f" status (the date stays) finds {relaxed['row_count']} unique closed postings,"
                 f" {len(genuine)} genuine and {len(false)} where salesforce means the field"
                 f" sales team {cite}."
@@ -289,19 +291,19 @@ class ScriptedRenderModel(ScriptedTabularModel):
         yield ChatEvent("usage", usage=ChatUsage(1, 1))
 
 
-async def test_the_golden_gsk_answer_is_one_render_call_identical_five_times(
+async def test_the_golden_holdings_answer_is_one_render_call_identical_five_times(
     tenant_a: UUID, tmp_path: Path
 ) -> None:
     """The structured answer (owner decision 2026-10-17): one render_answer call ending the
     turn, every matching posting a table row, byte-identical over five runs."""
-    domain = f"gsk-{uuid4().hex[:6]}.example"
+    domain = f"holdings-{uuid4().hex[:6]}.example"
     account = _make_account(tenant_a, domain)
     svc = service(tmp_path)
     done = await upload(
-        svc, tenant_a, "GSK_Job_Postings.xlsx", fixtures.gsk_job_postings_xlsx(), account
+        svc, tenant_a, "Holdings_Job_Postings.xlsx", fixtures.holdings_job_postings_xlsx(), account
     )
     assert await svc.process(tenant_a, UUID(done["document_id"])) == "indexed"
-    acct = A.Acct(account, domain, "GSK", [], None, None, 1)
+    acct = A.Acct(account, domain, "Synthetic Holdings", [], None, None, 1)
 
     async def once() -> tuple[list[dict[str, Any]], dict[str, Any], str]:
         ws = A.Workspace([acct], [], [], [], [], [], [], {}, False)
@@ -343,7 +345,7 @@ async def test_the_golden_gsk_answer_is_one_render_call_identical_five_times(
     # every row cites the one table source, numbered by the code
     assert {row[-1] for row in table["rows"]} == {"[1]"}
     assert [s["n"] for s in answer["sources"]] == [1]
-    titles = [t for _, t, *_ in fixtures.GSK_SALESFORCE_RECENT]
+    titles = [t for _, t, *_ in fixtures.HOLDINGS_SALESFORCE_RECENT]
     body = json.dumps(structured)
     assert sum(1 for t in titles if t in body) >= 14
     assert all("false" not in r[5] or "field sales" in r[5] for r in table["rows"])
@@ -361,17 +363,17 @@ async def test_the_golden_gsk_answer_is_one_render_call_identical_five_times(
         assert other_markdown == markdown
 
 
-async def test_the_golden_gsk_question_answers_identically_five_times_with_stub_model(
+async def test_the_golden_holdings_question_answers_identically_five_times_with_stub_model(
     tenant_a: UUID, tmp_path: Path
 ) -> None:
-    domain = f"gsk-{uuid4().hex[:6]}.example"
+    domain = f"holdings-{uuid4().hex[:6]}.example"
     account = _make_account(tenant_a, domain)
     svc = service(tmp_path)
     done = await upload(
-        svc, tenant_a, "GSK_Job_Postings.xlsx", fixtures.gsk_job_postings_xlsx(), account
+        svc, tenant_a, "Holdings_Job_Postings.xlsx", fixtures.holdings_job_postings_xlsx(), account
     )
     assert await svc.process(tenant_a, UUID(done["document_id"])) == "indexed"
-    acct = A.Acct(account, domain, "GSK", [], None, None, 1)
+    acct = A.Acct(account, domain, "Synthetic Holdings", [], None, None, 1)
     runs = [await _run_once(tenant_a, account, acct) for _ in range(5)]
     calls, stats, text, events = runs[0]
     # the tool calls: describe, the three predicates, then the status alone relaxed
@@ -389,9 +391,9 @@ async def test_the_golden_gsk_question_answers_identically_five_times_with_stub_
     assert "0 rows (none)" in text and "finds 20 rows, 14 unique postings" in text
     assert text.count("| row ") == 8
     assert "False positives, where salesforce means the field sales team: 6" in text
-    for req in fixtures.GSK_FALSE_POSITIVES:
+    for req in fixtures.HOLDINGS_FALSE_POSITIVES:
         assert f"- {req} " in text
-    titles = [t for _, t, *_ in fixtures.GSK_SALESFORCE_RECENT]
+    titles = [t for _, t, *_ in fixtures.HOLDINGS_SALESFORCE_RECENT]
     assert sum(1 for t in titles if t in text) >= 14
     owner_rows = [
         line
@@ -406,7 +408,9 @@ async def test_the_golden_gsk_question_answers_identically_five_times_with_stub_
     reply = events[-1][1]
     paragraphs = "\n".join(reply.draft.paragraphs)
     assert "[[table:" in paragraphs and "Checking the postings" not in paragraphs
-    assert reply.draft.paragraphs[0].startswith("**GSK**: no open Salesforce-related posting")
+    assert reply.draft.paragraphs[0].startswith(
+        "**Synthetic Holdings**: no open Salesforce-related posting"
+    )
     # five runs: byte-identical tool calls, statistics and answer text
     for other in runs[1:]:
         assert json.dumps(other[0], sort_keys=True) == json.dumps(calls, sort_keys=True)

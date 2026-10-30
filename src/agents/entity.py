@@ -80,7 +80,8 @@ class EntityLock:
     confirmed: bool = False  # the home page of the primary domain names the account
     # the domain is a look-alike of the account's brand and its home page does not name the
     # account: the only case that stops a run. A site that merely does not say the legal name
-    # (gsk.com for GlaxoSmithKline) is unconfirmed, never a mismatch.
+    # (an acronym domain such as lmg.example for Longbridge Medical Group) is unconfirmed, never
+    # a mismatch.
     mismatch: bool = False
     problems: tuple[str, ...] = field(default_factory=tuple)
 

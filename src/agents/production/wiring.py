@@ -36,7 +36,14 @@ from account_intelligence.workflow.transitions import RunStatus
 from agents.adapters import PgConsentStore, PgManifestStore
 from agents.config import SkillConfig, skill_config
 from agents.contracts import load_registry
-from agents.graph import NO_NEW_FINDINGS, AbmDeps, AbmState, build_abm_graph
+from agents.graph import (
+    NO_NEW_FINDINGS,
+    PIPELINE_FAILURES,
+    AbmDeps,
+    AbmState,
+    build_abm_graph,
+)
+from agents.naming import archive_guard
 from agents.ports import RunContext
 from agents.production.credit import CreditAdapter
 from agents.production.delivery import ExportBuilderPort, GateAdapter, NoteDelivery, RunnerSettles
@@ -51,7 +58,13 @@ from llm.schema import REASK_NOTE, validate
 
 M = TypeVar("M", bound=BaseModel)
 FLAG = "abm_agents"
-PRE_SPEND_FAILURES = frozenset({"no_pulled_data", "stale_pulls", "invalid_setup"})
+# graph stops that happen before the research spends anything of the client's: FAILED, nothing
+# charged. ``entity_mismatch`` is one (the account's own home page names another company, found
+# by one page read and one search before any pull; it used to end PARTIAL and charge the client
+# at least one credit for a research that produced nothing: orchestration review F11)
+PRE_SPEND_FAILURES = frozenset(
+    {"no_pulled_data", "stale_pulls", "invalid_setup", "entity_mismatch"}
+)
 
 
 @dataclass(frozen=True)
@@ -220,6 +233,7 @@ def abm_deps(
             archive=LinkArchive(
                 deps.txn, deps.tenant_id, deps.account_id, deps.run_id, deps.payloads, deps.clock
             ),
+            guard=archive_guard,
         ),
         manifests=PgManifestStore(),
         consent=PgConsentStore(),
@@ -352,6 +366,12 @@ class AbmGraphFactory:
             return RunStatus.BUDGET_EXCEEDED, "budget_cap", False
         if values.get("mode") == "pull" and outcome == "completed":
             return RunStatus.PARTIAL, "pull_only", False  # Phase 1 evaluates no rows (G15)
+        if outcome == "completed" and any(
+            (values.get("counters") or {}).get(k) for k in PIPELINE_FAILURES
+        ):
+            # a code pipeline (jobs, technology, people) failed: its rows say so, and a run that
+            # ends before the deliver step (no new findings) must not read Completed either
+            return RunStatus.PARTIAL, "steps_waiting", False
         if outcome == "completed":
             # nothing new found is a finished research, not a stop (no Resume offered)
             return RunStatus.COMPLETED, (str(code) if code == NO_NEW_FINDINGS else None), False

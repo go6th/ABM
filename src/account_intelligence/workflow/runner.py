@@ -6,7 +6,9 @@ so a killed worker loses at most the node in flight, whose paid calls replay fro
 
 One slice:
 1. a terminal run returns at once; an AWAITING_APPROVAL run waits; QUEUED moves to RUNNING; a run
-   past ``max_slices`` ends FAILED (platform fault: full refund);
+   past ``max_slices`` (plus one per wait for a person: those slices are not research time) ends
+   PARTIAL ``slice_ceiling`` with everything it found when it holds anything usable, FAILED with
+   a full refund when it holds nothing (the rule of every other early stop);
 2. the graph runs under ``asyncio.timeout(slice_seconds)``; between supersteps the run status is
    re-read and a CANCELED run stops cleanly (its settlement was made by the cancel path);
 3. an approval interrupt moves the run to AWAITING_APPROVAL and arms the 24 hour timeout task
@@ -19,9 +21,17 @@ One slice:
    ``max_no_progress_slices`` of them in a row end the run PARTIAL with reason ``no_progress``
    (FAILED, full refund, when it holds nothing usable). This stays on while the research caps
    are off: on 2026-10-26 a staging research ran 43 slices of 1650 s with the same node pending
-   and nothing ended it. A redelivered copy of a slice the run has moved past (Cloud Tasks gave
+   and nothing ended it. "Moved" means a new checkpoint, a new stored model reply or a provider
+   call finished in the slice (F7); a slice that ended because the provider governor had no
+   slot is queueing, not stalling: it never counts toward the limit and the next one is queued
+   after a short delay. A redelivered copy of a slice the run has moved past (Cloud Tasks gave
    up on the first copy's long attempt, then retried it every five minutes for 20 hours) is a
-   ``noop``, not ``busy``: it has nothing to run whether or not a worker holds the run;
+   ``noop``, not ``busy``: it has nothing to run whether or not a worker holds the run. The one
+   exception is the LAST slice begun, arriving while another worker's lease is live: that may be
+   the retry of a slice whose worker died, so it answers ``busy`` and is retried until the dead
+   worker's lease reads stale (``_drive`` renews the lease every ``lease_heartbeat_s``; the
+   ledger lets another worker take a lease its owner has not renewed for ``lease_stale_after_s``,
+   so the last of Cloud Tasks' retries, about 150 s after the death, resumes the run: F5);
 5. a finished graph ends the run through ``lifecycle.finish``: BUDGET_EXCEEDED when the cap was
    hit, PARTIAL with the reason when builders or the gate did not pass, else COMPLETED (which the
    tracker guard still refuses if a row is open);
@@ -39,6 +49,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
@@ -99,6 +110,13 @@ class SliceOutcome:
 
     outcome: str
     status: str
+    # seconds the next slice waits before it starts (a slice that ended queueing for a provider)
+    delay_s: float = 0.0
+
+
+class LeaseLost(RuntimeError):  # noqa: N818 - a state, not a failure of the run
+    """Another worker took this run's lease while a slice was running (this worker stalled for
+    longer than the lease time). The slice stops at once and leaves the run to the new holder."""
 
 
 @dataclass(frozen=True)
@@ -112,6 +130,8 @@ class SliceSettings:
     approval_hours: float = 24.0
     # consecutive slices that ended on their timer with the checkpoint unmoved; never uncapped
     max_no_progress_slices: int = 3
+    # the pause before the slice that follows one that ended queueing for a provider slot
+    slot_retry_delay_s: float = 30.0
 
 
 async def _status(deps: RunDeps) -> RunStatus:
@@ -164,8 +184,14 @@ def _emit_root(deps: RunDeps, created: Any, status: str) -> None:
     record("run_transitions_total", 1, {"state": status})
 
 
-async def _begin(deps: RunDeps, settings: SliceSettings, slice_no: int) -> SliceOutcome | None:
-    """Step 1. Returns an outcome when the slice should not run the graph."""
+async def _begin(
+    deps: RunDeps,
+    settings: SliceSettings,
+    slice_no: int,
+    began: dict[str, bool] | None = None,
+) -> SliceOutcome | None:
+    """Step 1. Returns an outcome when the slice should not run the graph. ``began`` is told
+    ``resumed`` when this delivery is the redelivery of a slice that had already begun."""
     async with deps.txn(deps.tenant_id) as s:
         status = await lifecycle.current_status(s, deps.run_id)
         if status in TERMINAL:
@@ -173,7 +199,7 @@ async def _begin(deps: RunDeps, settings: SliceSettings, slice_no: int) -> Slice
         if status is RunStatus.AWAITING_APPROVAL:
             return SliceOutcome("awaiting", status.value)
         # LOOP(slice loop): cap=max_slices slices of slice_seconds (config/workflow_v1.yaml);
-        # exit=done, awaiting, canceled, slice ceiling (FAILED, full refund)
+        # exit=done, awaiting, canceled, slice ceiling (PARTIAL, or FAILED when nothing is usable)
         used = await lifecycle.begin_slice(s, deps.run_id, expected=slice_no)
         if used is None:
             # this slice already began. With the lease free (the caller holds it now) there are
@@ -186,13 +212,22 @@ async def _begin(deps: RunDeps, settings: SliceSettings, slice_no: int) -> Slice
             begun = await lifecycle.slices_used(s, deps.run_id)
             if begun == slice_no + 1 and status in RESUMABLE:
                 _log.warning("slice.resumed", extra={"count": slice_no, "stage": "redelivery"})
+                if began is not None:
+                    began["resumed"] = True
                 return None
             return SliceOutcome("noop", status.value)
         if status is RunStatus.QUEUED:
             await lifecycle.move(s, deps.run_id, RunStatus.QUEUED, RunStatus.RUNNING)
-    if used > settings.max_slices:
-        final = await _finish(deps, RunStatus.FAILED, "slice_ceiling", True)
-        return SliceOutcome("done", final)
+    async with deps.txn(deps.tenant_id) as s:
+        waits = await lifecycle.pause_slices(s, deps.run_id)
+    if used - waits > settings.max_slices:
+        return await _end_stopped(
+            deps,
+            "slice_ceiling",
+            f"the run used {used - waits} slices of {int(settings.slice_seconds)} s"
+            f" (the limit is {settings.max_slices}) and the research was not finished",
+            {"slices": used},
+        )
     return None
 
 
@@ -243,7 +278,7 @@ async def execute_slice(
                     deps.call_context(), deps.connectors.worker_id
                 )
             except LeaseUnavailable:
-                return await _yield(deps, slice_no)
+                return await _yield(deps, slice_no, other_worker=True)
             owner = deps.connectors.worker_id
         try:
             outcome = await _slice(
@@ -265,18 +300,27 @@ async def execute_slice(
     if outcome.outcome == "continue":
         # only after the release: the next slice takes a fresh lease epoch, so a call this slice's
         # timeout cut off reads as abandoned, never as still in flight
-        await scheduler.enqueue_slice(tenant_id, run_id, slice_no + 1)
+        await scheduler.enqueue_slice(tenant_id, run_id, slice_no + 1, outcome.delay_s)
     return outcome
 
 
-async def _yield(deps: RunDeps, slice_no: int) -> SliceOutcome:
+async def _yield(deps: RunDeps, slice_no: int, *, other_worker: bool = False) -> SliceOutcome:
     """The outcome of a slice delivery that cannot run now: ``noop`` when the run already began
     this slice or a later one (a redelivered copy; nothing is left for it, so Cloud Tasks drops
-    it), else ``busy`` (503: redelivered later)."""
+    it), else ``busy`` (503: redelivered later).
+
+    One case of "already began" is not a copy to drop: ``other_worker`` (another process holds a
+    live lease) and the run's LAST slice begun is this one and the run is still active. Its first
+    copy may have died with its worker (OOM, deploy; staging 2026-10-28), in which case this
+    delivery is the retry that must resume the run once the dead worker's lease reads stale. It
+    answers ``busy`` (503) and Cloud Tasks delivers it again; a live holder simply makes the
+    retries fail until the queue's attempts run out, which drops them (F5)."""
     async with deps.txn(deps.tenant_id) as s:
         status = await lifecycle.current_status(s, deps.run_id)
         used = await lifecycle.slices_used(s, deps.run_id)
-    return SliceOutcome("noop" if used > slice_no else "busy", status.value)
+    if used > slice_no and not (other_worker and used == slice_no + 1 and status in RESUMABLE):
+        return SliceOutcome("noop", status.value)
+    return SliceOutcome("busy", status.value)
 
 
 def _mark(snap: Any) -> tuple[Any, ...]:
@@ -299,26 +343,74 @@ CANCEL_POLL_S = 2.0
 RESUMABLE = frozenset({RunStatus.RUNNING, RunStatus.DISTILLING, RunStatus.VERIFYING})
 
 
+def _heartbeat_s(deps: Any) -> float | None:
+    """Seconds between renewals of the run lease while a slice runs (None: no lease to renew)."""
+    connectors = getattr(deps, "connectors", None)
+    if connectors is None:
+        return None
+    try:
+        return float(connectors.config.defaults.ledger.lease_heartbeat_s)
+    except AttributeError:
+        return None
+
+
+async def _renew_lease(deps: Any) -> bool:
+    """Renew this worker's run lease; False when another worker holds it now. A database error
+    is not a lost lease (the next beat tries again; the lease time covers several beats)."""
+    connectors = deps.connectors
+    try:
+        await connectors.ledger.acquire_lease(deps.call_context(), connectors.worker_id)
+    except LeaseUnavailable:
+        return False
+    except Exception as error:  # noqa: BLE001 - a missed beat is retried; the lease outlives several
+        _log.warning("slice.heartbeat_failed", extra={"error_class": type(error).__name__})
+    return True
+
+
+async def _canceled(deps: RunDeps) -> bool:
+    """True when the user stopped the run. A run that something else ended while this slice still
+    drives it (the sweeper took it for an orphan in the same second a redelivered slice resumed it,
+    staging 2026-10-30: the slice then read for 23 minutes and paid for calls of a finished run)
+    stops the slice with ``LeaseLost``: the run is not this worker's any more."""
+    status = await _status(deps)
+    if status is RunStatus.CANCELED:
+        return True
+    if status in TERMINAL:
+        raise LeaseLost(str(deps.run_id))
+    return False
+
+
 async def _drive(graph: Any, graph_input: Any, config: Mapping[str, Any], deps: RunDeps) -> bool:
     """Run the graph; True when the run was canceled. The status is read after every update and
     every ``CANCEL_POLL_S`` inside a long node, so a canceled run stops calling providers within
-    seconds instead of when its node ends."""
+    seconds instead of when its node ends. The run lease is renewed every ``lease_heartbeat_s``
+    meanwhile: a worker that dies stops renewing, and after ``lease_stale_after_s`` another worker
+    may take the run (the long ``lease_ttl_s`` is kept, so a live owner keeps its epoch). When a
+    renewal finds the lease taken by another worker (this one stalled for longer than the stale
+    time) the node is cancelled and ``LeaseLost`` stops the slice: two workers never drive one
+    run."""
 
     async def stream() -> bool:
         async for _ in graph.astream(graph_input, config, stream_mode="updates"):
-            if await _status(deps) is RunStatus.CANCELED:
+            if await _canceled(deps):
                 return True
         return False
 
     task = asyncio.create_task(stream())
+    beat, last_beat = _heartbeat_s(deps), time.monotonic()
     try:
-        # LOOP(cancel watch): cap=the slice timeout around it; exit=graph done, canceled, timeout
+        # LOOP(cancel watch): cap=the slice timeout around it; exit=graph done, canceled, timeout,
+        # lease lost
         while True:
             done, _ = await asyncio.wait({task}, timeout=CANCEL_POLL_S)
             if done:
                 return task.result()
-            if await _status(deps) is RunStatus.CANCELED:
+            if await _canceled(deps):
                 return True
+            if beat is not None and time.monotonic() - last_beat >= beat:
+                last_beat = time.monotonic()
+                if not await _renew_lease(deps):
+                    raise LeaseLost(str(deps.run_id))
     finally:
         if not task.done():
             task.cancel()
@@ -338,7 +430,8 @@ async def _slice(
     graph_factory: GraphFactory | None = None,
 ) -> SliceOutcome:
     """The slice body, run while holding the run lease."""
-    early = await _begin(deps, settings, slice_no)
+    began: dict[str, bool] = {}
+    early = await _begin(deps, settings, slice_no, began)
     if early is not None:
         return early
 
@@ -365,25 +458,42 @@ async def _slice(
             graph_input: Any
             if not snap.values:
                 graph_input = first
+            elif pending and began.get("resumed"):
+                # The first copy of this slice stopped the graph at an interrupt and died before
+                # it recorded the wait (the run is still RUNNING). Nobody has answered: it must
+                # not read as an approval. Record the wait now, the way the first copy would.
+                _log.warning("slice.wait_recorded", extra={"count": slice_no})
+                return await _end(deps, scheduler, run_id, snap, settings, graph_factory)
             elif pending:
-                graph_input = Command(resume=True)  # the run was approved (status is RUNNING)
+                # the run is RUNNING again: approved, or its wait lapsed or was declined. The
+                # graph reads the value as the decision (F10: a lapse used to read as "yes")
+                graph_input = Command(resume=await _resume_decision(deps, snap, slice_no))
             else:
                 graph_input = None
             before, started = _mark(snap), deps.clock.now()
             async with deps.txn(deps.tenant_id) as s:
                 replies_before = await lifecycle.model_replies(s, deps.run_id)
+                calls_before = await lifecycle.completed_calls(s, deps.run_id)
             _log.info("slice.started", extra={"count": slice_no, "stage": _stage(snap)})
             try:
                 async with asyncio.timeout(settings.slice_seconds):
                     if await _drive(graph, graph_input, config, deps):
                         return SliceOutcome("canceled", RunStatus.CANCELED.value)
-            except (TimeoutError, SlotUnavailable):
+            except (TimeoutError, SlotUnavailable) as stopped:
                 # a slot the governor could not grant in its bounded wait is queueing, not a
                 # failure: the slice ends like a timeout and the next one re-runs the node
                 snap = await graph.aget_state(config)
                 waited = (deps.clock.now() - started).total_seconds()
                 return await _timed_out(
-                    deps, slice_no, settings, snap, before, waited, replies_before
+                    deps,
+                    slice_no,
+                    settings,
+                    snap,
+                    before,
+                    waited,
+                    replies_before,
+                    calls_before,
+                    queued=isinstance(stopped, SlotUnavailable),
                 )
             snap = await graph.aget_state(config)
             _log.info(
@@ -395,6 +505,10 @@ async def _slice(
                     "waited_s": round((deps.clock.now() - started).total_seconds()),
                 },
             )
+    except LeaseLost:
+        # another worker took the run while this one stalled: it is theirs now, nothing more to do
+        _log.warning("slice.lease_lost", extra={"count": slice_no})
+        return SliceOutcome("noop", (await _status(deps)).value)
     except Exception as error:
         if _is_interruption(error):
             # LangGraph wraps a cancelled node (NodeCancelledError): still an interruption, so
@@ -411,6 +525,27 @@ async def _slice(
     return await _end(deps, scheduler, run_id, snap, settings, graph_factory)
 
 
+async def _resume_decision(deps: RunDeps, snap: Any, slice_no: int) -> bool:
+    """What a resumed interrupt is told: True to go on, False when the person declined or the
+    wait lapsed (``expire_cap_pause`` marks the lapse; a spend pause's own record says if it was
+    declined). A token-guard pause that nobody answered used to resume as "continue", which
+    raised the spend guard by itself (orchestration review F10); now it stops the run with what
+    it found (``token_guard_stopped``)."""
+    kinds = {
+        (str(v.get("awaiting")), str(v.get("reason")))
+        for task in snap.tasks
+        for item in task.interrupts
+        for v in [item.value]
+        if isinstance(v, dict)
+    }
+    async with deps.txn(deps.tenant_id) as s:
+        if await lifecycle.pause_lapsed(s, deps.run_id, slice_no):
+            return False
+        if any(kind[0] == "cap" and kind[1] in ("spend", "sense_pulls") for kind in kinds):
+            return not await lifecycle.pause_declined(s, deps.run_id)
+    return True
+
+
 async def _timed_out(
     deps: RunDeps,
     slice_no: int,
@@ -419,17 +554,39 @@ async def _timed_out(
     before: tuple[Any, ...],
     waited: float,
     replies_before: int | None = None,
+    calls_before: int | None = None,
+    *,
+    queued: bool = False,
 ) -> SliceOutcome:
     """A slice that ran out of time: ``continue`` while the run moves, and the end of the run
-    once ``max_no_progress_slices`` slices in a row left the checkpoint where they found it
-    (the pending node never finished inside a slice; re-running it forever is not research)."""
+    once ``max_no_progress_slices`` slices in a row left the run where they found it. The run
+    moved when its checkpoint moved, when the slice stored new model replies, or when provider
+    calls finished in it: a node longer than a slice still pays for answers the next slice
+    reuses, and a pull over a slow provider completes a few calls per slice (F7). A slice that
+    ended because the provider governor granted no slot (``queued``) is waiting its turn behind
+    other work, not stalling: it resets the count when it moved something and otherwise leaves it
+    alone, and the next slice starts after ``slot_retry_delay_s``. Such slices still count
+    against ``max_slices``, which ends a run that is never served."""
     progressed = _mark(snap) != before
     stage = _stage(snap)
     async with deps.txn(deps.tenant_id) as s:
         if not progressed and replies_before is not None:
-            # a node longer than a slice still pays for answers that the next slice reuses: new
-            # stored replies are progress even when the checkpoint stayed put
             progressed = await lifecycle.model_replies(s, deps.run_id) > replies_before
+        if not progressed and calls_before is not None:
+            progressed = await lifecycle.completed_calls(s, deps.run_id) > calls_before
+    if queued and not progressed:
+        _log.info(
+            "slice.ended",
+            extra={
+                "count": slice_no,
+                "stage": stage,
+                "outcome": "queued",
+                "waited_s": round(waited),
+            },
+        )
+        return SliceOutcome(
+            "continue", (await _status(deps)).value, delay_s=max(0.0, settings.slot_retry_delay_s)
+        )
     async with deps.txn(deps.tenant_id) as s:
         stalled = await lifecycle.count_no_progress(s, deps.run_id, progressed=progressed)
     _log.info(
@@ -442,22 +599,33 @@ async def _timed_out(
             "slices": stalled,
         },
     )
+    delay = max(0.0, settings.slot_retry_delay_s) if queued else 0.0
     if stalled < max(1, settings.max_no_progress_slices):
-        return SliceOutcome("continue", (await _status(deps)).value)
+        return SliceOutcome("continue", (await _status(deps)).value, delay_s=delay)
     return await _end_no_progress(deps, stage, stalled, settings)
 
 
 async def _end_no_progress(
     deps: RunDeps, stage: str, stalled: int, settings: SliceSettings
 ) -> SliceOutcome:
-    """End a run that made no progress: PARTIAL with everything it found when it holds anything
-    usable, else FAILED with a full refund (the same rule as an unexpected error)."""
+    """End a run that made no progress (see ``_end_stopped``)."""
+    return await _end_stopped(
+        deps,
+        "no_progress",
+        f"{stage} made no progress in {stalled} slices of {int(settings.slice_seconds)} s;"
+        " the node never finished inside a slice",
+        {"stage": stage, "slices": stalled},
+    )
+
+
+async def _end_stopped(
+    deps: RunDeps, reason: str, detail: str, log_extra: Mapping[str, Any]
+) -> SliceOutcome:
+    """End a run the platform stopped (no progress, the slice ceiling): PARTIAL with everything it
+    found when it holds anything usable (credits settle by the real spend), else FAILED with a
+    full refund. The same rule as an unexpected error."""
     from account_intelligence.runs.stop import has_usable_output
 
-    detail = (
-        f"{stage} made no progress in {stalled} slices of {int(settings.slice_seconds)} s;"
-        " the node never finished inside a slice"
-    )
     async with deps.txn(deps.tenant_id) as s:
         if await lifecycle.current_status(s, deps.run_id) in TERMINAL:
             return SliceOutcome("done", (await lifecycle.current_status(s, deps.run_id)).value)
@@ -467,7 +635,7 @@ async def _end_no_progress(
             deps.tracker(s),
             deps.run_id,
             RunStatus.PARTIAL if usable else RunStatus.FAILED,
-            reason="no_progress",
+            reason=reason,
             detail=detail,
             refund_all=not usable,
         )
@@ -480,10 +648,9 @@ async def _end_no_progress(
     _log.warning(
         "run.finished",
         extra={
+            **log_extra,
             "state": status,
-            "stop_reason": "no_progress",
-            "stage": stage,
-            "slices": stalled,
+            "stop_reason": reason,
             "graph_version": str(deps.spec.version)[:40],
             "outcome": "settled" if usable else "refunded",
         },
@@ -626,7 +793,14 @@ async def _end(
                 approval_deadline=deadline,
                 awaiting_kind=kind,
             )
-        await scheduler.schedule_timeout(tenant_id, run_id, deadline)
+            # the slice that resumes this wait is not research time (slice ceiling, F4)
+            await lifecycle.note_pause(s, run_id)
+        try:
+            await scheduler.schedule_timeout(tenant_id, run_id, deadline)
+        except Exception as error:  # noqa: BLE001 - the wait is already recorded
+            # the deadline is on the run row: the sweeper (``runs.recovery``) expires a wait
+            # whose timeout task was never created, so a failed arm costs time, not the run (F6)
+            _log.warning("approval.timeout_not_armed", extra={"error_class": type(error).__name__})
         return SliceOutcome("awaiting", RunStatus.AWAITING_APPROVAL.value)
     if graph_factory is not None:
         target, reason, refund = graph_factory.target(dict(snap.values))

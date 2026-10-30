@@ -1,6 +1,11 @@
 -- Undo migration 0091: the erasure allow-list returns to the one of migration 0020.
 REVOKE DELETE ON link_archive, tech_stack_items FROM tenant_eraser;
 
+-- reviewed: SECURITY DEFINER (owner tenant_eraser, NOLOGIN, NOBYPASSRLS). Deletes at most
+-- p_limit rows of the CALLER's context tenant (app_rw's tenant policies, inherited) from one table
+-- of the hard-coded allow-list, only while deletion request p_request has a dry run, was approved
+-- by a person other than its requester, and is neither completed nor cancelled. Returns the
+-- number of rows deleted. Unchanged from migration 0020 except for the allow-list.
 CREATE OR REPLACE FUNCTION erase_rows(p_request uuid, p_table text, p_limit integer)
    RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE

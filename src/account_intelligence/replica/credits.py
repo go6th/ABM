@@ -153,8 +153,25 @@ async def pool(session: Any, now: datetime) -> dict[str, Any]:
     }
 
 
+# With the caps on, no estimate falls below this share of the configured rate of its scope: the
+# average of an account's earlier jobs is a guide, not a floor, and a cheap or stopped earlier run
+# (a refresh that used 29 credits, a resume that reserved 1) used to shrink the next budget until
+# the run ended ``BUDGET_EXCEEDED`` (e2e test 2026-10-29, D-5; known problems 16).
+ESTIMATE_FLOOR_SHARE = Decimal("0.5")
+
+
+def floor_credits(scope: str) -> int:
+    """The least a repeat or resumed job of this scope may reserve with the caps on: half of the
+    configured rate (rounded up, at least 1)."""
+    return max(1, math.ceil(Decimal(rates().estimates[scope].credits) * ESTIMATE_FLOOR_SHARE))
+
+
 async def estimate(session: Any, account_id: UUID | None, kind: str) -> Rate:
-    """Credits and minutes for one job: the account's history of this kind, else the rate."""
+    """Credits and minutes for one job: the account's history of this kind, else the rate. With
+    the caps on the history never lowers the estimate below half of the configured rate; with
+    the caps off (``RESEARCH_CAPS=off``) the history alone decides, as before."""
+    from account_intelligence.dev_limits import research_uncapped
+
     table = rates()
     base = table.estimates[kind]
     credits = base.credits
@@ -176,8 +193,53 @@ async def estimate(session: Any, account_id: UUID | None, kind: str) -> Rate:
         )
         if past:
             credits = math.ceil(sum(past) / len(past))
+            if not research_uncapped():
+                credits = max(credits, floor_credits(kind))
     cap = await credit_cap_per_pull(session)
     return Rate(max(1, min(credits, cap)), base.minutes)
+
+
+# The rows inside a run's scope, the rule of ``replica.workspace.PLANNED`` (a scoped research
+# marks the rows outside its scope "not planned"). Held here too because the credits module sits
+# below the workspace page in the import layers (runs -> credits); a test keeps the two equal.
+PLANNED = (
+    "NOT EXISTS (SELECT 1 FROM account_runs x WHERE x.id = c.run_id"
+    " AND jsonb_typeof(x.run_input->'scope_rows') = 'array'"
+    " AND NOT jsonb_exists(x.run_input->'scope_rows', c.row_key))"
+)
+
+
+async def steps_left(session: Any, run_id: UUID) -> tuple[int, int]:
+    """``(steps not done, steps planned)`` of a run, counting only the rows inside its scope (the
+    rule of the account page). ``(0, 0)`` when the run recorded no coverage rows."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT count(*) FILTER (WHERE c.status IS DISTINCT FROM 'done') AS remaining,"
+                f" count(*) AS planned FROM coverage_rows c WHERE c.run_id = :r AND {PLANNED}"
+            ),
+            {"r": run_id},
+        )
+    ).one()
+    return int(row.remaining), int(row.planned)
+
+
+async def estimate_resume(session: Any, account_id: UUID | None, kind: str, run_id: UUID) -> Rate:
+    """Credits and minutes to continue the stopped run ``run_id``: the estimate of its scope for
+    the share of its planned steps still not done, never below half of the configured rate. A run
+    with no coverage rows, or none finished, is reserved whole. With the caps off this is the
+    plain ``estimate`` (unchanged)."""
+    from account_intelligence.dev_limits import research_uncapped
+
+    whole = await estimate(session, account_id, kind)
+    if research_uncapped() or kind not in SCOPES:
+        return whole
+    left, planned = await steps_left(session, run_id)
+    if planned <= 0 or left >= planned:
+        return whole
+    share = Decimal(left) / Decimal(planned)
+    credits = max(math.ceil(Decimal(whole.credits) * share), floor_credits(kind))
+    return Rate(max(1, min(credits, whole.credits)), whole.minutes)
 
 
 async def open_job(session: Any, account_id: UUID) -> Any:
@@ -408,6 +470,24 @@ async def claim(session: Any, job_id: UUID, now: datetime) -> Any:
             {"j": job_id, "now": now},
         )
     ).first()
+
+
+async def requeue_unstarted(session: Any, before: datetime, limit: int) -> list[UUID]:
+    """Put back to ``queued`` the jobs a worker claimed before ``before`` and then never gave a run
+    (it died between the claim and the run's creation; ``runs.recovery``). Their credits stay
+    reserved; the job is handed to the worker again and creates its run under its own key."""
+    rows = (
+        await session.execute(
+            text(
+                "UPDATE research_jobs SET status = 'queued' WHERE id IN ("
+                " SELECT id FROM research_jobs WHERE status = 'running' AND run_id IS NULL"
+                " AND coalesce(started_at, created_at) < :b ORDER BY created_at LIMIT :n)"
+                " RETURNING id"
+            ),
+            {"b": before, "n": limit},
+        )
+    ).all()
+    return [UUID(str(r.id)) for r in rows]
 
 
 async def link_run(session: Any, job_id: UUID, run_id: UUID) -> None:

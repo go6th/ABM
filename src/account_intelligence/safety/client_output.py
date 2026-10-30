@@ -20,6 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from account_intelligence.config import CONFIG_DIR
+from account_intelligence.safety.prefilter import Scanned, TermIndex, build_index
 
 
 class ClientOutputLeak(ValueError):
@@ -46,17 +47,32 @@ def load_patterns(path: Path | None = None) -> tuple[re.Pattern[str], ...]:
 
 
 @lru_cache(maxsize=64)
+def _term_index(terms: tuple[str, ...]) -> TermIndex:
+    """Literal terms as word-bounded, case-insensitive patterns (compiled once per term set),
+    found in a text by their words (``safety.prefilter``)."""
+    return build_index(terms)
+
+
 def _term_patterns(terms: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
-    """Literal terms as word-bounded, case-insensitive patterns (compiled once per term set)."""
-    return tuple(
-        re.compile(r"(?<!\w)" + re.escape(t.strip()) + r"(?!\w)", re.I) for t in terms if t.strip()
-    )
+    return _term_index(terms).patterns
 
 
 def scan_text(text: str, extra_terms: Iterable[str] = ()) -> tuple[Hit, ...]:
-    """All hits in ``text``; literal ``extra_terms`` match on word boundaries, any case."""
-    patterns = load_patterns() + _term_patterns(tuple(t for t in extra_terms if t))
-    return tuple(Hit(p.pattern, m.start()) for p in patterns for m in p.finditer(text))
+    """All hits in ``text``; literal ``extra_terms`` match on word boundaries, any case. A pattern
+    that provably cannot match the text is not run (``safety.prefilter``); the hits, and their
+    order, are those of running every pattern."""
+    scanned = Scanned(text)
+    hits: list[Hit] = []
+    for p in load_patterns():
+        if not scanned.cannot_match(p):
+            hits.extend(Hit(p.pattern, m.start()) for m in p.finditer(text))
+    terms = tuple(t for t in extra_terms if t)
+    if terms:
+        index = _term_index(terms)
+        for i in index.candidates(scanned):
+            p = index.patterns[i]
+            hits.extend(Hit(p.pattern, m.start()) for m in p.finditer(text))
+    return tuple(hits)
 
 
 def assert_client_safe(texts: Iterable[str], extra_terms: Iterable[str] = ()) -> None:

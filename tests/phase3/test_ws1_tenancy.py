@@ -259,9 +259,12 @@ async def test_lifecycle_changes_are_append_only_and_race_safe() -> None:
                 c.execute(sql)
 
 
-def _plant_erasable(t: UUID, plan: lifecycle.DeletionPlan) -> None:
+def _plant_erasable(t: UUID, plan: lifecycle.DeletionPlan) -> dict[str, int]:
+    """Up to three canary rows in every table the plan erases (and in two it keeps); returns the
+    rows planted per table (a table with a unique key takes fewer)."""
     import yaml
 
+    planted: dict[str, int] = {}
     with open("tests/isolation/matrix/matrix.yaml") as f:
         matrix = yaml.safe_load(f)["tables"]
     with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
@@ -269,14 +272,26 @@ def _plant_erasable(t: UUID, plan: lifecycle.DeletionPlan) -> None:
         for name in (*plan.erase, "sources", "wallet_ledger"):
             over = (matrix.get(name) or {}).get("plant")
             for _ in range(3):
-                plant(admin, tables[name], t, over)
+                try:
+                    plant(admin, tables[name], t, over)
+                except psycopg.errors.UniqueViolation:
+                    break  # the table's own key allows one canary per owner
+                planted[name] = planted.get(name, 0) + 1
+    return planted
 
 
 def _count(t: UUID, table: str) -> int:
     with psycopg.connect(ADMIN_DSN) as c:
+        # the checkpoint tables belong to a tenant by the prefix of their thread id
+        has_tenant = c.execute(
+            "SELECT count(*) FROM information_schema.columns WHERE table_name = %s"
+            " AND column_name = 'tenant_id' AND table_schema = 'public'",
+            (table,),
+        ).fetchone()[0]
+        where = "tenant_id = %s" if has_tenant else "starts_with(thread_id, %s || ':')"
         n: int = c.execute(
-            f"SELECT count(*) FROM {table} WHERE tenant_id = %s",
-            (t,),  # noqa: S608
+            f"SELECT count(*) FROM {table} WHERE {where}",  # noqa: S608
+            (t if has_tenant else str(t),),
         ).fetchone()[0]
     return n
 
@@ -291,8 +306,8 @@ async def test_deletion_dry_run_lists_exactly_what_execution_removes() -> None:
         max_batches_per_pass=5,
     )
     a, b = _tenant("del-a"), _tenant("del-b")
-    _plant_erasable(a, plan)
-    _plant_erasable(b, plan)
+    planted = _plant_erasable(a, plan)
+    other = _plant_erasable(b, plan)
     ledger_before = _count(a, "wallet_ledger")
     async with tenant_txn(a) as s:
         req = await lifecycle.request_deletion(
@@ -300,12 +315,13 @@ async def test_deletion_dry_run_lists_exactly_what_execution_removes() -> None:
         )
         report = await lifecycle.dry_run(s, req, actor="op-1", now=NOW, plan=plan)
         await lifecycle.approve(s, req, actor="op-2", now=NOW)
-    assert report["erase"] == {t: 3 for t in plan.erase}
-    assert report["blocked"]["sources"]["rows"] == 3
+    assert set(planted) >= set(plan.erase)  # every erasable table got a canary row
+    assert report["erase"] == {t: planted[t] for t in plan.erase}
+    assert report["blocked"]["sources"]["rows"] == planted["sources"]
     erased: dict[str, int] = {}
     reasons = []
-    # LOOP(test): cap=20 passes; exit=completed or blocked
-    for _ in range(20):
+    # LOOP(test): cap=150 passes; exit=completed or blocked
+    for _ in range(150):
         async with tenant_txn(a) as s:
             out = await lifecycle.execute(s, req, actor="op-2", now=NOW, plan=plan)
         for k, v in out.erased.items():
@@ -317,8 +333,8 @@ async def test_deletion_dry_run_lists_exactly_what_execution_removes() -> None:
     assert erased == report["erase"]
     for table in plan.erase:
         assert _count(a, table) == 0, table
-        assert _count(b, table) == 3, table  # another tenant is untouched
-    assert _count(a, "sources") == 3  # blocked, never deleted (C23)
+        assert _count(b, table) == other[table], table  # another tenant is untouched
+    assert _count(a, "sources") == planted["sources"]  # blocked, never deleted (C23)
     assert _count(a, "wallet_ledger") == ledger_before
 
 

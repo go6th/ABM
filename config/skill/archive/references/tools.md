@@ -58,7 +58,7 @@ Which tool to use, what works, what it costs, and the quirks found so far. Tool 
 - Always share the sumble_url for a person or search alongside the LinkedIn link.
 - Sumble misclassifies some process owners as C level. Check levels against titles.
 - Offer a small sample before any call above a few hundred credits.
-- Never set file_name on ANY Sumble call: people, organizations, tech stack, teams, signals, SQL, all of them. The file is hosted on the vendor's site, which neither the page reader nor the sandbox can open, so the credits are lost and the call has to be repeated inline at full cost. Return results inline and save them locally yourself. Repeated on GSK, Sep 24 2026, at 72 credits: the rule applies to every tool on the server, not only the two it was first written for.
+- Never set file_name on ANY Sumble call: people, organizations, tech stack, teams, signals, SQL, all of them. The file is hosted on the vendor's site, which neither the page reader nor the sandbox can open, so the credits are lost and the call has to be repeated inline at full cost. Return results inline and save them locally yourself. Repeated on an earlier account, Sep 24 2026, at 72 credits: the rule applies to every tool on the server, not only the two it was first written for.
 - Cost is people returned times one plus each paid attribute. Compute it before the call; if it is above the estimate already given to the user, state it and wait for a yes.
 
 ## BitScale

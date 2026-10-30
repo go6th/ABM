@@ -21,6 +21,7 @@ reference and the provider code stay in the database.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
@@ -39,6 +40,7 @@ from account_intelligence.tracker.adapters import RunInputAdapter
 from account_intelligence.tracker.render import render_client_view
 from account_intelligence.tracker.repo import CoverageRepo
 from account_intelligence.tracker.tally import sort_for_rendering
+from crosscut.fanout import fan_out_all
 from datamodel.entity_lock import load_entity_lock
 from datamodel.hosts import host_of
 from datamodel.run_ledger import (
@@ -58,6 +60,7 @@ from exports.content import (
     PersonRow,
     PostingRow,
     PullCall,
+    ReleaseRow,
     SectionRow,
     SenseCheckRow,
     SnapshotContent,
@@ -67,19 +70,22 @@ from exports.content import (
     WebHit,
 )
 from exports.errors import LeakError, MissingContent, RowConservation
-from exports.readers.exclusions import apply_exclusions
-from exports.snapshot import open_snapshot, session_factory
+from exports.readers.exclusions import apply_exclusions, exclusion_hash
+from exports.snapshot import open_snapshot, open_system_lookup, session_factory
 from exports.workspace_files import text_names_account
 from jobs.config import load_jobs_config
 from jobs.counts import render_count_sentence
 from jobs.export import is_exported
 from jobs.models import CountBlock, NotSearched, PostingCounts
-from jobs.repo import PgPostingRepo
+from jobs.repo import PgPostingRepo, register_posting_sources
 from people.config import load_people_config
 from people.export import build_export
 from people.repo import PgPeopleRepo
-from tenancy.settings import ExclusionFilter, TenantSettings
+from tenancy.settings import ExclusionFilter, SettingsInvalid, TenantSettings
+from tenancy.settings import current as current_settings
 
+# stored objects read at once when a build loads the posting texts and the search payloads
+READS_IN_FLIGHT = 16
 _OTHER_ACCOUNTS = "SELECT name FROM accounts WHERE id <> :a AND name IS NOT NULL ORDER BY name"
 _FACT_COLS = (
     "id, attribute_key, coalesce(value_text, value_json #>> '{}') AS value_text, lane, claim_kind,"
@@ -187,29 +193,106 @@ class PgContentReader:
         *,
         batch: int,
         snapshot: Callable[[UUID], Any] = open_snapshot,
+        system_lookup: Callable[[UUID], Any] = open_system_lookup,
         key_for: Callable[..., Awaitable[str]] | None = None,
         archive_base: str | None = None,
+        register: Callable[[UUID], Any] | None = None,
+        releases_max: int = 2000,
+        release_chars: int = 60_000,
+        release_kinds: tuple[str, ...] = ("posting", "page", "feed_item"),
     ) -> None:
         self.payloads = payloads
+        # the tenant transaction factory the posting links of an older run are registered with
+        # (None: the reader registers nothing, it only reads)
+        self.register = register
+        # the archived copies carried in the workspace zip (``workspace.releases``)
+        self.releases_max = releases_max
+        self.release_chars = release_chars
+        self.release_kinds = frozenset(release_kinds) & LA.CLIENT_KINDS
         self.batch = batch
         self.snapshot = snapshot
+        self.system_lookup = system_lookup
         self.key_for = key_for
         # the public web origin the archived-copy links are made absolute on (None: no links)
         self.archive_base = archive_base.rstrip("/") if archive_base else None
 
     def _archive_url(self, domain: str, url: str | None, found: dict[str, Any]) -> str:
-        """The absolute address serving our archived copy of ``url`` for the account, blank when
-        no copy is stored or no public origin is configured (the archive route of the API)."""
+        """The absolute address of the website page showing our archived copy of ``url`` for the
+        account (``{public origin}/accounts/{domain}/archive?url=``: the page of the web app,
+        which holds the session; not the API path), blank when no copy is stored or no public
+        origin is configured."""
         if not self.archive_base or not url or url not in found:
             return ""
         return (
-            f"{self.archive_base}/v1/accounts/{quote(domain, safe='')}/archive"
+            f"{self.archive_base}/accounts/{quote(domain, safe='')}/archive"
             f"?url={quote(url, safe='')}"
         )
+
+    async def _releases(self, s: AsyncSession, account_id: UUID) -> tuple[ReleaseRow, ...]:
+        """The account's archived copies for ``data/releases/``: the newest copy of each address
+        (a structured record before a page copy), newest capture first, at most ``releases_max``,
+        client kinds only (never a profile copy), each text read from the payload store (no paid
+        call) and cut at ``release_chars``. A copy whose body cannot be read is skipped."""
+        links: list[LA.ArchivedLink] = []
+        offset = 0
+        # LOOP(release pages): cap=releases_max / MAX_LIST pages (each page adds a copy or ends
+        # the loop); exit=cap reached, an empty page, or every copy listed
+        while len(links) < self.releases_max:
+            page, total = await LA.list_latest(
+                s,
+                account_id,
+                kind=None,
+                offset=offset,
+                limit=min(LA.MAX_LIST, self.releases_max - len(links)),
+                kinds=self.release_kinds,
+            )
+            links.extend(page)
+            offset += len(page)
+            if not page or offset >= total:
+                break
+        gate = asyncio.Semaphore(16)
+
+        async def one(link: LA.ArchivedLink) -> ReleaseRow | None:
+            try:
+                async with gate:
+                    copy = await LA.archived_copy(self.payloads, link, max_text=self.release_chars)
+            except Exception:  # noqa: BLE001 - an unreadable body leaves that copy out
+                return None
+            seen = (copy.record or {}).get("first_seen")
+            try:
+                day = date.fromisoformat(str(seen)[:10])
+            except ValueError:
+                day = link.archived_at.date()
+            title = copy.title or link.title or (urlparse(link.url).hostname or link.url)
+            return ReleaseRow(kind=link.kind, url=link.url, title=title, day=day, text=copy.text)
+
+        rows = await asyncio.gather(*(one(link) for link in links))
+        return tuple(r for r in rows if r is not None)
+
+    async def _register_posting_links(self, tid: UUID, rid: UUID) -> None:
+        """Give every posting link of the run a registered source code before the snapshot is
+        taken. The research registers them when it saves its postings; a run saved before that
+        did not, and a rebuild of its files would drop each posting no graded fact cited. Only
+        links the registry does not hold are added (codes of the others stay as they are, and
+        nothing is deleted)."""
+        if self.register is None:
+            return
+        async with self.register(tid) as s:
+            account = (
+                await s.execute(text("SELECT account_id FROM runs WHERE id = :r"), {"r": rid})
+            ).scalar_one_or_none()
+        if account is None:
+            return
+        record = await PgPostingRepo(self.register, tid, account).load_run(str(rid))
+        if record is None:
+            return
+        async with self.register(tid) as s:
+            await register_posting_sources(s, account, rid, record.postings, missing_only=True)
 
     async def read(self, tenant_id: str, run_id: str) -> SnapshotContent:
         """All rows of the build (see the module docstring)."""
         tid, rid = UUID(tenant_id), UUID(run_id)
+        await self._register_posting_links(tid, rid)
         async with self.snapshot(tid) as s:
             head = (
                 await s.execute(
@@ -226,7 +309,9 @@ class PgContentReader:
             ).first()
             if head is None:
                 raise MissingContent("no such run for this tenant", (run_id,))
-            # TN5 render time: the tenant settings version the run recorded (none: no exclusions)
+            # TN5 render time: the run's pinned settings (branding) and, for the exclusions, the
+            # tenant's CURRENT settings (F1: an exclusion added after the run applies to
+            # everything built after it)
             run_settings = (
                 await s.execute(
                     text(
@@ -236,6 +321,12 @@ class PgContentReader:
                     {"r": rid},
                 )
             ).scalar_one_or_none()
+            try:
+                current_exclusions = ExclusionFilter.of((await current_settings(s)).settings)
+            except SettingsInvalid:
+                raise MissingContent(
+                    "the tenant's settings no longer validate", (run_id,)
+                ) from None
             account_id: UUID = head.account_id
             as_of: date = head.created_at.date()
             policy = (
@@ -248,12 +339,18 @@ class PgContentReader:
             ).scalar_one()
             partner = bool((policy or {}).get("salesforce_partner", False))
             # other accounts never appear (skill rule 6): their domains through the tracker's
-            # shared rule (T9) and their names
-            other_names = (await s.execute(text(_OTHER_ACCOUNTS), {"a": account_id})).scalars()
-            others = (
-                *await RunInputAdapter(s).other_account_names(tid, rid),
-                *other_names.all(),
-            )
+            # shared rule (T9) and their names. Every account of the tenant counts, including a
+            # colleague's private workspace, so they are listed in system scope: a rebuild a
+            # user asks for would otherwise see only that user's own accounts (leakage review
+            # 2026-10-30, F5)
+            async with self.system_lookup(tid) as lookup:
+                other_names = (
+                    await lookup.execute(text(_OTHER_ACCOUNTS), {"a": account_id})
+                ).scalars()
+                others = (
+                    *await RunInputAdapter(lookup).other_account_names(tid, rid),
+                    *other_names.all(),
+                )
             p = {"r": rid, "a": account_id}
             counts: dict[str, int] = {}
 
@@ -354,10 +451,13 @@ class PgContentReader:
             jobs_part = await self._jobs(factory, tid, account_id, run_id, s, head.domain)
             # the archived copies behind the source links (link archive, same snapshot)
             archived_sources = (
-                await LA.lookup(s, account_id, [x.url for x in sources if x.url])
+                await LA.lookup(
+                    s, account_id, [x.url for x in sources if x.url], kinds=LA.CLIENT_KINDS
+                )
                 if self.archive_base
                 else {}
             )
+            releases = await self._releases(s, account_id)
             tracker, tally = await self._tracker(s, rid)
             lock = await load_entity_lock(s, run_id=rid)
             ledger = await load_ledger_calls(s, run_id=rid)
@@ -465,6 +565,7 @@ class PgContentReader:
             tracker=tracker,
             tracker_tally=tally,
             entity_lock=lock,
+            releases=releases,
             pull_calls=pulls,
             pull_failed=failed,
             sense_check=SenseCheckRow(findings=sense.findings, proposals=sense.proposals)
@@ -474,12 +575,16 @@ class PgContentReader:
             **people_part,
             **jobs_part,
         )
+        content = apply_exclusions(content, current_exclusions)
+        if not content.exclusion_hash:
+            content = content.model_copy(
+                update={"exclusion_hash": exclusion_hash(current_exclusions)}
+            )
         if run_settings:
             try:
                 tenant_settings = TenantSettings.model_validate(run_settings)
             except ValueError:
                 raise MissingContent("the run's settings no longer validate", (run_id,)) from None
-            content = apply_exclusions(content, ExclusionFilter.of(tenant_settings))
             if tenant_settings.branding is not None:
                 content = content.model_copy(
                     update={"brand_name": tenant_settings.branding.display_name}
@@ -491,14 +596,20 @@ class PgContentReader:
     ) -> tuple[PullCall, ...]:
         """The ledger's calls as content; a web search also lists its result hosts, read from its
         stored payload (a missing payload leaves the call without hosts, never fails the build)."""
-        out = []
-        for c in ledger:
-            hits: tuple[WebHit, ...] = ()
+
+        async def hits_of(c: LedgerCall) -> tuple[WebHit, ...]:
             if c.operation == "web_search" and c.response_ref:
                 try:
-                    hits = _web_hits(await self.payloads.get(c.response_ref), lock)
+                    return _web_hits(await self.payloads.get(c.response_ref), lock)
                 except (LookupError, OSError, ValueError):
-                    hits = ()
+                    return ()
+            return ()
+
+        # one stored payload read per search call, side by side (a research makes a hundred or
+        # more searches; read one after another they were a hundred object-store round trips)
+        found = await fan_out_all(ledger, hits_of, limit=READS_IN_FLIGHT)
+        out = []
+        for c, hits in zip(ledger, found, strict=True):
             out.append(
                 PullCall(
                     at=c.at,
@@ -620,18 +731,25 @@ class PgContentReader:
         )
         # the archived copy behind each posting link (the job repo archives every stored text)
         archived = (
-            await LA.lookup(s, account_id, [p.url for p in exported if p.url])
+            await LA.lookup(
+                s, account_id, [p.url for p in exported if p.url], kinds=LA.CLIENT_KINDS
+            )
             if self.archive_base
             else {}
         )
+
+        async def description_of(p: Any) -> str:
+            if not p.text_ref:
+                return ""
+            body = await self.payloads.get(p.text_ref)
+            if p.text_sha256 and hashlib.sha256(body).hexdigest() != p.text_sha256:
+                raise MissingContent("a stored posting text fails its hash", (p.posting_key,))
+            return body.decode("utf-8")
+
+        # the posting texts read side by side (up to two thousand objects), in the rows' order
+        descriptions = await fan_out_all(exported, description_of, limit=READS_IN_FLIGHT)
         rows = []
-        for p in exported:
-            description = ""
-            if p.text_ref:
-                body = await self.payloads.get(p.text_ref)
-                if p.text_sha256 and hashlib.sha256(body).hexdigest() != p.text_sha256:
-                    raise MissingContent("a stored posting text fails its hash", (p.posting_key,))
-                description = body.decode("utf-8")
+        for p, description in zip(exported, descriptions, strict=True):
             rows.append(
                 PostingRow(
                     posting_key=p.posting_key,
@@ -643,7 +761,9 @@ class PgContentReader:
                     platform_sentences=tuple(x.text for x in p.sentences),
                     description=description,
                     posted_at=p.posted_at,
-                    first_seen=p.first_seen_at,
+                    # a posting only the live board holds has no feed date: it keeps the day a
+                    # research first captured it, so First seen does not move with the file
+                    first_seen=p.first_seen_at or p.captured_on,
                     full_text_read=p.full_text_read,
                     hostile=p.hostile,
                     window_bucket=p.window_bucket,
@@ -657,9 +777,36 @@ class PgContentReader:
                     platform_sentence_pairs=tuple((x.platform, x.text) for x in p.sentences),
                     new_since_previous=p.new_since_previous,
                     archive_url=self._archive_url(domain, p.url, archived),
+                    classified_by=p.classification.classified_by if p.classification else "",
                 )
             )
-        return {"postings": tuple(rows), "jobs_counts": _jobs_counts(record.counts)}
+        counts = _jobs_counts(record.counts)
+        if counts is not None:
+            # two readings of "classed": a finding (the whole posting read and the answer
+            # verified) and a keyword rule over the sentences (a class, not a finding): both are
+            # rows of the file, only the first is graded in the Evidence file
+            by_reading = sum(1 for r in rows if r.classified_by == "extractor")
+            base = "postings listed on the Jobs sheet"
+            counts = counts.model_copy(
+                update={
+                    "lines": (
+                        *counts.lines,
+                        (
+                            "classed_by_reading",
+                            "Postings classed by reading the whole posting (graded findings)",
+                            by_reading,
+                            base,
+                        ),
+                        (
+                            "classed_by_rule",
+                            "Postings classed by a keyword rule over their sentences (no finding)",
+                            len(rows) - by_reading,
+                            base,
+                        ),
+                    )
+                }
+            )
+        return {"postings": tuple(rows), "jobs_counts": counts}
 
     async def _tracker(
         self, s: AsyncSession, rid: UUID

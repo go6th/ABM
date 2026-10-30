@@ -3,11 +3,19 @@
 # untouched; ledgers and the audit trail are never deleted. The operation is dry run first, needs
 # a second person to approve, runs in bounded batches and is resumable.
 #
-# `erase` is ordered children first (foreign keys). The database refuses any table outside the
-# same allow-list (erase_rows in migration 0020). `blocked` lists tenant data that an earlier
-# invariant forbids deleting; the dry run counts it and execution stops short with the reason
-# (conflict C23 in docs/decisions/conflicts.md). `never` is checked by a test against `erase`.
-version: "1.0.0"
+# EVERY table that carries a tenant_id is in exactly one of the three lists below, each with its
+# reason (tests/system/test_erasure_classification.py fails on a new table that is in none of
+# them, on one in two, and on a stale name). That test is what keeps this file from drifting
+# (leakage review 2026-10-30, F3).
+#
+# `erase` is ordered children first (foreign keys; a test checks the order against the database).
+# The database refuses any table outside the same allow-list (erase_rows, migration 0093).
+# `blocked` lists tenant data that an earlier invariant forbids deleting, or that needs a decision
+# first; the dry run counts it and execution stops short with the reason (conflict C23 in
+# docs/decisions/conflicts.md). `never` is data the repository or the law keeps, with the reason;
+# it is checked against `erase`. Stored objects (the five delivered files, workspace zips, raw
+# uploads, archived bodies) are deleted by prefix after the rows (`objects` below).
+version: "2.0.0"
 status: proposal
 source: "SaaS 3.1 rule 8; batch size and order are proposals (TODO, needs product owner)"
 batch_size: 500
@@ -16,7 +24,6 @@ erase:
   - fact_evidence
   - grade_events
   - verifier_findings
-  - facts
   - claim_drops
   - report_sections
   - deliverables
@@ -28,25 +35,179 @@ erase:
   - tech_stack_items
   - link_archive
   - chunks
+  - abm_distill_outputs
+  - abm_sense_checks
+  - alert_feedback
+  - alert_outbox
+  - alerts
+  - chat_turns
+  - chat_threads
+  - connector_access_log
+  - connector_grants
+  - connector_quarantine
+  - connector_items
+  - connector_oauth_states
+  - connector_connections
+  - coverage_row_events
+  - coverage_rows
+  - crm_write_events
+  - crm_writes
+  - crm_mappings
+  - digest_runs
+  - document_deletions
+  - document_parts
+  - document_passages
+  - document_redactions
+  - document_table_rows
+  - document_tables
+  - download_jobs
+  - export_verifications
+  - export_packages
+  - fact_reevaluations
+  - intake_drops
+  - internal_deliverables
+  - job_pipeline_passes
+  - job_pipeline_runs
+  - lead_verification_queries
+  - lead_verifications
+  - leak_checks
+  - link_checks
+  - missing_observations
+  - monitor_runs
+  - monitor_configs
+  - notification_deliveries
+  - notification_outbox
+  - notifications
+  - people_pipeline_runs
+  - person_events
+  - person_post_pulls
+  - person_search_pages
+  - prepulled_files
+  - prepulled_intent_events
+  - prepulled_intents
+  - pull_manifests
+  - raw_files
+  - refresh_row_plans
+  - research_file_chunks
+  - research_file_deletions
+  - research_file_findings
+  - research_file_model_calls
+  - research_file_state
+  - research_file_upload_parts
+  - research_file_uploads
+  - research_files
+  - research_jobs
+  - review_samples
+  - run_coverage_meta
+  - run_documents
+  - documents
+  - run_feedback
+  - run_gate_results
+  - saved_views
+  - signal_event_evidence
+  - signal_event_links
+  - signal_history
+  - view_materializations
+  - view_rows
+  - work_unit_events
+  - work_units
+  - model_reply_log
+  - auth_sessions
+  - login_states
+  - saml_assertion_ids
+  - tenant_model_credentials
+  - idp_connections
+  - branding_assets
+  - alert_suppressions
+  - signal_events
+  - facts
+  - delta_items
+  - deltas
+  - refresh_runs
+  - refresh_slots
+  - checkpoint_writes
+  - checkpoint_blobs
+  - checkpoints
 blocked:
   sources: "rows are never deleted (stable source codes, trigger sources_guard_identity); C23"
   people: "tombstone erasure only, not exposed until counsel decides (D-06, D-23); C23"
   person_profiles: "tombstone erasure only (D-23); C23"
   person_posts: "tombstone erasure only (D-23); C23"
   person_sources: "tombstone erasure only (D-23); C23"
-  raw_payload_objects: "no object delete adapter; crypto-shredding the tenant key is the sourced method (ARCH 14); C23"
+  raw_payload_objects: "stored objects (delivered files, workspace zips, raw uploads, archived bodies, payloads) are deleted by prefix after the rows when an object store is configured (tenancy.storage.object_prefixes); without one the dry run keeps this item blocked"
+  accounts: "the account row (name, domain, careers address) is referenced by account_runs, sources and the tool-call ledger, which are never deleted; pseudonymising it is a counsel decision (leakage review 2026-10-30, F3)"
+  account_source_counters: "source codes are never reused, so the counter stays with the sources rows it numbers; C23"
+  runs: "the run row is referenced by ledgers that are never deleted (tool_calls, wallet and credit entries, account_runs)"
+  users: "the client directory (name, email) is referenced by audit and membership history; removing a person's data is the data-subject-request flow (dsar_requests), a counsel decision"
+  memberships: "who held which role is audit history that the directory and the audit log refer to; see users"
+  llm_calls: "a cost ledger row that also carries the model's output_json; the content can only be removed by a reviewed definer update, which needs the owner's decision (ledgers are never deleted)"
 never:
-  - wallet_ledger
-  - wallets
-  - tool_calls
-  - tool_call_events
-  - run_cap_versions
-  - run_cap_events
-  - spend_limit_events
-  - spend_reports
-  - audit_events
-  - usage_events
-  - tenant_events
-  - membership_events
-  - tenant_settings_versions
-  - account_runs
+  wallet_ledger: "money ledger, insert-only; kept for accounting law"
+  wallets: "the client's credit pool balance; kept with the ledger"
+  tool_calls: "paid-call ledger (idempotency across runs, cost truth); no response text"
+  tool_call_events: "ledger events of tool_calls"
+  run_cap_versions: "credit cap history of runs; billing record"
+  run_cap_events: "credit cap events of runs; billing record"
+  spend_limit_events: "spend limit history; billing record"
+  spend_reports: "nightly spend reports; billing record"
+  audit_events: "the client's audit log; kept by the audit rule"
+  usage_events: "metering events; billing record"
+  tenant_events: "tenant lifecycle including the deletion request itself; insert-only"
+  membership_events: "membership history; audit"
+  tenant_settings_versions: "history of client settings (exclusions, lanes); insert-only; configuration, not research content"
+  account_runs: "run header and the run state machine; ledgers refer to it; holds the run input (goal) which is a decision for counsel together with accounts"
+  tool_call_records: "raw call records of the paid-call ledger: operation, argument hash, cost; no content"
+  llm_call_attempts: "model call attempts of the cost ledger: error class only"
+  credit_entries: "credit reservations and settlements; billing record"
+  balance_snapshots: "pool snapshots; billing record"
+  unit_cost_rollups: "cost rollups; billing record"
+  ops_cost_rollups: "cost rollups for Runs and spend; billing record"
+  ops_rollup_watermarks: "rollup progress; no content"
+  usage_counters: "metering counters; billing record"
+  usage_thresholds: "metering thresholds; billing record"
+  usage_periods: "researches and chats a user used per period; metering"
+  user_limits: "a user's limits set by the admin; metering configuration"
+  limit_requests: "requests for more researches or chats; metering"
+  quota_versions: "quota history; billing record"
+  plan_assignments: "plan history; billing record"
+  monitoring_budget_versions: "monitoring budget history; billing record"
+  monitoring_usage: "monitoring usage; billing record"
+  throttle_events: "provider throttling history; operational record, no content"
+  spend_defects: "spend invariant findings; operational and billing record"
+  provider_leases: "provider concurrency leases; ids and times only"
+  provider_waiters: "provider concurrency queue; ids and times only"
+  run_leases: "worker leases on runs; ids and times only"
+  run_anomaly_events: "anomaly detector findings; ids and types only"
+  stuck_run_observations: "sweeper observations; ids and states only"
+  auth_events: "sign-in events; security audit"
+  audit_chain_checks: "audit hash-chain checks; the chain must stay verifiable"
+  support_grants: "the admin's grants for View as a client; access audit"
+  support_session_events: "support access history; audit"
+  webhook_receipts: "inbound webhook replay protection; event ids and a verdict"
+  tombstones: "deletion tombstones; they record that something was erased"
+  canary_probe_results: "isolation canary probes; platform records"
+  crm_connection_events: "the client's CRM connection history; audit"
+  people_data_consents: "the client's consent records for people data; legal evidence of consent"
+  client_settings: "limits and features set by the 6th admin for the client; configuration"
+  document_policies: "client redaction policy; configuration"
+  shelf_life_overrides: "client freshness settings; configuration"
+  tenant_rules: "client alert rules (signal type, grade floor); configuration"
+  tenant_rule_accounts: "which accounts a client rule applies to; configuration (ids only)"
+  library_publications: "which Library accounts are published to the client; configuration"
+  question_categories: "question category counts per week, no question text; aggregate"
+  subscriptions: "a user's notification settings; configuration"
+  user_preferences: "a user's model choices; configuration"
+  usefulness_events: "usage analytics events (kind, subject id, time); no content"
+  eval_runs: "platform evaluation runs; no client data"
+  eval_case_results: "platform evaluation results; no client data"
+  eval_metrics: "platform evaluation metrics; no client data"
+  eval_baselines: "platform evaluation baselines; no client data"
+  ownership_backfill: "one-time counts from the private-workspace migration (0063); no content"
+# Stored objects: deleted by prefix once the rows are gone (tenancy.storage.object_prefixes). The
+# raw_payload_objects entry above is cleared by that step when the object store is configured.
+objects:
+  - "tenants/<tenant>/"
+  - "<tenant>/"
+  - "quarantine/tenants/<tenant>/"
+  - "uploads/tenants/<tenant>/"
+  - "quarantine/<tenant>/"

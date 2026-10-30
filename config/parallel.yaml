@@ -106,7 +106,14 @@ providers:
   lease_wait_s: {value: 30, status: proposal}
   lease_poll_s: {value: 0.5, status: proposal}
   lease_jitter_s: {value: 0.25, status: proposal}
-  waiter_ttl_s: {value: 60, status: proposal}
+  # A queued unit polls every lease_poll_s (0.5 s plus jitter) and a unit that stops polling (its
+  # slice timed out, the research was stopped, the worker died) leaves its waiter row behind for
+  # this long. Dead waiters rank by age ahead of the live ones that came after them and never take
+  # the slot they are chosen for, so while they last nobody is granted anything: at 60 s a Resume
+  # started inside a stopped run's last minute, and every slice after a lease timeout, found its
+  # own waiters behind the last slice's dead ones (each generation outlasting the 30 s wait of
+  # the next) and ended "no progress" in three slices (e2e 2026-10-29, D-4). 10 s is twenty polls.
+  waiter_ttl_s: {value: 10, status: measured, source: "e2e 2026-10-29 D-4: a resume starved by dead waiters at 60 s"}
 
 # Fairness (P5): a run and a tenant may hold at most this share of one provider's slots (at least
 # one slot), priority first, then critical path, then age (aging bounds the wait), then key.

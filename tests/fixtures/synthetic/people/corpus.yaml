@@ -78,7 +78,7 @@ mentions:
 # Resolver answers per name and attempt (missing = empty page).
 resolver:
   "Omar Ali":
-    0: [{id: r18, name: Omar Ali, title: "VP, Salesforce Field Service", url: "https://www.linkedin.com/in/omar-ali/"}]
+    0: [{id: r18, name: Omar Ali, title: "VP, Salesforce Field Service", url: "https://www.linkedin.com/in/omar-ali/", employer_domain: synthetic-acme.example.com}]
   "Sam Roe":
     0:
       - {id: x1, name: Sam Roe, title: "Director", url: "https://www.linkedin.com/in/sam-roe"}

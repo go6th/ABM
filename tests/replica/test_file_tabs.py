@@ -771,8 +771,8 @@ def test_ordinary_english_is_not_a_leak_in_the_gate_and_the_page() -> None:
     from exports.policy import leak_hits
 
     description = (
-        "You will work in parallel with the platform team. Parallel processing of loads is a "
-        "plus. Salesforce, MuleSoft and SAP experience required."
+        "You will work in parallel with the platform team. Experience with parallel processing "
+        "of loads is a plus. Salesforce, MuleSoft and SAP experience required."
     )
     assert leak_hits(description) == ()
     assert_client_clean([description])
@@ -785,6 +785,11 @@ def test_ordinary_english_is_not_a_leak_in_the_gate_and_the_page() -> None:
     assert leak_hits(vendor)
     with pytest.raises(Exception, match="G9|client"):
         assert_client_clean([vendor])
+    # deny by default (security review 2026-10-29, F3): a capitalised "Parallel processing" at the
+    # start of a sentence is withheld, one cell, never a leak
+    sentence_start = "Parallel processing of loads is a plus."
+    rows = [{"n": 1, "cells": {"c1": sentence_start}, "links": {}, "link": None}]
+    assert SH.scrub_rows(rows) == 1
 
 
 def test_a_long_text_is_scanned_not_remembered() -> None:

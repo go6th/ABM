@@ -72,6 +72,8 @@ class SourceBatch(_Frozen):
     complete: bool = True
     exit_reason: str = "exhausted"
     reported_count: int | None = None
+    # records of this one call dropped as another company's (the entity lock's look-alike hosts)
+    dropped: int = 0
 
 
 class PageText(_Frozen):
@@ -151,6 +153,14 @@ class Posting(_Frozen):
     # incremental re-research: True when first seen after the account's previous delivered
     # research, False when carried over from it, None when the run had no previous research
     new_since_previous: bool | None = None
+    # the day the posting was first captured by a research (its retrieval date when it first
+    # became a row). A posting only the live board holds has no feed date; this is the First seen
+    # the file prints for it, and a carried posting keeps it (review 2026-10-29, finding 14)
+    captured_on: date | None = None
+    # the research date on which the status last changed (a carried posting whose status moved:
+    # open to closed, or closed to open again). It is part of the archive copy's identity so a
+    # posting that returns to an earlier state is a new copy, not the old one (finding 13)
+    status_since: date | None = None
 
     @property
     def matched(self) -> bool:

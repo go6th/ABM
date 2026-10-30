@@ -112,16 +112,17 @@ def exe_as_pdf() -> bytes:
     return b"MZ\x90\x00" + b"\x00" * 200
 
 
-# ----------------------------------------------------------------- the golden GSK fixture
-# The owner's real ``GSK_Job_Postings.xlsx`` is not in the repository; this is a SYNTHETIC
-# workbook of the same shape (sheet ``Jobs``: 644 data rows, 13 columns, a 5 to 8 thousand
-# character ``Full description``) with the same answer to the golden question: 0 open
-# Salesforce-related postings; relaxing the status gives 20 rows, 14 unique requisitions (the
-# two rows without a requisition dedupe on title plus location), of which 4 are owner-class and
-# six are "salesforce = the field sales team" false positives, 443372, 443075, 439031 and
-# 436438 among them.
+# ----------------------------------------------------------------- the golden holdings fixture
+# A SYNTHETIC job postings workbook for the fictional "Synthetic Holdings" (sheet ``Jobs``: 644
+# data rows, 13 columns, a 5 to 8 thousand character ``Full description``) shaped like a real
+# account's workbook, with a known answer to the golden question: 0 open Salesforce-related
+# postings; relaxing the status gives 20 rows, 14 unique requisitions (the two rows without a
+# requisition dedupe on title plus location), of which 4 are owner-class and six are
+# "salesforce = the field sales team" false positives, 543372, 543075, 539031 and 536438 among
+# them. No real account's data is in the repository (owner decision 2026-10-30); the workspace
+# zip around it is built by ``tests.documents.workspace_zip``.
 
-GSK_COLUMNS = [
+HOLDINGS_COLUMNS = [
     "Requisition",
     "Title",
     "Platforms named",
@@ -138,23 +139,25 @@ GSK_COLUMNS = [
 ]
 OWNER_CLASSES = ("Platform owner", "Admin and owner role")
 # (requisition, title, class, genuine Salesforce product work?, how many rows it appears in)
-GSK_SALESFORCE_RECENT = [
-    (446999, "Salesforce Platform Owner, Commercial", "Platform owner", True, 2),
-    (439962, "Salesforce Administrator Lead", "Admin and owner role", True, 2),
-    (445120, "Omnichannel & Digital Manager", "Delivery role", True, 2),
-    (444873, "Sr. Product Manager, CRM Portals", "Business user", True, 2),
-    (441100, "Head of CRM Platforms (Salesforce)", "Platform owner", True, 1),
-    (440550, "Salesforce Admin & Release Manager", "Admin and owner role", True, 1),
-    (443372, "Territory Sales Manager, Respiratory", "Not platform work", False, 1),
-    (443075, "Field Sales Representative, Oncology", "Not platform work", False, 1),
-    (439031, "Regional Sales Director, Vaccines", "Not platform work", False, 1),
-    (436438, "Key Account Manager, Specialty Care", "Not platform work", False, 1),
-    (431111, "Sales Enablement Partner", "Not platform work", False, 1),
-    (430222, "Medical Sales Associate", "Not platform work", False, 1),
+HOLDINGS_SALESFORCE_RECENT = [
+    (546999, "Salesforce Platform Owner, Commercial", "Platform owner", True, 2),
+    (539962, "Salesforce Administrator Lead", "Admin and owner role", True, 2),
+    (545120, "Omnichannel & Digital Manager", "Delivery role", True, 2),
+    (544873, "Sr. Product Manager, CRM Portals", "Business user", True, 2),
+    (541100, "Head of CRM Platforms (Salesforce)", "Platform owner", True, 1),
+    (540550, "Salesforce Admin & Release Manager", "Admin and owner role", True, 1),
+    (543372, "Territory Sales Manager, Respiratory", "Not platform work", False, 1),
+    (543075, "Field Sales Representative, Oncology", "Not platform work", False, 1),
+    (539031, "Regional Sales Director, Vaccines", "Not platform work", False, 1),
+    (536438, "Key Account Manager, Specialty Care", "Not platform work", False, 1),
+    (531111, "Sales Enablement Partner", "Not platform work", False, 1),
+    (530222, "Medical Sales Associate", "Not platform work", False, 1),
     (None, "Veeva/Salesforce Integration Engineer", "Delivery role", True, 2),
     (None, "CRM Data Steward (Salesforce)", "Business user", True, 2),
 ]
-GSK_FALSE_POSITIVES = [r for r, _, _, genuine, _ in GSK_SALESFORCE_RECENT if not genuine and r]
+HOLDINGS_FALSE_POSITIVES = [
+    r for r, _, _, genuine, _ in HOLDINGS_SALESFORCE_RECENT if not genuine and r
+]
 _CITIES = ["Brentford, UK", "Philadelphia, US", "Poznań, PL", "Bengaluru, IN", "Durham, US"]
 _OTHER_PLATFORMS = ["Veeva", "SAP", "ServiceNow", "Workday", "Snowflake", "Tableau", "None named"]
 _SENTENCES = [
@@ -162,7 +165,7 @@ _SENTENCES = [
     "The role reports into the regional commercial excellence organisation.",
     "We are looking for someone who brings curiosity, rigour and a bias for action.",
     "Experience in the pharmaceutical industry is an advantage but not required.",
-    "GSK is a global biopharma company with a purpose to unite science, technology and talent.",
+    "Synthetic Holdings is a global biopharma company with a purpose to unite science and talent.",
     "You will own the roadmap, prioritise the backlog and run the release calendar.",
     "Flexible working is available and the position may be based in any of our hubs.",
     "Applicants must have the right to work in the country of the role.",
@@ -181,8 +184,8 @@ def _description(rng: random.Random, title: str, sentences: list[str]) -> str:
     return " ".join(out)
 
 
-def gsk_job_postings_rows() -> list[list[object]]:
-    """The 644 data rows of the synthetic GSK workbook (see above), deterministic."""
+def holdings_job_postings_rows() -> list[list[object]]:
+    """The 644 data rows of the synthetic holdings workbook (see above), deterministic."""
     import datetime as dt
 
     rng = random.Random(20260301)
@@ -190,7 +193,7 @@ def gsk_job_postings_rows() -> list[list[object]]:
     # the 20 recent Salesforce rows (all closed, first seen on or after 2026-03-01)
     recent_dates = [dt.date(2026, 3, 1) + dt.timedelta(days=9 * i) for i in range(22)]
     k = 0
-    for posting, (req, title, klass, genuine, copies) in enumerate(GSK_SALESFORCE_RECENT):
+    for posting, (req, title, klass, genuine, copies) in enumerate(HOLDINGS_SALESFORCE_RECENT):
         for copy in range(copies):
             first = recent_dates[k % len(recent_dates)]
             k += 1
@@ -280,8 +283,8 @@ def gsk_job_postings_rows() -> list[list[object]]:
     return rows
 
 
-def gsk_job_postings_xlsx() -> bytes:
-    """The synthetic GSK Job Postings workbook: a Summary sheet, then the Jobs sheet."""
+def holdings_job_postings_xlsx() -> bytes:
+    """The synthetic Holdings Job Postings workbook: a Summary sheet, then the Jobs sheet."""
     from openpyxl import Workbook
 
     wb = Workbook()
@@ -291,8 +294,8 @@ def gsk_job_postings_xlsx() -> bytes:
     summary.append(["Scope", "Postings seen in the last 12 months"])
     summary.append(["Postings", 644])
     jobs = wb.create_sheet("Jobs")
-    jobs.append(GSK_COLUMNS)
-    for row in gsk_job_postings_rows():
+    jobs.append(HOLDINGS_COLUMNS)
+    for row in holdings_job_postings_rows():
         jobs.append(row)
     out = io.BytesIO()
     wb.save(out)

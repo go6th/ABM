@@ -1,0 +1,11 @@
+import { start, summarize, BASE, OUT } from "./lib.mjs";
+const { browser, ctx, page, log } = await start();
+await page.goto(BASE + "/research/new", { waitUntil: "networkidle" });
+await page.getByPlaceholder("Company name").first().fill("Nimbus Labs");
+await page.getByPlaceholder("company.com").fill("nimbuslabs.example");
+await page.getByRole("button", { name: "Start research" }).click();
+await page.waitForTimeout(2500);
+console.log((await page.innerText("main")).replace(/\n+/g, " | ").slice(-700));
+console.log(JSON.stringify(await page.$$eval("main button", (b) => b.map((x) => x.textContent.trim()))));
+await page.screenshot({ path: `${OUT}/shot-new-research-estimate.png`, fullPage: true });
+await browser.close();

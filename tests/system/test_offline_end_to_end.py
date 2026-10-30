@@ -94,6 +94,10 @@ async def test_a_company_job_and_a_file_run_finish_offline_with_five_files_and_a
     ((child,),) = admin(
         "SELECT id FROM account_runs WHERE run_input->>'linked_file_run' = %s", file_run
     )
+    # the public research of a file analysis is sized from the research plan like a job (the
+    # default of 60 calls ended it after a few rows with the caps on)
+    ((cap,),) = admin("SELECT tool_call_cap FROM account_runs WHERE id = %s", child)
+    assert cap > 200, cap
     await stack.drain(a, file_run)
     await stack.drain(a, str(child))
     assert run_row(file_run)["status"] == "COMPLETED"

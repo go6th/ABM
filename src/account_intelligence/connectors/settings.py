@@ -64,6 +64,14 @@ class LedgerCfg(_M):
     """Lease and in-flight wait settings for the paid-call ledger."""
 
     lease_ttl_s: int
+    # The slice runner renews the run lease every ``lease_heartbeat_s``; a lease its owner has not
+    # renewed for ``lease_stale_after_s`` may be taken by another worker before ``lease_ttl_s``
+    # runs out, so the Cloud Tasks retries of a slice whose worker was killed (about +10, +30,
+    # +70 and +150 s) resume the run instead of meeting a live lease and being dropped
+    # (orchestration review 2026-10-30, F5). Keep the stale time above four heartbeats and below
+    # the last retry.
+    lease_heartbeat_s: float = Field(default=20.0, gt=0)
+    lease_stale_after_s: float = Field(default=90.0, gt=0)
     in_flight_wait_s: float
     in_flight_poll_s: float
     # a 'started' attempt by this very worker and lease epoch older than this cannot still be

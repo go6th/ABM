@@ -93,6 +93,7 @@ def build_workspace(
     as_of: date,
     extras: Mapping[str, bytes],
     raw: Sequence[tuple[str, bytes]] = (),
+    releases: Mapping[str, bytes] | None = None,
 ) -> bytes:
     """The workspace zip bytes (see the module docstring). ``extras`` holds ``RESTORE.md`` and
     exactly the configured ``required_members``."""
@@ -108,6 +109,13 @@ def build_workspace(
     members += [(f"{RENDER_DATA_FOLDER}/{kind}.json", data[kind]) for kind in FILE_KINDS]
     members += [(name, extras[name]) for name in ws.required_members]
     members += neutral_payload_members(raw, enabled=ws.raw_payloads.neutral_name_copy_enabled)
+    # one text file per archived copy, after the run's own data files (the stable sort keeps them
+    # inside the data folder, in name order)
+    prefix = ws.releases.folder + "/"
+    for name, body in sorted((releases or {}).items()):
+        if not name.startswith(prefix):
+            raise UnsafePackage("a release file sits outside its folder", (name[:80],))
+        members.append((name, body))
     rank = {folder: i for i, folder in enumerate(ws.folders)}
     members.sort(key=lambda m: rank.get(m[0].split("/", 1)[0], len(rank)))
     names = [safe_name(n, ws.entry_name_max) for n, _ in members]

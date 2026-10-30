@@ -435,7 +435,8 @@ class FakePipelines:
     async def write_detections(self, ctx: RunContext) -> PipelineOutcome:
         self.tech_runs += 1
         graded = await self._facts(ctx, "tech", "date_range", False)
-        return PipelineOutcome({"tech_rows": graded["graded"]}, {"tech": "written"})
+        calls = tuple(f"pipe-{h(k)}" for k, r in self.cfg.plan.items() if r.pipeline == "tech")
+        return PipelineOutcome({"tech_rows": graded["graded"]}, {"tech": "written"}, calls)
 
     async def write_stack(self, ctx: RunContext) -> PipelineOutcome:
         """The organisation tech stack step: counted, nothing stored in the fake."""
@@ -485,7 +486,8 @@ class FakeTracker:
     ) -> RowOutcome:
         self.reports += 1
         rows = self.rows_by_run[ctx.run_id]
-        if reason:
+        # the real tracker derives from call evidence and ignores a reason once the row has calls
+        if reason and not call_refs and not (rows.get(row_key) and rows[row_key].queries):
             out = RowOutcome("blocked", reason, 0)
         else:
             prior = rows.get(row_key)

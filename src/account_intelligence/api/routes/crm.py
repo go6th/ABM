@@ -28,6 +28,7 @@ from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.tenant_plane import plane_of
 from account_intelligence.db.session import tenant_txn
+from account_intelligence.replica.current import NEWEST_FACT
 from crm_writeback import payloads
 from crm_writeback import service as writeback
 
@@ -85,8 +86,9 @@ async def _items(s: Any, account_id: UUID) -> list[payloads.Item]:
                 "SELECT f.attribute_key, f.visibility, f.value_json, min(src.source_code) AS code"
                 " FROM facts f LEFT JOIN fact_evidence e ON e.fact_id = f.id"
                 " LEFT JOIN sources src ON src.id = e.source_id WHERE f.account_id = :a"
-                " AND f.superseded_at IS NULL AND f.product_grade IN ('confirmed', 'probable')"
-                " GROUP BY f.id ORDER BY f.created_at LIMIT 10"
+                " AND f.superseded_at IS NULL AND f.status = 'current'"
+                " AND f.product_grade IN ('confirmed', 'probable')" + NEWEST_FACT + " GROUP BY f.id"
+                " ORDER BY f.created_at DESC LIMIT 10"
             ),
             {"a": account_id},
         )

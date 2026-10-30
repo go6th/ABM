@@ -77,7 +77,7 @@ const sheet: Sheet = {
 
 test("the CSV and Excel links name the account from the domain prop, encoded once", () => {
   render(<SheetView sheet={{ ...sheet, key: "mail and drive" }} domain="a b.example" base="/accounts/a%20b.example/mail%20and%20drive" moreHref={null} />);
-  expect(screen.getByRole("link", { name: "Open in Excel" }).getAttribute("href"))
+  expect(screen.getByRole("link", { name: "Download table as Excel" }).getAttribute("href"))
     .toBe("/v1/accounts/a%20b.example/sheets/mail%20and%20drive/xlsx?filter=all&sort=name&dir=asc");
   expect(screen.getByRole("link", { name: "Download CSV" }).getAttribute("href"))
     .toBe("/v1/accounts/a%20b.example/sheets/mail%20and%20drive/csv?filter=all&sort=name&dir=asc");
@@ -86,7 +86,7 @@ test("the CSV and Excel links name the account from the domain prop, encoded onc
 
 test("a table without an All chip still offers its downloads, and Expand is a plain button", () => {
   render(<SheetView sheet={{ ...sheet, filters: [] }} domain="x.example" base="/accounts/x.example/people" moreHref={null} />);
-  expect(screen.getByRole("link", { name: "Open in Excel" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Download table as Excel" })).toBeTruthy();
   const expand = screen.getByRole("button", { name: "Expand" });
   expect(expand.getAttribute("aria-pressed")).toBeNull();
   fireEvent.click(expand);

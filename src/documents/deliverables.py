@@ -428,7 +428,8 @@ def plausible_key(kind: str, value: str) -> bool:
         if len(text) > 80 or not any(c.isalpha() for c in text):
             return False
         # a name may carry its credentials ("Synthetic Person, PhD, PMP, CSM": ten such rows in
-        # the BD People List of 2026-10-27); a list of skills or schools does not look like that
+        # the reference People List of 2026-10-27); a list of skills or schools does not look
+        # like that
         name, *after = text.split(",")
         return len(after) <= 2 or (len(name.split()) >= 2 and all(map(_credential, after)))
     if kind == "tech":

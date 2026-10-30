@@ -25,7 +25,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 
 import yaml
@@ -34,6 +34,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.config import CONFIG_DIR
+from account_intelligence.platform.ports import NotConfigured
+from tenancy.storage import object_prefixes
 
 Plane = Literal["tenant", "operator", "system"]
 
@@ -55,6 +57,8 @@ class DeletionPlan:
     never: frozenset[str]
     batch_size: int
     max_batches_per_pass: int
+    # why each table of ``never`` is kept (empty for a plan written as a plain list)
+    never_reasons: dict[str, str] = field(default_factory=dict)
 
     @property
     def digest(self) -> str:
@@ -76,6 +80,11 @@ def load_plan() -> DeletionPlan:
         never=frozenset(str(t) for t in raw["never"]),
         batch_size=int(raw["batch_size"]),
         max_batches_per_pass=int(raw["max_batches_per_pass"]),
+        never_reasons=(
+            {str(k): str(v) for k, v in raw["never"].items()}
+            if isinstance(raw["never"], dict)
+            else {}
+        ),
     )
     check_plan(plan)
     return plan
@@ -312,6 +321,39 @@ class PassResult:
     exit_reason: str = ""
 
 
+class ObjectEraser(Protocol):
+    """The part of the object store a deletion needs: remove objects under a prefix."""
+
+    async def delete_prefix(self, prefix: str, limit: int) -> int:
+        """Delete at most ``limit`` objects under ``prefix``; returns how many were deleted."""
+        ...
+
+
+OBJECT_BATCH = 500
+# one pass deletes at most this many batches of objects per prefix; a later pass continues
+OBJECT_BATCHES_PER_PASS = 200
+
+
+async def erase_objects(
+    store: ObjectEraser, tenant_id: UUID, *, batch: int = OBJECT_BATCH
+) -> tuple[int, bool]:
+    """Delete every stored object of one tenant by prefix (``tenancy.storage.object_prefixes``:
+    its own tree, the delivered files, the upload and quarantine prefixes). Returns the number
+    deleted and whether every prefix is now empty (False: the pass ended at its cap)."""
+    total = 0
+    for prefix in object_prefixes(tenant_id):
+        # LOOP(object deletion): cap=OBJECT_BATCHES_PER_PASS batches per prefix; exit=a batch
+        # shorter than the limit (the prefix is empty) or the cap
+        for _ in range(OBJECT_BATCHES_PER_PASS):
+            n = await store.delete_prefix(prefix, batch)
+            total += n
+            if n < batch:
+                break
+        else:
+            return total, False
+    return total, True
+
+
 async def execute(
     session: AsyncSession,
     request_id: str,
@@ -319,10 +361,14 @@ async def execute(
     actor: str,
     now: datetime,
     plan: DeletionPlan | None = None,
+    objects: ObjectEraser | None = None,
 ) -> PassResult:
     """One bounded, resumable pass. Exit reasons: ``completed`` (nothing left and nothing
     blocked), ``blocked`` (erasable rows gone, blocked items remain; the request stays open),
-    ``batch_cap`` (call again to continue)."""
+    ``batch_cap`` (call again to continue). With ``objects`` the stored objects of the tenant are
+    deleted by prefix after the rows (the five delivered files, workspace zips, raw uploads,
+    archived bodies and payloads); without one, or with a store that is not configured, the
+    ``raw_payload_objects`` item stays blocked."""
     plan = plan or load_plan()
     st = await state(session)
     if st.deletion_request != request_id or st.deletion_phase not in (
@@ -357,9 +403,25 @@ async def execute(
             result.erased[table] = result.erased.get(table, 0) + n
             if n < plan.batch_size:
                 break
+    objects_gone = False
+    if objects is not None:
+        try:
+            tenant: Any = (await session.execute(text("SELECT app_tenant()"))).scalar_one()
+            gone, objects_gone = await erase_objects(objects, UUID(str(tenant)))
+        except NotConfigured:
+            gone = 0  # no object store is configured: the item stays blocked
+        else:
+            if gone:
+                result.erased["raw_payload_objects"] = gone
+            if not objects_gone:
+                result.exit_reason = "batch_cap"
+                await _record_batches(session, request_id, result, actor, now)
+                return result
     await _record_batches(session, request_id, result, actor, now)
     st = await state(session)
     remaining = await counts(session, plan)
+    if objects_gone:
+        remaining["raw_payload_objects"] = 0
     blocked = {t: why for t, why in plan.blocked.items() if remaining.get(t, 1)}
     if blocked:
         result.exit_reason = "blocked"

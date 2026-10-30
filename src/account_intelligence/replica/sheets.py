@@ -15,16 +15,18 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from functools import cache, lru_cache
 from typing import Any
+from urllib.parse import unquote
 from uuid import UUID
 
 from sqlalchemy import text
 
 from account_intelligence.replica.answers import LANE_LABEL, day_month
+from account_intelligence.replica.current import NEWEST_DETECTION, NEWEST_PERSON, NEWEST_POSTING
 from account_intelligence.replica.source_label import source_link
 from account_intelligence.replica.workspace import FACT_CLASS, relative
 from exports.policy import leak_hits
@@ -121,7 +123,8 @@ SHEETS: dict[str, Sheet] = {
             " later_run"
             " FROM people p WHERE p.account_id = :a AND NOT p.excluded AND p.merged_into IS NULL"
             " AND p.erased_at IS NULL AND NOT coalesce(p.internal_only, false)"
-            " UNION ALL "
+            + NEWEST_PERSON
+            + " UNION ALL "
             + _fact_rows(
                 "people",
                 "coalesce(f.value_text, f.value_json->>'text') AS name,"
@@ -215,7 +218,8 @@ SHEETS: dict[str, Sheet] = {
             " coalesce(j.posted_at, j.first_seen) AS posted, initcap(j.status) AS status, j.url AS"
             " link"
             " FROM job_postings j WHERE j.account_id = :a"
-            " UNION ALL "
+            + NEWEST_POSTING
+            + " UNION ALL "
             + _fact_rows(
                 "jobs",
                 "coalesce(f.value_text, f.value_json->>'text') AS title,"
@@ -261,7 +265,8 @@ SHEETS: dict[str, Sheet] = {
             " (SELECT s.url FROM sources s WHERE s.account_id = t.account_id AND s.source_code ="
             " t.source_ref) AS link"
             " FROM tech_detections t WHERE t.account_id = :a"
-            " UNION ALL "
+            + NEWEST_DETECTION
+            + " UNION ALL "
             + _fact_rows(
                 "tech",
                 "coalesce(f.value_text, f.value_json->>'text') AS technology,"
@@ -570,7 +575,11 @@ def chip_specs(table: str, columns: Any, rules: Any) -> list[tuple[str, str, str
             ("senior", header["meets_seniority"], "meets_seniority", labels.yes),
         ]
     if table == "jobs":
-        return [(f"status_{k}", word, "status", word) for k, word in labels.posting_status.items()]
+        # one chip per printed word: an unknown status prints as Open, so it has no chip of its own
+        seen: dict[str, str] = {}
+        for k, word in labels.posting_status.items():
+            seen.setdefault(word, k)
+        return [(f"status_{k}", word, "status", word) for word, k in seen.items()]
     if table == "facts":
         st = rules.statement_text
         return [("may_state", st.may_state, "use", st.may_state), ("ask", st.ask, "use", st.ask)]
@@ -662,13 +671,27 @@ _FILE_KIND = {
 }
 
 
-async def is_materialised(session: Any, run: UUID) -> bool:
-    """Whether the run's client tables were built (``views.materialize``), in any state."""
-    return bool(
-        await session.scalar(
-            text("SELECT true FROM view_materializations WHERE run_id = :r"), {"r": run}
-        )
+async def _materialised_under(session: Any, run: UUID) -> str | None:
+    """The exclusion set the run's client tables were filtered with (``none``: no exclusions or
+    stored before the hash was recorded), None when they were never built."""
+    found = await session.execute(
+        text(
+            "SELECT coalesce(exclusion_hash, 'none') FROM view_materializations WHERE run_id = :r"
+        ),
+        {"r": run},
     )
+    row = found.first()
+    return str(row[0]) if row else None
+
+
+async def is_materialised(session: Any, run: UUID) -> bool:
+    """Whether the run's client tables were built (``views.materialize``), in any state, under
+    the tenant's CURRENT exclusion set: tables made under an earlier list count as not built, so
+    the caller builds them again (F1)."""
+    from views.materialize import current_exclusion_hash
+
+    built = await _materialised_under(session, run)
+    return built is not None and built == await current_exclusion_hash(session)
 
 
 @dataclass(frozen=True)
@@ -684,8 +707,15 @@ class _FilePrefetch:
 
 
 async def _prefetch(session: Any, run: UUID) -> _FilePrefetch:
+    from views.materialize import current_exclusion_hash
+
+    # tables made under another exclusion list than the tenant's current one are not shown
     ready = await session.scalar(
-        text("SELECT status = 'ready' FROM view_materializations WHERE run_id = :r"), {"r": run}
+        text(
+            "SELECT status = 'ready' AND coalesce(exclusion_hash, 'none') = :h"
+            " FROM view_materializations WHERE run_id = :r"
+        ),
+        {"r": run, "h": await current_exclusion_hash(session)},
     )
     manifests: dict[str, Any] = {}
     first: dict[str, Any] = {}
@@ -841,9 +871,64 @@ def parse(
     )
 
 
-def params(q: Query, account_id: UUID, user_id: str, now: datetime) -> dict[str, Any]:
-    """The bound values of the sheet's SQL."""
-    out: dict[str, Any] = {"a": account_id, "u": user_id, "now": now}
+def visible_base(q: Query) -> str:
+    """The sheet's SQL without the rows the tenant's current exclusions hide (``hidden_ids``). A
+    file-shaped sheet reads tables that were made under the current list (``is_materialised``),
+    so only a live sheet needs it."""
+    if q.sheet.table is not None:
+        return q.sheet.base
+    return (
+        f"SELECT * FROM ({q.sheet.base}) hb"
+        " WHERE CAST(hb._id AS text) <> ALL(CAST(:hide AS text[]))"
+    )
+
+
+async def hidden_ids(
+    session: Any, q: Query, account_id: UUID, user_id: str, now: datetime
+) -> list[str]:
+    """The ids of the live sheet's rows that name a person the tenant excluded, or that sit on
+    an excluded company's domain, under the tenant's CURRENT exclusions (F1): the pull-time flag
+    on a person only covers an exclusion that existed when the research ran. Empty without
+    exclusions (one settings read), and for a file-shaped sheet. Exact: the same text rule as the
+    archive (``readers.exclusions.text_excluded``)."""
+    from exports.readers.exclusions import text_excluded, with_known_names
+    from tenancy import settings as tenant_settings
+
+    if q.sheet.table is not None:
+        return []
+    rule = tenant_settings.ExclusionFilter.of((await tenant_settings.current(session)).settings)
+    if not rule.people and not rule.companies:
+        return []
+    known = (
+        await session.execute(
+            text("SELECT name, profile_url FROM people WHERE account_id = :a"), {"a": account_id}
+        )
+    ).all()
+    rule = with_known_names(rule, [(r.name, r.profile_url) for r in known])
+    rows = (
+        (
+            await session.execute(
+                text(f"SELECT * FROM ({q.sheet.base}) b"), params(q, account_id, user_id, now)
+            )
+        )  # nosec B608 -- allow-listed sheet SQL; values are bound.
+        .mappings()
+        .all()
+    )
+    hidden: list[str] = []
+    for r in rows:
+        texts = [v for k, v in r.items() if isinstance(v, str) and k != "link" and v]
+        link = r.get("link") if isinstance(r.get("link"), str) else None
+        profile = r.get("profile") if isinstance(r.get("profile"), str) else None
+        if text_excluded(rule, *texts, url=link) or (profile and text_excluded(rule, url=profile)):
+            hidden.append(str(r["_id"]))
+    return hidden
+
+
+def params(
+    q: Query, account_id: UUID, user_id: str, now: datetime, hide: Sequence[str] = ()
+) -> dict[str, Any]:
+    """The bound values of the sheet's SQL (``hide``: the ids ``hidden_ids`` found)."""
+    out: dict[str, Any] = {"a": account_id, "u": user_id, "now": now, "hide": list(hide)}
     if q.sheet.key == "coverage" and q.sheet.table is None:
         out["tracker"] = tracker_labels()
     if q.sheet.table is not None:
@@ -880,7 +965,30 @@ def row_out(q: Query, n: int, r: Any, now: datetime) -> dict[str, Any]:
             links[c.key] = href
             value = c.link_text or value
         cells[c.key] = value
-    return {"n": n, "cells": cells, "links": links, **link_fields(r.get("link"))}
+    out: dict[str, Any] = {"n": n, "cells": cells, "links": links, **link_fields(r.get("link"))}
+    fills = row_fills(q.sheet.table, [c.key for c in q.sheet.cols], cells)
+    if fills:
+        out["fills"] = fills
+    return out
+
+
+# the fill tokens the delivered files colour with (``config/export_theme.yaml excel.fills``): a
+# posting first seen after the previous research colours its whole row, a person's Priority cell
+# its letter; the screen maps a token to a class (``cell-fill.ts``)
+_NEW_ROW_FLAG = "new_flag"
+_PRIORITY_TOKEN = {"A": "priority_a", "B": "priority_b", "C": "priority_c"}
+
+
+def row_fills(table: str | None, keys: Sequence[str], cells: Mapping[str, str]) -> dict[str, str]:
+    """The fill token of each cell of one row of a file-shaped table, as the file colours it
+    (column key to token; none for a table the file leaves uncoloured)."""
+    if table == "jobs" and cells.get(_NEW_ROW_FLAG, "").strip():
+        return {key: "new_row" for key in keys}
+    if table == "people":
+        token = _PRIORITY_TOKEN.get(cells.get("priority", "").strip())
+        if token is not None:
+            return {"priority": token}
+    return {}
 
 
 # A cell on a page of the table is shown up to this many characters; the whole cell is in the
@@ -902,12 +1010,14 @@ def cap_rows(rows: list[dict[str, Any]], cap: int = CELL_CAP) -> None:
         row["cut"] = cut
 
 
-def scrub_rows(rows: list[dict[str, Any]]) -> int:
+def scrub_rows(rows: list[dict[str, Any]], extra_terms: Sequence[str] = ()) -> int:
     """The client-output guard on a page of rows, withholding per cell: tool names are scrubbed
-    from every cell, a cell that still carries a provider term, a guarded person name or a
-    provider domain reads ``WITHHELD``, and a link to a provider domain is dropped. Returns the
-    cells withheld. The page always loads (the exports do the same, ``safe_cell``)."""
-    from agents.naming import scrub_client_text, third_party_domain_hits
+    from every cell, a cell that still carries a provider term, a guarded person name, a provider
+    domain or one of ``extra_terms`` (the other accounts' names and the excluded companies, as
+    the exports apply them) reads ``WITHHELD``, and a link to a provider domain is dropped, the
+    archived-copy address beside it too. Returns the cells withheld. The page always loads (the
+    exports do the same, ``safe_cell``)."""
+    from agents.naming import client_hits, scrub_client_text, third_party_domain_hits
 
     held = 0
     for row in rows:
@@ -916,6 +1026,8 @@ def scrub_rows(rows: list[dict[str, Any]]) -> int:
             if not isinstance(value, str) or not value:
                 continue
             cleaned, withheld = scrub_client_text(value)
+            if not withheld and extra_terms and client_hits(cleaned, extra_terms):
+                withheld = True
             if withheld:
                 held += 1
                 cells[key] = WITHHELD
@@ -930,6 +1042,13 @@ def scrub_rows(rows: list[dict[str, Any]]) -> int:
             row["link"] = None
             row["link_label"] = None
             held += 1
+        # the archived copy of a link is addressed by that link (``?url=<link>``): the guard
+        # that drops a link to a provider domain drops its archive address too (review F5)
+        for key, ref in list((row.get("archives") or {}).items()):
+            href = ref.get("href") if isinstance(ref, dict) else None
+            if isinstance(href, str) and third_party_domain_hits(unquote(href)):
+                del row["archives"][key]
+                held += 1
     return held
 
 
@@ -941,15 +1060,20 @@ async def attach_archives(
     captured), so a link that died still opens what the research captured."""
     from urllib.parse import quote
 
-    from account_intelligence.archive import lookup
+    from account_intelligence.archive import CLIENT_KINDS, lookup
+    from agents.naming import third_party_domain_hits
 
     wanted: set[str] = set()
     for row in rows:
         wanted.update(v for v in (row.get("links") or {}).values() if v)
         if row.get("link"):
             wanted.add(str(row["link"]))
-    found = await lookup(session, account_id, sorted(wanted)) if wanted else {}
-    base = f"/v1/accounts/{domain}/archive?url="
+    # no archived copy is offered for an address on a provider's domain, and none for a profile
+    # page (a profile copy is internal and is never served: ``archive.CLIENT_KINDS``)
+    wanted = {u for u in wanted if not third_party_domain_hits(u)}
+    found = await lookup(session, account_id, sorted(wanted), kinds=CLIENT_KINDS) if wanted else {}
+    # the archived copy is a page of the website (the archive viewer), same origin as the table
+    base = f"/accounts/{quote(domain, safe='')}/archive?url="
     for row in rows:
         archives: dict[str, dict[str, str]] = {}
         for key, url in (*(row.get("links") or {}).items(), ("link", row.get("link"))):
@@ -1004,17 +1128,20 @@ async def read(
     session: Any, q: Query, account_id: UUID, user_id: str, now: datetime, *, export: bool = False
 ) -> dict[str, Any]:
     """One page of the sheet (or the whole filtered sheet for an export) and the chip counts."""
-    bound = params(q, account_id, user_id, now)
+    bound = params(
+        q, account_id, user_id, now, await hidden_ids(session, q, account_id, user_id, now)
+    )
+    base = visible_base(q)
     counts_sql = ", ".join(
         f"count(*) FILTER (WHERE {f.where}) AS c{i}" for i, f in enumerate(q.sheet.filters)
     )
-    counts_query = f"SELECT {counts_sql} FROM ({q.sheet.base}) s"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+    counts_query = f"SELECT {counts_sql} FROM ({base}) s"  # nosec B608 -- allow-listed sheet SQL; values are bound.
     counts = (await session.execute(text(counts_query), bound)).one()
     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
     limit = MAX_EXPORT if export else q.limit
     offset = 0 if export else q.offset
     where = f"({q.filter.where}) AND ({q.sheet.export_where})" if export else q.filter.where
-    page_query = f"SELECT * FROM ({q.sheet.base}) s WHERE {where} ORDER BY {order}"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+    page_query = f"SELECT * FROM ({base}) s WHERE {where} ORDER BY {order}"  # nosec B608 -- allow-listed sheet SQL; values are bound.
     rows = (
         (
             await session.execute(

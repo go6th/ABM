@@ -69,13 +69,14 @@ async def test_builder_with_render_checks_passes_on_a_rich_account(
     assert statuses == {
         ("pdf_row_presence", "passed"),
         ("workbook_recalc", "passed"),
+        ("workbook_cached_values", "passed"),
         ("docx_rowcheck", "passed"),
         ("doc_checks", "passed"),
         ("third_party_scan", "passed"),
     }
-    # two documents (4 checks each), three workbooks (recalculation and the third-party scan),
-    # the workspace zip (the third-party scan)
-    assert len(out.checks) == 15
+    # two documents (4 checks each), three workbooks (cached values, recalculation and the
+    # third-party scan), the workspace zip (the third-party scan)
+    assert len(out.checks) == 18
     # the lost-row check really looks at the PDF: every summary and evidence key is there
     for kind in ("summary", "evidence"):
         _, body = out.files[kind]

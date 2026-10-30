@@ -23,6 +23,8 @@ What exists and what does not (nothing here guesses a provider shape):
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 from collections.abc import Sequence
 from datetime import date
@@ -30,7 +32,12 @@ from typing import Any
 
 from sqlalchemy import text
 
-from account_intelligence.connectors.base import Operation
+from account_intelligence.connectors.base import (
+    OPERATION_PROVIDER,
+    SINGLE_CALL_CEILING_S,
+    SINGLE_REQUEST_OPERATIONS,
+    Operation,
+)
 from account_intelligence.connectors.errors import (
     BudgetExceeded,
     ConnectorError,
@@ -48,6 +55,8 @@ from account_intelligence.connectors.models import (
 )
 from account_intelligence.connectors.service import call_operation
 from account_intelligence.tracker.model import Actor, ReasonCode
+from crosscut.fanout import fan_out_all
+from crosscut.gates import ProviderGates
 from people.config import PeopleConfig
 from people.errors import NotConfigured
 from people.models import Mention, PersonPage, PostsBatch, RawPerson, RawProfile
@@ -55,19 +64,35 @@ from people.ports import SourceUnavailable
 from people.technology import technologies_by_lane
 
 ROW_STAGE = "people"
+# technology lookups of one lane asked side by side (the provider's own gate holds the ceiling)
+PEOPLE_LOOKUPS_IN_FLIGHT = 10
 
 
 class _Calls:
     def __init__(self, deps: Any, operations: frozenset[str]) -> None:
         self.deps = deps
         self.operations = operations  # operations of the active people source (P0-3)
+        self._gates = ProviderGates()
 
     async def call(self, op: Operation, args: Any) -> Any:
         """One connector call with the retry-ownership rule; typed failures as SourceUnavailable."""
         if self.deps.connectors is None or op.value not in self.operations:
             raise SourceUnavailable("not_available_yet")
         try:
-            return await call_operation(op, args, self.deps.call_context(), self.deps.connectors)
+            # one request is waited for a bounded time; a people list is bounded by the slice only
+            # the wait for this research's own gate (the lookups of one lane's technologies run side
+            # by side, more than the provider has slots) is queueing, not a slow source
+            async with contextlib.AsyncExitStack() as stack:
+                if op is Operation.PEOPLE_BY_TECHNOLOGY:
+                    await stack.enter_async_context(self._gates(OPERATION_PROVIDER[op].value))
+                async with asyncio.timeout(
+                    SINGLE_CALL_CEILING_S if op in SINGLE_REQUEST_OPERATIONS else None
+                ):
+                    return await call_operation(
+                        op, args, self.deps.call_context(), self.deps.connectors
+                    )
+        except TimeoutError as error:
+            raise SourceUnavailable("source_slow") from error
         except NotSupportedYet as error:
             raise SourceUnavailable("not_available_yet") from error
         except BudgetExceeded as error:
@@ -150,18 +175,23 @@ class ConnectorPeopleSearch(_Calls):
         slugs = technologies_by_lane((lane,), items, self.cfg.technologies_per_lane).get(lane, ())
         if not slugs:
             raise SourceUnavailable("not_available_yet")  # the stack has nothing for this lane
-        pages = [
-            _people_page(
+        organization_id = found.organization_id
+
+        async def people_of(slug: str) -> PersonPage:
+            """The people the organisation has for one technology."""
+            return _people_page(
                 await self.call(
                     Operation.PEOPLE_BY_TECHNOLOGY,
-                    PeopleByTechnologyArgs(
-                        organization_id=found.organization_id, technology_slug=slug
-                    ),
+                    PeopleByTechnologyArgs(organization_id=organization_id, technology_slug=slug),
                 ),
                 self.deps.domain,
             )
-            for slug in slugs
-        ]
+
+        # LOOP(lane technologies): cap=technologies_per_lane (10), the provider's ceiling in flight;
+        # exit=all looked up (the first failure in the list's order is raised after the rest
+        # finished). One lookup per technology, side by side: a lookup is a provider job that is
+        # polled for up to 150 s, and ten of them one after another held the lane for minutes.
+        pages = await fan_out_all(list(slugs), people_of, limit=PEOPLE_LOOKUPS_IN_FLIGHT)
         return PersonPage(
             records=tuple(
                 r.model_copy(update={"origin": "association"}) for p in pages for r in p.records

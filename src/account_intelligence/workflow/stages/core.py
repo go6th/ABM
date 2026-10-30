@@ -178,7 +178,7 @@ async def jobs_stage(deps: RunDeps, state: RunState) -> dict[str, Any]:
     result = await run_jobs(
         str(deps.run_id),
         pipeline,
-        PgPostingRepo(deps.txn, deps.tenant_id, deps.account_id),
+        PgPostingRepo(deps.txn, deps.tenant_id, deps.account_id, deps.payloads),
         RunPayloads(deps),
         TrackerEvidence(deps),
         sink,

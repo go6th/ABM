@@ -22,7 +22,7 @@ from datetime import date
 from account_intelligence.dev_limits import UNCAPPED
 from account_intelligence.grading.schema import ProposedSourced
 from crosscut.fanout import fan_out_all
-from jobs.claims import claims_for
+from jobs.claims import claim_id, claimable, claims_for
 from jobs.classify import title_candidate
 from jobs.config import JobsConfig
 from jobs.counts import compute_counts
@@ -49,8 +49,12 @@ from jobs.ports import PageReadPort, PostingSourcePort, SourceUnavailable
 from jobs.sentences import extract_platform_sentences
 from jobs.window import classify_window, window_start
 
-# postings read and classified at once (page reads and extractor calls are what each waits on)
-JOBS_CONCURRENCY = 8
+# postings read and classified at once (page reads and extractor calls are what each waits on).
+# 16 (was 8, 2026-10-30): the page reads queue at the scrape provider's gate
+# (``jobs.adapters``, ``parallel.gates``), so the number of postings in hand no longer decides how
+# many reads reach the provider; the model calls (a posting's classification) are what more of
+# them overlap, as the 32 of the reading step do
+JOBS_CONCURRENCY = 16
 ROW_BOARD = "job_board_by_lane"
 ROW_PULL = "job_postings_12_months"
 ROW_READ = "job_postings_read_classified"
@@ -108,6 +112,15 @@ class PipelineResult:
     # carried into this one without a pull, read or extractor call, and how many were carried
     previous_run_id: str | None = None
     carried: int = 0
+    # what the incremental choice of the NEXT research reads from this record (jobs.incremental):
+    # the feed pull ran to its end, the lanes switched off, the lexicon hash this pass matched
+    # with, and how many feed postings came without a description (page-read like any other)
+    pull_complete: bool = True
+    lanes_off: tuple[str, ...] = ()
+    lexicon_hash: str = ""
+    description_less: int = 0
+    # claims not templated because the stored text of a read posting could not be read back
+    claims_skipped_text: int = 0
 
 
 @dataclass(frozen=True)
@@ -123,6 +136,7 @@ class _Frame:
     lanes_off: frozenset[str]
     previous_run_id: str | None = None
     carried: int = 0
+    description_less: int = 0
 
 
 @dataclass(frozen=True)
@@ -161,6 +175,7 @@ class JobsPipeline:
         canary: str,
         hostile_markers: tuple[str, ...],
         is_hostile: Callable[[str], bool],
+        delta_since: date | None = None,
     ):
         self.cfg = cfg
         self.source = source
@@ -170,6 +185,10 @@ class JobsPipeline:
         self.canary = canary
         self.markers = hostile_markers
         self.is_hostile = is_hostile
+        # an incremental run's delta bound (``jobs.incremental.postings_since``). It is applied
+        # only when the previous research's record was loaded: without it nothing is carried and
+        # the whole window is pulled (review 2026-10-29, finding 2)
+        self.delta_since = delta_since
         # stored text of each posting from the last pass (persisted by ``jobs.stage``; never
         # logged, never put in the checkpoint)
         self.last_texts: dict[str, str] = {}
@@ -226,9 +245,11 @@ class JobsPipeline:
         evidence = RowEvidence(ROW_BOARD, tuple(refs), max(searched, 1), partial, reason)
         return postings, evidence, not_searched, reported
 
-    async def _feed(self, start: date, end: date, w: _Run) -> tuple[SourceBatch, RowEvidence]:
+    async def _feed(
+        self, start: date, end: date, w: _Run, since: date | None = None
+    ) -> tuple[SourceBatch, RowEvidence]:
         try:
-            batch = await self.source.pull_window(start, end)
+            batch = await self.source.pull_window(start, end, since)
         except SourceUnavailable as error:
             failed = (error.call_ref,) if error.call_ref else ()
             w.failed.extend(failed)
@@ -291,6 +312,7 @@ class JobsPipeline:
             if raw.seniority
             else None,
             new_since_previous=new_since_previous,
+            captured_on=_parse_date(raw.retrieved_at),
         )
         return posting, text
 
@@ -305,11 +327,13 @@ class JobsPipeline:
         """A posting of the previous delivered research carried into this run: its text
         reference, sentences, class and read flags are kept (no read, no extractor call); the
         window bucket is recomputed for this ``as_of`` (a posting that fell out of the window stays
-        a row, bucketed out of window); the status is refreshed by evidence only: a live board
-        hit this run beats everything, then the feed's explicit "closed" on the fresh record, then
-        the feed's active set (present: open, absent: closed), then the fresh record's own status;
-        without any of them (the active pull failed and the delta did not return it) the stored
-        status stays as it was."""
+        a row, bucketed out of window, and is not exported); the status is refreshed by evidence
+        only: a live board hit this run beats everything, then the feed's explicit "closed" on the
+        fresh record, then the feed's active set (present: open; absent: closed, except a posting
+        that cannot be told from its absence: one only the live board holds, which has no feed
+        identity, and one stored without a description), then the fresh record's own status;
+        without any of them (the active pull failed or was cut short, or the delta did not return
+        it) the stored status stays as it was (review 2026-10-29, finding 1)."""
         status: PostingStatus = stored.status
         source: StatusSource = stored.status_source
         fresh_status = normalise_status(fresh.status) if fresh is not None else None
@@ -321,7 +345,10 @@ class JobsPipeline:
             in_active = stored.posting_key in active or any(
                 f"url:{u}" in active for u in stored.urls
             )
-            status, source = ("open" if in_active else "closed"), "feed"
+            if in_active:
+                status, source = "open", "feed"
+            elif not _absence_is_silent(stored):
+                status, source = "closed", "feed"
         elif fresh_status == "open":
             status, source = "open", "feed"
         update: dict[str, object] = {
@@ -329,6 +356,8 @@ class JobsPipeline:
             "status_source": source,
             "window_bucket": classify_window(stored.posted_at or stored.first_seen_at, as_of),
             "new_since_previous": False,
+            "captured_on": stored.captured_on or _parse_date(stored.retrieved_at),
+            "status_since": as_of if status != stored.status else stored.status_since,
         }
         if fresh is not None:
             caps = self.cfg.caps
@@ -353,8 +382,10 @@ class JobsPipeline:
         self, w: _Run, pull_ev: RowEvidence
     ) -> tuple[frozenset[str] | None, RowEvidence]:
         """The feed's open postings as a set of identities (provider id and canonical URLs) for
-        the carried postings' status refresh; None when the call failed (statuses are kept), the
-        failed reference cited on the pull row as tracker proof."""
+        the carried postings' status refresh; None when the call failed or stopped before the
+        feed ended (a page, item or time ceiling): an incomplete set cannot say a posting is
+        absent, so statuses are kept (review 2026-10-29, finding 1). The call's reference is
+        cited on the pull row as tracker proof either way, a cut pull marked as such."""
         try:
             batch = await self.source.pull_active()
         except SourceUnavailable as error:
@@ -362,6 +393,13 @@ class JobsPipeline:
             w.failed.extend(failed)
             return None, replace(pull_ev, call_refs=(*pull_ev.call_refs, *failed), expected_calls=2)
         w.calls.extend(batch.call_refs)
+        if not batch.complete:
+            return None, replace(
+                pull_ev,
+                call_refs=(*pull_ev.call_refs, *batch.call_refs, *batch.failed_refs),
+                expected_calls=2,
+                cap_hit=True,
+            )
         identities: set[str] = set()
         for p in batch.postings:
             if p.source_id:
@@ -373,7 +411,6 @@ class JobsPipeline:
             pull_ev,
             call_refs=(*pull_ev.call_refs, *batch.call_refs, *batch.failed_refs),
             expected_calls=2,
-            cap_hit=pull_ev.cap_hit or not batch.complete,
         )
         return frozenset(identities), evidence
 
@@ -480,7 +517,12 @@ class JobsPipeline:
         else the candidates while its budget lasts. A posting the extractor did not read, or read
         without a verified class (cap, schema, unclear, disagreement), gets the reference's
         Working tool / User role rule over its platform sentences (``jobs.heuristic``), stored as
-        ``classified_by="heuristic"`` with the reason. A hostile answer stays hostile."""
+        ``classified_by="heuristic"`` with the reason. A hostile answer stays hostile.
+
+        A title candidate the extractor budget did not reach is NOT given the heuristic's class
+        (it would be a final, wrong label on the most valuable kind of posting): it stays
+        ``unclassified`` with reason ``cap``, which a gap pass retries and the file shows as
+        unclassified until a reading decides it (review 2026-10-29, finding 10)."""
         unlimited = self.cfg.caps["max_extractor_calls"] >= UNCAPPED
         candidate = unlimited or title_candidate(posting.title, self.cfg.rules)
         why = "heuristic_window"
@@ -498,7 +540,10 @@ class JobsPipeline:
                 return verdict, hostile
             why = f"heuristic_after_{verdict.reason}"
         elif candidate:
-            why = "heuristic_after_cap"
+            return (
+                Classification(label="unclassified", classified_by="none", reason="cap"),
+                False,
+            )
         found = classify_heuristic(
             text,
             posting.platforms,
@@ -537,7 +582,11 @@ class JobsPipeline:
         w = _Run(page_reads_left=self.cfg.caps["max_page_reads"])
         start = window_start(as_of)
         board, board_ev, lanes_not_searched, reported = await self._board(lanes_off, w)
-        feed, pull_ev = await self._feed(start, as_of, w)
+        # the delta bound is applied only with a loaded previous record: without one nothing is
+        # carried, so the delta would leave a first-research record with a few days of postings
+        feed, pull_ev = await self._feed(
+            start, as_of, w, self.delta_since if previous is not None else None
+        )
         carried = {p.posting_key: p for p in previous.postings} if previous else {}
         by_url = {f"url:{u}": p.posting_key for p in carried.values() for u in p.urls}
         active: frozenset[str] | None = None
@@ -581,6 +630,7 @@ class JobsPipeline:
             postings.append(done)
             if text is not None:
                 texts[done.posting_key] = text
+        postings = _merge_same_key(postings)
         seen = {p.posting_key for p in postings}
         # every previous posting the delta did not return is carried as stored (nothing is ever
         # deleted); its own provenance counts as pulled so the count chain holds
@@ -608,6 +658,7 @@ class JobsPipeline:
                 lanes_off,
                 previous.run_id if previous is not None else None,
                 len(carried),
+                sum(1 for p in feed.postings if not (p.description or "").strip()),
             ),
             postings,
             all_texts,
@@ -657,7 +708,9 @@ class JobsPipeline:
         """Re-process only the remainder of ``prior`` (``jobs.gap``): no source call, no re-pull,
         within what is left of the RUN-level page-read and extractor caps. ``texts`` holds the
         stored text of every posting with a ``text_ref`` (read back from the payload store, no
-        paid call). Returns the next pass's record with ``exit_reasons["gap"]`` set:
+        paid call), and only for the remainder: the claims of every other posting are the prior
+        pass's, so no other text is read (review 2026-10-29, finding 15). Returns the next pass's
+        record with ``exit_reasons["gap"]`` set:
         ``converged`` (no remainder left), ``budget`` (no progress and a cap is spent),
         ``no_progress`` (no progress otherwise) or ``pending`` (progress, remainder left)."""
         caps = self.cfg.caps
@@ -690,7 +743,6 @@ class JobsPipeline:
             postings.append(done)
             changed[done.posting_key] = text
         self.last_texts = changed
-        all_texts = {**texts, **changed}
         moved = progress(prior.postings, postings)
         left = gap_remainder(postings)
         if not left:
@@ -705,10 +757,11 @@ class JobsPipeline:
             prior.window_start,
             prior.pulled_refs,
             prior.rejected_no_url,
-            prior.exit_reasons.get("pull") == "converged",
+            prior.pull_complete,
             lanes_off,
             prior.previous_run_id,
             prior.carried,
+            prior.description_less,
         )
         board_ev, pull_ev = (e for e in prior.evidence if e.row_key != ROW_READ)
         read_prior = next(e.call_refs for e in prior.evidence if e.row_key == ROW_READ)
@@ -716,7 +769,7 @@ class JobsPipeline:
         return self._finish(
             frame,
             postings,
-            all_texts,
+            changed,
             w,
             budget,
             (board_ev, pull_ev),
@@ -726,6 +779,9 @@ class JobsPipeline:
             prior.board_reported,
             _Used(prior.page_reads_used, prior.extractor_calls_used, start_reads, start_budget),
             prior.pass_no + 1,
+            kept_claims=prior.claims,
+            kept_skipped=(prior.claims_skipped_pii, prior.claims_skipped_text),
+            claim_keys=frozenset(eligible),
         )
 
     def _finish(
@@ -742,7 +798,15 @@ class JobsPipeline:
         reported: dict[str, int | None],
         used: _Used,
         pass_no: int,
+        *,
+        kept_claims: tuple[ProposedSourced, ...] = (),
+        kept_skipped: tuple[int, int] = (0, 0),
+        claim_keys: frozenset[str] | None = None,
     ) -> PipelineResult:
+        """The pass's record. Claims are templated for the postings in ``claim_keys`` (None: every
+        posting) from ``texts``; a posting outside ``claim_keys`` keeps its claim from
+        ``kept_claims`` (a gap pass keeps the prior pass's claims of the postings it did not
+        touch); ``kept_skipped`` is the prior (contact-detail, text not at hand) counts."""
         not_searched = {
             name: lanes_not_searched.get(lane.id, "lane_not_in_scope")
             for lane in self.cfg.lanes
@@ -769,11 +833,23 @@ class JobsPipeline:
             None if read_refs else "source_unavailable",
         )
         claims: list[ProposedSourced] = []
-        skipped = 0
+        skipped, no_text = kept_skipped
+        kept_by_id = {c.local_id: c for c in kept_claims}
         for p in postings:
-            made, n = claims_for(p, texts.get(p.posting_key, ""))
+            if claim_keys is not None and p.posting_key not in claim_keys:
+                # untouched by this pass: the claims it made before stand, in the same order
+                claims.extend(
+                    kept_by_id[i]
+                    for i in (claim_id(p.posting_key, name) for name in p.platforms)
+                    if i in kept_by_id
+                )
+                continue
+            body = texts.get(p.posting_key, "")
+            made, n = claims_for(p, body)
             claims.extend(made)
             skipped += n
+            if not made and not n and not body and claimable(p) and p.sentences:
+                no_text += 1  # a finding whose stored text could not be read back: counted
         exits = {
             **exits,
             "escalation": "cap_reached" if w.escalation_cap_hit else "converged",
@@ -803,7 +879,40 @@ class JobsPipeline:
             pass_no=pass_no,
             previous_run_id=frame.previous_run_id,
             carried=frame.carried,
+            pull_complete=frame.pull_complete,
+            lanes_off=tuple(sorted(frame.lanes_off)),
+            lexicon_hash=self.cfg.lexicon_hash,
+            description_less=frame.description_less,
+            claims_skipped_text=no_text,
         )
+
+
+def _absence_is_silent(stored: Posting) -> bool:
+    """True when a posting's absence from the feed's open set proves nothing: it is held only by
+    the live careers board (no feed identity, so the feed could never list it), or it was stored
+    without a description (an earlier release asked the feed for described postings only on this
+    call, so such a posting could never be in the set)."""
+    board_only = stored.status_source == "live_board" and not stored.posting_key.startswith("id:")
+    return board_only or stored.text_sha256 is None
+
+
+def _merge_same_key(postings: list[Posting]) -> list[Posting]:
+    """One posting per key. Two fresh records with different ids and URLs can each resolve to the
+    same stored posting (it holds both URLs): the first is kept and the URLs and call references
+    of the others are added to it (review 2026-10-29, finding 8)."""
+    merged: dict[str, Posting] = {}
+    for p in postings:
+        first = merged.get(p.posting_key)
+        if first is None:
+            merged[p.posting_key] = p
+            continue
+        merged[p.posting_key] = first.model_copy(
+            update={
+                "urls": tuple(sorted({*first.urls, *p.urls})),
+                "call_refs": tuple(dict.fromkeys((*first.call_refs, *p.call_refs))),
+            }
+        )
+    return list(merged.values())
 
 
 def _parse_date(value: str | None) -> date | None:
@@ -852,6 +961,11 @@ def result_to_json(result: PipelineResult) -> dict[str, object]:
         "pass_no": result.pass_no,
         "previous_run_id": result.previous_run_id,
         "carried": result.carried,
+        "pull_complete": result.pull_complete,
+        "lanes_off": list(result.lanes_off),
+        "lexicon_hash": result.lexicon_hash,
+        "description_less": result.description_less,
+        "claims_skipped_text": result.claims_skipped_text,
     }
 
 
@@ -891,4 +1005,21 @@ def result_from_json(data: dict[str, object]) -> PipelineResult:
         # records written before the incremental fields existed have neither key
         previous_run_id=d.get("previous_run_id"),
         carried=int(d.get("carried") or 0),
+        # records written before the incremental choice read them: the pull is complete when it
+        # converged, the lanes off are the lanes named as not in scope, the lexicon is unknown
+        pull_complete=bool(
+            d["pull_complete"]
+            if "pull_complete" in d
+            else dict(d["exit_reasons"]).get("pull") == "converged"
+        ),
+        lanes_off=tuple(
+            d["lanes_off"]
+            if "lanes_off" in d
+            else sorted(
+                k for k, why in dict(d["lanes_not_searched"]).items() if why == "lane_not_in_scope"
+            )
+        ),
+        lexicon_hash=str(d.get("lexicon_hash") or ""),
+        description_less=int(d.get("description_less") or 0),
+        claims_skipped_text=int(d.get("claims_skipped_text") or 0),
     )

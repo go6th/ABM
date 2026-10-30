@@ -52,6 +52,8 @@ def _stint(employer: str, start: str | None, end: str | None) -> Employment:
         ("McKinsey & Company", "McKinsey"),
         ("Boston Consulting Group", "BCG"),
         ("Bain & Company", "Bain"),
+        ("Bain and Company", "Bain"),
+        ("Bain & Co.", "Bain"),
         ("Tech Mahindra", "Tech Mahindra"),
         ("LTIMindtree", "LTIMindtree"),
         ("Mindtree", "LTIMindtree"),
@@ -74,7 +76,17 @@ def test_each_firm_is_found_by_its_names(cfg: PeopleConfig, employer: str, firm:
 
 @pytest.mark.parametrize(
     "employer",
-    ["Synthetic Pharma Co", "Keyboard Makers", "The Accentuate Group", "Beyond Meat", "Eyewear Co"],
+    [
+        "Synthetic Pharma Co",
+        "Keyboard Makers",
+        "The Accentuate Group",
+        "Beyond Meat",
+        "Eyewear Co",
+        # a private equity firm that shares the bare name (pipeline review 2026-10-29, finding 22)
+        "Bain Capital",
+        "Bain Capital Private Equity",
+        "Bain",
+    ],
 )
 def test_other_employers_are_not_firms(cfg: PeopleConfig, employer: str) -> None:
     assert firm_of(employer, cfg.si_firms) is None
@@ -191,3 +203,12 @@ def test_employments_are_parsed_typed_and_bad_entries_mark_the_profile_partial(
     assert wrong.employments is None and wrong.partial
     absent = to_profile(_raw({"name": "Synthetic"}), "pk", cfg, is_hostile=lambda _t: False)
     assert absent.employments is None and not absent.partial
+
+
+def test_the_production_rubric_does_not_read_bain_capital_as_the_consultancy() -> None:
+    """The same rule in ``config/people_rubric.yaml`` (the frozen copy above mirrors it)."""
+    from people.config import load_people_config
+
+    firms = load_people_config().si_firms
+    assert firm_of("Bain & Company", firms) == "Bain"
+    assert firm_of("Bain Capital", firms) is None and firm_of("Bain", firms) is None

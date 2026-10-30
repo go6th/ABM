@@ -23,6 +23,7 @@ from sqlalchemy import text
 
 from people.archive_links import ProfileLink, candidates_for
 from people.models import Mention, PersonPage
+from people.urls import canonical_profile_url
 
 
 class ArchiveResolver:
@@ -33,10 +34,13 @@ class ArchiveResolver:
 
     def __init__(self, deps: Any, account_name: str, stopwords: tuple[str, ...] = ()) -> None:
         from agents.entity import brand_token
+        from people.config import load_people_config
 
         self.deps = deps
         self.brand = brand_token(account_name, stopwords) if account_name else None
+        self._rule = load_people_config().profile_url
         self._links: list[ProfileLink] | None = None
+        self._erased: frozenset[str] = frozenset()
 
     async def _load(self) -> list[ProfileLink]:
         from account_intelligence.archive import profile_links
@@ -44,17 +48,37 @@ class ArchiveResolver:
         if self._links is None:
             async with self.deps.txn(self.deps.tenant_id) as s:
                 found = await profile_links(s, self.deps.account_id)
+                # the profile addresses of people who were erased: never matched again
+                erased = (
+                    await s.execute(
+                        text(
+                            "SELECT profile_url_canonical FROM people WHERE account_id = :a"
+                            " AND erased_at IS NOT NULL AND profile_url_canonical IS NOT NULL"
+                            " UNION SELECT profile_url_canonical FROM person_profiles"
+                            " WHERE account_id = :a AND erased_at IS NOT NULL"
+                        ),
+                        {"a": self.deps.account_id},
+                    )
+                ).scalars()
+                self._erased = frozenset(str(u) for u in erased if u)
             self._links = [
                 ProfileLink(x.url, x.title, x.payload_ref, x.archived_at.isoformat()) for x in found
             ]
         return self._links
 
     async def resolve(self, name: str, attempt: int) -> PersonPage:
-        """The archived profile pages whose title names ``name`` (attempt 0 only)."""
+        """The archived profile pages whose title names ``name`` and the account (attempt 0
+        only); a page of an erased person is skipped."""
         if attempt > 0:
             return PersonPage()
+        links = await self._load()
         records = candidates_for(
-            name, await self._load(), account_domain=self.deps.domain, brand=self.brand
+            name,
+            links,
+            account_domain=self.deps.domain,
+            brand=self.brand,
+            erased=self._erased,
+            canonical=lambda url: canonical_profile_url(url, self._rule),
         )
         return PersonPage(records=tuple(records), next_cursor=None, call_ref=None, complete=True)
 

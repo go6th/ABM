@@ -44,12 +44,17 @@ class FakePostingSource:
         fail_keywords: Sequence[str] = (),
         active: list[RawPosting] | None = None,
         fail_active: bool = False,
+        active_complete: bool = True,
     ) -> None:
         self.board, self.feed = board, feed
         self.fail_feed, self.feed_complete, self.feed_exit = fail_feed, feed_complete, feed_exit
         self.fail_keywords = set(fail_keywords)
         self.active, self.fail_active = active, fail_active
+        # False: the active pull stopped at a page or item ceiling (a truncated set)
+        self.active_complete = active_complete
         self.calls: list[tuple[str, str]] = []
+        # the delta bound each feed pull was given (None: the whole window)
+        self.since_seen: list[date | None] = []
 
     async def search_board(self, lane: str, keyword: str) -> SourceBatch:
         self.calls.append(("board", keyword))
@@ -59,8 +64,9 @@ class FakePostingSource:
         hits = [p.model_copy(update={"call_ref": ref}) for p in self.board.get(keyword, [])]
         return SourceBatch(postings=tuple(hits), call_refs=(ref,), reported_count=len(hits))
 
-    async def pull_window(self, start: date, end: date) -> SourceBatch:
+    async def pull_window(self, start: date, end: date, since: date | None = None) -> SourceBatch:
         self.calls.append(("feed", f"{start}..{end}"))
+        self.since_seen.append(since)
         ref = _ref()
         if self.fail_feed:
             raise SourceUnavailable("source_unavailable", ref)
@@ -81,7 +87,10 @@ class FakePostingSource:
         if rows is None:
             rows = [p for p in self.feed if (p.status or "open").lower() in ("open", "active")]
         return SourceBatch(
-            postings=tuple(p.model_copy(update={"call_ref": ref}) for p in rows), call_refs=(ref,)
+            postings=tuple(p.model_copy(update={"call_ref": ref}) for p in rows),
+            call_refs=(ref,),
+            complete=self.active_complete,
+            exit_reason="exhausted" if self.active_complete else "max_items",
         )
 
 

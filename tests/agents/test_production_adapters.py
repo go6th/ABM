@@ -237,10 +237,12 @@ async def test_store_payloads_round_trip_and_refuse_other_tenants() -> None:
 
 
 class _Archive:
-    """A link archive that keeps what it was asked to record."""
+    """A link archive that keeps what it was asked to record (the structured copies it stores
+    are kept by key)."""
 
     def __init__(self) -> None:
         self.entries: list[Any] = []
+        self.records: dict[str, dict[str, Any]] = {}
 
     def now(self) -> datetime:
         return T0
@@ -249,6 +251,22 @@ class _Archive:
         self.entries.extend(entries)
         return len(self.entries)
 
+    async def entry_for_record(
+        self,
+        url: str,
+        kind: str,
+        record: dict[str, Any],
+        *,
+        title: str | None = None,
+        archived_at: datetime | None = None,
+    ) -> Any:
+        from account_intelligence.archive import ArchiveEntry
+        from account_intelligence.archive_records import identity_bytes
+
+        key = f"archive/{abs(hash(identity_bytes(record)))}"
+        self.records[key] = record
+        return ArchiveEntry(url, kind, key, archived_at or T0, "json", title=title)
+
 
 @pytest.mark.asyncio
 async def test_public_items_are_archived_under_their_address_and_private_ones_are_not() -> None:
@@ -256,7 +274,7 @@ async def test_public_items_are_archived_under_their_address_and_private_ones_ar
     store = StorePayloads(MemoryPayloadStore(), uuid4(), archive=archive)  # type: ignore[arg-type]
     c = ctx()
     text = "Jane Doe - CIO - Acme | LinkedIn\nA search result."
-    ref = await store.put(
+    await store.put(
         c,
         "key_contact_profiles_posts",
         SourceItem("https://www.linkedin.com/in/jane-doe", text),
@@ -265,19 +283,90 @@ async def test_public_items_are_archived_under_their_address_and_private_ones_ar
     await store.put(
         c, "company_news", SourceItem("https://acme.example/n", "feed", "date_range"), "public"
     )
+    news_meta = (
+        ("record", "news"),
+        ("title", "Acme names a new CIO"),
+        ("summary", "Acme appointed a CIO."),
+        ("published", "2026-09-30T08:00:00Z"),
+        ("category", "leadership_change"),
+    )
+    await store.put(
+        c,
+        "company_news",
+        SourceItem(
+            "https://www.news.example/a/1", "Acme names a new CIO\nThe sentence.", None, news_meta
+        ),
+        "public",
+    )
     await store.put(
         c, "prior_customer_status", SourceItem("https://mail.example/1", "private"), "private"
     )
-    assert [(e.url, e.kind, e.payload_ref, e.title, e.archived_at) for e in archive.entries] == [
-        (
-            "https://www.linkedin.com/in/jane-doe",
-            "profile",
-            ref,
-            "Jane Doe - CIO - Acme | LinkedIn",
-            T0,
-        ),
-        ("https://acme.example/n", "feed_item", archive.entries[1].payload_ref, "feed", T0),
+    assert [(e.url, e.kind, e.title, e.archived_at) for e in archive.entries] == [
+        ("https://www.linkedin.com/in/jane-doe", "profile", "Jane Doe - CIO - Acme | LinkedIn", T0),
+        ("https://acme.example/n", "feed_item", "feed", T0),
+        ("https://www.news.example/a/1", "page", "Acme names a new CIO", T0),
     ]
+    profile, feed, news = (archive.records[e.payload_ref] for e in archive.entries)
+    assert profile["schema"] == "page-archive/1" and profile["text"] == text
+    assert feed["schema"] == "page-archive/1" and feed["kind"] == "feed_item"
+    # a news item becomes the news record: headline, publisher, date, category, summary, text
+    assert news == {
+        "schema": "news-archive/1",
+        "url": "https://www.news.example/a/1",
+        "title": "Acme names a new CIO",
+        "publisher": "news.example",
+        "published_date": "2026-09-30",
+        "category": "leadership change",
+        "summary": "Acme appointed a CIO.",
+        "article_text": "Acme names a new CIO\nThe sentence.",
+        "captured_at": T0.isoformat(),
+        "source": "6th agents",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_field_the_guard_refuses_is_blank_in_the_archived_copy() -> None:
+    from account_intelligence.archive_records import page_record
+
+    record = page_record(
+        "https://x.example/p",
+        "The leaky sentence.",
+        title="A page",
+        captured_at=T0,
+        guard=lambda t: (t, "leaky" in t),
+    )
+    assert record["text"] == "" and record["title"] == "A page" and record["withheld"] == ["text"]
+
+
+def test_items_of_carries_what_a_record_states_about_itself() -> None:
+    from account_intelligence.connectors.models import NewsEventRecord
+
+    provenance = prov("https://n.example/a", Operation.NEWS_EVENTS)
+    news = NewsEventRecord(
+        provenance=provenance,
+        kind="news_event",
+        lineage_hint=None,
+        event_id="e1",
+        category="funding",
+        summary_text="Raised.",
+        found_at="2026-10-01T00:00:00Z",
+        confidence=0.9,
+        article_sentence_text="Acme raised money.",
+        effective_date=None,
+        amount_normalized_usd=None,
+        planning=False,
+        article_url="https://n.example/a",
+        article_title_text="Acme raises",
+        article_published_at="2026-09-30",
+    )
+    (item,) = items_of((news,))
+    assert dict(item.meta) == {
+        "record": "news",
+        "title": "Acme raises",
+        "summary": "Raised.",
+        "published": "2026-09-30",
+        "category": "funding",
+    }
 
 
 # credit -----------------------------------------------------------------------------------------

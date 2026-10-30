@@ -20,12 +20,20 @@ gives the people pipeline the LinkedIn profile pages the research's own searches
 person named in a source or returned without a link can be matched to a profile the research
 already holds (no paid call).
 
+Profiles (kind ``profile``) are INTERNAL inputs: they let the people pipeline match a named
+executive to a profile page the research already holds, and nothing else. No client route lists
+or serves them and no sheet links to one (``CLIENT_KINDS``): a profile copy holds the name, title,
+headline and location of a person, and the People List omits excluded, out-of-scope and review
+people on purpose (security review 2026-10-29, F1; decision recorded in the done note). The
+erasure of a person deletes their profile index rows (``erase_urls``).
+
 GUARANTEE(test_a_stored_link_is_archived_and_served_back)
 GUARANTEE(test_the_newest_copy_of_an_address_wins)
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -38,11 +46,20 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from account_intelligence.urls import normalize_url, url_hash
+from account_intelligence import archive_records as AR
+from account_intelligence.urls import normalize_url, strip_secrets, url_hash
 
 KINDS = frozenset({"profile", "posting", "page", "feed_item", "detection"})
+# what a client route may list or serve: every kind but the internal profile copies
+CLIENT_KINDS = KINDS - {"profile"}
 FORMATS = frozenset({"json", "text"})
 MAX_TITLE = 300
+# the most text one archived copy answers in the JSON view (a page read in full can be 200,000
+# characters; the download gives all of it)
+MAX_COPY_TEXT = 100_000
+# old rows (written before migration 0092) hold no index fields: a page of the index reads at
+# most this many of their bodies, the rest list with those fields blank
+LEGACY_BODY_READS = 50
 # the most archived profile pages the people pipeline reads back for one account
 MAX_PROFILE_LINKS = 4000
 # a person's own page on the profile host (``people.urls`` decides canonical identity; this only
@@ -75,6 +92,8 @@ class ArchiveEntry:
     locator: str | None = None
     title: str | None = None
     source_ref: str | None = None
+    # the index fields of the copy (``archive_records.index_meta``), stored beside the row
+    meta: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +108,7 @@ class ArchivedLink:
     archived_at: datetime
     title: str | None = None
     locator: str | None = None
+    meta: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -100,25 +120,70 @@ class ArchivedCopy:
     archived_at: datetime
     title: str | None
     text: str
+    # the structured record of a copy that has one (a posting's ``posting-archive/1`` snapshot);
+    # None for a plain text or item copy
+    record: dict[str, Any] | None = None
+    # true when ``text`` was cut to ``MAX_COPY_TEXT`` (the download gives all of it)
+    truncated: bool = False
+
+
+@dataclass(frozen=True)
+class ArchiveListItem:
+    """One address in the account's archive index: its newest copy, with the few fields of a
+    posting's record the index shows."""
+
+    url: str
+    kind: str
+    archived_at: datetime
+    title: str | None
+    status_at_capture: str | None = None
+    location: str | None = None
+    requisition: str | None = None
+    # the structured record's schema (``news-archive/1``): the index names the kind of page by it
+    record_schema: str | None = None
 
 
 def normalized(url: str | None) -> tuple[str, str] | None:
-    """``(url_normalized, url_hash)`` of an http(s) address, None for anything else."""
+    """``(url_normalized, url_hash)`` of an http(s) address, None for anything else. The address
+    is keyed without credentials and secret query parameters (``urls.strip_secrets``), the form
+    the archive stores and shows."""
     if not url:
         return None
     try:
-        norm = normalize_url(url)
+        norm = normalize_url(strip_secrets(url))
     except ValueError:
         return None
     return norm, url_hash(norm)
 
 
+def hash_candidates(url: str | None) -> list[str]:
+    """The ``url_hash`` values a copy of ``url`` may be stored under: the key of the address
+    without its secrets and, for a copy written before that rule, the key of the address as
+    given."""
+    out: list[str] = []
+    if not url:
+        return out
+    key = normalized(url)
+    if key is not None:
+        out.append(key[1])
+    try:
+        legacy = url_hash(normalize_url(url))
+    except ValueError:
+        return out
+    if legacy not in out:
+        out.append(legacy)
+    return out
+
+
+def on_profile_host(url: str) -> bool:
+    """True for an address on the profile host (``linkedin.com`` and its subdomains)."""
+    host = (urlsplit(url.strip()).hostname or "").lower().rstrip(".")
+    return host == _PROFILE_HOST or host.endswith("." + _PROFILE_HOST)
+
+
 def link_kind(url: str, default: str = "page") -> str:
     """``profile`` for a person's own page on the profile host, else ``default``."""
-    parts = urlsplit(url.strip())
-    host = (parts.hostname or "").lower().rstrip(".")
-    on_host = host == _PROFILE_HOST or host.endswith("." + _PROFILE_HOST)
-    if on_host and _PROFILE_PATH.match(parts.path or ""):
+    if on_profile_host(url) and _PROFILE_PATH.match(urlsplit(url.strip()).path or ""):
         return "profile"
     return default if default in KINDS else "page"
 
@@ -161,18 +226,72 @@ def archive_body(
     ).encode()
 
 
-def copy_from(link: ArchivedLink, body: bytes) -> ArchivedCopy:
-    """The archived copy read out of its stored body (a JSON item's ``text``, or plain text)."""
+def _cut(value: str, limit: int | None) -> tuple[str, bool]:
+    """``value`` cut to ``limit`` characters (None: whole) and whether it was cut."""
+    if limit is None or len(value) <= limit:
+        return value, False
+    return value[:limit], True
+
+
+def copy_from(link: ArchivedLink, body: bytes, *, max_text: int | None = None) -> ArchivedCopy:
+    """The archived copy read out of its stored body: a JSON item's ``text``, a structured record
+    (its ``description`` is the text, the whole object is ``record``), or plain text (the old
+    posting copies). ``max_text`` cuts the text (``truncated`` says so); a plain text copy is
+    never decoded past it."""
     if link.format == "text":
-        text_value = body.decode("utf-8", "replace")
-        title = link.title
-    else:
-        data = json.loads(body)
-        if not isinstance(data, dict) or not isinstance(data.get("text"), str):
-            raise ValueError("archived body has no text")
-        text_value = data["text"]
-        title = link.title or (data.get("title") if isinstance(data.get("title"), str) else None)
-    return ArchivedCopy(link.url, link.kind, link.archived_at, title, text_value)
+        raw = body if max_text is None else body[: max_text * 4 + 4]
+        shown, cut = _cut(AR.redact_contact(raw.decode("utf-8", "replace")), max_text)
+        return ArchivedCopy(
+            link.url,
+            link.kind,
+            link.archived_at,
+            link.title,
+            shown,
+            truncated=cut or len(raw) < len(body),
+        )
+    data = json.loads(body)
+    if not isinstance(data, dict):
+        raise ValueError("archived body is not an object")
+    # a copy stored before contact details and secret addresses were removed at write time is
+    # served through the same rule (the stored body is never changed)
+    data = _clean_body(data)
+    record = data if _is_record(data) else None
+    field = next((f for f in _TEXT_FIELDS if isinstance(data.get(f), str)), None)
+    if field is None or (record is None and field != "text"):
+        raise ValueError("archived body has no text")
+    data_title = data.get("title") if isinstance(data.get("title"), str) else None
+    shown, cut = _cut(data[field], max_text)
+    return ArchivedCopy(
+        link.url, link.kind, link.archived_at, link.title or data_title, shown, record, cut
+    )
+
+
+# the free-text fields of a stored body that pass the contact-detail rule when it is served
+_CONTACT_FIELDS = ("text", "article_text", "summary", "description", "title", "headline")
+
+
+def _clean_body(data: dict[str, Any]) -> dict[str, Any]:
+    """The body with email addresses and phone numbers removed from its free texts and its own
+    address stripped of credentials and secret query parameters."""
+    out = dict(data)
+    for field in _CONTACT_FIELDS:
+        value = out.get(field)
+        if isinstance(value, str):
+            out[field] = AR.redact_contact(value)
+    if isinstance(out.get("url"), str):
+        out["url"] = strip_secrets(out["url"])
+    return out
+
+
+# the field of a structured record that holds its text (posting description, article text, page
+# text); an older plain body keeps its text under ``text``
+_TEXT_FIELDS = ("description", "article_text", "text")
+
+
+def _is_record(data: dict[str, Any]) -> bool:
+    """A structured record: it names its schema (``posting-archive/1``)."""
+    schema = data.get("schema")
+    return isinstance(schema, str) and "/" in schema
 
 
 def _rows(entries: Iterable[ArchiveEntry]) -> list[dict[str, Any]]:
@@ -188,7 +307,7 @@ def _rows(entries: Iterable[ArchiveEntry]) -> list[dict[str, Any]]:
         when = e.archived_at if e.archived_at.tzinfo else e.archived_at.replace(tzinfo=UTC)
         out.append(
             {
-                "url": e.url.strip()[:2048],
+                "url": strip_secrets(e.url.strip())[:2048],
                 "norm": key[0],
                 "hash": key[1],
                 "kind": e.kind,
@@ -198,20 +317,26 @@ def _rows(entries: Iterable[ArchiveEntry]) -> list[dict[str, Any]]:
                 "title": (e.title or None) and e.title[:MAX_TITLE],
                 "src": e.source_ref,
                 "at": when,
+                "meta": json.dumps(e.meta, sort_keys=True) if e.meta else None,
             }
         )
     return out
 
 
 # the row is owned like its account (private workspaces): the writer is usually a research
-# worker in system scope, so the account's owner is named on every insert
+# worker in system scope, so the account's owner is named on every insert. A copy is
+# content-addressed: a page that returns to earlier content maps to the OLD copy, which then moves
+# forward in time (the only column that may change, migration 0092) so the newest capture wins
+# (review 2026-10-29, F13).
 _INSERT = text(
     "INSERT INTO link_archive (tenant_id, owner_user_id, account_id, run_id, url,"
     " url_normalized, url_hash, kind, payload_ref, format, locator, title, source_ref,"
-    " archived_at) VALUES (:t, coalesce((SELECT a.owner_user_id FROM accounts a"
+    " archived_at, meta) VALUES (:t, coalesce((SELECT a.owner_user_id FROM accounts a"
     " WHERE a.tenant_id = :t AND a.id = :a), app_user()), :a, :r, :url, :norm, :hash, :kind,"
-    " :ref, :fmt, :loc, :title, :src, :at)"
-    " ON CONFLICT (tenant_id, account_id, url_hash, payload_ref) DO NOTHING"
+    " :ref, :fmt, :loc, :title, :src, :at, CAST(:meta AS jsonb))"
+    " ON CONFLICT (tenant_id, account_id, url_hash, payload_ref) DO UPDATE"
+    " SET archived_at = EXCLUDED.archived_at"
+    " WHERE link_archive.archived_at < EXCLUDED.archived_at"
 )
 
 
@@ -232,7 +357,7 @@ async def record(
 
 def _link(row: Any) -> ArchivedLink:
     return ArchivedLink(
-        url=row.url,
+        url=strip_secrets(row.url),
         url_normalized=row.url_normalized,
         kind=row.kind,
         payload_ref=row.payload_ref,
@@ -240,32 +365,46 @@ def _link(row: Any) -> ArchivedLink:
         archived_at=row.archived_at,
         title=row.title,
         locator=row.locator,
+        meta=row.meta if isinstance(row.meta, dict) else None,
     )
 
 
-async def lookup(session: Any, account_id: UUID, urls: Sequence[str]) -> dict[str, ArchivedLink]:
-    """The newest archived copy of each address, keyed by the address as given (addresses that
-    are not http(s), or have no copy, are absent)."""
-    keys: dict[str, str] = {}
+async def lookup(
+    session: Any,
+    account_id: UUID,
+    urls: Sequence[str],
+    *,
+    kinds: frozenset[str] | None = None,
+) -> dict[str, ArchivedLink]:
+    """The archived copy of each address, keyed by the address as given (addresses that are not
+    http(s), or have no copy, are absent): the newest structured record (a posting, a feed item,
+    a detection) and only when there is none the newest page copy, so the richer record opens.
+    ``kinds`` keeps only copies of those kinds (a client route passes ``CLIENT_KINDS``: a
+    profile copy is not served)."""
+    keys: dict[str, list[str]] = {}
     for url in urls:
-        key = normalized(url)
-        if key is not None:
-            keys.setdefault(url, key[1])
+        candidates = hash_candidates(url)
+        if candidates:
+            keys.setdefault(url, candidates)
     if not keys:
         return {}
     rows = (
         await session.execute(
             text(
                 "SELECT DISTINCT ON (url_hash) url, url_normalized, url_hash, kind, payload_ref,"
-                " format, locator, title, archived_at FROM link_archive"
-                " WHERE account_id = :a AND url_hash = ANY(:h)"
-                " ORDER BY url_hash, archived_at DESC, id DESC"
+                " format, locator, title, archived_at, meta FROM link_archive"
+                " WHERE account_id = :a AND url_hash = ANY(:h) AND kind = ANY(:ks)"
+                " ORDER BY url_hash, (kind = 'page'), archived_at DESC, id DESC"
             ),
-            {"a": account_id, "h": sorted(set(keys.values()))},
+            {
+                "a": account_id,
+                "h": sorted({h for hs in keys.values() for h in hs}),
+                "ks": sorted(KINDS if kinds is None else kinds & KINDS),
+            },
         )
     ).all()
     by_hash = {row.url_hash: _link(row) for row in rows}
-    return {url: by_hash[h] for url, h in keys.items() if h in by_hash}
+    return {url: by_hash[h] for url, hs in keys.items() for h in hs if h in by_hash}
 
 
 async def profile_links(
@@ -276,7 +415,7 @@ async def profile_links(
         await session.execute(
             text(
                 "SELECT * FROM (SELECT DISTINCT ON (url_hash) url, url_normalized, url_hash,"
-                " kind, payload_ref, format, locator, title, archived_at FROM link_archive"
+                " kind, payload_ref, format, locator, title, archived_at, meta FROM link_archive"
                 " WHERE account_id = :a AND kind = 'profile'"
                 " ORDER BY url_hash, archived_at DESC, id DESC) p"
                 " ORDER BY p.archived_at DESC LIMIT :n"
@@ -287,9 +426,144 @@ async def profile_links(
     return [_link(row) for row in rows]
 
 
-async def archived_copy(payloads: PayloadStore, link: ArchivedLink) -> ArchivedCopy:
-    """The copy behind one archived link, read from the payload store."""
-    return copy_from(link, await payloads.get(link.payload_ref))
+MAX_LIST = 200
+# bodies of one index page read side by side (the payload store, no paid call)
+_READ_CONCURRENCY = 16
+
+
+async def list_latest(
+    session: Any,
+    account_id: UUID,
+    *,
+    kind: str | None,
+    offset: int,
+    limit: int,
+    kinds: frozenset[str] | None = None,
+) -> tuple[list[ArchivedLink], int]:
+    """The copy of each address of the account (the newest structured record, else the newest
+    page copy), newest capture first, one page of it and the number of addresses (``kind`` None:
+    every kind in ``kinds``, default all). ``limit`` is held to ``MAX_LIST``. A client route
+    passes ``kinds=CLIENT_KINDS``: a ``kind`` outside it
+    lists nothing. One pass over the account's rows gives the page and the count."""
+    allowed = KINDS if kinds is None else kinds & KINDS
+    if kind is not None and kind not in allowed:
+        return [], 0
+    wanted = [kind] if kind is not None else sorted(allowed)
+    cap = max(1, min(limit, MAX_LIST))
+    args: dict[str, Any] = {"a": account_id, "ks": wanted}
+    newest = (
+        "SELECT DISTINCT ON (url_hash) url, url_normalized, url_hash, kind, payload_ref, format,"
+        " locator, title, archived_at, meta, id FROM link_archive"
+        " WHERE account_id = :a AND kind = ANY(:ks)"
+        " ORDER BY url_hash, (kind = 'page'), archived_at DESC, id DESC"
+    )
+    rows = (
+        await session.execute(
+            text(
+                f"WITH n AS ({newest}) SELECT n.*, count(*) OVER () AS total FROM n"
+                " ORDER BY n.archived_at DESC, n.id DESC OFFSET :o LIMIT :n"
+            ),
+            {**args, "o": max(offset, 0), "n": cap},
+        )
+    ).all()
+    if rows:
+        total = int(rows[0].total)
+    elif offset > 0:  # a page past the end: the count still answers
+        total = int(
+            (
+                await session.execute(
+                    text(f"SELECT count(*) FROM ({newest}) n"),  # noqa: S608 - fixed text
+                    args,
+                )
+            ).scalar_one()
+        )
+    else:
+        total = 0
+    return [_link(row) for row in rows], total
+
+
+async def list_items(
+    payloads: PayloadStore,
+    links: Sequence[ArchivedLink],
+    *,
+    readable: Callable[[str], bool] = lambda _ref: True,
+) -> list[ArchiveListItem]:
+    """The index rows for a page of newest copies, from the fields stored beside each row
+    (``meta``): no body is read for a row that has them. A row written before migration 0092 has
+    none; at most ``LEGACY_BODY_READS`` such bodies are read for one page (the payload store, no
+    paid call) and the rest list with the fields blank. The row still lists and the address
+    still opens."""
+    gate = asyncio.Semaphore(_READ_CONCURRENCY)
+    legacy = {
+        id(link)
+        for link in [x for x in links if x.meta is None and x.format == "json"][:LEGACY_BODY_READS]
+    }
+
+    async def one(link: ArchivedLink) -> ArchiveListItem:
+        """One archive entry's list item (a legacy copy's record is read from its stored body)."""
+        record: dict[str, Any] = dict(link.meta or {})
+        if id(link) in legacy and readable(link.payload_ref):
+            async with gate:
+                try:
+                    data = json.loads(await payloads.get(link.payload_ref))
+                except Exception:  # noqa: BLE001 - a missing or unreadable body lists blank
+                    data = None
+            if isinstance(data, dict) and _is_record(data):
+                record = {**data}
+        return ArchiveListItem(
+            url=link.url,
+            kind=link.kind,
+            archived_at=link.archived_at,
+            title=link.title or _str(record.get("title")) or _str(record.get("name")),
+            status_at_capture=_str(record.get("status_at_capture")),
+            location=_str(record.get("location")),
+            requisition=_str(record.get("requisition")),
+            record_schema=_str(record.get("schema")),
+        )
+
+    return list(await asyncio.gather(*(one(link) for link in links)))
+
+
+def _str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+async def archived_copy(
+    payloads: PayloadStore, link: ArchivedLink, *, max_text: int | None = None
+) -> ArchivedCopy:
+    """The copy behind one archived link, read from the payload store (``max_text``: cut the
+    text, ``copy_from``)."""
+    return copy_from(link, await payloads.get(link.payload_ref), max_text=max_text)
+
+
+async def other_account_terms(session: Any, account_id: UUID) -> list[str]:
+    """The names and domains of every other account of the client (colleagues' private
+    workspaces included): terms no archived text or table cell of ``account_id`` may carry, used
+    only to refuse text that names them and never returned. Call it in a system-scope tenant
+    transaction."""
+    rows = (
+        await session.execute(
+            text("SELECT name, domain FROM accounts WHERE id <> :a"), {"a": account_id}
+        )
+    ).all()
+    return [t for row in rows for t in (row.name, row.domain) if t]
+
+
+async def erase_urls(
+    session: Any, account_id: UUID, urls: Iterable[str | None], name: str | None = None
+) -> int:
+    """Delete the index rows of an erased person's addresses, and the profile rows whose title
+    names ``name`` (``erase_archive_urls``, migration 0092: the tenant is the session's, the
+    account must hold an erased person). The stored bodies stay in the payload store, which has
+    no delete; no route reaches a body without its index row. The number of rows deleted."""
+    hashes = sorted({h for u in urls for h in hash_candidates(u)})
+    if not hashes and not (name and name.strip()):
+        return 0
+    deleted = await session.execute(
+        text("SELECT erase_archive_urls(:a, CAST(:h AS text[]), :n)"),
+        {"a": account_id, "h": hashes, "n": name.strip() if name else None},
+    )
+    return int(deleted.scalar_one())
 
 
 TxnFactory = Callable[[UUID], Any]
@@ -357,6 +631,43 @@ class LinkArchive:
             format="json",
             title=title,
             source_ref=source_ref,
+        )
+
+    async def entry_for_record(
+        self,
+        url: str,
+        kind: str,
+        record: dict[str, Any],
+        *,
+        title: str | None = None,
+        source_ref: str | None = None,
+        archived_at: datetime | None = None,
+    ) -> ArchiveEntry:
+        """Store a structured record (``archive_records``) under a key made of what it says and
+        return the entry to record. A record the archive already holds (an unchanged page seen
+        again) is not written a second time; changed content is a new key, a new copy."""
+        key = archive_key(self.tenant_id, self.account_id, AR.identity_bytes(record))
+        async with self.txn(self.tenant_id) as s:
+            held = (
+                await s.execute(
+                    text(
+                        "SELECT 1 FROM link_archive WHERE account_id = :a AND payload_ref = :k"
+                        " LIMIT 1"
+                    ),
+                    {"a": self.account_id, "k": key},
+                )
+            ).first()
+        if held is None:
+            await self.payloads.put(key, AR.snapshot_bytes(record))
+        return ArchiveEntry(
+            url=url,
+            kind=kind,
+            payload_ref=key,
+            archived_at=archived_at or self.now(),
+            format="json",
+            title=(title or None) and title[:MAX_TITLE],
+            source_ref=source_ref,
+            meta=AR.index_meta(record),
         )
 
     async def put_text(

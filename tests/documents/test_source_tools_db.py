@@ -25,7 +25,7 @@ async def test_the_prose_tools_search_and_read_cited_text(tenant_a: UUID, tmp_pa
     svc = service(tmp_path)
     notes = await upload(svc, tenant_a, "notes.docx", fixtures.notes_docx(), account)
     assert await svc.process(tenant_a, UUID(notes["document_id"])) == "indexed"
-    jobs = await upload(svc, tenant_a, "jobs.xlsx", fixtures.gsk_job_postings_xlsx(), account)
+    jobs = await upload(svc, tenant_a, "jobs.xlsx", fixtures.holdings_job_postings_xlsx(), account)
     jobs_id = UUID(jobs["document_id"])
     assert await svc.process(tenant_a, jobs_id) == "indexed"
 

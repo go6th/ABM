@@ -88,6 +88,14 @@ class FakeObjectStore:
         """Sorted keys under the prefix, at most ``limit``."""
         return sorted(k for k in self.objects if k.startswith(prefix))[:limit]
 
+    async def delete_prefix(self, prefix: str, limit: int) -> int:
+        """Delete at most ``limit`` objects under the prefix; returns how many."""
+        keys = sorted(k for k in self.objects if k.startswith(prefix))[:limit]
+        for k in keys:
+            del self.objects[k]
+            self.types.pop(k, None)
+        return len(keys)
+
 
 @dataclass
 class FakeMailer:

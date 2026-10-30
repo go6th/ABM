@@ -1012,10 +1012,17 @@ class DocumentService:
             # (0078): delete it, and its registry row, only when this was the last one
             shared = False
             if row.sha256:
-                async with self.txn(tenant_id) as s:
-                    shared = await repo.documents_with_sha(s, str(row.sha256)) > 0
-                    if not shared:
-                        await repo.remove_raw_file(s, str(row.sha256))
+                # every user of the tenant may hold a document with this hash (private
+                # workspaces): the count and the registry row are read in SYSTEM scope, or the
+                # caller's own view would say "last one" while a colleague's document still
+                # points at the object (leakage review 2026-10-30, F6)
+                from account_intelligence.db.session import system_scope
+
+                with system_scope():
+                    async with self.txn(tenant_id) as s:
+                        shared = await repo.documents_with_sha(s, str(row.sha256)) > 0
+                        if not shared:
+                            await repo.remove_raw_file(s, str(row.sha256))
             if not shared:
                 await self.blobs.delete(row.object_key)
         return {"document_id": str(document_id), "chunks_removed": chunks, "facts_marked": marked}

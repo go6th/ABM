@@ -83,11 +83,11 @@ class MemoryStore:
     async def previous_manifest(
         self, tenant_id: str, account_id: str, run_id: str
     ) -> dict[str, object] | None:
-        """Manifest of the account's latest workspace."""
+        """Manifest of the account's latest workspace of another run."""
         found = [
             (d.version, m)
-            for t, a, _, _, d, m in self.rows
-            if t == tenant_id and a == account_id and d.kind == "workspace"
+            for t, a, r, _, d, m in self.rows
+            if t == tenant_id and a == account_id and r != run_id and d.kind == "workspace"
         ]
         return max(found, key=lambda x: x[0])[1] if found else None
 

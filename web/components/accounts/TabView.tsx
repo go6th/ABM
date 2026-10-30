@@ -2,7 +2,7 @@
 // each table (header and rows, links kept, formulas already computed by the server). Each table
 // sits in its own frame that scrolls sideways, so a wide sheet never widens the page.
 import type { SheetTab } from "@/lib/gen/api.gen";
-import { LINK_REL, safeLink } from "@/lib/render";
+import { LINK_REL, ownHref, safeLink } from "@/lib/render";
 import { fillClass, tdClass } from "./cell-fill";
 
 type Block = SheetTab["blocks"][number];
@@ -45,7 +45,7 @@ function Table({ block, label }: { block: Block; label: string }) {
                 {heads.map((_, j) => {
                   const c = r[j];
                   const value = text(c);
-                  const href = safeLink(c?.href ?? "");
+                  const href = ownHref(safeLink(c?.href ?? ""));
                   const long = value.length > 80;
                   // the cell's fill as the file colours it (a theme token mapped to a class)
                   return (

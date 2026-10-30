@@ -37,8 +37,10 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from exports.config import Column, ColumnKind, ColumnStyle, ExcelTheme, ExportConfig
 from exports.config import Font as FontSpec
-from exports.ooxml import normalise_package
+from exports.errors import SchemaViolation
+from exports.ooxml import cache_formula_values, normalise_package
 from exports.policy import split_for_cell
+from exports.urlcheck import is_safe_http_url
 
 # A continuation pointer takes at most this many characters of the main cell.
 POINTER_RESERVE = 160
@@ -48,9 +50,43 @@ POINTER_RESERVE = 160
 LINE_SPACING = 1.3
 WRAP_SLACK = 1.15
 
+# what closes a cell cut at Excel's limit (a workbook without a Long text sheet)
+CUT_NOTE = " [cut: the text is longer than an Excel cell holds]"
+
 Role = Literal["body", "link", "header", "title", "note", "paragraph"]
 _PLAIN_SHEET_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 _CELL_LIKE = re.compile(r"^[A-Za-z]{1,3}[0-9]+$")
+
+
+def _units(text: str) -> int:
+    """The length Excel counts: UTF-16 code units."""
+    return len(text) if text.isascii() else len(text.encode("utf-16-le")) // 2
+
+
+def _take_units(text: str, room: int) -> str:
+    """The longest start of ``text`` of at most ``room`` UTF-16 units."""
+    if text.isascii() or max(text) <= "\uffff":
+        return text[:room]
+    used = 0
+    for end, ch in enumerate(text):
+        used += 2 if ord(ch) > 0xFFFF else 1
+        if used > room:
+            return text[:end]
+    return text
+
+
+def _split_units(text: str, size: int) -> tuple[str, ...]:
+    """``text`` in parts of at most ``size`` UTF-16 units; joined they give the text back."""
+    if text.isascii() or max(text) <= "\uffff":
+        return split_for_cell(text, size)
+    parts, rest = [], text
+    # LOOP(unit split): cap=len(text) parts (each part takes at least one character); exit=no text
+    # left
+    while rest:
+        part = _take_units(rest, size)
+        parts.append(part)
+        rest = rest[len(part) :]
+    return tuple(parts)
 
 
 @dataclass(frozen=True)
@@ -122,6 +158,14 @@ def border(theme: ExcelTheme) -> Border:
     """Thin border in the theme colour on all four sides."""
     side = Side(style="thin", color=theme.border_color)
     return Border(left=side, right=side, top=side, bottom=side)
+
+
+def _link_target(value: object) -> str:
+    """The hyperlink target of a cell: an absolute http(s) address, else the build fails (the
+    render models already refuse anything else; this is the second check, at the sink)."""
+    if not is_safe_http_url(value):
+        raise SchemaViolation("a hyperlink target is not a plain http(s) address")
+    return str(value)
 
 
 def text_cell(cell: Cell | MergedCell, value: str) -> None:
@@ -221,6 +265,12 @@ class Book:
         self._row_cache: dict[Any, tuple[tuple[str, ...], tuple[str | None, ...]]] = {}
         # (sheet title, column index) -> the width set by ``header`` (see there)
         self._widths: dict[tuple[str, int], float] = {}
+        # (sheet, coordinate) -> the value the planner computed for every formula cell written,
+        # stored beside the formula by ``bytes`` (previewers and pandas do not calculate)
+        self.cached: dict[tuple[str, str], int | float | str] = {}
+        self.cache_missing: tuple[str, ...] = ()
+        # cells cut at the limit in a workbook with no Long text sheet (see ``_fit``)
+        self.cut_cells = 0
         # every look registered up front in a fixed order, so style indices (and the stylesheet)
         # are the same for every workbook whatever its content (the same look)
         self._register(Look("header"))
@@ -328,7 +378,7 @@ class Book:
             link_style = links[j - 1]
             if label and value and link_style:
                 text_cell(cell, label)
-                cell.hyperlink = str(value)
+                cell.hyperlink = _link_target(value)
                 cell.style = link_style
                 continue
             if value is None:
@@ -359,7 +409,7 @@ class Book:
         and alignment overrides when the cell sits in a configured column."""
         cell = ws.cell(row=row, column=column)
         text_cell(cell, text)
-        cell.hyperlink = url
+        cell.hyperlink = _link_target(url)
         cell.style = self._register(_link_look(col, bold=bold, fill=fill))
 
     def fill(self, ws: Worksheet, row: int, column: int, name: str) -> None:
@@ -399,11 +449,18 @@ class Book:
         )
 
     def _fit(self, text: str, ref: str, header: str) -> str:
-        if len(text) <= self.limit:
+        """``text`` as one cell. Excel counts UTF-16 units, not characters (an emoji is two). A
+        text over the limit continues on the Long text sheet when the workbook has one; a
+        workbook without one cuts it, closes it with ``CUT_NOTE`` and counts the cell in
+        ``cut_cells`` (the build goes on: one over-long cell must not lose the five files)."""
+        if _units(text) <= self.limit:
             return text
         if self.long is None:
-            raise ValueError("text over the cell limit in a sheet without a Long text sheet")
-        parts = split_for_cell(text, self.limit - POINTER_RESERVE)
+            self.cut_cells += 1
+            room = self.limit - len(CUT_NOTE)
+            return _take_units(text, room) + CUT_NOTE
+        size = self.limit - POINTER_RESERVE
+        parts = _split_units(text, size)
         n = len(parts)
         for k, part in enumerate(parts[1:], start=2):
             self.long.rows.append((ref, header, k, n, part))
@@ -411,6 +468,12 @@ class Book:
             f"{parts[0]} [continued: part 1 of {n}; parts 2 to {n} are on the "
             f"{self.long.sheet_name} sheet under {ref}]"
         )
+
+    @property
+    def counted(self) -> int:
+        """Continuation parts written plus cells cut at the limit (the manifest's count of text
+        that did not fit one cell)."""
+        return (self.long.parts if self.long else 0) + self.cut_cells
 
     def write_long_text(self) -> None:
         """The Long text sheet: Ref, column, part, of, text (always present when configured)."""
@@ -492,6 +555,7 @@ class Book:
         cell = self.wb[f.sheet].cell(row=f.row, column=f.column)
         cell.value = f.text
         cell.style = self._register(Look("body", f.kind, bold=bold, fill=fill))
+        self.cached[(f.sheet, f.coordinate)] = f.expected
 
     # ---- named styles -------------------------------------------------------------------------
     # One named style per look, registered once per workbook and assigned by name (per-cell style
@@ -659,7 +723,7 @@ class Book:
         self.wb.save(buf)
         props = self.cfg.rules.document_properties
         z = self.cfg.theme.zip
-        return normalise_package(
+        package = normalise_package(
             buf.getvalue(),
             title=title,
             author=props.author,
@@ -668,6 +732,13 @@ class Book:
             entry_time=z.entry_time,
             compression=z.compression,
         )
+        # the result of every formula beside its formula (the file shows numbers in a viewer
+        # that does not calculate); a formula the plan does not know is left as it is and named
+        # in ``cache_missing`` (the builder reports it)
+        package, _cached, self.cache_missing = cache_formula_values(
+            package, self.cached, entry_time=z.entry_time, compression=z.compression
+        )
+        return package
 
 
 def counts_sheet(
@@ -697,8 +768,10 @@ def counts_sheet(
         if line.formula == "rows":
             span = f"'{data_sheet}'!{count_col}2:{count_col}{max(2, last)}"
             cell.value = f"=COUNTA({span})"
+            book.cached[(title, f"B{i}")] = line.value
         elif line.formula in ("open", "closed") and status_col:
             word = status_words[line.formula].replace('"', '""')
             span = f"'{data_sheet}'!{status_col}2:{status_col}{max(2, last)}"
             cell.value = f'=COUNTIF({span},"{word}")'
+            book.cached[(title, f"B{i}")] = line.value
     book.finish_table(ws, cols, len(lines))

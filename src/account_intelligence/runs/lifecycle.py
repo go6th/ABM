@@ -146,6 +146,48 @@ class Settlement:
     replayed: bool
 
 
+async def _incremental_keys(
+    session: AsyncSession, account: UUID, request: RunRequest, now: datetime
+) -> dict[str, str]:
+    """The run-input keys of an incremental re-research (``jobs.incremental``): the account's
+    previous research to carry and the delta bound of the job feed, or nothing when there is no
+    safe base (then the whole window is pulled). A file-only run pulls no job feed. A Phase 2 run
+    on a stored pull (``mode`` build) takes the pull's own keys, so both share one feed call."""
+    from jobs import incremental as inc
+
+    run_input = request.run_input
+    if run_input.get("input_mode") == "file" or inc.KEY_PREVIOUS_RUN in run_input:
+        return {}
+    if run_input.get("mode") == "build":
+        parent = run_input.get("parent_run_id")
+        stored = (
+            await session.scalar(
+                text("SELECT run_input FROM account_runs WHERE id = :p AND account_id = :a"),
+                {"p": UUID(str(parent)), "a": account},
+            )
+            if parent
+            else None
+        )
+        keys = (inc.KEY_PREVIOUS_RUN, inc.KEY_SINCE)
+        return {k: str(stored[k]) for k in keys if isinstance(stored, dict) and k in stored}
+    resumed = run_input.get("resume_from")
+    if resumed:
+        # a continuation keeps the incremental inputs of the run it continues (F12): decided
+        # again, a base delivered meanwhile or a new month would move the feed's bound, and the
+        # feed call it already made (reused at no cost) would be paid for a second time
+        stored = await session.scalar(
+            text("SELECT run_input FROM account_runs WHERE id = :p AND account_id = :a"),
+            {"p": UUID(str(resumed)), "a": account},
+        )
+        if isinstance(stored, dict):
+            keys = (inc.KEY_PREVIOUS_RUN, inc.KEY_SINCE)
+            return {k: str(stored[k]) for k in keys if k in stored}
+    previous = await inc.previous_delivered_run(
+        session, account, inc.current_matching(run_input.get("lanes_off"))
+    )
+    return inc.incremental_input(previous, now.date())
+
+
 async def create_run(
     session: AsyncSession,
     tenant_id: UUID,
@@ -173,6 +215,10 @@ async def create_run(
     person = None if credit.actor in SYSTEM_ACTORS else credit.actor
     account, _ = await add_account(session, tenant_id, request.domain, added_by=person)
     now: datetime = (await session.execute(text("SELECT now()"))).scalar_one()
+    # incremental re-research (jobs.incremental): decided here, once, for every way a research
+    # starts (the API, a file run's linked research, a refresh job). It is not part of the request
+    # hash: the same request repeated is the same run
+    run_input = {**request.run_input, **await _incremental_keys(session, account, request, now)}
     if credit.job_id is not None:
         job = (
             await session.execute(
@@ -240,7 +286,7 @@ async def create_run(
                 "h": digest,
                 "usd": budget_usd,
                 "cap": tool_call_cap,
-                "input": json.dumps(request.run_input, sort_keys=True),
+                "input": json.dumps(run_input, sort_keys=True),
                 "cl": pins.checklist_version(),
                 "mv": json.dumps(pins.model_versions(), sort_keys=True),
                 # the credits confirmed on the pool are the run's cap: no second approval, and
@@ -550,6 +596,85 @@ async def count_no_progress(session: AsyncSession, run_id: UUID, *, progressed: 
     return int(count)
 
 
+async def completed_calls(session: AsyncSession, run_id: UUID) -> int:
+    """How many provider calls the run has finished (ledger ``tool_calls`` rows, one per call
+    that completed): work a slice leaves behind even while its node is still pending, the other
+    half of the no-progress test beside ``model_replies`` (orchestration review 2026-10-30, F7:
+    a pull that finishes a few provider calls per slice was counted as stalled)."""
+    return int(
+        await session.scalar(
+            text("SELECT count(*) FROM tool_calls WHERE run_id = :r"), {"r": run_id}
+        )
+        or 0
+    )
+
+
+async def note_pause(session: AsyncSession, run_id: UUID) -> None:
+    """The run entered a wait for a person: the slice that resumes it is not research time. The
+    count (``run_input.pause_slices``) raises the slice ceiling by one per wait, so approvals,
+    spend pauses and token-guard pauses do not eat the slices the research needs (F4)."""
+    await session.execute(
+        text(
+            "UPDATE account_runs SET run_input = jsonb_set(COALESCE(run_input, '{}'::jsonb),"
+            " '{pause_slices}', to_jsonb(COALESCE((run_input->>'pause_slices')::int, 0) + 1))"
+            " WHERE id = :r"
+        ),
+        {"r": run_id},
+    )
+
+
+async def pause_slices(session: AsyncSession, run_id: UUID) -> int:
+    """How many waits for a person the run has been through (``note_pause``)."""
+    return int(
+        await session.scalar(
+            text(
+                "SELECT COALESCE((run_input->>'pause_slices')::int, 0) FROM account_runs"
+                " WHERE id = :r"
+            ),
+            {"r": run_id},
+        )
+        or 0
+    )
+
+
+async def note_pause_lapsed(session: AsyncSession, run_id: UUID) -> None:
+    """A wait for a person ran out of time (``expire_cap_pause``): the slice that resumes the run
+    must read the pause as declined, never as approved (F10). The mark is the number of the slice
+    that resumes it (``slices_used`` now), so it answers that one wait only and needs no clearing:
+    a redelivered copy of the slice reads it again, a later wait has a later slice number."""
+    await session.execute(
+        text(
+            "UPDATE account_runs SET run_input = jsonb_set(COALESCE(run_input, '{}'::jsonb),"
+            " '{pause_lapsed}', to_jsonb(slices_used)) WHERE id = :r"
+        ),
+        {"r": run_id},
+    )
+
+
+async def pause_lapsed(session: AsyncSession, run_id: UUID, slice_no: int) -> bool:
+    """Whether the wait that slice ``slice_no`` resumes ran out of time (``note_pause_lapsed``)."""
+    marked = await session.scalar(
+        text("SELECT (run_input->>'pause_lapsed')::int FROM account_runs WHERE id = :r"),
+        {"r": run_id},
+    )
+    return marked is not None and int(marked) == slice_no
+
+
+async def pause_declined(session: AsyncSession, run_id: UUID) -> bool:
+    """Whether the run's newest spend-pause request was declined or timed out (the person said
+    no, or nobody answered): the graph then reads the interrupt as a decline, not an approval."""
+    event = await session.scalar(
+        text(
+            "SELECT d.event FROM spend_limit_events p"
+            " JOIN spend_limit_events d ON d.request_id = p.request_id"
+            "  AND d.event IN ('approved', 'declined', 'timed_out')"
+            " WHERE p.run_id = :r AND p.event = 'pause_opened' ORDER BY p.id DESC LIMIT 1"
+        ),
+        {"r": run_id},
+    )
+    return event in ("declined", "timed_out")
+
+
 async def move(
     session: AsyncSession,
     run_id: UUID,
@@ -843,6 +968,9 @@ async def expire_cap_pause(session: AsyncSession, run_id: UUID, now: datetime) -
     if row.awaiting_kind != "cap" or row.approval_deadline is None or row.approval_deadline > now:
         return False
     await expire(session, run_id, now, load_v2_config())
+    # a token-guard pause has no request to time out, so the lapse is marked on the run: the
+    # resumed graph reads every lapsed wait as "no" (F10; it used to read it as "continue")
+    await note_pause_lapsed(session, run_id)
     await move(session, run_id, RunStatus.AWAITING_APPROVAL, RunStatus.RUNNING)
     return True
 

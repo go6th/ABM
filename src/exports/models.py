@@ -14,8 +14,9 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
+from exports.urlcheck import require_safe_http_url
+
 _CODE = re.compile(r"^S-\d{4,}$")
-_URL = re.compile(r"^https?://\S+$")
 
 
 def _code(value: str) -> str:
@@ -25,9 +26,7 @@ def _code(value: str) -> str:
 
 
 def _url(value: str) -> str:
-    if not _URL.match(value):
-        raise ValueError("a rendered URL is absolute http(s) without spaces")
-    return value
+    return require_safe_http_url(value, "a rendered URL")
 
 
 SourceCode = Annotated[str, AfterValidator(_code)]
@@ -539,7 +538,7 @@ class EvidenceModel(_Frozen):
     brand: Text | None = None
     # the Account Summary's delivered file name, named in the opening line
     summary_file: str = ""
-    # the document title as the reference writes it ("BD (Becton, Dickinson and Company):
+    # the document title as the reference writes it ("<short name> (<legal name>):
     # Sources and Evidence"); blank prints the file title
     doc_title: str = ""
     lane_reads: tuple[LaneReadGroup, ...] = ()
@@ -884,6 +883,8 @@ class BuildManifest(_Frozen):
     # an untraceable number, a fact not in the tables): the set is still delivered, the gap is
     # listed here, never silently (one such block used to fail every file, staging 2026-10-21)
     withheld_blocks: tuple[str, ...] = ()
+    # text that did not fit one cell: continuation parts on a Long text sheet, cells cut at the
+    # limit in a workbook without one, and titles cut at the title limit (all counted here)
     long_text_parts: int = Field(ge=0)
     formula_like_cells: int = Field(ge=0)
     # out-of-scope platform names replaced by the scope mask in rendered text (scope.yaml
@@ -899,6 +900,15 @@ class BuildManifest(_Frozen):
     files: tuple[FileEntry, ...] = ()
     loop_exits: dict[str, str] = Field(default_factory=dict)
     change_note: str | None = None
+    # the build's verification checks and what each did, by name: ``passed``, ``not_run: <why>``
+    # (no converter installed, a conversion that timed out) or ``failed: <why>`` (a failed check
+    # stops the build, so a stored set carries none). A check that did not run is listed here and
+    # logged, never silent (fix wave C, 2026-10-29: a 7,000 row workbook outran the converter's
+    # timeout and its recalculation check quietly became not_run)
+    checks: dict[str, str] = Field(default_factory=dict)
+    # the tenant exclusion set the files were built with (``readers.exclusions.exclusion_hash``);
+    # a stored file whose hash is not the tenant's current one is rebuilt before it is served
+    exclusion_hash: str = Field(default="", pattern=r"^([0-9a-f]{16}|none|)$")
 
 
 class Deliverable(_Frozen):

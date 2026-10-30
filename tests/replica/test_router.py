@@ -34,9 +34,9 @@ def _jobs() -> TableInfo:
     return TableInfo(
         id=uuid4(),
         name="Jobs",
-        table="GSK_Job_Postings.xlsx:Jobs",
-        member="GSK_Job_Postings.xlsx",
-        document="GSK workspace.zip",
+        table="Holdings_Job_Postings.xlsx:Jobs",
+        member="Holdings_Job_Postings.xlsx",
+        document="Holdings workspace.zip",
         document_id=uuid4(),
         account_id=uuid4(),
         columns=tuple(
@@ -101,15 +101,16 @@ async def test_the_router_sends_filter_questions_to_the_table_tools() -> None:
     assert got.route == "mixed"
 
 
-# the five live eval questions of evals/tabular_gsk (2026-10-17): each must reach the table
+# the five live eval questions of evals/tabular_synthetic (2026-10-17): each must reach the table
 # tools, and a pure summary question must stay on retrieval
 EVAL_QUESTIONS = (
     "List out all the open jobs that are Salesforce-related that was first seen date on or"
     " after March 1, 2026",
     "Pull the full 40-row Salesforce table, listing every row",
-    "Are the duplicate Salesforce Effectiveness Manager rows separate requisitions?",
+    "Are the duplicate Salesforce Administrator Lead rows separate requisitions?",
     "Which Salesforce roles in the last 12 months are platform owners?",
-    "How many GSK postings mention Salesforce, and how many are field-sales false positives?",
+    "How many Synthetic Holdings postings mention Salesforce, and how many are field-sales"
+    " false positives?",
 )
 
 
@@ -120,7 +121,7 @@ async def test_natural_phrasing_routes_tabular_or_mixed_and_a_summary_stays_pros
         got = await R.route(question, tables)
         assert got.route in ("tabular", "mixed"), (question, got)
         assert got.route == "tabular", (question, got.reason)
-    summary = await R.route("Summarise the GSK account brief", tables)
+    summary = await R.route("Summarise the Synthetic Holdings account brief", tables)
     assert summary.route == "prose" and "prose words" in summary.reason
     # the natural forms that carry the eval questions: the header as written, the date
     # column's "... date" form, the low-cardinality values

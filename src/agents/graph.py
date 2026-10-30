@@ -47,7 +47,7 @@ import asyncio
 import contextlib
 import logging
 from collections import Counter
-from collections.abc import Coroutine, Iterable, Mapping
+from collections.abc import Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict, TypeVar, cast
 from uuid import UUID
@@ -55,11 +55,12 @@ from uuid import UUID
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from account_intelligence.connectors.errors import RetryableProviderError
 from account_intelligence.connectors.spend_guard import TokenGuardReached
 from account_intelligence.platform.ports import NotConfigured as PlatformNotConfigured
 from account_intelligence.workflow.ports import BuildIncomplete
 from account_intelligence.workflow.state import merge_maps, sum_counters
-from agents.config import SkillConfig
+from agents.config import PlanRow, SkillConfig
 from agents.contracts import AgentContract, BudgetMeter
 from agents.distill.agent import distill
 from agents.entity import EntityLock, accept
@@ -106,10 +107,17 @@ from agents.ports import (
     RunRecordStore,
     SenseCheckRecord,
     SettingsPort,
+    SourceItem,
     TrackerPort,
     WalletPort,
 )
-from agents.pull.agent import CREDIT_LIMIT, PullAgent, SpendPause
+from agents.pull.agent import (
+    CREDIT_LIMIT,
+    QUERIES_IN_FLIGHT,
+    STORES_IN_FLIGHT,
+    PullAgent,
+    SpendPause,
+)
 from agents.schemas import ExtractionInput, PayloadView, SenseCheckInput, StoredFact
 from agents.sense_check.agent import sense_check
 from crosscut.fanout import fan_out, fan_out_all
@@ -138,6 +146,10 @@ STEPS: tuple[Literal["pass1", "pass2", "people"], ...] = ("pass1", "pass2", "peo
 # (models.yaml batch.mode) the calls are standard requests that answer in seconds, and the three
 # steps run side by side on this one gate.
 EXTRACT_CONCURRENCY = 32
+# stored pages read back at once when a node starts reading (an object-store read each: a run
+# stores thousands of items, and reading them back one after another took minutes before the
+# first model call)
+VIEWS_IN_FLIGHT = 16
 # a run that graded no fact has nothing to build: it ends finished with this reason instead of
 # the builder's missing_content (audit 2026-10-20: five McKesson refreshes ended "stopped before
 # finishing" and offered a Resume that re-paid the same extraction for the same empty result)
@@ -296,6 +308,17 @@ async def _all_or_none(coros: Iterable[Coroutine[Any, Any, T]]) -> list[T]:
     return [t.result() for t in tasks]
 
 
+def row_ceiling_s(row: PlanRow) -> float:
+    """How long Phase 1 waits for one row before giving it up (F9). A row asks its queries four
+    at a time (``QUERIES_IN_FLIGHT``), so a row of fifteen queries is four waves of work, and
+    every call waits its turn at the provider's gate: the ceiling is ``PULL_ROW_CEILING_S`` for
+    each wave, so a row is cut for a call that never answers, not for the number of queries it
+    has. A feed row (jobs, technology) is one call and keeps the plain ceiling."""
+    if row.pipeline is not None:
+        return float(PULL_ROW_CEILING_S)
+    return float(PULL_ROW_CEILING_S * max(1, -(-len(row.queries) // QUERIES_IN_FLIGHT)))
+
+
 def _in_scope(state: AbmState, cfg: SkillConfig) -> set[str]:
     """The rows this run pulls: its job's scope, or the whole plan."""
     rows = state.get("scope_rows")
@@ -326,6 +349,76 @@ def _plan_order(cfg: SkillConfig) -> list[str]:
     )
 
 
+# counters the pipelines node sets when a code pipeline failed for a reason the retry policy does
+# not own; a run that holds one never ends completed (``AbmGraphFactory.target`` reads them too)
+PIPELINE_FAILURES = ("pipelines_jobs_failed", "pipelines_tech_failed", "pipelines_people_failed")
+
+# Nodes with no provider call whose work is idempotent (the builder stores a file set once per
+# set hash; the gate only reads and reports; the delivery note and the settlement are written
+# once): a transient infrastructure error in them is retried by the node RetryPolicy instead of
+# ending the run with the delivery lost (orchestration review F14).
+INFRA_RETRIED_NODES = frozenset({"build", "gate", "deliver", "finish"})
+# SQLSTATEs a database reports for a failure that a second try passes: serialization failure,
+# deadlock, admin shutdown / crash recovery, connection exceptions, too many connections
+TRANSIENT_SQLSTATES = frozenset(
+    {"40001", "40P01", "57P01", "57P02", "57P03", "08000", "08003", "08006", "08001", "53300"}
+)
+# google.api_core errors that mean "the service had a moment" (object storage, queues)
+TRANSIENT_SERVICE_ERRORS = frozenset(
+    {
+        "ServiceUnavailable",
+        "InternalServerError",
+        "BadGateway",
+        "GatewayTimeout",
+        "TooManyRequests",
+        "DeadlineExceeded",
+        "RetryError",
+    }
+)
+
+
+def is_transient_infra(error: BaseException) -> bool:
+    """Whether the error is the kind a second try passes: a dropped connection, a timeout, a
+    deadlock or serialization failure, a storage service that answered 5xx or 429. Anything else
+    (a defect, an invalid state, a refused request) is not retried."""
+    if isinstance(error, ConnectionError | TimeoutError):
+        return True
+    from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+    if isinstance(error, OperationalError | InterfaceError):
+        return True
+    if isinstance(error, DBAPIError):
+        sqlstate = getattr(error.orig, "sqlstate", None) or getattr(error.orig, "pgcode", None)
+        return bool(error.connection_invalidated or sqlstate in TRANSIENT_SQLSTATES)
+    kind = type(error)
+    return kind.__module__.startswith("google.") and kind.__name__ in TRANSIENT_SERVICE_ERRORS
+
+
+def node_policies(retry_policy: Any) -> tuple[Any, Any]:
+    """``(policy of the provider and model nodes, policy of the build, gate, deliver and finish
+    nodes)`` from the worker's provider retry policy: the first retries a retryable provider
+    error or a transient infrastructure error, the second only the infrastructure one. Both keep
+    the policy's backoff and attempt budget. ``(None, None)`` without a policy."""
+    if retry_policy is None:
+        return None, None
+    provider_errors = retry_policy.retry_on
+
+    classes: tuple[type[Exception], ...] | None = None
+    if isinstance(provider_errors, type):
+        classes = (provider_errors,)
+    elif isinstance(provider_errors, list | tuple):
+        classes = tuple(provider_errors)
+
+    def retryable(error: Exception) -> bool:
+        """A retryable provider error (the policy's own test) or a transient infrastructure one."""
+        own = isinstance(error, classes) if classes is not None else bool(provider_errors(error))
+        return own or is_transient_infra(error)
+
+    return retry_policy._replace(retry_on=retryable), retry_policy._replace(
+        retry_on=is_transient_infra
+    )
+
+
 RETRIED_NODES = frozenset(
     {
         "setup",
@@ -339,6 +432,21 @@ RETRIED_NODES = frozenset(
         "distill",
     }
 )
+
+
+async def report_source_failed(
+    tracker: TrackerPort, ctx: RunContext, rows: Mapping[str, Sequence[str]]
+) -> None:
+    """Report the rows of a failed code pipeline as a failed source (orchestration review F2).
+
+    The tracker derives a row's status from its call evidence and ignores the reason once the row
+    has any call, so a pipeline that failed after Phase 1 pulled its feed would read Done. A row
+    that reads Done afterwards is taken down to Partial with ``source_failed`` (the tracker's own
+    downgrade path); Not done, Blocked, Partial and None already say what happened."""
+    for key in sorted(rows):
+        out = await tracker.report(ctx, key, list(rows[key]), "source_failed")
+        if out.status == "done":
+            await tracker.mark_partial(ctx, key, "source_failed")
 
 
 def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmState]:
@@ -455,8 +563,9 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
 
         async def pull_one(key: str) -> ManifestRow:
             """One row pulled; a spend pause is recorded and stops new rows from starting."""
+            ceiling = row_ceiling_s(cfg.plan[key])
             try:
-                async with asyncio.timeout(PULL_ROW_CEILING_S):
+                async with asyncio.timeout(ceiling):
                     return await agent.pull_row(
                         ctx, cfg.plan[key], m, consent_problem=problem, internal_history=internal
                     )
@@ -473,7 +582,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                     "pull.row_slow",
                     extra={
                         "stage": key[:60],
-                        "waited_s": PULL_ROW_CEILING_S,
+                        "waited_s": ceiling,
                         "outcome": "handed_to_pipeline" if handed else "gap",
                     },
                 )
@@ -568,8 +677,24 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         # a row stores one payload per item per phrasing: a feed returns the same records for
         # each of its phrasings, and two searches often return the same page. Each payload is
         # read once (audit 2026-10-21: news records reached the extractor six times)
-        refs = dict.fromkeys(ref for r in rows for ref in r.payload_refs)
-        return [await deps.payloads.view(ctx.tenant_id, ref) for ref in refs]
+        refs = list(dict.fromkeys(ref for r in rows for ref in r.payload_refs))
+
+        async def view(ref: str) -> PayloadView:
+            return await deps.payloads.view(ctx.tenant_id, ref)
+
+        return await fan_out_all(refs, view, limit=VIEWS_IN_FLIGHT)
+
+    async def stored_views(
+        ctx: RunContext, found: Sequence[tuple[str, SourceItem]]
+    ) -> list[PayloadView]:
+        """Each found item stored and read back as a view, side by side, in the order found."""
+
+        async def store(pair: tuple[str, SourceItem]) -> PayloadView:
+            """One found item stored and read back as a view."""
+            ref = await deps.payloads.put(ctx, pair[0], pair[1], "public")
+            return await deps.payloads.view(ctx.tenant_id, ref)
+
+        return await fan_out_all(found, store, limit=STORES_IN_FLIGHT)
 
     async def _interpret(
         ctx: RunContext,
@@ -801,7 +926,13 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         # (board searches, feed, reads) in the ``pipelines`` node; a second report from here
         # would be a refused transition (done to partial)
         for row in manifest.rows:
-            if cfg.plan[row.row_key].pipeline in ("jobs", "people") and deps.pipelines is not None:
+            owner = cfg.plan[row.row_key].pipeline
+            if deps.pipelines is not None and (
+                owner in ("jobs", "people")
+                # a detections feed the pull handed over at its ceiling: only the pipeline that
+                # finishes the pull has the call to report (orchestration review F3)
+                or (owner == "tech" and row.blocked_reason == "owned_by_pipeline")
+            ):
                 continue  # the pipelines node reports these rows with its own evidence
             await deps.tracker.report(ctx, row.row_key, row.call_refs, row.blocked_reason)
         views = await _views(ctx, stored)
@@ -821,7 +952,13 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
 
     async def pipelines(state: AbmState) -> dict[str, Any]:
         """The code pipelines after the reading step (skill steps 6 and 7): postings read,
-        classified and counted by the job pipeline; technology detections as dated rows."""
+        classified and counted by the job pipeline; technology detections as dated rows.
+
+        Failure handling (orchestration review 2026-10-30, F1 to F3): a retryable provider error
+        is never caught here, the node ``RetryPolicy`` is its only owner (the adapters hand it
+        up below the retry budget and turn it into a stated source failure above it); any other
+        pipeline error is logged, counted and reported on the pipeline's rows as a failed source
+        that can never read Done, and the run then ends partial, never completed."""
         ctx = context(state)
         if deps.pipelines is None:
             return {"exits": {"pipelines": "not_available_yet"}}
@@ -833,11 +970,22 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         jobs_rows = {k for k, row in cfg.plan.items() if row.pipeline == "jobs"}
         manifest = await _manifest(state)
         pulled = {r.row_key: r for r in manifest.rows}
+
+        async def rows_failed(keys: Iterable[str]) -> None:
+            """Report these rows as a failed source (never Done)."""
+            await report_source_failed(
+                deps.tracker,
+                ctx,
+                {k: (pulled[k].call_refs if k in pulled else []) for k in keys},
+            )
+
         if jobs_rows & in_scope:
             try:
                 out = await deps.pipelines.run_jobs(ctx, state.get("careers_url"))
             except TokenGuardReached:
                 raise
+            except RetryableProviderError:
+                raise  # the node RetryPolicy owns retries (W6); swallowing it killed the pipeline
             except Exception as error:  # noqa: BLE001 - a model failure ends the run partial
                 if model_failure_code(error) is not None:
                     raise
@@ -846,11 +994,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 _log.warning(
                     "pipelines.jobs_failed", extra={"error_code": type(error).__name__[:80]}
                 )
-                for key in sorted(jobs_rows & in_scope):
-                    row = pulled.get(key)
-                    await deps.tracker.report(
-                        ctx, key, row.call_refs if row else [], "source_failed"
-                    )
+                await rows_failed(jobs_rows & in_scope)
                 counters["pipelines_jobs_failed"] = 1
                 exits["jobs"] = "failed"
             else:
@@ -864,9 +1008,18 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             exits["jobs"] = "not_planned"
         tech_rows = {k for k, row in cfg.plan.items() if row.pipeline == "tech"}
         if tech_rows & in_scope:
+            # the rows the pull handed over at its ceiling (``owned_by_pipeline``) were not
+            # reported by the reading step: this pipeline reports them with its own call
+            handed = {
+                k
+                for k in tech_rows & in_scope
+                if k in pulled and pulled[k].blocked_reason == "owned_by_pipeline"
+            }
             try:
                 out = await deps.pipelines.write_detections(ctx)
             except TokenGuardReached:
+                raise
+            except RetryableProviderError:
                 raise
             except Exception as error:  # noqa: BLE001 - a store or feed error never ends the run
                 if model_failure_code(error) is not None:
@@ -874,18 +1027,26 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 _log.warning(
                     "pipelines.tech_failed", extra={"error_code": type(error).__name__[:80]}
                 )
-                for key in sorted(tech_rows & in_scope):
-                    await deps.tracker.report(ctx, key, [], "source_failed")
+                await rows_failed(tech_rows & in_scope)
                 counters["pipelines_tech_failed"] = 1
                 exits["tech"] = "failed"
             else:
                 counters.update(out.counters)
                 exits.update(out.exits)
+                if out.exits.get("tech") == "written" and out.calls:
+                    for key in sorted(handed):
+                        await deps.tracker.report(ctx, key, out.calls, None)
+                elif handed:
+                    # the feed was handed over and the pipeline could not pull it either
+                    await rows_failed(handed)
+                    counters["pipelines_tech_failed"] = 1
             # the organisation's tech stack (the Confirmed stack sheet): its own failure never
             # touches the detection rows or ends the run
             try:
                 stack_out = await deps.pipelines.write_stack(ctx)
             except TokenGuardReached:
+                raise
+            except RetryableProviderError:
                 raise
             except Exception as error:  # noqa: BLE001 - a store or lookup error never ends the run
                 if model_failure_code(error) is not None:
@@ -915,6 +1076,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                     out = await deps.pipelines.run_people(ctx)
                 except TokenGuardReached:
                     raise
+                except RetryableProviderError:
+                    raise
                 except Exception as error:  # noqa: BLE001 - a model failure ends the run partial
                     if model_failure_code(error) is not None:
                         raise
@@ -922,8 +1085,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                         "pipelines.people_failed",
                         extra={"error_code": type(error).__name__[:80]},
                     )
-                    for key in sorted(people_rows & in_scope):
-                        await deps.tracker.report(ctx, key, [], "source_failed")
+                    await rows_failed(people_rows & in_scope)
                     counters["pipelines_people_failed"] = 1
                     exits["people"] = "failed"
                 else:
@@ -955,11 +1117,20 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
             """One person-name search; a refusal or failed source is a ``None`` result."""
             row_key, query = item
             try:
-                return await deps.provider.call(ctx, "web_search", query, row_key)
+                # one search that never answers must not hold the node past the slice (F9)
+                async with asyncio.timeout(PULL_ROW_CEILING_S):
+                    return await deps.provider.call(ctx, "web_search", query, row_key)
+            except TimeoutError:
+                _log.warning(
+                    "person_search.slow",
+                    extra={"stage": row_key[:60], "waited_s": PULL_ROW_CEILING_S},
+                )
+                return None
             except (CapPause, ProviderFailed):
                 return None
 
         # side by side, then stored and read back in the order of the queries
+        found: list[tuple[str, SourceItem]] = []
         for (row_key, _query), result in zip(
             queries, await fan_out_all(queries, search_one), strict=True
         ):
@@ -967,9 +1138,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 failed += 1
                 continue
             calls.setdefault(row_key, []).extend(result.call_refs)
-            for source in result.items:
-                ref = await deps.payloads.put(ctx, row_key, source, "public")
-                views.append(await deps.payloads.view(ctx.tenant_id, ref))
+            found.extend((row_key, source) for source in result.items)
+        views.extend(await stored_views(ctx, found))
         for row_key, refs in calls.items():
             await deps.tracker.report(ctx, row_key, refs, None)
         consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
@@ -991,17 +1161,26 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
 
         settings = await deps.settings.get(ctx.tenant_id)
         pages: list[Any] = []
-        for row in stored:
-            if cfg.plan[row.row_key].need in ("scrape", "page_read"):
-                for ref in row.payload_refs:
-                    view = await deps.payloads.view(ctx.tenant_id, ref)
-                    pages.append(
-                        VisitedPage(
-                            page_id=f"page{len(pages) + 1}",  # payload keys are not ids
-                            url=view.url,
-                            title=cfg.row_labels[row.row_key][:300],
-                        )
-                    )
+        wanted = [
+            (row.row_key, ref)
+            for row in stored
+            if cfg.plan[row.row_key].need in ("scrape", "page_read")
+            for ref in row.payload_refs
+        ]
+
+        async def view_of(item: tuple[str, str]) -> PayloadView:
+            return await deps.payloads.view(ctx.tenant_id, item[1])
+
+        for (row_key, _ref), view in zip(
+            wanted, await fan_out_all(wanted, view_of, limit=VIEWS_IN_FLIGHT), strict=True
+        ):
+            pages.append(
+                VisitedPage(
+                    page_id=f"page{len(pages) + 1}",  # payload keys are not ids
+                    url=view.url,
+                    title=cfg.row_labels[row_key][:300],
+                )
+            )
         if not pages:
             return None
         setup_input = validate_setup(
@@ -1027,6 +1206,10 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         rounds = cfg.follow_up_rounds.get(depth, cfg.follow_up_rounds.get("standard", 1))
         second = state.get("sense_pass", 0) >= rounds
         facts = await deps.grading.facts(ctx)
+        if not facts:
+            # nothing was graded: there is nothing to check, and the build ends the run
+            # ``no_new_findings``. The paid planner call used to be made for an empty list (F13)
+            return {"exits": {"sense_check": "no_facts"}}
         inp = SenseCheckInput(
             manifest_digest=state["manifest_digest"],
             account_name=ctx.account_name,
@@ -1116,7 +1299,16 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         async def pull_one(item: dict[str, str]) -> Any:
             """One follow-up pull; a refusal or failed source is returned, not raised."""
             try:
-                return await deps.provider.call(ctx, item["need"], item["query"], item["row_key"])
+                async with asyncio.timeout(PULL_ROW_CEILING_S):  # F9: a named gap, not a hung node
+                    return await deps.provider.call(
+                        ctx, item["need"], item["query"], item["row_key"]
+                    )
+            except TimeoutError:
+                _log.warning(
+                    "targeted_pull.slow",
+                    extra={"stage": item["row_key"][:60], "waited_s": PULL_ROW_CEILING_S},
+                )
+                return ProviderFailed("provider_slow")
             except (CapPause, ProviderFailed) as error:
                 return error
 
@@ -1126,9 +1318,9 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
                 await deps.tracker.mark_partial(ctx, item["row_key"], result.reason)
                 capped |= isinstance(result, CapPause) and result.reason == CREDIT_LIMIT
                 continue
-            for source in result.items:
-                ref = await deps.payloads.put(ctx, item["row_key"], source, "public")
-                views.append(await deps.payloads.view(ctx.tenant_id, ref))
+            views.extend(
+                await stored_views(ctx, [(item["row_key"], source) for source in result.items])
+            )
             await deps.tracker.report(ctx, item["row_key"], result.call_refs, None)
         consent = await deps.consent.current(ctx.tenant_id, cfg.consent_scope)
         ok = consent_decision(consent, cfg.consent_scope, cfg.consent_text_version) is None
@@ -1149,6 +1341,8 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         over every fact, per run, for nothing)."""
         ctx = context(state)
         facts = await deps.grading.facts(ctx)
+        if not facts:
+            return {"exits": {"distill": "no_facts"}}  # no paid call for an empty list (F13)
         counters: dict[str, int] = {}
         statable = frozenset(f.fact_id for f in facts if may_state(f.grade))
         try:
@@ -1296,8 +1490,14 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         # a stated gap the client chose (internal history not switched on) is not a missing step:
         # the tracker's completion policy allows it the same way
         # (config/tracker_v1.yaml high_reasons_allowed_for_completed)
-        complete = not withheld and all(
-            r.status in ("done", "none") or r.reason in STATED_GAPS for r in rows.values()
+        counters = state.get("counters") or {}
+        # a pipeline that failed for good (its rows read Partial or Not done with a failed
+        # source) is a gap of the run even when a row happens to read Done or None
+        broken = any(counters.get(k) for k in PIPELINE_FAILURES)
+        complete = (
+            not withheld
+            and not broken
+            and all(r.status in ("done", "none") or r.reason in STATED_GAPS for r in rows.values())
         )
         return {"outcome": "completed" if complete else "partial"}
 
@@ -1319,6 +1519,7 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         return token_paused(lambda state: "finish" if state.get("outcome") == "failed" else target)
 
     g: StateGraph[AbmState] = StateGraph(AbmState)
+    provider_policy, infra_policy = node_policies(retry_policy)
     for name, fn in (
         ("setup", setup),
         ("entity_lock", entity_lock),
@@ -1342,7 +1543,13 @@ def build_abm_graph(deps: AbmDeps, retry_policy: Any = None) -> StateGraph[AbmSt
         # The node RetryPolicy is the single retry owner for retryable provider errors (W6): a
         # broker 429/5xx in the pulls, and a model overload, timeout or dropped connection in the
         # model nodes (stored replies replay, so a retry never pays twice for a finished call).
-        policy = retry_policy if name in RETRIED_NODES else None
+        policy = (
+            provider_policy
+            if name in RETRIED_NODES
+            else infra_policy
+            if name in INFRA_RETRIED_NODES
+            else None
+        )
         g.add_node(name, cast(Any, fn), retry_policy=policy)
     g.add_edge(START, "setup")
     g.add_conditional_edges(

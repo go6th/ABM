@@ -93,8 +93,9 @@ business-key and payload tuning live in `docs/tabular-queries.md`.
 
 ### The live tabular eval (Gap 2/3)
 
-`evals/tabular_gsk/cases.yaml` holds five owner questions over the **real** GSK workspace
-fixture (`tests/fixtures/gsk/GSK_workspace.zip`); `tests/evals/test_tabular_gsk_live.py`
+`evals/tabular_synthetic/cases.yaml` holds five questions over the **synthetic** "Synthetic
+Holdings" workspace zip (built in memory by `tests/documents/workspace_zip.py`; no real
+account's data is in the repository since 2026-10-30); `tests/evals/test_tabular_live.py`
 (marker `live`, never in the offline suite; the offline selectors exclude `live`) ingests it
 through the production path and asks each question of the real model five times. The eval's
 model comes from the one layer every surface reads (owner decision 2026-10-17): the
@@ -114,7 +115,7 @@ answer, a deviant trace's included, must pass the case's terms
 field-sales false positives, and never a re-export refusal). It runs nightly and on demand in
 `.github/workflows/eval.yml` with the `MOONSHOT_API_KEY` secret, and locally with the key in
 `.env` (`ANTHROPIC_API_KEY` when `EVAL_MODEL` names a Claude model). The offline doubles:
-`tests/documents/test_tables_real_gsk.py` pins the sheet's truth
+`tests/documents/test_tables_workspace_zip.py` pins the sheet's truth
 (no model), `test_tables_golden.py` …`_with_stub_model` the byte-identical scripted answer.
 
 ## Runbook: rebuilding a workspace

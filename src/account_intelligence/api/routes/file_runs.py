@@ -30,6 +30,7 @@ from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import limits as LIM
+from account_intelligence.replica.jobs import job_limits
 from account_intelligence.runs import lifecycle
 from account_intelligence.runs.lifecycle import (
     IdempotencyConflict,
@@ -240,7 +241,9 @@ async def _enrichment(
     from agents.modes import RunMode, plan_run
     from tenancy import settings
 
-    run_limits = container.limits
+    # the call cap is sized from the research plan like a research job's (replica.jobs.job_limits):
+    # the default of 60 calls stopped the public research of a file analysis after a few rows
+    run_limits = job_limits(container.limits, tuple(company_input.get("scope_rows") or ()))
     if credit_cap is not None:
         run_limits = replace(run_limits, budget_usd=Decimal(str(round(credit_cap, 2))))
     child_input = {**company_input, "linked_file_run": str(file_run)}

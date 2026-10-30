@@ -31,9 +31,10 @@ class PostingSourcePort(Protocol):
         """One live board search per lane keyword."""
         ...
 
-    async def pull_window(self, start: date, end: date) -> SourceBatch:
-        """The 12-month pull of open and closed postings (an incremental run asks only for the
-        delta window; the adapter holds the bound)."""
+    async def pull_window(self, start: date, end: date, since: date | None = None) -> SourceBatch:
+        """The 12-month pull of open and closed postings. ``since`` is an incremental run's delta
+        bound, given only when the previous research's record was loaded (None: the whole
+        window)."""
         ...
 
     async def pull_active(self) -> SourceBatch:

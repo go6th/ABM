@@ -70,6 +70,22 @@ def tenant_prefixes(tenant_id: UUID) -> tuple[str, ...]:
     )
 
 
+_PREFIX = re.compile(rf"^(tenants/|quarantine/tenants/|uploads/tenants/|quarantine/)?{_UUID}/$")
+
+
+def is_tenant_prefix(prefix: str) -> bool:
+    """True when ``prefix`` is exactly one of the tenant trees ``object_prefixes`` returns (so a
+    delete-by-prefix adapter can refuse anything wider: the bucket root, ``tenants/``)."""
+    return bool(_PREFIX.match(prefix))
+
+
+def object_prefixes(tenant_id: UUID) -> tuple[str, ...]:
+    """Every prefix a tenant deletion removes: ``tenant_prefixes`` and the delivered files, which
+    are stored as ``<tenant>/<account>/<run>/deliverables/<sha>`` (the layout that predates the
+    ``tenants/`` tree; ``tenant_of_key`` reads it back the same way)."""
+    return (*tenant_prefixes(tenant_id), f"{tenant_id}/")
+
+
 def tenant_path(tenant_id: UUID, kind: str, *parts: str) -> str:
     """``tenants/<tenant>/<kind>/<parts..>``; refuses unknown kinds and any segment that is
     empty, a dot path, or carries a separator."""

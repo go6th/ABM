@@ -1,0 +1,73 @@
+# The live tabular eval over the SYNTHETIC "Synthetic Holdings" workspace (Gaps 2-3 of the
+# spreadsheet-parity follow-up, 2026-10-17; moved to a synthetic workspace 2026-10-30): five
+# questions asked of the real model (Kimi K3, temperature 0), end to end — router, tools, final
+# answer — against the workspace zip that tests/documents/workspace_zip.py builds in memory
+# (644 made-up postings; the truths below follow from tests/documents/fixtures.py
+# HOLDINGS_SALESFORCE_RECENT). Each case runs five times; the five canonical tool-call
+# traces must converge (at least three of the five identical — a batched cloud model at
+# temperature 0 is not bit-identical; evidence decisions must converge) and every run's answer
+# must pass the assertions. A trace's canon (``_canon``) judges only the evidence calls — the
+# FILTERED ``query_table`` calls and the ``read_rows`` calls on the case's ``target_table`` —
+# with the projection, a where conjunction's order, an ``in`` list's order and an ``icontains``
+# value's case folded away as provably result-preserving; describe, other-table and where-less
+# calls are exploration, not part of a canon. Every
+# run must also query the target table at least once (a wrong-table run fails, never lucks out).
+#
+# Match rules in tests/evals/test_tabular_live.py: a string starting "re:" is a
+# case-insensitive regular expression, "Re:" a case-sensitive one; anything else a
+# case-insensitive substring. Regex entries are always quoted here (yaml).
+version: 2
+source: spreadsheet-parity follow-up brief 2026-10-17, Gaps 2-3; synthetic workspace 2026-10-30
+status: synthetic truths (computed from the fixture, not read from any real sheet)
+forbidden_anywhere: # a tabular answer never sends the user away (the TABULAR_RULES promise)
+  - re-export
+  - re-upload
+  - "can't"
+  - cannot find
+  - not in the workspace
+  - rows are missing
+cases:
+  - name: open_salesforce_since_march
+    target_table: Holdings_Job_Postings.xlsx:Jobs
+    question: >-
+      List out all the open jobs that are Salesforce-related that was first seen date on or
+      after March 1, 2026
+    must_call: [describe_table, query_table]
+    predicates: # some query carries the platforms predicate, folded
+      - {column: platforms_named, op: icontains, value_contains: salesforce}
+    answer_any:
+      - ['re:\b0\b', none, "no open", zero]
+    answer_ids: []
+  - name: full_salesforce_table
+    # the postings are the OBJECT of the pull, not just the source: the workspace holds TWO
+    # 40-row decoys built from the postings (holdings_teams_platform_12mo.json and the Teams
+    # sheet); "from the job postings" still sent runs to the Teams sheet (2026-10-17 run)
+    question: Pull the full table of the 40 Salesforce-related job postings
+    target_table: Holdings_Job_Postings.xlsx:Jobs
+    must_call: [describe_table, query_table]
+    query_row_counts: [40] # the whole set comes back, never a sample
+    answer_any:
+      - ['re:\b40\b']
+    answer_ids: []
+  - name: duplicate_administrator_rows
+    target_table: Holdings_Job_Postings.xlsx:Jobs
+    question: Are the duplicate Salesforce Administrator Lead rows separate requisitions?
+    must_call: []
+    answer_any:
+      - ['re:same (requisition|posting)', "one requisition", "not separate", "two rows", 're:\btwice\b']
+    answer_ids: ["539962"] # one requisition on two rows: the same posting
+  - name: platform_owner_roles_last_year
+    target_table: Holdings_Job_Postings.xlsx:Jobs
+    question: Which Salesforce roles in the last 12 months are platform owners?
+    must_call: [describe_table, query_table]
+    answer_ids: ["546999", "539962", "541100", "540550"] # owner and admin roles
+  - name: mentions_and_false_positives
+    target_table: Holdings_Job_Postings.xlsx:Jobs
+    question: >-
+      How many Synthetic Holdings postings mention Salesforce, and how many are field-sales
+      false positives?
+    must_call: [describe_table, query_table]
+    answer_any:
+      - ['re:\b40\b']
+      - ['Re:(?:the|our) salesforce\b'] # the deciding phrase, quoted (case-sensitive)
+    answer_ids: ["543372", "543075", "539031", "536438", "531111", "530222"] # the false positives

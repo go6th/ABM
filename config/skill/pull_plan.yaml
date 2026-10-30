@@ -75,6 +75,44 @@ rows:
   employee_content_github:      {step: pass2,  need: web_search}
   research_papers:              {step: pass2,  need: web_search}
 
+# Links of the account's own pages that an own_site row follows after reading them (code,
+# agents/production/links.py): the owner's reference research walked the company newsroom and read
+# about three hundred releases, while a search returns at most ten results, so the pages a search
+# finds are the shallow part of the company's own site. For each query of the row, the links on
+# its own-site pages whose path carries one of `include` (and whose dated path is inside the
+# scope window) are read in full, at most `per_query` of them, one level deep. Every followed page
+# is one more live read of an own page: counted by the same call meter and credit gate as any
+# other read (agents/production/provider.py), priced like it (config/credits.yaml, estimate).
+follow:
+  source: "owner reference research (newsroom walk, releases, leadership and investor pages; docs/parity/reference_spec.md zip layout data/releases); skill phase1-pull.md step 2"
+  status: "adopted 2026-10-30 (web research coverage)"
+  value:
+    company_news:                 {include: [news, press, release, media, announce, stories], per_query: 8, window: news}
+    leadership_changes:           {include: [leadership, management, executive, officer, board, appoint], per_query: 4}
+    earnings_filings:             {include: [investor, earnings, result, financ, annual, quarter, filing], per_query: 5, window: news}
+    executive_voice_earnings:     {include: [transcript, earnings, investor, webcast, presentation], per_query: 4, window: news}
+    financial_baseline_verified:  {include: [annual, result, financ, investor, report], per_query: 4, window: news}
+    basic_fit_check:              {include: [about, company, leadership, locations, facts], per_query: 3}
+    lead_verification:            {include: [news, press, release, media], per_query: 4, window: news}
+    customers_partners_matched:   {include: [partner, customer, case-stud, alliance, collaborat], per_query: 4}
+
+# Other places a row's query is searched, beyond the open web and the account's own site: a public
+# register (SEC filings are first-tier, the grading registry's only T1 host besides the account's
+# own) and the newswires that carry the company's releases. A search restricted to these hosts
+# finds what the open search ranks below ten other results; the first `reads` pages it finds are
+# read in full (the register by a live scrape, so a figure read there can be Confirmed). `window`
+# bounds the search to results newer than the scope window (scope.yaml windows_months). Counted by
+# the same call meter and credit gate as any other search and read.
+also_on:
+  source: "skill tools.md (earnings calls and releases: SEC exhibits, wires); the owner's reference research read filings, transcripts and releases; config/source_registry.yaml (sec.gov T1)"
+  status: "adopted 2026-10-30 (web research coverage)"
+  value:
+    earnings_filings:             {domains: [sec.gov], reads: 3}
+    financial_baseline_verified:  {domains: [sec.gov], reads: 2}
+    major_holders_activists:      {domains: [sec.gov], reads: 2}
+    company_news:                 {domains: [businesswire.com, prnewswire.com, globenewswire.com], reads: 3, window: news}
+    leadership_changes:           {domains: [businesswire.com, prnewswire.com, globenewswire.com], reads: 2, window: news}
+
 # Each row's own search queries, from the skill (references/phase1-pull.md steps 2, 10 and 11;
 # references/tools.md: plain journalist nouns, vendor names for the lanes, person titles). At
 # least three per row (G3). Fields: {account}, {domain}, {year}, {prev_year}. Feed rows (jobs,
@@ -90,10 +128,13 @@ queries:
       - "{account} press release {year}"
       - "{account} announces"
       - "{account} news release {prev_year}"
+      - "{account} acquisition OR divestiture OR partnership announcement {year}"
+      - "{account} launches OR expands OR opens {year}"
     leadership_changes:
       - "{account} appoints OR names OR joins {year}"
       - "{account} leadership team executive officers"
       - "{account} chief officer appointed {prev_year}"
+      - "{account} names new chief OR president OR vice president {year}"
     # phase1-pull.md step 2.5: the lane vendor partnership search is mandatory, one query per
     # vendor, logged even when it returns nothing
     platform_vendor_account_team:
@@ -107,6 +148,14 @@ queries:
       - "{account} Microsoft Dynamics partnership OR agreement OR migration"
       - "{account} selects OR deploys OR modernizes platform {year}"
       - "{account} invests OR launches platform program {year}"
+      # the Data and AI lane and the platforms the master prompt also tracks (scope.yaml
+      # also_tracked: Power BI, Snowflake), named as config/job_lanes.yaml lists them; a
+      # never_report name (scope.yaml) is never a search term
+      - "{account} Snowflake OR Power BI partnership OR agreement OR migration"
+      - "{account} data platform Snowflake OR Azure OR AWS OR Google Cloud OR Informatica {year}"
+      - "{account} generative AI OR machine learning platform Palantir OR OpenAI OR Azure OpenAI {year}"
+      - "{account} Qlik OR Looker OR Alteryx OR SAS analytics platform {year}"
+      - "{account} Kafka OR Confluent OR dbt data integration {year}"
     key_contact_profiles_posts:
       - "{account} chief information officer OR CIO"
       - "{account} chief technology officer OR chief digital officer interview"
@@ -119,6 +168,7 @@ queries:
       - "{account} earnings call transcript {year}"
       - "{account} annual report OR 10-K {prev_year}"
       - "{account} quarterly results investor relations {year}"
+      - "{account} 10-Q OR 8-K SEC filing {year}"
     job_board_by_lane:
       - "{account} careers"
       - "{account} jobs Salesforce OR ServiceNow OR SAP OR Workday"
@@ -127,6 +177,7 @@ queries:
       - "{account} earnings call CEO technology investment {year}"
       - "{account} investor day digital transformation"
       - "{account} earnings call AI data platform {year}"
+      - "{account} earnings call transcript questions CEO CFO {year}"
     financial_baseline_verified:
       - "{account} annual revenue {prev_year}"
       - "{account} financial results fiscal year {year}"
@@ -135,6 +186,7 @@ queries:
       - "{account} Salesforce customer story"
       - "{account} ServiceNow OR SAP OR Workday customer story OR case study"
       - "{account} MuleSoft OR Tableau OR Veeva case study"
+      - "{account} Snowflake OR Power BI OR Azure OR AWS customer story OR case study"
     lead_verification:
       - "{account} press release {year}"
       - "{account} newsroom"
@@ -147,6 +199,8 @@ queries:
       - "{account} keynote OR speaker {year}"
       - "{account} executive interview"
       - "{account} Dreamforce OR Knowledge OR HIMSS OR HLTH speaker {year}"
+      # industry-neutral phrasings: the line above names health and platform conferences only
+      - "{account} executive panel OR fireside chat OR webinar {prev_year}"
     podcasts:
       - "{account} podcast interview"
       - "{account} CIO OR CTO podcast"
@@ -171,6 +225,7 @@ queries:
       - "{account} recall OR warning letter {year}"
       - "{account} regulatory fine OR settlement"
       - "{account} data breach OR incident {year}"
+      - "{account} lawsuit OR litigation OR class action {year}"
     financial_position_peers:
       - "{account} competitors market share"
       - "{account} peers revenue growth {year}"
@@ -183,10 +238,12 @@ queries:
       - "{account} activist investor"
       - "{account} major shareholders"
       - "{account} private equity OR acquisition"
+      - "{account} proxy statement beneficial owners 13D OR 13G"
     events_sponsored:
       - "{account} sponsor conference {year}"
       - "{account} exhibitor booth {year}"
       - "{account} event sponsorship"
+      - "{account} annual conference OR summit hosts OR hosted {year}"
     employee_content_github:
       - "{account} github"
       - "{account} engineering blog technology"

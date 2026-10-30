@@ -618,7 +618,7 @@ def _document_name(ctx: MapContext) -> str | None:
 
 def _legal_name(ctx: MapContext) -> str | None:
     """The account's legal name from the stored entity lock, when it says more than the account
-    name (the reference title reads "BD (Becton, Dickinson and Company)")."""
+    name (the reference title reads "<short name> (<legal name>)")."""
     lock = ctx.content.entity_lock or {}
     legal = str(lock.get("legal_name") or "").strip()
     if not legal or legal.casefold() == ctx.content.account_name.strip().casefold():

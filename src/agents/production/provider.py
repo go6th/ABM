@@ -12,6 +12,15 @@
   feed row with ``own_site`` (news, leadership) pulls the feed once and adds the same own-site
   search for each of its queries (phase1-pull.md step 2: the newsroom list read, releases of the
   last 18 months). Until 2026-10-24 no fact of any run was Confirmed (audit).
+* Concurrency (2026-10-30): the independent calls of one query run together (the open search, the
+  own-site search and the restricted ``also_on`` search; then every page read they ask for), and
+  results are assembled in the order the one-at-a-time code produced them. What reaches a provider
+  passes the research's own gate for that provider, sized by the governor's ceiling
+  (``crosscut.gates``, ``GATE_OF_ROUTE``): the waiting is here, not in the governor's bounded wait.
+* ``follow`` (``pull_plan.yaml``): an own-site row also reads the links its own-site pages name
+  (``agents.production.links``: own domains only, the row's words and window, a few per query, one
+  level deep). ``also_on``: the query also searched on named hosts (a register, the newswires),
+  bounded to a window, the first pages found there read in full.
 * Every record becomes one ``SourceItem`` with the record's link and the same text the grading
   engine re-parses (``grading.adapters.record_text``); a technology detection is a date range.
 * Errors: a credit-gate refusal (``CapRefused``, ``BudgetExceeded``) is ``CapPause``; a retryable
@@ -25,8 +34,9 @@ GUARANTEE(test_connector_provider_maps_refusals_and_failures)
 
 from __future__ import annotations
 
+import asyncio
 import re
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
@@ -39,7 +49,12 @@ from uuid import UUID
 import yaml
 
 from account_intelligence.config import CONFIG_DIR
-from account_intelligence.connectors.base import CallContext, ConnectorResult, Operation
+from account_intelligence.connectors.base import (
+    SINGLE_CALL_CEILING_S,
+    CallContext,
+    ConnectorResult,
+    Operation,
+)
 from account_intelligence.connectors.errors import (
     BudgetExceeded,
     CapRefused,
@@ -48,6 +63,7 @@ from account_intelligence.connectors.errors import (
 )
 from account_intelligence.connectors.models import (
     FeedArgs,
+    NewsEventRecord,
     OrganizationRecord,
     OrgResolveArgs,
     OrgTechStackArgs,
@@ -69,6 +85,9 @@ from account_intelligence.grading.config import load_grading_config
 from agents.config import SkillConfig, skill_config
 from agents.entity import EntityLock, brand_token, build_lock
 from agents.ports import CapPause, ProviderFailed, ProviderResult, RunContext, SourceItem
+from agents.production.links import followed_links
+from crosscut.fanout import fan_out_all
+from crosscut.gates import ProviderGates
 from jobs.window import months_before
 from people.config import load_people_config
 from people.technology import technologies_by_lane
@@ -100,6 +119,33 @@ UNREADABLE_HOSTS = frozenset(
 # the research caps off the whole page is kept up to the extraction call's size
 MAX_READ_CHARS = 24_000
 UNCAPPED_READ_CHARS = 120_000
+# Page reads of one search that run side by side. What bounds the calls in flight is the
+# per-provider gate below (the governor's ceiling), so this only has to be large enough to keep
+# the gates busy; a search of ten results used to read its pages one after another, 2 to 17 s
+# each (staging 2026-10-27 speed audit), and held its row for minutes.
+READS_IN_FLIGHT = 8
+# The provider behind each routed need whose calls hold a gate (``providers.yaml routes``). A
+# research makes at most the governor's ceiling for that provider (``config/parallel.yaml``
+# ``providers.ceilings``) of these calls at once, however many rows, queries and pages wait: the
+# rest wait here, without a time limit, instead of in the governor, whose bounded wait ends the
+# slice (``SlotUnavailable``) when many callers queue for a few slots.
+GATE_OF_ROUTE = {
+    "open_web_search": "p_search",
+    "read_known_page": "p_search",
+    "job_boards_and_pages": "p_scrape",
+    "people_by_technology": "p_org",
+}
+
+
+async def together(*calls: Awaitable[Any]) -> list[Any]:
+    """Every call finished (none cancelled for a sibling's failure: a cancelled paid call is paid
+    again when the node replays), then the first failure, in argument order, raised as itself.
+    The results are in argument order."""
+    done = await asyncio.gather(*calls, return_exceptions=True)
+    for outcome in done:
+        if isinstance(outcome, BaseException):
+            raise outcome
+    return list(done)
 
 
 @dataclass(frozen=True)
@@ -136,8 +182,26 @@ def items_of(records: tuple[Record, ...], max_chars: int | None = None) -> tuple
             body = body[:max_chars]
         if url and body:
             kind = "date_range" if isinstance(r, TechDetectionRecord) else None
-            out.append(SourceItem(url, body, kind))
+            out.append(SourceItem(url, body, kind, _meta(r)))
     return tuple(out)
+
+
+def _meta(r: Record) -> tuple[tuple[str, str], ...]:
+    """What a record states about itself, for the structured archive copy of its address."""
+    pairs: list[tuple[str, str | None]]
+    if isinstance(r, NewsEventRecord):
+        pairs = [
+            ("record", "news"),
+            ("title", r.article_title_text),
+            ("summary", r.summary_text),
+            ("published", r.article_published_at or r.found_at),
+            ("category", r.category),
+        ]
+    elif isinstance(r, WebPageRecord | ScrapedPageRecord):
+        pairs = [("record", "page"), ("title", r.title_text), ("published", r.publish_date)]
+    else:
+        pairs = []
+    return tuple((k, v) for k, v in pairs if v)
 
 
 @dataclass
@@ -162,6 +226,8 @@ class ConnectorProvider:
     # an incremental re-research's job feed bound (``jobs.incremental.postings_since`` of the
     # run input); None pulls the skill's 12-month posting window
     postings_since: date | None = None
+    # the provider gates (``GATE_OF_ROUTE``): this run's own, never shared with another research
+    _gates: ProviderGates = field(default_factory=ProviderGates, init=False, repr=False)
 
     def _own_site(self, row_key: str) -> bool:
         cfg = self.skill
@@ -171,6 +237,27 @@ class ConnectorProvider:
             cfg = self.skill = skill_config()
         plan = cfg.plan.get(row_key)
         return bool(plan is not None and plan.own_site)
+
+    def _gate(self, route: str) -> asyncio.Semaphore | None:
+        """The gate of the provider behind ``route`` (None: not gated)."""
+        code = GATE_OF_ROUTE.get(route)
+        return None if code is None else self._gates(code)
+
+    async def _call(
+        self,
+        route: str,
+        args: Any,
+        cc: CallContext,
+        *,
+        operation: Operation | None = None,
+    ) -> ConnectorResult:
+        """``call_need`` through the provider's gate (see ``GATE_OF_ROUTE``)."""
+        extra = {} if operation is None else {"operation": operation}
+        gate = self._gate(route)
+        if gate is None:
+            return await call_need(route, args, cc, self.rt, **extra)
+        async with gate:
+            return await call_need(route, args, cc, self.rt, **extra)
 
     def _ctx(self, ctx: RunContext) -> CallContext:
         # the entity lock's other domains of the account (the host its site redirects to,
@@ -208,38 +295,53 @@ class ConnectorProvider:
         title: str | None = None
         body: str | None = None
         read_ok = False
-        try:
-            read = await call_need(
-                "job_boards_and_pages",
-                ScrapeJobPageArgs(url=home, page_kind="account_page"),
-                cc,
-                self.rt,
-            )
+        hits: list[tuple[str, str]] = []
+        brand = brand_token(ctx.account_name, scope.name_stopwords)
+
+        async def read_home() -> Any:
+            """The account's home page, read live."""
+            # each of the two calls is waited for a bounded time: the lock is the first thing a
+            # run does, and a home page that never answers is "unreadable", not a hung run (F9)
+            async with asyncio.timeout(SINGLE_CALL_CEILING_S):
+                return await call_need(
+                    "job_boards_and_pages",
+                    ScrapeJobPageArgs(url=home, page_kind="account_page"),
+                    cc,
+                    self.rt,
+                )
+
+        async def brand_search() -> Any:
+            """One brand search, to reveal look-alike brands."""
+            async with asyncio.timeout(SINGLE_CALL_CEILING_S):
+                return await call_need(
+                    "open_web_search",
+                    WebSearchArgs(queries=(f'"{brand}" company', ctx.account_name[:200])),
+                    cc,
+                    self.rt,
+                )
+
+        # the home page and the brand search do not depend on each other: they run together
+        outcomes: tuple[Any, Any] = await asyncio.gather(
+            read_home(), brand_search(), return_exceptions=True
+        )
+        for outcome in outcomes:
+            if isinstance(outcome, (CapRefused, BudgetExceeded)):
+                raise outcome
+            if isinstance(outcome, BaseException) and not isinstance(
+                outcome, (ConnectorError, TimeoutError)
+            ):
+                raise outcome
+        read, search = outcomes
+        if not isinstance(read, BaseException):
             page = next((r for r in read.records if isinstance(r, ScrapedPageRecord)), None)
             if page is not None and (page.markdown_text or page.title_text):
                 final_url, title = page.final_url, page.title_text
                 body = (page.markdown_text or "")[:50_000]
                 read_ok = True
-        except (CapRefused, BudgetExceeded):
-            raise
-        except ConnectorError:
-            read_ok = False
-        hits: list[tuple[str, str]] = []
-        brand = brand_token(ctx.account_name, scope.name_stopwords)
-        try:
-            search = await call_need(
-                "open_web_search",
-                WebSearchArgs(queries=(f'"{brand}" company', ctx.account_name[:200])),
-                cc,
-                self.rt,
-            )
+        if not isinstance(search, BaseException):
             hits = [
                 (r.url, r.title_text or "") for r in search.records if isinstance(r, WebPageRecord)
             ]
-        except (CapRefused, BudgetExceeded):
-            raise
-        except ConnectorError:
-            hits = []
         lock = build_lock(
             legal_name=ctx.account_name,
             primary_domain=ctx.domain,
@@ -305,11 +407,10 @@ class ConnectorProvider:
         if spec.get("needs") == "profile_urls":
             raise ProviderFailed("needs_profile_urls")
         if spec.get("url_from") == "account_search":
-            search = await call_need(
+            search = await self._call(
                 "open_web_search",
                 WebSearchArgs(queries=(query[:200],), include_domains=self._site_domains(ctx)),
                 cc,
-                self.rt,
             )
             urls = [
                 r.url
@@ -323,7 +424,7 @@ class ConnectorProvider:
                 if operation is Operation.SCRAPE_JOB_PAGE
                 else ReadPageArgs(url=urls[0], full_content=True)
             )
-            return [search, await call_need(route, args, cc, self.rt)]
+            return [search, await self._call(route, args, cc)]
         if route == "news_tech_job_feeds":
             feed = Operation(self.routes.feed_by_row.get(row, str(spec["operation"])))
             # job postings are a 12-month row: an unbounded feed pages the whole history
@@ -334,19 +435,25 @@ class ConnectorProvider:
             since = feed_since(
                 feed, self.month_anchor(), (self.skill or skill_config()).scope, self.postings_since
             )
-            out = [
-                await call_need(
-                    route, FeedArgs(domain=ctx.domain, since=since), cc, self.rt, operation=feed
-                )
-            ]
-            if self._own_site(row):
-                # the feed is joined by the company's own newsroom or leadership pages, read in
-                # full (phase1-pull.md step 2); the query is the row's own (pull_plan queries)
-                out += await self._own_site_search(cc, ctx, query)
-            return out
+            feed_call = self._call(
+                route, FeedArgs(domain=ctx.domain, since=since), cc, operation=feed
+            )
+            if not self._own_site(row):
+                return [await feed_call]
+            # the feed (pages paged one after another) is joined by the company's own newsroom
+            # or leadership pages, read in full (phase1-pull.md step 2), and by the newswires
+            # that carry its releases (``also_on``); the query is the row's own (pull_plan
+            # queries). They are independent: the feed pages while the others are searched and
+            # read.
+            out, site, wires = await together(
+                feed_call,
+                self._own_site_search(cc, ctx, query, row),
+                self._also_on(cc, ctx, row, query),
+            )
+            return [out, *site, *wires]
         if operation is Operation.PEOPLE_BY_TITLE:
             args = PeopleByTitleArgs(domain=ctx.domain, titles=self.routes.people_titles)
-            return [await call_need(route, args, cc, self.rt)]
+            return [await self._call(route, args, cc)]
         if spec.get("needs") == "organization_id":
             org = await call_operation(
                 Operation.ORG_RESOLVE, OrgResolveArgs(domain=ctx.domain), cc, self.rt
@@ -366,58 +473,114 @@ class ConnectorProvider:
             per_lane = technologies_by_lane(
                 self.lanes, items, load_people_config().technologies_per_lane
             )
-            out = [org, stack]
-            for slug in dict.fromkeys(s for slugs in per_lane.values() for s in slugs):
-                out.append(
-                    await call_need(
+            slugs = list(dict.fromkeys(s for slugs in per_lane.values() for s in slugs))
+            # one people lookup per technology, side by side (the provider's slots bound them)
+            people = await together(
+                *(
+                    self._call(
                         route,
                         PeopleByTechnologyArgs(organization_id=ids[0], technology_slug=slug),
                         cc,
-                        self.rt,
                     )
+                    for slug in slugs
                 )
-            return out
-        search = await call_need(route, WebSearchArgs(queries=(query[:200],)), cc, self.rt)
-        own = await self._read_own_pages(search, cc, ctx)
-        out = [search, *own, *await self._read_off_site_pages(search, cc, ctx, query)]
-        if self._own_site(row):
-            read = {u for result in own for u in _page_urls(result)}
-            out += await self._own_site_search(cc, ctx, query, already=read)
+            )
+            return [org, stack, *people]
+        # the open search and the account's own-site search of the same query are independent: they
+        # run together, then every page read of both runs together (the reads were one after
+        # another, each 2 to 17 s, and a search of ten results held its row for minutes)
+        own_site = self._own_site(row)
+        found = await together(
+            self._call("open_web_search", WebSearchArgs(queries=(query[:200],)), cc),
+            self._also_on(cc, ctx, row, query),
+            *([self._site_search(cc, ctx, query)] if own_site else []),
+        )
+        search, wires = found[0], found[1]
+        site_search = found[2] if own_site else None
+        own_urls = self._own_page_urls(search, ctx)
+        off_urls = self._off_site_urls(search, ctx)
+        site_urls = (
+            self._own_page_urls(site_search, ctx, skip=set(own_urls[: self._own_limit()]))
+            if site_search is not None
+            else []
+        )
+        own_reads, off_reads, site_reads = await together(
+            self._read_own_pages(own_urls, cc),
+            self._read_off_site_pages(off_urls, cc, query),
+            self._read_own_pages(site_urls, cc),
+        )
+        out = [search, *own_reads, *off_reads]
+        if site_search is not None:
+            out += [site_search, *site_reads]
+        out += wires
+        if own_site:
+            out += await self._follow_links(cc, ctx, row, [*own_reads, *site_reads], out)
         return out
 
     def month_anchor(self) -> date:
         """The first day of the run's month (``as_of``, else today)."""
         return (self.as_of or date.today()).replace(day=1)
 
-    async def _own_site_search(
-        self, cc: CallContext, ctx: RunContext, query: str, already: set[str] | None = None
-    ) -> list[ConnectorResult]:
-        """The query searched on the account's own site, and the pages found there read in full
-        (live scrapes, origin full_page_read: the only way a fact becomes Confirmed). Pages
-        ``already`` read by the open search are not read again."""
-        search = await call_need(
+    async def _site_search(self, cc: CallContext, ctx: RunContext, query: str) -> ConnectorResult:
+        """The query searched on the account's own site (and the entity lock's other domains)."""
+        return await self._call(
             "open_web_search",
             WebSearchArgs(queries=(query[:200],), include_domains=self._site_domains(ctx)),
             cc,
-            self.rt,
         )
-        reads = await self._read_own_pages(search, cc, ctx, skip=already or set())
-        return [search, *reads]
 
-    async def _read_own_pages(
-        self,
-        search: ConnectorResult,
-        cc: CallContext,
-        ctx: RunContext,
-        skip: set[str] | None = None,
+    async def _own_site_search(
+        self, cc: CallContext, ctx: RunContext, query: str, row: str
     ) -> list[ConnectorResult]:
-        """Full reads of the account's own pages a search found. A snippet is never more than a
-        Lead (G5): only a full page read in a primary source (the company's own site is T1) can
-        make a fact Confirmed. The read is a live scrape (maxAge 0, origin full_page_read): an
-        extract read may be a cached copy and never qualifies. Other hosts stay snippets (D-30)."""
+        """The query searched on the account's own site, and the pages found there read in full
+        (live scrapes, origin full_page_read: the only way a fact becomes Confirmed), then the
+        row's followed links (``_follow_links``)."""
+        search = await self._site_search(cc, ctx, query)
+        reads = await self._read_own_pages(self._own_page_urls(search, ctx), cc)
+        out = [search, *reads]
+        return out + await self._follow_links(cc, ctx, row, reads, out)
+
+    async def _also_on(
+        self, cc: CallContext, ctx: RunContext, row: str, query: str
+    ) -> list[ConnectorResult]:
+        """The row's query searched on the hosts its ``also_on`` rule names (a register, the
+        newswires), bounded to the rule's window, and the first pages found there read in full.
+        A page the search returns from any other host is neither read nor kept as a reason to
+        read: the rule's hosts are the whole of it."""
+        cfg = self.skill or skill_config()
+        spec = cfg.plan.get(row)
+        rule = spec.also_on if spec is not None else None
+        if rule is None:
+            return []
+        after = (
+            months_before(self.month_anchor(), int(cfg.scope.window_months[rule.window]))
+            if rule.window
+            else None
+        )
+        search = await self._call(
+            "open_web_search",
+            WebSearchArgs(queries=(query[:200],), include_domains=rule.domains, after_date=after),
+            cc,
+        )
+        urls = [
+            u
+            for u in self._off_site_urls(search, ctx)
+            if any(_on_domain(u, domain) for domain in rule.domains)
+        ]
+        return [search, *await self._read_off_site_pages(urls, cc, query, limit=rule.reads)]
+
+    @staticmethod
+    def _own_limit() -> int:
         from account_intelligence.dev_limits import UNCAPPED, research_uncapped
 
-        own = list(
+        return UNCAPPED if research_uncapped() else OWN_PAGE_READS_PER_SEARCH
+
+    def _own_page_urls(
+        self, search: ConnectorResult, ctx: RunContext, skip: set[str] | None = None
+    ) -> list[str]:
+        """The account's own pages a search found, in the search's order, once each; ``skip``
+        leaves out the pages another search of the same query is already reading."""
+        return list(
             dict.fromkeys(
                 r.url
                 for r in search.records
@@ -426,36 +589,11 @@ class ConnectorProvider:
                 and r.url not in (skip or set())
             )
         )
-        limit = UNCAPPED if research_uncapped() else OWN_PAGE_READS_PER_SEARCH
-        reads = []
-        for url in own[:limit]:
-            try:
-                reads.append(
-                    await call_need(
-                        "job_boards_and_pages",
-                        ScrapeJobPageArgs(url=url, page_kind="account_page"),
-                        cc,
-                        self.rt,
-                    )
-                )
-            except (CapRefused, BudgetExceeded):
-                raise
-            except ConnectorError:
-                # one unreadable or slow page (a timeout after the connector's own retries)
-                # never loses the search it came from, nor fails the slice and replays the pull
-                continue
-        return reads
 
-    async def _read_off_site_pages(
-        self, search: ConnectorResult, cc: CallContext, ctx: RunContext, query: str
-    ) -> list[ConnectorResult]:
-        """Full reads of the first pages a search found on other sites (see
-        ``OFF_SITE_READS_PER_SEARCH``). Only a page this search returned is opened: its host is
-        allowed for that one read, and the connector's SSRF checks (public addresses, https, the
-        final URL after redirects) still apply. A page that cannot be read keeps its snippet."""
-        from dataclasses import replace
-
-        urls = list(
+    @staticmethod
+    def _off_site_urls(search: ConnectorResult, ctx: RunContext) -> list[str]:
+        """The pages a search found on other sites that can be opened (not sign-in walls)."""
+        return list(
             dict.fromkeys(
                 r.url
                 for r in search.records
@@ -464,11 +602,50 @@ class ConnectorProvider:
                 and not _unreadable(r.url)
             )
         )
+
+    async def _read_own_pages(
+        self, urls: list[str], cc: CallContext, limit: int | None = None
+    ) -> list[ConnectorResult]:
+        """Full reads of the account's own pages a search found (the first ``limit``: three, all
+        with the caps off), side by side and returned in the search's order. A snippet is never
+        more than a Lead (G5): only a full page read in a primary source (the company's own site
+        is T1) can make a fact Confirmed. The read is a live scrape (maxAge 0, origin
+        full_page_read): an extract read may be a cached copy and never qualifies. Other hosts stay
+        snippets (D-30)."""
+
+        async def read(url: str) -> ConnectorResult | None:
+            try:
+                return await self._call(
+                    "job_boards_and_pages",
+                    ScrapeJobPageArgs(url=url, page_kind="account_page"),
+                    cc,
+                )
+            except (CapRefused, BudgetExceeded):
+                raise
+            except ConnectorError:
+                # one unreadable or slow page (a timeout after the connector's own retries)
+                # never loses the search it came from, nor fails the slice and replays the pull
+                return None
+
+        done = await fan_out_all(
+            urls[: self._own_limit() if limit is None else limit], read, limit=READS_IN_FLIGHT
+        )
+        return [r for r in done if r is not None]
+
+    async def _read_off_site_pages(
+        self, urls: list[str], cc: CallContext, query: str, limit: int | None = None
+    ) -> list[ConnectorResult]:
+        """Full reads of the first pages a search found on other sites (see
+        ``OFF_SITE_READS_PER_SEARCH``), side by side and returned in the search's order. Only a
+        page this search returned is opened: its host is allowed for that one read, and the
+        connector's SSRF checks (public addresses, https, the final URL after redirects) still
+        apply. A page that cannot be read keeps its snippet."""
         from account_intelligence.dev_limits import UNCAPPED, research_uncapped
 
-        reads = []
-        limit = UNCAPPED if research_uncapped() else OFF_SITE_READS_PER_SEARCH
-        for url in urls[:limit]:
+        if limit is None:
+            limit = UNCAPPED if research_uncapped() else OFF_SITE_READS_PER_SEARCH
+
+        async def read(url: str) -> ConnectorResult | None:
             host = (urlsplit(url).hostname or "").lower().rstrip(".")
             one = replace(cc, extra_allowed_hosts=cc.extra_allowed_hosts | {host})
             try:
@@ -476,28 +653,64 @@ class ConnectorProvider:
                     # a filing or release on a first-tier register (sec.gov) is scraped live,
                     # the one read the engine counts as a primary read this run, so a figure
                     # read there can be Confirmed (2026-10-24); an extract read is a cached copy
-                    reads.append(
-                        await call_need(
-                            "job_boards_and_pages",
-                            ScrapeJobPageArgs(url=url, page_kind="account_page"),
-                            one,
-                            self.rt,
-                        )
-                    )
-                    continue
-                reads.append(
-                    await call_need(
-                        "read_known_page",
-                        ReadPageArgs(url=url, objective=query[:2000], full_content=True),
+                    return await self._call(
+                        "job_boards_and_pages",
+                        ScrapeJobPageArgs(url=url, page_kind="account_page"),
                         one,
-                        self.rt,
                     )
+                return await self._call(
+                    "read_known_page",
+                    ReadPageArgs(url=url, objective=query[:2000], full_content=True),
+                    one,
                 )
             except (CapRefused, BudgetExceeded):
                 raise
             except ConnectorError:
-                continue  # paywalled, refused or slow: the search snippet stays
-        return reads
+                return None  # paywalled, refused or slow: the search snippet stays
+
+        done = await fan_out_all(urls[:limit], read, limit=READS_IN_FLIGHT)
+        return [r for r in done if r is not None]
+
+    async def _follow_links(
+        self,
+        cc: CallContext,
+        ctx: RunContext,
+        row: str,
+        pages: list[ConnectorResult],
+        already: list[ConnectorResult],
+    ) -> list[ConnectorResult]:
+        """The links of the account's own pages that the row follows (``pull_plan.yaml``
+        ``follow``): a newsroom list or a release names the releases around it, a leadership or
+        investor page the pages beside it. Only links on the account's own domains (the entity
+        lock's) whose address carries one of the row's words and whose dated address is inside
+        the row's window, never a page already read, at most ``per_query`` of them, read in full
+        like any own page (one level deep: a followed page is not followed again)."""
+        cfg = self.skill or skill_config()
+        spec = cfg.plan.get(row)
+        rule = spec.follow if spec is not None else None
+        if rule is None or not pages:
+            return []
+        floor = (
+            months_before(self.month_anchor(), int(cfg.scope.window_months[rule.window]))
+            if rule.window
+            else None
+        )
+        texts = [
+            (base, getattr(rec, "markdown_text", None) or "")
+            for page in pages
+            for rec in page.records
+            if isinstance(rec, ScrapedPageRecord)
+            for base in [rec.final_url or rec.requested_url]
+            if base
+        ]
+        chosen = followed_links(
+            texts,
+            lambda url: self._own_url(url, ctx),
+            rule,
+            {u for result in already for u in _page_urls(result)},
+            floor,
+        )
+        return await self._read_own_pages(chosen, cc, limit=rule.per_query)
 
 
 def feed_since(

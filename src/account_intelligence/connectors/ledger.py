@@ -201,10 +201,14 @@ class Ledger:
         budget_defaults: budget_mod.BudgetDefaults,
         cache: ResearchCache | None = None,
         in_flight_stale_s: float = 900.0,
+        lease_stale_after_s: float | None = None,
     ) -> None:
         self._txn = txn
         self._clock = clock
         self.lease_ttl_s = lease_ttl_s
+        # a lease its owner has not renewed for this long may be taken before ``lease_ttl_s``
+        # runs out (None: only an expired lease can be taken)
+        self.lease_stale_after_s = lease_stale_after_s
         self._budget_defaults = budget_defaults
         self.cache = cache
         self.in_flight_stale_s = in_flight_stale_s
@@ -213,6 +217,15 @@ class Ledger:
 
     async def _upsert_lease(self, s: AsyncSession, run_id: UUID, owner: str) -> int:
         now = self._clock.now()
+        # another worker may also take a lease whose owner stopped renewing it (a killed worker's
+        # lease would otherwise stay live for the rest of its ttl and block the retries of its
+        # slice); the epoch then moves on, so the dead owner's unfinished calls read as stale
+        stale = (
+            ""
+            if self.lease_stale_after_s is None
+            else " OR run_leases.heartbeat_at"
+            " <= EXCLUDED.heartbeat_at - CAST(:stale AS double precision) * interval '1 second'"
+        )
         row = (
             await s.execute(
                 text(
@@ -228,7 +241,7 @@ class Ledger:
                     "   THEN run_leases.epoch ELSE run_leases.epoch + 1 END,"
                     " expires_at = EXCLUDED.expires_at, heartbeat_at = EXCLUDED.heartbeat_at "
                     "WHERE run_leases.owner = EXCLUDED.owner"
-                    "   OR run_leases.expires_at <= EXCLUDED.heartbeat_at "
+                    "   OR run_leases.expires_at <= EXCLUDED.heartbeat_at" + stale + " "
                     "RETURNING epoch"
                 ),
                 {
@@ -236,6 +249,11 @@ class Ledger:
                     "o": owner,
                     "now": now,
                     "exp": now + timedelta(seconds=self.lease_ttl_s),
+                    **(
+                        {}
+                        if self.lease_stale_after_s is None
+                        else {"stale": self.lease_stale_after_s}
+                    ),
                 },
             )
         ).first()

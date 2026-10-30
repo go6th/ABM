@@ -1,6 +1,6 @@
 // One-screen preview of the structured answer (render_answer, 2026-10-17) for the owner: the
-// REAL AnswerView/UsedPanel components server-rendered against a finish()-shaped GSK answer,
-// linked to the app's REAL stylesheets. No live model call — deterministic. Run from web/:
+// REAL AnswerView/UsedPanel components server-rendered against a finish()-shaped answer for the
+// fictional Synthetic Holdings account, linked to the app's REAL stylesheets. No live model call — deterministic. Run from web/:
 //   npx tsx scripts/preview-structured.tsx && npx playwright screenshot --full-page …
 import { renderToStaticMarkup } from "react-dom/server";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -29,7 +29,7 @@ const answer = {
   paragraphs: [],
   structured: {
     headline:
-      "**GSK**: no Salesforce-related posting opened since 1 March 2026; relaxing the status (the date stays) finds **14 unique closed postings**, 11 genuine and 3 where salesforce means the field sales team [1].",
+      "**Synthetic Holdings**: no Salesforce-related posting opened since 1 March 2026; relaxing the status (the date stays) finds **14 unique closed postings**, 11 genuine and 3 where salesforce means the field sales team [1].",
     stats: [
       { label: "open since 1 Mar 2026", value: "0" },
       { label: "unique closed matches", value: "14" },
@@ -60,7 +60,7 @@ const answer = {
         title: "Suggested next steps",
         items: [
           "Ask which of the 11 genuine closed roles have successor postings [1].",
-          "Watch for a reopened Salesforce requisition at GSK.",
+          "Watch for a reopened Salesforce requisition at Synthetic Holdings.",
         ],
       },
     ],
@@ -68,7 +68,7 @@ const answer = {
   sources: [
     {
       n: 1,
-      title: "GSK_Job_Postings.xlsx · table Jobs",
+      title: "Holdings_Job_Postings.xlsx · table Jobs",
       meta: "From your files · 644 rows · Internal",
       kind: "table",
       url: null,
@@ -79,8 +79,8 @@ const answer = {
   offer: null,
   followups: ["Which closed roles have successor postings?"],
   used: { workspace: "used", web: "not_used", mail_drive: "not_used", model_name: "kimi-k3" },
-  account_domain: "gsk.example",
-  account_name: "GSK",
+  account_domain: "holdings.example",
+  account_name: "Synthetic Holdings",
 } as unknown as ChatAnswer;
 
 const noop = () => {};

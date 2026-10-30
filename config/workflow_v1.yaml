@@ -5,13 +5,13 @@ settings:
   concurrency: 1
   # token review item 13 (2026-10-20): a call still running when a slice ends is lost and paid
   # again in the next slice, and 240 s cut off long extraction replies; 1200 s fits a long reply
-  # (and the Cloud Tasks 1800 s dispatch maximum, SLICE_DEADLINE_S 1800). 8 slices keep the run's
-  # wall-clock bound at 3 h 40 min (was 60 x 240 s = 4 h). Raised 1200 to 1650 on 2026-10-22: a
+  # (and the Cloud Tasks 1800 s dispatch maximum, SLICE_DEADLINE_S 1800). 16 slices keep the run's (raised from 8 on 2026-10-30, a large account ended PARTIAL slice_ceiling)
+  # wall-clock bound at 7 h 20 min. Raised 1200 to 1650 on 2026-10-22: a
   # large account (Tolmar, 27 extraction calls) did not finish reading inside 1200 s, so the whole
   # reading step ran twice and the first pass was paid for and lost. 1650 leaves 150 s for the
   # checkpoint and lease release before the 1800 s dispatch deadline.
   slice_seconds: 1650
-  max_slices: 8
+  max_slices: 16
   # a slice that ends on its timer without moving the run's checkpoint counts here; this many in
   # a row end the run PARTIAL (reason no_progress, everything found is kept). It stays on while
   # the research caps are off: on 2026-10-26 a staging research ran 43 such slices (20 hours)
@@ -20,9 +20,9 @@ settings:
   max_calls: 60
   # the ceiling over every run's own budget, which is its reserved credits in dollars
   # (runs.lifecycle.create_run). Owner decision 2026-10-21: a run may spend what its credits
-  # cover, so the ceiling is the largest job's credits (220 x credit_value_usd 0.05); it was
+  # cover, so the ceiling is the largest job's credits (250 x credit_value_usd 0.05, raised from 220 on 2026-10-30 with the wider web search); it was
   # 5.0, which stopped a new research after about 20 paid calls (audit 2026-10-21)
-  max_budget_usd: 11.0
+  max_budget_usd: 12.5
   approval_timeout_hours: 24
   planner_gap_passes: 2
   gate_cycles: 3

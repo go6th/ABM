@@ -31,6 +31,8 @@ x-app-env: &app-env
   LLM_FAKE: hermetic
   CONNECTORS: hermetic
   RESEARCH_ENGINE: graph
+  # owner decision 2026-10-30, for the time being: every research cap is off (src/account_intelligence/dev_limits.py)
+  RESEARCH_CAPS: "off"
   REDIS_URL: redis://redis:6379/0
   DEVSTORE_PUBLIC_URL: http://localhost:8092
 

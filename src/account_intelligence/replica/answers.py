@@ -28,6 +28,12 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from account_intelligence.replica.current import (
+    NEWEST_DETECTION,
+    NEWEST_FACT,
+    NEWEST_PERSON,
+    NEWEST_POSTING,
+)
 from account_intelligence.replica.settings import CADENCE_DAYS
 
 # ---------------------------------------------------------------------------------------------
@@ -328,8 +334,7 @@ async def load_workspace(
                 " true"
                 " LEFT JOIN sources s ON s.id = e.source_id"
                 " WHERE f.status = 'current' AND f.superseded_at IS NULL AND f.visibility ="
-                " 'public'"
-                " ORDER BY f.created_at DESC LIMIT 2000"
+                " 'public'" + NEWEST_FACT + " ORDER BY f.created_at DESC LIMIT 2000"
             )
         )
     ).all():
@@ -360,11 +365,12 @@ async def load_workspace(
     for r in (
         await session.execute(
             text(
-                "SELECT id, account_id, title, url, posted_at, first_seen, lanes, status,"
-                " location, created_at"
-                " FROM job_postings"
-                + ("" if include_closed else " WHERE status <> 'closed'")
-                + " ORDER BY coalesce(posted_at, first_seen) DESC NULLS LAST"
+                "SELECT j.id, j.account_id, j.title, j.url, j.posted_at, j.first_seen, j.lanes,"
+                " j.status, j.location, j.created_at"
+                " FROM job_postings j WHERE true"
+                + ("" if include_closed else " AND j.status <> 'closed'")
+                + NEWEST_POSTING
+                + " ORDER BY coalesce(j.posted_at, j.first_seen) DESC NULLS LAST"
                 " LIMIT 3000"
             )
         )
@@ -402,7 +408,7 @@ async def load_workspace(
                 " FROM people p LEFT JOIN sources s ON s.account_id = p.account_id AND"
                 " s.source_code = p.source_ref"
                 " WHERE NOT p.excluded AND p.merged_into IS NULL AND p.erased_at IS NULL"
-                " AND coalesce(p.internal_only, false) = false LIMIT 3000"
+                " AND coalesce(p.internal_only, false) = false" + NEWEST_PERSON + " LIMIT 3000"
             )
         )
     ).all():
@@ -462,8 +468,7 @@ async def load_workspace(
                 "SELECT t.id, t.account_id, t.technology, t.cross_check_result, t.created_at,"
                 " s.url, s.title AS source_title"
                 " FROM tech_detections t LEFT JOIN sources s ON s.account_id = t.account_id AND"
-                " s.source_code = t.source_ref"
-                " LIMIT 2000"
+                " s.source_code = t.source_ref WHERE true" + NEWEST_DETECTION + " LIMIT 2000"
             )
         )
     ).all():
@@ -536,6 +541,27 @@ async def load_workspace(
         )
     ).all():
         questions[r.account_id].append(str(r.text))
+
+    # the tenant's CURRENT exclusions (F1): an answer never cites a row that names an excluded
+    # person or sits on an excluded company's domain, whenever the research ran
+    from exports.readers.exclusions import text_excluded, with_known_names
+    from tenancy import settings as tenant_settings
+
+    rule = tenant_settings.ExclusionFilter.of((await tenant_settings.current(session)).settings)
+    if rule.people or rule.companies:
+        known = (await session.execute(text("SELECT name, profile_url FROM people"))).all()
+        rule = with_known_names(rule, [(r.name, r.profile_url) for r in known])
+
+        def _kept(rows: list[Row]) -> list[Row]:
+            return [r for r in rows if not text_excluded(rule, r.text, r.title, url=r.url)]
+
+        facts, jobs, people, signals, tech = (
+            _kept(facts),
+            _kept(jobs),
+            _kept(people),
+            _kept(signals),
+            _kept(tech),
+        )
 
     return Workspace(
         accounts=accounts,
@@ -1351,7 +1377,7 @@ def compose_other(q: Question, ws: Workspace, now: datetime, d: Draft) -> None:
     top = [r for *_, r in scored[:3]]
     d.focus = top[0].account
     # Generic questions can still resolve to job postings (for example, "what do you
-    # have on GSK?"). Keep those answers structured and complete instead of reducing
+    # have on this account?"). Keep those answers structured and complete instead of reducing
     # the retrieved rows to the three-item narrative fallback below.
     if top[0].kind == "job":
         best_score = scored[0][0]

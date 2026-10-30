@@ -473,3 +473,51 @@ async def test_gate_finds_a_lost_row_and_a_provider_host(tenant_a: UUID) -> None
     failing = await _gate(store).check(str(tenant_a), str(run))
     assert failing["rows_dropped"] == ["summary:1"]
     assert failing["third_party_domains"] == ["tech:1"]
+
+
+def _with_hyperlink(data: bytes, target: str) -> bytes:
+    """The Word file with one external hyperlink relationship (a target the visible text never
+    shows): the member the text-only host check did not read."""
+    import zipfile
+
+    src = zipfile.ZipFile(io.BytesIO(data))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for item in src.infolist():
+            body = src.read(item.filename)
+            if item.filename == "word/_rels/document.xml.rels":
+                rel = (
+                    '<Relationship Id="rIdX" Type="http://schemas.openxmlformats.org/'
+                    'officeDocument/2006/relationships/hyperlink" '
+                    f'Target="{target}" TargetMode="External"/></Relationships>'
+                )
+                body = body.decode().replace("</Relationships>", rel).encode()
+            z.writestr(item, body)
+    return out.getvalue()
+
+
+async def test_gate_reads_every_member_for_a_provider_host_in_a_file_it_did_not_make(
+    tenant_a: UUID,
+) -> None:
+    """F11: a hyperlink target is not visible text. For a file the builder did not make (its
+    bytes no longer match the stored hash) the host check covers every member, as the builder's
+    own scan does."""
+    from documents.gate import provider_hosts
+
+    account = _make_account(tenant_a, f"hyper-{uuid4().hex[:6]}.example")
+    store = MemoryPayloadStore()
+    run = _run(tenant_a, account)
+    _rows(tenant_a, run)
+    sneaky = _with_hyperlink(docx(CLEAN), f"https://{provider_hosts()[0]}/profile")
+    for kind in ("summary", "evidence", "people", "jobs", "tech"):
+        await _deliver(
+            store, tenant_a, account, run, sneaky if kind == "tech" else docx(CLEAN), 1, kind
+        )
+    # the builder vouches for the bytes it stored: its own scan covered them
+    assert (await _gate(store).check(str(tenant_a), str(run)))["third_party_domains"] == []
+    # a file whose bytes changed after the builder stored it is scanned whole, every member
+    admin(
+        "UPDATE deliverables SET sha256 = repeat('b', 64) WHERE run_id = %s AND kind = 'tech'", run
+    )
+    failing = await _gate(store).check(str(tenant_a), str(run))
+    assert failing["third_party_domains"] == ["tech:1"]

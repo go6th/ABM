@@ -22,8 +22,8 @@ pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 
 LINES = [
     "Req | Title | Platforms named | Status | First seen",
-    "446999 | Omnichannel & Digital Manager | Salesforce | Closed | 2026-09-14",
-    "439962 | Sr. Product Manager, CRM Portals | Salesforce, Veeva | Closed | 2026-04-30",
+    "546999 | Omnichannel & Digital Manager | Salesforce | Closed | 2026-09-14",
+    "539962 | Sr. Product Manager, CRM Portals | Salesforce, Veeva | Closed | 2026-04-30",
 ]
 
 
@@ -62,7 +62,7 @@ def _upload(tenant: UUID, user: str, name: str, passages: list[Passage] | None =
 
 
 async def test_the_file_a_question_is_about_reaches_the_model_whole(world: dict[str, Any]) -> None:
-    doc = _upload(world["a"], "priya-test", "GSK_Job_Postings.xlsx")
+    doc = _upload(world["a"], "priya-test", "Holdings_Job_Postings.xlsx")
     # keyword retrieval needs every word of the question in a passage
     question = "Omnichannel Digital Manager Salesforce Closed"
     async with tenant_txn(world["a"]) as session:
@@ -75,23 +75,23 @@ async def test_the_file_a_question_is_about_reaches_the_model_whole(world: dict[
     whole = ws.whole_files[0]
     assert whole.key == f"whole:{doc}" and whole.kind == "file" and whole.grade == "internal"
     assert whole.text.split("\n") == LINES  # every passage, in order, nothing sampled
-    assert whole.extra == {"whole_file": True, "document": "GSK_Job_Postings.xlsx", "lines": 3}
-    assert whole.title == "From your files: GSK_Job_Postings.xlsx (the whole file)"
+    assert whole.extra == {"whole_file": True, "document": "Holdings_Job_Postings.xlsx", "lines": 3}
+    assert whole.title == "From your files: Holdings_Job_Postings.xlsx (the whole file)"
     # its passages leave the retrieved list: the file is cited once, as one source
     assert not any(r.key.startswith(f"passage:{doc}:") for r in ws.passages)
     # the model sees the row announcing the file and the file itself in its own block
     q, local = A.understand(question, ws, None), A.Draft()
     rows = pick_rows(q, ws, local)
     block, ids = context_block(rows)
-    announced = f'GSK_Job_Postings.xlsx, given whole in <file doc="{doc}"> (3 lines)'
+    announced = f'Holdings_Job_Postings.xlsx, given whole in <file doc="{doc}"> (3 lines)'
     assert f"{announced} | source: {whole.title}" in block
     files = file_blocks(ids)
-    assert files.startswith(f'<file doc="{doc}" name="GSK_Job_Postings.xlsx">')
+    assert files.startswith(f'<file doc="{doc}" name="Holdings_Job_Postings.xlsx">')
     assert LINES[1] in files and LINES[2] in files
 
 
 async def test_a_file_over_the_budget_stays_as_retrieved_passages(world: dict[str, Any]) -> None:
-    doc = _upload(world["a"], "priya-test", "GSK_Big_Export.xlsx")
+    doc = _upload(world["a"], "priya-test", "Holdings_Big_Export.xlsx")
     question = "Omnichannel Digital Manager Salesforce Closed"
     async with tenant_txn(world["a"]) as session:
         ws = await A.load_workspace(session, "priya-test")
@@ -114,13 +114,13 @@ PEOPLE = ["Name | Title | Platform owned", "Asha Rao | VP Digital Engagement | S
 
 
 async def test_inside_a_zip_only_the_member_file_is_read_whole(world: dict[str, Any]) -> None:
-    """GSK_workspace.zip is one document whose passages span two member files; a question about
+    """Holdings_workspace.zip is one document whose passages span two member files; a question about
     the postings sheet gets that sheet whole, named after it, and the people sheet stays out."""
-    sheet, people = "GSK_Job_Postings.xlsx", "GSK_People.xlsx"
+    sheet, people = "Holdings_Job_Postings.xlsx", "Holdings_People.xlsx"
     doc = _upload(
         world["a"],
         "priya-test",
-        "GSK_workspace.zip",
+        "Holdings_workspace.zip",
         [
             # rows carry the member at the top level, as chunking leaves a sheet inside a zip
             *[
@@ -151,19 +151,21 @@ async def test_inside_a_zip_only_the_member_file_is_read_whole(world: dict[str, 
     assert all(line not in whole.text for line in PEOPLE)
     assert (
         whole.title
-        == "From your files: GSK_Job_Postings.xlsx in GSK_workspace.zip (the whole file)"
+        == "From your files: Holdings_Job_Postings.xlsx in Holdings_workspace.zip (the whole file)"
     )
     assert whole.meta == "Internal · 4 passages, read whole"
     assert whole.extra == {
         "whole_file": True,
-        "document": "GSK_Job_Postings.xlsx in GSK_workspace.zip",
+        "document": "Holdings_Job_Postings.xlsx in Holdings_workspace.zip",
         "lines": 4,
         "member": sheet,
     }
     # only the member's passages leave the retrieved list; the other sheet's would stay
     assert not any(r.key in {f"passage:{doc}:{i}" for i in (1, 2, 3, 4)} for r in ws.passages)
     files = file_blocks({"f1": whole})
-    assert files.startswith(f'<file doc="{doc}" name="GSK_Job_Postings.xlsx in GSK_workspace.zip">')
+    assert files.startswith(
+        f'<file doc="{doc}" name="Holdings_Job_Postings.xlsx in Holdings_workspace.zip">'
+    )
     # the budget is the member's size, not the archive's: the whole zip is larger than this
     async with tenant_txn(world["a"]) as session:
         ws = await A.load_workspace(session, "priya-test")

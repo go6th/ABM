@@ -51,6 +51,17 @@ export async function serverGet<T>(path: string, returnTo = "/", emptyOn: number
   if (reply.status === 401) redirect(`/login?next=${encodeURIComponent(returnTo)}`);
   if (reply.status === 404 || emptyOn.includes(reply.status)) return null;
   if (!reply.ok) throw new ServerApiError(reply.status, (reply.headers.get("x-request-id") ?? requestId).slice(0, 8));
-  const body: unknown = await reply.json();
-  return (op.response ? op.response.parse(body) : body) as T;
+  // a body that is not JSON, or does not match the contract (a newer API than this page), is a
+  // failed load like any other: the page shows "could not be loaded", not the route error page
+  const reference = (reply.headers.get("x-request-id") ?? requestId).slice(0, 8);
+  let body: unknown;
+  try {
+    body = await reply.json();
+  } catch {
+    throw new ServerApiError(502, reference);
+  }
+  if (!op.response) return body as T;
+  const parsed = op.response.safeParse(body);
+  if (!parsed.success) throw new ServerApiError(502, reference);
+  return parsed.data as T;
 }

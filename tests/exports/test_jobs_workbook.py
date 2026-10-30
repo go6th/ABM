@@ -171,7 +171,10 @@ async def test_link_cells_carry_the_label_and_the_address(
             "postings": tuple(
                 p.model_copy(
                     update={
-                        "archive_url": f"https://{content.domain}/v1/archive/{i:04d}"
+                        "archive_url": (
+                            f"https://app.example/accounts/{content.domain}/archive"
+                            f"?url=https%3A%2F%2Fjobs.example%2F{i:04d}"
+                        )
                         if i % 2 == 0
                         else ""
                     }

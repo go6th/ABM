@@ -1,6 +1,6 @@
 """The delivered workbooks' own sheets, as tabs of the deep-dive tables (owner 2026-10-27).
 
-The owner's reference workspace (the BD file set) has several sheets per workbook: People List
+The owner's reference workspace (its file set) has several sheets per workbook: People List
 (Summary, People), Job Postings (Summary, Jobs, Counts, Long text), Tech Stack and Teams
 (Platform Ranking, Stack detections, Platform teams). The web tables showed only each file's
 main sheet, so the Summary matrix, the Platform Ranking and the teams were not on screen. Here
@@ -545,7 +545,28 @@ async def delivered_file(session: Any, account_id: UUID, sheet_key: str) -> Deli
             {"a": account_id, "r": run, "k": kind},
         )
     ).first()
+    # a file built under another exclusion list than the tenant's current one is not read (F1)
+    if row is not None and _built_under(row.manifest_json) != await _current_hash(session):
+        return None
     return _delivered(row)
+
+
+async def _current_hash(session: Any) -> str:
+    from views.materialize import current_exclusion_hash
+
+    return await current_exclusion_hash(session)
+
+
+def _built_under(manifest: Any) -> str:
+    """The exclusion set a stored file was built under (``none`` for a file built before the set
+    was recorded)."""
+    if isinstance(manifest, str):
+        try:
+            manifest = json.loads(manifest)
+        except ValueError:
+            manifest = None
+    built = manifest.get("exclusion_hash") if isinstance(manifest, dict) else None
+    return str(built or "none")
 
 
 def _delivered(row: Any) -> Delivered | None:
@@ -593,7 +614,9 @@ async def delivered_files(
             {"a": account_id, "r": run, "k": sorted(set(kinds.values()))},
         )
     ).all()
-    by_kind = {r.kind: _delivered(r) for r in rows}
+    current = await _current_hash(session)
+    fresh = [r for r in rows if _built_under(r.manifest_json) == current]
+    by_kind = {r.kind: _delivered(r) for r in fresh}
     return {k: d for k, kind in kinds.items() if (d := by_kind.get(kind)) is not None}
 
 
@@ -711,28 +734,36 @@ def _cell_out(c: Cell) -> dict[str, Any]:
     return out
 
 
-def scrub_blocks(blocks: list[dict[str, Any]]) -> int:
+def scrub_blocks(blocks: list[dict[str, Any]], extra_terms: Sequence[str] = ()) -> int:
     """The client-output guard on a tab's blocks, withholding per cell and per line (as
-    ``sheets.scrub_rows`` does for a page): the tab always loads. Returns the cells withheld."""
+    ``sheets.scrub_rows`` does for a page): the tab always loads. ``extra_terms``: the other
+    accounts' names and the excluded companies, which no cell may carry. Returns the cells
+    withheld."""
     from account_intelligence.replica.sheets import WITHHELD
-    from agents.naming import scrub_client_text, third_party_domain_hits
+    from agents.naming import client_hits, scrub_client_text, third_party_domain_hits
+
+    def guard(value: str) -> tuple[str, bool]:
+        cleaned, withheld = scrub_client_text(value)
+        if not withheld and extra_terms and client_hits(cleaned, extra_terms):
+            withheld = True
+        return cleaned, withheld
 
     held = 0
     for b in blocks:
         if b.get("kind") == "text":
-            cleaned, withheld = scrub_client_text(str(b.get("text") or ""))
+            cleaned, withheld = guard(str(b.get("text") or ""))
             b["text"] = WITHHELD if withheld else cleaned
             held += withheld
             continue
         header = [str(h) for h in b.get("header") or []]
         for j, h in enumerate(header):
-            cleaned, withheld = scrub_client_text(h)
+            cleaned, withheld = guard(h)
             header[j] = WITHHELD if withheld else cleaned
             held += withheld
         b["header"] = header
         for row in b.get("rows") or []:
             for cell in row:
-                cleaned, withheld = scrub_client_text(str(cell.get("text") or ""))
+                cleaned, withheld = guard(str(cell.get("text") or ""))
                 cell["text"] = WITHHELD if withheld else cleaned
                 held += withheld
                 href = cell.get("href")

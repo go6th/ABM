@@ -48,4 +48,18 @@ describe("serverGet", () => {
     const down = await serverGet("/v1/notifications").catch((e: unknown) => e);
     expect((down as ServerApiError).status).toBe(503);
   });
+
+  it("maps a body that is not JSON, or does not match the contract, to a 502 ServerApiError", async () => {
+    // before: the ZodError / SyntaxError escaped as a plain Error and the route error page showed
+    fetchMock.mockResolvedValueOnce(new Response("<html>not json</html>", { status: 200 }));
+    const html = await serverGet("/v1/notifications").catch((e: unknown) => e);
+    expect(html).toBeInstanceOf(ServerApiError);
+    expect((html as ServerApiError).status).toBe(502);
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ notifications: "nope", unread: "x" }), { status: 200 }));
+    const shape = await serverGet("/v1/notifications").catch((e: unknown) => e);
+    expect(shape).toBeInstanceOf(ServerApiError);
+    expect((shape as ServerApiError).status).toBe(502);
+    expect((shape as ServerApiError).reference).toBe("req-1234");
+  });
 });

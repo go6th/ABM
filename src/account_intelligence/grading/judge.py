@@ -8,6 +8,7 @@ A, B or Confirmed: it is capped (engine C, Probable) and flagged ``unjudged``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -60,8 +61,20 @@ class Judged:
 
 
 def model_profile(task: str, models_path: Path | None = None) -> str:
-    """The model profile a task routes to in config/models.yaml."""
-    raw = yaml.safe_load((models_path or CONFIG_DIR / "models.yaml").read_text(encoding="utf-8"))
+    """The model profile a task routes to in config/models.yaml. The file is parsed once per file
+    state (modification time and size): the check ran on every grading batch and parsed the whole
+    375-line file in pure Python each time (two parses per call)."""
+    path = models_path or CONFIG_DIR / "models.yaml"
+    try:
+        stat = path.stat()
+    except OSError:
+        return _model_profile(task, path, (0, 0))
+    return _model_profile(task, path, (stat.st_mtime_ns, stat.st_size))
+
+
+@lru_cache(maxsize=64)
+def _model_profile(task: str, path: Path, stamp: tuple[int, int]) -> str:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     arm = raw["arms"][raw["active_arm"]]
     return str(raw["profiles"][arm["routes"][task]]["model"])
 

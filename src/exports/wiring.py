@@ -58,7 +58,15 @@ def build_export_builder(
     # archived-copy links in the files are absolute addresses on the public web origin
     base = (env.get("PUBLIC_BASE_URL") or "").strip().rstrip("/") or None
     return ExportBuilder(
-        PgContentReader(payloads, batch=cfg.rules.limits.keyset_batch, archive_base=base),
+        PgContentReader(
+            payloads,
+            batch=cfg.rules.limits.keyset_batch,
+            archive_base=base,
+            register=tenant_txn,
+            releases_max=cfg.rules.workspace.releases.max_files,
+            release_chars=cfg.rules.workspace.releases.max_chars,
+            release_kinds=cfg.rules.workspace.releases.kinds,
+        ),
         PgDeliverableStore(tenant_txn, payloads, clock, cfg.rules_hash),
         SubprocessWordRenderer(command, cfg.rules.renderer) if command else None,
         cfg,

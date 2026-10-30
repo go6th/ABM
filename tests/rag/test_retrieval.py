@@ -154,7 +154,7 @@ class TestMetadataFilter:
                     "first_seen": "2026-03-01",
                     "status": "Closed",
                     "platforms_named": "Veeva, Salesforce",
-                    "requisition": "443372",
+                    "requisition": "543372",
                 },
             ),
             _chunk(
@@ -174,7 +174,7 @@ class TestMetadataFilter:
         assert [c.chunk_id for c in named] == ["a"]
         assert metadata_filter(rows, [Predicate("platforms_named", "contains", "salesforce")]) == ()
         big = metadata_filter(rows, [Predicate("requisition", "gt", 100)])
-        assert [c.chunk_id for c in big] == ["a"]  # numeric, not lexical ("9" > "443372")
+        assert [c.chunk_id for c in big] == ["a"]  # numeric, not lexical ("9" > "543372")
         either = metadata_filter(rows, [Predicate("status", "in", ["open", "closed"])])
         assert [c.chunk_id for c in either] == ["a", "b"]
         assert metadata_filter(rows, [Predicate("status", "neq", "Open")])[0].chunk_id == "a"
@@ -214,8 +214,8 @@ class TestDedupe:
     def test_duplicate_business_keys_collapse_to_the_latest_last_seen(self) -> None:
         """Two rows of one requisition become one hit, the one seen last."""
         rows = (
-            _chunk("a", "t", metadata={"requisition": "443372", "last_seen": "2026-05-01"}),
-            _chunk("b", "t", metadata={"requisition": "443372", "last_seen": "2026-06-09"}),
+            _chunk("a", "t", metadata={"requisition": "543372", "last_seen": "2026-05-01"}),
+            _chunk("b", "t", metadata={"requisition": "543372", "last_seen": "2026-06-09"}),
             _chunk("c", "t", metadata={"requisition": "1", "row": "7"}),
             _chunk("d", "t", metadata={"requisition": "1", "row": "3"}),
             _chunk("e", "t", metadata={"row": "9"}),  # no key: kept as it is

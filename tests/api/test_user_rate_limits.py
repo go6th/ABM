@@ -24,6 +24,8 @@ LIMITED = {
     ("research.py", "resume_research"): "research_resume",
     ("downloads.py", "start_everything"): "download_everything",
     ("exports.py", "create_export"): "export",
+    ("account_workspace.py", "account_archive"): "archive_read",
+    ("account_workspace.py", "account_archive_list"): "archive_read",
 }
 
 

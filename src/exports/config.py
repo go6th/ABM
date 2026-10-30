@@ -20,6 +20,7 @@ import yaml
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from account_intelligence.config import CONFIG_DIR
+from account_intelligence.safety.prefilter import cannot_match
 from exports.errors import ConfigError
 from exports.models import FileKind
 
@@ -997,6 +998,26 @@ class Pass1FileRules(_Strict):
     unknown: str = Field(min_length=1)
 
 
+class ReleaseRules(_Strict):
+    """``data/releases/``, after the owner's reference workspace: one text file per archived page,
+    news item and job posting, with a front matter of title, address, day and source, then the
+    text. Capped (newest captures first) and named from the day, the title and a hash of the
+    address, so a name never changes while the copy exists."""
+
+    folder: str = Field(min_length=1)
+    max_files: int = Field(gt=0, le=9_000)
+    max_chars: int = Field(gt=100)
+    source: str = Field(min_length=1)
+    kinds: tuple[str, ...] = Field(min_length=1)
+    slug_chars: int = Field(gt=8, le=80)
+    extension: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _plain(self) -> ReleaseRules:
+        _no_vendor_words([self.source], "release text")
+        return self
+
+
 class RestoreRules(_Strict):
     """``RESTORE.md``, after the owner's reference workspace: the layout, how to rebuild, the
     canonical query definitions written from the run's own counts and the entity rules applied.
@@ -1008,6 +1029,7 @@ class RestoreRules(_Strict):
     folders: dict[str, str] = Field(min_length=1)
     folder_line: str = Field(min_length=1)
     manifest_line: str = Field(min_length=1)
+    releases_line: str = Field(min_length=1)
     restore_heading: str = Field(min_length=1)
     restore_steps: tuple[str, ...] = Field(min_length=1)
     queries_heading: str = Field(min_length=1)
@@ -1044,6 +1066,7 @@ class WorkspaceRules(_Strict):
     # the folders under the root, in zip order (the reference workspace's names)
     folders: tuple[str, ...] = Field(min_length=1)
     raw_payloads: RawPayloads
+    releases: ReleaseRules
     max_members: int = Field(gt=0, le=10_000)
     max_member_bytes: int = Field(gt=0)
     max_total_bytes: int = Field(gt=0)
@@ -1135,8 +1158,10 @@ class PlatformEntry(_Strict):
         return _compiled(self.pattern, self.case_sensitive)
 
     def names(self, text: str) -> bool:
-        """True when ``text`` names the platform."""
-        return bool(self.regex.search(text))
+        """True when ``text`` names the platform. The pattern runs only when a word it needs is in
+        the text (``safety.prefilter``): the ranking asks every platform of every posting."""
+        rx = self.regex
+        return not cannot_match(rx, text) and bool(rx.search(text))
 
 
 @lru_cache(maxsize=256)

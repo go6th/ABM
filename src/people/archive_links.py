@@ -7,9 +7,10 @@ without a profile link, and a person named in a source (an executive quoted in a
 no link at all. Both end off the People List ("no profile link yet"). Here a name is matched to
 the archived profile pages: a search result's title reads "Jane Doe - Chief Information Officer
 - Acme Corp | LinkedIn", so the name, the headline and the company come from the title alone.
-A match needs the whole normalised name to be equal (``people.names``); the company part of the
-title names the account's brand for the record to carry the account as the current employer,
-otherwise the employer stays unknown and the scope rules decide (review). No paid call is made.
+A match needs the whole normalised name to be equal (``people.names``) AND the company part of
+the title to name the account's brand: only then does the record carry the account as the
+current employer. A name-only match is dropped, never attached (security review 2026-10-29, F7).
+A person who was erased is never matched again. No paid call is made.
 
 GUARANTEE(test_a_person_without_a_link_is_matched_to_the_archived_profile_page)
 """
@@ -18,7 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from people.models import RawPerson
@@ -80,15 +81,24 @@ def candidates_for(
     *,
     account_domain: str,
     brand: str | None,
+    erased: frozenset[str] = frozenset(),
+    canonical: Callable[[str], str | None] = lambda url: url,
 ) -> list[RawPerson]:
-    """The archived profile pages whose title names ``name``, as records for the people pipeline
-    (identity data from the page title; the archived copy is the record's reference)."""
+    """The archived profile pages whose title names ``name`` AND whose company part names the
+    account, as records for the people pipeline (identity data from the page title; the archived
+    copy is the record's reference). A name alone is never enough: a same-name person at another
+    company, or anyone who wrote the account into their own headline for a different person, must
+    not become the listed profile (security review 2026-10-29, F7 and pipeline review 16). A page
+    of a person who was erased (``erased``: canonical profile URLs) is never matched again."""
     out: list[RawPerson] = []
     for link in links:
         parsed = parse_profile_title(link.title)
         if parsed is None or not names_equal(parsed.name, name):
             continue
-        at_account = _names_brand(parsed.company, brand)
+        if not _names_brand(parsed.company, brand):
+            continue
+        if erased and (canonical(link.url) or link.url) in erased:
+            continue
         digest = hashlib.sha256(link.url.encode()).hexdigest()[:32]
         out.append(
             RawPerson(
@@ -100,8 +110,8 @@ def candidates_for(
                 title=parsed.headline,
                 headline=parsed.headline,
                 profile_url=link.url,
-                employer_domain=account_domain if at_account else None,
-                is_current=True if at_account else None,
+                employer_domain=account_domain,
+                is_current=True,
             )
         )
     return out

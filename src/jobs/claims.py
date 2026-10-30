@@ -21,13 +21,28 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text.casefold()).strip("_") or "platform"
 
 
+def claim_id(posting_key: str, platform: str) -> str:
+    """The ``local_id`` of the claim for a posting and a platform it names (stable: the same
+    posting and platform give the same id in every research, so a later pass can tell which
+    claims belong to which posting)."""
+    digest = hashlib.sha256(f"{posting_key}|{platform}".encode()).hexdigest()[:16]
+    return f"job-{digest}"
+
+
+def claimable(posting: Posting) -> bool:
+    """True when the posting is read in full and classed by a reading: the only postings that
+    make a claim (a keyword rule over the sentences is not a reading: never a finding)."""
+    if posting.classification is None or posting.posting_class == "unclassified":
+        return False
+    if posting.classification.classified_by == "heuristic":
+        return False
+    return not (not posting.read or posting.title_only or posting.hostile)
+
+
 def claims_for(posting: Posting, text: str) -> tuple[list[ProposedSourced], int]:
     """Claims for one posting from its stored ``text``; returns ``(claims, skipped_for_pii)``."""
-    if posting.classification is None or posting.posting_class == "unclassified":
-        return [], 0
-    if posting.classification.classified_by == "heuristic":
-        return [], 0  # a keyword rule over the sentences is not a reading: never a finding
-    if not posting.read or posting.title_only or posting.hostile:
+    classification = posting.classification
+    if classification is None or not claimable(posting):
         return [], 0
     claims: list[ProposedSourced] = []
     skipped = 0
@@ -41,19 +56,18 @@ def claims_for(posting: Posting, text: str) -> tuple[list[ProposedSourced], int]
         if strip_pii(verbatim) != verbatim:
             skipped += 1
             continue
-        digest = hashlib.sha256(f"{posting.posting_key}|{platform}".encode()).hexdigest()[:16]
         first_seen = posting.first_seen_at.isoformat() if posting.first_seen_at else "unknown"
         claims.append(
             ProposedSourced(
                 claim_kind="sourced",
-                local_id=f"job-{digest}",
+                local_id=claim_id(posting.posting_key, platform),
                 attribute_key=f"jobs.{_slug(platform)}.{posting.posting_class}",
                 value=platform,
                 evidence=(ProposedEvidence(url=posting.url, supporting_sentence=verbatim),),
                 reasoning=(
                     f"Posting status {posting.status} ({posting.status_source}), first seen"
                     f" {first_seen}, class {posting.posting_class} by"
-                    f" {posting.classification.classified_by}."
+                    f" {classification.classified_by}."
                 ),
             )
         )

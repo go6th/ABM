@@ -335,7 +335,7 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
 
     rows: list[PeopleRow] = []
     listed: list[PersonRow] = []
-    for i, p in enumerate(sorted(c.people, key=order), start=1):
+    for p in sorted(c.people, key=order):
         code = ctx.code_or_withhold(p.source_code, p.profile_url, where, p.id)
         name = ctx.rendered(p.name, where)
         if not name.strip():
@@ -352,11 +352,11 @@ def map_people(ctx: MapContext) -> Mapped[PeopleModel]:
         listed.append(p)
         rows.append(
             PeopleRow(
-                ref=ref("P", i),
+                ref=ref("P", len(rows) + 1),
                 row_id=p.id,
                 number=len(rows) + 1,
                 name=name,
-                title=ctx.rendered(p.title, where),
+                title=ctx.titled(p.title, where),
                 level=labels.level_label(p.level),
                 level_id=_id(p.level),
                 meets_seniority=labels.meets_seniority(p.level),

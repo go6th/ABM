@@ -15,9 +15,11 @@ Bounded and honest:
   ``resume_from``); after that the research stays stopped for its owner, who was told it stalled
   and keeps the Resume button;
 * only for stops a retry can mend (``ELIGIBLE``: the worker was lost, no progress, the model was
-  unavailable). A stop the owner must fix first (the model provider refused, no model, a spending
-  cap, a repeated paid call) is never retried by the platform: each attempt would stop the same
-  way and cost a slice;
+  unavailable, a connection dropped, a data or model provider was down or rate limited past the
+  node retries). A stop the owner must fix first (the model provider refused, no model, a
+  spending cap, a repeated paid call) and ``slice_ceiling`` (the research ran past the platform's
+  allowance for one research; the owner decides to go on) are never retried by the platform:
+  each attempt would stop the same way and cost a slice;
 * only within ``WINDOW_HOURS`` of the stop (the sweep passes every five minutes; an old stop is
   the owner's to resume) and only for runs a research job started (Workflow v1 runs started
   through the API are left to their owner);
@@ -62,7 +64,51 @@ MAX_AUTO_RESUMES = 5
 # a stop older than this is the owner's to resume (the sweep passes every five minutes)
 WINDOW_HOURS = 24
 # the stop reasons a retry can mend; every other reason needs a person first
-ELIGIBLE = frozenset({"worker_lost", "stalled", "model_unavailable"})
+# An unexpected error ends a run with the error's class as its reason (``runner._stop_unexpected``).
+# These are the classes of a dropped connection, a timeout or a storage service that answered 5xx
+# after the node's own retries (F14): the next attempt starts on a fresh connection.
+INFRASTRUCTURE_STOPS = frozenset(
+    {
+        "OperationalError",
+        "InterfaceError",
+        "TimeoutError",
+        "ConnectionError",
+        "ConnectionResetError",
+        "ConnectionRefusedError",
+        "ConnectionAbortedError",
+        "BrokenPipeError",
+        "ServiceUnavailable",
+        "GatewayTimeout",
+        "DeadlineExceeded",
+    }
+)
+# A provider outage that outlasted the node retries (owner decision 2026-10-30, orchestration
+# review open question 2): the provider answered 429 or 5xx, timed out, or its breaker was open.
+# The classes of ``connectors.errors.RetryableProviderError`` (and its subclasses RateLimited,
+# ProviderJobTimeout, CallInFlight), the model provider's ``Overloaded`` and ``CircuitOpen``. A
+# refusal the owner must fix (credentials, credits, key: ``AuthError``, ``CreditsExhausted``,
+# ``model_auth_failed``, ``model_credits_exhausted``) is deliberately not here. Continued like
+# ``model_unavailable``: every finished pull and model reply is reused at no cost, the bound of
+# ``MAX_AUTO_RESUMES`` per chain and the ``WINDOW_HOURS`` window apply.
+PROVIDER_OUTAGE_STOPS = frozenset(
+    {
+        "RetryableProviderError",
+        "RateLimited",
+        "ProviderJobTimeout",
+        "CallInFlight",
+        "Overloaded",
+        "CircuitOpen",
+    }
+)
+# ``slice_ceiling`` (the research outran the platform's slice allowance and ended PARTIAL with
+# its results) is deliberately not eligible: a second run would spend the same allowance again
+# without anyone having looked at what is left, so the owner presses Resume (owner decision
+# 2026-10-30).
+ELIGIBLE = (
+    frozenset({"worker_lost", "stalled", "model_unavailable"})
+    | INFRASTRUCTURE_STOPS
+    | PROVIDER_OUTAGE_STOPS
+)
 ACTIVE = ("QUEUED", "RUNNING", "DISTILLING", "VERIFYING", "AWAITING_APPROVAL")
 SYSTEM_ACTOR = "system:sweeper"
 _NAMESPACE = uuid.UUID("3f2d0b7e-6c1a-4a5e-9d8b-2e7c5a1f0b4d")
@@ -237,7 +283,9 @@ async def continue_run(
     kind = str(job.kind) if job is not None else "new_research"
     scope = str(job.scope) if job is not None else "full"
     requester = str(job.requested_by) if automatic and job is not None else actor
-    est = await CR.estimate(s, run.account_id, scope if scope in CR.SCOPES else kind)
+    # the budget of a continuation follows the steps the stopped run has left, never one credit
+    # and never below half of the configured rate (known problems 16); caps off: unchanged
+    est = await CR.estimate_resume(s, run.account_id, scope if scope in CR.SCOPES else kind, run_id)
     job_id, status = await CR.reserve(
         s,
         account_id=run.account_id,
@@ -357,5 +405,17 @@ async def auto_resume_pass(
                 )
                 continue
             if start is not None:
-                await jobs.run_or_enqueue(tenant, start)
+                try:
+                    await jobs.run_or_enqueue(tenant, start)
+                except Exception as error:  # noqa: BLE001 - the queued job is handed over again
+                    # the continuation is committed and queued: ``runs.recovery`` starts it, and
+                    # one client's failed hand-off never ends the pass for the others (F6)
+                    _log.warning(
+                        "runs.auto_resume_start_failed",
+                        extra={
+                            "tenant_id": str(tenant),
+                            "run_id": str(run_id),
+                            "error_class": type(error).__name__,
+                        },
+                    )
     return {"continued": continued, "skipped": skipped}

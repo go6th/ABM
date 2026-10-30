@@ -2,7 +2,7 @@
 
 Source files: `config/people_scope.yaml`, `config/people_rubric.yaml`, lane lexicon
 `config/job_lanes.yaml`. Everything not named by the PRD is `status: proposal` (D-21 to
-D-23). Config hash `1ff92a68f1ffe6e1456d96b643f62b65298cf92ebe1bd4649bfa3988d6d33c75`.
+D-23). Config hash `8d396f56c04d744878198574d754f03cf6ab1ee578aa79d8c8d3ef5dcf4cf8ac`.
 
 ## Levels (most senior first)
 

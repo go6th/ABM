@@ -19,6 +19,8 @@ import io
 import re
 import time
 import zipfile
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -27,18 +29,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import text
 
+from account_intelligence import archive as LA
+from account_intelligence import archive_records as AR
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.ratelimit import limit_user
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import file_tabs as FT
 from account_intelligence.replica import sheets as SH
 from account_intelligence.replica import workspace as W
 from agents.errors import GuardViolation
-from agents.naming import sanitize_client_value
+from agents.naming import sanitize_client_value, third_party_domain_hits
+from exports.policy import restricted_terms
+from exports.readers.exclusions import text_excluded
 from obs.logging import logger
 from tenancy.storage import PathRefused, require_owned
 
@@ -48,6 +55,9 @@ register(
     "GET", "/v1/accounts/{domain}/workspace", tenant_route("read_public", "read", step_up=False)
 )
 register("GET", "/v1/accounts/{domain}/archive", tenant_route("read_public", "read", step_up=False))
+register(
+    "GET", "/v1/accounts/{domain}/archive/list", tenant_route("read_public", "read", step_up=False)
+)
 register(
     "GET",
     "/v1/accounts/{domain}/file-analysis",
@@ -105,12 +115,50 @@ async def account_id_of(session: Any, domain: str) -> UUID:
     return UUID(str(found))
 
 
+# the runs whose files this process is building again right now (a second request does not start
+# a second build; it sees the held-back files until the first finishes), and the builds a rule
+# refused, by exclusion set (not tried again for REBUILD_RETRY_S: a refused build is the same
+# build every time, and each try costs a full render)
+_REBUILDING: set[tuple[UUID, UUID]] = set()
+_REFUSED: dict[tuple[UUID, UUID, str], float] = {}
+REBUILD_RETRY_S = 600.0
+
+
+async def refresh_stale_files(request: Request, ident: Identity, account_id: UUID) -> None:
+    """Build the account's files again when they were built under another exclusion list than the
+    tenant's current one (an exclusion added after the research, leakage review 2026-10-30, F1).
+    Until the new set is stored the stale files are neither listed nor served
+    (``workspace.deliverables``), so a failed build leaves them held back, never shown. The build
+    reads no provider and costs no credit."""
+    async with tenant_txn(ident.tenant_id) as s:
+        if not await W.stale_kinds(s, account_id):
+            return
+        run = await SH.delivered_run(s, account_id)
+    builder = getattr(request.app.state.container, "builder", None)
+    if run is None or builder is None or (ident.tenant_id, run) in _REBUILDING:
+        return
+    _REBUILDING.add((ident.tenant_id, run))
+    try:
+        result = await builder.build_all(str(ident.tenant_id), str(run))
+        if result.status != "complete":
+            log.warning(
+                "files_rebuild_refused", extra={"run_id": str(run), "reason": result.reason}
+            )
+    except Exception as error:  # noqa: BLE001 - the stale files stay held back
+        log.warning("files_rebuild_failed", extra={"error": type(error).__name__})
+    finally:
+        _REBUILDING.discard((ident.tenant_id, run))
+
+
 async def _delivered_tables(request: Request, ident: Identity, account_id: UUID) -> None:
-    """Materialise the client tables of the account's delivered run, once per run
-    (``views.materialize``), so the deep-dive sheets can show the files' own tables. A run that
-    cannot be materialised leaves the live sheets in place; the failure is logged, never shown."""
+    """Materialise the client tables of the account's delivered run, once per run and exclusion
+    list (``views.materialize``), so the deep-dive sheets can show the files' own tables; files
+    built under an older exclusion list are built again first (``refresh_stale_files``). A run
+    that cannot be materialised leaves the live sheets in place; the failure is logged, never
+    shown."""
     from account_intelligence.api.routes.accounts import materialized
 
+    await refresh_stale_files(request, ident, account_id)
     async with tenant_txn(ident.tenant_id) as s:
         run = await SH.delivered_run(s, account_id)
     if run is None:
@@ -119,6 +167,13 @@ async def _delivered_tables(request: Request, ident: Identity, account_id: UUID)
         await materialized(request, ident.tenant_id, run)
     except Exception as error:  # noqa: BLE001 - the live sheets stand in for the file tables
         log.warning("sheet_tables_unavailable", extra={"error": type(error).__name__})
+
+
+async def prepare_delivered(request: Request, ident: Identity, account_id: UUID) -> None:
+    """Public form of ``_delivered_tables`` for the other routes that read the delivered files
+    and tables (Download everything): files and tables made under an older exclusion list are
+    built again first."""
+    await _delivered_tables(request, ident, account_id)
 
 
 async def _file_run(request: Request, ident: Identity, account_id: UUID, sheet: str) -> UUID | None:
@@ -226,7 +281,11 @@ async def account_workspace(
         async with tenant_txn(ident.tenant_id) as s:
             account_id = await account_id_of(s, domain)
             run = await SH.delivered_run(s, account_id)
-            if run is not None and not materialised and not await SH.is_materialised(s, run):
+            if (
+                run is not None
+                and not materialised
+                and (not await SH.is_materialised(s, run) or await W.stale_kinds(s, account_id))
+            ):
                 missing = True
             else:
                 missing = False
@@ -312,10 +371,14 @@ async def file_analysis(
 
 
 @router.get("/{domain}/deliverables", response_model=C.DeliverableFiles)
-async def account_deliverables(domain: str, ident: Identity = Depends(authorize)) -> dict[str, Any]:
+async def account_deliverables(
+    domain: str, request: Request, ident: Identity = Depends(authorize)
+) -> dict[str, Any]:
     """The account's current deliverables (newest version of each)."""
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
+    await refresh_stale_files(request, ident, account_id)
+    async with tenant_txn(ident.tenant_id) as s:
         return {"files": await W.deliverables(s, account_id)}
 
 
@@ -331,6 +394,8 @@ async def download_deliverables(
     """One file as itself, or several as one zip named after the account."""
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
+    await refresh_stale_files(request, ident, account_id)
+    async with tenant_txn(ident.tenant_id) as s:
         current = {f["id"]: f for f in await W.deliverables(s, account_id)}
         wanted = list(current) if ids == "all" else ids.split(",")
         if not wanted or any(i not in current for i in wanted):
@@ -455,10 +520,25 @@ async def account_sheet(
     if q.sheet.private:
         SH.cap_rows(response["rows"])
         return response
-    return _client_page(response, sheet)
+    return _client_page(response, sheet, await _forbidden_terms(ident, account_id))
 
 
-def _client_page(response: dict[str, Any], sheet: str) -> dict[str, Any]:
+async def _forbidden_terms(ident: Identity, account_id: UUID) -> tuple[str, ...]:
+    """The terms no cell of a table may carry: other accounts' names and domains and the
+    excluded companies (the run's ``forbidden_terms`` of the exports). A tenant whose settings no
+    longer validate keeps the other-account terms only: the tables were built and guarded by the
+    exports already; the archive routes fail closed instead (``_archive_policy``)."""
+    try:
+        return (await _archive_policy(ident, account_id)).forbidden
+    except APIProblem:
+        async with tenant_txn(ident.tenant_id, system=True) as s:
+            others = await LA.other_account_terms(s, account_id)
+        return restricted_terms(others, AR.SOURCE)
+
+
+def _client_page(
+    response: dict[str, Any], sheet: str, extra_terms: Sequence[str] = ()
+) -> dict[str, Any]:
     """A page of a table made safe for the client: long cells cut (``sheets.cap_rows``), each
     cell scrubbed and, when a guarded term remains, withheld on its own (``sheets.scrub_rows``,
     as the exports do), then the rest of the response through the guard. The page always
@@ -466,7 +546,7 @@ def _client_page(response: dict[str, Any], sheet: str) -> dict[str, Any]:
     description (audit 2026-10-29, F1)."""
     rows = response["rows"]
     SH.cap_rows(rows)
-    held = SH.scrub_rows(rows)
+    held = SH.scrub_rows(rows, extra_terms)
     if held:
         log.info("sheet_cells_withheld", extra={"sheet": sheet, "cells": held})
     rest = _client_value({k: v for k, v in response.items() if k != "rows"})
@@ -517,17 +597,93 @@ async def account_sheet_cell(
     rows: list[dict[str, Any]] = [
         {"n": n, "cells": {col: found["text"]}, "links": {}, "link": None}
     ]
-    held = SH.scrub_rows(rows)
+    held = SH.scrub_rows(rows, await _forbidden_terms(ident, account_id))
+    href = found.get("href")
+    if isinstance(href, str) and third_party_domain_hits(href):
+        href = None  # a provider address is dropped, as the page route drops it (never a 422)
     result: dict[str, Any] = _client_value(
         {
             "n": n,
             "col": col,
             "text": rows[0]["cells"][col],
-            "href": found.get("href"),
+            "href": href,
             "withheld": bool(held),
         }
     )
     return result
+
+
+@dataclass(frozen=True)
+class _ArchivePolicy:
+    """What the archive routes hide, from the tenant's settings and the other accounts: the
+    exclusion filter (people and companies, ``tenancy.settings``) and the terms no archived text
+    may carry (other accounts' names and domains, excluded companies), as the exports apply them
+    (``exports.readers.exclusions``, ``exports.readers.pg``)."""
+
+    rule: Any
+    forbidden: tuple[str, ...]
+
+    def hides(self, *texts: str | None, url: str | None = None) -> bool:
+        """True when the copy or row must not be served at all: it names an excluded person,
+        or its address is an excluded company's or a data provider's."""
+        if url and third_party_domain_hits(url):
+            return True
+        return bool(text_excluded(self.rule, *texts, url=url))
+
+
+async def _archive_policy(ident: Identity, account_id: UUID) -> _ArchivePolicy:
+    """The exclusion rule and the forbidden terms for the archive of one account (409 when the
+    tenant's settings no longer validate, as every other reader of them)."""
+    from account_intelligence.api.routes.accounts import exclusion_rule
+
+    async with tenant_txn(ident.tenant_id) as s:
+        rule = await exclusion_rule(s)
+    # the names and domains of every OTHER account of the client, including colleagues' private
+    # workspaces: used only to refuse text that names them, never returned
+    async with tenant_txn(ident.tenant_id, system=True) as s:
+        terms = await LA.other_account_terms(s, account_id)
+    terms += sorted(rule.companies)
+    return _ArchivePolicy(rule, restricted_terms(terms, AR.SOURCE))
+
+
+def _withhold_leaks(
+    value: Any, held: list[str], path: str = "", forbidden: Sequence[str] = ()
+) -> Any:
+    """The value with each text the client-output guard refuses blanked (and its path listed in
+    ``held``), tool names scrubbed: one refused field never costs the whole archived copy.
+    ``forbidden``: terms no text may carry (other accounts, excluded companies)."""
+    from agents.naming import client_hits, scrub_client_text
+
+    if isinstance(value, str):
+        shown, refused = scrub_client_text(value)
+        if not refused and forbidden and client_hits(shown, forbidden):
+            refused = True
+        if refused:
+            held.append(path)
+            return ""
+        return shown
+    if isinstance(value, dict):
+        return {
+            k: _withhold_leaks(v, held, f"{path}.{k}" if path else str(k), forbidden)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_withhold_leaks(v, held, path, forbidden) for v in value]
+    return value
+
+
+def _record_texts(record: dict[str, Any] | None) -> list[str]:
+    """Every string a structured record holds, for the exclusion check."""
+    if not record:
+        return []
+    out: list[str] = []
+    for v in record.values():
+        if isinstance(v, str):
+            out.append(v)
+        elif isinstance(v, list):
+            out += [x for x in v if isinstance(x, str)]
+            out += [t for x in v if isinstance(x, dict) for t in x.values() if isinstance(t, str)]
+    return out
 
 
 @router.get("/{domain}/archive", response_model=C.ArchivedCopy)
@@ -535,62 +691,149 @@ async def account_archive(
     domain: str,
     request: Request,
     url: str = Query(min_length=8, max_length=2048),
+    download: bool = Query(False),
     ident: Identity = Depends(authorize),
 ) -> Any:
     """The archived copy of one address the research stored for this account (the newest
-    capture): the text the research read, with the original address and when it was captured.
-    A browser gets a readable page; a client asking for JSON gets the same as JSON. 404 when the
-    address was never stored for the account (another tenant's looks the same)."""
-    from html import escape
+    capture): the original address, the kind of link, when it was captured, the text and, for a
+    posting, its structured record (``posting-archive/1``). JSON only: the page a person reads is
+    the website's (``/accounts/{domain}/archive?url=``), which fetches this. ``download`` answers
+    the same as a file, whole and audited as an export; the JSON view cuts the text to
+    ``archive.MAX_COPY_TEXT`` (``truncated`` says so). A free-text field the output guard refuses
+    is blanked and named under ``withheld``. 404 when the address was never stored for the
+    account (another tenant's looks the same), when it is a profile copy (internal, never served),
+    or when the copy names a person the client excluded or lives on an excluded or provider
+    domain."""
+    from fastapi.responses import JSONResponse
 
-    from fastapi.responses import HTMLResponse
-
-    from account_intelligence import archive as LA
-
+    await limit_user(ident, "archive_read")
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)
-        found = await LA.lookup(s, account_id, [url])
+        # profile copies are internal inputs of the people matcher: never listed, never served
+        found = await LA.lookup(s, account_id, [url], kinds=LA.CLIENT_KINDS)
     link = found.get(url)
     if link is None:
         raise HTTPException(404, "not found")
+    policy = await _archive_policy(ident, account_id)
+    if policy.hides(link.title, url=link.url):
+        raise HTTPException(404, "not found")
     try:
         require_owned(ident.tenant_id, link.payload_ref)
-        copy = await LA.archived_copy(request.app.state.container.payloads, link)
+        copy = await LA.archived_copy(
+            request.app.state.container.payloads,
+            link,
+            max_text=None if download else LA.MAX_COPY_TEXT,
+        )
     except (PathRefused, ValueError, LookupError):
         raise HTTPException(404, "not found") from None
     except Exception:  # noqa: BLE001 - a missing or unreadable body reads as not found
         raise HTTPException(404, "not found") from None
-    body = _client_value(
+    if policy.hides(copy.title, copy.text, *_record_texts(copy.record), url=copy.url):
+        raise HTTPException(404, "not found")
+    held: list[str] = []
+    body = _withhold_leaks(
         {
             "url": copy.url,
             "kind": copy.kind,
             "archived_at": copy.archived_at.isoformat(),
             "title": copy.title,
             "text": copy.text,
-        }
+            "record": copy.record,
+            "truncated": copy.truncated,
+        },
+        held,
+        forbidden=policy.forbidden,
     )
-    if "text/html" not in (request.headers.get("accept") or "") or "json" in (
-        request.headers.get("accept") or ""
-    ):
-        return body
-    when = copy.archived_at.strftime("%d %B %Y")
-    title = escape(body.get("title") or body["url"])
-    page = (
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{title}</title>"
-        "<style>body{margin:0;padding:24px 16px;font:15px/1.5 system-ui,sans-serif;color:#1d1d1f;"
-        "background:#fff}main{max-width:820px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}"
-        "p.meta{color:#5f6368;margin:0 0 20px;font-size:13px}pre{white-space:pre-wrap;"
-        "word-wrap:break-word;font:inherit;border-top:1px solid #e5e7eb;padding-top:16px}"
-        "</style></head><body><main>"
-        f"<h1>{title}</h1>"
-        f'<p class="meta">Archived copy captured on {escape(when)}. Original address:'
-        f' <a href="{escape(body["url"], quote=True)}" rel="noopener noreferrer">'
-        f"{escape(body['url'])}</a></p>"
-        f"<pre>{escape(body['text'])}</pre></main></body></html>"
+    body["withheld"] = sorted(set(held))
+    if held and isinstance(body.get("record"), dict):
+        body["record"]["withheld"] = sorted({*body["record"].get("withheld", []), *held})
+    if download:
+        async with tenant_txn(ident.tenant_id) as s:
+            # a file leaves the product: audited as an export, like every other download
+            await audit_action(
+                s,
+                request,
+                audit_class="export",
+                action="download_archive",
+                resource_type="account",
+                resource_id=account_id,
+            )
+        name = "posting-archive" if copy.record is not None else "archived-copy"
+        payload = body["record"] if copy.record is not None else body
+        return JSONResponse(
+            payload,
+            headers={
+                "Content-Disposition": f'attachment; filename="{name}.json"',
+                "Cache-Control": "no-store",
+            },
+        )
+    return body
+
+
+@router.get("/{domain}/archive/list", response_model=C.ArchiveList)
+async def account_archive_list(
+    domain: str,
+    request: Request,
+    kind: str | None = Query(None, max_length=16),
+    offset: int = Query(0, ge=0, le=100_000),
+    limit: int = Query(50, ge=1, le=200),
+    ident: Identity = Depends(authorize),
+) -> dict[str, Any]:
+    """The account's archive index: the newest copy of each stored address, newest capture first,
+    one page (``limit`` at most 200). ``kind`` narrows it (``posting``, ``page``, ``feed_item``,
+    ``detection``); ``profile`` copies are internal and never listed. A posting also gives its
+    status when captured, location and requisition (stored beside the row; no body is opened for
+    them). A row that names a person the client excluded, or sits on an excluded or provider
+    domain, is left out. Empty for an account of another tenant."""
+
+    await limit_user(ident, "archive_read")
+    async with tenant_txn(ident.tenant_id) as s:
+        account_id = await account_id_of(s, domain)
+        links, total = await LA.list_latest(
+            s, account_id, kind=kind, offset=offset, limit=limit, kinds=LA.CLIENT_KINDS
+        )
+    policy = await _archive_policy(ident, account_id)
+    items = await LA.list_items(
+        request.app.state.container.payloads,
+        links,
+        readable=lambda ref: _owned(ident.tenant_id, ref),
     )
-    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+    shown = [i for i in items if not policy.hides(i.title, i.location, i.requisition, url=i.url)]
+    held: list[str] = []
+    rows = _withhold_leaks(
+        [
+            {
+                "url": i.url,
+                "title": i.title,
+                "kind": i.kind,
+                "archived_at": i.archived_at.isoformat(),
+                "status_at_capture": i.status_at_capture,
+                "location": i.location,
+                "requisition": i.requisition,
+                "record_schema": i.record_schema,
+            }
+            for i in shown
+        ],
+        held,
+        forbidden=policy.forbidden,
+    )
+    nxt = offset + len(links)
+    return {
+        "items": rows,
+        "total": max(total - (len(items) - len(shown)), 0),
+        "offset": offset,
+        "limit": limit,
+        "next_offset": nxt if nxt < total else None,
+    }
+
+
+def _owned(tenant_id: UUID, ref: str) -> bool:
+    """True when the payload key belongs to the tenant (``tenancy.storage.require_owned``)."""
+    try:
+        require_owned(tenant_id, ref)
+    except PathRefused:
+        return False
+    return True
 
 
 @router.get("/{domain}/sheets/{sheet}/tabs/{tab}", response_model=C.SheetTab)
@@ -616,7 +859,7 @@ async def account_sheet_tab(
     book, file = delivered
     # each cell scrubbed and, when a guarded term remains, withheld on its own: the tab loads
     blocks = FT.blocks_out(found)
-    held = FT.scrub_blocks(blocks)
+    held = FT.scrub_blocks(blocks, await _forbidden_terms(ident, account_id))
     if held:
         log.info("sheet_cells_withheld", extra={"sheet": sheet, "tab": found.key, "cells": held})
     result: dict[str, Any] = _client_value(

@@ -15,9 +15,13 @@ from jobs.normalise import strip_pii
 
 
 def is_exported(p: Posting) -> bool:
-    """The Job Postings selection: read, classified-or-matched, non-hostile postings that name a
-    platform in their description (one definition, used by ``export_rows`` and the builders)."""
-    return p.read and not p.hostile and bool(p.platforms)
+    """The Job Postings selection: read, non-hostile postings that name a platform in their
+    description and fall inside the posting window (one definition, used by ``export_rows`` and
+    the builders). A carried posting that has since slid past the window stays stored but is not
+    listed, so the file's rows, the counts printed beside them (``jobs.counts`` leaves out the
+    same postings) and the Tech ranking (which reads the window too) agree (review 2026-10-29,
+    finding 4)."""
+    return p.read and not p.hostile and bool(p.platforms) and p.window_bucket != "out_of_window"
 
 
 def export_rows(

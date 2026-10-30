@@ -148,10 +148,10 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
             lane = labels.tech_lane_label(entry.lane)
         rows.append(
             TechRow(
-                ref=ref("D", i),
+                ref=ref("D", len(rows) + 1),
                 row_id=d.id,
                 category=entry.category if entry is not None else "",
-                technology=ctx.rendered(d.technology, where),
+                technology=ctx.short(ctx.rendered(d.technology, where)),
                 postings=n,
                 lane=lane,
                 first_seen=ctx.rendered(d.first_seen or "Not given", where),
@@ -169,12 +169,12 @@ def map_tech(ctx: MapContext) -> Mapped[TechModel]:
     for x in c.stack:
         if not ctx.printable(x.technology, where, x.id):
             continue
-        technology = ctx.rendered(x.technology, where)
+        technology = ctx.short(ctx.rendered(x.technology, where))
         stack.append(
             StackLine(
                 row_id=x.id,
-                business_function=ctx.rendered(x.business_function, where),
-                category=ctx.rendered(x.category, where),
+                business_function=ctx.short(ctx.rendered(x.business_function, where)),
+                category=ctx.short(ctx.rendered(x.category, where)),
                 technology=technology,
                 postings=x.postings,
                 lane=stack_lane(ctx.cfg, technology),

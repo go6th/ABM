@@ -45,7 +45,7 @@ from pilot import usefulness
 from pilot.feedback import policy as pilot_policy
 from tenancy.storage import PathRefused, require_owned, tenant_of_key
 from views import packages
-from views.materialize import api_rows
+from views.materialize import api_rows, exclusions_changed_since
 from views.tables import TABLES
 
 log = logger(__name__)
@@ -318,6 +318,13 @@ async def download(
                 "package_invalid",
                 "Package failed verification",
                 "This package no longer matches its rows and cannot be downloaded.",
+            )
+        if await exclusions_changed_since(s, row.created_at):
+            raise APIProblem(
+                409,
+                "package_stale",
+                "Package out of date",
+                "Exclusions changed after this package was made. Make it again to download.",
             )
         if index >= len(row.files):
             raise HTTPException(404, "not found")

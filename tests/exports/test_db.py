@@ -6,16 +6,19 @@ tenants never cross. All data synthetic."""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import zipfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import psycopg
 import pytest
+from openpyxl import load_workbook
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -221,8 +224,12 @@ def seed_rows(w: World) -> dict[str, Any]:
     return {"codes": (s1[1], s2[1], s3[1])}
 
 
-async def seed_world(*, register_postings: bool = True) -> tuple[World, Payloads]:
-    """A run with every input the builders read, written by the real pipelines and stores."""
+async def seed_world(
+    *, register_postings: bool = True, legacy_unregistered: bool = False
+) -> tuple[World, Payloads]:
+    """A run with every input the builders read, written by the real pipelines and stores.
+    ``legacy_unregistered`` saves the postings the way a research did before the job repository
+    registered their links (no source code for a posting no fact cites)."""
     w = make_world()
     seed_rows(w)
     async with txn(w) as tracker:
@@ -230,15 +237,20 @@ async def seed_world(*, register_postings: bool = True) -> tuple[World, Payloads
     corpus = JobsCorpus()
     pipeline, *_ = build_jobs(corpus)
     rec = Recorder()
-    jobs = await run_jobs(
-        str(w.run),
-        pipeline,
-        PgPostingRepo(tenant_txn, w.tenant, w.account),
-        rec,
-        rec,
-        rec,
-        JobsRunInput(corpus.lanes_off, corpus.as_of),
-    )
+    with contextlib.ExitStack() as stack:
+        if legacy_unregistered:
+            stack.enter_context(
+                patch("jobs.repo.register_posting_sources", AsyncMock(return_value=0))
+            )
+        jobs = await run_jobs(
+            str(w.run),
+            pipeline,
+            PgPostingRepo(tenant_txn, w.tenant, w.account),
+            rec,
+            rec,
+            rec,
+            JobsRunInput(corpus.lanes_off, corpus.as_of),
+        )
     people_store = MemoryPayloadStore()
     people_repo = PgPeopleRepo(
         tenant_txn, w.tenant, w.account, people_store, lambda kind, name: f"t/{w.run}/{kind}/{name}"
@@ -258,7 +270,7 @@ async def seed_world(*, register_postings: bool = True) -> tuple[World, Payloads
     for f in people.findings:
         await register(w, f.url)  # follow-up: the people stage does not register post links yet
     if register_postings:
-        for p in jobs.postings:  # follow-up: the jobs stage does not register posting links yet
+        for p in jobs.postings:
             await register(w, p.url)
     return w, Payloads(people_store, rec)
 
@@ -325,16 +337,69 @@ async def test_end_to_end_build_from_postgres() -> None:
         assert b"p_search" not in body  # the provider code stays in the internal table
 
 
-async def test_postings_without_registry_codes_are_withheld() -> None:
-    """A posting whose link the source registry never saw is left out of the Job Postings file
-    and listed in the manifest; the set is still delivered (B4 by omission, 2026-10-24)."""
+async def test_every_listed_posting_gets_a_source_code_though_no_fact_cites_it() -> None:
+    """E2E 2026-10-29, D-1: the job repository registers the link of every posting the file
+    lists, so a posting no graded fact cited is listed, not silently dropped. Nothing was
+    registered by hand here (the sources table holds only what the research wrote)."""
     w, payloads = await seed_world(register_postings=False)
     result = await builder(w, payloads).build_all(str(w.tenant), str(w.run))
     assert result.status == "complete", result.errors
-    withheld = [b for b in result.manifest.withheld_blocks if b.startswith("jobs:")]
+    assert not [b for b in result.manifest.withheld_blocks if b.startswith("jobs:")]
+    listed = result.manifest.row_ids["jobs"]
+    assert len(listed) > 0
+    held = {r[0] for r in fetch("SELECT url FROM sources WHERE account_id = %s", w.account)}
+    exported_urls = {
+        r[0]
+        for r in fetch(
+            "SELECT url FROM job_postings WHERE run_id = %s AND full_text_read AND NOT hostile"
+            " AND cardinality(platforms) > 0 AND window_bucket <> 'out_of_window'",
+            w.run,
+        )
+    }
+    assert len(exported_urls) == len(listed) and exported_urls <= held
+    # the codes are the registry's own and stay put: a second registration changes nothing
+    before = fetch(
+        "SELECT url, source_code FROM sources WHERE account_id = %s ORDER BY url", w.account
+    )
+    again = await builder(w, payloads).build_all(str(w.tenant), str(w.run))
+    assert again.status == "complete"
+    assert before == fetch(
+        "SELECT url, source_code FROM sources WHERE account_id = %s ORDER BY url", w.account
+    )
+
+
+async def test_the_counts_say_no_posting_was_left_out() -> None:
+    """The Counts line "Postings not listed" is 0 when every read posting was listed."""
+    w, payloads = await seed_world(register_postings=False)
+    result = await builder(w, payloads).build_all(str(w.tenant), str(w.run))
+    assert result.status == "complete", result.errors
+    jobs = next(d for d in result.deliverables if d.kind == "jobs")
+    book = load_workbook(io.BytesIO(payloads.objects[jobs.object_key]))
+    counts = book[CFG.rules.workbooks.jobs.counts_sheet]
+    lines = {str(r[0].value): r[1].value for r in counts.iter_rows() if r[0].value}
+    not_listed = [v for k, v in lines.items() if k.startswith("Postings not listed")]
+    assert not_listed == [0]
+    ref_col = CFG.rules.workbooks.ref_column(CFG.rules.workbooks.jobs)
+    sheet = book[CFG.rules.workbooks.jobs.sheet]
+    refs = [c.value for c in sheet[ref_col][1:] if c.value]
+    assert refs == [f"J-{n:04d}" for n in range(1, len(refs) + 1)]
+
+
+async def test_a_run_saved_before_the_links_were_registered_is_repaired_on_rebuild() -> None:
+    """A research saved by the old repository left uncited posting links without a code. The
+    reader alone only reads (those rows are withheld and listed); with the registering
+    transaction wired (as in production) a rebuild registers the missing links and lists them."""
+    w, payloads = await seed_world(register_postings=False, legacy_unregistered=True)
+    plain = await builder(w, payloads).build_all(str(w.tenant), str(w.run))
+    assert plain.status == "complete", plain.errors
+    withheld = [b for b in plain.manifest.withheld_blocks if b.startswith("jobs:")]
     assert withheld and all(b.endswith(":missing_source_code") for b in withheld), withheld
-    assert result.manifest.row_ids["jobs"] == ()
-    assert fetch("SELECT count(*) FROM deliverables WHERE run_id = %s", w.run)[0][0] == 6
+    assert plain.manifest.row_ids["jobs"] == ()
+    fixed = await builder(w, payloads, register=tenant_txn).build_all(str(w.tenant), str(w.run))
+    assert fixed.status == "complete", fixed.errors
+    assert len(fixed.manifest.row_ids["jobs"]) == len(withheld)
+    assert not [b for b in fixed.manifest.withheld_blocks if b.startswith("jobs:")]
+    assert fetch("SELECT count(*) FROM deliverables WHERE run_id = %s", w.run)[0][0] >= 6
 
 
 async def test_one_snapshot_under_a_concurrent_writer() -> None:
@@ -411,7 +476,10 @@ async def test_repeat_build_writes_nothing_and_redelivery_supersedes() -> None:
     old = {d.kind: d.id for d in first.deliverables}
     for d in second.deliverables:
         assert d.version == 2 and d.supersedes == old[d.kind]
-    assert "Account Summary: 1 rows added" in (second.change_note or "")
+    # the change note compares the run with the PREVIOUS research of the account, never with its
+    # own earlier set (leakage review 2026-10-30, F7): there is none here
+    assert second.change_note == first.change_note
+    assert "First delivery" in (second.change_note or "")
     assert fetch("SELECT count(*) FROM deliverables WHERE run_id = %s", w.run)[0][0] == 12
 
 
@@ -488,11 +556,11 @@ async def test_reader_fills_the_posting_fields_and_the_archived_copy_links() -> 
     # every exported posting has a stored text, so every one has an archived copy
     for p in content.postings:
         assert p.archive_url == (
-            f"{base}/v1/accounts/{quote(w.domain, safe='')}/archive?url={quote(p.url, safe='')}"
+            f"{base}/accounts/{quote(w.domain, safe='')}/archive?url={quote(p.url, safe='')}"
         ), p.posting_key
     sources = {x.url: x for x in content.sources}
     assert sources[f"https://{w.domain}/about"].archive_url == (
-        f"{base}/v1/accounts/{quote(w.domain, safe='')}/archive"
+        f"{base}/accounts/{quote(w.domain, safe='')}/archive"
         f"?url={quote(f'https://{w.domain}/about', safe='')}"
     )
     assert sources[f"https://{w.domain}/news/a"].archive_url == ""
@@ -501,3 +569,40 @@ async def test_reader_fills_the_posting_fields_and_the_archived_copy_links() -> 
     assert all(p.archive_url == "" for p in plain.postings)
     assert all(x.archive_url == "" for x in plain.sources)
     assert {p.posting_key: p.last_seen for p in plain.postings}["id:j18"] == date(2026, 9, 15)
+
+
+async def test_the_workspace_zip_carries_the_accounts_archived_copies() -> None:
+    """Fix wave C (item 8): the reader selects the account's archived copies (client kinds,
+    newest structured record per address, newest first) and the zip holds one text file each,
+    never a profile copy; a rebuild changes nothing."""
+    from datetime import UTC, datetime
+
+    from account_intelligence import archive as LA
+
+    w, payloads = await seed_world()
+
+    class Clock:
+        def now(self) -> datetime:
+            return datetime(2026, 9, 20, 9, tzinfo=UTC)
+
+    archive = LA.LinkArchive(tenant_txn, w.tenant, w.account, w.run, payloads, Clock())  # type: ignore[arg-type]
+    await archive.put_text(
+        "https://synthetic.example/news/a", "page", "Synthetic news text.", title="Synthetic news"
+    )
+    await archive.put_text(
+        "https://www.linkedin.com/in/synthetic-person", "profile", "Profile text.", title="Person"
+    )
+    result = await builder(w, payloads).build_all(str(w.tenant), str(w.run))
+    assert result.status == "complete", result.errors
+    workspace = next(d for d in result.deliverables if d.kind == "workspace")
+    with zipfile.ZipFile(io.BytesIO(payloads.objects[workspace.object_key])) as z:
+        releases = {n: z.read(n).decode() for n in z.namelist() if n.startswith("data/releases/")}
+    texts = "\n".join(releases.values())
+    assert "title: Synthetic news" in texts and "Synthetic news text." in texts
+    assert "Profile text." not in texts and "linkedin.com/in/synthetic-person" not in texts
+    assert len(releases) >= 2  # the news page and the read postings the jobs repository archived
+    assert all(t.splitlines()[3] == "source: 6th agents" for t in releases.values())
+    again = await builder(w, payloads).build_all(str(w.tenant), str(w.run))
+    assert again.reused and {d.sha256 for d in again.deliverables} == {
+        d.sha256 for d in result.deliverables
+    }

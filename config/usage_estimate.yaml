@@ -12,8 +12,13 @@ history_runs: 5
 defaults:
   jobs:         {tokens: 300000,  cost_usd: "1.00"}
   people:       {tokens: 600000,  cost_usd: "3.00"}
-  full:         {tokens: 2500000, cost_usd: "11.00"}
+  # 2026-10-30 (web research coverage): +9 queries, the followed own-site links and the restricted
+  # filing and newswire searches add about 70 to 140 more pages read per research, about 300,000
+  # input tokens (Opus input $4 per million) and some 200 more page reads and 20 more searches at
+  # the providers: 2.5M to 2.8M tokens, $11.00 to $12.50. Replaced by the median of the
+  # workspace's own finished runs as soon as it has one.
+  full:         {tokens: 2800000, cost_usd: "12.50"}
   topic:        {tokens: 400000,  cost_usd: "2.00"}
-  new_research: {tokens: 2500000, cost_usd: "11.00"}
+  new_research: {tokens: 2800000, cost_usd: "12.50"}
   file:         {tokens: 500000,  cost_usd: "2.00"}    # the client's files only (no paid calls)
-  file_public:  {tokens: 2500000, cost_usd: "11.00"}   # the files plus public sources
+  file_public:  {tokens: 2800000, cost_usd: "12.50"}   # the files plus public sources

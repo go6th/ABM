@@ -251,7 +251,7 @@ def test_part_h_detections_postings_entities_feed_and_teams(
     assert [
         (p.ref, p.platform, p.postings, p.open_now, p.build, p.admin_owner, p.working_tool, p.user)
         for p in model.platform_postings
-    ] == [("PP-0001", "Salesforce", 3, 1, 0, 3, 0, 0)]
+    ] == [("PP-0001", "Salesforce", 3, 2, 0, 3, 0, 0)]  # a posting with no status is open
     assert [(e.ref, e.entity, e.postings) for e in model.entity_split] == [
         ("ES-0001", c.account_name, 3)
     ]

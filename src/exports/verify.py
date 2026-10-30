@@ -20,24 +20,32 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
+import os
 import re
 import shutil
+import signal
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
 import tempfile
+import threading
 import zipfile
+from bisect import bisect_right
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from lxml import etree
 from openpyxl import load_workbook
+from openpyxl.utils.cell import coordinate_to_tuple
 
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.safety.client_output import load_patterns
+from account_intelligence.safety.prefilter import cannot_match
 from exports.config import provider_hosts, registrable
+from exports.ooxml import strip_cached_values
 from exports.policy import leak_hits
 from exports.ports import CheckResult, PdfRenderPort
 
@@ -81,29 +89,45 @@ def scan_package(
     return tuple(hits)
 
 
+def _stream(z: zipfile.ZipFile, name: str, tag: str) -> Iterable[etree._Element]:
+    """The elements ``tag`` of one XML member in document order, parsed as a stream: each
+    element is handed over complete and dropped when the caller asks for the next one, so a
+    document with a million cells is read in constant memory (a whole tree of the same file took
+    over a gigabyte at 7,000 postings). Elements are the caller's to read, not to keep."""
+    with z.open(name) as fh:
+        for _event, el in etree.iterparse(
+            fh, events=("end",), tag=tag, resolve_entities=False, no_network=True, huge_tree=True
+        ):
+            yield el
+            el.clear()
+            parent = el.getparent()
+            # LOOP(read siblings): cap=the children of the parent (each pass deletes one); exit=no
+            # earlier sibling is left
+            while parent is not None and el.getprevious() is not None:
+                del parent[0]  # the siblings already read
+
+
 def docx_text(data: bytes) -> str:
     """All text of the document body, header and footer (for content checks)."""
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         out = []
         for name in sorted(z.namelist()):
             if name.startswith("word/") and name.endswith(".xml"):
-                root = etree.fromstring(z.read(name), parser=_PARSER)
-                out.append("".join(t.text or "" for t in root.iter(f"{W}t")))
+                out.append("".join(t.text or "" for t in _stream(z, name, f"{W}t")))
         return "\n".join(out)
 
 
 def docx_row_keys(data: bytes) -> tuple[str, ...]:
     """First-cell text of every table row that looks like a row key, in document order."""
-    with zipfile.ZipFile(io.BytesIO(data)) as z:
-        root = etree.fromstring(z.read("word/document.xml"), parser=_PARSER)
     keys = []
-    for tr in root.iter(f"{W}tr"):
-        tc = tr.find(f"{W}tc")
-        if tc is None:
-            continue
-        text = "".join(t.text or "" for t in tc.iter(f"{W}t"))
-        if _REF.match(text):
-            keys.append(text)
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for tr in _stream(z, "word/document.xml", f"{W}tr"):
+            tc = tr.find(f"{W}tc")
+            if tc is None:
+                continue
+            text = "".join(t.text or "" for t in tc.iter(f"{W}t"))
+            if _REF.match(text):
+                keys.append(text)
     return tuple(keys)
 
 
@@ -163,53 +187,131 @@ def keys_once_in_order(text: str, keys: Sequence[str]) -> tuple[str, ...]:
     return tuple(problems)
 
 
+# at most this many LibreOffice conversions run at once in one process (each is a process group
+# of its own; the builder runs the checks off the event loop, so two builds can overlap)
+_CONVERSIONS = threading.BoundedSemaphore(2)
+# resource limits of one conversion: virtual memory (KiB) and CPU seconds, set by a fixed shell
+# prologue (no ``preexec_fn``: the converter is started from a worker thread, where a fork hook is
+# not safe); the prologue is fixed text, the values are passed as arguments, never interpolated
+_LIMIT_AS_KB = 6 * 1024 * 1024
+_LIMIT_CPU_S = 240
+# LibreOffice's time grows with the XML it parses: a conversion may take ``timeout_s`` plus this
+# many seconds per megabyte of the unpacked package, never more than ``MAX_TIMEOUT_S`` (the
+# 7,000 posting Jobs workbook needed 133 s against a flat 120 s and its recalculation check
+# silently became not_run)
+SECONDS_PER_MB = 4.0
+MAX_TIMEOUT_S = 900.0
+_LIMITED = 'ulimit -v "$1" && ulimit -t "$2" && shift 2 && exec "$@"'
+_KILL_GRACE_S = 5.0
+
+
+def _kill_group(proc: subprocess.Popen[bytes]) -> None:
+    """Kill the whole process group of a conversion (``soffice`` starts ``oosplash`` which starts
+    ``soffice.bin``: killing the direct child alone leaves the worker running)."""
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+        os.killpg(proc.pid, signal.SIGKILL)
+
+
 class LibreOffice:
     """``PdfRenderPort`` and ``RecalcPort`` over a headless LibreOffice (``soffice``), with a
-    timeout, a private profile, a cleared environment and at most one re-run."""
+    timeout, a private profile, a cleared environment, its own process group (killed whole on
+    expiry and when the conversion ends), memory and CPU limits and at most one re-run. It is
+    synchronous: callers run it off the event loop (``ExportBuilder.build_all`` does).
+    ``last_failure`` names why the last conversion produced nothing (``timeout``, ``failed``,
+    ``no_output`` or ``not_installed``) so a check that did not run says why."""
 
     def __init__(self, timeout_s: float = 120.0, binary: str | None = None) -> None:
         self.binary = binary or shutil.which("soffice")
         self.timeout_s = timeout_s
+        self.last_failure: str | None = None
+        # the time the last conversion was given, for the reason a check did not run
+        self.last_timeout_s: float = timeout_s
+
+    def timeout_for(self, body: bytes) -> float:
+        """The time one conversion of ``body`` may take (see ``SECONDS_PER_MB``)."""
+        try:
+            with zipfile.ZipFile(io.BytesIO(body)) as z:
+                unpacked = sum(i.file_size for i in z.infolist())
+        except zipfile.BadZipFile:
+            unpacked = len(body)
+        return min(
+            max(self.timeout_s, MAX_TIMEOUT_S), self.timeout_s + unpacked / 1e6 * SECONDS_PER_MB
+        )
+
+    def _argv(
+        self, tmp: str, out_dir: Path, src: Path, target: str, cpu_s: int = _LIMIT_CPU_S
+    ) -> list[str]:
+        assert self.binary is not None
+        return [
+            "/bin/sh",
+            "-c",
+            _LIMITED,
+            "soffice-limits",
+            str(_LIMIT_AS_KB),
+            str(cpu_s),
+            self.binary,
+            f"-env:UserInstallation=file://{tmp}/profile",
+            "--headless",
+            "--norestore",
+            "--convert-to",
+            target,
+            "--outdir",
+            str(out_dir),
+            str(src),
+        ]
+
+    def _run(self, cmd: list[str], tmp: str, timeout_s: float | None = None) -> str | None:
+        """Run one conversion in its own process group; None when it exited cleanly, else the
+        failure reason. The group is killed on expiry and again when the run is over."""
+        env = {"HOME": tmp, "TMPDIR": tmp, "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"}
+        try:
+            proc = subprocess.Popen(  # nosec B603 - fixed argv, no shell string from input
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env,
+                start_new_session=True,
+            )
+        except OSError:
+            return "failed"
+        try:
+            code = proc.wait(timeout=timeout_s if timeout_s is not None else self.timeout_s)
+        except subprocess.TimeoutExpired:
+            _kill_group(proc)
+            with contextlib.suppress(subprocess.SubprocessError):
+                proc.wait(timeout=_KILL_GRACE_S)
+            return "timeout"
+        finally:
+            _kill_group(proc)
+        return None if code == 0 else "failed"
 
     def _convert(self, body: bytes, suffix: str, target: str) -> bytes | None:
         if self.binary is None:
+            self.last_failure = "not_installed"
             return None
+        self.last_failure = None
+        limit = self.timeout_for(body)
+        self.last_timeout_s = limit
+        cpu_s = max(_LIMIT_CPU_S, int(limit * 1.5))
         # LOOP(converter re-run): cap=2 attempts; exit=converted, None (not_run with reason)
         for _ in range(2):
-            with tempfile.TemporaryDirectory() as tmp:
+            with _CONVERSIONS, tempfile.TemporaryDirectory() as tmp:
                 src = Path(tmp) / f"in{suffix}"
                 src.write_bytes(body)
                 out_dir = Path(tmp) / "out"
                 out_dir.mkdir()
-                cmd = [
-                    self.binary,
-                    f"-env:UserInstallation=file://{tmp}/profile",
-                    "--headless",
-                    "--norestore",
-                    "--convert-to",
-                    target,
-                    "--outdir",
-                    str(out_dir),
-                    str(src),
-                ]
-                try:
-                    subprocess.run(  # nosec B603 - fixed argv, no shell
-                        cmd,
-                        check=True,
-                        capture_output=True,
-                        timeout=self.timeout_s,
-                        env={
-                            "HOME": tmp,
-                            "TMPDIR": tmp,
-                            "LC_ALL": "C.UTF-8",
-                            "PATH": "/usr/bin:/bin",
-                        },
-                    )
-                except (subprocess.SubprocessError, OSError):
+                failure = self._run(self._argv(tmp, out_dir, src, target, cpu_s), tmp, limit)
+                if failure is not None:
+                    self.last_failure = failure
+                    if failure == "timeout":
+                        return None  # a second attempt would only hold the worker twice as long
                     continue
                 produced = sorted(out_dir.glob("in.*"))
                 if produced:
+                    self.last_failure = None
                     return produced[0].read_bytes()
+                self.last_failure = "no_output"
         return None
 
     def pdf_bytes(self, docx: bytes) -> bytes | None:
@@ -244,11 +346,25 @@ class LibreOffice:
         return self._convert(xlsx, ".xlsx", "xlsx:Calc MS Excel 2007 XML")
 
 
+def _not_run_reason(converter: object, absent: str, what: str) -> str:
+    """Why a conversion check did not run: the converter's own reason (a timeout, a failure) or
+    ``absent`` (none is installed)."""
+    why = getattr(converter, "last_failure", None)
+    if why in (None, "not_installed"):
+        return absent
+    if why == "timeout":
+        seconds = getattr(converter, "last_timeout_s", None)
+        if seconds:
+            return f"the {what} conversion did not finish (timeout after {seconds:.0f} s)"
+    return f"the {what} conversion did not finish ({why})"
+
+
 def pdf_row_presence(docx: bytes, keys: Sequence[str], pdf: object) -> CheckResult:
     """Every row key once and in order in the PDF text (``not_run`` without a converter)."""
     text = pdf.pdf_text(docx)  # type: ignore[attr-defined]
     if text is None:
-        return CheckResult("pdf_row_presence", "not_run", "no Word to PDF converter installed")
+        reason = _not_run_reason(pdf, "no Word to PDF converter installed", "Word to PDF")
+        return CheckResult("pdf_row_presence", "not_run", reason)
     problems = keys_once_in_order(text, keys)
     return CheckResult("pdf_row_presence", "failed" if problems else "passed", details=problems)
 
@@ -258,9 +374,16 @@ def recalc_check(
 ) -> CheckResult:
     """Zero error values and each formula cell (sheet, cell) equal to its code-computed value:
     a count, a share (within rounding) or a rank letter."""
-    done = recalc.recalculated(xlsx)  # type: ignore[attr-defined]
+    # the stored results are taken out first: LibreOffice keeps a stored result as it is, so a
+    # file that carries its values would only be read back, never calculated
+    try:
+        bare = strip_cached_values(xlsx)
+    except zipfile.BadZipFile:
+        bare = xlsx
+    done = recalc.recalculated(bare)  # type: ignore[attr-defined]
     if done is None:
-        return CheckResult("workbook_recalc", "not_run", "no spreadsheet engine installed")
+        reason = _not_run_reason(recalc, "no spreadsheet engine installed", "spreadsheet")
+        return CheckResult("workbook_recalc", "not_run", reason)
     wb = load_workbook(io.BytesIO(done), data_only=True)
     problems: list[str] = []
     for ws in wb.worksheets:
@@ -280,6 +403,55 @@ def recalc_check(
     )
 
 
+def cached_values_check(
+    xlsx: bytes, expected: Mapping[tuple[str, str], int | str | float]
+) -> CheckResult:
+    """Every formula cell of the plan carries its result in the delivered file, equal to the
+    value computed in code (what a viewer that does not calculate shows)."""
+    problems: list[str] = []
+    by_sheet: dict[str, dict[str, int | str | float]] = {}
+    for (sheet, coord), value in expected.items():
+        by_sheet.setdefault(sheet, {})[coord] = value
+    wb = load_workbook(io.BytesIO(xlsx), read_only=True, data_only=True)
+    try:
+        for sheet, wanted in by_sheet.items():
+            if sheet not in wb.sheetnames:
+                problems.extend(f"{sheet}!{c}: sheet missing" for c in sorted(wanted))
+                continue
+            spots = {c: coordinate_to_tuple(c) for c in wanted}
+            rows = [r for r, _c in spots.values()]
+            cols = [c for _r, c in spots.values()]
+            first_row, first_col = min(rows), min(cols)
+            grid = list(
+                wb[sheet].iter_rows(
+                    min_row=first_row,
+                    max_row=max(rows),
+                    min_col=first_col,
+                    max_col=max(cols),
+                    values_only=True,
+                )
+            )
+            seen: dict[str, object] = {}
+            for coord, (r, c) in spots.items():
+                line = grid[r - first_row] if r - first_row < len(grid) else ()
+                seen[coord] = line[c - first_col] if c - first_col < len(line) else None
+            for coord, value in sorted(wanted.items()):
+                got = seen.get(coord)
+                if isinstance(value, float):
+                    ok = isinstance(got, int | float) and abs(float(got) - value) <= 1e-9
+                elif value == "":
+                    ok = got in (None, "")
+                else:
+                    ok = got == value
+                if not ok:
+                    problems.append(f"{sheet}!{coord}: cached {got!r} != {value!r}")
+    finally:
+        wb.close()
+    return CheckResult(
+        "workbook_cached_values", "failed" if problems else "passed", details=tuple(problems)
+    )
+
+
 def _skill_scripts_dir() -> Path:
     """Directory containing the skill's gate scripts (rowcheck.py, doc_checks.py)."""
     return CONFIG_DIR / "skill" / "archive" / "scripts"
@@ -295,7 +467,8 @@ def _run_rowcheck(docx: bytes, pdf: PdfRenderPort) -> CheckResult:
         return CheckResult(
             "docx_rowcheck",
             "failed",
-            "Word to PDF converter unavailable (LibreOffice not installed or failed)",
+            "Word to PDF converter unavailable ("
+            f"{getattr(pdf, 'last_failure', None) or 'not installed or failed'})",
         )
     pdftotext = shutil.which("pdftotext")
     if pdftotext is None:
@@ -336,13 +509,13 @@ def _extract_doc_text(data: bytes) -> str:
                 elif name.startswith(
                     ("word/", "ppt/slides/", "ppt/notesSlides/")
                 ) and name.endswith(".xml"):
-                    root = etree.fromstring(z.read(name), parser=_PARSER)
                     # one line per paragraph: joined without a break, a cell ending "S-0002"
-                    # and the heading "6. People" read as the citation S-00026 (2026-10-25)
+                    # and the heading "6. People" read as the citation S-00026 (2026-10-25);
+                    # read as a stream, so a very large table is not held as a tree
                     parts.append(
                         "\n".join(
                             "".join(t.text or "" for t in p.iter(f"{W}t"))
-                            for p in root.iter(f"{W}p")
+                            for p in _stream(z, name, f"{W}p")
                         )
                     )
                 elif name in ("docProps/core.xml", "docProps/app.xml"):
@@ -363,6 +536,93 @@ _SPACED_HYPHEN = re.compile(r"\S\s+-\s+\S")
 # What an exempt passage is replaced by before the dash scan: a non-space letter, so removing a
 # passage can neither create a spaced hyphen nor join two others
 _BLANK = "X"
+
+
+def _dashes_in(text: str, dash_characters: Sequence[str], spaced: bool) -> int:
+    n = sum(text.count(ch) for ch in dash_characters)
+    return n + (len(_SPACED_HYPHEN.findall(text)) if spaced else 0)
+
+
+def dash_count_plain(
+    text: str, exempt: Sequence[str], dash_characters: Sequence[str], spaced: bool
+) -> int:
+    """The banned dashes of ``text`` once every exempt passage (ascending by length) is blanked,
+    longest first so a title inside a quote cannot split it: the rule as first written, one
+    replacement over the whole text per passage."""
+    authored = text
+    for passage in reversed(exempt):
+        authored = authored.replace(passage, _BLANK)
+    return _dashes_in(authored, dash_characters, spaced)
+
+
+# a passage key: its first characters (the whole passage when it is shorter)
+_KEY = 6
+
+
+def dash_count(
+    text: str, exempt: Sequence[str], dash_characters: Sequence[str], spaced: bool
+) -> int:
+    """``dash_count_plain`` in time that does not grow with the passages times the text. A
+    document of 30,000 table rows has thousands of exempt titles; one replacement of each over a
+    100 MB text took half a minute (7,000 postings, fix wave C). Blanking a passage can only
+    remove a dash, never make one, when the passage neither starts nor ends in a space and holds
+    no line break; so only the lines that hold a dash (or take part in a spaced hyphen) need their
+    passages blanked, each found by its first characters. Passages that do have a space at an end
+    or a line break take the plain path."""
+    if not exempt:
+        return _dashes_in(text, dash_characters, spaced)
+    if any(p != p.strip() or "\n" in p for p in exempt):
+        return dash_count_plain(text, exempt, dash_characters, spaced)
+    lines = text.split("\n")
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line) + 1)
+    touched: set[int] = set()
+    for ch in dash_characters:
+        at = text.find(ch)
+        # LOOP(dash positions): cap=the text length (each find starts after the last hit); exit=no
+        # further occurrence
+        while at != -1:
+            touched.add(bisect_right(offsets, at) - 1)
+            at = text.find(ch, at + 1)
+    if spaced:
+        for m in _SPACED_HYPHEN.finditer(text):
+            first, last = (
+                bisect_right(offsets, m.start()) - 1,
+                bisect_right(offsets, m.end() - 1) - 1,
+            )
+            touched.update(range(first, last + 1))
+    if not touched:
+        return 0
+    # first characters -> passage length -> the passages: a position is checked by one set
+    # lookup per length that prefix has, however many passages share it
+    keyed: dict[str, dict[int, set[str]]] = {}
+    for p in exempt:
+        keyed.setdefault(p[:_KEY], {}).setdefault(len(p), set()).add(p)
+    widths = sorted({len(k) for k in keyed})
+    begins = {k[:2] for k in keyed}  # a position that starts no passage is skipped at once
+    for i in touched:
+        line = lines[i]
+        found = {
+            candidate
+            for at in range(len(line))
+            if line[at : at + 2] in begins
+            for width in widths
+            for size, group in keyed.get(line[at : at + width], {}).items()
+            if (candidate := line[at : at + size]) in group
+        }
+        for passage in sorted(found, key=len, reverse=True):
+            line = line.replace(passage, _BLANK)
+        lines[i] = line
+    total = 0
+    run: list[int] = []
+    for i in sorted(touched) + [-1]:
+        if run and i != run[-1] + 1:  # a run of neighbouring lines is counted together
+            region = "\n".join(lines[run[0] : run[-1] + 1])
+            total += _dashes_in(region, dash_characters, spaced)
+            run = []
+        run.append(i)
+    return total
 
 
 def _run_doc_checks(
@@ -388,13 +648,8 @@ def _run_doc_checks(
     orphans = sorted(cited - set(account_ids))
     details.extend(f"orphan_citation:{code}" for code in orphans)
 
-    authored = text
     exempt = sorted({t for t in (*verbatim_quotes, *passthrough) if len(t) > 1}, key=len)
-    for passage in reversed(exempt):  # longest first, so a title inside a quote cannot split it
-        authored = authored.replace(passage, _BLANK)
-    dashes = sum(authored.count(ch) for ch in dash_characters)
-    if spaced_hyphen_is_punctuation:
-        dashes += len(_SPACED_HYPHEN.findall(authored))
+    dashes = dash_count(text, exempt, dash_characters, spaced_hyphen_is_punctuation)
     if dashes:
         details.append(f"banned_dash:{dashes}")
 
@@ -464,32 +719,52 @@ def _in(host: str, hosts: Iterable[str]) -> bool:
     return any(host == h or host.endswith("." + h) for h in hosts if h)
 
 
+def third_party_blocked(text: str) -> str | None:
+    """The reason the third-party scan would refuse ``text`` in a client file (``tool_name``,
+    ``credits`` or ``data_tool_host``), or None. A text copied from a page, such as an archived
+    copy, is checked with this before it is put in the workspace zip, so one page that says
+    "credits" leaves that page out and never stops the delivery."""
+    if any(not cannot_match(p, text) and p.search(text) for p in load_patterns()):
+        return "tool_name"
+    if not cannot_match(_CREDITS, text) and _CREDITS.search(text):
+        return "credits"
+    tools = provider_hosts()
+    for m in _DOMAIN.finditer(text):
+        host = m.group(1).casefold().removeprefix("www.")
+        if not _in(host, _SCHEMA_HOSTS) and (_in(host, tools) or registrable(host) in tools):
+            return "data_tool_host"
+    return None
+
+
 def third_party_scan(
     data: bytes,
     kind: str,
     *,
     account_hosts: Sequence[str] = (),
     aggregator_hosts: Sequence[str] = (),
+    scanned: frozenset[str] = frozenset(),
 ) -> ThirdPartyReport:
     """Spec 12 on one client file (docx, xlsx or the workspace zip): every member's text is
     scanned for a data tool name (the client-output denylist), a data tool host
     (``config/providers.yaml``) and the word "credits"; any hit fails. Every external host is
     sorted into account and press (``account_hosts``: the account domain, its subdomains, the
     verified careers host and the hosts of its primary sources), data tools, aggregators
-    (``aggregator_hosts``) and other. Details name patterns and hosts, never text."""
+    (``aggregator_hosts``) and other. Details name patterns and hosts, never text. ``scanned``
+    holds SHA-256 digests of nested files already scanned on their own (their hosts are in the
+    caller's report already), as for ``scan_package``."""
     tools = provider_hosts()
     patterns = load_patterns()
     hits: list[str] = []
     found: dict[str, set[str]] = {g: set() for g in GROUPS}
-    for where, body in _members(data):
-        text = body.decode("utf-8", "ignore")
+    for where, body in _members(data, scanned=scanned):
         if where.endswith(" (name)"):
             continue
+        text = body.decode("utf-8", "ignore")
         for p in patterns:
-            if p.search(text):
+            if not cannot_match(p, text) and p.search(text):
                 hits.append(f"{where}: tool_name")
                 break
-        if _CREDITS.search(text):
+        if not cannot_match(_CREDITS, text) and _CREDITS.search(text):
             hits.append(f"{where}: credits")
         for m in _DOMAIN.finditer(text):
             host = m.group(1).casefold().removeprefix("www.")

@@ -455,8 +455,10 @@ async def test_banned_dash_in_authored_text(make_builder: Make) -> None:
 
 
 async def test_a_dash_in_a_stored_title_is_not_punctuation(make_builder: Make) -> None:
-    # the posting's own title, printed as it is: outside the rule's scope (a fifth of stored
-    # job titles carry a dash; the archived script failed every such build)
+    # the posting's own title is outside the dash rule's scope (a fifth of stored job titles
+    # carry a dash; the archived script failed every such build), so it never fails a build or
+    # withholds a block; the files print it without the dash (the reference holds none: a spaced
+    # dash becomes a comma, fix wave C)
     c = account()
     ps = list(c.postings)
     ps[0] = ps[0].model_copy(update={"title": "Synthetic Developer – Remote (m/f/d)"})
@@ -464,7 +466,8 @@ async def test_a_dash_in_a_stored_title_is_not_punctuation(make_builder: Make) -
     assert result.status == "complete", result.errors
     assert not result.manifest.withheld_blocks
     evidence = next(d for d in result.deliverables if d.kind == "evidence")
-    assert "Synthetic Developer – Remote" in docx_text(store.objects[evidence.object_key])
+    assert "Synthetic Developer, Remote" in docx_text(store.objects[evidence.object_key])
+    assert "\u2013" not in docx_text(store.objects[evidence.object_key])
 
 
 async def test_banned_dash_inside_a_quote_stays_verbatim(make_builder: Make) -> None:

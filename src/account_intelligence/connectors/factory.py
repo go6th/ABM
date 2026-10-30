@@ -176,6 +176,7 @@ def build_runtime(
         txn,
         clock,
         lease_ttl_s=d.ledger.lease_ttl_s,
+        lease_stale_after_s=d.ledger.lease_stale_after_s,
         budget_defaults=BudgetDefaults(d.run_budget_usd, d.tool_call_cap),
         cache=cache,  # research cache: reuse of finished calls across runs of one tenant
         in_flight_stale_s=d.ledger.in_flight_stale_s,

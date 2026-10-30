@@ -239,6 +239,26 @@ class GcsObjectStore:
 
         return await asyncio.to_thread(names)
 
+    async def delete_prefix(self, prefix: str, limit: int) -> int:
+        """See ``ObjectStore.delete_prefix``: at most ``limit`` objects, one page per call. The
+        prefix must name a tenant tree (``tenants/<uuid>/`` and the other layouts of
+        ``tenancy.storage``), so a bug can never empty the bucket."""
+        import asyncio
+
+        from tenancy.storage import is_tenant_prefix
+
+        if not is_tenant_prefix(prefix):
+            raise ValueError("refusing to delete outside a tenant prefix")
+
+        def drop() -> int:
+            """Delete one page of the objects under the prefix."""
+            blobs = list(self._bucket.list_blobs(prefix=prefix, max_results=limit))
+            for blob in blobs:
+                blob.delete()
+            return len(blobs)
+
+        return await asyncio.to_thread(drop)
+
 
 class ObjectScanner:
     """The tenant plane's scanner (``spend.upload.ScanPort``: scan an object by key) over the

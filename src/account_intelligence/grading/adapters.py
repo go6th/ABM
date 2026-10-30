@@ -4,13 +4,23 @@ Sources are the normalised records of this run's ledgered calls, re-parsed deter
 from their stored payloads (the ledger keeps the call arguments). Fetch records come from the
 same ledger: ``done`` calls are successful, attempts that only ``failed`` are unsuccessful.
 Every query reads under ``tenant_txn`` for the run's tenant (forced RLS) and filters by run id.
+
+Grading loads the run's sources once per batch, and a research grades dozens of batches. Each
+load used to read every stored payload again (one object-store read apiece, one after another)
+and parse it on the event loop, job feed pages of tens of megabytes included: minutes per batch
+and a loop that could not answer its health check. A stored payload never changes (its key is
+its content), so the sources parsed from it are kept on the adapter, which belongs to one run's
+slice: a load reads and parses only the calls it has not seen, side by side, off the event loop.
+The memo is keyed by tenant, run, call and payload, and is filled only from rows the tenant's own
+transaction returned.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -35,6 +45,10 @@ from account_intelligence.grading.config import GradingConfig
 from account_intelligence.grading.ports import FetchRecord, RunInfo, RunSource
 from account_intelligence.grading.repo import TxnFactory
 from account_intelligence.urls import normalize_url
+from crosscut.fanout import fan_out_all
+
+# payloads read and parsed at once when a load meets calls it has not parsed yet
+SOURCE_LOADS_IN_FLIGHT = 8
 
 
 def record_text(r: Record) -> str:
@@ -99,6 +113,11 @@ class LedgerAdapter:
     payloads: PayloadStore
     connectors: Mapping[ProviderCode, Connector]
     cfg: GradingConfig
+    # the sources parsed from a stored payload, by (tenant, run, call, payload): see the module
+    # docstring. One adapter serves one run's slice, so this lives and dies with it.
+    _parsed: dict[tuple[Any, Any, str, str], tuple[RunSource, ...]] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     async def _rows(self, run: RunInfo) -> list[Any]:
         async with self.txn(run.tenant_id) as s:
@@ -165,50 +184,82 @@ class LedgerAdapter:
         return out
 
     async def sources(self, run: RunInfo) -> Sequence[RunSource]:
-        """Every stored source text of this run, re-parsed from its payload."""
+        """Every stored source text of this run, re-parsed from its payload (once per payload)."""
+        rows = [r for r in await self._rows(run) if self._usable(r)]
+        keys = [(run.tenant_id, run.run_id, r.args_hash, r.response_ref) for r in rows]
+        todo = [(k, r) for k, r in zip(keys, rows, strict=True) if k not in self._parsed]
+
+        async def load(item: tuple[tuple[Any, Any, str, str], Any]) -> tuple[RunSource, ...]:
+            """The sources of one call not parsed yet."""
+            return await self._load(run, item[1])
+
+        loaded = await fan_out_all(todo, load, limit=SOURCE_LOADS_IN_FLIGHT)
+        for (key, _row), found in zip(todo, loaded, strict=True):
+            self._parsed[key] = found
+        return [source for key in keys for source in self._parsed[key]]
+
+    @staticmethod
+    def _usable(row: Any) -> bool:
+        """A row that can be re-parsed: it has a payload and the call's arguments (a claim citing
+        any other is refused, ``url_not_in_run``)."""
+        return row.response_ref is not None and "args" in (row.response or {})
+
+    async def _load(self, run: RunInfo, row: Any) -> tuple[RunSource, ...]:
+        """The sources of one call: its payload read, then parsed off the event loop."""
+        meta = row.response or {}
+        op = Operation(row.operation)
+        args = ARGS_FOR[op].model_validate_json(json.dumps(meta["args"]))
+        body = await self.payloads.get(row.response_ref)
+        retrieved = datetime.fromisoformat(meta["retrieved_at"])
+        connector = self.connectors[ProviderCode(row.provider_code)]
+        return await asyncio.to_thread(
+            self._parse, run, row, meta, op, args, body, retrieved, connector
+        )
+
+    def _parse(
+        self,
+        run: RunInfo,
+        row: Any,
+        meta: Mapping[str, Any],
+        op: Operation,
+        args: Any,
+        body: bytes,
+        retrieved: datetime,
+        connector: Connector,
+    ) -> tuple[RunSource, ...]:
+        """One payload parsed into its sources (pure: no I/O, no shared state)."""
+        base = {
+            "provider_code": row.provider_code,
+            "operation": op,
+            "raw_ref": row.response_ref,
+            "retrieved_at": retrieved,
+        }
+        raw = RawResponse(200, str(meta.get("content_type", "application/json")), body, {}, 0, "")
+        parsed = connector.parse(op, cast(OperationArgs, args), raw, base, meta.get("cursor"))
         out: list[RunSource] = []
-        for row in await self._rows(run):
-            meta = row.response or {}
-            if row.response_ref is None or "args" not in meta:
-                continue  # cannot be re-parsed: claims citing it are refused (url_not_in_run)
-            op = Operation(row.operation)
-            args = ARGS_FOR[op].model_validate_json(json.dumps(meta["args"]))
-            body = await self.payloads.get(row.response_ref)
-            retrieved = datetime.fromisoformat(meta["retrieved_at"])
-            base = {
-                "provider_code": row.provider_code,
-                "operation": op,
-                "raw_ref": row.response_ref,
-                "retrieved_at": retrieved,
-            }
-            connector = self.connectors[ProviderCode(row.provider_code)]
-            raw = RawResponse(
-                200, str(meta.get("content_type", "application/json")), body, {}, 0, ""
-            )
-            parsed = connector.parse(op, cast(OperationArgs, args), raw, base, meta.get("cursor"))
-            for i, record in enumerate(parsed.records):
-                url = record.provenance.source_url
-                if not url:
-                    continue
-                try:
-                    norm = normalize_url(url)
-                except ValueError:
-                    continue
-                out.append(
-                    RunSource(
-                        source_ref=f"{row.response_ref}#{i}",
-                        call_ref=row.args_hash,
-                        run_id=run.run_id,
-                        url=url,
-                        url_normalized=norm,
-                        host=(norm.split("/")[2]).split(":")[0],
-                        text=record_text(record),
-                        origin=self.cfg.origin_by_operation.get(row.operation, "broker_record"),
-                        provider_code=row.provider_code,
-                        operation=row.operation,
-                        fetched_at=retrieved,
-                        published_at=record_published(record),
-                        lineage_hint=record.lineage_hint,
-                    )
+        for i, record in enumerate(parsed.records):
+            url = record.provenance.source_url
+            if not url:
+                continue
+            try:
+                norm = normalize_url(url)
+            except ValueError:
+                continue
+            out.append(
+                RunSource(
+                    source_ref=f"{row.response_ref}#{i}",
+                    call_ref=row.args_hash,
+                    run_id=run.run_id,
+                    url=url,
+                    url_normalized=norm,
+                    host=(norm.split("/")[2]).split(":")[0],
+                    text=record_text(record),
+                    origin=self.cfg.origin_by_operation.get(row.operation, "broker_record"),
+                    provider_code=row.provider_code,
+                    operation=row.operation,
+                    fetched_at=retrieved,
+                    published_at=record_published(record),
+                    lineage_hint=record.lineage_hint,
                 )
-        return out
+            )
+        return tuple(out)

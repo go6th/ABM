@@ -47,7 +47,19 @@ from agents.ports import (
     ProviderPort,
     ProviderResult,
     RunContext,
+    SourceItem,
 )
+from crosscut.fanout import fan_out_all
+
+# Queries of one row asked side by side, and stored items written side by side. A row's queries
+# are independent searches (3 to 15 of them, 3 s each and as many page reads as the search found
+# pages), asked one after another they held the row for minutes (speed audit 2026-10-27). What
+# bounds the calls in flight is the provider's gate (``agents.production.provider``), the
+# connectors' pacing and the credit gate, not these numbers.
+QUERIES_IN_FLIGHT = 4
+# each store is an object write and an archive row in the database (the worker's pool is 10
+# connections for everything), so a few at a time per row
+STORES_IN_FLIGHT = 4
 
 # The provider's reason when the run has used the credits confirmed for it.
 CREDIT_LIMIT = "cap_reached"
@@ -160,21 +172,31 @@ class PullAgent:
                 self.goal if row.row_key in self.goal_rows else None,
             )
         )
-        for query in public:
+
+        async def ask(query: str) -> ProviderResult | CapPause | ProviderFailed:
+            """One query; a refusal or a failed source is returned, not raised."""
             meter.charge_call()
             try:
-                result = await self.provider.call(ctx, row.need, query, row.row_key)
-            except CapPause as pause:
-                if pause.reason == CREDIT_LIMIT:
+                return await self.provider.call(ctx, row.need, query, row.row_key)
+            except (CapPause, ProviderFailed) as error:
+                return error
+
+        # the queries run side by side and are read back in query order, so what a row stores,
+        # and what stops it, is what the one-at-a-time loop stored and stopped on
+        for query, result in zip(
+            public, await fan_out_all(public, ask, limit=QUERIES_IN_FLIGHT), strict=True
+        ):
+            if isinstance(result, CapPause):
+                if result.reason == CREDIT_LIMIT:
                     self.capped = True
                     failure = "budget_cap"
                     break
                 if ctx.attended and not self.record_refusals:
-                    raise SpendPause(row.row_key, pause.reason) from pause
+                    raise SpendPause(row.row_key, result.reason) from result
                 failure = "spend_not_approved"
                 break
-            except ProviderFailed as error:
-                failure = error.reason
+            if isinstance(result, ProviderFailed):
+                failure = result.reason
                 continue
             refs += await self._store(ctx, row, result, "public")
             calls += result.call_refs
@@ -212,8 +234,14 @@ class PullAgent:
     async def _store(
         self, ctx: RunContext, row: PlanRow, result: ProviderResult, visibility: str
     ) -> list[str]:
-        """One payload per source item (a zero-result call stores none; its call ref is proof)."""
-        return [await self.payloads.put(ctx, row.row_key, i, visibility) for i in result.items]
+        """One payload per source item (a zero-result call stores none; its call ref is proof).
+        The items are written side by side (each is an object-store write and an archive row) and
+        returned in the call's order."""
+
+        async def put(item: SourceItem) -> str:
+            return await self.payloads.put(ctx, row.row_key, item, visibility)
+
+        return await fan_out_all(result.items, put, limit=STORES_IN_FLIGHT)
 
     def blocked(self, row: PlanRow, reason: str) -> ManifestRow:
         """A Blocked manifest row with a reason code."""

@@ -144,7 +144,7 @@ Hard invariants that hold regardless of the choice:
 - Turns are **reserved before they run** (`reserve_turn`): per-user chat limits, per-thread turn
   and dollar caps, idempotency by request id — a repeated request **replays** the stored answer
   instead of paying again.
-- The tabular eval proves the contract on the owner's real GSK workspace: five runs per case, the
+- The tabular eval proves the contract on a synthetic workspace ("Synthetic Holdings"): five runs per case, the
   canonical **evidence** traces (filtered `query_table` calls plus `read_rows` on the target
   table) must converge ≥3/5, and **every** run's answer must pass its assertions; a run that
   never queries the target table fails outright even if its numbers look right.

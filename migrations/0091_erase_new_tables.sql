@@ -1,14 +1,22 @@
 -- Migration 0091: tenant deletion also erases the link archive and the organisation tech stack
 -- (tables added by migrations 0086 and 0090 after the erasure allow-list of migration 0020).
 -- Both hold the client's own research output (copies of pages read, the technologies named), so a
--- deletion on request removes them with the other derived data. Same rules as 0020: the eraser
--- role is granted DELETE on exactly these tables, and erase_rows (SECURITY DEFINER, owner
+-- deletion on request removes their ROWS with the other derived data. The archived bodies in the
+-- payload store are NOT deleted: the store has no delete operation (config/deletion.yaml,
+-- raw_payload_objects); without the index rows no route reaches them (security review
+-- 2026-10-29, F2). Same rules as 0020: the eraser
+-- role is granted DELETE on exactly these tables, and erase_rows (a definer-rights function owned by
 -- tenant_eraser, deletes at most p_limit rows of the caller's context tenant while an approved
 -- deletion request is open) gains them in its hard-coded allow-list. config/deletion.yaml lists
 -- them in `erase` (a test ties the two lists together). Rollback: 0091_erase_new_tables.down.sql.
 
 GRANT DELETE ON link_archive, tech_stack_items TO tenant_eraser;
 
+-- reviewed: SECURITY DEFINER (owner tenant_eraser, NOLOGIN, NOBYPASSRLS). Deletes at most
+-- p_limit rows of the CALLER's context tenant (app_rw's tenant policies, inherited) from one table
+-- of the hard-coded allow-list, only while deletion request p_request has a dry run, was approved
+-- by a person other than its requester, and is neither completed nor cancelled. Returns the
+-- number of rows deleted. Unchanged from migration 0020 except for the allow-list.
 CREATE OR REPLACE FUNCTION erase_rows(p_request uuid, p_table text, p_limit integer)
    RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE

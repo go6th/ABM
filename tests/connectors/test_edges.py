@@ -238,3 +238,46 @@ def test_job_poll_stops_at_max_polls() -> None:
             )
         )
     assert len(polls) == 2
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_a_lease_its_owner_stopped_renewing_can_be_taken_before_its_ttl_runs_out(
+    tenant_a: UUID,
+) -> None:
+    """Orchestration review F5: a worker killed mid-slice leaves a live lease (the ttl is longer
+    than a slice) that blocked the retries of its slice. A lease its owner has not renewed for the
+    stale time can be taken; one the owner keeps renewing cannot, and the epoch moves on."""
+    account, run, domain = make_run(tenant_a)
+    ctx = context(tenant_a, account, run, domain)
+    clock = FakeClock()
+    ledger = Ledger(
+        tenant_txn, clock, lease_ttl_s=1800, budget_defaults=DEFAULTS, lease_stale_after_s=90
+    )
+    assert await ledger.acquire_lease(ctx, "a") == 1
+    clock.advance(60)
+    with pytest.raises(LeaseUnavailable):  # a renewed 60 s ago: alive
+        await ledger.acquire_lease(ctx, "b")
+    assert await ledger.acquire_lease(ctx, "a") == 1  # a's heartbeat: the epoch is kept
+    clock.advance(60)
+    with pytest.raises(LeaseUnavailable):  # 60 s since the last beat: still alive
+        await ledger.acquire_lease(ctx, "b")
+    clock.advance(40)  # 100 s of silence: a is gone
+    assert await ledger.acquire_lease(ctx, "b") == 2  # the epoch moved on
+    with pytest.raises(LeaseUnavailable):  # and the dead owner cannot take it back while b beats
+        await ledger.acquire_lease(ctx, "a")
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_without_a_stale_time_only_an_expired_lease_can_be_taken(tenant_a: UUID) -> None:
+    account, run, domain = make_run(tenant_a)
+    ctx = context(tenant_a, account, run, domain)
+    clock = FakeClock()
+    ledger = Ledger(tenant_txn, clock, lease_ttl_s=300, budget_defaults=DEFAULTS)
+    assert await ledger.acquire_lease(ctx, "a") == 1
+    clock.advance(200)
+    with pytest.raises(LeaseUnavailable):
+        await ledger.acquire_lease(ctx, "b")
+    clock.advance(101)
+    assert await ledger.acquire_lease(ctx, "b") == 2

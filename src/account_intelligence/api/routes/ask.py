@@ -359,9 +359,7 @@ async def ask(
                     "cache_read_tokens": getattr(usage, "cache_read_tokens", 0),
                     "cache_write_tokens": getattr(usage, "cache_write_tokens", 0),
                     "cost_usd": str(cost),
-                    "matched_columns": ",".join(decision.matched_columns)[:200],
-                    "matched_values": ",".join(decision.matched_values)[:200],
-                    "reason": decision.reason[:200],
+                    **route_log(decision),
                     "outcome": "model" if from_model else "local",
                     "latency_ms": round((time.monotonic() - turn_started) * 1000),
                     **stats,
@@ -545,6 +543,17 @@ def _classifier(request: Request, provider: Any, model_id: str) -> Any:
     if client is None or helper is None:
         return None
     return R.LlmRouteClassifier(client, helper.model, helper.max_tokens)
+
+
+def route_log(decision: R.Decision) -> dict[str, int]:
+    """What the ``ask.route`` line says about the router's match: how many columns and values
+    of the caller's uploaded tables the question named, never which ones. The values are the
+    client's own table cells (company names, platforms, possibly people) and the reason repeats
+    them; logs carry ids and counts, not text (leakage review 2026-10-30, F9)."""
+    return {
+        "matched_column_count": len(decision.matched_columns),
+        "matched_value_count": len(decision.matched_values),
+    }
 
 
 def _done_frame(turn_id: Any, model_id: str, usage: Any, cost: Decimal) -> dict[str, Any]:

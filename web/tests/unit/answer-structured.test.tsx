@@ -18,7 +18,7 @@ function view(data: Structured) {
 }
 
 const fixture: Structured = {
-  headline: "**GSK**: no Salesforce-related posting opened since 1 March 2026 [1].",
+  headline: "**Synthetic Holdings**: no Salesforce-related posting opened since 1 March 2026 [1].",
   stats: [
     { label: "open since 1 Mar 2026", value: "0" },
     { label: "unique closed matches", value: "14" },
@@ -47,7 +47,7 @@ const fixture: Structured = {
 test("the headline, its numbers and every section render, citations as chips", () => {
   const { container } = view(fixture);
   const head = container.querySelector(".sa-head");
-  expect(head?.querySelector(".sa-headline strong")?.textContent).toBe("GSK");
+  expect(head?.querySelector(".sa-headline strong")?.textContent).toBe("Synthetic Holdings");
   expect(head?.querySelectorAll(".sa-stat").length).toBe(2);
   expect(head?.querySelector(".sa-stat b")?.textContent).toBe("0");
   expect(container.textContent).toContain("The finding");

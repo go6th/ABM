@@ -252,22 +252,16 @@ def test_signals_requests_carry_page_limit_and_delta_filter() -> None:
         Operation.JOB_OPENINGS, FeedArgs(domain="acme.com", since=date(2026, 9, 1)), "2"
     )
     assert req.path == "/companies/acme.com/job_openings"
-    # the documented maximum page size; the job feed asks for described postings only
-    assert req.params == {
-        "page": 2,
-        "limit": 1000,
-        "first_seen_at_from": "2026-09-01",
-        "with_description_only": "true",
-    }
+    # the documented maximum page size; the description filter is off unless a caller sets it
+    assert req.params == {"page": 2, "limit": 1000, "first_seen_at_from": "2026-09-01"}
+    described = conn.build_request(
+        Operation.JOB_OPENINGS, FeedArgs(domain="acme.com", with_description_only=True), None
+    )
+    assert described.params == {"page": 1, "limit": 1000, "with_description_only": "true"}
     active = conn.build_request(
         Operation.JOB_OPENINGS, FeedArgs(domain="acme.com", active_only=True), None
     )
-    assert active.params == {
-        "page": 1,
-        "limit": 1000,
-        "active_only": "true",
-        "with_description_only": "true",
-    }
+    assert active.params == {"page": 1, "limit": 1000, "active_only": "true"}
     news = conn.build_request(
         Operation.NEWS_EVENTS, FeedArgs(domain="acme.com", since=date(2026, 9, 1)), None
     )

@@ -249,4 +249,4 @@ def render_tech(model: TechModel, cfg: ExportConfig, title: str) -> tuple[bytes,
     _ranking(book, model, cfg)
     _stack(book, model, cfg)
     _teams(book, model, cfg)
-    return book.bytes(title, model.as_of), 0
+    return book.bytes(title, model.as_of), book.counted

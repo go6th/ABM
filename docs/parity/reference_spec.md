@@ -18,8 +18,9 @@ LibreOffice so cached values exist.
 Jobs: 14 columns, in order, with widths:
 Requisition 12 | Title 44 | Platforms named 18 | Class 20 | Status 9 | First seen 11 | Last seen 11 |
 Location 26 | Seniority 11 | Entity 26 | What the posting says (read) 50 | Platform sentences 70 |
-Full description 60 | Link 13. Freeze `C2` (panes xSplit 2 ySplit 1), filter over the table, rows
-sorted by First seen descending.
+Full description 60 | Link 13. Freeze `C2` (panes xSplit 2 ySplit 1; the measured file and `reference_manifest.json` say `C9`, an
+owner slip in the file, the code follows this spec), filter over the table, rows sorted by First
+seen descending.
 * Requisition: the id printed after "Job ID" in the posting text (blank on 1,041 of 1,897 rows);
   never made up from the URL.
 * Platforms named: comma list in the FIXED order Salesforce, MuleSoft, ServiceNow, SAP, Tableau,

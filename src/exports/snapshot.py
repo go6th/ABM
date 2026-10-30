@@ -26,6 +26,13 @@ def open_snapshot(tenant_id: UUID) -> AbstractAsyncContextManager[AsyncSession]:
     return tenant_txn(tenant_id, snapshot=True)
 
 
+def open_system_lookup(tenant_id: UUID) -> AbstractAsyncContextManager[AsyncSession]:
+    """A read-only transaction in SYSTEM scope, for the one lookup of a build that must see every
+    account of the tenant whoever asked for it: the other accounts' names, which are forbidden
+    terms (``readers.pg``). Nothing else is read through it."""
+    return tenant_txn(tenant_id, snapshot=True, system=True)
+
+
 def session_factory(session: AsyncSession, tenant_id: UUID) -> TxnFactory:
     """A ``TxnFactory`` that yields ``session`` (inside the snapshot) for ``tenant_id`` only."""
 

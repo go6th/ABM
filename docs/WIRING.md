@@ -9,10 +9,10 @@ provider calls. Those require separate local-stack or externally configured chec
 
 ## Summary
 
-- Backend operations in OpenAPI: **210**.
+- Backend operations in OpenAPI: **213**.
 - Frontend literal call sites found: **85**.
 - Frontend call sites mapped to backend operations: **81**.
-- Backend operations without a direct frontend call site: **137**.
+- Backend operations without a direct frontend call site: **140**.
 - Route-policy/catalog violations: **0**.
 - Unmapped frontend calls: **0**.
 
@@ -149,12 +149,15 @@ Schema names come from the live application OpenAPI document. Policy values come
 | `GET /readyz` | — | Ready (200) | public health probe |
 | `GET /v1/accounts` | — | AccountPage (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}` | — | AccountDetail (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/archive` | — | ArchivedCopy (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/archive/list` | — | ArchiveList (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/deliverables` | — | DeliverableFiles (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/deliverables/download` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/accounts/{domain}/file-analysis` | — | FileAnalysisRun (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/history` | — | History (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/refresh` | — | RefreshOptions (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/sheets/{sheet}` | — | Sheet (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
+| `GET /v1/accounts/{domain}/sheets/{sheet}/cell` | — | SheetCellText (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/sheets/{sheet}/csv` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |
 | `GET /v1/accounts/{domain}/sheets/{sheet}/tabs/{tab}` | — | SheetTab (200) | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=read |
 | `GET /v1/accounts/{domain}/sheets/{sheet}/xlsx` | — | — | tenant; roles=admin, analyst, seller, viewer; principal=jwt, session; tenant=session; audit=export |

@@ -54,6 +54,10 @@ class SourceItem:
     url: str
     text: str
     match_kind: str | None = None  # "keyword_match" | "date_range" | None
+    # what the record behind the item states about itself, as (name, text) pairs: its kind
+    # (``news``, ``page``), title, summary, published date, category. The link archive builds
+    # the structured copy of the address from them; the extractors read only ``text``.
+    meta: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -104,6 +108,9 @@ class PipelineOutcome:
 
     counters: Mapping[str, int] = field(default_factory=dict)
     exits: Mapping[str, str] = field(default_factory=dict)
+    # the ledger keys of the calls the pipeline made for a row it owns, when the graph must report
+    # that row for it (the technology detections handed over at the pull ceiling)
+    calls: tuple[str, ...] = ()
 
 
 class PipelinePort(Protocol):

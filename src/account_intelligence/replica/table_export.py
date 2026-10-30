@@ -30,6 +30,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from account_intelligence.replica import sheets as SH
+from exports.urlcheck import is_safe_http_url
 
 PAGE = 2000
 EXCEL_ROWS = 1_048_576  # rows per worksheet, the header row included
@@ -39,10 +40,14 @@ async def rows(
     session: Any, q: SH.Query, account_id: UUID, user_id: str, now: datetime, page: int = PAGE
 ) -> AsyncIterator[dict[str, Any]]:
     """Every row of the filtered, sorted table, as the sheet shows it (``n``, cells, link)."""
-    params = SH.params(q, account_id, user_id, now)
+    params = SH.params(
+        q, account_id, user_id, now, await SH.hidden_ids(session, q, account_id, user_id, now)
+    )
     order = f"{q.sort.sort} {'DESC' if q.desc else 'ASC'} NULLS LAST, {q.sheet.tiebreak}"
     where = f"({q.filter.where}) AND ({q.sheet.export_where})"
-    sql = f"SELECT * FROM ({q.sheet.base}) s WHERE {where} ORDER BY {order} OFFSET :o LIMIT :l"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+    sql = (
+        f"SELECT * FROM ({SH.visible_base(q)}) s WHERE {where} ORDER BY {order} OFFSET :o LIMIT :l"  # nosec B608 -- allow-listed sheet SQL; values are bound.
+    )
     n = 0
     # LOOP(table export pages): cap=the table's rows / page pages; exit=a short page
     while True:
@@ -69,6 +74,28 @@ def _values(q: SH.Query, row: dict[str, Any], *, excel: bool = False) -> list[An
     ]
 
 
+# Excel's cell limit counts UTF-16 units; a text over it makes the whole file unreadable
+CELL_LIMIT = 32_767
+CELL_CUT = "… (cut here; the whole text is in the delivered file)"
+
+
+def fit_cell(value: Any) -> Any:
+    """``value`` as a cell Excel can hold: a text over the cell limit is cut with a closing note
+    (the delivered file keeps the whole text on its Long text sheet)."""
+    if not isinstance(value, str) or len(value) * 2 <= CELL_LIMIT:
+        return value
+    if len(value.encode("utf-16-le")) // 2 <= CELL_LIMIT:
+        return value
+    keep, used, end = CELL_LIMIT - len(CELL_CUT) - 8, 0, len(value)
+    for at, ch in enumerate(value):  # one pass: an emoji takes two units
+        used += 2 if ord(ch) > 0xFFFF else 1
+        if used > keep:
+            end = at
+            break
+    cut = value[:end]
+    return cut + CELL_CUT
+
+
 def _link_cell(ws: Any, label: Any, href: str | None) -> Any:
     """A write-only cell that shows ``label`` and opens ``href``."""
     from openpyxl.cell import WriteOnlyCell
@@ -76,7 +103,7 @@ def _link_cell(ws: Any, label: Any, href: str | None) -> Any:
 
     cell = WriteOnlyCell(ws, value=label)
     cell.data_type = "s"
-    if href:
+    if href and is_safe_http_url(href):
         cell.hyperlink = href
         cell.font = Font(color="0563C1", underline="single")
     return cell
@@ -146,6 +173,7 @@ async def write_xlsx(
         for raw, col in zip(_values(q, row, excel=True), cols, strict=True):
             value, held = SH.safe_cell(raw, shareable=shareable)
             withheld += held
+            value = fit_cell(value)
             if col is not None and col.kind == "link":
                 values.append(_link_cell(ws, value, row["link"]))
             elif col is not None and col.kind == "url" and links.get(col.key):

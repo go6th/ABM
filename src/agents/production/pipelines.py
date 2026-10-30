@@ -32,17 +32,20 @@ GUARANTEE(test_pipelines_run_after_the_reading_step_and_report_their_rows)
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from sqlalchemy import text
 
 from account_intelligence import archive as LA
-from account_intelligence.connectors.base import Operation
+from account_intelligence import archive_records as AR
+from account_intelligence.connectors.base import SINGLE_CALL_CEILING_S, Operation
 from account_intelligence.connectors.errors import ConnectorError, RetryableProviderError
 from account_intelligence.connectors.models import (
     FeedArgs,
@@ -52,7 +55,7 @@ from account_intelligence.connectors.models import (
     TechDetectionRecord,
     TechStackRecord,
 )
-from account_intelligence.connectors.service import call_operation
+from account_intelligence.connectors.service import ConnectorRuntime, call_operation
 from account_intelligence.workflow.deps import RunDeps
 from agents.ports import PipelineOutcome, RunContext
 from obs.logging import logger
@@ -109,6 +112,7 @@ class RunPipelines:
             RunPayloads,
             TrackerEvidence,
         )
+        from jobs.claims import claim_id
         from jobs.config import load_jobs_config
         from jobs.incremental import postings_since, previous_run_id
         from jobs.pipeline import JobsPipeline
@@ -136,19 +140,34 @@ class RunPipelines:
             ).one()
         jobs_cfg = load_jobs_config()
         run_input = dict(row.run_input or {})
-        repo = PgPostingRepo(deps.txn, deps.tenant_id, deps.account_id)
+        # the archive copies of the postings pass the page guard (a refused field is withheld)
+        from agents.naming import archive_guard
+
+        repo = PgPostingRepo(
+            deps.txn,
+            deps.tenant_id,
+            deps.account_id,
+            deps.payloads,
+            archive_guard,
+            on_archive_failure=lambda _posting: _log.warning(
+                "archive.write_failed", extra={"where": "jobs"}
+            ),
+        )
+        # an incremental re-research pulls the delta window only, and only when the previous
+        # research's record is at hand: without it nothing would be carried, so the whole window
+        # is pulled (jobs.incremental; review 2026-10-29, finding 2)
+        wanted = previous_run_id(run_input)
+        previous = await repo.load_previous(wanted) if wanted else None
         pipeline = JobsPipeline(
             jobs_cfg,
-            # an incremental re-research pulls the delta window only (jobs.incremental)
-            ConnectorPostingSource(
-                deps, host, ctx.blocked_hosts, since_override=postings_since(run_input)
-            ),
+            ConnectorPostingSource(deps, host, ctx.blocked_hosts),
             ConnectorPageReader(deps),
             LlmPostingClassifier(deps, "classify_posting", "posting_classifier.v1"),
             LlmPostingClassifier(deps, "second_pass_posting", "posting_second_pass.v1"),
             canary=deps.canary,
             hostile_markers=tuple(gcfg.spans.instruction_markers),
             is_hostile=hostile,
+            delta_since=postings_since(run_input) if previous is not None else None,
         )
         collector = ClaimCollector([])
         result = await run_jobs(
@@ -161,8 +180,7 @@ class RunPipelines:
             RunJobsInput(
                 frozenset(run_input.get("lanes_off") or ()),
                 row.created_at.date(),
-                previous_run_id=previous_run_id(run_input),
-                repo=repo,
+                previous=previous,
             ),
         )
         lane_of: dict[str, str] = {}
@@ -173,7 +191,33 @@ class RunPipelines:
             with contextlib.suppress(StopIteration):  # a platform outside the lexicon: no lane
                 lane_of[str(raw["local_id"])] = jobs_cfg.lane_of(platform)
             raws.append(raw)
-        graded = await self.grading.grade_raw(ctx, raws, lane_of)
+        # a carried posting was not fetched in this run, so the engine could not verify its claim
+        # against this run's sources: its previous graded fact is recorded again for this run
+        # through the engine's write path instead (jobs_carry); the run's other claims are graded
+        carried_ids = {
+            claim_id(p.posting_key, platform)
+            for p in result.postings
+            if p.new_since_previous is False
+            for platform in p.platforms
+        }
+        carried_raws = [r for r in raws if str(r.get("local_id")) in carried_ids]
+        graded = await self.grading.grade_raw(
+            ctx, [r for r in raws if str(r.get("local_id")) not in carried_ids], lane_of
+        )
+        carried_facts, unmatched = 0, 0
+        if carried_raws and result.previous_run_id:
+            from account_intelligence.grading.integration import load_run_info
+            from agents.production.jobs_carry import carry_job_facts
+
+            copied, missed = await carry_job_facts(
+                deps.txn,
+                await load_run_info(deps.txn, ctx.tenant_id, ctx.run_id),
+                UUID(result.previous_run_id),
+                carried_raws,
+                self.grading.cfg.content_hash,
+            )
+            carried_facts, unmatched = len(copied), len(missed)
+            graded = {**graded, "graded": int(graded.get("graded", 0)) + carried_facts}
         counters: Counter[str] = Counter(
             {
                 "jobs_postings": len(result.postings),
@@ -181,6 +225,10 @@ class RunPipelines:
                 "jobs_read": sum(1 for p in result.postings if p.read),
                 "jobs_claims": len(raws),
                 "jobs_calls": result.calls_made,
+                "jobs_claims_without_text": result.claims_skipped_text,
+                "jobs_description_less": result.description_less,
+                "jobs_carried_facts": carried_facts,
+                "jobs_carried_claims_without_fact": unmatched,
             }
         )
         counters.update({f"jobs_grade_{k}": v for k, v in graded.items()})
@@ -240,8 +288,19 @@ class RunPipelines:
             else None
         )
         hostile, markers = _is_hostile()
+        from agents.naming import archive_guard
+
         repo = PgPeopleRepo(
-            deps.txn, deps.tenant_id, deps.account_id, deps.payloads, deps.payload_key
+            deps.txn,
+            deps.tenant_id,
+            deps.account_id,
+            deps.payloads,
+            deps.payload_key,
+            guard=archive_guard,
+            on_archive_failure=lambda error: _log.warning(
+                "archive.write_failed",
+                extra={"where": "people", "error": type(error).__name__},
+            ),
         )
         # people named in the graded facts, and the archived profile pages of the research's
         # own searches, so a named executive or a person returned without a link gets the
@@ -358,15 +417,21 @@ class RunPipelines:
                 deps.call_context(),
                 deps.connectors,
             )
-        except RetryableProviderError:
-            raise
+        except RetryableProviderError as error:
+            # the node RetryPolicy owns retries: handed up below its budget, a stated source
+            # failure above it (the same rule as the jobs and people adapters)
+            if (error.attempt or 1) < deps.retry_max_attempts:
+                raise
+            return PipelineOutcome({"tech_rows": 0}, {"tech": "source_failed"})
         except ConnectorError:
             return PipelineOutcome({"tech_rows": 0}, {"tech": "source_failed"})
         records = [r for r in result.records if isinstance(r, TechDetectionRecord)]
         written = await self._insert_detections(records)
         _log.info("pipelines.tech", extra={"count": len(records), "rows": written})
         return PipelineOutcome(
-            {"tech_rows": written, "tech_records": len(records)}, {"tech": "written"}
+            {"tech_rows": written, "tech_records": len(records)},
+            {"tech": "written"},
+            tuple(result.call_refs),
         )
 
     async def _insert_detections(self, records: list[TechDetectionRecord]) -> int:
@@ -374,6 +439,7 @@ class RunPipelines:
         each detection's first evidence page as a source so the workbook can cite it."""
         from account_intelligence.db.enums import SourceKind
         from account_intelligence.db.source_ids import get_or_create_source
+        from agents.naming import archive_guard
 
         deps = self.deps
         written = 0
@@ -417,38 +483,49 @@ class RunPipelines:
                         await s.run_sync(register)
                     except Exception:  # noqa: BLE001 - an unregistrable page keeps its date range
                         source_ref = None
-                    # the detection as the feed reported it is the archived copy of its page
-                    body_text = (
-                        f"{name}\nFirst seen {key[1]}\nLast seen {key[2]}\n"
-                        f"Sources {int(rec.source_count)}"
-                    )
-                    body = LA.archive_body(
-                        url,
-                        body_text,
-                        title=name[:200],
-                        captured_at=datetime.now(UTC),
-                        kind="detection",
-                        source_ref=rec.provenance.raw_ref,
-                    )
-                    ref = await deps.payloads.put(
-                        LA.archive_key(deps.tenant_id, deps.account_id, body), body
-                    )
-                    await LA.record(
-                        s,
-                        deps.tenant_id,
-                        deps.account_id,
-                        deps.run_id,
-                        [
-                            LA.ArchiveEntry(
-                                url=url,
-                                kind="detection",
-                                payload_ref=ref,
-                                archived_at=datetime.now(UTC),
-                                title=name[:200],
-                                source_ref=rec.provenance.raw_ref,
+                    # the detection as the feed reported it is the archived copy of its page; an
+                    # archive failure never fails the step (pipeline review 2026-10-29, 12)
+                    try:
+                        when = datetime.now(UTC)
+                        record = AR.detection_record(
+                            url,
+                            technology=name[:200],
+                            first_seen=key[1],
+                            last_seen=key[2],
+                            sources=int(rec.source_count),
+                            captured_at=when,
+                            guard=archive_guard,
+                        )
+                        body = AR.snapshot_bytes(record)
+                        ref = await deps.payloads.put(
+                            LA.archive_key(
+                                deps.tenant_id, deps.account_id, AR.identity_bytes(record)
+                            ),
+                            body,
+                        )
+                        async with s.begin_nested():
+                            await LA.record(
+                                s,
+                                deps.tenant_id,
+                                deps.account_id,
+                                deps.run_id,
+                                [
+                                    LA.ArchiveEntry(
+                                        url=url,
+                                        kind="detection",
+                                        payload_ref=ref,
+                                        archived_at=when,
+                                        title=name[:200],
+                                        source_ref=rec.provenance.raw_ref,
+                                        meta=AR.index_meta(record),
+                                    )
+                                ],
                             )
-                        ],
-                    )
+                    except Exception as error:  # noqa: BLE001 - see above
+                        _log.warning(
+                            "archive.write_failed",
+                            extra={"where": "detection", "error": type(error).__name__},
+                        )
                 await s.execute(
                     text(
                         "INSERT INTO tech_detections (tenant_id, account_id, run_id, technology,"
@@ -478,31 +555,53 @@ class RunPipelines:
             # never a new paid call from here: the lookup is made in Phase 1 (the people step's
             # association rows); a run that did not make it has no stack to store
             return PipelineOutcome({"stack_rows": 0}, {"stack": "not_pulled"})
-        cc = deps.call_context()
         try:
-            org = await call_operation(
-                Operation.ORG_RESOLVE, OrgResolveArgs(domain=deps.domain), cc, deps.connectors
-            )
-            found = next(
-                (r for r in org.records if isinstance(r, OrganizationRecord) and r.matched), None
-            )
-            if found is None or found.organization_id is None:
-                return PipelineOutcome({"stack_rows": 0}, {"stack": "not_matched"})
-            result = await call_operation(
-                Operation.ORG_TECH_STACK,
-                OrgTechStackArgs(organization_id=found.organization_id),
-                cc,
-                deps.connectors,
-            )
-        except RetryableProviderError:
-            raise
+            # both lookups replay from the ledger when Phase 1 made them; one that never answers
+            # is waited for a bounded time and then named a failed source (F9)
+            async with asyncio.timeout(SINGLE_CALL_CEILING_S):
+                result = await self._stack_lookups(deps.connectors)
+        except TimeoutError:
+            return PipelineOutcome({"stack_rows": 0}, {"stack": "source_failed"})
+        except RetryableProviderError as error:
+            if (error.attempt or 1) < deps.retry_max_attempts:
+                raise
+            return PipelineOutcome({"stack_rows": 0}, {"stack": "source_failed"})
         except ConnectorError:
             return PipelineOutcome({"stack_rows": 0}, {"stack": "source_failed"})
+        if result is None:
+            return PipelineOutcome({"stack_rows": 0}, {"stack": "not_matched"})
         records = [r for r in result.records if isinstance(r, TechStackRecord)]
-        written = await self._insert_stack(records)
-        _log.info("pipelines.stack", extra={"count": len(records), "rows": written})
+        written, skipped = await self._insert_stack(records)
+        _log.info(
+            "pipelines.stack", extra={"count": len(records), "rows": written, "skipped": skipped}
+        )
         return PipelineOutcome(
-            {"stack_rows": written, "stack_records": len(records)}, {"stack": "written"}
+            {"stack_rows": written, "stack_records": len(records), "stack_skipped_empty": skipped},
+            {"stack": "written"},
+        )
+
+    async def _stack_lookups(self, runtime: ConnectorRuntime) -> Any:
+        """The organisation of the domain, then its tech stack; None when no organisation with an
+        id matches."""
+        deps = self.deps
+        cc = deps.call_context()
+        org = await call_operation(
+            Operation.ORG_RESOLVE, OrgResolveArgs(domain=deps.domain), cc, runtime
+        )
+        # the same organisation Phase 1 looked up: the first matched record that has an id
+        # (a matched record without one is passed over, not a reason to find no stack)
+        org_id = next(
+            (
+                r.organization_id
+                for r in org.records
+                if isinstance(r, OrganizationRecord) and r.matched and r.organization_id
+            ),
+            None,
+        )
+        if org_id is None:
+            return None
+        return await call_operation(
+            Operation.ORG_TECH_STACK, OrgTechStackArgs(organization_id=org_id), cc, runtime
         )
 
     async def _stack_was_pulled(self) -> bool:
@@ -522,11 +621,16 @@ class RunPipelines:
             ).first()
         return row is not None
 
-    async def _insert_stack(self, records: list[TechStackRecord]) -> int:
+    async def _insert_stack(self, records: list[TechStackRecord]) -> tuple[int, int]:
         """Insert the stack once per run: one row per (business function, category, technology),
-        the first of a repeat kept, ``position`` the item's place in the lookup's order."""
+        the first of a repeat kept, ``position`` the item's place in the lookup's order. Returns
+        ``(rows written, items skipped for having no technology name)``: an item with no name is
+        never silently dropped, it is counted. Every row names the account's owner (as
+        ``link_archive`` does): the writer is a worker in system scope, which has no user of its
+        own (security review 2026-10-29, F14)."""
         deps = self.deps
         written = 0
+        skipped = 0
         async with deps.txn(deps.tenant_id) as s:
             existing = {
                 (r.business_function, r.category, r.technology)
@@ -546,14 +650,19 @@ class RunPipelines:
                     (rec.category_name or "").strip()[:200],
                     (rec.technology_name or "").strip()[:200],
                 )
-                if not key[2] or key in existing:
+                if not key[2]:
+                    skipped += 1
+                    continue
+                if key in existing:
                     continue
                 existing.add(key)
                 await s.execute(
                     text(
-                        "INSERT INTO tech_stack_items (tenant_id, account_id, run_id,"
-                        " business_function, category, technology, postings, position, source_ref)"
-                        " VALUES (:t, :a, :r, :f, :c, :n, :p, :o, :s)"
+                        "INSERT INTO tech_stack_items (tenant_id, owner_user_id, account_id,"
+                        " run_id, business_function, category, technology, postings, position,"
+                        " source_ref) VALUES (:t, coalesce((SELECT a.owner_user_id FROM accounts a"
+                        " WHERE a.tenant_id = :t AND a.id = :a), app_user()), :a, :r, :f, :c, :n,"
+                        " :p, :o, :s)"
                     ),
                     {
                         "t": deps.tenant_id,
@@ -568,4 +677,4 @@ class RunPipelines:
                     },
                 )
                 written += 1
-        return written
+        return written, skipped

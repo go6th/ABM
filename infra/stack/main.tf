@@ -235,7 +235,13 @@ locals {
     runs = {
       max_dispatches_per_second = 5
       max_concurrent_dispatches = var.scaling.worker.max * 2
-      max_attempts              = 5
+      # 8 attempts (owner decision 2026-10-30; was 5): a slice whose worker was killed is retried
+      # at about +10, +30, +70, +150 s (the 150 s retry takes the stale lease: ledger
+      # lease_stale_after_s 90 in config/providers.yaml) and then at +310, +610, +910 s, so a
+      # takeover that fails once still has three more tries. The backoff gaps are 10, 20, 40, 80,
+      # 160 s (four doublings) and then the 300 s maximum; tests/unit/test_slice_config_consistency.py
+      # computes this schedule from these four numbers.
+      max_attempts              = 8
       min_backoff               = "10s"
       max_backoff               = "300s"
       max_doublings             = 4

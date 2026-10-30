@@ -44,7 +44,6 @@ from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import credits as CR
 from account_intelligence.replica.notifications import notify
 from account_intelligence.runs.lifecycle import record_hermetic_run
-from jobs.incremental import incremental_input, previous_delivered_run
 from obs.logging import logger
 
 log = logger(__name__)
@@ -220,11 +219,7 @@ class GraphEngine:
                 run_input["people_regions"] = list(current.settings.people_scope.regions)
             if rule.people or rule.companies:
                 run_input.update(rule.run_input())
-            # incremental re-research (jobs.incremental): the account's previous delivered run
-            # is carried, the job feed pulled from its date minus the overlap only
-            run_input.update(
-                incremental_input(await previous_delivered_run(s, job.account_id), now.date())
-            )
+            # the incremental re-research keys (jobs.incremental) are added by create_run
             tracker = TrackerService(
                 CoverageRepo(s),
                 LedgerCallAdapter(s, load_grading_config().category_by_operation),
@@ -254,7 +249,17 @@ class GraphEngine:
                 await settings.pin_run(s, created.run_id, current.version)
                 await usage.record(s, "run_started", created.run_id, now)
         if not created.replayed:
-            await self.container.scheduler.enqueue_slice(job.tenant_id, created.run_id, 0)
+            try:
+                await self.container.scheduler.enqueue_slice(job.tenant_id, created.run_id, 0)
+            except Exception as error:  # noqa: BLE001 - the run exists; the sweeper starts it
+                # The run is committed and linked to the job. Settling the job failed here (as
+                # an error of the engine used to) released its credits and left the run QUEUED
+                # for ever; instead the run stays pending and ``runs.recovery`` enqueues slice 0
+                # (orchestration review F6, case 3).
+                log.warning(
+                    "job_slice_not_enqueued",
+                    extra={"job_id": str(job.id), "error_class": type(error).__name__},
+                )
         return EngineResult(created.run_id, Decimal(0), pending=True)
 
 
@@ -279,9 +284,22 @@ def job_limits(limits: Any, rows: tuple[str, ...]) -> Any:
     from agents.production.provider import OFF_SITE_READS_PER_SEARCH, OWN_PAGE_READS_PER_SEARCH
 
     cfg = skill_config()
-    per_search = 1 + OWN_PAGE_READS_PER_SEARCH + OFF_SITE_READS_PER_SEARCH
-    planned = len(rows or tuple(cfg.plan)) * max(1, len(cfg.phrasings)) * per_search * 2
-    return replace(limits, tool_call_cap=max(int(limits.tool_call_cap), planned))
+    planned = 0
+    for key in rows or tuple(cfg.plan):
+        row = cfg.plan[key]
+        # a query is one search, the pages it found read (own pages, other sites' pages), and,
+        # for an own-site row, the same query searched on the account's site with its pages read
+        # and the links the row follows, and, for a row with an ``also_on`` rule, the restricted
+        # search and the pages it found
+        per_search = 1 + OWN_PAGE_READS_PER_SEARCH + OFF_SITE_READS_PER_SEARCH
+        if row.own_site:
+            per_search += (
+                1 + OWN_PAGE_READS_PER_SEARCH + (row.follow.per_query if row.follow else 0)
+            )
+        if row.also_on:
+            per_search += 1 + row.also_on.reads  # the restricted search and the pages it found
+        planned += max(len(row.queries), len(cfg.phrasings)) * per_search
+    return replace(limits, tool_call_cap=max(int(limits.tool_call_cap), planned * 2))
 
 
 class SkillEngine:
@@ -410,8 +428,18 @@ def configure(scheduler: Any, engine: ResearchEngine) -> None:
 
 
 async def run_or_enqueue(tenant_id: UUID, job_id: UUID) -> None:
-    """Hand a queued job to the worker (or run it here when no worker queue is wired)."""
+    """Hand a queued job to the worker (or run it here when no worker queue is wired).
+
+    The job is committed before this call, so a queue that cannot be reached must not fail the
+    caller (a 500 for a job that exists, and an account blocked behind it): the failure is logged
+    and ``runs.recovery`` hands the still-queued job to the worker again (F6)."""
     if _scheduler is not None and hasattr(_scheduler, "enqueue_research_job"):
-        await _scheduler.enqueue_research_job(tenant_id, job_id)
+        try:
+            await _scheduler.enqueue_research_job(tenant_id, job_id)
+        except Exception as error:  # noqa: BLE001 - see above
+            log.warning(
+                "job_not_enqueued",
+                extra={"job_id": str(job_id), "error_class": type(error).__name__},
+            )
     elif _engine is not None:
         await run_job(tenant_id, job_id, _engine)

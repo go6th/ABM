@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import psycopg
 import pytest
@@ -100,3 +101,42 @@ async def test_every_scope_names_real_rows_and_the_engine_choice_is_guarded(
         jobs.engine_choice("production")
     monkeypatch.setenv("RESEARCH_ENGINE", "graph")
     assert jobs.engine_state("production").startswith("abm_graph (skill package not installed")
+
+
+async def test_a_lost_slice_zero_enqueue_leaves_the_run_pending_for_the_sweeper() -> None:
+    """The run was committed and linked to the job, then the queue refused slice 0: the job must
+    not settle failed (its credits released, the run QUEUED for ever); the run waits for
+    ``runs.recovery`` (orchestration review F6, case 3)."""
+    t = tenant("1000")
+    now = datetime.now(UTC)
+    async with tenant_txn(t) as s:
+        account, _ = await lifecycle.add_account(s, t, "queue-down.example", added_by="u1")
+        job_id, _ = await CR.reserve(
+            s, account_id=account, kind="web_refresh", scope="jobs", credits=20, actor="u1", now=now
+        )
+    container = _container()
+
+    async def refuse(*_: object, **__: object) -> None:
+        raise ConnectionError("queue unreachable")
+
+    container.scheduler.enqueue_slice = refuse  # type: ignore[method-assign]
+    assert await jobs.run_job(t, job_id, jobs.GraphEngine(container)) == "started"
+    ((status, run_id),) = fetch("SELECT status, run_id FROM research_jobs WHERE id = %s", job_id)
+    assert status == "running" and run_id is not None
+    assert fetch("SELECT status, slices_used FROM account_runs WHERE id = %s", run_id) == [
+        ("QUEUED", 0)
+    ]
+    assert fetch("SELECT kind FROM credit_entries WHERE job_id = %s ORDER BY id", job_id) == [
+        ("reserve",)
+    ]  # nothing released
+
+
+async def test_a_queue_that_cannot_be_reached_never_fails_the_caller_of_a_committed_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Down:
+        async def enqueue_research_job(self, *_: object) -> None:
+            raise ConnectionError("queue unreachable")
+
+    monkeypatch.setattr(jobs, "_scheduler", Down())
+    await jobs.run_or_enqueue(tenant(), uuid4())  # does not raise

@@ -1176,6 +1176,129 @@
         "title": "Archive",
         "type": "object"
       },
+      "ArchiveList": {
+        "additionalProperties": false,
+        "description": "One page of the account's archive index, newest capture first.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "offset",
+          "limit"
+        ],
+        "title": "ArchiveList",
+        "type": "object"
+      },
+      "ArchiveListItem": {
+        "additionalProperties": false,
+        "description": "One address in the account's archive index: its newest copy. A posting also says its\nstatus when captured, its location and its requisition.",
+        "properties": {
+          "archived_at": {
+            "title": "Archived At",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "record_schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Schema"
+          },
+          "requisition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requisition"
+          },
+          "status_at_capture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status At Capture"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "kind",
+          "archived_at"
+        ],
+        "title": "ArchiveListItem",
+        "type": "object"
+      },
       "ArchivedCopy": {
         "additionalProperties": false,
         "description": "One archived copy of an address the research stored: the original address, the kind of\nlink, when it was captured, its title and the text captured (never a data provider's own\nrecord).",
@@ -1187,6 +1310,18 @@
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "record": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record"
           },
           "text": {
             "title": "Text",
@@ -1203,9 +1338,21 @@
             ],
             "title": "Title"
           },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
           "url": {
             "title": "Url",
             "type": "string"
+          },
+          "withheld": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Withheld",
+            "type": "array"
           }
         },
         "required": [
@@ -18843,7 +18990,7 @@
     },
     "/v1/accounts/{domain}/archive": {
       "get": {
-        "description": "The archived copy of one address the research stored for this account (the newest\ncapture): the text the research read, with the original address and when it was captured.\nA browser gets a readable page; a client asking for JSON gets the same as JSON. 404 when the\naddress was never stored for the account (another tenant's looks the same).",
+        "description": "The archived copy of one address the research stored for this account (the newest\ncapture): the original address, the kind of link, when it was captured, the text and, for a\nposting, its structured record (``posting-archive/1``). JSON only: the page a person reads is\nthe website's (``/accounts/{domain}/archive?url=``), which fetches this. ``download`` answers\nthe same as a file, whole and audited as an export; the JSON view cuts the text to\n``archive.MAX_COPY_TEXT`` (``truncated`` says so). A free-text field the output guard refuses\nis blanked and named under ``withheld``. 404 when the address was never stored for the\naccount (another tenant's looks the same), when it is a profile copy (internal, never served),\nor when the copy names a person the client excluded or lives on an excluded or provider\ndomain.",
         "operationId": "account_archive_v1_accounts__domain__archive_get",
         "parameters": [
           {
@@ -18864,6 +19011,16 @@
               "minLength": 8,
               "title": "Url",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "download",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Download",
+              "type": "boolean"
             }
           },
           {
@@ -18906,6 +19063,106 @@
           }
         },
         "summary": "Account Archive",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/v1/accounts/{domain}/archive/list": {
+      "get": {
+        "description": "The account's archive index: the newest copy of each stored address, newest capture first,\none page (``limit`` at most 200). ``kind`` narrows it (``posting``, ``page``, ``feed_item``,\n``detection``); ``profile`` copies are internal and never listed. A posting also gives its\nstatus when captured, location and requisition (stored beside the row; no body is opened for\nthem). A row that names a person the client excluded, or sits on an excluded or provider\ndomain, is left out. Empty for an account of another tenant.",
+        "operationId": "account_archive_list_v1_accounts__domain__archive_list_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 16,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Account Archive List",
         "tags": [
           "accounts"
         ]

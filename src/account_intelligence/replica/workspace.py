@@ -24,6 +24,12 @@ from uuid import UUID
 from sqlalchemy import text
 
 from account_intelligence.replica.answers import LANE_LABEL, day_month
+from account_intelligence.replica.current import (
+    NEWEST_DETECTION,
+    NEWEST_FACT,
+    NEWEST_PERSON,
+    NEWEST_POSTING,
+)
 from account_intelligence.replica.settings import CADENCE_LABEL
 
 DELIVERABLE_LABEL = {
@@ -266,7 +272,7 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
         " x"
         "   WHERE x.fact_id = f.id ORDER BY evidence_date DESC NULLS LAST LIMIT 1) e ON true"
         " WHERE f.account_id = :a AND f.status = 'current' AND f.superseded_at IS NULL AND"
-        " f.visibility = 'public'"
+        " f.visibility = 'public'" + NEWEST_FACT
     )
     facts = (await session.execute(text(facts_sql), {"a": account_id})).all()
     keyed = [f for f in facts if "key_finding" in (f.flags or [])]
@@ -327,13 +333,16 @@ async def workspace(session: Any, account_id: UUID, user_id: str, now: datetime)
             text(
                 "SELECT"
                 " (SELECT count(*) FROM signal_events WHERE account_id = :a) AS signals,"
-                " ((SELECT count(*) FROM people WHERE account_id = :a AND NOT excluded AND"
-                " merged_into IS NULL"
-                "   AND erased_at IS NULL AND NOT coalesce(internal_only, false))"
+                " ((SELECT count(*) FROM people p WHERE p.account_id = :a AND NOT p.excluded AND"
+                " p.merged_into IS NULL"
+                "   AND p.erased_at IS NULL AND NOT coalesce(p.internal_only, false)"
+                f"   {NEWEST_PERSON})"
                 f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['people']})) AS people,"
-                " ((SELECT count(*) FROM job_postings WHERE account_id = :a AND status <> 'closed')"
+                " ((SELECT count(*) FROM job_postings j WHERE j.account_id = :a AND j.status <>"
+                f" 'closed' {NEWEST_POSTING})"
                 f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['jobs']})) AS jobs,"
-                " ((SELECT count(*) FROM tech_detections WHERE account_id = :a)"
+                " ((SELECT count(*) FROM tech_detections t WHERE t.account_id = :a"
+                f" {NEWEST_DETECTION})"
                 f"  + (SELECT count(*) FROM facts f WHERE {FACT_CLASS['tech']})) AS tech,"
                 f" (SELECT count(*) FROM facts f WHERE {FACT_CLASS['news']}) AS news,"
                 " (SELECT count(*) FROM connector_items WHERE account_id = :a AND owner_user_id ="
@@ -455,7 +464,7 @@ def title_only(value_sql: str) -> str:
 
 _FACT_PUBLIC = (
     "f.account_id = :a AND f.status = 'current' AND (f.visibility = 'public'"
-    " OR f.flags @> CAST('[\"from_uploaded_file\"]' AS jsonb))"
+    " OR f.flags @> CAST('[\"from_uploaded_file\"]' AS jsonb))" + NEWEST_FACT
 )
 FACT_CLASS = {
     # facts the people step records about a company or a person (ticker, switchboard, media
@@ -558,9 +567,99 @@ STOP_TEXT = {
     "pull_only": "This run only collected data; nothing was written up yet.",
     # the run graded no new fact (audit 2026-10-20): finished, nothing to resume
     "no_new_findings": "Nothing new was found on the web for this research.",
-    "slice_ceiling": "It ran longer than the platform allows for one research.",
+    "slice_ceiling": (
+        "It ran longer than the platform allows for one go. What it found is kept."
+        " It does not continue by itself: press Resume to go on."
+    ),
     "budget_cap": "It reached the credits confirmed for it.",
+    "no_progress": (
+        "It made no progress in three tries in a row, so it was stopped. What it found is kept."
+        " Press Resume to try again."
+    ),
+    "token_guard_stopped": (
+        "It reached the AI model allowance for one research and was not approved to go on."
+        " What it found is kept. Press Resume to continue."
+    ),
+    "entity_mismatch": (
+        "The company's own website names a different company than the one entered, so the"
+        " research stopped before anything was charged. Check the website address and start again."
+    ),
+    "invalid_setup": (
+        "The workspace settings do not fit this research, so it did not start."
+        " Nothing was charged. Ask an administrator to check them."
+    ),
+    "no_pulled_data": "There was no collected data to write up. Nothing was charged.",
+    "stale_pulls": (
+        "The collected data is out of date, so nothing was written up. Nothing was charged."
+        " Start a new refresh."
+    ),
+    "sense_check_budget_exceeded": (
+        "The final check used up its allowance before it finished. What was found is kept."
+        " Press Resume to try again."
+    ),
+    "distill_budget_exceeded": (
+        "The write-up step used up its allowance before it finished. What was found is kept."
+        " Press Resume to try again."
+    ),
+    "sense_check_missing": "The final check did not run. Press Resume to try again.",
+    "sense_check_stale": (
+        "The findings changed after the final check ran. Press Resume to try again."
+    ),
+    "manifest_changed": (
+        "The collected data changed while the files were being prepared. Press Resume to try again."
+    ),
+    "third_party_domain": "A client file would have named a data provider, so it was held back.",
+    "client_output_leak": (
+        "A client file would have carried a term it may never carry, so it was held back."
+    ),
+    "approval_timeout": (
+        "Nobody answered the approval request in time, so the research was canceled."
+        " Nothing was charged."
+    ),
+    "canceled_by_user": "You stopped this research.",
 }
+# A data or AI provider that stayed down or kept limiting requests past the retries, and a
+# connection that dropped: the platform continues such a research by itself (auto_resume
+# PROVIDER_OUTAGE_STOPS and INFRASTRUCTURE_STOPS; a test keeps the two lists in step)
+PROVIDER_OUTAGE_TEXT = (
+    "A data or AI provider was down or limiting requests for too long. What it found is kept."
+    " The platform continues the research by itself; you can also press Resume."
+)
+CONNECTION_DROPPED_TEXT = (
+    "A connection dropped. What it found is kept."
+    " The platform continues the research by itself; you can also press Resume."
+)
+STOP_TEXT.update(
+    {
+        code: PROVIDER_OUTAGE_TEXT
+        for code in (
+            "RetryableProviderError",
+            "RateLimited",
+            "ProviderJobTimeout",
+            "CallInFlight",
+            "Overloaded",
+            "CircuitOpen",
+        )
+    }
+)
+STOP_TEXT.update(
+    {
+        code: CONNECTION_DROPPED_TEXT
+        for code in (
+            "OperationalError",
+            "InterfaceError",
+            "TimeoutError",
+            "ConnectionError",
+            "ConnectionResetError",
+            "ConnectionRefusedError",
+            "ConnectionAbortedError",
+            "BrokenPipeError",
+            "ServiceUnavailable",
+            "GatewayTimeout",
+            "DeadlineExceeded",
+        )
+    }
+)
 # A coverage row ``c`` inside its run's scope. A scoped research (job postings, people, one
 # topic) records the rows it pulls in ``account_runs.run_input.scope_rows`` and still writes all
 # 33 rows, marking the others "not planned" at once; counting every row showed "33 of 33 steps"
@@ -584,6 +683,7 @@ BUILD_RULE_TEXT = {
     "row_cap": "more rows than a file may hold",
     "missing_source_code": "a row without a registered source",
     "missing_url": "a row without a link",
+    "bad_url": "a row whose link cannot be used",
     "stale_phrase": "a phrase that must no longer appear",
     "excluded_name": "a name that must not appear",
 }
@@ -751,27 +851,74 @@ async def stopped_run(session: Any, account_id: UUID) -> dict[str, Any] | None:
     }
 
 
+async def _newest_files(session: Any, account_id: UUID) -> list[Any]:
+    """The newest stored version of each deliverable kind of the account, with the latest stored
+    gate verdict of its run (``verdict``, ``defects``) and the exclusion set it was built with
+    (``xh``: the manifest's ``exclusion_hash``, None for a file built before it was recorded)."""
+    return list(
+        (
+            await session.execute(
+                text(
+                    "SELECT DISTINCT ON (d.kind) d.id, d.kind, d.filename, d.size_bytes,"
+                    " d.built_at, d.run_id, d.manifest_json->>'exclusion_hash' AS xh,"
+                    " (SELECT g.defects FROM run_gate_results g WHERE g.run_id = d.run_id"
+                    "   ORDER BY g.created_at DESC, g.id DESC LIMIT 1) AS defects,"
+                    " (SELECT g.verdict FROM run_gate_results g WHERE g.run_id = d.run_id"
+                    "   ORDER BY g.created_at DESC, g.id DESC LIMIT 1) AS verdict"
+                    " FROM deliverables d"
+                    " WHERE d.account_id = :a AND d.kind = ANY(:k) ORDER BY d.kind, d.version DESC"
+                ),
+                {"a": account_id, "k": DELIVERABLE_ORDER},
+            )
+        ).all()
+    )
+
+
+def _held_by_gate(row: Any) -> bool:
+    """Whether the run's stored verdict holds this file back: a file-level defect naming its
+    kind, or a run-level defect (a step without proof, a fact without a source, a client file
+    missing), which holds back every file of the run (orchestration review 2026-10-30, F8)."""
+    from documents.gate import run_level_failed, withheld_files
+
+    defects = list(row.defects or [])
+    return row.kind in withheld_files(defects) or (
+        row.verdict == "fail" and run_level_failed(defects)
+    )
+
+
+async def stale_kinds(session: Any, account_id: UUID) -> list[str]:
+    """The kinds whose newest stored file was built under another exclusion set than the
+    tenant's current one (F1): such a file is neither listed nor served until the account's
+    files are built again. A file built before the hash was recorded counts as built with no
+    exclusions, so it is stale exactly when the tenant has some."""
+    from exports.readers.exclusions import NO_EXCLUSIONS
+    from views.materialize import current_exclusion_hash
+
+    current = await current_exclusion_hash(session)
+    return [
+        r.kind
+        for r in await _newest_files(session, account_id)
+        if (r.xh or NO_EXCLUSIONS) != current
+    ]
+
+
 async def deliverables(session: Any, account_id: UUID) -> list[dict[str, Any]]:
     """The newest version of each deliverable of the account, in the design's order, without a
-    file its run's quality check held back (the latest stored verdict's file-level defects,
-    ``documents.gate.withheld_files``): such a file is neither listed nor downloadable, and no
-    older version stands in for it (it would not match the delivered files). The card says
-    which file was held back and why (``withheld_text``)."""
-    from documents.gate import withheld_files
+    file its run's quality check held back (the latest stored verdict: the file-level defects
+    name their file, a run-level defect holds back all of the run's files,
+    ``documents.gate.withheld_files`` and ``run_level_failed``) and without a file built under
+    another exclusion set than the tenant's current one (``stale_kinds``): such a file is neither
+    listed nor downloadable, and no older version stands in for it (it would not match the
+    delivered files). The card says which file was held back and why (``withheld_text``)."""
+    from exports.readers.exclusions import NO_EXCLUSIONS
+    from views.materialize import current_exclusion_hash
 
-    rows = (
-        await session.execute(
-            text(
-                "SELECT DISTINCT ON (d.kind) d.id, d.kind, d.filename, d.size_bytes, d.built_at,"
-                " (SELECT g.defects FROM run_gate_results g WHERE g.run_id = d.run_id"
-                "   ORDER BY g.created_at DESC, g.id DESC LIMIT 1) AS defects"
-                " FROM deliverables d"
-                " WHERE d.account_id = :a AND d.kind = ANY(:k) ORDER BY d.kind, d.version DESC"
-            ),
-            {"a": account_id, "k": DELIVERABLE_ORDER},
-        )
-    ).all()
-    rows = [r for r in rows if r.kind not in withheld_files(list(r.defects or []))]
+    current = await current_exclusion_hash(session)
+    rows = [
+        r
+        for r in await _newest_files(session, account_id)
+        if not _held_by_gate(r) and (r.xh or NO_EXCLUSIONS) == current
+    ]
     rows = sorted(rows, key=lambda r: DELIVERABLE_ORDER.index(r.kind))
     return [
         {

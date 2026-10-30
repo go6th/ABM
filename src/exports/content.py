@@ -184,6 +184,10 @@ class PostingRow(_Row):
     new_since_previous: bool | None = None
     # the absolute address that serves our archived copy of the posting (blank: no copy stored)
     archive_url: str = ""
+    # how the class was decided: ``extractor`` (the whole posting was read and the answer
+    # verified: a graded finding), ``heuristic`` or ``rule`` (a keyword rule over the platform
+    # sentences: no finding), ``none`` (undecided); blank for a posting stored without one
+    classified_by: str = ""
 
 
 class JobsCounts(_Row):
@@ -273,6 +277,18 @@ class SenseCheckRow(_Row):
     proposals: int
 
 
+class ReleaseRow(_Row):
+    """One archived copy of a page, news item or job posting, as the workspace zip's
+    ``data/releases/`` prints it: the title, address and day, and the text of the copy."""
+
+    kind: str
+    url: str
+    title: str
+    # the day the item is dated (a posting's first seen day, else the day it was captured)
+    day: date
+    text: str
+
+
 class SnapshotContent(_Row):
     """Everything one build reads, from one snapshot."""
 
@@ -321,6 +337,12 @@ class SnapshotContent(_Row):
     pull_calls: tuple[PullCall, ...] = ()
     pull_failed: int = 0
     sense_check: SenseCheckRow | None = None
+    # the account's archived copies the workspace zip carries under data/releases/ (newest first,
+    # at most ``workspace.releases.max_files``; client kinds only, never a profile copy)
+    releases: tuple[ReleaseRow, ...] = ()
+    # which tenant exclusion set the rows were filtered with
+    # (``readers.exclusions.exclusion_hash``); empty for a snapshot not read from the settings
+    exclusion_hash: str = ""
 
     def snapshot_hash(self) -> str:
         """SHA-256 of the canonical JSON of the content (B1, B10)."""

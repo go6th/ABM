@@ -23,8 +23,8 @@ tabular question from a sample, so it needs the question to match nothing tabula
 prose words alone stay ``prose``; and (c) when no rule fires, a model classification at
 temperature 0 with a strict JSON schema (``LlmRouteClassifier``; optional,
 ``ASK_ROUTE_LLM_FALLBACK``), else ``mixed``, which offers both. Every decision carries its
-reason and what it matched, which the Ask route logs (``ask.route``: route, matched_columns,
-matched_values, reason).
+reason and what it matched; the Ask route logs only how many (``ask.route``: route,
+matched_column_count, matched_value_count).
 
 GUARANTEE(test_the_router_sends_filter_questions_to_the_table_tools)
 

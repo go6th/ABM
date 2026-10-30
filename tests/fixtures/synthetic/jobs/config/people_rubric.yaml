@@ -292,7 +292,7 @@ si_firms:
     - {firm: IBM, aliases: [ibm, 'international business machines']}
     - {firm: McKinsey, aliases: ['mckinsey\w*']}
     - {firm: BCG, aliases: [bcg, 'boston consulting group']}
-    - {firm: Bain, aliases: ['bain (&|and) company', bain]}
+    - {firm: Bain, aliases: ['bain (&|and) co(mpany)?']}
     - {firm: Tech Mahindra, aliases: ['tech mahindra']}
     - {firm: LTIMindtree, aliases: [ltimindtree, mindtree, 'larsen (&|and) toubro infotech']}
     - {firm: Genpact, aliases: [genpact]}

@@ -516,23 +516,23 @@ def test_a_row_embeds_its_short_columns_and_keeps_the_description_as_payload() -
     the description included, is typed in the passage's metadata (dates as ISO strings,
     numbers as numbers, the name case folded with spaces as underscores); two runs over the
     same rows give the same passages and the same schema record."""
-    header = fixtures.GSK_COLUMNS
-    rows = [(i + 2, list(r)) for i, r in enumerate(fixtures.gsk_job_postings_rows()[:60])]
+    header = fixtures.HOLDINGS_COLUMNS
+    rows = [(i + 2, list(r)) for i, r in enumerate(fixtures.holdings_job_postings_rows()[:60])]
     for _, cells in rows:  # as the xlsx parser hands dates over: ISO strings
         cells[5], cells[6] = cells[5].isoformat(), cells[6].isoformat() if cells[6] else None
 
     def run() -> tuple[list[object], dict[str, object]]:
-        c = Chunker(CFG.chunking, "GSK_Job_Postings.xlsx", Redactor("standard"), 10_000)
+        c = Chunker(CFG.chunking, "Holdings_Job_Postings.xlsx", Redactor("standard"), 10_000)
         unit = ParsedUnit("rows", {"table": "Jobs"}, "", header=header, rows=rows)
         return list(c.passages([unit])), c.tables["Jobs"].record()
 
     passages, schema = run()
     first = [p for p in passages if p.location["row"] == 2]
     assert len(first[0].text) < 1500 and "Full description" not in first[0].text
-    assert first[0].text.startswith("Requisition: 446999; Title: Salesforce Platform Owner")
+    assert first[0].text.startswith("Requisition: 546999; Title: Salesforce Platform Owner")
     assert len(first) > 1 and first[1].text.startswith("Full description: ")
     md = first[0].metadata
-    assert md["requisition"] == 446999 and md["first_seen"] == "2026-03-01"
+    assert md["requisition"] == 546999 and md["first_seen"] == "2026-03-01"
     assert md["status"] == "Closed" and md["platforms_named"] and len(md["full_description"]) > 5000
     assert md["what_the_posting_says"] and not first[1].metadata  # payload parts carry none
     assert schema["payload_columns"] == ["full_description"]

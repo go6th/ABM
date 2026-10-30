@@ -1,7 +1,7 @@
 # Eval gate (D-50, D-51): a REQUIRED check on every pull request (branch protection: see
 # docs/evals/ci-and-budget.md). `replay` runs on every pull request (recorded model outputs and
 # provider cassettes; no network, no spend). `live` (2026-10-17: the five tabular questions of
-# evals/tabular_gsk over the real GSK workspace fixture, Kimi K3 at temperature 0) runs on the
+# evals/tabular_synthetic over the synthetic workspace zip, Kimi K3 at temperature 0) runs on the
 # nightly schedule, on demand (workflow_dispatch) and on a prompt/routing change; with no
 # MOONSHOT_API_KEY secret it reports not_run, which BLOCKS the merge (E5: no override in
 # code). `nightly` runs the full set on a schedule. The routing governance check fails a
@@ -84,7 +84,7 @@ jobs:
         timeout-minutes: 30
         run: uv run --frozen pytest -m eval tests/evals -p no:cacheprovider
       - id: live
-        name: Live tabular eval (Kimi K3 on the real GSK workspace)
+        name: Live tabular eval (Kimi K3 on the synthetic workspace)
         if: needs.changes.outputs.model == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
@@ -99,7 +99,7 @@ jobs:
             echo "outcome=not_run" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if uv run --frozen pytest -m live tests/evals/test_tabular_gsk_live.py -p no:cacheprovider; then
+          if uv run --frozen pytest -m live tests/evals/test_tabular_live.py -p no:cacheprovider; then
             echo "outcome=ran" >> "$GITHUB_OUTPUT"
           else
             echo "outcome=ran" >> "$GITHUB_OUTPUT"

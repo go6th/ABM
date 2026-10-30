@@ -21,8 +21,11 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from collections.abc import Mapping
 from datetime import date
 from xml.sax.saxutils import escape  # nosec B406 -- escapes generated XML; does not parse input.
+
+from lxml import etree
 
 CONTENT_TYPES = "[Content_Types].xml"
 CORE = "docProps/core.xml"
@@ -104,6 +107,14 @@ def normalise_package(
         for name in list(members):
             if name == CONTENT_TYPES or name.endswith(".rels"):
                 members[name] = _strip_refs(members[name], dropped)
+    return _pack(members, entry_time, method)
+
+
+def _pack(
+    members: Mapping[str, bytes], entry_time: tuple[int, int, int, int, int, int], method: int
+) -> bytes:
+    """Write ``members`` as one package: ``[Content_Types].xml`` first, the rest sorted, every
+    entry with the fixed time, compression and attributes."""
     order = [CONTENT_TYPES] + sorted(n for n in members if n != CONTENT_TYPES)
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as dst:
@@ -113,4 +124,123 @@ def normalise_package(
             info.create_system = 0
             info.external_attr = 0o600 << 16
             dst.writestr(info, members[name], compress_type=method, compresslevel=6)
+    return out.getvalue()
+
+
+# ---- cached formula values -----------------------------------------------------------------
+# openpyxl writes a formula cell as ``<c r="B7" s="3"><f>...</f><v></v></c>`` with no result, so a
+# viewer that does not calculate (a mail or drive preview, pandas, a phone) shows nothing. The
+# builder knows every formula's value from the same plan that writes it, so the value is put in
+# the cell here (``<v>`` and, for text, ``t="str"``): the formula text, the styles and every
+# other part stay byte for byte as written, and Excel and LibreOffice still recalculate on load
+# (``fullCalcOnLoad``). A byte-exact, deterministic step: no engine, no clock.
+
+_NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_NS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_NS_PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
+_FORMULA_CELL = re.compile(
+    r'<c r="(?P<ref>[A-Z]+[0-9]+)"(?P<attrs>[^>]*)>(?P<f><f>[^<]*</f>)(?:<v\s*/>|<v></v>)</c>'
+)
+_CACHED_CELL = re.compile(
+    r'<c r="(?P<ref>[A-Z]+[0-9]+)"(?P<attrs>[^>]*)>(?P<f><f>[^<]*</f>)<v>[^<]*</v></c>'
+)
+_TYPE_ATTR = re.compile(r'\s+t="[^"]*"')
+_PARSER = etree.XMLParser(resolve_entities=False, no_network=True)
+
+
+def _sheet_parts(members: Mapping[str, bytes]) -> dict[str, str]:
+    """``{sheet name: member name}`` from the workbook part and its relationships."""
+    book = etree.fromstring(members["xl/workbook.xml"], parser=_PARSER)
+    rels = etree.fromstring(members["xl/_rels/workbook.xml.rels"], parser=_PARSER)
+    target = {
+        r.get("Id"): str(r.get("Target")) for r in rels.iter(f"{{{_NS_PKG_REL}}}Relationship")
+    }
+    out: dict[str, str] = {}
+    for sheet in book.iter(f"{{{_NS_MAIN}}}sheet"):
+        path = target.get(sheet.get(f"{{{_NS_REL}}}id"))
+        name = sheet.get("name")
+        if path and name:
+            out[name] = path.lstrip("/") if path.startswith("/") else f"xl/{path}"
+    return out
+
+
+def _value_xml(value: int | float | str) -> tuple[str, str]:
+    """``(type attribute, value text)`` of a cached result."""
+    if isinstance(value, bool):
+        return ' t="b"', "1" if value else "0"
+    if isinstance(value, int):
+        return "", str(value)
+    if isinstance(value, float):
+        return "", repr(value)
+    return ' t="str"', escape(value)
+
+
+def cache_formula_values(
+    data: bytes,
+    values: Mapping[tuple[str, str], int | float | str],
+    *,
+    entry_time: tuple[int, int, int, int, int, int],
+    compression: str = "deflate",
+) -> tuple[bytes, int, tuple[str, ...]]:
+    """``(package, cached, missing)``: ``data`` with the result of every formula cell named in
+    ``values`` (``(sheet, coordinate)`` to value) stored beside its formula, the number of cells
+    given a value, and the formula cells left without one (a formula the plan does not know)."""
+    method = zipfile.ZIP_DEFLATED if compression == "deflate" else zipfile.ZIP_STORED
+    with zipfile.ZipFile(io.BytesIO(data)) as src:
+        members = {i.filename: src.read(i) for i in src.infolist() if not i.is_dir()}
+    parts = _sheet_parts(members)
+    by_sheet: dict[str, dict[str, int | float | str]] = {}
+    for (sheet, coord), value in values.items():
+        by_sheet.setdefault(sheet, {})[coord] = value
+    cached = 0
+    missing: list[str] = []
+    for sheet, wanted in by_sheet.items():
+        part = parts.get(sheet)
+        if part is None or part not in members:
+            missing.extend(f"{sheet}!{c}" for c in sorted(wanted))
+            continue
+        done: set[str] = set()
+
+        def put(
+            m: re.Match[str], wanted: dict[str, int | float | str] = wanted, done: set[str] = done
+        ) -> str:
+            value = wanted.get(m.group("ref"))
+            if value is None:
+                return m.group(0)
+            kind, text = _value_xml(value)
+            done.add(m.group("ref"))
+            attrs = _TYPE_ATTR.sub("", m.group("attrs"))
+            return f'<c r="{m.group("ref")}"{attrs}{kind}>{m.group("f")}<v>{text}</v></c>'
+
+        members[part] = _FORMULA_CELL.sub(put, members[part].decode("utf-8")).encode("utf-8")
+        cached += len(done)
+        missing.extend(f"{sheet}!{c}" for c in sorted(set(wanted) - done))
+    return _pack(members, entry_time, method), cached, tuple(missing)
+
+
+def strip_cached_values(data: bytes) -> bytes:
+    """``data`` with the stored result of every formula cell removed again (so a spreadsheet
+    engine must calculate it: LibreOffice keeps a stored result as it is)."""
+    with zipfile.ZipFile(io.BytesIO(data)) as src:
+        infos = [i for i in src.infolist() if not i.is_dir()]
+        members = {i.filename: src.read(i) for i in infos}
+    changed = False
+    for name, body in members.items():
+        if not name.startswith("xl/worksheets/") or b"<f>" not in body:
+            continue
+        text = _CACHED_CELL.sub(
+            lambda m: (
+                f'<c r="{m.group("ref")}"{_TYPE_ATTR.sub("", m.group("attrs"))}>'
+                f"{m.group('f')}<v></v></c>"
+            ),
+            body.decode("utf-8"),
+        )
+        members[name] = text.encode("utf-8")
+        changed = True
+    if not changed:
+        return data
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as dst:
+        for info in infos:
+            dst.writestr(info, members[info.filename], compress_type=info.compress_type)
     return out.getvalue()

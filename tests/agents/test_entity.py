@@ -47,18 +47,17 @@ def test_a_lookalike_domain_is_refused_before_any_pull() -> None:
 
 
 def test_a_site_that_never_says_the_legal_name_is_unconfirmed_not_a_mismatch() -> None:
-    """gsk.com for GlaxoSmithKline: the brand is not in the domain or the page, and the domain is
-    nowhere near the brand, so the run goes on unverified (the lock stops look-alikes only)."""
-    page = (
-        "GSK is a global biopharma company with a purpose to unite science, technology and talent."
-    )
+    """lmg.example for Longbridge Medical Group: the brand is not in the domain or the page, and
+    the domain is nowhere near the brand, so the run goes on unverified (the lock stops
+    look-alikes only)."""
+    page = "LMG is a global healthcare company with a purpose to unite science and talent."
     lock = build_lock(
-        legal_name="GlaxoSmithKline plc",
-        primary_domain="gsk.com",
+        legal_name="Longbridge Medical Group plc",
+        primary_domain="lmg.example",
         stopwords=STOP,
-        home_url="https://gsk.com/",
+        home_url="https://lmg.example/",
         final_url=None,
-        home_title="GSK",
+        home_title="LMG",
         home_text=page,
     )
     assert lock.confirmed is False and lock.mismatch is False

@@ -97,7 +97,7 @@ renderer:
 # keys under ``summary`` are listed in the order the sections are rendered.
 headings:
   source: "master prompt v2 (2026-10-24) sections 9.1 and 9.2; PRD s3.4; config/output_spec.yaml"
-  # 2026-10-25: numbered and worded as the owner's skill-built BD Account Summary (the reference
+  # 2026-10-25: numbered and worded as the owner's skill-built reference Account Summary (the reference
   # file set the platform's output must match)
   summary:
     files: "Files in this set"
@@ -160,7 +160,7 @@ headings:
 documents:
   source: "master prompt v2 (2026-10-24) sections 9.1 and 9.2 (named columns); Ref column, order and the rest: proposal D-24"
   tables:
-    # the Summary's section 5 as the reference BD Summary prints it (Item, What we found, Grade,
+    # the Summary's section 5 as the reference Summary prints it (Item, What we found, Grade,
     # Reasoning and sources), with the statement policy column the skill requires kept; the
     # client's on-screen Facts by grade table shows the same cells (views.rowsources.facts)
     platform_picture: ["Ref", "Item", "What we found", "Grade", "Use in outreach", "Reasoning and sources"]
@@ -206,7 +206,7 @@ documents:
     version_prefix: "Version"
     config_prefix: "configuration"
     files_intro: "Evidence, postings and source extracts, the people list, the postings and the stack and teams are in the other files of this set:"
-    # the Summary's title and opening paragraph as the reference BD Account Summary words them
+    # the Summary's title and opening paragraph as the reference Account Summary words them
     # (build_summary.js line 9); the legal name comes from the stored entity lock
     summary_title: "{account} ({legal_name}): {document}"
     summary_title_plain: "{account}: {document}"
@@ -232,7 +232,7 @@ documents:
       lead: {meaning: "Seen in a secondary source, not verified", use: "Do not use until checked"}
     caution_prefix: "Caution"
     # coverage tracker columns (9.1 item 11)
-    # worded as the reference tracker (BD, 2026-10-20): "Not started", "None" left on a finished
+    # worded as the reference tracker (2026-10-20): "Not started", "None" left on a finished
     # row, one tally line over all rows, waiting rows as plain bullets
     needs_nothing: "Nothing"
     done_results: "Searched with {tools}: {n} results"
@@ -253,7 +253,7 @@ documents:
     tally_line: "Tally, computed from the rows above ({n} rows): {counts}."
     source_links_note: "Job postings read are listed in Part C of the Sources and Evidence file and in the Job Postings workbook."
     # Sources and Evidence (9.2)
-    # Part A "How retrieved", in the reference register's words (BD, 2026-10-20)
+    # Part A "How retrieved", in the reference register's words (2026-10-20)
     retrieved_live: "Page read"
     retrieved_cached: "Cached copy read"
     retrieved_feed: "Feed only"
@@ -335,10 +335,14 @@ labels:
     title_only: "Not read (title only)"
   # the classes that confirm a platform is used (master prompt v2 section 9.5 Summary table)
   posting_class_confirming: [build, admin_owner, working_tool]
+  # Status is Open or Closed only, as the reference prints it (no third word). A posting whose
+  # status the feed did not give counts as Open everywhere (the Summary matrix, the Platform
+  # Ranking's "Open now", the Counts sheet, RESTORE.md, the Word tables) and prints "Open"; the
+  # stored value stays "unknown" in the database (fix wave C, review 2026-10-29 finding 6)
   posting_status:
     open: "Open"
     closed: "Closed"
-    unknown: "Status unknown"
+    unknown: "Open"
   # how a posting was read (master prompt v2 section 9.4 "Source"): the read type, not the code
   posting_source:
     live_board_read: "Live board, read"
@@ -359,7 +363,7 @@ labels:
   # people rubric level ids (config/people_rubric.yaml) to the spec's level labels (master prompt
   # v2 section 9.3); ids the rubric does not have yet (senior_director, team_lead) are mapped so a
   # rubric change needs no code change; anything else is "other"
-  # wording as the owner's reference People List prints it (BD, 2026-10-19); associate_director
+  # wording as the owner's reference People List prints it (2026-10-19); associate_director
   # has no rubric level yet and is mapped so a rubric change needs no code change
   people_level:
     c_level: "C-level, EVP and SVP"
@@ -462,8 +466,8 @@ labels:
 # Fixed sentences of the workbook Summary sheets (master prompt v2 sections 9.3 and 9.5).
 sheet_texts:
   source: "master prompt v2 sections 9.3 and 9.5 (2026-10-24); wording where the prompt gives none: proposal"
-  # People List Summary sheet, in the order and style of the owner's reference People List (BD,
-  # 2026-10-19). Every count comes from the stored people record or the run's stored search
+  # People List Summary sheet, in the order and style of the owner's reference People List
+  # (2026-10-19). Every count comes from the stored people record or the run's stored search
   # calls; {rows}, {searches}, {records} and {people} are a count with its word ("1 row").
   people:
     title: "{account} people list, deduplicated"
@@ -552,9 +556,9 @@ sheet_texts:
   jobs:
     title: "{account} platform job postings, last {months} months (first seen {start} to {end})"
     paragraphs:
-      - "Every posting on the {account} careers site first seen in the last {months} months that names a platform, pulled by 6th agents from the structured job posting feed, plus the live postings found on the careers site on {as_of} that the feed did not yet hold. Open and closed postings are both included, and a posting with no date is kept. One row per posting; a reposted requisition appears once per posting."
+      - "Every posting on the {account} careers site first seen in the last {months} months that names a platform, pulled by 6th agents from the structured job posting feed, plus the live postings found on the careers site on {as_of} that the feed did not yet hold. Open and closed postings are both included, and a posting with no date is kept. One row per posting; a reposted requisition appears once per posting. A posting first seen before the start date above stays in our records but is not listed here and is not counted."
       - "Entity: {prefix} means a {prefix} position. A divested business or a subsidiary that is tagged for this account shows its own label; a label that starts with {prefix} is counted with the {prefix} positions below, any other label is shown for completeness and left out of the counts. A posting on another website shows that site's name followed by {suffix}; check which business it belongs to before quoting it."
-      - "Class: Build role means the platform is the job. Admin and owner role runs the platform, owns its data or governs it. Working tool means daily use. User role is everything else, including boilerplate and tool lists. Build and Admin and owner roles are confirmed by reading the whole posting; the other two come from the sentences that name the platform."
+      - "Class: Build role means the platform is the job. Admin and owner role runs the platform, owns its data or governs it. Working tool means daily use. User role is everything else, including boilerplate and tool lists. Build and Admin and owner roles are confirmed by reading the whole posting; the other two come from the sentences that name the platform. A class decided by reading the whole posting is a graded finding in the Sources and Evidence file; a class decided by the keyword rule over those sentences is a class only, not a finding. The Counts sheet shows how many listed postings were classed each way."
       - "What the posting says (read) is filled for roles read in full that were confirmed as Build or Admin and owner. Platform sentences shows the exact sentences where each platform is named, grouped by platform. Full description is the complete posting. Requisition is the job ID the posting prints, blank when it prints none. Link opens the posting; Archived link opens our stored copy, because closed postings disappear from careers sites. New since last research marks postings first seen after the previous research. Ref and Source code tie each row to the source register."
       - "Platforms are matched in the posting text. SAP is matched as the capitalized word SAP, S/4HANA, Ariba, SuccessFactors or Concur. Salesforce includes SFDC and the Salesforce clouds. Veeva includes Vault, PromoMats, eTMF and CTMS. A posting that names several platforms is counted once for each."
     matrix_heading: "Platform (named anywhere), {prefix} positions only"
@@ -583,7 +587,7 @@ evidence:
   lane_read_posting: "{title} ({posting_ref}, first seen {first_seen})"
   lane_read_none: "No posting naming this platform was read in full; every posting naming it is a row of the Job Postings workbook, with its class and platform sentences."
   lane_read_note: "The class of every other posting naming a lane platform is in the Class column of the Job Postings workbook, and the sentences it was read by are in the Platform sentences column."
-  lane_read_source: "reference Sources and Evidence Part C (owner's skill session, BD, 2026-10-19); wording of the notes: proposal"
+  lane_read_source: "reference Sources and Evidence Part C (owner's skill session, 2026-10-19); wording of the notes: proposal"
 
 # Workbook columns: key, header and kind (the kind gives width and format in the theme). The PRD
 # names title, level, lane, priority, profile URL and source for people; class, platform
@@ -719,7 +723,7 @@ workbooks:
 workspace:
   decision: D-25
   status: proposal
-  restore_text_source: "the owner's reference workspace (BD file set, RESTORE.md, 2026-10-20): layout, restore steps, canonical query definitions and entity rules; the figures come from the run"
+  restore_text_source: "the owner's reference workspace (its file set, RESTORE.md, 2026-10-20): layout, restore steps, canonical query definitions and entity rules; the figures come from the run"
   # The folders under the root, in zip order, as the reference workspace names them.
   folders: [deliverables, data, build, notes]
   # RESTORE.md. Placeholders: {account}, {as_of}, {folder}, {what}, {files}, {platform}, {tech},
@@ -732,15 +736,16 @@ workspace:
     layout_heading: "## Layout"
     folders:
       deliverables: "the five files of this delivery"
-      data: "pulls as the run stored them"
+      data: "pulls as the run stored them and the text of the pages, news and job postings the research read"
       build: "the data each deliverable was rendered from and the source link map (the builder code is not shipped)"
       notes: "the pull log (every call, parameters, counts), pass 1 (internal history, neutral form) and the sense check (entity and gap review)"
     folder_line: "- {folder}/: {what}: {files}"
     manifest_line: "- MANIFEST.json: the SHA-256 hash of every member, this note included"
+    releases_line: "releases/ ({n} text files, one per page, news item or job posting, with its title, link and date; the same copy the Archived link of a file opens on the website after sign in)"
     restore_heading: "## Restore"
     restore_steps:
       - "1. Unzip and check every member against MANIFEST.json."
-      - "2. 6th agents rebuild the deliverables into deliverables/ from the stored run with the same configuration; the build is deterministic, so the same run gives the same files. build/ holds the data each file was rendered from."
+      - "2. To rebuild the deliverables from this run, ask your 6th agents contact; the build is deterministic, so the same run gives the same files. build/ holds the data each file was rendered from."
       - "3. A later delivery adds a new archive; this one is never changed."
     queries_heading: "## Canonical query definitions (use these wording for any question against this workspace)"
     query_platform: "- \"Postings naming {platform}\": {tech}, sheet {sheet}, column {column}: the postings of {jobs} dated {start} to {as_of} (posting date, else first seen; an undated posting counts) whose title, description or platform sentences name {platform}. Answer on {as_of}: {count} ({open} open)."
@@ -762,7 +767,20 @@ workspace:
   raw_payloads:
     default: excluded
     neutral_name_copy_enabled: false
-  max_members: 64
+  # data/releases/ (owner request 2026-10-29, after the reference workspace's data/releases/): one
+  # text file per archived page, news item and job posting. The archived copy a file links to
+  # opens only behind the website's sign in, so a forwarded file or this zip would otherwise hold
+  # no readable copy of a posting that has since closed. Newest captures first up to max_files;
+  # each text up to max_chars; a copy a client-output rule refuses is left out and listed.
+  releases:
+    folder: data/releases
+    max_files: 2000
+    max_chars: 60000
+    source: "6th agents"
+    kinds: [posting, page, feed_item]
+    slug_chars: 48
+    extension: ".md"
+  max_members: 2100
   max_member_bytes: 104857600
   max_total_bytes: 524288000
   entry_name_max: 120

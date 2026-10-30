@@ -196,3 +196,42 @@ def test_heartbeat_keeps_a_long_call_and_signals_move_the_limit() -> None:
     asyncio.run(scenario())
     assert [e[1] for e in gov.events] == ["increase"]
     assert gov.state("p_x").grants_at_limit == 0
+
+
+def test_a_dead_runs_queued_units_do_not_starve_the_next_run() -> None:
+    """E2E 2026-10-29, D-4: a research was stopped with units queued for a provider slot. Its
+    leases were released, but its waiter rows stayed (the units are dead and never poll again).
+    A resume, started within seconds, queued behind them: dead waiters rank first by age and
+    never take the slot they are chosen for, so the new run was granted nothing, its slot wait
+    ended after 30 s as 'no slot', and three such slices ended the run. A dead waiter now lapses
+    in seconds, well inside one wait."""
+    from dataclasses import replace
+
+    def starved(waiter_ttl_s: float) -> bool:
+        clock = Clock()
+        gov = _gov(clock, ceiling=1)
+        gov.settings = replace(gov.settings, waiter_ttl_s=waiter_ttl_s)
+        # the stopped run: one unit holds the only slot, three more are queued behind it
+        held = [gov.acquire_now("p_x", "t1", "stopped", "a0", 0)]
+        assert None not in held
+        for i in range(3):
+            assert gov.acquire_now("p_x", "t1", "stopped", f"queued{i}", 0) is None
+        # Stop: its leases are released in the finally of each unit; the queued units just die
+        for lease_id in held:
+            for state in gov.providers.values():
+                state.leases.pop(str(lease_id), None)
+        clock.t += 2.0  # the resume starts a moment later
+
+        async def resume() -> bool:
+            try:
+                async with gov.slot(ctx(tenant="00000000-0000-4000-8000-0000000000a1"), "p_x", 0):
+                    return False
+            except SlotUnavailable:
+                return True
+
+        return asyncio.run(resume())
+
+    config_ttl = load_parallel_config().providers.waiter_ttl_s
+    assert config_ttl < load_parallel_config().providers.lease_wait_s
+    assert starved(60.0) is True  # the old value: the whole wait passes with nothing granted
+    assert starved(config_ttl) is False  # the configured value: granted as the dead rows lapse

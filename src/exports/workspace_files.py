@@ -24,6 +24,7 @@ builds of one snapshot are byte-identical.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections import Counter
@@ -31,9 +32,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from account_intelligence.archive_records import redact_contact
+from account_intelligence.urls import strip_secrets
 from datamodel.hosts import registrable
 from exports.config import ExportConfig, WorkspaceRules, provider_hosts
-from exports.content import FILE_KINDS, PullCall, SnapshotContent, WebHit
+from exports.content import FILE_KINDS, PullCall, ReleaseRow, SnapshotContent, WebHit
 from exports.errors import UnsafePackage
 from exports.models import FileKind, JobsModel, PeopleModel, TechModel
 from exports.policy import denied_link
@@ -447,8 +450,70 @@ def _entity_rules(content: SnapshotContent, r: RestoreInputs, clean: Clean) -> l
     return lines
 
 
+_NOT_NAME = re.compile(r"[^a-z0-9]+")
+
+
+def release_name(row: ReleaseRow, rules: WorkspaceRules) -> str:
+    """The member name of one archived copy: ``data/releases/<day>_<title words>-<hash>.md``. The
+    hash is of the address, so the name of a copy never changes while it is kept and two copies
+    never share one."""
+    rel = rules.releases
+    words = _NOT_NAME.sub("-", row.title.casefold()).strip("-")[: rel.slug_chars].strip("-")
+    short = hashlib.sha256(row.url.encode()).hexdigest()[:8]
+    stem = f"{row.day.isoformat()}_{words}-{short}" if words else f"{row.day.isoformat()}_{short}"
+    return f"{rel.folder}/{stem}{rel.extension}"
+
+
+def release_text(row: ReleaseRow, rules: WorkspaceRules, clean: Clean) -> str:
+    """One archived copy as the reference prints it: ``title:``, ``url:``, ``date:`` and
+    ``source:`` lines, a blank line, then the text (cut at ``max_chars``)."""
+    rel = rules.releases
+
+    def one(t: str) -> str:
+        """A field on one line."""
+        return " ".join(clean(t).split())
+
+    # contact details are raw payload only (F4): the archive removes them when it stores and
+    # serves a copy, and the release text is cleaned again here
+    text = redact_contact(clean(row.text)).strip()
+    if len(text) > rel.max_chars:
+        text = text[: rel.max_chars].rstrip()
+    head = (
+        f"title: {one(redact_contact(row.title))}\nurl: {strip_secrets(row.url)}\n"
+        f"date: {row.day.isoformat()}\nsource: {rel.source}"
+    )
+    return f"{head}\n\n{text}\n"
+
+
+def release_members(
+    content: SnapshotContent,
+    rules: WorkspaceRules,
+    clean: Clean,
+    blocked: Callable[[str], str | None],
+) -> tuple[dict[str, bytes], tuple[tuple[str, str], ...]]:
+    """``(members, left_out)``: the text file of each archived copy the reader selected (newest
+    capture first, at most ``releases.max_files``), by member name in name order, and ``(url,
+    rule)`` for each copy left out because a client-output rule refused it (``blocked`` answers
+    the rule name, or None). A copy the rules refuse is never printed, and never stops the
+    delivery."""
+    out: dict[str, bytes] = {}
+    left: list[tuple[str, str]] = []
+    for row in content.releases[: rules.releases.max_files]:
+        body = release_text(row, rules, clean)
+        why = blocked(body)
+        if why is not None:
+            left.append((row.url, why))
+            continue
+        out[release_name(row, rules)] = body.encode()
+    return dict(sorted(out.items())), tuple(left)
+
+
 def restore_member(
-    content: SnapshotContent, r: RestoreInputs, members: Sequence[str], clean: Clean
+    content: SnapshotContent,
+    r: RestoreInputs,
+    members: Sequence[str],
+    clean: Clean,
+    releases: int = 0,
 ) -> bytes:
     """``RESTORE.md``: layout (the members of this zip by folder), restore steps, canonical
     query definitions and entity rules (wording from ``workspace.restore``)."""
@@ -463,6 +528,8 @@ def restore_member(
     ]
     for folder in ws.folders:
         files = [n.split("/", 1)[1] for n in members if n.startswith(folder + "/")]
+        if folder == "data" and releases:
+            files.append(rs.releases_line.format(n=releases))
         if files:
             what = rs.folders[folder]
             lines.append(rs.folder_line.format(folder=folder, what=what, files=", ".join(files)))
@@ -481,6 +548,7 @@ def workspace_members(
     clean: Clean,
     internal_reason_texts: frozenset[str],
     restore: RestoreInputs,
+    releases: int = 0,
 ) -> dict[str, bytes]:
     """``RESTORE.md`` and every required member, in the configured order (a name the config does
     not list, or one this module does not build, is an error)."""
@@ -502,6 +570,6 @@ def workspace_members(
         *(f"build/{k}.json" for k in FILE_KINDS),
         *rules.required_members,
     ]
-    out = {RESTORE: restore_member(content, restore, listed, clean)}
+    out = {RESTORE: restore_member(content, restore, listed, clean, releases)}
     out.update((name, built[name]) for name in rules.required_members)
     return out

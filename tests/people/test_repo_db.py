@@ -91,16 +91,27 @@ async def test_round_trip_and_reentry_makes_no_paid_call() -> None:
         for value in (p.name, p.title):
             if value:
                 assert value not in str(record)
-    # every profile link the run stored has an archived copy (the record the source returned)
+    # only the people the People List prints have an archived profile copy (review 2026-10-29,
+    # F1): never an excluded, out-of-scope, review, merged or internal-only person
     archived = fetch(
         "SELECT url, kind, format, title FROM link_archive WHERE run_id = %s ORDER BY url", w.run
     )
-    linked = {
+    listed = {
         (p.profile_url_raw or p.profile_url)
         for p in result.people
-        if p.profile_url and not p.internal_only
+        if p.profile_url
+        and not p.internal_only
+        and p.merged_into is None
+        and p.classification.status == "in_scope"
     }
-    assert {row[0] for row in archived} == linked and linked
+    unlisted = {
+        (p.profile_url_raw or p.profile_url)
+        for p in result.people
+        if p.profile_url and (p.merged_into is not None or p.classification.status != "in_scope")
+    } - listed
+    assert listed and unlisted, "the corpus must hold both kinds of person"
+    assert {row[0] for row in archived} == listed
+    assert not {row[0] for row in archived} & unlisted
     assert {(row[1], row[2]) for row in archived} == {("profile", "json")}
     assert all(row[3] for row in archived)
 

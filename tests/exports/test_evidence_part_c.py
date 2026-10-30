@@ -48,11 +48,12 @@ def test_part_c_groups_the_full_reads_by_lane_platform(
     )
     (g,) = [g for g in ev.model.lane_reads if g.named]
     labels = cfg.rules.labels
-    # three postings name Salesforce; 0 and 2 were read in full; 0 is open
-    assert (g.platform, g.read, g.named, g.open_now) == ("Salesforce", 2, 3, 1)
+    # three postings name Salesforce; 0 and 2 were read in full; 0 is open and 2 has no status,
+    # which counts as open (one rule: Status is Open or Closed, fix wave C)
+    assert (g.platform, g.read, g.named, g.open_now) == ("Salesforce", 2, 3, 2)
     on = f"{AS_OF.day} {AS_OF:%b %Y}"
     assert g.heading == (
-        f"Salesforce: 2 postings read in full (3 {c.account_name} postings name it, 1 open on {on})"
+        f"Salesforce: 2 postings read in full (3 {c.account_name} postings name it, 2 open on {on})"
     )
     # the Jobs sheet lists the newest first seen first (post-00002 is J-0001), Part C keeps that
     # workbook order
@@ -105,7 +106,7 @@ def test_part_c_a_posting_naming_two_platforms_is_listed_under_each(
     assert [g.platform for g in groups] == ["Salesforce", "MuleSoft"]
     sf, mule = groups
     assert [r.posting_ref for r in mule.rows] == ["J-0001"]
-    assert (mule.read, mule.named, mule.open_now) == (1, 1, 0)
+    assert (mule.read, mule.named, mule.open_now) == (1, 1, 1)  # no status counts as open
     # one row per lane, each with its own key; the reasoning keeps that platform's sentence
     assert mule.rows[0].ref == "LP-0003" and sf.rows[-1].ref == "LP-0002"
     assert mule.rows[0].reasoning == "Synthetic sentence naming MuleSoft 2."

@@ -34,6 +34,17 @@ defaults:
     total_timeout_s: 150.0
   ledger:
     lease_ttl_s: 1800           # longer than one 1650 s slice (workflow_v1.yaml; was 300 for 240 s)
+    # The runner renews the run lease every lease_heartbeat_s while a slice runs
+    # (workflow.runner._drive; every paid-call claim renews it too). A lease whose owner has not
+    # renewed it for lease_stale_after_s may be TAKEN by another worker even though lease_ttl_s
+    # has not run out: a worker killed mid-slice (OOM, deploy) frees its run for the retries of
+    # that slice, which Cloud Tasks makes at about +10, +30, +70 and +150 s (five attempts, 10 s
+    # backoff doubling: infra/stack/main.tf). Before, the retries met the dead worker's live
+    # lease (renewed only by paid-call claims) and were dropped, and the run waited for the sweep.
+    # The long ttl stays: a live owner that stalls longer than the stale time but never loses the
+    # lease keeps its epoch, so its in-flight calls are not re-issued (paid twice).
+    lease_heartbeat_s: 20
+    lease_stale_after_s: 90     # > 4 missed beats; < the +150 s retry
     in_flight_wait_s: 30.0      # wait for an identical call by this worker
     in_flight_poll_s: 0.25
     in_flight_stale_s: 900.0    # a 'started' attempt older than this by this worker is stale

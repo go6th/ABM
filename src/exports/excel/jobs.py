@@ -194,5 +194,4 @@ def render_jobs(model: JobsModel, cfg: ExportConfig, title: str) -> tuple[bytes,
     for k, text in enumerate(model.summary_notes, start=lay.paragraphs_first):
         book.paragraph(summary, k, text, layout.summary_span)
     book.write_long_text()
-    parts = book.long.parts if book.long else 0
-    return book.bytes(title, model.as_of), parts
+    return book.bytes(title, model.as_of), book.counted

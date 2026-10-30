@@ -53,6 +53,11 @@ class ObjectStore(Protocol):
         """At most ``limit`` keys under ``prefix`` (callers pass a tenant prefix)."""
         ...
 
+    async def delete_prefix(self, prefix: str, limit: int) -> int:
+        """Delete at most ``limit`` objects under ``prefix`` (a tenant deletion passes the
+        tenant's own prefixes, ``tenancy.storage.object_prefixes``); returns how many."""
+        ...
+
 
 class Mailer(Protocol):
     """Transactional mail from fixed templates."""
@@ -90,6 +95,10 @@ class UnconfiguredObjectStore:
         raise NotConfigured("object store is not configured")
 
     async def list_prefix(self, prefix: str, limit: int) -> list[str]:
+        """Refuse: no object store is configured."""
+        raise NotConfigured("object store is not configured")
+
+    async def delete_prefix(self, prefix: str, limit: int) -> int:
         """Refuse: no object store is configured."""
         raise NotConfigured("object store is not configured")
 

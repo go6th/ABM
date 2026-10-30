@@ -2,7 +2,7 @@
 
 # The standing file set
 
-Rules status: **proposal** (D-24); rules hash `a7b5efbc440b31fcc84712247c3aacbe1d08263d0ef4bcc578d08eaa483bf8b6` (covers
+Rules status: **proposal** (D-24); rules hash `3ef076478993b8413b226c4c7683755c319a164128a264d347b0187195ccbd9c` (covers
 `export_rules.yaml`, `lanes.yaml` and `output_spec.yaml`).
 
 | Kind | File name | Format |
@@ -166,8 +166,8 @@ the render data of each file under `build/`, and the run's own records
 (`data/entity_lock.json`, `data/web_searches.json`, `data/techstack_detections.json`, `build/urls.json`, `notes/pull_log.md`, `notes/pass1.md`, `notes/sense_check.md`), each built from stored
 rows only and required by the zip check. Raw payloads:
 excluded (neutral-name copy enabled: False); organisation-provider payloads never.
-Caps: 64 members, 104857600 bytes per member, 524288000 bytes in total, names up to 120 characters.
-RESTORE.md wording: the owner's reference workspace (BD file set, RESTORE.md, 2026-10-20): layout, restore steps, canonical query definitions and entity rules; the figures come from the run.
+Caps: 2100 members, 104857600 bytes per member, 524288000 bytes in total, names up to 120 characters.
+RESTORE.md wording: the owner's reference workspace (its file set, RESTORE.md, 2026-10-20): layout, restore steps, canonical query definitions and entity rules; the figures come from the run.
 
 ## Content rules (D-24)
 

@@ -32,9 +32,7 @@ def _rows(ids: tuple[str, ...], digests: tuple[str, ...], kind: str) -> dict[str
 
 def manifest_rows(manifest: BuildManifest) -> Rows:
     """The row ids and digests of a manifest, per file."""
-    return {
-        k: (manifest.row_ids.get(k, ()), manifest.row_digests.get(k, ())) for k in FILE_KINDS
-    }
+    return {k: (manifest.row_ids.get(k, ()), manifest.row_digests.get(k, ())) for k in FILE_KINDS}
 
 
 def rows_change_note(previous: BuildManifest | None, rows: Rows) -> str:

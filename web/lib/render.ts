@@ -26,3 +26,23 @@ export function cellText(value: unknown, cap = 2000): string {
 }
 
 export const LINK_REL = "noopener noreferrer";
+
+const ARCHIVE_PAGE = /^(?:\/v1)?(\/accounts\/[^/]+\/archive)$/;
+
+/** The website's own archive page for an archived-copy address, whatever origin a delivered file
+ * carries (the public origin of the day, or the older API path `/v1/accounts/{domain}/archive`):
+ * a same-origin relative address, so the session cookie is sent and the link never leaves the
+ * site. Anything else is returned unchanged (null stays null). */
+export function ownHref(href: string | null): string | null {
+  if (!href) return href;
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return href;
+  }
+  const page = ARCHIVE_PAGE.exec(url.pathname);
+  const original = url.searchParams.get("url");
+  if (!page || !original) return href;
+  return `${page[1]}?${new URLSearchParams({ url: original }).toString()}`;
+}

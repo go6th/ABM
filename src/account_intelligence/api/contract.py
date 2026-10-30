@@ -470,6 +470,40 @@ class ArchivedCopy(Out):
     archived_at: str
     title: str | None = None
     text: str
+    # the structured copy of a posting (``posting-archive/1``: requisition, location, status when
+    # captured, first and last seen, seniority, class, platforms, platform sentences, the full
+    # description); absent for an older plain-text copy or a page
+    record: dict[str, Any] | None = None
+    # true when ``text`` was cut (``archive.MAX_COPY_TEXT`` characters); the download is whole
+    truncated: bool = False
+    # the fields the output guard refused and blanked (the rest of the copy is shown)
+    withheld: list[str] = Field(default_factory=list)
+
+
+class ArchiveListItem(Out):
+    """One address in the account's archive index: its newest copy. A posting also says its
+    status when captured, its location and its requisition."""
+
+    url: str
+    title: str | None = None
+    kind: str
+    archived_at: str
+    status_at_capture: str | None = None
+    location: str | None = None
+    requisition: str | None = None
+    # the schema of the structured copy (``news-archive/1``, ``posting-archive/1``), which names
+    # the kind of page better than ``kind`` does (a news article is stored as a page)
+    record_schema: str | None = None
+
+
+class ArchiveList(Out):
+    """One page of the account's archive index, newest capture first."""
+
+    items: list[ArchiveListItem] = Field(default_factory=list)
+    total: int
+    offset: int
+    limit: int
+    next_offset: int | None = None
 
 
 class SheetTabRef(Out):

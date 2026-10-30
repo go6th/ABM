@@ -14,16 +14,15 @@ beside it). A paragraph with an ``href`` is one hyperlink whose text is the para
 from __future__ import annotations
 
 import json
-import re
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from exports.config import WordTheme
+from exports.urlcheck import require_safe_http_url
 
 SCHEMA_VERSION = 2  # DocumentSpec.schema_version
 MAX_TEXT = 40_000
-_HREF = re.compile(r"^https?://\S+$")
 
 
 class _Spec(BaseModel):
@@ -34,9 +33,7 @@ SpecText = Annotated[str, Field(max_length=MAX_TEXT)]
 
 
 def _href(value: str) -> str:
-    if not _HREF.match(value):
-        raise ValueError("a link target is an absolute http(s) address without spaces")
-    return value
+    return require_safe_http_url(value, "a link target")
 
 
 Href = Annotated[str, AfterValidator(_href)]
