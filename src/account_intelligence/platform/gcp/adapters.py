@@ -77,6 +77,11 @@ class GcsPayloadStore:
             raise PayloadMissing(key) from None
         return gzip.decompress(data)
 
+    async def exists(self, key: str) -> bool:
+        """Whether an object is stored under ``key`` (a metadata read, no download)."""
+        blob = self._bucket.blob(key)
+        return bool(await asyncio.to_thread(blob.exists))
+
 
 class CloudTasksScheduler:
     """``RunScheduler`` over Cloud Tasks. Task names are deterministic per (run, slice) so a

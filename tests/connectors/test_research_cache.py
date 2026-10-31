@@ -218,3 +218,39 @@ async def test_a_stale_in_flight_attempt_of_this_worker_is_reissued(
     assert isinstance(again, Claimed) and again.possible_duplicate and again.attempt == 2
     with pytest.raises(CallInFlight):
         raise CallInFlight(attempt=1)  # the class stays a retryable provider error
+
+
+async def test_a_cached_call_whose_payload_is_gone_runs_live_and_the_index_entry_is_dropped(
+    harness: Harness, tenant_a: UUID
+) -> None:
+    """An account purge (or any deletion) can remove the stored answer while the research-cache
+    index still points at it. That must read as a miss: the call runs live, no run fails with
+    ``PayloadMissing`` (staging 2026-10-31: a new research stopped at 0 of 33 steps)."""
+    cache = _cache()
+    account, run1, domain = make_run(tenant_a)
+    rt = _cached_runtime(harness, cache)
+    provider = harness.providers[ProviderCode.P_SEARCH]
+    provider.script(
+        Reply.cassette("p_search", "web_search"), Reply.cassette("p_search", "web_search")
+    )
+    await call_operation(Operation.WEB_SEARCH, SEARCH, context(tenant_a, account, run1, domain), rt)
+    run2 = _run_for(tenant_a, account)
+    reused = await call_operation(
+        Operation.WEB_SEARCH, SEARCH, context(tenant_a, account, run2, domain), rt
+    )
+    assert provider.calls == 1 and reused.replayed
+    assert cache.index.items  # type: ignore[attr-defined]  # the reuse filled the index
+
+    harness.payloads.objects.clear()  # the stored answers are deleted, the index still points
+    run3 = _run_for(tenant_a, account)
+    live = await call_operation(
+        Operation.WEB_SEARCH, SEARCH, context(tenant_a, account, run3, domain), rt
+    )
+    assert provider.calls == 2 and not live.replayed  # a live call, not a failure
+    assert not cache.index.items  # type: ignore[attr-defined]  # the stale entry was dropped
+
+    run4 = _run_for(tenant_a, account)
+    again = await call_operation(
+        Operation.WEB_SEARCH, SEARCH, context(tenant_a, account, run4, domain), rt
+    )
+    assert provider.calls == 2 and again.replayed  # the fresh answer is reused again

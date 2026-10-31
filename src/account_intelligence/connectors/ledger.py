@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -202,7 +202,9 @@ class Ledger:
         cache: ResearchCache | None = None,
         in_flight_stale_s: float = 900.0,
         lease_stale_after_s: float | None = None,
+        payload_exists: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
+        self._payload_exists = payload_exists
         self._txn = txn
         self._clock = clock
         self.lease_ttl_s = lease_ttl_s
@@ -426,6 +428,19 @@ class Ledger:
             strict_source=strict,
         )
         if hit is None:
+            return None
+        if self._payload_exists is not None and not await self._payload_exists(hit.response_ref):
+            # the stored answer is gone (an account was purged, or the object was deleted): the
+            # entry is stale, so forget it and let the call run live instead of failing the run
+            from account_intelligence.connectors import obs
+
+            await cache.forget(ctx.tenant_id, key.args_hash)
+            obs.log_event(
+                "connector.cache_stale",
+                provider_code=key.provider_code,
+                operation=key.operation,
+                run_id=ctx.run_id,
+            )
             return None
         await self._insert_adopted(s, ctx, key, hit)
         return Replay(

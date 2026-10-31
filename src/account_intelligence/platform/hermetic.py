@@ -50,6 +50,10 @@ class MemoryPayloadStore:
         except KeyError:
             raise PayloadMissing(key) from None
 
+    async def exists(self, key: str) -> bool:
+        """Whether a body is stored under ``key``."""
+        return key in self.objects
+
 
 class LocalPayloadStore:
     """Filesystem store for development and multi-process tests.
@@ -94,6 +98,10 @@ class LocalPayloadStore:
         except FileNotFoundError:
             raise PayloadMissing(key) from None
         return gzip.decompress(data)
+
+    async def exists(self, key: str) -> bool:
+        """Whether a file is stored under ``key``."""
+        return await asyncio.to_thread(self._path(key).is_file)
 
 
 SliceRunner = Callable[[UUID, UUID, int], Awaitable[None]]

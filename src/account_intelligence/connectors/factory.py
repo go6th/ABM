@@ -180,6 +180,9 @@ def build_runtime(
         budget_defaults=BudgetDefaults(d.run_budget_usd, d.tool_call_cap),
         cache=cache,  # research cache: reuse of finished calls across runs of one tenant
         in_flight_stale_s=d.ledger.in_flight_stale_s,
+        payload_exists=getattr(
+            payloads, "exists", None
+        ),  # a cache hit whose payload is gone is a miss
     )
     return ConnectorRuntime(
         config=config,

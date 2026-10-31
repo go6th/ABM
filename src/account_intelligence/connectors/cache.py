@@ -102,6 +102,10 @@ class CacheIndex(Protocol):
         """Store an object for ``ttl_s`` seconds."""
         ...
 
+    async def delete(self, key: str) -> None:
+        """Drop one entry (a missing key is fine)."""
+        ...
+
 
 class InMemoryCacheIndex:
     """Single-process index (tests and a worker without Redis)."""
@@ -116,6 +120,10 @@ class InMemoryCacheIndex:
     async def set(self, key: str, value: dict[str, Any], ttl_s: int) -> None:
         """Store (the TTL is not enforced in memory; freshness is re-checked on read)."""
         self.items[key] = dict(value)
+
+    async def delete(self, key: str) -> None:
+        """Drop one entry."""
+        self.items.pop(key, None)
 
 
 class RedisCacheIndex:
@@ -143,6 +151,13 @@ class RedisCacheIndex:
         """Store with an expiry; errors are ignored (the row is the record)."""
         try:
             await self.client.set(key, json.dumps(value, default=str), ex=int(ttl_s))
+        except Exception:  # noqa: BLE001 - see get
+            return
+
+    async def delete(self, key: str) -> None:
+        """Drop one entry; errors are ignored (the entry expires on its own)."""
+        try:
+            await self.client.delete(key)
         except Exception:  # noqa: BLE001 - see get
             return
 
@@ -175,6 +190,10 @@ class ResearchCache:
     def enabled(self) -> bool:
         """Whether provider results may be reused at all."""
         return self.config.enabled
+
+    async def forget(self, tenant_id: UUID, args_hash: str) -> None:
+        """Drop the index entry of one call (its stored payload is gone)."""
+        await self.index.delete(index_key(tenant_id, args_hash))
 
     async def lookup(
         self,
