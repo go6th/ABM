@@ -161,6 +161,10 @@ def plant_scope(
                     if c != "tenant_id" and p in scope.rows[parent][0]:
                         over[c] = scope.rows[parent][0][p]
         over |= TERMINAL.get(name, {})
+        if name == "chat_turns" and scope.rows.get("chat_threads"):
+            # one thread per turn: a thread belongs to an account only through its turns
+            threads = iter(r["id"] for r in scope.rows["chat_threads"])
+            over["thread_id"] = lambda: next(threads)
         over |= extra or {}
         for _ in range(per_table):
             fresh = {k: (v() if callable(v) else v) for k, v in over.items()}

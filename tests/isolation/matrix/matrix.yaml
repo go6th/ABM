@@ -333,6 +333,12 @@ functions:
   erase_archive_urls:
     returns: a row count; the caller's context tenant and one account only, only while the account holds an erased person
     proof: tests/people/test_archive_erasure_db.py
+  purge_candidates:
+    returns: (tenant_id, account_id, deleted_at) of accounts with one exact domain; identifiers only, execute for the operator role only
+    proof: tests/db/test_purge_deleted_account.py
+  purge_deleted_account:
+    returns: a jsonb of counts and storage targets for one deleted account of one tenant; refuses a live account; execute for the operator role only
+    proof: tests/db/test_purge_deleted_account.py
   reset_view_run:
     returns: a row count; the caller's context tenant and one run only, derived web-table rows
     proof: tests/exports/test_leak_wave_d2.py

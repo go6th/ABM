@@ -86,6 +86,51 @@ def object_prefixes(tenant_id: UUID) -> tuple[str, ...]:
     return (*tenant_prefixes(tenant_id), f"{tenant_id}/")
 
 
+# Targets of a single account's purge (``tenancy.lifecycle.erase_account_objects``): the account's
+# own trees, the trees of one of its runs or export jobs, and the exact keys of one uploaded file.
+# Each is narrower than a tenant tree; a delete-by-prefix adapter accepts these shapes and the
+# tenant trees only.
+_ACCOUNT_TREE = re.compile(rf"^tenants/(?P<t>{_UUID})/accounts/(?P<a>{_UUID})/$")
+_ACCOUNT_DELIVERABLES = re.compile(rf"^(?P<t>{_UUID})/(?P<a>{_UUID})/$")
+_RUN_TREES = (
+    re.compile(rf"^tenants/(?P<t>{_UUID})/(?:internal|exports)/{_UUID}/$"),
+    re.compile(rf"^quarantine/(?P<t>{_UUID})/{_UUID}/$"),
+)
+_ONE_FILE_KEYS = (
+    re.compile(rf"^tenants/(?P<t>{_UUID})/raw/[0-9a-f]{{64}}$"),
+    re.compile(rf"^tenants/(?P<t>{_UUID})/documents/{_UUID}/raw$"),
+    re.compile(rf"^quarantine/tenants/(?P<t>{_UUID})/{_UUID}/raw$"),
+)
+
+
+def account_prefixes(tenant_id: UUID, account_id: UUID) -> tuple[str, ...]:
+    """The two trees that hold only one account's objects: the payload tree (runs, parity
+    bundles, archive copies) and the older delivered-files layout ``<tenant>/<account>/...``."""
+    return (f"tenants/{tenant_id}/accounts/{account_id}/", f"{tenant_id}/{account_id}/")
+
+
+def account_scope_target(target: str) -> tuple[UUID, UUID | None] | None:
+    """(tenant, account or None) when ``target`` is a prefix or key an account purge may delete:
+    an account tree (account named), the tree of one run or export job, or the exact key of one
+    uploaded file (tenant only). None for anything else, so a bug can never widen a purge."""
+    if ".." in target.split("/") or "//" in target:
+        return None
+    for pattern in (_ACCOUNT_TREE, _ACCOUNT_DELIVERABLES):
+        m = pattern.match(target)
+        if m:
+            return UUID(m.group("t")), UUID(m.group("a"))
+    for pattern in (*_RUN_TREES, *_ONE_FILE_KEYS):
+        m = pattern.match(target)
+        if m:
+            return UUID(m.group("t")), None
+    return None
+
+
+def is_account_scope_target(target: str) -> bool:
+    """True when ``account_scope_target`` accepts ``target`` (the adapter's guard)."""
+    return account_scope_target(target) is not None
+
+
 def tenant_path(tenant_id: UUID, kind: str, *parts: str) -> str:
     """``tenants/<tenant>/<kind>/<parts..>``; refuses unknown kinds and any segment that is
     empty, a dot path, or carries a separator."""

@@ -1,0 +1,19 @@
+-- Migration 0097 rollback: drop the foreign-key indexes.
+DROP INDEX IF EXISTS ix_facts_superseded_by;
+DROP INDEX IF EXISTS ix_grade_events_fact_id;
+DROP INDEX IF EXISTS ix_fact_reevaluations_fact_id;
+DROP INDEX IF EXISTS ix_signal_events_fact_id;
+DROP INDEX IF EXISTS ix_job_posting_classifications_run_id_posting_key;
+DROP INDEX IF EXISTS ix_job_posting_platform_sentences_run_id_posting_key;
+DROP INDEX IF EXISTS ix_lead_verification_queries_lead_verification_id;
+DROP INDEX IF EXISTS ix_run_documents_document_id;
+DROP INDEX IF EXISTS ix_raw_files_first_document_id;
+DROP INDEX IF EXISTS ix_deliverables_supersedes;
+DROP INDEX IF EXISTS ix_alert_feedback_alert_id;
+DROP INDEX IF EXISTS ix_signal_events_delta_item_id;
+DROP INDEX IF EXISTS ix_alerts_fact_delta_id;
+DROP INDEX IF EXISTS ix_alerts_event_id;
+DROP INDEX IF EXISTS ix_alert_suppressions_event_id;
+DROP INDEX IF EXISTS ix_export_verifications_package_id;
+DROP INDEX IF EXISTS ix_signal_history_expired_by_run;
+DROP INDEX IF EXISTS ix_signal_event_links_event_b;

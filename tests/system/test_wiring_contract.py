@@ -144,6 +144,8 @@ def test_migrator_url_is_read_only_by_migration_and_ops_code() -> None:
     for path in (ROOT / "src").rglob("*.py"):
         if path.name == "config.py" and path.parent.name == "account_intelligence":
             continue  # the registry entry itself
+        if path.parent.name == "ops" and path.parent.parent.name == "account_intelligence":
+            continue  # operator-run commands (purge_account); never imported by the api or worker
         text = path.read_text(encoding="utf-8")
         if "MIGRATOR_DATABASE_URL" in text or "migrator_database_url" in text:
             offenders.append(str(path.relative_to(ROOT)))

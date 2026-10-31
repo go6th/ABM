@@ -242,12 +242,14 @@ class GcsObjectStore:
     async def delete_prefix(self, prefix: str, limit: int) -> int:
         """See ``ObjectStore.delete_prefix``: at most ``limit`` objects, one page per call. The
         prefix must name a tenant tree (``tenants/<uuid>/`` and the other layouts of
-        ``tenancy.storage``), so a bug can never empty the bucket."""
+        ``tenancy.storage``) or one of the narrower targets of an account purge (an account
+        tree, the tree of one run, the exact key of one uploaded file), so a bug can never
+        empty the bucket."""
         import asyncio
 
-        from tenancy.storage import is_tenant_prefix
+        from tenancy.storage import is_account_scope_target, is_tenant_prefix
 
-        if not is_tenant_prefix(prefix):
+        if not (is_tenant_prefix(prefix) or is_account_scope_target(prefix)):
             raise ValueError("refusing to delete outside a tenant prefix")
 
         def drop() -> int:

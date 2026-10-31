@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_intelligence.config import CONFIG_DIR
 from account_intelligence.platform.ports import NotConfigured
-from tenancy.storage import object_prefixes
+from tenancy.storage import account_scope_target, object_prefixes
 
 Plane = Literal["tenant", "operator", "system"]
 
@@ -98,6 +98,64 @@ def check_plan(plan: DeletionPlan) -> None:
         raise LifecycleError("deletion plan lists a table twice")
     if plan.batch_size < 1 or plan.max_batches_per_pass < 1:
         raise LifecycleError("deletion batches must be positive")
+
+
+@dataclass(frozen=True)
+class AccountPurgePlan:
+    """What purging ONE deleted account does to every tenant table (``config/deletion.yaml``
+    ``account_purge``; migration 0096): ``erase`` rows (children first), ``scrub`` content columns
+    of rows a ledger keeps, the ``tombstone`` of the account row, ``keep`` (money, audit and
+    operational records that point at the account) and ``tenant_level`` (no account link)."""
+
+    erase: tuple[str, ...]
+    scrub: dict[str, tuple[str, ...]]
+    tombstone: tuple[str, ...]
+    keep: dict[str, str]
+    tenant_level: dict[str, str]
+    erase_exceptions: dict[str, str]
+
+    @property
+    def touched(self) -> tuple[str, ...]:
+        """Every table the database function reports on, in the order it reports them."""
+        return (*self.erase, *self.scrub)
+
+
+@lru_cache
+def load_account_purge_plan() -> AccountPurgePlan:
+    """``config/deletion.yaml`` ``account_purge``; refuses an inconsistent plan."""
+    raw = yaml.safe_load((CONFIG_DIR / "deletion.yaml").read_text())["account_purge"]
+    plan = AccountPurgePlan(
+        erase=tuple(str(t) for t in raw["erase"]),
+        scrub={str(t): tuple(str(c) for c in cols) for t, cols in raw["scrub"].items()},
+        tombstone=tuple(str(t) for t in raw["tombstone"]),
+        keep={str(k): str(v) for k, v in raw["keep"].items()},
+        tenant_level={str(k): str(v) for k, v in raw["tenant_level"].items()},
+        erase_exceptions={str(k): str(v) for k, v in raw["erase_exceptions"].items()},
+    )
+    check_account_purge_plan(plan, load_plan())
+    return plan
+
+
+def check_account_purge_plan(plan: AccountPurgePlan, tenant: DeletionPlan) -> None:
+    """A table is in exactly one class; the purge never erases a table the tenant plan keeps
+    (unless named in ``erase_exceptions`` with its reason); every kept table says why."""
+    classes = [set(plan.erase), set(plan.scrub), set(plan.tombstone), set(plan.keep)]
+    classes.append(set(plan.tenant_level))
+    seen: set[str] = set()
+    for members in classes:
+        if overlap := seen & members:
+            raise LifecycleError(f"account purge plan lists tables twice: {sorted(overlap)}")
+        seen |= members
+    if len(set(plan.erase)) != len(plan.erase):
+        raise LifecycleError("account purge plan lists a table twice")
+    kept_by_tenant = tenant.never - set(plan.erase_exceptions)
+    if bad := set(plan.erase) & kept_by_tenant:
+        raise LifecycleError(f"account purge erases tables the tenant plan never deletes: {bad}")
+    if not set(plan.erase_exceptions) <= set(plan.erase):
+        raise LifecycleError("an erase exception is not in the erase list")
+    reasons = (*plan.keep.values(), *plan.tenant_level.values(), *plan.erase_exceptions.values())
+    if any(len(r.strip()) < 12 for r in reasons):
+        raise LifecycleError("an account purge item has no reason")
 
 
 @dataclass
@@ -352,6 +410,73 @@ async def erase_objects(
         else:
             return total, False
     return total, True
+
+
+class AccountPurgeRefused(LifecycleError):
+    """A stored-object target that does not belong to the account being purged."""
+
+
+@dataclass
+class ObjectPurge:
+    """The outcome of deleting one account's stored objects: how many were deleted, whether every
+    target is now empty, the targets still to do (empty when clean) and the exact keys the rows
+    named in a shape no account purge deletes (left alone; the operator decides)."""
+
+    deleted: int = 0
+    clean: bool = True
+    left: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+
+
+def account_object_targets(
+    tenant_id: UUID, account_id: UUID, summary: dict[str, Any]
+) -> tuple[list[str], list[str]]:
+    """(targets, skipped keys) of one account purge, from the database function's summary
+    (``object_prefixes``, ``object_keys``). A prefix must be a shape an account purge may delete
+    and name this tenant (and, for an account tree, this account), else ``AccountPurgeRefused``
+    before a single object is touched. A key read from a row (an older document's own key) in
+    any other shape is skipped, never guessed at."""
+    targets: list[str] = []
+    skipped: list[str] = []
+    for prefix in (str(p) for p in summary.get("object_prefixes", ())):
+        found = account_scope_target(prefix)
+        if found is None or found[0] != tenant_id or found[1] not in (None, account_id):
+            raise AccountPurgeRefused("an object prefix is outside this account")
+        targets.append(prefix)
+    for key in (str(k) for k in summary.get("object_keys", ())):
+        found = account_scope_target(key)
+        if found is None or found[0] != tenant_id or found[1] not in (None, account_id):
+            skipped.append(key)
+        else:
+            targets.append(key)
+    return sorted(set(targets)), sorted(set(skipped))
+
+
+async def erase_account_objects(
+    store: ObjectEraser,
+    tenant_id: UUID,
+    account_id: UUID,
+    summary: dict[str, Any],
+    *,
+    batch: int = OBJECT_BATCH,
+) -> ObjectPurge:
+    """Delete the stored objects of one account (``account_object_targets``) by prefix after its
+    rows are gone, in batches like ``erase_objects``. A failure or a cap leaves orphan objects,
+    never dangling rows, and ``left`` says what remains."""
+    targets, skipped = account_object_targets(tenant_id, account_id, summary)
+    out = ObjectPurge(skipped=skipped)
+    for i, target in enumerate(targets):
+        # LOOP(account object deletion): cap=OBJECT_BATCHES_PER_PASS batches per target;
+        # exit=a batch shorter than the limit (the target is empty) or the cap
+        for _ in range(OBJECT_BATCHES_PER_PASS):
+            n = await store.delete_prefix(target, batch)
+            out.deleted += n
+            if n < batch:
+                break
+        else:
+            out.clean, out.left = False, targets[i:]
+            return out
+    return out
 
 
 async def execute(

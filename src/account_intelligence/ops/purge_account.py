@@ -156,6 +156,22 @@ def _print_report(out: TextIO, summary: Mapping[str, Any], *, executed: bool) ->
         )
 
 
+def _print_targets(
+    out: TextIO, tenant: UUID, account: UUID, summary: Mapping[str, Any], heading: str
+) -> None:
+    """The stored-object targets (prefixes and keys built from identifiers only)."""
+    try:
+        targets, skipped = lifecycle.account_object_targets(tenant, account, dict(summary))
+    except lifecycle.AccountPurgeRefused:
+        out.write("  stored-object targets: REFUSED, one is outside this account\n")
+        return
+    out.write(f"  {heading}:\n")
+    for target in targets:
+        out.write(f"    {target}\n")
+    for key in skipped:
+        out.write(f"    (unknown shape, left alone) {key}\n")
+
+
 def _call(
     conn: psycopg.Connection[Any],
     tenant: UUID,
@@ -263,6 +279,7 @@ def run(
                 continue
             out.write("DRY RUN\n" if not args.execute else "PLAN\n")
             _print_report(out, plan, executed=False)
+            _print_targets(out, tenant, account, plan, "stored-object targets")
             if not args.execute:
                 continue
             if plan["shared_payload_refs"] and not args.allow_shared_payloads:
@@ -303,6 +320,10 @@ def run(
             _print_report(out, done, executed=True)
             if store is not None and not _objects(store, tenant, account, done, out):
                 failed = True
+            elif store is None:
+                _print_targets(
+                    out, tenant, account, done, "stored objects NOT deleted (delete by hand)"
+                )
         if not args.execute:
             out.write("dry run: nothing was changed. Add --execute to erase.\n")
         return 1 if failed else 0

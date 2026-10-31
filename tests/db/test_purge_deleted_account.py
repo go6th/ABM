@@ -16,13 +16,13 @@ import secrets
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import psycopg
 import pytest
 from psycopg import errors
-from tests.db.purge_world import CANARY, Scope, plant_scope, snapshot
 
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs.lifecycle import add_account
@@ -30,6 +30,7 @@ from audit import chain
 from audit.events import AuditEvent, record
 from tenancy import lifecycle
 from tests.conftest import ADMIN_DSN, APP_DSN
+from tests.db.purge_world import CANARY, Scope, plant_scope, snapshot
 from tests.isolation.matrix.plant import plant, tenant_tables
 
 pytestmark = pytest.mark.requires_postgres
@@ -413,8 +414,12 @@ def test_running_it_again_changes_nothing_and_adds_no_second_audit_row(
     again = call(admin, w.t1, w.a.account, True)
     assert again["rows_total"] == 0 and again["already_tombstone"] is True
     assert snapshot(admin, w.t1) == before
-    # the object targets can still be derived (the runs stay), so a failed object step can be redone
-    assert again["object_prefixes"] == executed.done["object_prefixes"]
+    # the targets that hang on the runs (which stay) can still be derived, so a failed object step
+    # can be redone; the exports of the account's download jobs died with their rows, and the
+    # command prints every target when its object step fails, so those are not lost
+    first, second = set(executed.done["object_prefixes"]), set(again["object_prefixes"])
+    assert second <= first
+    assert len(first - second) == w.a.count("download_jobs")
 
 
 def test_the_counts_are_kept_in_a_content_free_tombstone_row(
@@ -526,3 +531,131 @@ def test_a_failure_in_the_middle_rolls_everything_back(admin: psycopg.Connection
         assert tables  # the planter is unchanged
     finally:
         admin.execute("DROP TABLE purge_probe")
+
+
+# ----------------------------------------------------------------------------------------------
+# the operator command (account_intelligence.ops.purge_account)
+# ----------------------------------------------------------------------------------------------
+
+
+def _cli(argv: list[str], env: dict[str, str]) -> tuple[int, str, str]:
+    """Run the command in process against the scratch database; (exit code, stdout, stderr)."""
+    import io
+
+    from account_intelligence.ops import purge_account
+
+    out, err = io.StringIO(), io.StringIO()
+    code = purge_account.main(
+        argv, env={"MIGRATOR_DATABASE_URL": ADMIN_DSN, **env}, out=out, err=err
+    )
+    return code, out.getvalue(), err.getvalue()
+
+
+def _facts(admin: psycopg.Connection[Any], account: UUID) -> int:
+    row = admin.execute("SELECT count(*) FROM facts WHERE account_id = %s", (account,)).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def test_the_command_dry_run_lists_rows_and_targets_and_changes_nothing(
+    admin: psycopg.Connection[Any],
+) -> None:
+    w = make_world(admin)
+    before = snapshot(admin, w.t1), snapshot(admin, w.t2)
+    code, out, _err = _cli(["--domain", w.domain, "--tenant", str(w.t1)], {})
+    assert code == 0 and "DRY RUN" in out and "dry run: nothing was changed" in out
+    assert f"tenants/{w.t1}/accounts/{w.a.account}/" in out
+    assert (snapshot(admin, w.t1), snapshot(admin, w.t2)) == before
+
+
+def test_the_command_refuses_a_live_domain(admin: psycopg.Connection[Any]) -> None:
+    w = make_world(admin)
+    before = snapshot(admin, w.t1)
+    live = f"sibling-{w.domain}"
+    code, out, err = _cli(["--domain", live, "--execute", "--skip-objects"], {})
+    assert code == 1 and "still active" in out and "refused" in err
+    assert snapshot(admin, w.t1) == before
+    code, _out, err = _cli(["--domain", "nobody.example"], {})
+    assert code == 3 and "no account" in err
+    code, _out, err = _cli(["--domain", "*.example.com"], {})
+    assert code == 2
+
+
+def test_the_command_needs_an_object_store_or_skip_objects(
+    admin: psycopg.Connection[Any],
+) -> None:
+    w = make_world(admin)
+    before = snapshot(admin, w.t1)
+    code, _out, err = _cli(["--domain", w.domain, "--tenant", str(w.t1), "--execute"], {})
+    assert code == 2 and "no object store" in err
+    assert snapshot(admin, w.t1) == before and _facts(admin, w.a.account) > 0
+
+
+def test_the_command_skip_objects_erases_rows_and_prints_what_is_left(
+    admin: psycopg.Connection[Any],
+) -> None:
+    w = make_world(admin)
+    code, out, _err = _cli(
+        ["--domain", w.domain, "--tenant", str(w.t1), "--execute", "--skip-objects"], {}
+    )
+    assert code == 0 and "EXECUTED" in out and "delete by hand" in out
+    assert f"tenants/{w.t1}/accounts/{w.a.account}/" in out
+    assert _facts(admin, w.a.account) == 0
+    assert (
+        _facts(admin, w.b.account) > 0 and _facts(admin, w.c.account) > 0
+    )  # sibling, other tenant
+
+
+def test_the_command_deletes_the_stored_objects_of_that_account_only(
+    admin: psycopg.Connection[Any], tmp_path: Path
+) -> None:
+    w = make_world(admin)
+    mine = tmp_path / "tenants" / str(w.t1) / "accounts" / str(w.a.account) / "runs" / "x.json"
+    sibling = tmp_path / "tenants" / str(w.t1) / "accounts" / str(w.b.account) / "runs" / "x.json"
+    other = tmp_path / "tenants" / str(w.t2) / "accounts" / str(w.c.account) / "runs" / "x.json"
+    for path in (mine, sibling, other):
+        path.parent.mkdir(parents=True)
+        path.write_text("synthetic")
+    code, out, _err = _cli(
+        ["--domain", w.domain, "--tenant", str(w.t1), "--execute"], {"PAYLOAD_DIR": str(tmp_path)}
+    )
+    assert code == 0 and "stored objects deleted" in out
+    assert not mine.exists() and sibling.exists() and other.exists()
+    assert _facts(admin, w.a.account) == 0
+
+
+def test_every_foreign_key_into_a_purged_table_has_an_index(
+    admin: psycopg.Connection[Any],
+) -> None:
+    """Deleting a parent row makes the database look up its children by the foreign key. Without
+    an index that is a scan of the whole child table per deleted row, quadratic for the tens of
+    thousands of rows of one account (staging 2026-10-31: a purge ran over 45 minutes). An index
+    counts when it starts with a column of the key other than ``tenant_id``, or when its first
+    columns are exactly the key's columns."""
+    plan = lifecycle.load_account_purge_plan()
+    purged = set(plan.erase)
+    rows = admin.execute(
+        """
+        WITH fk AS (
+          SELECT con.conrelid, con.confrelid::regclass::text AS parent, con.conkey,
+                 (SELECT attnum FROM pg_attribute
+                   WHERE attrelid = con.conrelid AND attname = 'tenant_id') AS tcol
+            FROM pg_constraint con WHERE con.contype = 'f')
+        SELECT conrelid::regclass::text, parent,
+               (SELECT array_agg(a.attname) FROM unnest(conkey) k(n)
+                  JOIN pg_attribute a ON a.attrelid = conrelid AND a.attnum = k.n)
+          FROM fk WHERE NOT EXISTS (
+            SELECT 1 FROM pg_index i WHERE i.indrelid = fk.conrelid AND i.indisvalid AND (
+              ((i.indkey::int2[])[0] = ANY(fk.conkey)
+                 AND (i.indkey::int2[])[0] IS DISTINCT FROM fk.tcol)
+              OR (SELECT array_agg(x ORDER BY x)
+                    FROM unnest((i.indkey::int2[])[0:cardinality(fk.conkey) - 1]) x)
+                 = (SELECT array_agg(x ORDER BY x) FROM unnest(fk.conkey) x)))
+        """
+    ).fetchall()
+    missing = sorted(
+        f"{parent} <- {child}({', '.join(cols)})"
+        for child, parent, cols in rows
+        if parent in purged
+    )
+    assert missing == []

@@ -212,3 +212,213 @@ objects:
   - "quarantine/tenants/<tenant>/"
   - "uploads/tenants/<tenant>/"
   - "quarantine/<tenant>/"
+
+# Purging ONE account the user already deleted (migration 0096; python -m
+# account_intelligence.ops.purge_account; docs/audit/2026-10-30-purge-deleted-account.md). The
+# account row (accounts.deleted_at) only marks it; this section says what the purge does with every
+# table that carries a tenant_id, so a test can prove nothing is left unclassified:
+#   erase           the account's CLIENT CONTENT, ordered children first (foreign keys; a test checks
+#                   the order against the database). The database function purge_deleted_account
+#                   holds the same list as row predicates, and account_purger holds DELETE on
+#                   exactly these tables.
+#   scrub           rows a ledger needs to keep: the content columns are emptied, the row stays.
+#   tombstone       the accounts row: it stays (foreign keys, ledgers) with every name, address and
+#                   setting cleared and a unique `deleted-<8 hex>.invalid` domain.
+#   keep            tables that point at the account or its runs but are money, audit or operational
+#                   records: untouched, with the reason.
+#   tenant_level    tables with no link to an account: untouched, with the reason.
+# erase_exceptions are tables that the TENANT plan keeps (`never`) and the account purge erases.
+account_purge:
+  version: "1.0.0"
+  erase_exceptions:
+    tenant_rule_accounts: "which accounts a client rule applies to; ids only, no content; a rule must not keep pointing at an account that no longer exists"
+  erase:
+    - fact_evidence
+    - grade_events
+    - verifier_findings
+    - claim_drops
+    - report_sections
+    - deliverables
+    - job_posting_platform_sentences
+    - job_posting_classifications
+    - job_posting_observations
+    - job_postings
+    - tech_detections
+    - tech_stack_items
+    - link_archive
+    - chunks
+    - abm_distill_outputs
+    - abm_sense_checks
+    - alert_feedback
+    - alert_outbox
+    - alerts
+    - chat_turns
+    - chat_threads
+    - connector_items
+    - coverage_row_events
+    - coverage_rows
+    - crm_write_events
+    - crm_writes
+    - crm_mappings
+    - document_deletions
+    - document_parts
+    - document_passages
+    - document_redactions
+    - document_table_rows
+    - document_tables
+    - download_jobs
+    - export_verifications
+    - export_packages
+    - fact_reevaluations
+    - intake_drops
+    - internal_deliverables
+    - job_pipeline_passes
+    - job_pipeline_runs
+    - lead_verification_queries
+    - lead_verifications
+    - leak_checks
+    - link_checks
+    - missing_observations
+    - monitor_runs
+    - monitor_configs
+    - notification_deliveries
+    - notification_outbox
+    - notifications
+    - people_pipeline_runs
+    - person_events
+    - person_post_pulls
+    - person_search_pages
+    - prepulled_files
+    - prepulled_intent_events
+    - prepulled_intents
+    - pull_manifests
+    - raw_files
+    - refresh_row_plans
+    - review_samples
+    - run_coverage_meta
+    - run_documents
+    - documents
+    - run_feedback
+    - run_gate_results
+    - signal_event_evidence
+    - signal_event_links
+    - signal_history
+    - view_materializations
+    - view_rows
+    - work_unit_events
+    - work_units
+    - model_reply_log
+    - alert_suppressions
+    - signal_events
+    - delta_items
+    - deltas
+    - facts
+    - refresh_runs
+    - refresh_slots
+    - checkpoint_writes
+    - checkpoint_blobs
+    - checkpoints
+    - sources
+    - person_sources
+    - person_posts
+    - person_profiles
+    - people
+    - account_source_counters
+    - account_bundles
+    - tenant_rule_accounts
+  scrub:
+    account_runs: [run_input, stop_detail]
+    runs: [error]
+    research_jobs: [goal, topic, failure_reason]
+    tool_calls: [response, response_ref]
+    llm_calls: [output_json]
+  scrub_reasons:
+    account_runs: 'run_input holds the research goal and stop_detail free text; the run header, its status, credits and pins stay (ledgers refer to the run)'
+    runs: 'error text of a failed run; the header stays'
+    research_jobs: "goal, topic and failure reason are the client's words; the row stays because credit_entries hangs on it by a cascading foreign key"
+    tool_calls: 'response and response_ref hold provider answers about the account; emptied so the research cache can never adopt a payload that is gone; cost columns stay'
+    llm_calls: "output_json is the model's answer about the account; emptied; tokens and cost stay"
+  tombstone: [accounts]
+  keep:
+    wallet_ledger: "money ledger of the account's runs; kept for accounting law (the run id stays, the account is a tombstone)"
+    tool_call_events: 'ledger events of paid calls; ids, costs and error classes, no content'
+    run_cap_versions: "credit cap history of the account's runs; billing record"
+    run_cap_events: "credit cap events of the account's runs; billing record"
+    spend_limit_events: "spend limit history of the account's runs; billing record"
+    spend_reports: "spend reports of the account's runs; billing record"
+    tool_call_records: 'raw call records of the paid-call ledger: operation, argument hash, cost; no content'
+    llm_call_attempts: 'model call attempts of the cost ledger: error class only'
+    credit_entries: 'credit reservations and settlements; billing record (it hangs on research_jobs by a cascading foreign key, which is why research_jobs is scrubbed, never deleted)'
+    balance_snapshots: 'provider balance snapshots taken at runs; billing record'
+    unit_cost_rollups: 'cost rollups per run; billing record'
+    ops_cost_rollups: 'cost rollups per run and account for Runs and spend; billing record'
+    spend_defects: 'spend invariant findings per run; billing record'
+    provider_leases: 'provider concurrency leases; ids and times only'
+    provider_waiters: 'provider concurrency queue; ids and times only'
+    run_leases: 'worker leases on runs; ids and times only'
+    run_anomaly_events: 'anomaly detector findings; ids and types only'
+    stuck_run_observations: 'sweeper observations; ids and states only'
+    usefulness_events: 'usage analytics events (kind, subject id, time); no content; the account id stays pointing at the tombstone'
+  tenant_level:
+    connector_access_log: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
+    connector_grants: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
+    connector_quarantine: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
+    connector_oauth_states: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
+    connector_connections: 'a connection to a mailbox or drive belongs to the user, not to an account; only the items filed under the account (connector_items) are erased'
+    digest_runs: 'per-user record; no account link'
+    research_file_chunks: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
+    research_file_deletions: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
+    research_file_findings: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
+    research_file_model_calls: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
+    research_file_state: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
+    research_file_upload_parts: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
+    research_file_uploads: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
+    research_files: 'files uploaded to the workspace for a file-driven research carry no account column; they are not reachable from an account and are left to the tenant deletion or to the person who uploaded them'
+    saved_views: 'per-user record; no account link'
+    auth_sessions: 'sign-in and session records of the workspace; no account link'
+    login_states: 'sign-in and session records of the workspace; no account link'
+    saml_assertion_ids: 'sign-in and session records of the workspace; no account link'
+    tenant_model_credentials: 'workspace or user configuration; no account link'
+    idp_connections: 'sign-in and session records of the workspace; no account link'
+    branding_assets: 'workspace or user configuration; no account link'
+    users: 'the client directory and its history; no account link'
+    memberships: 'the client directory and its history; no account link'
+    wallets: 'metering or billing record without an account link; kept'
+    audit_events: 'audit, security or platform record; kept, and the purge itself appends to the first and the last'
+    usage_events: 'metering or billing record without an account link; kept'
+    tenant_events: 'workspace or user configuration; no account link'
+    membership_events: 'the client directory and its history; no account link'
+    tenant_settings_versions: 'workspace or user configuration; no account link'
+    ops_rollup_watermarks: 'metering or billing record without an account link; kept'
+    usage_counters: 'metering or billing record without an account link; kept'
+    usage_thresholds: 'metering or billing record without an account link; kept'
+    usage_periods: 'metering or billing record without an account link; kept'
+    user_limits: 'workspace or user configuration; no account link'
+    limit_requests: 'workspace or user configuration; no account link'
+    quota_versions: 'workspace or user configuration; no account link'
+    plan_assignments: 'workspace or user configuration; no account link'
+    monitoring_budget_versions: 'workspace or user configuration; no account link'
+    monitoring_usage: 'metering or billing record without an account link; kept'
+    throttle_events: 'metering or billing record without an account link; kept'
+    auth_events: 'sign-in and session records of the workspace; no account link'
+    audit_chain_checks: 'audit, security or platform record; kept, and the purge itself appends to the first and the last'
+    support_grants: 'audit, security or platform record; kept, and the purge itself appends to the first and the last'
+    support_session_events: 'audit, security or platform record; kept, and the purge itself appends to the first and the last'
+    webhook_receipts: 'audit, security or platform record; kept, and the purge itself appends to the first and the last'
+    tombstones: 'audit, security or platform record; kept, and the purge itself appends to the first and the last'
+    canary_probe_results: 'audit, security or platform record; kept, and the purge itself appends to the first and the last'
+    crm_connection_events: 'audit, security or platform record; kept, and the purge itself appends to the first and the last'
+    people_data_consents: 'the client directory and its history; no account link'
+    client_settings: 'workspace or user configuration; no account link'
+    document_policies: 'workspace or user configuration; no account link'
+    shelf_life_overrides: 'workspace or user configuration; no account link'
+    tenant_rules: 'workspace or user configuration; no account link'
+    library_publications: 'which Library accounts are published to the client; no link to a workspace account'
+    question_categories: 'metering or billing record without an account link; kept'
+    subscriptions: 'workspace or user configuration; no account link'
+    user_preferences: 'workspace or user configuration; no account link'
+    eval_runs: 'platform evaluation records; no client data'
+    eval_case_results: 'platform evaluation records; no client data'
+    eval_metrics: 'platform evaluation records; no client data'
+    eval_baselines: 'platform evaluation records; no client data'
+    ownership_backfill: 'metering or billing record without an account link; kept'

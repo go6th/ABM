@@ -30,4 +30,4 @@ parked no such page exists, and the setting is harmless.
 * Every web component and library file is imported by a screen or a test.
 * `.aws/` and `.codex/` in the repository root are empty folders the sandbox creates; they hold
   nothing and are left alone.
-- purge-work-in-progress/ (2026-10-30): unfinished purge of a deleted account (migration 0096, ops command, tests), stopped by the owner mid-way. Moved here so the tree matches the deployed build rel-9390fb5. changed-files/ holds the agent's edited copies of health.py (EXPECTED_REVISION 0096), tenant_plane.py, tenancy/lifecycle.py, storage.py, config/deletion.yaml.
+- purge-work-in-progress/ (2026-10-30; MOVED INTO THE LIVE TREE 2026-10-31): the account purge (migration 0096, src/account_intelligence/ops/purge_account.py, tests/db/test_purge_deleted_account.py) is now part of the product.
