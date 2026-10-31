@@ -7,6 +7,7 @@
 # on 2026-10-22 (docker-content-digest of the image index); move it on purpose, with a rebuild.
 ARG NODE_IMAGE=node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
 
+# hadolint ignore=DL3006
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -14,6 +15,7 @@ COPY package.json package-lock.json ./
 # binary checks (vitest and eslint, neither used by `next build`); Next itself has none.
 RUN npm ci --no-audit --no-fund --ignore-scripts
 
+# hadolint ignore=DL3006
 FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -27,6 +29,7 @@ RUN npm run build \
 
 # Runtime: the pinned base as published (security updates arrive by moving the digest, so the
 # image is reproducible); npm, npx and corepack, unused by the server, are removed from the layer.
+# hadolint ignore=DL3006
 FROM ${NODE_IMAGE} AS runtime
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \

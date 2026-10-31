@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 from psycopg import errors
+from tests.db.purge_world import CANARY, Scope, plant_scope, snapshot
 
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.runs.lifecycle import add_account
@@ -29,7 +30,6 @@ from audit import chain
 from audit.events import AuditEvent, record
 from tenancy import lifecycle
 from tests.conftest import ADMIN_DSN, APP_DSN
-from tests.db.purge_world import CANARY, Scope, plant_scope, snapshot
 from tests.isolation.matrix.plant import plant, tenant_tables
 
 pytestmark = pytest.mark.requires_postgres

@@ -241,10 +241,10 @@ locals {
       # takeover that fails once still has three more tries. The backoff gaps are 10, 20, 40, 80,
       # 160 s (four doublings) and then the 300 s maximum; tests/unit/test_slice_config_consistency.py
       # computes this schedule from these four numbers.
-      max_attempts              = 8
-      min_backoff               = "10s"
-      max_backoff               = "300s"
-      max_doublings             = 4
+      max_attempts  = 8
+      min_backoff   = "10s"
+      max_backoff   = "300s"
+      max_doublings = 4
     }
     documents = {
       max_dispatches_per_second = 2

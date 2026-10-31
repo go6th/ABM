@@ -83,7 +83,8 @@ src = ["src", "."]
 # config/skill/archive holds the owner's skill package byte for byte (its own scripts and
 # examples, never edited here), so it is not linted as app code
 # scripts/parity/parity_check.py is the owner's checker, kept verbatim
-extend-exclude = [".claude", "_review", "docs", "config/skill/archive", "scripts/parity/parity_check.py"]
+# .agents holds the owner's skill package (its starter code and scripts are reference material), likewise not linted
+extend-exclude = [".claude", ".agents", "_review", "docs", "config/skill/archive", "scripts/parity/parity_check.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
