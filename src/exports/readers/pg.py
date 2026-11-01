@@ -104,13 +104,19 @@ _FACT_COLS = (
 )
 
 
+# the key every id sorts after: uuids compare bytewise, the same order as their lower-case hex text,
+# and ``id > :after ORDER BY id`` reads one page by the primary key (``id::text`` could not use it:
+# every page scanned and sorted the whole run, an hour of one database core for BD, 2026-11-01)
+_FIRST_ID = "00000000-0000-0000-0000-000000000000"
+
+
 async def _keyset(
     s: AsyncSession, sql: str, params: dict[str, Any], batch: int, total: int, what: str
 ) -> list[Any]:
     """Rows of ``sql`` (which must order by ``id`` and take ``:after``/``:batch``) until the rows
     read equal ``total``; more or fewer rows than the snapshot count fails (B3)."""
     rows: list[Any] = []
-    after = ""
+    after = _FIRST_ID
     # LOOP(export keyset pagination): cap=ceil(snapshot count / keyset_batch) + 1 batches;
     # exit=converged (rows read equal the count), RowConservation (more or fewer rows)
     for _ in range(total // batch + 2):
@@ -375,7 +381,7 @@ class PgContentReader:
             counts["facts"] = await _count(s, f"SELECT count(*) {fact_where}", p)
             facts = await _keyset(
                 s,
-                f"SELECT {_FACT_COLS} {fact_where} AND id::text > :after ORDER BY id::text"
+                f"SELECT {_FACT_COLS} {fact_where} AND id > CAST(:after AS uuid) ORDER BY id"
                 " LIMIT :batch",
                 p,
                 self.batch,
@@ -391,8 +397,8 @@ class PgContentReader:
             evidence = await _keyset(
                 s,
                 "SELECT id, fact_id, evidence_kind, url, supporting_sentence, source_id,"
-                f" is_aggregator, origin, evidence_date {ev_where} AND id::text > :after"
-                " ORDER BY id::text LIMIT :batch",
+                f" is_aggregator, origin, evidence_date {ev_where} AND id > CAST(:after AS uuid)"
+                " ORDER BY id LIMIT :batch",
                 p,
                 self.batch,
                 counts["fact_evidence"],
@@ -406,7 +412,7 @@ class PgContentReader:
             sources = await _keyset(
                 s,
                 "SELECT id, source_code, url, published_at, kind, title, publisher FROM sources"
-                " WHERE account_id = :a AND id::text > :after ORDER BY id::text LIMIT :batch",
+                " WHERE account_id = :a AND id > CAST(:after AS uuid) ORDER BY id LIMIT :batch",
                 p,
                 self.batch,
                 counts["sources"],
@@ -435,7 +441,7 @@ class PgContentReader:
                 s,
                 "SELECT id, technology, first_seen_at, last_seen_at, source_ref"
                 " FROM tech_detections WHERE run_id = :r AND account_id = :a"
-                " AND id::text > :after ORDER BY id::text LIMIT :batch",
+                " AND id > CAST(:after AS uuid) ORDER BY id LIMIT :batch",
                 p,
                 self.batch,
                 counts["tech_detections"],
@@ -451,7 +457,7 @@ class PgContentReader:
                 s,
                 "SELECT id, business_function, category, technology, postings, position"
                 " FROM tech_stack_items WHERE run_id = :r AND account_id = :a"
-                " AND id::text > :after ORDER BY id::text LIMIT :batch",
+                " AND id > CAST(:after AS uuid) ORDER BY id LIMIT :batch",
                 p,
                 self.batch,
                 counts["tech_stack_items"],

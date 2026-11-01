@@ -24,8 +24,22 @@ def newest_only(table: str, alias: str, same: str) -> str:
     )
 
 
+def newest_by_probe(table: str, alias: str, same: str) -> str:
+    """The same rule as ``newest_only``, written as one index probe per row: the row is kept when
+    it is not older than the newest row that is the same thing. ``NOT EXISTS`` left the join order
+    to the planner, which on 2026-11-01 estimated one fact for an account with 14,823, joined every
+    fact to every other (about 220 million comparisons per call, five calls per page view) and kept
+    the database at full CPU. The probe reads the ``(account_id, fingerprint, created_at)`` index
+    for the one fingerprint, whatever the statistics say. Needs that index on ``table``."""
+    return (
+        f" AND COALESCE(({alias}.created_at, {alias}.id) >= (SELECT n.created_at, n.id"
+        f" FROM {table} n WHERE n.account_id = {alias}.account_id AND {same}"
+        " ORDER BY n.created_at DESC, n.id DESC LIMIT 1), true)"
+    )
+
+
 # the account's CURRENT row of each thing the research records per run
-NEWEST_FACT = newest_only(
+NEWEST_FACT = newest_by_probe(
     "facts",
     "f",
     "n.fingerprint = f.fingerprint AND n.status = 'current' AND n.superseded_at IS NULL"
