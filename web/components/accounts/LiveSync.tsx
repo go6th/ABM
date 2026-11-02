@@ -21,14 +21,21 @@ import { isWorking, stageOf } from "@/lib/documents";
 import type { DocumentList, DocumentStatus } from "@/lib/gen/api.gen";
 
 export const POLL_MS = 4000;
+/** An upload that never finishes (the tab was closed mid-upload) must not poll for ever: the
+ * interval grows (4 s for a minute, 10 s until five minutes, then 30 s) and stops at 15 minutes. */
+export const POLL_GIVE_UP_MS = 15 * 60 * 1000;
+export function pollEvery(elapsedMs: number): number | null {
+  if (elapsedMs >= POLL_GIVE_UP_MS) return null;
+  return elapsedMs < 60_000 ? POLL_MS : elapsedMs < 300_000 ? 10_000 : 30_000;
+}
 export const AFTER_READY_MS = [5000, 20000, 60000];
 export const FOCUS_GAP_MS = 15000;
 
-type Doc = Pick<DocumentStatus, "document_id" | "stage" | "needs_company" | "passages" | "parts_done" | "members_read">;
+type Doc = Pick<DocumentStatus, "document_id" | "stage" | "needs_company" | "passages" | "parts_done" | "members_read" | "indexed_passages">;
 
 /** What the page shows about the files: any change in it means the page is out of date. */
 export function docsSignature(docs: Doc[]): string {
-  return docs.map((d) => `${d.document_id}:${stageOf(d)}:${d.passages ?? 0}:${d.parts_done ?? 0}:${d.members_read ?? 0}`).join("|");
+  return docs.map((d) => `${d.document_id}:${stageOf(d)}:${d.passages ?? 0}:${d.parts_done ?? 0}:${d.members_read ?? 0}:${d.indexed_passages ?? 0}`).join("|");
 }
 
 export function LiveSync({ accountId, docs }: { accountId: string; docs: Doc[] }) {
@@ -65,12 +72,17 @@ export function LiveSync({ accountId, docs }: { accountId: string; docs: Doc[] }
   useEffect(() => {
     if (!working) return;
     let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const began = Date.now();
+    const next = () => {
+      const wait = pollEvery(Date.now() - began);
+      if (wait !== null && !stopped) timer = setTimeout(tick, wait);
+    };
     const tick = async () => {
       await check();
-      if (!stopped) timer = setTimeout(tick, POLL_MS);
+      next();
     };
-    timer = setTimeout(tick, POLL_MS);
+    next();
     return () => { stopped = true; clearTimeout(timer); };
   }, [working, check]);
 
@@ -100,5 +112,16 @@ export function LiveSync({ accountId, docs }: { accountId: string; docs: Doc[] }
     };
   }, [router]);
 
+  return null;
+}
+
+/** Shown in place of the uploads when the list could not be read (a server error while the page
+ * was re-drawn): the page tries once more after 15 seconds instead of staying without its sync. */
+export function RetryRefresh() {
+  const router = useRouter();
+  useEffect(() => {
+    const timer = setTimeout(() => router.refresh(), 15000);
+    return () => clearTimeout(timer);
+  }, [router]);
   return null;
 }

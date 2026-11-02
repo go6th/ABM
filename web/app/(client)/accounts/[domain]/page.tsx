@@ -11,7 +11,7 @@ import { LINK_REL, safeLink } from "@/lib/render";
 import { Grade, Pill, StateCard, type PillTone } from "@/ui/design";
 import { FilesCard } from "@/components/accounts/FilesCard";
 import { UploadedFilesCard } from "@/components/accounts/UploadedFilesCard";
-import { LiveSync } from "@/components/accounts/LiveSync";
+import { LiveSync, RetryRefresh } from "@/components/accounts/LiveSync";
 import { AccountAsk } from "@/components/accounts/AccountAsk";
 import { ResumeResearch } from "@/components/accounts/ResumeResearch";
 import { ResearchProgress } from "@/components/accounts/ResearchProgress";
@@ -86,7 +86,9 @@ async function Uploads({ accountId, here }: { accountId: string; here: string })
       <UploadedFilesCard docs={uploads} />
       <LiveSync accountId={accountId} docs={uploads} />
     </>
-  ) : null;
+  ) : (
+    <RetryRefresh />
+  );
 }
 
 export default async function AccountWorkspacePage({ params }: Params) {

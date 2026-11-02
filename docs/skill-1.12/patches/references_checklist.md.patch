@@ -1,0 +1,15 @@
+--- a/references/checklist.md
++++ b/references/checklist.md
+@@ -3 +3 @@
+-Version 1.11, October 7, 2026.
++Version 1.12, November 2, 2026.
+@@ -39 +39 @@
+-20. Every count states its base and what it includes. Reconcile counts across files before delivery.
++20. Every count states its base and what it includes, and cites the query that produced it (its id in `query_log`). Reconcile counts across files before delivery.
+@@ -46,0 +47 @@
++27. Questions about a workspace are answered by SQL over the full table in the phase 1 database, never from file snippets, search results or the first rows of a file. The base count is stated. A figure that has a query is stated as what the data shows; hedging belongs to what the figure means, never to whether it was counted.
+@@ -154,0 +156 @@
++12. Query log. Every number in the Summary's narrative, tables and tracker tally has a query id in the Summary's Query log section; rerunning that SQL on the database gives the same figure; no number was typed from a snippet.
+@@ -156,0 +159,2 @@
++
++- 2026-11-02. Version 1.12. A cheaper model answered workspace questions from retrieval snippets and got the base wrong (40 of 1,484 people; 14 Salesforce mentions against 438 in the 7,148 postings; a people file never found), while the stronger model, which loaded every file into one database and ran SQL, did not. Phase 1 now builds `{Account}_phase1.sqlite` (every file a table, summary tables, a query log) with `assets/build_sqlite.py` at step 12 and packages it; SKILL.md gains the rule that workspace questions are answered by SQL over the full table with the base count stated; `references/workspace-schema.md` is new; the Summary gains a Query log section and every count cites its query (requirement 20, new requirement 27, gate line 12). The model split is unchanged.

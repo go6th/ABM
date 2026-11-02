@@ -21,8 +21,26 @@ OUT = Path(__file__).resolve().parents[1] / "config" / "places.json"
 US_MIN, WORLD_MIN = 15_000, 100_000
 
 
+LETTERS = str.maketrans(
+    {
+        "ł": "l",
+        "Ł": "L",
+        "ø": "o",
+        "Ø": "O",
+        "đ": "d",
+        "Đ": "D",
+        "ß": "ss",
+        "æ": "ae",
+        "Æ": "AE",
+        "œ": "oe",
+    }
+)
+
+
 def ascii_fold(text: str) -> str:
-    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().strip()
+    """The name in plain letters; ł, ø, đ and ß have no accent to strip and are mapped."""
+    plain = unicodedata.normalize("NFKD", text.translate(LETTERS))
+    return plain.encode("ascii", "ignore").decode().strip()
 
 
 def main(data: Path) -> None:

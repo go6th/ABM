@@ -190,6 +190,9 @@ class ColumnInfo:
     # values of a low-cardinality text column; empty for tables ingested before the lexicon
     aliases: tuple[str, ...] = ()
     values: tuple[str, ...] = ()
+    # False: the router never takes a word of the question as naming this column (the research
+    # tables' synthetic ``account`` and ``file_row``: every table has them)
+    routed: bool = True
 
 
 @dataclass(frozen=True)
@@ -454,7 +457,11 @@ def parse(table: TableInfo, payload: Mapping[str, Any]) -> Query:
             if value is None or str(value) == "":
                 raise QueryError("bad_value", f"{column.name}: contains needs a value")
             value = str(value)
-            also = EXP.aliases_of(value) if query.expand and column.type == "text" else []
+            also = (
+                EXP.aliases_of(value)
+                if query.expand and op == "icontains" and column.type == "text"
+                else []
+            )
             if also:
                 # the typed text still matches as a substring; the group's other spellings
                 # match as whole words (documents.expanders)
@@ -690,6 +697,7 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
         }
         for r in found
     ]
+    matched_numbers = {int(r.row_no) for r in found}  # every row the filter matched, duplicates too
     removed = 0
     if query.distinct_on:
         rows, removed = _dedupe(rows, query.distinct_on)
@@ -707,7 +715,7 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
 
         rows.sort(key=by, reverse=desc)
     matched = len(rows)
-    exact_rows = {int(r["row"]) for r in rows}
+    exact_rows = [dict(r) for r in rows]  # whole cells, before the projection below
     truncated = matched > query.limit
     rows = rows[: query.limit]
     shown = query.columns or [c.name for c in query.table.columns if not c.payload]
@@ -728,7 +736,7 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
     if query.expansions:
         out["expanded"] = query.expansions
     if query.expand:
-        related = await _nearby(session, query, exact_rows, shown)
+        related = await _nearby(session, query, matched_numbers, exact_rows, shown)
         if related is not None:
             out["related"] = related
     if matched == 0 and query.where:
@@ -747,12 +755,19 @@ RELATED_ROWS_MAX = 1000
 
 
 async def _nearby(
-    session: Any, query: Query, exact: set[int], shown: Sequence[str]
+    session: Any,
+    query: Query,
+    matched: set[int],
+    exact_rows: list[dict[str, Any]],
+    shown: Sequence[str],
 ) -> dict[str, Any] | None:
     """The nearby expander (``documents.expanders``): for the query's first filter on a place
     column, the rows OUTSIDE the exact result that lie within the radius of the place asked for,
-    nearest first. The query runs again without that filter (every other filter kept); None when
-    there is no place filter, ``{"skipped": ...}`` when the place or the row set cannot be used."""
+    nearest first. ``matched`` is every row number the filter matched (a duplicate that
+    ``distinct_on`` removed is not "nearby"); the query runs again without the place filter (every
+    other filter kept). None when there is no place filter, ``{"skipped": ...}`` when the place
+    or the row set cannot be used. The place is resolved first, so a filter on "Remote" or on a
+    column that only looks like a place costs no second query."""
     w = next(
         (
             w
@@ -764,6 +779,8 @@ async def _nearby(
     )
     if w is None:
         return None
+    if EXP.resolve_target(str(w.value)) is None:
+        return {"skipped": "target_is_not_a_city", "column": w.column.name}
     relaxed = Query(query.table, [x for x in query.where if x is not w])
     where, params = _sql(relaxed)
     found = await repo.table_rows(
@@ -779,18 +796,22 @@ async def _nearby(
             "cells": dict(r.cells or {}),
         }
         for r in found
-        if int(r.row_no) not in exact
+        if int(r.row_no) not in matched
     ]
     if query.distinct_on:
-        candidates, _ = _dedupe(candidates, query.distinct_on)
+        # one row per business key across the exact result AND the candidates: a posting whose
+        # current row is in the exact set is not listed again for an older row of another place
+        kept = {int(r["row"]) for r in exact_rows}
+        survivors, _ = _dedupe(exact_rows + candidates, query.distinct_on)
+        candidates = [r for r in survivors if int(r["row"]) not in kept]
     result = EXP.nearby(str(w.value), candidates, w.column.name, EXP.radius(query.radius_miles))
     if result is None:
         return {"skipped": "target_is_not_a_city", "column": w.column.name}
     rows = result["rows"]
-    result["truncated"] = len(rows) > RELATED_ROWS_MAX
+    cap = min(query.limit, RELATED_ROWS_MAX)
+    result["truncated"] = len(rows) > cap
     result["rows"] = [
-        {**r, "cells": {name: r["cells"].get(name) for name in shown}}
-        for r in rows[:RELATED_ROWS_MAX]
+        {**r, "cells": {name: r["cells"].get(name) for name in shown}} for r in rows[:cap]
     ]
     result["column"] = w.column.name
     return result

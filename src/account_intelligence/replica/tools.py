@@ -252,24 +252,30 @@ class AccessTools:
             if name == RENDER.NAME:
                 out = self._render(payload)
             elif name in TABULAR_TOOLS:
-                self.data_calls += 1
                 out = await self.table_tools.run(name, payload)
+                self._counted(out)
             elif name == "run_python":
-                self.data_calls += 1
                 out = await self._run_python(payload)
+                self._counted(out)
             elif name in ARCH.NAMES:
                 if self.archive is None:
                     raise T.QueryError("unknown_tool", f"no tool named {name!r}")
-                self.data_calls += 1
                 out = await self.archive.run(name, payload)
+                self._counted(out)
             else:
-                # list_sources only lists; reading a passage is reading
-                self.data_calls += name != "list_sources"
                 out = await self._prose(name, payload)
+                if name != "list_sources":  # list_sources only lists; reading a passage is reading
+                    self._counted(out)
         except T.QueryError as error:
             out = error.payload()
         self.results.append(out)
         return out
+
+    def _counted(self, out: Any) -> None:
+        """A data call that returned data counts as a read; one that returned an error (an unknown
+        table, a bad argument) does not (``read_first``)."""
+        if not (isinstance(out, dict) and "error" in out):
+            self.data_calls += 1
 
     def _render(self, payload: dict[str, Any]) -> Any:
         """A render_answer call: shape-checked (replica.render), then terminal — the tool loop
@@ -312,7 +318,18 @@ class AccessTools:
             )
         from account_intelligence.replica.model_answer import refusal_phrase
 
-        said = refusal_phrase(json.dumps(payload, ensure_ascii=False))
+        # what the answer SAYS, not the cells of a table (a posting may hold "re-export")
+        sections = [s for s in payload.get("sections", []) if isinstance(s, dict)]
+        spoken = json.dumps(
+            [payload.get("headline"), payload.get("stats")]
+            + [
+                [s.get("title"), s.get("note"), s.get("text"), s.get("paragraphs"), s.get("items")]
+                for s in sections
+                if s.get("kind") != "table"
+            ],
+            ensure_ascii=False,
+        )
+        said = refusal_phrase(spoken)
         if said and self.read_refusals < MAX_READ_REFUSALS:
             self.read_refusals += 1
             return (
@@ -321,25 +338,25 @@ class AccessTools:
                 " complete. Query it with query_table and answer from the rows.",
             )
         last = self.table_tools.last_query
-        if last is not None and not last[1] and self.shortfall_refusals < MAX_SHORTFALL_REFUSALS:
+        # a `result` section lists every row of its own query, so it needs no comparison; the
+        # tables the model wrote itself, together, should list what the last full query matched
+        complete = any(s.get("kind") == "result" for s in sections)
+        if (
+            last is not None
+            and not last[1]
+            and not complete
+            and self.shortfall_refusals < MAX_SHORTFALL_REFUSALS
+        ):
             matched = last[0]
-            listed = max(
-                (
-                    # a result section lists every row of its query (replica.result_tables)
-                    matched if s.get("kind") == "result" else len(s.get("rows") or [])
-                    for s in payload.get("sections", [])
-                    if isinstance(s, dict) and s.get("kind") in ("table", "result")
-                ),
-                default=0,
-            )
+            listed = sum(len(s.get("rows") or []) for s in sections if s.get("kind") == "table")
             if matched >= SHORTFALL_MIN_ROWS and listed * 2 < matched:
                 self.shortfall_refusals += 1
                 return (
                     "rows_missing",
-                    f"Your largest table lists {listed} rows but the last query matched"
-                    f" {matched}. List every matching row. If you removed rows on purpose (false"
-                    " positives, duplicates), keep them out only with a note stating how many"
-                    " you removed and why, then call render_answer again.",
+                    f"Your tables list {listed} rows in all but the last query matched"
+                    f" {matched}. List every matching row (or add a `result` section for that"
+                    " query). If you removed rows on purpose (false positives, duplicates), say"
+                    " how many and why in a note, then call render_answer again.",
                 )
         return None
 

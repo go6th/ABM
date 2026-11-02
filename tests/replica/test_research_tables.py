@@ -18,6 +18,7 @@ import pytest
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.replica import research_tables as RT
 from documents import tables as T
+from documents.tables import ColumnInfo
 
 pytestmark = [pytest.mark.requires_postgres, pytest.mark.asyncio]
 H = "b" * 64
@@ -369,3 +370,123 @@ async def test_result_sections_become_complete_tables_with_notes_and_nearby_rows
     cited = MA._table_cites(done["answer"], {"R1": row})
     assert cited["sections"][0]["rows"][0][-1] == "[R1]"
     assert RENDER.rewrite(cited, {"R1": row}) is not None
+
+
+def _rows(*cells: dict[str, Any]) -> list[Any]:
+    from types import SimpleNamespace
+
+    return [SimpleNamespace(row_no=i, seq=0, cells=c) for i, c in enumerate(cells, start=1)]
+
+
+async def test_a_duplicate_the_dedupe_removed_never_comes_back_as_a_nearby_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audit 2026-11-02: with ``distinct_on``, the rows ``_dedupe`` dropped from the exact result
+    were not in the exclusion set, so they returned as "nearby" at 0 miles."""
+    cols = tuple(ColumnInfo(n, n, "text", False) for n in ("req", "location", "last_seen"))
+    table = T.TableInfo(uuid4(), "Jobs", "b:Jobs", None, "b.xlsx", uuid4(), uuid4(), cols, "req", 5)
+    data = _rows(
+        {"req": "R1", "location": "San Francisco, CA", "last_seen": "2026-10-01"},  # superseded
+        {"req": "R1", "location": "San Francisco, CA", "last_seen": "2026-10-20"},
+        {"req": "R2", "location": "Oakland, CA", "last_seen": "2026-10-01"},  # stale scrape
+        {"req": "R2", "location": "San Francisco, CA", "last_seen": "2026-10-20"},
+        {"req": "R3", "location": "San Jose, CA", "last_seen": "2026-10-05"},
+    )
+
+    async def fake(
+        session: Any, table_id: Any, where: str, params: dict[str, Any], limit: int, **kw: Any
+    ) -> list[Any]:
+        if "v0" in params:  # the exact query: the place filter
+            return [r for r in data if "san francisco" in r.cells["location"].lower()]
+        return list(data)  # the relaxed query
+
+    monkeypatch.setattr(T.repo, "table_rows", fake)
+    query = T.parse(
+        table,
+        {
+            "where": [{"column": "location", "op": "icontains", "value": "San Francisco"}],
+            "distinct_on": "req",
+        },
+    )
+    out = await T.run(None, query)
+    assert sorted(r["cells"]["req"] for r in out["rows"]) == ["R1", "R2"]
+    assert out["dedup_removed"] == 1
+    related = out["related"]["rows"]
+    # R1 and R2 are already listed (their current rows); only R3, San Jose, is nearby
+    assert [r["cells"]["req"] for r in related] == ["R3"]
+
+
+async def test_a_place_filter_on_a_value_that_is_no_city_costs_no_second_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cols = (ColumnInfo("location", "Location", "text", False),)
+    table = T.TableInfo(uuid4(), "P", "b:P", None, "b.xlsx", uuid4(), uuid4(), cols, None, 2)
+    calls: list[str] = []
+
+    async def fake(
+        session: Any, table_id: Any, where: str, params: dict[str, Any], limit: int, **kw: Any
+    ) -> list[Any]:
+        calls.append(where)
+        return _rows({"location": "Remote"})
+
+    monkeypatch.setattr(T.repo, "table_rows", fake)
+    out = await T.run(
+        None,
+        T.parse(table, {"where": [{"column": "location", "op": "icontains", "value": "Remote"}]}),
+    )
+    assert out["related"] == {"skipped": "target_is_not_a_city", "column": "location"}
+    assert len(calls) == 1  # the filter's own query only
+
+
+def test_a_code_built_table_marks_partial_rows_lists_omitted_columns_and_honours_exclusions() -> (
+    None
+):
+    from types import SimpleNamespace
+
+    from account_intelligence.replica import result_tables as RTB
+
+    names = [f"col{i}" for i in range(14)]
+    table = SimpleNamespace(
+        id="tid",
+        name="Jobs",
+        row_count=50,
+        columns=[SimpleNamespace(name=n, raw=n.upper(), payload=False) for n in names],
+    )
+    table.names = {c.name: c for c in table.columns}
+    rows = [
+        {
+            "row": i,
+            "cells": {n: f"v{i} [2]" if n == "col0" else i % 2 == 0 for n in names},
+            **({"partial": True} if i == 2 else {}),
+        }
+        for i in (1, 2, 3, 4)
+    ]
+    out = {"rows": rows, "row_count": 4, "applied_where": [], "partial_rows": 1}
+    section = {"kind": "result", "result_id": "q1", "exclude_rows": [4]}
+    built, error = RTB.build(section, {"q1": (table, SimpleNamespace(columns=[]), out)})
+    assert error is None
+    main = built[0]
+    # ten columns plus Row and Source; the four left out are named, never dropped silently
+    assert (
+        len(main["columns"]) == 12
+        and "COL13" in main["note"]
+        and "4 of the result's columns" in main["note"]
+    )
+    # the partial row is marked and counted; row 4 is left out at the answer's request
+    assert [r[0] for r in main["rows"]] == ["1", "2 (partial)", "3"]
+    assert "1 rows matched only as part of a longer value" in main["note"]
+    assert "Left out at the answer's request: 1 rows" in main["note"]
+    # booleans read Yes/No and a bracketed number is not a citation chip
+    assert main["rows"][0][1] == "v1 (2)" and main["rows"][0][2] == "No"
+    # a result with no rows is a valid empty table
+    empty, err = RTB.build(
+        {"kind": "result", "result_id": "q1"},
+        {
+            "q1": (
+                table,
+                SimpleNamespace(columns=[]),
+                {"rows": [], "row_count": 0, "applied_where": []},
+            )
+        },
+    )
+    assert err is None and empty[0]["rows"] == []

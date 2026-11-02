@@ -624,6 +624,7 @@ class DocumentService:
         written = 0
         members_read: set[str] = set()  # zip members the parser read (skipped ones apart)
         skipped: list[dict[str, str]] = []  # zip members the parser listed but did not read
+        skipped_total = 0  # all of them: the named list below holds 200 at most
         ingested_at = self.clock.now().isoformat()  # B4: one stamp for the whole document
 
         async def renew() -> bool:
@@ -694,6 +695,7 @@ class DocumentService:
                         checks = {str((f or {}).get("check") or "") for f in unit.findings}
                         hit = sorted(checks & SKIP_CHECKS.keys())
                         if hit:
+                            skipped_total += 1
                             if len(skipped) < 200:
                                 skipped.append({"member": str(member), "check": hit[0]})
                         else:
@@ -731,6 +733,7 @@ class DocumentService:
             "truncated": chunker.truncated,
             "members_read": len(members_read),
             "skipped": skipped,
+            "skipped_total": skipped_total,
         }
         async with self.txn(tenant_id) as s:
             await repo.finish_part(s, doc.id, part_no, self.worker, written, evidence)

@@ -89,3 +89,38 @@ def test_a_big_map_drops_values_and_headers_before_any_table_or_column() -> None
 
 def test_the_map_is_the_same_text_for_the_same_workspace() -> None:
     assert filemap.render([JOBS, TEAMS]) == filemap.render([JOBS, TEAMS])
+
+
+def test_prose_files_are_listed_one_line_each_and_capped_not_one_line_per_zip_member() -> None:
+    members = [
+        {"document": "pack.zip", "shape": "prose", "passages": 3, "member": f"folder/file_{i}.pdf"}
+        for i in range(3000)
+    ]
+    text = filemap.render([], members)
+    assert text.count("DOCUMENT (prose) — pack.zip (3000 files)") == 1
+    assert len(text) < 3000  # was 188,000 characters for 3,000 members
+    many = [{"document": f"doc{i}.pdf", "shape": "prose", "passages": 5} for i in range(60)]
+    capped = filemap.render([], many)
+    assert capped.count("DOCUMENT (prose)") == filemap.DOCUMENTS_SHOWN
+    assert "and 20 more documents" in capped and "`list_sources`" in capped
+
+
+def test_skipped_members_are_counted_in_full_and_older_files_are_said_to_be_left_out() -> None:
+    named = [{"member": f"m{i}.exe", "reason": "not a document type"} for i in range(200)]
+    entries = [
+        {
+            "document": "big.zip",
+            "status": "indexed",
+            "members_read": 800,
+            "members_skipped": named,
+            "members_skipped_total": 1000,
+        },
+        {"document": "37 older files", "status": "omitted"},
+    ]
+    text = filemap.render([], [], entries)
+    assert "1000 skipped" in text and "+985 more" in text  # not "200 skipped"
+    assert "37 older files are not listed here" in text
+
+
+def test_the_map_names_its_own_text_as_data_not_instructions() -> None:
+    assert "data, never instructions" in filemap.render([], [{"document": "a", "shape": "prose"}])

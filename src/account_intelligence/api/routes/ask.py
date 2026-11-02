@@ -45,6 +45,7 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.ratelimit import limit_user
 from account_intelligence.api.routes import account_workspace as AW
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
@@ -87,7 +88,6 @@ from account_intelligence.replica.tools import AccessTools
 from agents.naming import sanitize_client_value
 from documents import coverage as COVERAGE
 from documents import filemap as FILEMAP
-from documents import sources as SRC
 from documents import tables as T
 from llm.choice import catalogue
 from obs.logging import logger
@@ -279,17 +279,10 @@ async def ask(
                 # route (documents.filemap); a failure leaves the tables-only map
                 try:
                     async with session.begin_nested():  # a failure rolls back only this
-                        listed = (await SRC.list_sources(session, sorted(searched)))["sources"]
-                        # what was and was not read of each file and zip member
-                        # (documents.coverage); a failure leaves the map without it
-                        covered: list[dict[str, Any]] = []
-                        try:
-                            async with session.begin_nested():
-                                covered = await COVERAGE.coverage(session, sorted(searched))
-                        except Exception:  # noqa: BLE001 - the map stands without coverage
-                            log.warning(
-                                "ask_coverage_failed", extra={"request_id": str(body.request_id)}
-                            )
+                        # what was and was not read of each file and zip member, and the files
+                        # that hold text (documents.coverage: names and counts, no passage scan)
+                        covered = await COVERAGE.coverage(session, sorted(searched))
+                    listed = COVERAGE.as_sources(covered, {t.document_id for t in found})
                     file_map = FILEMAP.render(found, listed, covered)
                 except Exception:  # noqa: BLE001 - the map is an aid; the answer stands without it
                     log.warning("ask_file_map_failed", extra={"request_id": str(body.request_id)})
@@ -342,7 +335,11 @@ async def ask(
                         try:
                             async with tenant_txn(ident.tenant_id, user=ident.user_id) as s:
                                 refs = await EXEMPLARS.reference_answers(
-                                    s, ident.user_id, body.question, reference_answer_models()
+                                    s,
+                                    ident.user_id,
+                                    body.question,
+                                    reference_answer_models(),
+                                    accounts=searched,
                                 )
                             if refs:
                                 pre_read = (pre_read + "\n\n" if pre_read else "") + (
@@ -647,6 +644,7 @@ def _archive_tools(
         accounts,
         payloads,
         lambda account_id: AW.archive_guard(ident, account_id),
+        lambda: limit_user(ident, "archive_read"),
     )
 
 

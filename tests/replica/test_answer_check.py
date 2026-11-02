@@ -7,6 +7,8 @@ GUARANTEE(test_a_tabular_answer_before_any_read_is_sent_back_then_stands)
 
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -124,3 +126,70 @@ async def test_the_reading_procedure_goes_to_the_listed_models_only() -> None:
         ):
             pass
         assert (PROCEDURE_RULES in seen["system"]) is expected, model_id
+
+
+@pytest.mark.asyncio
+async def test_a_failing_call_is_not_a_read_and_a_refusal_word_in_a_cell_is_not_a_refusal() -> None:
+    tools = _tools(require_data=True)
+    # a call that returned an error (unknown table, unknown tool) did not read anything
+    tools.table_tools.tables = []
+    out = await tools.run("describe_table", {"table": "nope"})
+    assert "error" in out and tools.data_calls == 0
+    assert (await tools.run("no_such_tool", {}))["error"]["code"] == "unknown_tool"
+    assert tools.data_calls == 0
+    tools.data_calls = 1
+    # a posting titled "re-export" in a table cell is data, not the answer saying a file is missing
+    cell_says = {
+        "headline": "One posting",
+        "sections": [
+            {"kind": "table", "columns": ["Title"], "rows": [["Data re-export analyst [R1]"]]}
+        ],
+    }
+    assert (await tools.run("render_answer", cell_says))["terminal"] is True
+    # but the same words in what the answer says are refused, curly apostrophes included
+    spoken = tools.__class__(lambda: None, [], [], None, require_data=True)  # type: ignore[arg-type]
+    spoken.data_calls = 1
+    out = await spoken.run("render_answer", _answer(headline="I can’t access the file"))
+    assert out["error"]["code"] == "files_present"
+
+
+@pytest.mark.asyncio
+async def test_split_tables_are_summed_and_a_result_section_needs_no_comparison() -> None:
+    split = _tools(require_data=True)
+    split.data_calls = 1
+    split.table_tools.last_query = (100, False)
+    three = {
+        "headline": "100 rows",
+        "sections": [
+            {"kind": "table", "columns": ["T"], "rows": [[f"a{i}"] for i in range(34)]},
+            {"kind": "table", "columns": ["T"], "rows": [[f"b{i}"] for i in range(33)]},
+            {"kind": "table", "columns": ["T"], "rows": [[f"c{i}"] for i in range(33)]},
+        ],
+    }
+    assert (await split.run("render_answer", three))["terminal"] is True  # 100 listed in all
+    # a result section is complete by construction, whatever a later unrelated query matched
+    result = _tools(require_data=True)
+    result.data_calls = 1
+    result.table_tools.last_query = (500, False)
+    result.table_tools.stored["q1"] = (
+        SimpleNamespace(name="T", row_count=3, id="id", columns=[], names={}),
+        SimpleNamespace(columns=[]),
+        {"rows": [], "row_count": 3, "applied_where": []},
+    )
+    out = await result.run(
+        "render_answer", {"headline": "x", "sections": [{"kind": "result", "result_id": "q1"}]}
+    )
+    assert out["terminal"] is True
+
+
+def test_a_result_too_large_for_the_tool_limit_still_names_its_result() -> None:
+    from account_intelligence.chat.service import TOOL_RESULT_MAX_CHARS, _tool_result_text
+
+    big = {
+        "result_id": "q3",
+        "row_count": 900,
+        "rows": ["x" * 500] * (TOOL_RESULT_MAX_CHARS // 400),
+    }
+    stub = json.loads(_tool_result_text(big))
+    assert stub["error"]["code"] == "result_too_large" and stub["result_id"] == "q3"
+    assert stub["row_count"] == 900 and "result section" in stub["hint"]

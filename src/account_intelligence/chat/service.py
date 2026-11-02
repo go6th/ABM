@@ -232,7 +232,8 @@ RENDER_NUDGE = (
     " and sections that include at least one `table` section carrying EVERY matching row (or,"
     " for a narrative answer, the facts the answer rests on, one per row), each row's [R#]"
     " citation in its last cell. Do not write the answer as text. If you have not yet read the"
-    " data with the table or search tools, do that first: the rows are stored complete."
+    " data with the table or search tools and still have data calls left, do that first: the"
+    " rows are stored complete."
 )
 
 
@@ -512,9 +513,15 @@ def _tool_result_text(result: Any) -> str:
     """A tool result as the model reads it (JSON, bounded)."""
     text = json.dumps(result, ensure_ascii=False, default=str, sort_keys=True)
     if len(text) > TOOL_RESULT_MAX_CHARS:
-        text = json.dumps(
-            {"error": {"code": "result_too_large", "message": "narrow the query (columns, limit)"}}
-        )
+        stub: dict[str, Any] = {
+            "error": {"code": "result_too_large", "message": "narrow the query (columns, limit)"}
+        }
+        if isinstance(result, dict) and result.get("result_id"):
+            # the query's rows are stored: a `result` section lists them without being read here
+            stub["result_id"] = result["result_id"]
+            stub["row_count"] = result.get("row_count")
+            stub["hint"] = "add a result section with this result_id to list every row"
+        text = json.dumps(stub)
     return text
 
 

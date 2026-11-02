@@ -19,7 +19,8 @@ GUARANTEE(test_result_sections_become_complete_tables_with_notes_and_nearby_rows
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 CODE_TABLE_MAX_ROWS = 5000
@@ -28,14 +29,20 @@ CELL_CHARS = 320
 TITLE_CHARS = 80
 
 
+_BRACKETED = re.compile(r"\[(\d{1,3})\]")
+
+
 def cell(value: Any) -> str:
-    """A stored cell as table text: lists joined, blanks empty, spaces collapsed, cut at
-    ``CELL_CHARS``."""
+    """A stored cell as table text: lists joined, booleans Yes and No, blanks empty, spaces
+    collapsed, cut at ``CELL_CHARS``. A number in square brackets in a cell becomes round
+    brackets: the client reads ``[2]`` as a citation."""
     if value is None:
         return ""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
     if isinstance(value, list):
         value = ", ".join(str(v) for v in value)
-    text = " ".join(str(value).split())
+    text = _BRACKETED.sub(r"(\1)", " ".join(str(value).split()))
     return text if len(text) <= CELL_CHARS else text[: CELL_CHARS - 1].rstrip() + "…"
 
 
@@ -46,7 +53,15 @@ def _filters(out: Mapping[str, Any]) -> str:
     return "; ".join(parts)
 
 
-def _note(out: Mapping[str, Any], table: Any, shown: int, extra: str | None) -> str:
+def _note(
+    out: Mapping[str, Any],
+    table: Any,
+    shown: int,
+    extra: str | None,
+    *,
+    omitted: Sequence[str] = (),
+    left_out: Sequence[int] = (),
+) -> str:
     bits = [
         f"{out['row_count']} of {table.row_count} rows in {table.name} match"
         + (f" ({_filters(out)})" if _filters(out) else "")
@@ -54,6 +69,18 @@ def _note(out: Mapping[str, Any], table: Any, shown: int, extra: str | None) -> 
     ]
     if out.get("truncated") or shown < out["row_count"]:
         bits.append(f"Showing the first {shown}; the rest are one narrower query away.")
+    if out.get("partial_rows"):
+        bits.append(
+            f"{out['partial_rows']} rows matched only as part of a longer value and are marked"
+            " (partial)."
+        )
+    if left_out:
+        bits.append(f"Left out at the answer's request: {len(left_out)} rows.")
+    if omitted:
+        bits.append(
+            f"Not shown ({len(omitted)} of the result's columns): {', '.join(omitted)}; name the"
+            " columns wanted to see them."
+        )
     if out.get("dedup_removed"):
         bits.append(f"{out['dedup_removed']} duplicates removed on {out.get('deduped_on')}.")
     for e in out.get("expanded", []):
@@ -94,18 +121,35 @@ def build(
                 f" {', '.join(available)}",
             )
         chosen.append(key)
-    chosen = (chosen or available)[:MAX_COLUMNS]
+    wanted = chosen or available
+    chosen = wanted[:MAX_COLUMNS]
+    omitted = [names[c].raw if c in names else c for c in wanted[MAX_COLUMNS:]]
     headers = [names[c].raw if c in names else c for c in chosen]
     cite = f"[T:{table.id}]"
-    rows = out["rows"][:CODE_TABLE_MAX_ROWS]
+    left_out = {int(n) for n in section.get("exclude_rows") or ()}
+    rows = [r for r in out["rows"] if int(r["row"]) not in left_out][:CODE_TABLE_MAX_ROWS]
     main = {
         "kind": "table",
         "title": str(section.get("title") or f"{table.name}: {out['row_count']} matching rows")[
             :TITLE_CHARS
         ],
         "columns": ["Row", *headers, "Source"],
-        "rows": [[str(r["row"]), *(cell(r["cells"].get(c)) for c in chosen), cite] for r in rows],
-        "note": _note(out, table, len(rows), section.get("note")),
+        "rows": [
+            [
+                f"{r['row']} (partial)" if r.get("partial") else str(r["row"]),
+                *(cell(r["cells"].get(c)) for c in chosen),
+                cite,
+            ]
+            for r in rows
+        ],
+        "note": _note(
+            out,
+            table,
+            len(rows),
+            section.get("note"),
+            omitted=omitted,
+            left_out=sorted(left_out & {int(r["row"]) for r in out["rows"]}),
+        ),
     }
     sections = [main]
     related = out.get("related")

@@ -62,7 +62,9 @@ class ReadPlan:
 
 def pick_tables(question: str, tables: Sequence[T.TableInfo]) -> list[T.TableInfo]:
     """The tables the question is about (see the module docstring), best match first; ties keep
-    the workspace's order (newest document first)."""
+    the workspace's order (newest document first). An uploaded table scores one per column or
+    stored value named; a research table scores two when the question names it ("the job
+    postings") and one per column word that is not generic to every account (never ``account``)."""
     if not tables:
         return []
     q = " ".join(question.casefold().split())
@@ -70,7 +72,9 @@ def pick_tables(question: str, tables: Sequence[T.TableInfo]) -> list[T.TableInf
     for i, table in enumerate(tables):
         columns = R.column_hits(q, [table])
         values = R.value_hits(q, [table])
-        score = len(columns) + len(values)
+        score = len(columns) + len(values) + (2 if R.title_hit(q, table) else 0)
+        if table.view is not None and not R.title_hit(q, table):
+            score = 0  # a research table's generic column words alone never pick it
         if score:
             scored.append((-score, i, table))
     if scored:

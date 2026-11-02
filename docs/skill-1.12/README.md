@@ -7,18 +7,31 @@ mentions against 438 in 7,148 postings) while a model that ran SQL over every fi
 
 ## What is here
 
-Only the files that change from v1.11 (every other file of the package is unchanged):
+Only what changes from v1.11 (every other file of the package is unchanged):
 
 | File | Change |
 |---|---|
-| `assets/build_sqlite.py` | new: builds `{Account}_phase1.sqlite` from a phase 1 package and runs logged read only queries |
-| `references/workspace-schema.md` | new: the tables, summary tables and example queries |
-| `SKILL.md` | new section "Answering questions about a workspace"; the count rule cites its query; bundled files and reading list |
-| `references/phase1-pull.md` | step 12 builds the database first, three gate rows, the zip carries the database |
-| `references/phase2-build.md` | phase 2 works through the database and cites query ids |
-| `references/checklist.md` | version 1.12, requirement 20 and new 27, gate line 12, change log |
-| `references/output-spec.md` | Summary section 13 Query log, the no-hedge rule for counted figures |
-| `references/lessons.md` | the 2026-11-02 entry |
+| `abm-account-research/assets/build_sqlite.py` | new: builds `{Account}_phase1.sqlite` from a phase 1 package and runs logged read only queries |
+| `abm-account-research/references/workspace-schema.md` | new: the tables, summary tables and example queries |
+| `abm-account-research/references/phase1-pull.md` | step 12 builds the database first, three gate rows, the zip carries the database (full file) |
+| `abm-account-research/references/phase2-build.md` | phase 2 works through the database and cites query ids (full file) |
+| `patches/SKILL.md.patch` | new section "Answering questions about a workspace"; the count rule cites its query; bundled files and reading list |
+| `patches/references_checklist.md.patch` | version 1.12, requirement 20 and new 27, gate line 12, change log |
+| `patches/references_output-spec.md.patch` | Summary section 13 Query log, the no-hedge rule for counted figures |
+| `patches/references_lessons.md.patch` | the 2026-11-02 entry |
+
+The four files that name the operator are shipped as zero-context patches, not copies, so no
+personal name is duplicated in the repository (the name scan acknowledges those names only in the
+installed package by its digest). Apply them to a copy of the v1.11 package, from its root:
+
+```bash
+patch -p1 < patches/SKILL.md.patch
+patch -p1 < patches/references_checklist.md.patch
+patch -p1 < patches/references_output-spec.md.patch
+patch -p1 < patches/references_lessons.md.patch
+```
+
+(the patches are named with `_` for the folder; each one's header names the file it patches).
 
 ## Why it is not installed
 

@@ -49,11 +49,23 @@ _NAMESPACE = UUID("6f2c1d3e-52a0-4e0e-9b7c-1f0c5b2d7a11")
 
 
 def _column(
-    key: str, header: str, kind: str, payload: bool = False, *, iso_date: bool = False
+    key: str,
+    header: str,
+    kind: str,
+    payload: bool = False,
+    *,
+    iso_date: bool = False,
+    routed: bool = True,
 ) -> ColumnInfo:
     kind_name = "date" if iso_date else _TYPE.get(kind, "text")
     return ColumnInfo(
-        key, header, kind_name, payload, False, tuple(column_aliases(header, key, kind_name))
+        key,
+        header,
+        kind_name,
+        payload,
+        False,
+        tuple(column_aliases(header, key, kind_name)),
+        routed=routed,
     )
 
 
@@ -88,8 +100,8 @@ async def research_tables(session: Any, accounts: Sequence[UUID]) -> list[TableI
         runs = tuple(sorted(UUID(str(r.run_id)) for r in rows))
         accts = tuple(sorted(UUID(str(r.account_id)) for r in rows))
         columns = (
-            _column("account", "Account", "text_short"),
-            _column("file_row", "File row", "count"),
+            _column("account", "Account", "text_short", routed=False),
+            _column("file_row", "File row", "count", routed=False),
             *(
                 _column(
                     c.key,
@@ -107,7 +119,9 @@ async def research_tables(session: Any, accounts: Sequence[UUID]) -> list[TableI
                 name=f"Research: {TITLES[kind]}",
                 table=f"Research:{TITLES[kind]}",
                 member=None,
-                document="the research results",
+                # how many of the accounts in scope have a delivered run: an account without one
+                # is not in this table, and the model should be able to say so
+                document=f"the research results ({len(accts)} of {len(accounts)} accounts)",
                 document_id=runs[0],
                 account_id=accts[0],
                 columns=columns,

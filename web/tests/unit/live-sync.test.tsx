@@ -10,9 +10,9 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 const api = vi.fn();
 vi.mock("@/lib/api", () => ({ api: (...args: unknown[]) => api(...args) }));
 
-import { AFTER_READY_MS, FOCUS_GAP_MS, LiveSync, POLL_MS, docsSignature } from "@/components/accounts/LiveSync";
+import { AFTER_READY_MS, FOCUS_GAP_MS, LiveSync, POLL_GIVE_UP_MS, POLL_MS, RetryRefresh, docsSignature, pollEvery } from "@/components/accounts/LiveSync";
 
-const doc = (id: string, stage: string, passages = 0) => ({ document_id: id, stage, needs_company: false, passages, parts_done: 0, members_read: 0 }) as never;
+const doc = (id: string, stage: string, passages = 0, indexed = 0) => ({ document_id: id, stage, needs_company: false, passages, parts_done: 0, members_read: 0, indexed_passages: indexed }) as never;
 const list = (...docs: unknown[]) => ({ documents: docs });
 
 beforeEach(() => { vi.useFakeTimers(); refresh.mockReset(); api.mockReset(); });
@@ -21,7 +21,9 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const flush = async (ms = 0) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
 
 test("the signature changes with a file's stage and passages, not with its order of arrival in time", () => {
-  expect(docsSignature([doc("a", "parsing"), doc("b", "indexed", 5)])).toBe("a:parsing:0:0:0|b:indexed:5:0:0");
+  expect(docsSignature([doc("a", "parsing"), doc("b", "indexed", 5)])).toBe("a:parsing:0:0:0:0|b:indexed:5:0:0:0");
+  // indexing progress moves while the stage and the total stay the same
+  expect(docsSignature([doc("a", "indexing", 900, 100)])).not.toBe(docsSignature([doc("a", "indexing", 900, 200)]));
   expect(docsSignature([doc("a", "indexed", 9)])).not.toBe(docsSignature([doc("a", "indexed", 8)]));
 });
 
@@ -76,5 +78,28 @@ test("a failed check is tried again, never shown as an error", async () => {
   await flush();
   expect(refresh).not.toHaveBeenCalled();
   await flush(POLL_MS);
+  expect(refresh).toHaveBeenCalledTimes(1);
+});
+
+test("a stuck upload is polled less often and then given up on, not every four seconds for ever", async () => {
+  expect(pollEvery(0)).toBe(POLL_MS);
+  expect(pollEvery(61_000)).toBe(10_000);
+  expect(pollEvery(301_000)).toBe(30_000);
+  expect(pollEvery(POLL_GIVE_UP_MS)).toBeNull();
+  api.mockResolvedValue(list(doc("a", "uploading")));
+  render(<LiveSync accountId="acct" docs={[doc("a", "uploading")]} />);
+  await flush(POLL_GIVE_UP_MS + 120_000);
+  const calls = api.mock.calls.length;
+  expect(calls).toBeLessThan(80); // about 15 + 24 + 20 checks, not 225
+  await flush(10 * 60_000);
+  expect(api.mock.calls.length).toBe(calls); // and it has stopped
+  expect(refresh).not.toHaveBeenCalled(); // nothing changed, nothing was re-drawn
+});
+
+test("when the uploads could not be read the page tries once more after fifteen seconds", async () => {
+  render(<RetryRefresh />);
+  await flush(14_000);
+  expect(refresh).not.toHaveBeenCalled();
+  await flush(2_000);
   expect(refresh).toHaveBeenCalledTimes(1);
 });

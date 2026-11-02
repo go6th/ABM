@@ -26,6 +26,14 @@ temperature 0 with a strict JSON schema (``LlmRouteClassifier``; optional,
 reason and what it matched; the Ask route logs only how many (``ask.route``: route,
 matched_column_count, matched_value_count).
 
+Research tables (``replica.research_tables``, ``TableInfo.view``) have the same generic headers
+in every account ("name", "title", "status", "account"), so a word of the question naming one is
+not enough: their column hits count only with a filter word in the question, or when the question
+names the table itself ("the people", "the job postings"); their synthetic ``account`` and
+``file_row`` columns never route. A workspace whose only tables are research tables and whose
+question matches no rule is ``prose``, as before there were such tables, without the
+classification call (2026-11-02 audit).
+
 GUARANTEE(test_the_router_sends_filter_questions_to_the_table_tools)
 
 GUARANTEE(test_natural_phrasing_routes_tabular_or_mixed_and_a_summary_stays_prose)
@@ -146,6 +154,26 @@ def _forms_hit(forms: set[str], question: str) -> set[str]:
     }
 
 
+# what a question calls each research table (``TableInfo.view.kind``)
+VIEW_TERMS: dict[str, tuple[str, ...]] = {
+    "people": ("people", "persons", "contacts", "executives"),
+    "jobs": ("job postings", "jobs", "postings", "job posts", "openings"),
+    "tech": ("tech stack", "technology stack", "technologies", "teams"),
+    "facts": ("facts", "platform picture"),
+    "coverage": ("coverage", "tracker"),
+}
+
+
+def title_hit(question: str, table: TableInfo) -> str | None:
+    """The word of the question that names a research table (``VIEW_TERMS``), or None."""
+    if table.view is None:
+        return None
+    return next(
+        (w for w in VIEW_TERMS.get(table.view.kind, ()) if _hits([w], question)),
+        None,
+    )
+
+
 def column_hits(question: str, tables: Sequence[TableInfo]) -> dict[str, list[str]]:
     """The columns whose natural forms the question names (aliased at ingest: the header as
     written, lowercased and punctuation-stripped, the normalised name with spaces, a date
@@ -154,6 +182,8 @@ def column_hits(question: str, tables: Sequence[TableInfo]) -> dict[str, list[st
     found: dict[str, set[str]] = {}
     for table in tables:
         for column in table.columns:
+            if not column.routed:
+                continue
             forms = set(column.aliases) or {column.raw.casefold(), column.name.replace("_", " ")}
             matched = _forms_hit(forms, question)
             if matched:
@@ -167,6 +197,8 @@ def value_hits(question: str, tables: Sequence[TableInfo]) -> dict[str, list[str
     found: dict[str, set[str]] = {}
     for table in tables:
         for column in table.columns:
+            if not column.routed:
+                continue
             matched = _forms_hit({v.casefold() for v in column.values if len(v) >= 4}, question)
             if matched:
                 found.setdefault(column.name, set()).update(matched)
@@ -179,8 +211,21 @@ def rule_route(question: str, tables: Sequence[TableInfo]) -> Decision | None:
         return Decision("prose", "no table in the workspace")
     q = " ".join(question.casefold().split())
     verbs = _hits(FILTER_WORDS, q)
-    columns = column_hits(q, tables)
-    values = value_hits(q, tables)
+    uploaded = [t for t in tables if t.view is None]
+    research = [t for t in tables if t.view is not None]
+    columns = column_hits(q, uploaded)
+    values = value_hits(q, uploaded)
+    if research:
+        # a research table's generic column words route only with a filter word, or when the
+        # question names the table (module docstring)
+        named = {t.name: w for t in research if (w := title_hit(q, t))}
+        for name, word in named.items():
+            columns.setdefault(name, []).append(word)
+        if verbs or named:
+            for name, forms in column_hits(q, research).items():
+                columns.setdefault(name, []).extend(forms)
+            for name, forms in value_hits(q, research).items():
+                values.setdefault(name, []).extend(forms)
     prose = _hits(PROSE_WORDS, q)
     matched_columns = sorted(set(columns) | set(values))
     matched_values = sorted({v for found in values.values() for v in found})
@@ -212,6 +257,10 @@ async def route(
     ruled = rule_route(question, tables)
     if ruled is not None:
         return ruled
+    if tables and all(t.view is not None for t in tables):
+        # only research tables, and nothing in the question names one: retrieval, as before
+        # such tables existed (no classification call for every account question)
+        return Decision("prose", "research tables only; no filter word or table named")
     if classify is not None:
         hints = [f"{t.name}: {', '.join(c.raw for c in t.columns[:12])}" for t in tables[:8]]
         try:

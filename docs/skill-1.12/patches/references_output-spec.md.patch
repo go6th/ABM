@@ -1,0 +1,6 @@
+--- a/references/output-spec.md
++++ b/references/output-spec.md
+@@ -11,0 +12 @@
++- Every count carries its base and its query id (`Q7`, from the database's `query_log`). A number that has a query is stated as what the data shows; hedging belongs to what the number means (interpretation, grade), never to whether it was counted. Do not write "treat as leads" about a figure that came from SQL over the full table.
+@@ -39,0 +41 @@
++13. **Query log.** One row per number quoted in sections 3 to 11: query id, what it counts, the base table and its row count, the SQL, the result. Produced with `python assets/build_sqlite.py log <db>`; every number in the Summary has an id here, and rerunning the SQL gives the same figure. Client facing files do not carry this section (it names tables and SQL); the Summary is for the user.

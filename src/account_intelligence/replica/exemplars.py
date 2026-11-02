@@ -115,7 +115,8 @@ class Reference:
 
 
 def _cut(value: Any) -> str:
-    plain = " ".join(str(value).split())
+    # an earlier question or cell goes inside tags and quotes: neither may close them
+    plain = " ".join(str(value).replace('"', "'").replace("<", "(").replace(">", ")").split())
     return plain if len(plain) <= CELL_CHARS else plain[: CELL_CHARS - 1].rstrip() + "…"
 
 
@@ -133,10 +134,13 @@ async def reference_answers(
     question: str,
     models: Collection[str],
     *,
+    accounts: Collection[Any] | None = None,
     limit: int = LIMIT,
 ) -> list[Reference]:
     """The user's own most similar earlier answers by the reference ``models`` (see the module
-    docstring), best first."""
+    docstring), best first. ``accounts``: only turns asked about one of these accounts, or about
+    no account in particular (an answer about account A is no example for a question about B).
+    The questions are scored first; only the answers worth showing are read."""
     if not models:
         return []
     asked = words(question)
@@ -145,23 +149,42 @@ async def reference_answers(
     rows = (
         await session.execute(
             text(
-                "SELECT t.user_content, t.answer_json->'structured' AS structured"
-                " FROM chat_turns t JOIN chat_threads th ON th.id = t.thread_id"
-                " AND th.owner_user_id = :u WHERE t.surface = 'ask' AND t.status = 'completed'"
-                " AND t.model_id = ANY(:m) AND jsonb_typeof(t.answer_json->'structured') ="
-                " 'object' ORDER BY t.created_at DESC LIMIT :n"
+                "SELECT t.id, t.user_content FROM chat_turns t JOIN chat_threads th"
+                " ON th.id = t.thread_id AND th.owner_user_id = :u WHERE t.surface = 'ask'"
+                " AND t.status = 'completed' AND t.model_id = ANY(:m)"
+                " AND jsonb_typeof(t.answer_json->'structured') = 'object'"
+                " AND (CAST(:a AS uuid[]) IS NULL OR t.account_id IS NULL"
+                " OR t.account_id = ANY(CAST(:a AS uuid[])))"
+                " ORDER BY t.created_at DESC LIMIT :n"
             ),
-            {"u": user_id, "m": list(models), "n": SCAN},
+            {
+                "u": user_id,
+                "m": list(models),
+                "n": SCAN,
+                "a": None if accounts is None else [str(a) for a in accounts],
+            },
         )
     ).all()
-    found = []
-    for r in rows:
-        answer = json.loads(r.structured) if isinstance(r.structured, str) else r.structured
-        score = similarity(asked, words(str(r.user_content)))
-        if score >= FLOOR and isinstance(answer, Mapping) and has_table(answer):
+    scored = sorted(
+        ((similarity(asked, words(str(r.user_content))), i, r) for i, r in enumerate(rows)),
+        key=lambda x: (-x[0], x[1]),  # best first; equal scores keep the newest first
+    )
+    found: list[Reference] = []
+    for score, _, r in scored:
+        if score < FLOOR or len(found) >= limit:
+            break
+        stored = (
+            await session.execute(
+                text(
+                    "SELECT answer_json->'structured' AS structured FROM chat_turns WHERE id = :i"
+                ),
+                {"i": r.id},
+            )
+        ).scalar_one()
+        answer = json.loads(stored) if isinstance(stored, str) else stored
+        if isinstance(answer, Mapping) and has_table(answer):
             found.append(Reference(str(r.user_content), answer, score))
-    found.sort(key=lambda x: -x.score)  # stable: equal scores keep the newest first
-    return found[:limit]
+    return found
 
 
 def _example(ref: Reference) -> str:

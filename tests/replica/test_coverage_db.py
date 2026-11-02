@@ -118,3 +118,86 @@ async def test_coverage_reports_skipped_members_unread_members_and_unfinished_fi
 def test_a_workspace_of_fully_read_plain_files_has_no_coverage_section() -> None:
     plain = [{"document": "a.xlsx", "status": "indexed", "type": "xlsx"}]
     assert filemap.render([], [], plain) == ""
+
+
+async def test_coverage_counts_every_skipped_member_and_offers_the_text_only_files(
+    world: dict[str, Any],
+) -> None:
+    from tests.conftest import ADMIN_DSN
+
+    tenant = world["a"]
+    with psycopg.connect(ADMIN_DSN) as c:
+        account = UUID(
+            str(
+                c.execute(
+                    "SELECT id FROM accounts WHERE tenant_id = %s ORDER BY domain DESC LIMIT 1",
+                    (tenant,),
+                ).fetchone()[0]  # type: ignore[index]
+            )
+        )
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as c:
+        c.execute("SET session_replication_role = replica")
+        d = uuid4()
+        c.execute(
+            "INSERT INTO documents (id, tenant_id, account_id, name, declared_bytes, declared_type,"
+            " detected_type, quarantine_key, status, uploaded_by, upload_expires_at, owner_user_id,"
+            " object_key, sha256, passages) VALUES (%s, %s, %s, 'huge.zip', 10, 'zip', 'zip', %s,"
+            " 'indexed', %s, now() + interval '1 day', %s, %s, %s, 7)",
+            (
+                d,
+                tenant,
+                account,
+                f"q/{d}",
+                OWNER,
+                OWNER,
+                f"o/{d}",
+                hashlib.sha256(str(d).encode()).hexdigest(),
+            ),
+        )
+        c.execute(
+            "INSERT INTO document_parts (tenant_id, owner_user_id, document_id, part_no,"
+            " start_cursor, status, passages, evidence)"
+            " VALUES (%s, %s, %s, 0, '{}', 'done', 7, %s)",
+            (
+                tenant,
+                OWNER,
+                d,
+                json.dumps(
+                    {
+                        "members_read": 5,
+                        "skipped_total": 1000,
+                        "skipped": [{"member": "a.exe", "check": "unsupported_member"}],
+                    }
+                ),
+            ),
+        )
+        plain = uuid4()
+        c.execute(
+            "INSERT INTO documents (id, tenant_id, account_id, name, declared_bytes, declared_type,"
+            " detected_type, quarantine_key, status, uploaded_by, upload_expires_at, owner_user_id,"
+            " object_key, sha256, passages)"
+            " VALUES (%s, %s, %s, 'notes.docx', 10, 'docx', 'docx', %s,"
+            " 'indexed', %s, now() + interval '1 day', %s, %s, %s, 40)",
+            (
+                plain,
+                tenant,
+                account,
+                f"q/{plain}",
+                OWNER,
+                OWNER,
+                f"o/{plain}",
+                hashlib.sha256(str(plain).encode()).hexdigest(),
+            ),
+        )
+    async with tenant_txn(tenant, user=OWNER) as s:
+        entries = await COV.coverage(s, [account])
+    by = {e["document"]: e for e in entries}
+    assert (
+        by["huge.zip"]["members_skipped_total"] == 1000
+        and len(by["huge.zip"]["members_skipped"]) == 1
+    )
+    sources = COV.as_sources(entries, set())
+    # the text-only file is a source; the archive has its coverage line instead; nothing scanned
+    assert {"document": "notes.docx", "shape": "prose", "passages": 40} in sources
+    assert all(src["document"] != "huge.zip" for src in sources)
+    assert "1000 skipped" in filemap.render([], sources, entries)

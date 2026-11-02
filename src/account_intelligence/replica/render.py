@@ -100,6 +100,11 @@ RENDER_TOOL: dict[str, Any] = {
                     "properties": {
                         "kind": {"enum": ["table", "result", "prose", "callout", "steps"]},
                         "result_id": {"type": "string", "maxLength": 12},
+                        "exclude_rows": {
+                            "type": "array",
+                            "maxItems": 400,
+                            "items": {"type": "integer"},
+                        },
                         "title": {"type": "string", "maxLength": MAX_TITLE},
                         "columns": {"type": "array", "maxItems": 12, "items": _str},
                         "rows": {
@@ -254,7 +259,14 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
         note = section.get("note")
         if note is not None and not isinstance(note, str):
             return "bad_result", f"result section {i + 1}: note must be a string"
-        if set(section) - {"kind", "title", "result_id", "columns", "note"}:
+        left_out = section.get("exclude_rows")
+        if left_out is not None and not (
+            isinstance(left_out, list)
+            and len(left_out) <= 400
+            and all(isinstance(n, int) and not isinstance(n, bool) for n in left_out)
+        ):
+            return "bad_result", f"result section {i + 1}: exclude_rows are row numbers"
+        if set(section) - {"kind", "title", "result_id", "columns", "note", "exclude_rows"}:
             return "bad_result", f"result section {i + 1}: unknown fields"
         return None
     if kind == "prose":

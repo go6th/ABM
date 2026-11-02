@@ -1,0 +1,23 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -17,0 +18 @@
++- `references/workspace-schema.md`: the tables of the phase 1 database and how to query them. Read before answering any question about the data in a phase 1 package or a workspace.
+@@ -36 +37 @@
+-Split mode is the default from September 27, 2026: pulls on the lower cost model, analysis on the stronger one. The run splits at step 4. Phase 1 follows `references/phase1-pull.md`: every pull into files with a pull log, no interpretation, ending in `{Account}_phase1.zip`. Phase 2 follows `references/phase2-build.md`: starts from the raw files only, sends back at most one second pull list, then does steps 5 to 8. Phase 2 opens with a mandatory sense check (step 2a) that reviews entity boundaries, adjacent organizations, hidden titles and missed people in the raw pulls, and recommends targeted pulls for the user to approve. Both phases follow the same checklist, tools playbook and standing requirements. A single model run is used when the user asks for one.
++Split mode is the default from September 27, 2026: pulls on the lower cost model, analysis on the stronger one. The run splits at step 4. Phase 1 follows `references/phase1-pull.md`: every pull into files with a pull log, no interpretation, ending in `{Account}_phase1.zip`, which carries the full data as one queryable database (`{Account}_phase1.sqlite`). Phase 2 follows `references/phase2-build.md`: starts from the raw files only, sends back at most one second pull list, then does steps 5 to 8. Phase 2 opens with a mandatory sense check (step 2a) that reviews entity boundaries, adjacent organizations, hidden titles and missed people in the raw pulls, and recommends targeted pulls for the user to approve. Both phases follow the same checklist, tools playbook and standing requirements. A single model run is used when the user asks for one.
+@@ -70 +71,11 @@
+-**Every count names its base.** "118 of the 141 senior people" not "128 profiles". State whether a count includes duplicates, reposted requisitions or any point in a career.
++**Every count names its base and its query.** "118 of the 141 senior people (Q7)" not "128 profiles". State whether a count includes duplicates, reposted requisitions or any point in a career. A number that came from a snippet, from memory or from a table the model could only partly see is not reported.
++
++## Answering questions about a workspace
++
++Any question about the data in a phase 1 package or a workspace (how many, which, who, what share, by month, by city) is answered by SQL over the full table in `{Account}_phase1.sqlite`, never from file snippets, search results or the first rows of a file. Reading a snippet finds wording; it never counts. This holds on every model: the cheaper model answers the same questions as the stronger one because both read the same full table.
++
++1. Open the database. If it is missing, build it first: `python assets/build_sqlite.py build <phase1 folder>` (free, about a minute). Read `README_sqlite.md` and `references/workspace-schema.md` for the tables.
++2. Check the `summary_*` tables first (people by country and city, by school, by technology in the profile; technology mentions in postings by month and status). When the question is not covered, query the base tables.
++3. Run every figure that goes into an answer or a deliverable with `python assets/build_sqlite.py query <db> "<purpose>" "<SELECT ...>"`. The tool prints the base count and writes the query to `query_log`.
++4. State the base with the number: "438 of the 7,148 postings in `jobs_12mo` (Q12)". A count without a base and a query id is not reported.
++5. If a table, a file or a column the question needs is not in the database, say which one and stop that part of the answer. Never answer from the part of a file that happens to be visible.
+@@ -89,0 +101,2 @@
++- `assets/build_sqlite.py`: builds `{Account}_phase1.sqlite` from a phase 1 package (every file a table, summary tables, a query log) and runs logged read-only queries on it. Standard library only; run it per account.
++- `references/workspace-schema.md`: the tables, columns, summary tables and example queries of that database.

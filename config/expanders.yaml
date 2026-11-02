@@ -33,6 +33,16 @@ place_aliases:
   philly: Philadelphia, PA
   chicagoland: Chicago, IL
   research triangle: Raleigh, NC
+  raleigh durham: Raleigh, NC
+  dallas fort worth metroplex: Dallas, TX
+  dallas fort worth area: Dallas, TX
+  washington dc baltimore area: Washington, DC
+  minneapolis st paul: Minneapolis, MN
+  minneapolis saint paul: Minneapolis, MN
+  bangalore: Bengaluru, India
+  bombay: Mumbai, India
+  madras: Chennai, India
+  calcutta: Kolkata, India
 # words that say where a person works, not where: dropped from a place before it is looked up
 place_noise: [greater, metropolitan, metro, area, region, remote, hybrid, onsite, on-site, based,
   county, district, surrounding, vicinity, and]

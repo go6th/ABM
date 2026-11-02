@@ -1,0 +1,11 @@
+--- a/references/lessons.md
++++ b/references/lessons.md
+@@ -4,0 +5,8 @@
++## 2026-11-02, three screens: the cheaper model never got the data
++
++- **A cheaper model asked about a workspace answered from retrieval snippets.** Its answers said so in their own words ("40 rows checked", "search budget ran out", "the files appear only as fragments"). It saw 40 of 1,484 people, never found `people_grid_rows.json` in the first screen, and counted technology mentions from a teams file instead of the 7,148 postings (14 Salesforce against 438). The stronger model's answers came from loading every file into one SQLite database and running SQL over all rows, so its base was always the full table. The screens show a method failure, not a reasoning failure. Rule: phase 1 ships `{Account}_phase1.sqlite` (`assets/build_sqlite.py`, step 12), and a workspace question is answered by SQL over the full table, never from file snippets, with the base count stated.
++- **A model takes the cheaper snippet path every time unless told not to**, whatever its size. Rule: the SKILL.md section "Answering questions about a workspace" says it in one place, and the schema reference is read before any such question.
++- **The answers people actually ask for are computed once**, so a weaker model reads a 50 row table instead of scanning 10,000 experience rows and the numbers match across runs. Rule: `summary_people_by_location`, `summary_people_by_school`, `summary_people_by_technology` and `summary_tech_mentions_by_status_month` are built with the database.
++- **A count without its query cannot be rechecked, and that is what produced the "treat as leads" hedging.** Rule: the Summary carries a Query log; every count cites its query id; a figure that has a query is not hedged.
++- **The model split stays.** The cheaper model is fine for pulls and for running queries once the data is in tables; interpretation (what the signals mean) is where the stronger model earns its cost.
++

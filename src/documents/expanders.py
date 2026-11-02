@@ -64,8 +64,21 @@ def aliases_of(value: str) -> list[str]:
 
 
 def word_pattern(spellings: Sequence[str]) -> str:
-    """A regular expression (PostgreSQL syntax) matching any spelling as whole words."""
-    return r"\m(?:" + "|".join(re.escape(s) for s in spellings) + r")\M"
+    """A regular expression (PostgreSQL syntax) matching any spelling as whole words. A word
+    boundary is asked only where the spelling starts or ends with a word character: ``\\M`` after
+    the dot of "v.p." can never match."""
+
+    def one(spelling: str) -> str:
+        head = r"\m" if re.match(r"\w", spelling) else ""
+        tail = r"\M" if re.search(r"\w$", spelling) else ""
+        return f"{head}{re.escape(spelling)}{tail}"
+
+    return "(?:" + "|".join(one(s) for s in spellings) + ")"
+
+
+def resolve_target(text: str) -> places.Place | None:
+    """The city a place filter's value names, or None (``documents.places``)."""
+    return places.resolve(text)
 
 
 def is_place_column(name: str, header: str) -> bool:
