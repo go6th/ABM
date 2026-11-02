@@ -3290,7 +3290,9 @@ export const KNOWN_VALUES = {
     "mail_drive",
     "file",
     "tracker",
-    "report"
+    "report",
+    "knowledge",
+    "web"
   ],
   "AnswerUsed.mail_drive": [
     "used",

@@ -1652,8 +1652,11 @@ def finish(
             numbering.setdefault(key, len(numbering) + 1)
     paragraphs = [to_parts(p, numbering) for p in d.paragraphs]
     cited = [d.rows[k] for k in numbering]
-    answered = bool(cited)
-    focus = d.focus or (cited[0].account if cited else None)
+    # the model's own knowledge and a web result are cited like any source, but neither is an
+    # answer from the workspace
+    held = [r for r in cited if not r.extra.get("knowledge") and not r.extra.get("web")]
+    answered = bool(held)
+    focus = d.focus or (held[0].account if held else None)
     used_mail = any(r.kind == "mail_drive" for r in cited)
     return {
         "paragraphs": paragraphs,
@@ -1662,12 +1665,12 @@ def finish(
         "sources": [source_out(numbering[r.key], r) for r in cited],
         "used": {
             "workspace": "used" if answered else "not_used",
-            "web": "not_used",
+            "web": "used" if any(r.extra.get("web") for r in cited) else "not_used",
             "mail_drive": "used"
             if used_mail
             else ("not_used" if ws.mail_connected else "not_connected"),
         },
-        "offer": offer_for(focus, cited, answered, now, scope),
+        "offer": offer_for(focus, held, answered, now, scope),
         "followups": followups(ws, q, focus, now),
         "account_domain": focus.domain if focus else None,
         "account_name": focus.name if focus else None,

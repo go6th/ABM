@@ -2197,8 +2197,19 @@ class AnswerSource(Out):
     date: str | None
     url: str | None
     label: str | None = None
+    # "knowledge": the model's own knowledge ([K]); "web": a page Ask looked up for this answer
     kind: Literal[
-        "fact", "job", "person", "signal", "technology", "mail_drive", "file", "tracker", "report"
+        "fact",
+        "job",
+        "person",
+        "signal",
+        "technology",
+        "mail_drive",
+        "file",
+        "tracker",
+        "report",
+        "knowledge",
+        "web",
     ]
     account_domain: str | None
     account_name: str | None

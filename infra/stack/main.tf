@@ -276,7 +276,7 @@ locals {
       "moonshot-api-key"              = ["api", "worker"] # read through the API when enabled
       "csrf-signing-key"              = ["api"]           # CSRF signing key, >= 32 random bytes
       "operator-google-client-secret" = ["web"]
-      "p-search-api-key"              = ["worker"]
+      "p-search-api-key"              = ["worker", "api"] # api: Ask's web lookups (2026-11-02)
       "p-scrape-api-key"              = ["worker"]
       "p-signals-api-key"             = ["worker"]
       "p-signals-api-token"           = ["worker"]
@@ -580,7 +580,8 @@ module "cloud_run" {
         EVAL_MODEL  = "kimi-k3"
         EVAL_EFFORT = "high"
       })
-      secret_env          = merge(local.db_secret, local.maildrive_secret)
+      # the search key: Ask's web lookups (replica.web_tools, owner decision 2026-11-02)
+      secret_env          = merge(local.db_secret, local.maildrive_secret, { P_SEARCH_API_KEY = "p-search-api-key" })
       secret_files        = local.redis_ca_file
       min_instances       = var.scaling.api.min
       max_instances       = var.scaling.api.max

@@ -457,6 +457,25 @@ def _title(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()[:160]
 
 
+async def ask_history(
+    session: Any, *, thread_id: UUID, limit: int, skip_model_id: str
+) -> list[tuple[str, str]]:
+    """The thread's last ``limit`` completed Ask turns as (question, plain answer), oldest first.
+    Turns the workspace's own composer wrote (``skip_model_id``) are left out: a placeholder
+    answer is no history. The caller has checked that the user owns the thread."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT user_content, assistant_content FROM chat_turns WHERE thread_id = :t"
+                " AND surface = 'ask' AND status = 'completed' AND model_id <> :skip"
+                " ORDER BY turn_number DESC LIMIT :n"
+            ),
+            {"t": thread_id, "skip": skip_model_id, "n": limit},
+        )
+    ).all()
+    return [(str(r.user_content), str(r.assistant_content)) for r in reversed(rows)]
+
+
 async def record_ask_turn(
     session: Any,
     *,

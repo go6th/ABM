@@ -980,7 +980,9 @@
               "mail_drive",
               "file",
               "tracker",
-              "report"
+              "report",
+              "knowledge",
+              "web"
             ],
             "title": "Kind",
             "type": "string"

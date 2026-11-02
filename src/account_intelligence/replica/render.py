@@ -146,10 +146,12 @@ RENDER_RULES = (
     " the answer rests on (one fact per row). The other kinds: a `prose` section is at most"
     " two sentences per paragraph; a `callout` holds one warning or key finding; `steps`"
     " lists what the seller does next. Cite the numbered rows as [R3] inside the strings, as"
-    " rule 1 says. A call without a table section comes back as an error you can fix."
+    " rule 1 says, what rests on your own knowledge as [K] (rule 1a) and a web result by its"
+    " [W#] id. A call"
+    " without a table section comes back as an error you can fix."
 )
 
-_CITE = re.compile(r"\[(R\d{1,3})\]")
+_CITE = re.compile(r"\[(R\d{1,3}|W\d{1,2}|K)\]")
 # approximate sentence count: punctuation followed by a space or the end (a citation [R3]
 # after the period does not start a new sentence)
 _SENTENCE_END = re.compile(r"[.!?](?:\s|$)")

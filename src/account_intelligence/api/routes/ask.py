@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
@@ -62,7 +62,7 @@ from account_intelligence.chat.service import (
     provider_for,
     sse,
 )
-from account_intelligence.chat.store import record_ask_turn
+from account_intelligence.chat.store import ask_history, record_ask_turn
 from account_intelligence.config import get_settings
 from account_intelligence.db.session import tenant_txn
 from account_intelligence.platform.llm import (
@@ -80,7 +80,12 @@ from account_intelligence.replica import obs as ask_obs
 from account_intelligence.replica import read_plan as RP
 from account_intelligence.replica import research_tables as RT
 from account_intelligence.replica import router as R
-from account_intelligence.replica.model_answer import refusal_phrase, stream_with_model
+from account_intelligence.replica import web_tools as WEB
+from account_intelligence.replica.model_answer import (
+    HISTORY_TURNS,
+    refusal_phrase,
+    stream_with_model,
+)
 from account_intelligence.replica.render import ensure_table
 from account_intelligence.replica.settings import touch_activity
 from account_intelligence.replica.source_label import relabel_answer
@@ -98,6 +103,12 @@ router = APIRouter(tags=["ask"])
 register("POST", "/v1/chat/ask", tenant_route("read_public", "run", step_up=False))
 
 LOCAL_MODEL = "workspace-local"
+FALLBACK_NOTICE = "AI summary unavailable. Showing workspace records:"
+# the model ran but its reply could not be used (cut off, no final answer, an unknown citation)
+RESET_NOTICE = (
+    "The AI answer could not be completed and was not used, so this is not an analysis. Ask"
+    " again or pick another model. Showing workspace records:"
+)
 
 
 class AskBody(BaseModel):
@@ -234,7 +245,9 @@ async def ask(
                             "ask_research_tables_failed", extra={"request_id": str(body.request_id)}
                         )
                     classifier = _classifier(request, provider, analysis_model)
-                    decision = await R.route(body.question, found, classifier)
+                    decision = with_table_tools(
+                        await R.route(body.question, found, classifier), found
+                    )
                     if decision.route != "prose" and not getattr(provider, "supports_tools", False):
                         decision = R.Decision(
                             "prose", f"{decision.reason}; the model's provider offers no tools"
@@ -250,6 +263,7 @@ async def ask(
                             run_python=await _run_python_on(session, ident.tenant_id),
                             require_data=decision.route == "tabular",
                             archive=_archive_tools(request, ident, ws, searched),
+                            web=_web_tools(ident, ws, searched, body.account_id),
                         )
                 except Exception:  # noqa: BLE001 - an answer without tables still stands
                     log.warning("ask_tables_failed", extra={"request_id": str(body.request_id)})
@@ -349,6 +363,21 @@ async def ask(
                             log.warning(
                                 "ask_exemplars_failed", extra={"request_id": str(body.request_id)}
                             )
+                    # the thread's earlier turns, so a follow-up is read in their light
+                    history: list[tuple[str, str]] = []
+                    if body.thread_id is not None:
+                        try:
+                            async with tenant_txn(ident.tenant_id, user=ident.user_id) as s:
+                                history = await ask_history(
+                                    s,
+                                    thread_id=body.thread_id,
+                                    limit=HISTORY_TURNS,
+                                    skip_model_id=LOCAL_MODEL,
+                                )
+                        except Exception:  # noqa: BLE001 - the answer stands without history
+                            log.warning(
+                                "ask_history_failed", extra={"request_id": str(body.request_id)}
+                            )
                     log.info(
                         "ask.model_call_start",
                         extra={"request_id": str(body.request_id), "model_id": model.id},
@@ -367,6 +396,8 @@ async def ask(
                         effort=turn_effort,
                         file_map=file_map,
                         pre_read=pre_read,
+                        history=history,
+                        web=tools.web if tools is not None else None,
                     ):
                         if kind == "piece":
                             # Hold streamed pieces until the whole answer is scrubbed and scanned.
@@ -400,6 +431,10 @@ async def ask(
                                     "stop_reason": getattr(usage, "stop_reason", None),
                                 },
                             )
+                            # the reply was paid for and thrown away: say so, never present the
+                            # workspace's own records as the answer (audit 2026-11-02: a $2.31
+                            # Fable turn showed "At UCB Inc, UCB 1." with no notice)
+                            _mark_local_fallback(draft, RESET_NOTICE)
                 except Exception as e:  # the local answer stands; no user text is logged
                     log.exception("ask_model_fallback")
                     log.warning(
@@ -429,6 +464,8 @@ async def ask(
             answer = A.finish(draft, q, ws, now, scope)
             stats = tools.stats() if tools is not None else {}
             cost = _turn_cost(service, paid_model, usage, classifier)
+            if tools is not None and tools.web is not None:
+                cost += tools.web.cost_usd  # the turn's web lookups, priced from providers.yaml
             log.info(
                 "ask.route",
                 extra={
@@ -606,9 +643,24 @@ async def _provider_for_ask(
     return AnthropicChatProvider(client, effort=chat_effort()), client
 
 
-def _mark_local_fallback(draft: A.Draft) -> None:
+def with_table_tools(decision: R.Decision, found: Sequence[T.TableInfo]) -> R.Decision:
+    """A keyword rule never decides whether the model may compute: with any table in the
+    workspace a ``prose`` decision becomes ``mixed``, so the model gets the table tools beside
+    the passage tools and chooses (audit 2026-11-02: 11 of 12 turns ran ``prose`` with no tools
+    and sampled the people file by passage search)."""
+    if decision.route != "prose" or not found:
+        return decision
+    return R.Decision(
+        "mixed",
+        f"{decision.reason}; tables exist, so the tools are offered",
+        decision.matched_columns,
+        decision.matched_values,
+    )
+
+
+def _mark_local_fallback(draft: A.Draft, notice: str = FALLBACK_NOTICE) -> None:
     """Prepend a notice without changing the local answer's citations or structured content."""
-    draft.paragraphs.insert(0, "AI summary unavailable. Showing workspace records:")
+    draft.paragraphs.insert(0, notice)
 
 
 def _classifier(request: Request, provider: Any, model_id: str) -> Any:
@@ -645,6 +697,34 @@ def _archive_tools(
         payloads,
         lambda account_id: AW.archive_guard(ident, account_id),
         lambda: limit_user(ident, "archive_read"),
+    )
+
+
+def _web_tools(
+    ident: Identity, ws: Any, searched: set[UUID], account_id: UUID | None
+) -> WEB.WebTools | None:
+    """The web lookups of this turn (replica.web_tools): none when they are switched off, the
+    search provider's key is not set, or the workspace has no account. Every result passes the
+    archive guard of each account in scope."""
+    settings = get_settings()
+    if settings.ask_web != "on" or not ws.accounts:
+        return None
+    cfg = WEB.configured()
+    if cfg is None:
+        return None
+    scoped = [a for a in ws.accounts if a.id in searched] or list(ws.accounts)
+    anchor = next((a for a in scoped if a.id == account_id), scoped[0])
+
+    async def guards() -> list[Any]:
+        return [await AW.archive_guard(ident, a.id) for a in scoped]
+
+    return WEB.WebTools(
+        cfg,
+        anchor,
+        guards,
+        max_searches=settings.ask_web_searches_max,
+        max_reads=settings.ask_web_reads_max,
+        max_results=max(1, min(10, settings.ask_web_results_max)),
     )
 
 

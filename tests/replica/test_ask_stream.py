@@ -14,10 +14,21 @@ from uuid import uuid4
 
 import pytest
 
-from account_intelligence.api.routes.ask import _mark_local_fallback
+from account_intelligence.api.routes.ask import (
+    RESET_NOTICE,
+    _mark_local_fallback,
+    with_table_tools,
+)
 from account_intelligence.replica import answers as A
-from account_intelligence.replica.model_answer import stream_with_model, take
+from account_intelligence.replica import router as R
+from account_intelligence.replica.model_answer import (
+    HISTORY_TOTAL_CHARS,
+    history_messages,
+    stream_with_model,
+    take,
+)
 from agents.skill_context import ask_skill_context
+from documents.tables import ColumnInfo, TableInfo
 
 
 @dataclass
@@ -181,6 +192,142 @@ def test_model_failure_keeps_local_draft_and_adds_a_fallback_notice() -> None:
         "AI summary unavailable. Showing workspace records:",
         "Acme is hiring Salesforce developers [[fact:1]].",
     ]
+
+
+def test_a_discarded_model_reply_is_announced_not_shown_as_the_answer() -> None:
+    draft = A.Draft()
+    draft.para("At Acme, Acme [[fact:1]].")
+
+    _mark_local_fallback(draft, RESET_NOTICE)
+
+    assert draft.paragraphs[0] == RESET_NOTICE
+    assert "not an analysis" in RESET_NOTICE
+
+
+def test_history_alternates_drops_citation_marks_and_keeps_the_newest_within_the_budget() -> None:
+    turns = [(f"question {i}", f"answer {i} [1][2] ends") for i in range(8)]
+    got = history_messages(turns)
+    assert [m.role for m in got] == ["user", "assistant"] * 6  # HISTORY_TURNS newest
+    assert got[0].content == "question 2" and got[-1].content == "answer 7 ends"
+    assert history_messages([("q", ""), ("", "a")]) == []
+    big = history_messages([("old", "x" * 3000)] * 3 + [("new", "y" * 3000)] * 3)
+    assert sum(len(m.content) for m in big) <= HISTORY_TOTAL_CHARS
+    assert big[-2].content == "new"  # the newest turn is always the one kept
+
+
+@pytest.mark.asyncio
+async def test_earlier_turns_go_to_the_model_before_the_question() -> None:
+    seen: dict[str, Any] = {}
+
+    class Capture(FakeProvider):
+        async def stream(self, *a: Any, **k: Any):  # type: ignore[no-untyped-def]
+            seen["messages"] = a[1]
+            async for event in super().stream(*a, **k):
+                yield event
+
+    ws = _world()
+    q, local = A.draft_local("What about Petaluma?", ws, datetime.now(UTC))
+    async for _ in stream_with_model(
+        Capture(["Acme is hiring [R1]."]),
+        object(),
+        q,
+        ws,
+        local,
+        user_id="u",
+        request_id="r",
+        history=[("Which people are in the Bay Area?", "Four people [1].")],
+    ):
+        pass
+    roles = [m.role for m in seen["messages"]]
+    assert roles == ["user", "assistant", "user"]
+    assert seen["messages"][1].content == "Four people."
+    assert seen["messages"][2].content.startswith("<conversation>")
+    assert "What about Petaluma?" in seen["messages"][2].content
+
+
+def test_tables_in_the_workspace_always_give_the_model_the_table_tools() -> None:
+    table = TableInfo(
+        id=uuid4(),
+        name="People",
+        table="People_List.xlsx:People",
+        member=None,
+        document="People_List.xlsx",
+        document_id=uuid4(),
+        account_id=uuid4(),
+        columns=(ColumnInfo("location", "Location", "text", False),),
+        business_key=None,
+        row_count=1620,
+    )
+    prose = R.Decision("prose", "research tables only; no filter word or table named")
+    upgraded = with_table_tools(prose, [table])
+    assert upgraded.route == "mixed" and "tables exist" in upgraded.reason
+    assert with_table_tools(prose, []) is prose  # nothing to compute over: retrieval only
+    tabular = R.Decision("tabular", "columns ['location']")
+    assert with_table_tools(tabular, [table]) is tabular
+
+
+@pytest.mark.asyncio
+async def test_own_knowledge_is_cited_as_model_knowledge_and_is_no_workspace_answer() -> None:
+    events = await _collect(
+        ["Berkeley is in Alameda County, part of the Bay Area [K]. Acme is hiring [R1]."]
+    )
+    kind, reply = events[-1]
+    assert kind == "done"
+    ws = _world()
+    final = A.finish(reply.draft, A.understand("q", ws, None), ws, datetime.now(UTC), None)
+    kinds = [s["kind"] for s in final["sources"]]
+    assert "knowledge" in kinds and final["answered"] is True
+    knowledge = next(s for s in final["sources"] if s["kind"] == "knowledge")
+    assert knowledge["title"] == "Model knowledge" and knowledge["url"] is None
+
+    only = await _collect(["The Bay Area has nine counties [K]."])
+    kind, reply = only[-1]
+    assert kind == "done"
+    final = A.finish(reply.draft, A.understand("q", ws, None), ws, datetime.now(UTC), None)
+    # knowledge alone is an answer, but not one from the workspace
+    assert final["answered"] is False and final["used"]["workspace"] == "not_used"
+    assert [s["kind"] for s in final["sources"]] == ["knowledge"]
+
+
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_a_threads_history_is_its_own_completed_model_turns_oldest_first(
+    world: dict[str, Any],
+) -> None:
+    from datetime import date
+
+    from account_intelligence.api.routes.ask import LOCAL_MODEL
+    from account_intelligence.chat import store
+    from account_intelligence.db.session import tenant_txn
+
+    tenant, user = world["a"], f"hist-{uuid4().hex[:6]}"
+    thread = None
+    async with tenant_txn(tenant, user=user) as s:
+        for model, question, answer in (
+            ("claude-sonnet-5-5", "first", "one"),
+            (LOCAL_MODEL, "second", "placeholder"),
+            ("claude-sonnet-5-5", "third", "three"),
+        ):
+            thread, _, _ = await store.record_ask_turn(
+                s,
+                user_id=user,
+                thread_id=thread,
+                request_id=uuid4(),
+                model_id=model,
+                question=question,
+                plain_answer=answer,
+                account_id=None,
+                input_tokens=1,
+                output_tokens=1,
+                answer_json="{}",
+                week=date(2026, 11, 2),
+                category="hiring",
+            )
+    async with tenant_txn(tenant, user=user) as s:
+        got = await store.ask_history(s, thread_id=thread, limit=6, skip_model_id=LOCAL_MODEL)
+        capped = await store.ask_history(s, thread_id=thread, limit=1, skip_model_id=LOCAL_MODEL)
+    assert got == [("first", "one"), ("third", "three")]
+    assert capped == [("third", "three")]
 
 
 @pytest.mark.requires_postgres

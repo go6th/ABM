@@ -52,6 +52,10 @@ or a value has the wrong type (errors name the variable, never the value).
 | `RUN_TOOL_CALL_CAP` | Per-run connector call ceiling. | no | - | - | api, worker |
 | `ASK_WHOLE_FILE_MAX_CHARS` | Ask: the uploaded file a question is about goes to the model whole when it has at most this many characters (about 75k tokens); a larger file answers through retrieved passages only. | no | - | - | api |
 | `ASK_TABLE_IN_CONTEXT_MAX_CHARS` | Ask: a table the question is about (an uploaded sheet or the research results) is also read in full, in code, and put in front of the model when its rows hold at most this many characters (about 30k tokens), next to the table tools, so a model that skips the tools still has every row; 0 turns it off. | no | - | - | api |
+| `ASK_WEB` | Ask: the model may look things up on the web (web_search, read_web_page) when the workspace and its own knowledge cannot answer (owner decision 2026-11-02); needs the search provider's key in the api's environment, else the tools are absent. | no | - | - | api |
+| `ASK_WEB_SEARCHES_MAX` | Ask: the most web searches one answer may run. | no | - | - | api |
+| `ASK_WEB_READS_MAX` | Ask: the most web page reads one answer may run. | no | - | - | api |
+| `ASK_WEB_RESULTS_MAX` | Ask: the results one web search returns to the model (1 to 10). | no | - | - | api |
 | `ASK_ROUTE_LLM_FALLBACK` | Ask: when no routing rule decides whether a question is tabular or prose and the workspace holds tables, ask the conversation's model (one short call at temperature 0); off offers tools and retrieval both in that case. | no | - | - | api |
 | `RUN_RESERVE_CREDITS` | Credits reserved when a run starts. | no | - | - | api, worker |
 | `GCP_PROJECT` | Google Cloud project id. | no | staging, production | - | api, worker |

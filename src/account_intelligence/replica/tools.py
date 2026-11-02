@@ -32,6 +32,7 @@ from uuid import UUID
 from account_intelligence.replica import archive_tools as ARCH
 from account_intelligence.replica import render as RENDER
 from account_intelligence.replica import result_tables as RESULTS
+from account_intelligence.replica import web_tools as WEB
 from documents import run_python as RP
 from documents import sources as S
 from documents import tables as T
@@ -188,8 +189,11 @@ class AccessTools:
         run_python: bool = False,
         require_data: bool = False,
         archive: ARCH.ArchiveTools | None = None,
+        web: WEB.WebTools | None = None,
     ) -> None:
         self.txn = txn
+        # the web lookups (replica.web_tools), offered on every route when the provider is set
+        self.web = web
         # the research pages (replica.archive_tools), offered on the prose and mixed routes
         self.archive = archive
         # a tabular turn must read before it answers (the answer check, ``_check_answer``)
@@ -212,6 +216,7 @@ class AccessTools:
                 TIERS.COUNT_TIERS_TOOL,
                 *S.SOURCE_TOOLS,
                 *ARCH.ARCHIVE_TOOLS,
+                *WEB.WEB_TOOLS,
                 RENDER.RENDER_TOOL,
             )
         }
@@ -223,6 +228,8 @@ class AccessTools:
             names.append("run_python")
         if self.archive is not None and route in ("prose", "mixed"):
             names.extend(ARCH.NAMES)
+        if self.web is not None:
+            names.extend(WEB.NAMES)
         offered = dict(self._all)
         offered["run_python"] = RP.RUN_PYTHON_TOOL
         return tuple(offered[name] for name in names)
@@ -239,6 +246,8 @@ class AccessTools:
             "searches": self.searches,
             "run_python_used": self.python_calls,
             "pages_read": self.archive.reads if self.archive is not None else 0,
+            "web_searches": self.web.searches if self.web is not None else 0,
+            "web_reads": self.web.reads if self.web is not None else 0,
             "read_refusals": self.read_refusals,
             "shortfall_refusals": self.shortfall_refusals,
         }
@@ -257,6 +266,11 @@ class AccessTools:
             elif name == "run_python":
                 out = await self._run_python(payload)
                 self._counted(out)
+            elif name in WEB.NAMES:
+                # a web result is no read of the workspace: it never satisfies ``read_first``
+                if self.web is None:
+                    raise T.QueryError("unknown_tool", f"no tool named {name!r}")
+                out = await self.web.run(name, payload)
             elif name in ARCH.NAMES:
                 if self.archive is None:
                     raise T.QueryError("unknown_tool", f"no tool named {name!r}")

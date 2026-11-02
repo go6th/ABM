@@ -215,6 +215,26 @@ class Settings(BaseSettings):
         ),
         component="api",
     )
+    ask_web: Literal["on", "off"] = var(
+        "on",
+        purpose=(
+            "Ask: the model may look things up on the web (web_search, read_web_page) when the"
+            " workspace and its own knowledge cannot answer (owner decision 2026-11-02); needs"
+            " the search provider's key in the api's environment, else the tools are absent."
+        ),
+        component="api",
+    )
+    ask_web_searches_max: int = var(
+        3, purpose="Ask: the most web searches one answer may run.", component="api"
+    )
+    ask_web_reads_max: int = var(
+        3, purpose="Ask: the most web page reads one answer may run.", component="api"
+    )
+    ask_web_results_max: int = var(
+        5,
+        purpose="Ask: the results one web search returns to the model (1 to 10).",
+        component="api",
+    )
     ask_route_llm_fallback: Literal["on", "off"] = var(
         "on",
         purpose=(
