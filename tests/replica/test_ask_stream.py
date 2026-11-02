@@ -110,6 +110,36 @@ async def test_every_answer_carries_the_owners_skill_in_its_system_prompt() -> N
 
 
 @pytest.mark.asyncio
+async def test_the_file_map_rides_in_the_system_prompt_after_the_shared_part() -> None:
+    seen: dict[str, Any] = {}
+
+    class Capture(FakeProvider):
+        async def stream(self, *a: Any, **k: Any):  # type: ignore[no-untyped-def]
+            seen["system"] = k["system"]
+            async for event in super().stream(*a, **k):
+                yield event
+
+    ws = _world()
+    q, local = A.draft_local("What is Acme hiring for?", ws, datetime.now(UTC))
+    index = '<workspace_files>\nTABLE "Jobs"\n</workspace_files>'
+    async for _ in stream_with_model(
+        Capture(["Acme is hiring [R1]."]),
+        object(),
+        q,
+        ws,
+        local,
+        user_id="u",
+        request_id="r",
+        file_map=index,
+    ):
+        pass
+    system = seen["system"]
+    # the first part (rules and skill) stays identical, so its cache entry is shared
+    assert system.parts[0].endswith(ask_skill_context())
+    assert system.parts[-1] == index
+
+
+@pytest.mark.asyncio
 async def test_an_invented_citation_is_dropped_but_a_list_or_table_streams() -> None:
     invented = await _collect(["Acme is hiring [R1]. ", "Also [R9] says more. ", "End."])
     # the sentence resting only on a row that was not sent is dropped, never streamed, and
@@ -206,3 +236,52 @@ async def test_a_silent_ask_stream_sends_keepalives_and_keeps_every_frame() -> N
 
     with pytest.raises(RuntimeError, match="source failed"):
         [f async for f in _with_keepalive(broken(), every=0.01)]
+
+
+@pytest.mark.asyncio
+async def test_a_table_read_whole_by_the_plan_rides_in_the_cached_block_and_the_prompt() -> None:
+    seen: dict[str, Any] = {}
+
+    class Capture(FakeProvider):
+        async def stream(self, *a: Any, **k: Any):  # type: ignore[no-untyped-def]
+            seen["cached"], seen["prompt"] = k["cached"], a[1][0].content
+            async for event in super().stream(*a, **k):
+                yield event
+
+    ws = _world()
+    acct = ws.accounts[0]
+    table = A.Row(
+        "table:5c1b4f5e-0000-4000-8000-000000000001",
+        "file",
+        acct,
+        "Jobs.xlsx, table Jobs: 2 rows; columns: title",
+        "From your files: Jobs.xlsx (table Jobs)",
+        "Internal",
+        None,
+        None,
+        "internal",
+        extra={
+            "table": "Jobs",
+            "document": "Jobs.xlsx",
+            "rows": 2,
+            "whole_text": "row | title\n1 | A\n2 | B",
+        },
+    )
+    ws.tables = [table]
+    q, local = A.draft_local("List the jobs", ws, datetime.now(UTC))
+    async for _ in stream_with_model(
+        Capture(["Two jobs [R1]."]),
+        object(),
+        q,
+        ws,
+        local,
+        user_id="u",
+        request_id="r",
+        pre_read="<pre_read>\ncolumns\n</pre_read>",
+    ):
+        pass
+    # every row of the table is in the cached block, labelled by the table's id
+    assert '<file doc="5c1b4f5e-0000-4000-8000-000000000001" name="Jobs">' in seen["cached"]
+    assert "1 | A\n2 | B" in seen["cached"]
+    assert seen["prompt"].startswith("<pre_read>\ncolumns\n</pre_read>")
+    assert 'every row also given whole in <file doc="5c1b4f5e' in seen["prompt"]

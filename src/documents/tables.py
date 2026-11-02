@@ -47,6 +47,7 @@ from typing import Any
 from uuid import UUID
 
 from account_intelligence.rag.retrieval import MAX_FILTER_ROWS, OPS, typed
+from documents import expanders as EXP
 from documents import repo
 from documents.chunking import list_items
 
@@ -116,6 +117,23 @@ QUERY_TABLE_TOOL: dict[str, Any] = {
                 "maximum": MAX_LIMIT,
                 "default": DEFAULT_LIMIT,
             },
+            "radius_miles": {
+                "type": "number",
+                "minimum": 1,
+                "description": (
+                    "A filter on a place column also returns, as `related`, the rows whose place"
+                    " lies within this many miles (default 50), nearest first with the distance;"
+                    " pass it only when the question names another distance."
+                ),
+            },
+            "expand": {
+                "type": "boolean",
+                "description": (
+                    "Default true: a text filter on a spelling in an alias group (SFDC, VP) also"
+                    " matches the group's other spellings, and a place filter also returns nearby"
+                    " rows. Pass false only when the question asks for the exact words alone."
+                ),
+            },
         },
     },
 }
@@ -175,8 +193,20 @@ class ColumnInfo:
 
 
 @dataclass(frozen=True)
+class ViewSource:
+    """Where a research table's rows live: the client table ``kind`` (people, jobs, tech, ...) of
+    the delivered runs of these accounts in ``view_rows`` (``views.materialize``) — the rows of
+    the delivered files, row for row, all accounts in one table with an ``account`` column. An
+    uploaded table has none (its rows are in ``document_table_rows``)."""
+
+    kind: str
+    run_ids: tuple[UUID, ...]
+    account_ids: tuple[UUID, ...]
+
+
+@dataclass(frozen=True)
 class TableInfo:
-    """One ingested table of the workspace."""
+    """One table of the workspace: an ingested upload, or a research table (``view``)."""
 
     id: UUID
     name: str  # the name the model uses (unique in the workspace)
@@ -188,6 +218,7 @@ class TableInfo:
     columns: tuple[ColumnInfo, ...]
     business_key: str | None
     row_count: int
+    view: ViewSource | None = None
 
     @property
     def names(self) -> dict[str, ColumnInfo]:
@@ -202,6 +233,9 @@ class Where:
     column: ColumnInfo
     op: str
     value: Any
+    # the other spellings of an alias group (documents.expanders): the typed value still matches
+    # as before, these match as whole words
+    also: tuple[str, ...] = ()
 
 
 @dataclass
@@ -214,6 +248,10 @@ class Query:
     order_by: list[tuple[str, bool]] = field(default_factory=list)
     distinct_on: str | None = None
     limit: int = DEFAULT_LIMIT
+    # the answer expanders (documents.expanders): on unless the call turns them off
+    expand: bool = True
+    radius_miles: float | None = None
+    expansions: list[dict[str, Any]] = field(default_factory=list)
 
     def applied_where(self) -> list[dict[str, Any]]:
         """The predicates as applied (normalised column names, JSON values)."""
@@ -312,7 +350,7 @@ async def describe(session: Any, table: TableInfo) -> dict[str, Any]:
     """The table as the model reads it before querying: columns (name as written, the
     normalised name predicates use, type, payload), three sample values each from the first
     rows (80 characters at most), the business key and the row count."""
-    rows = await repo.table_rows(session, table.id, "", {}, SAMPLE_ROWS)
+    rows = await repo.table_rows(session, table.id, "", {}, SAMPLE_ROWS, view=table.view)
     samples: dict[str, list[Any]] = {c.name: [] for c in table.columns}
     for r in rows:
         cells = r.cells or {}
@@ -388,6 +426,13 @@ def parse(table: TableInfo, payload: Mapping[str, Any]) -> Query:
     """A validated query from the tool call: every column whitelisted against the schema,
     every operator from the closed set, values typed to their column, the limit bounded."""
     query = Query(table)
+    if payload.get("expand") is False:
+        query.expand = False
+    asked_radius = payload.get("radius_miles")
+    if asked_radius is not None:
+        if isinstance(asked_radius, bool) or not isinstance(asked_radius, int | float):
+            raise QueryError("bad_radius", "radius_miles must be a number of miles")
+        query.radius_miles = EXP.radius(asked_radius)
     where = payload.get("where") or []
     if not isinstance(where, list):
         raise QueryError("bad_where", "where must be a list of {column, op, value}")
@@ -409,6 +454,13 @@ def parse(table: TableInfo, payload: Mapping[str, Any]) -> Query:
             if value is None or str(value) == "":
                 raise QueryError("bad_value", f"{column.name}: contains needs a value")
             value = str(value)
+            also = EXP.aliases_of(value) if query.expand and column.type == "text" else []
+            if also:
+                # the typed text still matches as a substring; the group's other spellings
+                # match as whole words (documents.expanders)
+                query.expansions.append({"column": column.name, "term": value, "also": also})
+                query.where.append(Where(column, op, value, tuple(also)))
+                continue
         else:
             value = _scalar(column, value)
         query.where.append(Where(column, op, value))
@@ -450,15 +502,23 @@ def _sql(query: Query) -> tuple[str, dict[str, Any]]:
         val = f"v{i}"
         if w.op in ("contains", "icontains"):
             params[val] = w.value
+            if w.also:
+                params[f"{val}_re"] = EXP.word_pattern(w.also)
+                parts.append(
+                    f"(position(lower(:{val}) IN lower(coalesce({raw}, ''))) > 0"
+                    f" OR lower(coalesce({raw}, '')) ~ :{val}_re)"
+                )
+                continue
             if w.op == "icontains":
                 parts.append(f"position(lower(:{val}) IN lower(coalesce({raw}, ''))) > 0")
             else:
                 parts.append(f"position(:{val} IN coalesce({raw}, '')) > 0")
             continue
         if w.column.type == "date":
-            expr, bind = f"CAST({raw} AS date)", f"CAST(:{val} AS date)"
+            # a blank cell (a research table prints a missing date as "") is no date, not an error
+            expr, bind = f"CAST(NULLIF({raw}, '') AS date)", f"CAST(:{val} AS date)"
         elif w.column.type == "number":
-            expr, bind = f"CAST({raw} AS numeric)", f"CAST(:{val} AS numeric)"
+            expr, bind = f"CAST(NULLIF({raw}, '') AS numeric)", f"CAST(:{val} AS numeric)"
         else:
             expr, bind = f"lower({raw})", f"lower(:{val})"
         if w.op == "in":
@@ -612,7 +672,9 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
     a row that matched by substring alone comes back ``partial=true``. An empty result carries
     ``next``: the relax-one-predicate directive the model is to follow before answering."""
     where, params = _sql(query)
-    found = await repo.table_rows(session, query.table.id, where, params, MAX_FILTER_ROWS + 1)
+    found = await repo.table_rows(
+        session, query.table.id, where, params, MAX_FILTER_ROWS + 1, view=query.table.view
+    )
     if len(found) > MAX_FILTER_ROWS:
         raise QueryError(
             "filter_too_wide",
@@ -645,6 +707,7 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
 
         rows.sort(key=by, reverse=desc)
     matched = len(rows)
+    exact_rows = {int(r["row"]) for r in rows}
     truncated = matched > query.limit
     rows = rows[: query.limit]
     shown = query.columns or [c.name for c in query.table.columns if not c.payload]
@@ -662,6 +725,12 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
         out["dedup_removed"] = removed
     if multi:
         out["partial_rows"] = partial
+    if query.expansions:
+        out["expanded"] = query.expansions
+    if query.expand:
+        related = await _nearby(session, query, exact_rows, shown)
+        if related is not None:
+            out["related"] = related
     if matched == 0 and query.where:
         # the directive the TABULAR_RULES promise at the point the decision is made (the model
         # reads the result, then decides): a cloud sampler at near-tie logits goes both ways on
@@ -674,6 +743,59 @@ async def run(session: Any, query: Query) -> dict[str, Any]:
     return out
 
 
+RELATED_ROWS_MAX = 1000
+
+
+async def _nearby(
+    session: Any, query: Query, exact: set[int], shown: Sequence[str]
+) -> dict[str, Any] | None:
+    """The nearby expander (``documents.expanders``): for the query's first filter on a place
+    column, the rows OUTSIDE the exact result that lie within the radius of the place asked for,
+    nearest first. The query runs again without that filter (every other filter kept); None when
+    there is no place filter, ``{"skipped": ...}`` when the place or the row set cannot be used."""
+    w = next(
+        (
+            w
+            for w in query.where
+            if w.op in ("eq", "contains", "icontains")
+            and EXP.is_place_column(w.column.name, w.column.raw)
+        ),
+        None,
+    )
+    if w is None:
+        return None
+    relaxed = Query(query.table, [x for x in query.where if x is not w])
+    where, params = _sql(relaxed)
+    found = await repo.table_rows(
+        session, query.table.id, where, params, MAX_FILTER_ROWS + 1, view=query.table.view
+    )
+    if len(found) > MAX_FILTER_ROWS:
+        return {"skipped": "too_many_rows", "column": w.column.name}
+    candidates = [
+        {
+            "table": query.table.table,
+            "row": int(r.row_no),
+            **({"member": query.table.member} if query.table.member else {}),
+            "cells": dict(r.cells or {}),
+        }
+        for r in found
+        if int(r.row_no) not in exact
+    ]
+    if query.distinct_on:
+        candidates, _ = _dedupe(candidates, query.distinct_on)
+    result = EXP.nearby(str(w.value), candidates, w.column.name, EXP.radius(query.radius_miles))
+    if result is None:
+        return {"skipped": "target_is_not_a_city", "column": w.column.name}
+    rows = result["rows"]
+    result["truncated"] = len(rows) > RELATED_ROWS_MAX
+    result["rows"] = [
+        {**r, "cells": {name: r["cells"].get(name) for name in shown}}
+        for r in rows[:RELATED_ROWS_MAX]
+    ]
+    result["column"] = w.column.name
+    return result
+
+
 def _whole_item(where: Where, cell: Any) -> bool:
     """Whether the cell matches the contains predicate as a whole list item (``True``) or only
     as a substring (``False``: the row is ``partial``)."""
@@ -683,8 +805,8 @@ def _whole_item(where: Where, cell: Any) -> bool:
     if not items:
         return False
     if where.op == "icontains":
-        wanted = str(where.value).casefold()
-        return any(item.casefold() == wanted for item in items)
+        wanted = {str(where.value).casefold(), *where.also}
+        return any(item.casefold() in wanted for item in items)
     return any(item == str(where.value) for item in items)
 
 
@@ -718,7 +840,7 @@ async def read(
     """The whole rows ``read_rows`` asked for: every cell, payload included (or the named
     columns), each row carrying its citation place; row numbers the store does not hold are
     listed as ``not_found`` and never fail the call."""
-    found = await repo.table_rows_by_no(session, table.id, list(row_nos))
+    found = await repo.table_rows_by_no(session, table.id, list(row_nos), view=table.view)
     seen: dict[int, Any] = {int(r.row_no): r for r in found}
     shown = list(columns) or [c.name for c in table.columns]
     rows = [

@@ -48,7 +48,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from account_intelligence.chat.service import ChatMessage, ChatUsage
+from account_intelligence.platform.llm import ask_procedure_models
 from account_intelligence.platform.prompt_cache import SystemPrompt
+from account_intelligence.replica import archive_tools as ARCH
 from account_intelligence.replica import render as RENDER
 from account_intelligence.replica.answers import (
     Draft,
@@ -182,6 +184,27 @@ TABULAR_RULES = (
 )
 
 
+# the reading procedure of a table answer, written out for the models listed in models.yaml
+# `ask_procedure_models` (Sonnet, Haiku): the steps Fable takes unprompted
+PROCEDURE_RULES = (
+    "Reading procedure — follow it in this order on every table question:\n"
+    "1. Read `<pre_read>` and the file index; name to yourself the table and the columns the"
+    " question needs.\n"
+    "2. Call `query_table` (or `count_tiers`) with EVERY condition the question states. If the"
+    " result is truncated or `filter_too_wide`, narrow or page it — never stop at a partial set."
+    " Never answer from the file index.\n"
+    "3. Take every count from a tool result's `row_count` (and `dedup_removed`), never from"
+    " counting rows by eye. A whole table also given in a <file> is for checking your result, not"
+    " a substitute for querying.\n"
+    "4. List a query's rows with a `result` section (render_answer): the code then lists EVERY"
+    " row, with the counts and any nearby or alias matches. Only a table you write yourself"
+    " must list every row it covers; if you leave rows out (false positives, duplicates), say"
+    " how many and why in its note.\n"
+    "5. If the file index lists a skipped, unfinished or failed file, say so in one line.\n"
+    "6. Before `render_answer`: each number in the headline equals a tool result, and each table"
+    " row ends with its [R#] citation."
+)
+
 # phrases that mean the answer refused the files the workspace already holds (the eval fails
 # on them; production logs a warning — see the ``ask.route`` caller). "can't"/"cannot" alone
 # are too common to guard on; the guarded forms are about the data being unavailable.
@@ -225,7 +248,7 @@ def pick_rows(q: Question, ws: Workspace, local: Draft) -> list[Row]:
     question is about one, then the most relevant rest."""
     rows: dict[str, Row] = dict(local.rows)
     for r in [*ws.tables, *ws.whole_files]:
-        if not q.accounts or r.account in q.accounts:
+        if not q.accounts or r.account in q.accounts or r.extra.get("research"):
             rows.setdefault(r.key, r)
     # the passages retrieved for this question come first after what the local answer cited:
     # they are ranked by relevance to the question already
@@ -262,9 +285,15 @@ def context_block(rows: list[Row]) -> tuple[str, dict[str, Row]]:
             )
             continue
         if r.extra.get("table"):
+            whole = (
+                f' | every row also given whole in <file doc="{file_doc(r)}">'
+                if r.extra.get("whole_text")
+                else ""
+            )
             lines.append(
                 f"[{rid}] account: {r.account.name} | table | {r.text} | query it with"
-                f' describe_table and query_table, table "{r.extra["table"]}" | source: {r.title}'
+                f' describe_table and query_table, table "{r.extra["table"]}"{whole}'
+                f" | source: {r.title}"
             )
             continue
         grade = f" | grade: {r.grade}" if r.grade else ""
@@ -279,7 +308,7 @@ def context_block(rows: list[Row]) -> tuple[str, dict[str, Row]]:
 def file_doc(row: Row) -> str:
     """The stable label of a whole file: its document id (the row key ``whole:<id>``), never
     the row number, which changes from question to question."""
-    return row.key.split(":", 1)[1] if row.key.startswith("whole:") else row.key
+    return row.key.split(":", 1)[1] if row.key.startswith(("whole:", "table:")) else row.key
 
 
 def file_blocks(ids: dict[str, Row]) -> str:
@@ -289,15 +318,41 @@ def file_blocks(ids: dict[str, Row]) -> str:
     from question to question, which changed the cached bytes and missed the cache on every
     question (token review item 2, 2026-10-20); the numbered row names the document instead."""
     blocks = []
+    # a whole uploaded file, and a table the read plan read in full (``replica.read_plan``)
     for r in sorted(
-        (r for r in ids.values() if r.extra.get("whole_file")), key=lambda r: file_doc(r)
+        (r for r in ids.values() if r.extra.get("whole_file") or r.extra.get("whole_text")),
+        key=lambda r: file_doc(r),
     ):
-        name = re.sub(r"[^\w .()\[\]-]", "_", str(r.extra.get("document", "file")))[:120]
-        blocks.append(f'<file doc="{file_doc(r)}" name="{name}">\n{r.text}\n</file>')
+        label = r.extra.get("document", "file") if r.extra.get("whole_file") else r.extra["table"]
+        name = re.sub(r"[^\w .()\[\]-]", "_", str(label))[:120]
+        body = r.text if r.extra.get("whole_file") else r.extra["whole_text"]
+        blocks.append(f'<file doc="{file_doc(r)}" name="{name}">\n{body}\n</file>')
     return "\n\n".join(blocks)
 
 
 _CITE = re.compile(r"\[(R\d{1,3})\]")
+_TABLE_CITE = re.compile(r"\[T:([0-9a-f-]{36})\]")
+
+
+def _table_cites(payload: dict[str, Any], ids: dict[str, Row]) -> dict[str, Any]:
+    """The payload with the code-built tables' ``[T:<table id>]`` citations turned into the
+    numbered row of that table (``[R3]``); a table that is not among the numbered rows gets none."""
+    numbered = {
+        row.key.split(":", 1)[1]: rid for rid, row in ids.items() if row.key.startswith("table:")
+    }
+
+    def swap(value: Any) -> Any:
+        if isinstance(value, str):
+            return _TABLE_CITE.sub(
+                lambda m: f"[{numbered[m.group(1)]}]" if m.group(1) in numbered else "", value
+            )
+        if isinstance(value, list):
+            return [swap(v) for v in value]
+        if isinstance(value, dict):
+            return {k: swap(v) for k, v in value.items()}
+        return value
+
+    return swap(payload)  # type: ignore[no-any-return]
 
 
 def repair(text: str, ids: dict[str, Row]) -> tuple[str, list[str]]:
@@ -426,6 +481,8 @@ async def stream_with_model(
     run_tool: Any | None = None,
     temperature: float | None = None,
     effort: str | None = None,
+    file_map: str = "",
+    pre_read: str = "",
 ) -> AsyncIterator[tuple[str, Any]]:
     """Events while the model writes: ("piece", (paragraph index, text with row markers)) for
     each checked sentence, ("tool", the call and its result) for each table tool the model ran,
@@ -439,7 +496,10 @@ async def stream_with_model(
     block, ids = context_block(rows)
     files = file_blocks(ids)
     prompt = (
-        "<workspace_rows>\n" + block + "\n</workspace_rows>\n\n"
+        (pre_read + "\n\n" if pre_read else "")
+        + "<workspace_rows>\n"
+        + block
+        + "\n</workspace_rows>\n\n"
         "<question>\n" + q.text[:2000] + "\n</question>"
     )
     full: list[str] = []
@@ -454,10 +514,16 @@ async def stream_with_model(
     route_rules = TABULAR_RULES if offered & TABLE_TOOLS_NAMED else ""
     if RENDER.NAME in offered:
         route_rules += ("\n" if route_rules else "") + RENDER.RENDER_RULES
+    if offered & set(ARCH.NAMES):
+        route_rules += ("\n" if route_rules else "") + ARCH.ARCHIVE_RULES
+    if offered & TABLE_TOOLS_NAMED and getattr(model, "id", None) in ask_procedure_models():
+        route_rules += "\n" + PROCEDURE_RULES
     # the owner's research skill rides on every answer (agents.skill_context.ask_skill_context).
     # Most shared first, for the prompt cache: the rules and the skill are the same for every
     # answer (cached for an hour), the file follows them in the provider, then the route's rules
-    system = SystemPrompt((SYSTEM + "\n\n" + ask_skill_context(), route_rules))
+    # and the workspace's file map (documents.filemap: every file, sheet and column, so the model
+    # never has to guess what exists; the provider joins the parts after the first into one block)
+    system = SystemPrompt((SYSTEM + "\n\n" + ask_skill_context(), route_rules, file_map))
     async for event in provider.stream(
         model,
         [ChatMessage("user", prompt)],
@@ -482,7 +548,8 @@ async def stream_with_model(
                 and tool["result"].get("ok")
                 and isinstance(tool.get("input"), dict)
             ):
-                rendered = tool["input"]
+                # a `result` section was expanded to tables by the code (replica.result_tables)
+                rendered = tool["result"].get("answer") or tool["input"]
             yield "tool", event.tool
             continue
         if event.kind == "discard":
@@ -515,7 +582,7 @@ async def stream_with_model(
     if rendered is not None:
         # the answer came as strict JSON: check its citations against the numbered rows (an
         # unknown id discards the reply, as in parse) and build the draft from it
-        converted = RENDER.rewrite(rendered, ids)
+        converted = RENDER.rewrite(_table_cites(rendered, ids), ids)
         draft = None if converted is None else RENDER.to_draft(*converted)
     else:
         if not broken:

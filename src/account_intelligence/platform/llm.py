@@ -133,6 +133,22 @@ def model_efforts(path: Path | None = None) -> dict[str, str]:
     return out
 
 
+@lru_cache(maxsize=2)
+def ask_procedure_models(path: Path | None = None) -> frozenset[str]:
+    """The Ask models that are given the reading procedure (``ask_procedure_models`` in
+    models.yaml; none listed: no model)."""
+    data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
+    return frozenset(str(m) for m in (data.get("ask_procedure_models") or ()))
+
+
+@lru_cache(maxsize=2)
+def reference_answer_models(path: Path | None = None) -> frozenset[str]:
+    """The models whose earlier Ask answers serve as worked examples for the procedure models
+    (``reference_answer_models`` in models.yaml; none listed: no examples)."""
+    data: dict[str, Any] = yaml.safe_load((path or CONFIG_DIR / "models.yaml").read_text())
+    return frozenset(str(m) for m in (data.get("reference_answer_models") or ()))
+
+
 def effort_for(model: str, asked: str | None) -> str | None:
     """The effort one call on ``model`` runs at: the model's fixed effort, else ``asked``."""
     return model_efforts().get(model, asked)

@@ -23,12 +23,15 @@ words).
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 from uuid import UUID
 
+from account_intelligence.replica import archive_tools as ARCH
 from account_intelligence.replica import render as RENDER
+from account_intelligence.replica import result_tables as RESULTS
 from documents import run_python as RP
 from documents import sources as S
 from documents import tables as T
@@ -38,6 +41,12 @@ from obs.logging import logger
 log = logger(__name__)
 
 TxnFactory = Callable[[], AbstractAsyncContextManager[Any]]
+
+# the answer check (AccessTools._check_answer): how many times a turn's render_answer call is sent
+# back before it stands, and the smallest query a half-listed table is compared against
+MAX_READ_REFUSALS = 2
+MAX_SHORTFALL_REFUSALS = 1
+SHORTFALL_MIN_ROWS = 6
 
 # which tools a route offers (Part E): tabular questions are computed from the store, prose
 # ones read the passages, mixed have both; list_sources is everywhere. Every route with tools
@@ -63,6 +72,11 @@ class TableTools:
         self.last_where: dict[UUID, set[tuple[str, str]]] = {}
         self.relaxed: str | None = None
         self.row_count: int | None = None
+        # the last query_table's matched rows and whether it was cut at its limit (the answer
+        # check, AccessTools._check_answer)
+        self.last_query: tuple[int, bool] | None = None
+        # every query_table result by id (q1, q2, ...), for the answer's `result` sections
+        self.stored: dict[str, tuple[T.TableInfo, T.Query, dict[str, Any]]] = {}
         self.dedup_removed = 0
         self.empty_results = 0
 
@@ -112,6 +126,8 @@ class TableTools:
                 async with self.txn() as s:
                     out = await T.run(s, query)
                 self._note(table.id, query, out)
+                out["result_id"] = f"q{len(self.stored) + 1}"
+                self.stored[out["result_id"]] = (table, query, out)
                 return out
             if name == "read_rows":
                 table = T.find_table(self.tables, str(payload.get("table", "")))
@@ -150,6 +166,7 @@ class TableTools:
             self.relaxed = column
         self.last_where[table_id] = now
         self.row_count = int(out.get("row_count", 0))
+        self.last_query = (self.row_count, bool(out.get("truncated")))
         self.dedup_removed += int(out.get("dedup_removed", 0) or 0)
         if not out.get("row_count"):
             self.empty_results += 1
@@ -169,8 +186,17 @@ class AccessTools:
         accounts: Sequence[UUID],
         embedder: Any | None = None,
         run_python: bool = False,
+        require_data: bool = False,
+        archive: ARCH.ArchiveTools | None = None,
     ) -> None:
         self.txn = txn
+        # the research pages (replica.archive_tools), offered on the prose and mixed routes
+        self.archive = archive
+        # a tabular turn must read before it answers (the answer check, ``_check_answer``)
+        self.require_data = require_data
+        self.data_calls = 0
+        self.read_refusals = 0
+        self.shortfall_refusals = 0
         self.accounts = list(accounts)
         self.embedder = embedder
         self.run_python = run_python
@@ -181,7 +207,13 @@ class AccessTools:
         self.rendered: dict[str, Any] | None = None  # the render_answer call, if one came
         self._all: dict[str, dict[str, Any]] = {
             t["name"]: t
-            for t in (*T.TOOLS, TIERS.COUNT_TIERS_TOOL, *S.SOURCE_TOOLS, RENDER.RENDER_TOOL)
+            for t in (
+                *T.TOOLS,
+                TIERS.COUNT_TIERS_TOOL,
+                *S.SOURCE_TOOLS,
+                *ARCH.ARCHIVE_TOOLS,
+                RENDER.RENDER_TOOL,
+            )
         }
 
     def offered(self, route: str) -> tuple[dict[str, Any], ...]:
@@ -189,6 +221,8 @@ class AccessTools:
         names = list(ROUTE_TOOLS.get(route, ROUTE_TOOLS["prose"]))
         if self.run_python and route in ("tabular", "mixed"):
             names.append("run_python")
+        if self.archive is not None and route in ("prose", "mixed"):
+            names.extend(ARCH.NAMES)
         offered = dict(self._all)
         offered["run_python"] = RP.RUN_PYTHON_TOOL
         return tuple(offered[name] for name in names)
@@ -204,6 +238,9 @@ class AccessTools:
             **self.table_tools.stats(),
             "searches": self.searches,
             "run_python_used": self.python_calls,
+            "pages_read": self.archive.reads if self.archive is not None else 0,
+            "read_refusals": self.read_refusals,
+            "shortfall_refusals": self.shortfall_refusals,
         }
 
     async def run(self, name: str, payload: dict[str, Any]) -> Any:
@@ -215,10 +252,19 @@ class AccessTools:
             if name == RENDER.NAME:
                 out = self._render(payload)
             elif name in TABULAR_TOOLS:
+                self.data_calls += 1
                 out = await self.table_tools.run(name, payload)
             elif name == "run_python":
+                self.data_calls += 1
                 out = await self._run_python(payload)
+            elif name in ARCH.NAMES:
+                if self.archive is None:
+                    raise T.QueryError("unknown_tool", f"no tool named {name!r}")
+                self.data_calls += 1
+                out = await self.archive.run(name, payload)
             else:
+                # list_sources only lists; reading a passage is reading
+                self.data_calls += name != "list_sources"
                 out = await self._prose(name, payload)
         except T.QueryError as error:
             out = error.payload()
@@ -228,12 +274,74 @@ class AccessTools:
     def _render(self, payload: dict[str, Any]) -> Any:
         """A render_answer call: shape-checked (replica.render), then terminal — the tool loop
         ends and the call's input becomes the answer."""
-        error = RENDER.check_shape(payload)
+        error = RENDER.check_shape(payload) or self._check_answer(payload)
+        answer = payload
+        if error is None:
+            answer, error = RESULTS.expand(payload, self.table_tools.stored)
         if error is not None:
             code, message = error
             return {"error": {"code": code, "message": message}}
-        self.rendered = payload
-        return {"ok": True, "terminal": True}
+        self.rendered = answer
+        # `result` sections became tables: the expanded answer rides in the result
+        return {
+            "ok": True,
+            "terminal": True,
+            **({"answer": answer} if answer is not payload else {}),
+        }
+
+    def _check_answer(self, payload: dict[str, Any]) -> tuple[str, str] | None:
+        """The answer check of a tabular turn (Ask redesign 3a, 2026-11-02): code sends a call back
+        — each at most once or twice per turn, then the call stands and the turn logs it — that
+
+        * comes before any table was read (``read_first``: Sonnet and Haiku answered a tabular
+          question with no tool call at all, staging 2026-11-01), which makes the model read the
+          store's complete rows instead of writing from the file list;
+        * says the files or rows are missing (``MODEL_REFUSALS``: the store holds them);
+        * tables fewer than half the rows the last full query matched (``rows_missing``): a
+          sample passed off as the answer. An answer that drops rows on purpose says so in a
+          call it makes again, with the count it kept in the note."""
+        if not self.require_data:
+            return None
+        if self.data_calls == 0 and self.read_refusals < MAX_READ_REFUSALS:
+            self.read_refusals += 1
+            return (
+                "read_first",
+                "No table was read for this answer. The workspace rows are stored complete: call"
+                " describe_table, then query_table (filter, count or list; read_rows for long"
+                " text), and write the answer from the result. Do not answer from the file list.",
+            )
+        from account_intelligence.replica.model_answer import refusal_phrase
+
+        said = refusal_phrase(json.dumps(payload, ensure_ascii=False))
+        if said and self.read_refusals < MAX_READ_REFUSALS:
+            self.read_refusals += 1
+            return (
+                "files_present",
+                f"The answer says the data is missing ({said!r}). It is not: the table is stored"
+                " complete. Query it with query_table and answer from the rows.",
+            )
+        last = self.table_tools.last_query
+        if last is not None and not last[1] and self.shortfall_refusals < MAX_SHORTFALL_REFUSALS:
+            matched = last[0]
+            listed = max(
+                (
+                    # a result section lists every row of its query (replica.result_tables)
+                    matched if s.get("kind") == "result" else len(s.get("rows") or [])
+                    for s in payload.get("sections", [])
+                    if isinstance(s, dict) and s.get("kind") in ("table", "result")
+                ),
+                default=0,
+            )
+            if matched >= SHORTFALL_MIN_ROWS and listed * 2 < matched:
+                self.shortfall_refusals += 1
+                return (
+                    "rows_missing",
+                    f"Your largest table lists {listed} rows but the last query matched"
+                    f" {matched}. List every matching row. If you removed rows on purpose (false"
+                    " positives, duplicates), keep them out only with a note stating how many"
+                    " you removed and why, then call render_answer again.",
+                )
+        return None
 
     async def _run_python(self, payload: dict[str, Any]) -> Any:
         """One sandbox run: refused unless the tenant's flag was on for this turn; logged by

@@ -648,6 +648,34 @@ async def _archive_policy(ident: Identity, account_id: UUID) -> _ArchivePolicy:
     return _ArchivePolicy(rule, restricted_terms(terms, AR.SOURCE))
 
 
+@dataclass(frozen=True)
+class ArchiveGuard:
+    """The archive routes' rules for one account, as Ask's research page tools apply them
+    (``replica.archive_tools.Guard``): what is hidden, what is blanked, whose payload may be
+    read."""
+
+    policy: _ArchivePolicy
+    tenant_id: UUID
+
+    def hides(self, *texts: str | None, url: str | None = None) -> bool:
+        """True when the copy or row must not be served at all."""
+        return self.policy.hides(*texts, url=url)
+
+    def scrub(self, value: Any) -> tuple[Any, list[str]]:
+        """The value with each refused text blanked, and the paths blanked."""
+        held: list[str] = []
+        return _withhold_leaks(value, held, forbidden=self.policy.forbidden), held
+
+    def owned(self, ref: str) -> bool:
+        """True when the payload key is the tenant's."""
+        return _owned(self.tenant_id, ref)
+
+
+async def archive_guard(ident: Identity, account_id: UUID) -> ArchiveGuard:
+    """The guard for one account's archive (the same policy the archive routes build)."""
+    return ArchiveGuard(await _archive_policy(ident, account_id), ident.tenant_id)
+
+
 def _withhold_leaks(
     value: Any, held: list[str], path: str = "", forbidden: Sequence[str] = ()
 ) -> Any:

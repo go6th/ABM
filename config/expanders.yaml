@@ -1,0 +1,67 @@
+# Ask answer expanders (2026-11-02): matches a question did not spell out but the answer should
+# carry, found by code so every model returns the same set. Read by documents.expanders.
+version: "2026-11-02.1"
+
+# Nearby: a filter on a place column (a person's location, a posting's city) also returns the rows
+# whose place lies within this many miles, nearest first, with the distance (config/places.json).
+# A question or a tool call may ask for another radius up to max_radius_miles.
+nearby_radius_miles: 50
+max_radius_miles: 300
+# a column is a place column when its name or header holds one of these words
+location_column_words: [location, city, town, metro, region, office, headquarters, hq, based, area]
+# how a place is written in files, to the place it means (matched on the whole text or on the
+# part before the first comma, case and accents ignored)
+place_aliases:
+  sf: San Francisco, CA
+  san fran: San Francisco, CA
+  bay area: San Francisco, CA
+  san francisco bay area: San Francisco, CA
+  greater san francisco bay area: San Francisco, CA
+  silicon valley: San Jose, CA
+  nyc: New York City, NY
+  new york: New York City, NY
+  new york city: New York City, NY
+  greater new york city area: New York City, NY
+  la: Los Angeles, CA
+  greater los angeles area: Los Angeles, CA
+  dc: Washington, DC
+  washington dc: Washington, DC
+  washington d.c.: Washington, DC
+  dfw: Dallas, TX
+  dallas fort worth: Dallas, TX
+  twin cities: Minneapolis, MN
+  philly: Philadelphia, PA
+  chicagoland: Chicago, IL
+  research triangle: Raleigh, NC
+# words that say where a person works, not where: dropped from a place before it is looked up
+place_noise: [greater, metropolitan, metro, area, region, remote, hybrid, onsite, on-site, based,
+  county, district, surrounding, vicinity, and]
+
+# Alias groups: a text filter on any one of a group's spellings matches all of them (whole words,
+# case ignored). Kept narrow on purpose: only spellings that mean the same thing.
+aliases:
+  names:
+    - [salesforce, sfdc, salesforce.com]
+    - [servicenow, service now, now platform]
+    - [power bi, powerbi]
+    - [microsoft dynamics 365, dynamics 365, d365, ms dynamics 365]
+    - [mulesoft, mule soft]
+    - [s/4hana, s4hana, sap s/4hana, sap s4hana]
+    - [ibm, international business machines]
+    - [aws, amazon web services]
+    - [gcp, google cloud platform, google cloud]
+    - [azure, microsoft azure]
+  titles:
+    - [vice president, vp, v.p.]
+    - [senior vice president, svp, sr vice president, sr. vice president]
+    - [executive vice president, evp]
+    - [assistant vice president, avp]
+    - [chief information officer, cio]
+    - [chief technology officer, cto]
+    - [chief financial officer, cfo]
+    - [chief executive officer, ceo]
+    - [chief operating officer, coo]
+    - [chief marketing officer, cmo]
+    - [chief information security officer, ciso]
+    - [chief human resources officer, chro]
+    - [chief data officer, cdo]

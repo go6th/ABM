@@ -73,7 +73,9 @@ def store(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """The rows the fake ``repo.table_rows`` returns, in row order from row 2."""
     rows: list[dict[str, Any]] = []
 
-    async def table_rows(s: Any, table_id: Any, where: str, params: Any, limit: int) -> list:
+    async def table_rows(
+        s: Any, table_id: Any, where: str, params: Any, limit: int, **kw: Any
+    ) -> list:
         assert where == "" and params == {}
         return [SimpleNamespace(row_no=i + 2, seq=i, cells=cells) for i, cells in enumerate(rows)][
             :limit

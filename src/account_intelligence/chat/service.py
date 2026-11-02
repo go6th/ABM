@@ -231,7 +231,8 @@ RENDER_NUDGE = (
     "You have not called `render_answer`. Call it now, once, with the whole answer: a headline"
     " and sections that include at least one `table` section carrying EVERY matching row (or,"
     " for a narrative answer, the facts the answer rests on, one per row), each row's [R#]"
-    " citation in its last cell. Do not write the answer as text."
+    " citation in its last cell. Do not write the answer as text. If you have not yet read the"
+    " data with the table or search tools, do that first: the rows are stored complete."
 )
 
 

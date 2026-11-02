@@ -205,6 +205,16 @@ class Settings(BaseSettings):
         ),
         component="api",
     )
+    ask_table_in_context_max_chars: int = var(
+        120_000,
+        purpose=(
+            "Ask: a table the question is about (an uploaded sheet or the research results) is"
+            " also read in full, in code, and put in front of the model when its rows hold at"
+            " most this many characters (about 30k tokens), next to the table tools, so a model"
+            " that skips the tools still has every row; 0 turns it off."
+        ),
+        component="api",
+    )
     ask_route_llm_fallback: Literal["on", "off"] = var(
         "on",
         purpose=(

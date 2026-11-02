@@ -1103,12 +1103,51 @@ async def tables_for(s: AsyncSession, accounts: Sequence[UUID]) -> list[Any]:
     return list(rows.all())
 
 
+# the research tables (``view_rows``) read with the row shape of ``document_table_rows``:
+# (row_no, seq, cells). The row number counts the table's rows in the order of (account, file
+# row) — the file row itself for one account — so "row 17" means the same thing in a query, in
+# ``read_rows`` and in the answer; the delivered file's own row number rides in the ``file_row``
+# cell, and ``account`` names the account.
+_VIEW_ROWS = (
+    "(SELECT row_number() OVER (ORDER BY v.account_id, v.position) AS row_no, 0 AS seq,"
+    " v.cells || jsonb_build_object('account', coalesce(a.name, a.domain),"
+    " 'file_row', v.position) AS cells FROM view_rows v JOIN accounts a ON a.id = v.account_id"
+    " WHERE v.run_id = ANY(:runs) AND v.table_kind = :kind AND v.account_id = ANY(:accts)) r"
+)
+
+
+def _view_params(view: Any) -> dict[str, Any]:
+    return {
+        "runs": list(view.run_ids),
+        "kind": view.kind,
+        "accts": list(view.account_ids),
+    }
+
+
 async def table_rows(
-    s: AsyncSession, table_id: UUID, where: str, params: dict[str, Any], limit: int
+    s: AsyncSession,
+    table_id: UUID,
+    where: str,
+    params: dict[str, Any],
+    limit: int,
+    *,
+    view: Any | None = None,
 ) -> list[Any]:
     """Rows ``(row_no, seq, cells)`` of one table matching ``where`` (a fragment over the row
     alias ``r`` whose values are all bound in ``params``; ``documents.tables`` builds it from the
-    column whitelist and never from the caller's text), in row order, at most ``limit``."""
+    column whitelist and never from the caller's text), in row order, at most ``limit``. ``view``
+    (a ``documents.tables.ViewSource``) reads a research table from ``view_rows`` instead."""
+    if view is not None:
+        found = await s.execute(
+            text(
+                "SELECT r.row_no, r.seq, r.cells FROM "  # nosec B608
+                + _VIEW_ROWS  # fixed text; the fragment binds every value (see above)
+                + (f" WHERE ({where})" if where else "")
+                + " ORDER BY r.row_no LIMIT :n"
+            ),
+            {**params, **_view_params(view), "n": limit},
+        )
+        return list(found.all())
     rows = await s.execute(
         text(
             # the fragment names whitelisted columns as bound jsonb keys and binds every value
@@ -1122,15 +1161,47 @@ async def table_rows(
     return list(rows.all())
 
 
-async def table_rows_by_no(s: AsyncSession, table_id: UUID, row_nos: Sequence[int]) -> list[Any]:
+async def table_chars(s: AsyncSession, table_id: UUID, *, view: Any | None = None) -> int:
+    """The characters the table's rows hold (cells as JSON): what ``replica.read_plan`` weighs
+    against the budget before it puts a whole table in front of the model."""
+    if view is not None:
+        found = await s.scalar(
+            text("SELECT coalesce(sum(length(r.cells::text)), 0) FROM " + _VIEW_ROWS),  # nosec B608
+            _view_params(view),
+        )
+    else:
+        found = await s.scalar(
+            text(
+                "SELECT coalesce(sum(length(cells::text)), 0) FROM document_table_rows"
+                " WHERE table_id = :t"
+            ),
+            {"t": table_id},
+        )
+    return int(found or 0)
+
+
+async def table_rows_by_no(
+    s: AsyncSession, table_id: UUID, row_nos: Sequence[int], *, view: Any | None = None
+) -> list[Any]:
     """Rows ``(row_no, cells)`` of one table by row number (``read_rows``: the payload cells a
     query leaves out), in row order. The numbers are bound as one array parameter."""
+    numbers = [int(n) for n in row_nos]
+    if view is not None:
+        found = await s.execute(
+            text(
+                "SELECT r.row_no, r.cells FROM "
+                + _VIEW_ROWS  # nosec B608
+                + " WHERE r.row_no = ANY(:rows) ORDER BY r.row_no"
+            ),
+            {**_view_params(view), "rows": numbers},
+        )
+        return list(found.all())
     rows = await s.execute(
         text(
             "SELECT r.row_no, r.cells FROM document_table_rows r WHERE r.table_id = :t"
             " AND r.row_no = ANY(:rows) ORDER BY r.row_no"
         ),
-        {"t": table_id, "rows": [int(n) for n in row_nos]},
+        {"t": table_id, "rows": numbers},
     )
     return list(rows.all())
 

@@ -45,6 +45,7 @@ from account_intelligence.api.auth import Identity
 from account_intelligence.api.errors import APIProblem
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
+from account_intelligence.api.routes import account_workspace as AW
 from account_intelligence.api.routes.limits import limit_reached
 from account_intelligence.api.routes.model_choice import refused
 from account_intelligence.chat.credentials import (
@@ -63,11 +64,20 @@ from account_intelligence.chat.service import (
 from account_intelligence.chat.store import record_ask_turn
 from account_intelligence.config import get_settings
 from account_intelligence.db.session import tenant_txn
-from account_intelligence.platform.llm import anthropic_api_client, chat_effort
+from account_intelligence.platform.llm import (
+    anthropic_api_client,
+    ask_procedure_models,
+    chat_effort,
+    reference_answer_models,
+)
 from account_intelligence.replica import answers as A
+from account_intelligence.replica import archive_tools as ARCH
+from account_intelligence.replica import exemplars as EXEMPLARS
 from account_intelligence.replica import limits as LIM
 from account_intelligence.replica import models as M
 from account_intelligence.replica import obs as ask_obs
+from account_intelligence.replica import read_plan as RP
+from account_intelligence.replica import research_tables as RT
 from account_intelligence.replica import router as R
 from account_intelligence.replica.model_answer import refusal_phrase, stream_with_model
 from account_intelligence.replica.render import ensure_table
@@ -75,6 +85,9 @@ from account_intelligence.replica.settings import touch_activity
 from account_intelligence.replica.source_label import relabel_answer
 from account_intelligence.replica.tools import AccessTools
 from agents.naming import sanitize_client_value
+from documents import coverage as COVERAGE
+from documents import filemap as FILEMAP
+from documents import sources as SRC
 from documents import tables as T
 from llm.choice import catalogue
 from obs.logging import logger
@@ -196,6 +209,8 @@ async def ask(
             paid_model: str | None = None
             decision = R.Decision("prose", "no table in the workspace")
             found: list[T.TableInfo] = []
+            file_map = ""
+            pre_read = ""
             async with tenant_txn(ident.tenant_id) as session:
                 ws = await A.load_workspace(
                     session,
@@ -209,6 +224,15 @@ async def ask(
                 # is the question a filter, count or lookup over the caller's tables?
                 try:
                     found = await T.list_tables(session, sorted(searched))
+                    # the research results of these accounts, as tables of the same store
+                    # (replica.research_tables); a failure leaves the uploaded tables
+                    try:
+                        async with session.begin_nested():
+                            found = [*found, *await RT.research_tables(session, sorted(searched))]
+                    except Exception:  # noqa: BLE001 - uploaded tables still answer
+                        log.warning(
+                            "ask_research_tables_failed", extra={"request_id": str(body.request_id)}
+                        )
                     classifier = _classifier(request, provider, analysis_model)
                     decision = await R.route(body.question, found, classifier)
                     if decision.route != "prose" and not getattr(provider, "supports_tools", False):
@@ -224,10 +248,52 @@ async def ask(
                             sorted(searched),
                             semantic,
                             run_python=await _run_python_on(session, ident.tenant_id),
+                            require_data=decision.route == "tabular",
+                            archive=_archive_tools(request, ident, ws, searched),
                         )
                 except Exception:  # noqa: BLE001 - an answer without tables still stands
                     log.warning("ask_tables_failed", extra={"request_id": str(body.request_id)})
                     decision, tools = R.Decision("prose", "the table store failed"), None
+                # the reading code can do before the model starts: describe the tables the
+                # question names and read the small ones whole (replica.read_plan)
+                if tools is not None and decision.route in ("tabular", "mixed"):
+                    try:
+                        async with session.begin_nested():  # a failure rolls back only this
+                            plan = await RP.build(
+                                session,
+                                body.question,
+                                found,
+                                max_chars=get_settings().ask_table_in_context_max_chars,
+                            )
+                        pre_read = plan.pre_read()
+                        tools.table_tools.described.update(t.id for t in plan.tables)
+                        for row in ws.tables:
+                            for table in plan.tables:
+                                if row.key == f"table:{table.id}" and table.id in plan.whole:
+                                    row.extra["whole_text"] = plan.whole[table.id]
+                    except Exception:  # noqa: BLE001 - the tools still answer without the plan
+                        log.warning(
+                            "ask_read_plan_failed", extra={"request_id": str(body.request_id)}
+                        )
+                # the index of every file, sheet and column opens the model's prompt on every
+                # route (documents.filemap); a failure leaves the tables-only map
+                try:
+                    async with session.begin_nested():  # a failure rolls back only this
+                        listed = (await SRC.list_sources(session, sorted(searched)))["sources"]
+                        # what was and was not read of each file and zip member
+                        # (documents.coverage); a failure leaves the map without it
+                        covered: list[dict[str, Any]] = []
+                        try:
+                            async with session.begin_nested():
+                                covered = await COVERAGE.coverage(session, sorted(searched))
+                        except Exception:  # noqa: BLE001 - the map stands without coverage
+                            log.warning(
+                                "ask_coverage_failed", extra={"request_id": str(body.request_id)}
+                            )
+                    file_map = FILEMAP.render(found, listed, covered)
+                except Exception:  # noqa: BLE001 - the map is an aid; the answer stands without it
+                    log.warning("ask_file_map_failed", extra={"request_id": str(body.request_id)})
+                    file_map = FILEMAP.render(found)
                 # the passages of the caller's own documents that best answer this question
                 # (hybrid search; Ask never read the files before, audit 2026-10-15); a tabular
                 # question is answered from the table store instead, never from a sample
@@ -270,6 +336,22 @@ async def ask(
                 try:
                     model = service.registry.resolve(analysis_model)
                     paid_model = model.id
+                    # for the models that need it, earlier answers of the reference model to
+                    # similar questions of this user (replica.exemplars)
+                    if model.id in ask_procedure_models():
+                        try:
+                            async with tenant_txn(ident.tenant_id, user=ident.user_id) as s:
+                                refs = await EXEMPLARS.reference_answers(
+                                    s, ident.user_id, body.question, reference_answer_models()
+                                )
+                            if refs:
+                                pre_read = (pre_read + "\n\n" if pre_read else "") + (
+                                    EXEMPLARS.render(refs)
+                                )
+                        except Exception:  # noqa: BLE001 - the answer stands without examples
+                            log.warning(
+                                "ask_exemplars_failed", extra={"request_id": str(body.request_id)}
+                            )
                     log.info(
                         "ask.model_call_start",
                         extra={"request_id": str(body.request_id), "model_id": model.id},
@@ -286,6 +368,8 @@ async def ask(
                         run_tool=tools.run if tools is not None else None,
                         temperature=0.0 if tools is not None else None,
                         effort=turn_effort,
+                        file_map=file_map,
+                        pre_read=pre_read,
                     ):
                         if kind == "piece":
                             # Hold streamed pieces until the whole answer is scrubbed and scanned.
@@ -355,6 +439,9 @@ async def ask(
                     "route": decision.route,
                     # the cost view's inputs (token review item 19, 2026-10-20)
                     "model_id": paid_model,
+                    # the allow-listed field name: model_id was dropped from the log line, so
+                    # the 2026-11-01 zero-tool tabular turn could not be tied to a model
+                    "model": paid_model,
                     "input_tokens": getattr(usage, "input_tokens", 0),
                     "output_tokens": getattr(usage, "output_tokens", 0),
                     "cache_read_tokens": getattr(usage, "cache_read_tokens", 0),
@@ -544,6 +631,23 @@ def _classifier(request: Request, provider: Any, model_id: str) -> Any:
     if client is None or helper is None:
         return None
     return R.LlmRouteClassifier(client, helper.model, helper.max_tokens)
+
+
+def _archive_tools(
+    request: Request, ident: Identity, ws: Any, searched: set[UUID]
+) -> ARCH.ArchiveTools | None:
+    """The research page tools for this turn: the accounts in scope, the payload store and the
+    archive routes' own guard; none where the app holds no payload store."""
+    payloads = getattr(request.app.state.container, "payloads", None)
+    accounts = {a.id: (a.domain, a.name) for a in ws.accounts if a.id in searched}
+    if payloads is None or not accounts:
+        return None
+    return ARCH.ArchiveTools(
+        lambda: tenant_txn(ident.tenant_id),
+        accounts,
+        payloads,
+        lambda account_id: AW.archive_guard(ident, account_id),
+    )
 
 
 def route_log(decision: R.Decision) -> dict[str, int]:

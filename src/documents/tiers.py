@@ -344,7 +344,7 @@ async def count(session: Any, table: TableInfo, payload: Mapping[str, Any]) -> d
             "this table has no platforms column and no '<Platform> role tier' column",
             columns=[c.name for c in table.columns],
         )
-    found = await repo.table_rows(session, table.id, "", {}, TIER_MAX_ROWS + 1)
+    found = await repo.table_rows(session, table.id, "", {}, TIER_MAX_ROWS + 1, view=table.view)
     if len(found) > TIER_MAX_ROWS:
         raise QueryError("table_too_large", f"more than {TIER_MAX_ROWS} rows")
     rows: list[dict[str, Any]] = [

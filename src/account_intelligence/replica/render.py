@@ -62,6 +62,11 @@ RENDER_TOOL: dict[str, Any] = {
         "section: it carries EVERY matching row (all of them, never a sample, never "
         "'and others'), one cell per column, each row's citations ([R3]) in its last cell; "
         "a narrative answer still adds a table of the facts, rows or figures it rests on. "
+        "To list the rows of a query, use a `result` section instead of copying them: "
+        '{"kind": "result", "result_id": "q2", "columns": [...]} — the code lists EVERY row of'
+        " that "
+        "result (and any nearby rows it found) with the row number, the citation and a note of "
+        "the filters and counts, so you name only the columns the question touches. "
         "A prose section is at most two sentences per paragraph. A callout holds one "
         "warning or key finding. Steps list what the seller does next. Cite the numbered "
         "workspace rows as [R3] inside the strings."
@@ -93,7 +98,8 @@ RENDER_TOOL: dict[str, Any] = {
                     "additionalProperties": False,
                     "required": ["kind"],
                     "properties": {
-                        "kind": {"enum": ["table", "prose", "callout", "steps"]},
+                        "kind": {"enum": ["table", "result", "prose", "callout", "steps"]},
+                        "result_id": {"type": "string", "maxLength": 12},
                         "title": {"type": "string", "maxLength": MAX_TITLE},
                         "columns": {"type": "array", "maxItems": 12, "items": _str},
                         "rows": {
@@ -126,7 +132,12 @@ RENDER_RULES = (
     " rests on. `sections` in reading order, and EVERY answer carries at least one `table`"
     " section: it holds EVERY matching row — all of them, never a sample or the highlights —"
     " one cell per column the question touches, each row's citations ([R3]) in its last"
-    " cell. When the answer is narrative, the table still shows the facts, rows or figures"
+    " cell. To list the rows of a `query_table` result, add a `result` section"
+    ' ({"kind": "result", "result_id": "q2", "columns": ["title", "status"]}) instead of copying'
+    " the rows: the code writes the table — every row, the row number, the citation, the counts"
+    " and filters, and nearby or alias matches the query found — and you choose only the columns"
+    " the question touches; write a `table` section yourself only for facts that are not a"
+    " query's rows. When the answer is narrative, the table still shows the facts, rows or figures"
     " the answer rests on (one fact per row). The other kinds: a `prose` section is at most"
     " two sentences per paragraph; a `callout` holds one warning or key finding; `steps`"
     " lists what the seller does next. Cite the numbered rows as [R3] inside the strings, as"
@@ -167,7 +178,7 @@ def check_shape(payload: Any) -> tuple[str, str] | None:
             return error
     # the owner mandate (2026-10-17): every answer builds a table — narrative answers
     # included; a call without one is an error the model can fix on the next round
-    if not any(isinstance(s, dict) and s.get("kind") == "table" for s in sections):
+    if not any(isinstance(s, dict) and s.get("kind") in ("table", "result") for s in sections):
         return (
             "no_table",
             "every answer carries at least one table section: every matching row, or — for a"
@@ -229,6 +240,23 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
         if set(section) - {"kind", "title", "columns", "rows", "note"}:
             return "bad_table", f"table section {i + 1}: unknown fields"
         return None
+    if kind == "result":
+        rid = section.get("result_id")
+        if not isinstance(rid, str) or not rid.strip():
+            return "bad_result", f"result section {i + 1}: result_id is a query result's id (q1)"
+        columns = section.get("columns")
+        if columns is not None and not (
+            isinstance(columns, list)
+            and len(columns) <= 10
+            and all(isinstance(c, str) and c.strip() for c in columns)
+        ):
+            return "bad_result", f"result section {i + 1}: columns are at most 10 column names"
+        note = section.get("note")
+        if note is not None and not isinstance(note, str):
+            return "bad_result", f"result section {i + 1}: note must be a string"
+        if set(section) - {"kind", "title", "result_id", "columns", "note"}:
+            return "bad_result", f"result section {i + 1}: unknown fields"
+        return None
     if kind == "prose":
         paragraphs = section.get("paragraphs")
         if not isinstance(paragraphs, list) or not _string_list(paragraphs, MAX_PROSE_PARAGRAPHS):
@@ -265,7 +293,7 @@ def _check_section(i: int, section: Any) -> tuple[str, str] | None:
         if set(section) - {"kind", "title", "items"}:
             return "bad_steps", f"steps section {i + 1}: unknown fields"
         return None
-    return "bad_kind", f"section {i + 1}: kind must be table, prose, callout or steps"
+    return "bad_kind", f"section {i + 1}: kind must be table, result, prose, callout or steps"
 
 
 def rewrite(

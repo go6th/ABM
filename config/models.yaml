@@ -168,6 +168,16 @@ prompt_cache_gate:
 # must be one of the choices models, overridable per run with EVAL_MODEL / EVAL_EFFORT.
 # Ask and chat run at medium effort (token review item 4, 2026-10-20: was high; thinking is
 # billed as output).
+# Ask models that get the reading procedure (replica.model_answer.PROCEDURE_RULES, 2026-11-02): the
+# fixed order of a table answer (read, query, count from the result, list every row, state
+# coverage) written out, because Sonnet and Haiku skipped steps that Fable takes unprompted
+# (staging 2026-11-01: a tabular turn answered with no tool call). Fable and Opus do not need it.
+ask_procedure_models: [claude-sonnet-5-5, claude-haiku-5-5]
+# The models whose earlier Ask answers are shown to the ask_procedure_models as worked examples
+# (replica.exemplars): for a question like one Fable already answered for the same user, the
+# earlier answer's shape (columns, row count, numbers, note) goes in the prompt.
+reference_answer_models: [claude-fable-5-1]
+
 surfaces:
   chat: {model: null, effort: medium}
   eval: {model: kimi-k3, effort: high}

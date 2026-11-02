@@ -375,3 +375,72 @@ def test_ensure_table_leaves_a_table_answer_and_an_empty_answer_alone() -> None:
         "sections": [{"kind": "table", "columns": ["a"], "rows": [["1"]]}],
     }
     assert RENDER.has_table(d)
+
+
+@pytest.mark.asyncio
+async def test_a_code_built_table_cites_its_numbered_row_and_keeps_every_row() -> None:
+    """A ``result`` section was expanded by the access tools into tables whose rows end with
+    ``[T:<table id>]``; the stream turns that into the table's numbered row, so the answer keeps
+    all of its rows and cites the table once per row."""
+    ws, _ = _workspace_fact()
+    table_id = uuid4()
+    acct = ws.accounts[0]
+    ws.tables = [
+        A.Row(
+            f"table:{table_id}",
+            "file",
+            acct,
+            "Jobs.xlsx, table Jobs: 3 rows",
+            "From your files: Jobs.xlsx (table Jobs)",
+            "Internal",
+            None,
+            None,
+            "internal",
+            extra={"table": "Jobs"},
+        )
+    ]
+    expanded = {
+        "headline": "Three postings match",
+        "sections": [
+            {
+                "kind": "table",
+                "columns": ["Row", "Title", "Source"],
+                "rows": [[str(i), f"Job {i}", f"[T:{table_id}]"] for i in (1, 2, 3)],
+                "note": "3 of 3 rows match.",
+            }
+        ],
+    }
+
+    class Provider(_RenderProvider):
+        async def stream(self, model: Any, messages: Any, max_tokens: int, **kw: Any) -> Any:
+            yield ChatEvent(
+                "tool",
+                tool={
+                    "name": "render_answer",
+                    "input": {"headline": "x", "sections": [{"kind": "result", "result_id": "q1"}]},
+                    "result": {"ok": True, "terminal": True, "answer": expanded},
+                },
+            )
+            yield ChatEvent("usage", usage=ChatUsage(3, 2))
+
+    q, local = A.draft_local("List the jobs", ws, NOW)
+    events = [
+        (k, v)
+        async for k, v in stream_with_model(
+            Provider({}),
+            object(),
+            q,
+            ws,
+            local,
+            user_id="u",
+            request_id="r",
+            tools=[{"name": "render_answer"}],
+            run_tool=None,
+        )
+    ]
+    kind, reply = events[-1]
+    assert kind == "done"
+    table = reply.draft.structured["sections"][0]
+    assert len(table["rows"]) == 3
+    assert all(r[-1] == f"[[table:{table_id}]]" for r in table["rows"])
+    assert f"table:{table_id}" in reply.draft.rows

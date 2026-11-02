@@ -671,12 +671,23 @@ def table_rows(ws: Workspace, tables: list[Any]) -> list[Row]:
                 kind="file",
                 account=acct,
                 text=f"{t.document}, table {t.name}: {t.row_count} rows; columns: {columns}",
-                title=f"From your files: {t.document} (table {t.name})",
+                title=(
+                    f"From the research results: {t.name}"
+                    if t.view
+                    else f"From your files: {t.document} (table {t.name})"
+                ),
                 meta=f"Internal · {t.row_count} rows, queried whole",
                 when=None,
                 url=None,
                 grade="internal",
-                extra={"table": t.name, "document": t.document, "rows": t.row_count},
+                extra={
+                    "table": t.name,
+                    "document": t.document,
+                    "rows": t.row_count,
+                    # one table holds every account's rows: it is cited whichever account the
+                    # question names (pick_rows)
+                    **({"research": True} if t.view else {}),
+                },
             )
         )
     return out
