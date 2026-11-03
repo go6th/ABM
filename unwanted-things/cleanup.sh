@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 # rm -rf unwanted-things/web/.next-srclabel unwanted-things/web/.next-live unwanted-things/web/.next-livebuild
 
 # 3. The local dev build of the 2026-10-27 tabs check stack.
-# rm -rf web/.next-tabs
+# rm -rf unwanted-things/local-junk/web/.next-tabs
 
 # 4. Scratch databases of the 2026-10-27 audit (the tabs check stack and its test run).
 # docker exec -e PGPASSWORD=dev abmgenerator-db-1 psql -U postgres -c "DROP DATABASE IF EXISTS ai_tabs_ui"
@@ -31,3 +31,14 @@ cd "$(dirname "$0")/.."
 # git filter-repo --invert-paths --path tests/fixtures/gsk --path tests/documents/test_tables_real_gsk.py --path tests/evals/test_tabular_gsk_live.py --path evals/tabular_gsk --path web/shots
 #    and, once nobody needs the parked copies any more:
 # rm -rf unwanted-things/real-account-fixtures
+
+# 7. (2026-11-02) Generated output parked under unwanted-things/local-junk/ (all rebuilt on demand):
+#    web/.next-caps, web/.next-e2e, web/.next-tabs (1.4 GB), web/test-results, docs-audit-e2e/ (old e2e Word files and zips).
+# (DONE 2026-11-02: deleted.)
+
+# 8. (2026-11-02) The other three Claude worktrees (about 3.1 GB). Check each branch first, as in step 1:
+#    git log --oneline feat/final-product..claude/<name>
+# (DONE 2026-11-02: removed busy-thompson-0cc98e)
+# (DONE 2026-11-02: removed dreamy-chaplygin-5ec24d)
+# (DONE 2026-11-02: removed gcp-research-status-35156c)
+# (DONE 2026-11-02: three branches deleted)

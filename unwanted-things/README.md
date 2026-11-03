@@ -22,10 +22,11 @@ build folders) are written into `cleanup.sh` for the owner to run; nothing in it
 `next.config.ts` still lists `dev.tsx` as a development-only page extension; with the gallery
 parked no such page exists, and the setting is harmless.
 
-## Not parked (checked 2026-10-27)
+## Not parked (checked 2026-10-27, re-checked 2026-11-02)
 
 * Every module under `src/` is imported somewhere (the three `agents/pass1`, `agents/pass2` and
   `agents/people` packages hold the prompts the extraction step loads by path).
+* `vulture` at 80% confidence reports nothing in `src/` (2026-11-02).
 * Every script under `scripts/` is referenced by the Makefile, CI, docs or tests.
 * Every web component and library file is imported by a screen or a test.
 * `.aws/` and `.codex/` in the repository root are empty folders the sandbox creates; they hold
