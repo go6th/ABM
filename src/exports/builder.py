@@ -1079,6 +1079,11 @@ class ExportBuilder:
                 out.releases = {}
                 held = (*out.manifest.withheld_blocks, "workspace.releases:all:size_cap")
                 out.manifest = out.manifest.model_copy(update={"withheld_blocks": held})
+                # the run records that index the archived copies (releases_index, captured
+                # addresses, the live board index, own-site pages) are rebuilt without them, so
+                # the zip never lists a copy it does not hold and shrinks with it
+                content = content.model_copy(update={"releases": ()})
+                records = self._scrubbed(self._run_records(content, ctx, out), ctx, out)
         raise AssertionError("unreachable")  # pragma: no cover - the loop returns or raises
 
     def _run_records(
