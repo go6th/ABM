@@ -277,6 +277,23 @@ class SenseCheckRow(_Row):
     proposals: int
 
 
+class NewsRow(_Row):
+    """One news event the run stored (``news_events``), as the workspace zip's
+    ``data/news_events.json`` prints it (the owner's reference workspace ships the feed's
+    events; the product ships its stored rows, 2026-11-05)."""
+
+    id: str
+    headline: str
+    summary: str | None = None
+    category: str | None = None
+    found_at: date | None = None
+    effective_date: date | None = None
+    confidence: float | None = None
+    source_url: str | None = None
+    location: str | None = None
+    article_sentence: str | None = None
+
+
 class ReleaseRow(_Row):
     """One archived copy of a page, news item or job posting, as the workspace zip's
     ``data/releases/`` prints it: the title, address and day, and the text of the copy."""
@@ -337,6 +354,8 @@ class SnapshotContent(_Row):
     pull_calls: tuple[PullCall, ...] = ()
     pull_failed: int = 0
     sense_check: SenseCheckRow | None = None
+    # the news events the run stored (data/news_events.json of the workspace zip)
+    news: tuple[NewsRow, ...] = ()
     # the account's archived copies the workspace zip carries under data/releases/ (newest first,
     # at most ``workspace.releases.max_files``; client kinds only, never a profile copy)
     releases: tuple[ReleaseRow, ...] = ()

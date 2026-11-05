@@ -462,6 +462,28 @@ def test_zip_layout_order_and_readme_agreement() -> None:
     assert "Job postings: Live board not reached." in readme
 
 
+def test_tables_and_sheets_without_rows_get_no_file_and_a_readme_line() -> None:
+    # owner 2026-11-05: no blank files. A header-only CSV and an empty workbook are not written;
+    # the README names the table (or the sheet) instead, and still agrees with the members.
+    tables = world()
+    tables["news"] = table("news", "News", [sheet("News", ("Headline",), [])])
+    tables["jobs"].sheets.append(sheet("Closed this month", ("Title",), []))
+    data = P.build_zip(profile(), tables, deliverables={}, report_md="# Repair report\n")
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        names = z.namelist()
+        readme = z.read("README.txt").decode()
+    assert not any(n.startswith("Tables/News") for n in names)
+    assert "Tables/Job postings - Closed this month.csv" not in names
+    assert {"Tables/Job postings.csv", "Tables/Job postings.xlsx"} <= set(names)
+    assert P.NO_ROWS_NOTE.format(title="News") in readme
+    assert P.EMPTY_SHEETS_NOTE.format(title="Job postings", sheets="Closed this month") in readme
+    assert P.validate_readme(readme, names) == []
+    # the workbook holds only the sheets that were written
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        wb = z.read("Tables/Job postings.xlsx")
+    assert b"Closed this month" not in wb
+
+
 def test_zip_xlsx_members_open_and_pass_the_finished_check() -> None:
     with zipfile.ZipFile(io.BytesIO(build())) as z:
         data = z.read("Tables/Job postings.xlsx")
@@ -537,8 +559,8 @@ def test_internal_only_names_are_rejected_in_deliverables_but_fine_as_internal_f
 def test_zip_raises_package_invalid_when_readme_and_members_disagree(monkeypatch: Any) -> None:
     real = P.render_readme
 
-    def lossy(prof: WorkspaceProfile, members: Any, notes: Any) -> str:
-        return real(prof, [m for m in members if m != "Tables/People.xlsx"], notes)
+    def lossy(prof: WorkspaceProfile, members: Any, notes: Any, **kw: Any) -> str:
+        return real(prof, [m for m in members if m != "Tables/People.xlsx"], notes, **kw)
 
     monkeypatch.setattr(P, "render_readme", lossy)
     with pytest.raises(P.PackageInvalid) as err:
@@ -549,8 +571,8 @@ def test_zip_raises_package_invalid_when_readme_and_members_disagree(monkeypatch
 def test_zip_raises_when_readme_lists_a_path_that_does_not_exist(monkeypatch: Any) -> None:
     real = P.render_readme
 
-    def greedy(prof: WorkspaceProfile, members: Any, notes: Any) -> str:
-        return real(prof, [*members, "Tables/Ghost.xlsx"], notes)
+    def greedy(prof: WorkspaceProfile, members: Any, notes: Any, **kw: Any) -> str:
+        return real(prof, [*members, "Tables/Ghost.xlsx"], notes, **kw)
 
     monkeypatch.setattr(P, "render_readme", greedy)
     with pytest.raises(P.PackageInvalid) as err:

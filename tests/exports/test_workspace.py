@@ -10,7 +10,7 @@ from datetime import date
 
 import pytest
 
-from exports.config import ContentRules, ExportConfig
+from exports.config import ContentRules, ExportConfig, load_export_config
 from exports.errors import UnsafePackage
 from exports.workspace import (
     account_slug,
@@ -21,16 +21,14 @@ from exports.workspace import (
 )
 
 KINDS = ("summary", "evidence", "people", "jobs", "tech")
-# the run records the owner's layout requires (workspace.required_members), pinned by name here
+# the run records the owner's layout requires (workspace.required_members): one placeholder body
+# per configured member, since this file tests the archive's safety, not what the records say
 EXTRAS = {
     "RESTORE.md": b"# Synthetic workspace\n",
-    "data/entity_lock.json": b'{"recorded": false}',
-    "data/web_searches.json": b"[]",
-    "data/techstack_detections.json": b"{}",
-    "build/urls.json": b"{}",
-    "notes/pull_log.md": b"# Pull log\n",
-    "notes/pass1.md": b"none\n",
-    "notes/sense_check.md": b"none\n",
+    **{
+        name: (b"{}" if name.endswith(".json") else b"none\n")
+        for name in load_export_config().rules.workspace.required_members
+    },
 }
 
 
@@ -123,16 +121,13 @@ def test_contents_order_manifest_and_determinism(cfg: ExportConfig) -> None:
         # the reference workspace's layout: RESTORE.md, then deliverables, data, build, notes
         assert names[:2] == ["RESTORE.md", "MANIFEST.json"]
         assert z.read("RESTORE.md") == EXTRAS["RESTORE.md"]
+        required = cfg.rules.workspace.required_members
         assert names[2:] == [
             *(n for n in names[2:] if n.startswith("deliverables/")),
-            "data/entity_lock.json",
-            "data/web_searches.json",
-            "data/techstack_detections.json",
+            *(n for n in required if n.startswith("data/")),
             *(f"build/{k}.json" for k in KINDS),
-            "build/urls.json",
-            "notes/pull_log.md",
-            "notes/pass1.md",
-            "notes/sense_check.md",
+            *(n for n in required if n.startswith("build/")),
+            *(n for n in required if n.startswith("notes/")),
         ]
         assert [f.split("/", 1)[0] for f in names[2:]] == sorted(
             (f.split("/", 1)[0] for f in names[2:]), key=cfg.rules.workspace.folders.index

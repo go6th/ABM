@@ -88,7 +88,10 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
     ("POST", "/v1/documents/from-drive"): _tenant(_UPLOADERS, "run"),
     ("POST", "/v1/documents/{document_id}/complete"): _tenant(_UPLOADERS, "run"),
     ("POST", "/v1/documents/{document_id}/parts/{part}/retry"): _tenant(_UPLOADERS, "run"),
+    ("POST", "/v1/documents/{document_id}/same-company"): _tenant(_UPLOADERS, "run"),
     ("GET", "/v1/documents/{document_id}/status"): _tenant(_UPLOADERS, "read"),
+    ("GET", "/v1/documents/{document_id}/members"): _tenant(_UPLOADERS, "read"),
+    ("GET", "/v1/documents/{document_id}/members/{member_id}"): _tenant(_UPLOADERS, "read"),
     ("GET", "/v1/documents/{document_id}/passages"): _tenant(_UPLOADERS, "read"),
     ("GET", "/v1/documents"): _tenant(_UPLOADERS, "read"),
     ("POST", "/v1/documents/confirm-company"): _tenant(_UPLOADERS, "run"),
@@ -101,7 +104,6 @@ ROUTE_POLICIES: dict[tuple[str, str], RoutePolicy] = {
     # the Internal Only view: never for viewers; every access audited
     ("GET", "/v1/runs/{run_id}/internal"): _tenant(_INTERNAL, "read"),
     ("GET", "/v1/runs/{run_id}/internal/file"): _tenant(_INTERNAL, "export"),
-    ("GET", "/v1/runs/pull-option"): _tenant(_EVERYONE, "read"),
     ("POST", "/v1/runs/{run_id}/approve"): _tenant(_SELLERS, "run"),
     ("POST", "/v1/runs/{run_id}/cancel"): _tenant(_SELLERS, "run"),
     # Cap decisions move spend, so only admins may take them (ADR-0010 precedence).

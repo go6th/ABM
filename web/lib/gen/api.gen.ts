@@ -105,16 +105,22 @@ export const CoverageGap = z.object({
 export type CoverageGap = z.infer<typeof CoverageGap>;
 
 export const DeepDiveCounts = z.object({
+  "calls": z.number().int().optional(),
+  "connections": z.number().int().optional(),
   "coverage_done": z.number().int().optional(),
   "coverage_total": z.number().int().optional(),
   "facts": z.number().int().optional(),
+  "files": z.number().int().optional(),
+  "findings": z.number().int().optional(),
   "jobs": z.number().int(),
   "mail_drive": z.number().int(),
   "news": z.number().int(),
+  "notes": z.number().int().optional(),
   "people": z.number().int(),
   "searches": z.number().int().optional(),
   "signals": z.number().int(),
   "sources": z.number().int(),
+  "teams": z.number().int().optional(),
   "tech": z.number().int(),
 }).strict();
 export type DeepDiveCounts = z.infer<typeof DeepDiveCounts>;
@@ -128,6 +134,15 @@ export const DeliverableFile = z.object({
   "name": z.string(),
 }).strict();
 export type DeliverableFile = z.infer<typeof DeliverableFile>;
+
+export const ImportProblem = z.object({
+  "document_name": z.string(),
+  "part": z.string(),
+  "reason": z.string().nullable().optional(),
+  "rows_skipped": z.number().int(),
+  "status": z.string(),
+}).strict();
+export type ImportProblem = z.infer<typeof ImportProblem>;
 
 export const NarrativeSentence = z.object({
   "source_code": z.string().nullable(),
@@ -156,6 +171,7 @@ export type OpenJob = z.infer<typeof OpenJob>;
 
 export const StoppedRun = z.object({
   "reason": z.string(),
+  "replay_extra_usd": z.number().nullable().optional(),
   "run_id": z.string(),
   "stalled": z.boolean(),
   "steps_done": z.number().int(),
@@ -174,6 +190,7 @@ export const AccountWorkspace = z.object({
   "first_scan": z.boolean(),
   "gaps": z.array(CoverageGap).optional(),
   "id": z.string().nullable().optional(),
+  "import_problems": z.array(ImportProblem).optional(),
   "lanes": z.array(z.string()).optional(),
   "last_researched_at": z.string().nullable().optional(),
   "last_researched_label": z.string().optional(),
@@ -229,6 +246,13 @@ export const Alerts = z.object({
 }).strict();
 export type Alerts = z.infer<typeof Alerts>;
 
+export const AnswerInsight = z.object({
+  "action": z.string(),
+  "conclusion": z.string(),
+  "grade": z.string(),
+}).strict();
+export type AnswerInsight = z.infer<typeof AnswerInsight>;
+
 export const AnswerItems = z.object({
   "items": z.array(z.string()),
   "title": z.string(),
@@ -249,7 +273,9 @@ export const AnswerPart = z.object({
 export type AnswerPart = z.infer<typeof AnswerPart>;
 
 export const AnswerSection = z.object({
+  "collapsed": z.boolean().nullable().optional(),
   "columns": z.array(z.string()).nullable().optional(),
+  "insights": z.array(AnswerInsight).nullable().optional(),
   "items": z.array(z.string()).nullable().optional(),
   "kind": z.string(),
   "note": z.string().nullable().optional(),
@@ -261,6 +287,13 @@ export const AnswerSection = z.object({
 }).strict();
 export type AnswerSection = z.infer<typeof AnswerSection>;
 
+export const AnswerSheetLink = z.object({
+  "key": z.string(),
+  "match": z.string().nullable().optional(),
+  "match_col": z.string().nullable().optional(),
+}).strict();
+export type AnswerSheetLink = z.infer<typeof AnswerSheetLink>;
+
 export const AnswerSource = z.object({
   "account_domain": z.string().nullable(),
   "account_name": z.string().nullable(),
@@ -269,6 +302,7 @@ export const AnswerSource = z.object({
   "label": z.string().nullable().optional(),
   "meta": z.string(),
   "n": z.number().int(),
+  "sheet": AnswerSheetLink.nullable().optional(),
   "title": z.string(),
   "url": z.string().nullable(),
 }).strict();
@@ -479,12 +513,15 @@ export const ChatAnswer = z.object({
   "account_domain": z.string().nullable(),
   "account_name": z.string().nullable(),
   "answered": z.boolean(),
+  "context_tokens": z.number().int().optional(),
   "followups": z.array(z.string()),
   "items": AnswerItems.nullable(),
+  "notices": z.array(z.string()).optional(),
   "offer": AnswerOffer.nullable(),
   "paragraphs": z.array(z.array(AnswerPart)),
   "sources": z.array(AnswerSource),
   "structured": AnswerStructured.nullable().optional(),
+  "thinking": z.string().nullable().optional(),
   "used": AnswerUsed,
 }).strict();
 export type ChatAnswer = z.infer<typeof ChatAnswer>;
@@ -832,15 +869,17 @@ export const ConsoleDefaults = z.object({
   "idle_expiry_days": z.number().int(),
   "limit_reset": z.string(),
   "max_file_bytes": z.number().int(),
-  "model_router_on": z.boolean(),
   "models": z.array(ConsoleModel),
   "monthly_credit_pool": z.number().int(),
   "repeat_call_limit": z.number().int(),
   "research_limit_default": z.number().int(),
   "run_dollar_cap_usd": z.number(),
+  "schedule_tick_max_per_tenant": z.number().int(),
+  "schedule_tick_max_starts": z.number().int(),
   "skill_installed": z.boolean(),
   "skill_version": z.string(),
   "stall_after_s": z.number().int(),
+  "stall_after_s_default": z.number().int(),
   "updated_at": z.string(),
   "updated_by": z.string(),
 }).strict();
@@ -913,6 +952,16 @@ export const ConsoleRun = z.object({
 }).strict();
 export type ConsoleRun = z.infer<typeof ConsoleRun>;
 
+export const ModelFallback = z.object({
+  "discarded_usd": z.number().nullable().optional(),
+  "extra_usd": z.number().nullable().optional(),
+  "from_model": z.string(),
+  "reason": z.string(),
+  "step": z.string(),
+  "to_model": z.string(),
+}).strict();
+export type ModelFallback = z.infer<typeof ModelFallback>;
+
 export const StepTokens = z.object({
   "id": z.string(),
   "name": z.string(),
@@ -924,6 +973,7 @@ export const TokenUse = z.object({
   "cost_usd": z.number().optional(),
   "expected_runs": z.number().int().optional(),
   "expected_tokens": z.number().int().nullable().optional(),
+  "fallbacks": z.array(ModelFallback).optional(),
   "finished_at": z.string().nullable().optional(),
   "reused": z.number().int().optional(),
   "started_at": z.string().nullable().optional(),
@@ -1077,6 +1127,8 @@ export const DefaultsChange = z.object({
   "repeat_call_limit": z.number().int().nullable().optional(),
   "research_limit_default": z.number().int().nullable().optional(),
   "run_dollar_cap_usd": z.number().nullable().optional(),
+  "schedule_tick_max_per_tenant": z.number().int().nullable().optional(),
+  "schedule_tick_max_starts": z.number().int().nullable().optional(),
   "stall_after_s": z.number().int().nullable().optional(),
 }).strict();
 export type DefaultsChange = z.infer<typeof DefaultsChange>;
@@ -1108,6 +1160,12 @@ export const Disconnected = z.object({
   "upstream_revocation": z.union([z.string(), z.boolean()]).nullable(),
 }).strict();
 export type Disconnected = z.infer<typeof Disconnected>;
+
+export const DocumentCompleteBody = z.object({
+  "crc32c": z.string().nullable().optional(),
+  "size_bytes": z.number().int().nullable().optional(),
+}).strict();
+export type DocumentCompleteBody = z.infer<typeof DocumentCompleteBody>;
 
 export const DocumentDeleted = z.object({
   "chunks_removed": z.number().int(),
@@ -1154,6 +1212,7 @@ export type SkippedMember = z.infer<typeof SkippedMember>;
 
 export const DocumentStatus = z.object({
   "account_id": z.string().nullable(),
+  "audience": z.string(),
   "authoritative": z.boolean(),
   "company": z.record(z.string(), z.unknown()).nullable(),
   "created_at": z.string(),
@@ -1183,6 +1242,32 @@ export const DocumentList = z.object({
   "documents": z.array(DocumentStatus),
 }).strict();
 export type DocumentList = z.infer<typeof DocumentList>;
+
+export const DocumentMember = z.object({
+  "audience": z.string(),
+  "bytes": z.number().int().nullable(),
+  "declared_type": z.string().nullable(),
+  "id": z.string(),
+  "member": z.string(),
+  "passages": z.number().int(),
+  "reason": z.string().nullable(),
+  "role": z.string(),
+  "rows_imported": z.number().int().optional(),
+  "rows_merged": z.number().int().optional(),
+  "rows_skipped": z.number().int().optional(),
+  "status": z.string(),
+  "tables": z.number().int(),
+}).strict();
+export type DocumentMember = z.infer<typeof DocumentMember>;
+
+export const DocumentMembers = z.object({
+  "document_id": z.string(),
+  "failed": z.number().int(),
+  "members": z.array(DocumentMember),
+  "read": z.number().int(),
+  "skipped": z.number().int(),
+}).strict();
+export type DocumentMembers = z.infer<typeof DocumentMembers>;
 
 export const DocumentPassage = z.object({
   "content": z.string(),
@@ -1944,15 +2029,6 @@ export type NewTenant = z.infer<typeof NewTenant>;
 export const NewThread = z.record(z.string(), z.unknown());
 export type NewThread = z.infer<typeof NewThread>;
 
-export const NewTurn = z.object({
-  "account_id": z.string().nullable().optional(),
-  "content": z.string(),
-  "enforce_project_scope": z.boolean().optional(),
-  "fresh_output": z.boolean().optional(),
-  "request_id": z.string(),
-}).strict();
-export type NewTurn = z.infer<typeof NewTurn>;
-
 export const Notification = z.object({
   "account_domain": z.string().nullable(),
   "account_name": z.string().nullable(),
@@ -2000,6 +2076,13 @@ export const OperatorSession = z.object({
 }).strict();
 export type OperatorSession = z.infer<typeof OperatorSession>;
 
+export const OperatorSessionMinted = z.object({
+  "expires_at": z.string(),
+  "idle_timeout_s": z.number().int(),
+  "token": z.string(),
+}).strict();
+export type OperatorSessionMinted = z.infer<typeof OperatorSessionMinted>;
+
 export const ParityBundle = z.object({
   "bundle": z.record(z.string(), z.unknown()),
   "created_at": z.string(),
@@ -2029,20 +2112,6 @@ export const ParityCountRows = z.object({
   "people_rows": z.array(z.record(z.string(), z.unknown())),
 }).strict();
 export type ParityCountRows = z.infer<typeof ParityCountRows>;
-
-export const ParityOverride = z.object({
-  "lane": z.string().nullable().optional(),
-  "name": z.string(),
-  "note": z.string().nullable().optional(),
-  "priority": z.string().nullable().optional(),
-}).strict();
-export type ParityOverride = z.infer<typeof ParityOverride>;
-
-export const ParityEdit = z.object({
-  "overrides": z.array(ParityOverride),
-  "version": z.number().int().nullable().optional(),
-}).strict();
-export type ParityEdit = z.infer<typeof ParityEdit>;
 
 export const ParityFile = z.object({
   "file": z.string().nullable().optional(),
@@ -2218,15 +2287,6 @@ export const PublishBody = z.object({
 }).strict();
 export type PublishBody = z.infer<typeof PublishBody>;
 
-export const PullOption = z.object({
-  "available": z.boolean(),
-  "pull_run_id": z.string().nullable().optional(),
-  "pulled_at": z.string().nullable().optional(),
-  "rows_blocked": z.number().int().nullable().optional(),
-  "rows_stored": z.number().int().nullable().optional(),
-}).strict();
-export type PullOption = z.infer<typeof PullOption>;
-
 export const QuarantineItem = z.object({
   "id": z.string(),
   "kind": z.string(),
@@ -2339,6 +2399,13 @@ export const RefreshOption = z.object({
 }).strict();
 export type RefreshOption = z.infer<typeof RefreshOption>;
 
+export const ResearchGap = z.object({
+  "code": z.string(),
+  "fix_path": z.string().nullable().optional(),
+  "text": z.string(),
+}).strict();
+export type ResearchGap = z.infer<typeof ResearchGap>;
+
 export const TopicOption = z.object({
   "affordable": z.boolean(),
   "credits": z.number().int(),
@@ -2352,6 +2419,7 @@ export const RefreshOptions = z.object({
   "cap_per_pull": z.number().int(),
   "credits": Credits,
   "domain": z.string(),
+  "gaps": z.array(ResearchGap).optional(),
   "name": z.string(),
   "open_job": OpenJob.nullable(),
   "options": z.array(RefreshOption),
@@ -2393,6 +2461,7 @@ export const ResearchEstimate = z.object({
   "enough": z.boolean(),
   "file_public_usage": UsageEstimate,
   "file_usage": UsageEstimate,
+  "gaps": z.array(ResearchGap).optional(),
   "minutes": z.number().int(),
   "pool": Credits,
   "usage": UsageEstimate,
@@ -2735,6 +2804,13 @@ export const SheetFilter = z.object({
 }).strict();
 export type SheetFilter = z.infer<typeof SheetFilter>;
 
+export const SheetMatch = z.object({
+  "col": z.string(),
+  "label": z.string(),
+  "value": z.string(),
+}).strict();
+export type SheetMatch = z.infer<typeof SheetMatch>;
+
 export const SheetRow = z.object({
   "archives": z.record(z.string(), ArchivedLinkRef).optional(),
   "cells": z.record(z.string(), z.string()),
@@ -2765,6 +2841,7 @@ export const Sheet = z.object({
   "footnote": z.string(),
   "from_file": z.boolean().optional(),
   "key": z.string(),
+  "match": SheetMatch.nullable().optional(),
   "offset": z.number().int(),
   "private": z.boolean(),
   "rows": z.array(SheetRow),
@@ -3008,23 +3085,6 @@ export const TenantLiveSpend = z.object({
 }).strict();
 export type TenantLiveSpend = z.infer<typeof TenantLiveSpend>;
 
-export const TenantModelKeyBody = z.object({
-  "api_key": z.string(),
-}).strict();
-export type TenantModelKeyBody = z.infer<typeof TenantModelKeyBody>;
-
-export const TenantModelKeyDeleted = z.object({
-  "deleted": z.boolean(),
-}).strict();
-export type TenantModelKeyDeleted = z.infer<typeof TenantModelKeyDeleted>;
-
-export const TenantModelKeyStatus = z.object({
-  "available": z.boolean(),
-  "configured": z.boolean(),
-  "updated_at": z.string().nullable(),
-}).strict();
-export type TenantModelKeyStatus = z.infer<typeof TenantModelKeyStatus>;
-
 export const TenantOverview = z.object({
   "accounts": z.number().int(),
   "created_at": z.string(),
@@ -3077,6 +3137,7 @@ export type UploadIntent = z.infer<typeof UploadIntent>;
 
 export const UploadStart = z.object({
   "account_id": z.string().nullable().optional(),
+  "audience": z.string().optional(),
   "mime": z.string().nullable().optional(),
   "name": z.string(),
   "size_bytes": z.number().int(),
@@ -3265,6 +3326,11 @@ export const KNOWN_VALUES = {
     "seller",
     "viewer"
   ],
+  "AnswerInsight.grade": [
+    "Confirmed",
+    "Probable",
+    "Hypothesis"
+  ],
   "AnswerPart.t": [
     "text",
     "bold",
@@ -3274,7 +3340,8 @@ export const KNOWN_VALUES = {
     "table",
     "prose",
     "callout",
-    "steps"
+    "steps",
+    "insights"
   ],
   "AnswerSection.tone": [
     "info",
@@ -3413,6 +3480,21 @@ export const KNOWN_VALUES = {
     "monthly",
     "never"
   ],
+  "DocumentMember.audience": [
+    "client",
+    "owner_only",
+    "internal"
+  ],
+  "DocumentMember.status": [
+    "read",
+    "skipped",
+    "failed"
+  ],
+  "DocumentStatus.audience": [
+    "client",
+    "owner_only",
+    "internal"
+  ],
   "DocumentUploadStarted.protocol": [
     "resumable",
     "single"
@@ -3537,11 +3619,6 @@ export const KNOWN_VALUES = {
     "operator",
     "support"
   ],
-  "ParityOverride.priority": [
-    "A",
-    "B",
-    "C"
-  ],
   "PolicyBody.redaction_tier": [
     "strict",
     "standard",
@@ -3645,6 +3722,10 @@ export const KNOWN_VALUES = {
     "waiting_for_approval",
     "stopped_at_limit"
   ],
+  "UploadStart.audience": [
+    "client",
+    "owner_only"
+  ],
   "UsefulBody.kind": [
     "first_call_question_used",
     "confirmed_fact_referenced"
@@ -3721,6 +3802,8 @@ export const operations = {
   "GET /operator/v1/runs/{run_id}/spend/live": { method: "GET", path: "/operator/v1/runs/{run_id}/spend/live", plane: "operator", status: 200, request: null, requestRequired: false, response: OperatorLiveSpend },
   "GET /operator/v1/runs/{run_id}/timeline": { method: "GET", path: "/operator/v1/runs/{run_id}/timeline", plane: "operator", status: 200, request: null, requestRequired: false, response: RunTimeline },
   "GET /operator/v1/session": { method: "GET", path: "/operator/v1/session", plane: "operator", status: 200, request: null, requestRequired: false, response: OperatorSession },
+  "POST /operator/v1/sessions": { method: "POST", path: "/operator/v1/sessions", plane: "operator", status: 201, request: null, requestRequired: false, response: OperatorSessionMinted },
+  "DELETE /operator/v1/sessions/current": { method: "DELETE", path: "/operator/v1/sessions/current", plane: "operator", status: 204, request: null, requestRequired: false, response: null },
   "GET /operator/v1/tenants": { method: "GET", path: "/operator/v1/tenants", plane: "operator", status: 200, request: null, requestRequired: false, response: TenantsOverview },
   "POST /operator/v1/tenants": { method: "POST", path: "/operator/v1/tenants", plane: "operator", status: 201, request: NewTenant, requestRequired: true, response: TenantCreated },
   "POST /operator/v1/tenants/{tenant_id}/deletion": { method: "POST", path: "/operator/v1/tenants/{tenant_id}/deletion", plane: "operator", status: 201, request: Reason, requestRequired: true, response: DeletionRequested },
@@ -3748,7 +3831,6 @@ export const operations = {
   "GET /v1/accounts/{domain}/file-analysis": { method: "GET", path: "/v1/accounts/{domain}/file-analysis", plane: "tenant", status: 200, request: null, requestRequired: false, response: FileAnalysisRun },
   "GET /v1/accounts/{domain}/history": { method: "GET", path: "/v1/accounts/{domain}/history", plane: "tenant", status: 200, request: null, requestRequired: false, response: History },
   "GET /v1/accounts/{domain}/parity/bundle": { method: "GET", path: "/v1/accounts/{domain}/parity/bundle", plane: "tenant", status: 200, request: null, requestRequired: false, response: ParityBundle },
-  "POST /v1/accounts/{domain}/parity/edits": { method: "POST", path: "/v1/accounts/{domain}/parity/edits", plane: "tenant", status: 201, request: ParityEdit, requestRequired: true, response: ParityVersionInfo },
   "GET /v1/accounts/{domain}/parity/files/{name}": { method: "GET", path: "/v1/accounts/{domain}/parity/files/{name}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "GET /v1/accounts/{domain}/parity/manifest": { method: "GET", path: "/v1/accounts/{domain}/parity/manifest", plane: "tenant", status: 200, request: null, requestRequired: false, response: ParityManifest },
   "GET /v1/accounts/{domain}/parity/screen": { method: "GET", path: "/v1/accounts/{domain}/parity/screen", plane: "tenant", status: 200, request: null, requestRequired: false, response: ParityScreen },
@@ -3777,14 +3859,10 @@ export const operations = {
   "POST /v1/auth/password/reset/request": { method: "POST", path: "/v1/auth/password/reset/request", plane: "tenant", status: 202, request: EmailBody, requestRequired: true, response: PasswordResetAccepted },
   "GET /v1/branding": { method: "GET", path: "/v1/branding", plane: "tenant", status: 200, request: null, requestRequired: false, response: Branding },
   "POST /v1/chat/ask": { method: "POST", path: "/v1/chat/ask", plane: "tenant", status: 200, request: AskBody, requestRequired: true, response: null },
-  "DELETE /v1/chat/provider-key": { method: "DELETE", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyDeleted },
-  "GET /v1/chat/provider-key": { method: "GET", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: null, requestRequired: false, response: TenantModelKeyStatus },
-  "PUT /v1/chat/provider-key": { method: "PUT", path: "/v1/chat/provider-key", plane: "tenant", status: 200, request: TenantModelKeyBody, requestRequired: true, response: TenantModelKeyStatus },
   "GET /v1/chat/threads": { method: "GET", path: "/v1/chat/threads", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThreads },
   "POST /v1/chat/threads": { method: "POST", path: "/v1/chat/threads", plane: "tenant", status: 201, request: NewThread, requestRequired: true, response: ChatThreadCreated },
   "DELETE /v1/chat/threads/{thread_id}": { method: "DELETE", path: "/v1/chat/threads/{thread_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThreadDeleted },
   "GET /v1/chat/threads/{thread_id}": { method: "GET", path: "/v1/chat/threads/{thread_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: ChatThread },
-  "POST /v1/chat/threads/{thread_id}/turns/stream": { method: "POST", path: "/v1/chat/threads/{thread_id}/turns/stream", plane: "tenant", status: 200, request: NewTurn, requestRequired: true, response: null },
   "GET /v1/connectors": { method: "GET", path: "/v1/connectors", plane: "tenant", status: 200, request: null, requestRequired: false, response: Connections },
   "POST /v1/connectors": { method: "POST", path: "/v1/connectors", plane: "tenant", status: 201, request: StartBody, requestRequired: true, response: ConnectorStarted },
   "GET /v1/connectors/oauth/callback": { method: "GET", path: "/v1/connectors/oauth/callback", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
@@ -3811,10 +3889,13 @@ export const operations = {
   "POST /v1/documents/uploads": { method: "POST", path: "/v1/documents/uploads", plane: "tenant", status: 201, request: UploadStart, requestRequired: true, response: DocumentUploadStarted },
   "DELETE /v1/documents/{document_id}": { method: "DELETE", path: "/v1/documents/{document_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentDeleted },
   "POST /v1/documents/{document_id}/authoritative": { method: "POST", path: "/v1/documents/{document_id}/authoritative", plane: "tenant", status: 200, request: account_intelligence__api__routes__documents__FlagBody, requestRequired: true, response: DocumentFlag },
-  "POST /v1/documents/{document_id}/complete": { method: "POST", path: "/v1/documents/{document_id}/complete", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
+  "POST /v1/documents/{document_id}/complete": { method: "POST", path: "/v1/documents/{document_id}/complete", plane: "tenant", status: 200, request: DocumentCompleteBody.nullable(), requestRequired: false, response: DocumentStatus },
   "PUT /v1/documents/{document_id}/content": { method: "PUT", path: "/v1/documents/{document_id}/content", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentReceived },
+  "GET /v1/documents/{document_id}/members": { method: "GET", path: "/v1/documents/{document_id}/members", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentMembers },
+  "GET /v1/documents/{document_id}/members/{member_id}": { method: "GET", path: "/v1/documents/{document_id}/members/{member_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
   "POST /v1/documents/{document_id}/parts/{part}/retry": { method: "POST", path: "/v1/documents/{document_id}/parts/{part}/retry", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
   "GET /v1/documents/{document_id}/passages": { method: "GET", path: "/v1/documents/{document_id}/passages", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentPassages },
+  "POST /v1/documents/{document_id}/same-company": { method: "POST", path: "/v1/documents/{document_id}/same-company", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
   "GET /v1/documents/{document_id}/status": { method: "GET", path: "/v1/documents/{document_id}/status", plane: "tenant", status: 200, request: null, requestRequired: false, response: DocumentStatus },
   "GET /v1/downloads/{job_id}": { method: "GET", path: "/v1/downloads/{job_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: DownloadJob },
   "GET /v1/downloads/{job_id}/parts/{n}": { method: "GET", path: "/v1/downloads/{job_id}/parts/{n}", plane: "tenant", status: 200, request: null, requestRequired: false, response: null },
@@ -3847,7 +3928,6 @@ export const operations = {
   "POST /v1/research/{job_id}/stop": { method: "POST", path: "/v1/research/{job_id}/stop", plane: "tenant", status: 200, request: null, requestRequired: false, response: ResearchStopped },
   "GET /v1/runs": { method: "GET", path: "/v1/runs", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunPage },
   "POST /v1/runs": { method: "POST", path: "/v1/runs", plane: "tenant", status: 202, request: RunBody, requestRequired: true, response: RunCreated },
-  "GET /v1/runs/pull-option": { method: "GET", path: "/v1/runs/pull-option", plane: "tenant", status: 200, request: null, requestRequired: false, response: PullOption },
   "GET /v1/runs/{run_id}": { method: "GET", path: "/v1/runs/{run_id}", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunStatusView },
   "POST /v1/runs/{run_id}/approve": { method: "POST", path: "/v1/runs/{run_id}/approve", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunState },
   "POST /v1/runs/{run_id}/cancel": { method: "POST", path: "/v1/runs/{run_id}/cancel", plane: "tenant", status: 200, request: null, requestRequired: false, response: RunState },

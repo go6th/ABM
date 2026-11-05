@@ -65,6 +65,14 @@ class OperatorSession(Out):
     mfa_fresh: bool
 
 
+class OperatorSessionMinted(Out):
+    """A console session token (shown once; only its hash is kept) and its limits."""
+
+    token: str
+    expires_at: datetime
+    idle_timeout_s: int
+
+
 class SignedOut(Out):
     """Response body: signed out."""
 
@@ -356,6 +364,16 @@ class DeepDiveCounts(Out):
     coverage_total: int = 0
     # the rows of the Account Summary's Platform picture by lane (delivered files only)
     facts: int = 0
+    # the files inside the client's uploaded zips (document_members), read or not
+    files: int = 0
+    # the live sheets an imported workspace fills (phase 5): platform teams, organisation
+    # connections, the newest Summary's sections, calls made (tool calls and the pull log) and
+    # research notes
+    teams: int = 0
+    connections: int = 0
+    findings: int = 0
+    calls: int = 0
+    notes: int = 0
 
 
 class DeliverableFile(Out):
@@ -383,6 +401,9 @@ class StoppedRun(Out):
     reason: str
     steps_done: int
     steps_total: int
+    # set when the run's replay keys are of an older version (ADR-0129): a resume may pay up to
+    # this many dollars more than "reuses it at no cost" suggests; None when the keys are current
+    replay_extra_usd: float | None = None
 
 
 class CoverageGap(Out):
@@ -390,6 +411,16 @@ class CoverageGap(Out):
 
     reason: str
     count: int
+
+
+class ImportProblem(Out):
+    """A part of an uploaded file's import that failed or has not finished (migration 0106)."""
+
+    document_name: str
+    part: str
+    status: str
+    rows_skipped: int
+    reason: str | None = None
 
 
 class AccountWorkspace(AccountItem):
@@ -405,6 +436,7 @@ class AccountWorkspace(AccountItem):
     open_job: OpenJob | None = None
     stopped_run: StoppedRun | None = None
     gaps: list[CoverageGap] = []
+    import_problems: list[ImportProblem] = []
 
 
 class AccountDeleted(Out):
@@ -429,6 +461,15 @@ class SheetFilter(Out):
     key: str
     label: str
     count: int
+
+
+class SheetMatch(Out):
+    """The match a sheet page is narrowed by (a link from an Ask citation): the rows whose
+    ``col`` cell contains ``value``; ``label`` is the column's heading."""
+
+    col: str
+    label: str
+    value: str
 
 
 class SheetRow(Out):
@@ -542,6 +583,8 @@ class Sheet(Out):
     filter: str
     sort: str
     dir: Literal["asc", "desc"]
+    # the match the rows, the total and the chip counts are narrowed by (None: every row)
+    match: SheetMatch | None = None
     total: int
     offset: int
     rows: list[SheetRow]
@@ -665,6 +708,8 @@ class RefreshOptions(Out):
     options: list[RefreshOption]
     topic: TopicOption
     open_job: OpenJob | None
+    # what a refresh cannot do yet (people consent missing), shown before Proceed
+    gaps: list[ResearchGap] = []
 
 
 class RefreshStarted(Out):
@@ -673,6 +718,14 @@ class RefreshStarted(Out):
     job_id: str
     status: str
     credits: int
+
+
+class ResearchGap(Out):
+    """Something a research started now cannot do, and where to fix it first (2026-11-05)."""
+
+    code: str
+    text: str
+    fix_path: str | None = None
 
 
 class ResearchEstimate(Out):
@@ -688,6 +741,8 @@ class ResearchEstimate(Out):
     usage: UsageEstimate
     file_usage: UsageEstimate
     file_public_usage: UsageEstimate
+    # what this research cannot do yet (people consent missing), shown before Proceed
+    gaps: list[ResearchGap] = []
 
 
 class ResearchStarted(Out):
@@ -1050,6 +1105,22 @@ class StepTokens(Out):
     tokens: int
 
 
+class ModelFallback(Out):
+    """A research step whose chosen model (Kimi K3 or Grok 4.5) could not meet its output
+    schema and was served by the role's Claude default: a billing event (ADR-0119)."""
+
+    step: str
+    # display names, never provider model ids
+    from_model: str
+    to_model: str
+    reason: str
+    # what the attempts on the chosen model cost (paid, then discarded); None: not priced
+    discarded_usd: float | None = None
+    # what the Claude calls that replaced them cost: the bill above an estimate for the chosen
+    # model; None while the step runs or when not priced
+    extra_usd: float | None = None
+
+
 class TokenUse(Out):
     """The run screen's token card: the total, each step's share, cost and the expectation."""
 
@@ -1067,6 +1138,8 @@ class TokenUse(Out):
     expected_tokens: int | None = None
     # how many past runs the expectation rests on (0: the configured rough default)
     expected_runs: int = 0
+    # steps that fell back to Claude, with what they added to the bill
+    fallbacks: list[ModelFallback] = []
 
 
 class RunStatusView(Out):
@@ -1172,16 +1245,6 @@ class RunProgress(Out):
     finished: bool
     text: str
     steps: list[ProgressStep] = []
-
-
-class PullOption(Out):
-    """Response body: pull option."""
-
-    available: bool
-    pull_run_id: str | None = None
-    pulled_at: str | None = None
-    rows_stored: int | None = None
-    rows_blocked: int | None = None
 
 
 # ---- tables and saved views -----------------------------------------------------------------
@@ -2187,9 +2250,20 @@ class AnswerPart(Out):
     v: str
 
 
+class AnswerSheetLink(Out):
+    """The deep-dive sheet a cited table opens in: the sheet ``key`` (``jobs``, ``people``,
+    ``technology``, ...) and, when the answer's query narrowed the table on one column, the
+    sheet column and text the page is matched by (``sheets.Query.match``)."""
+
+    key: str
+    match_col: str | None = None
+    match: str | None = None
+
+
 class AnswerSource(Out):
     """A stored row an answer cites: what it is, when, and where to open it (``url`` is the
-    original page; ``label`` reads "6th / LinkedIn", never a data connector's name)."""
+    original page; ``label`` reads "6th / LinkedIn", never a data connector's name). ``sheet``:
+    a cited table that is a deep-dive sheet opens there (never through ``url``)."""
 
     n: int
     title: str
@@ -2213,6 +2287,7 @@ class AnswerSource(Out):
     ]
     account_domain: str | None
     account_name: str | None
+    sheet: AnswerSheetLink | None = None
 
 
 class AnswerItems(Out):
@@ -2248,12 +2323,23 @@ class AnswerStat(Out):
     value: str
 
 
+class AnswerInsight(Out):
+    """One insight of an open question's answer (2026-11-03): a seller's conclusion of at most
+    three sentences, the grade it rests on and the one next action."""
+
+    conclusion: str
+    grade: Literal["Confirmed", "Probable", "Hypothesis"]
+    action: str
+
+
 class AnswerSection(Out):
     """One section of a structured answer (render_answer, 2026-10-17): a table with every
-    matching row, prose of at most two sentences, one callout, or next steps. Citations in
-    the strings are written [n] and number into the answer's sources list."""
+    matching row, prose of at most two sentences, one callout, next steps, or an open question's
+    insights (2026-11-03). Citations in the strings are written [n] and number into the answer's
+    sources list. A ``collapsed`` table (the facts an insights answer rests on) opens under
+    "Sources" instead of beside the answer."""
 
-    kind: Literal["table", "prose", "callout", "steps"]
+    kind: Literal["table", "prose", "callout", "steps", "insights"]
     title: str | None = None
     columns: list[str] | None = None
     rows: list[list[str]] | None = None
@@ -2262,6 +2348,8 @@ class AnswerSection(Out):
     text: str | None = None
     tone: Literal["info", "warn", "good"] | None = None
     items: list[str] | None = None
+    insights: list[AnswerInsight] | None = None
+    collapsed: bool | None = None
 
 
 class AnswerStructured(Out):
@@ -2286,6 +2374,15 @@ class ChatAnswer(Out):
     account_domain: str | None
     account_name: str | None
     answered: bool
+    # the model's readable thinking summary (models.yaml ask_model_settings, 2026-11-03), shown
+    # under "How this was worked out"; scrubbed with the answer
+    thinking: str | None = None
+    # short notes about the answer's reach (PR5: "Some files are still being indexed; search
+    # may miss them."), shown as a muted line under the answer
+    notices: list[str] = Field(default_factory=list)
+    # the last round's prompt size, stored with the answer so a reopened thread's context
+    # meter shows it (ask.py writes it into answer_json)
+    context_tokens: int = 0
 
 
 class ChatTurn(Out):
@@ -2409,6 +2506,38 @@ class DocumentStatus(Out):
     indexed_passages: int
     members_read: int
     members_skipped: list[SkippedMember]
+    audience: Literal["client", "owner_only", "internal"]
+
+
+class DocumentMember(Out):
+    """One file inside an uploaded zip (``document_members``, 0102): its path, its role in the
+    workspace package, what the read did with it and what it produced. ``id`` addresses the
+    file itself: ``GET /v1/documents/{document_id}/members/{id}`` downloads it as uploaded."""
+
+    id: str
+    member: str
+    role: str
+    declared_type: str | None
+    bytes: int | None
+    status: Literal["read", "skipped", "failed"]
+    reason: str | None
+    passages: int
+    tables: int
+    # the import's reconciliation for a workbook: file rows = imported + merged + not imported
+    rows_imported: int = 0
+    rows_merged: int = 0
+    rows_skipped: int = 0
+    audience: Literal["client", "owner_only", "internal"]
+
+
+class DocumentMembers(Out):
+    """Response body: every file inside an uploaded zip, in path order, with the counts."""
+
+    document_id: str
+    members: list[DocumentMember]
+    read: int
+    skipped: int
+    failed: int
 
 
 class DocumentPassage(Out):
@@ -2956,7 +3085,10 @@ class ConsoleDefaults(Out):
     run_dollar_cap_usd: float
     repeat_call_limit: int
     stall_after_s: int
-    model_router_on: bool
+    # the platform's own default for stall_after_s (ADR-0132), shown beside the current value
+    stall_after_s_default: int
+    schedule_tick_max_starts: int
+    schedule_tick_max_per_tenant: int
     skill_version: str
     skill_installed: bool
     admins: list[ConsoleAdmin]
@@ -3100,24 +3232,3 @@ class ParityScreen(Out):
     count_rows: ParityCountRows
     files: list[ParityFile]
     download_all: str | None = None
-
-
-class ParityOverride(BaseModel):
-    """One analyst correction to a person: by name; priority, lane or note."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1, max_length=200)
-    priority: Literal["A", "B", "C"] | None = None
-    lane: str | None = Field(default=None, max_length=120)
-    note: str | None = Field(default=None, max_length=2000)
-
-
-class ParityEdit(BaseModel):
-    """An edit request: the version it corrects (the newest built one when absent) and the
-    corrections; the reply is the new version."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    version: int | None = Field(default=None, ge=1)
-    overrides: list[ParityOverride] = Field(min_length=1, max_length=200)

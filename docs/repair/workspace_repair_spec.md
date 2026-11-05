@@ -9,6 +9,21 @@ constants in code.
 
 Tables: Job postings, People, Tech stack and teams, News, Sources, Web searches, Signals,
 Coverage, From your mail and drive, plus the `Deliverables/` and `Internal - your files/` folders.
+A table or sheet with no rows this run gets no file (no header-only CSV, no empty workbook); the
+README names it instead (owner 2026-11-05: no blank files; `package.NO_ROWS_NOTE`).
+
+## Scope: researched accounts only (2026-11-05)
+
+The repair stage runs for accounts the product researched itself. An account built from an
+**uploaded workspace** (its delivered run is a file-import run, `replica.sheets.imported_run`) is
+an **exact copy**: the uploaded files are registered as the account's files byte for byte
+(`documents.workspace_import.register_deliverables`), the screens open them as they are
+(`replica.file_tabs`), and Download everything ships the files and their own sheets and tables as
+CSV and Excel (`documents.exact_copy.table_members`, `replica.downloads._fill_imported`) with an
+import report in `Logs/`. Nothing below applies to such an account: nothing is de-duplicated,
+re-tagged, re-graded or generated. The proof is `tests/documents/test_workspace_exact_copy_db.py`
+(synthetic) and `tests/documents/test_exact_copy_real_zip.py` (the owner's own package, run by
+hand).
 
 ## Global rules (every table)
 
@@ -120,6 +135,43 @@ The README is generated from the members actually written; before zipping every 
 lists must exist or the export fails. CSV: UTF-8 with BOM, all fields quoted, one header row.
 XLSX: cells beginning `= + - @` escaped; a shareable workbook is never held back for a dash: the
 offending cell is fixed (`safe_cell`), then re-checked.
+
+## Uploaded workspaces (2026-11-05, after the UCB bundle)
+
+A workspace package names its own company (``documents.workspace_identity``: the company record,
+the organisation resolve pull, the restore note's heading, the live posting links). Uploaded to
+an account whose bound domains do not include it, the upload is **held** and the user is asked
+whether the two are the same company: "Yes" binds the package's domain, name and careers host to
+the account (``watch_config.domains``, ``aliases``, ``careers_hosts``; ``POST
+/v1/documents/{id}/same-company``) and the import runs; "No" is the ordinary confirm-company call
+with the package's company. Nothing is imported before the answer. The research date of the
+package (the day its pulls were made) is kept on the file-import run (``run_input.research_date``)
+and is the run date of the repair: the window ends on it, not on the upload day.
+
+The owner's workbook is the record of an uploaded workspace; the repair never thins it:
+
+* every Jobs sheet row is stored: a closed posting with a requisition gets its address from the
+  careers site's pattern, an archive record from the feed in the zip (title, location, first
+  seen); the requisition is the Requisition ID;
+* every dictionary platform is listed in ``Platforms named`` (Power BI, Snowflake, SAS, Azure and
+  the rest of the ranking dictionary), each under its lane, ``Outside the lanes`` for a platform
+  with none; a posting naming only such platforms carries the class ``Outside the lanes, not
+  classified``;
+* every People sheet row is kept as written (name, level, "Meets seniority rule", former SI and
+  consulting employers with years); no seniority cut, no title exclusion, no name rewriting; the
+  leadership page's executives fill the ``Leadership`` sheet;
+* the package's raw pulls feed the tables in both record shapes (a flat list and the JSON:API
+  feeds): news events, searches (the tool-call ledger), the confirmed stack, the detections, the
+  teams, the captured newsroom pages (``Source URL:``/``Captured:`` headers, the title from the
+  page's first heading, the date from the file name);
+* the package's deliverables ship in ``Deliverables/`` and their citations are checked;
+* Coverage takes a repaired table as the evidence of its item (postings, technology, news,
+  people) and an uploaded tracker's own "what was done" note as evidence otherwise; an item whose
+  table is empty is never Done.
+
+Two acceptance checks make the failure of 2026-11-04 loud: ``entity_resolves_account`` (postings
+exist and none counts as the account) and ``tables_not_emptied`` (a table with input records and
+no rows).
 
 ## Acceptance checks (`checks.py`, all must pass per workspace)
 No duplicate keys; no empty cell without a reason placeholder; no Published/Posted equal to

@@ -157,7 +157,8 @@ def test_a_release_outside_its_folder_is_refused_and_named(cfg: ExportConfig) ->
 def test_an_empty_or_missing_release_mapping_adds_nothing(cfg: ExportConfig) -> None:
     plain = _names(_build(cfg))
     assert _names(_build(cfg, releases={})) == plain
-    assert not any(n.startswith(cfg.rules.workspace.releases.folder) for n in plain)
+    # data/releases_index.json is a run record beside the folder, not a release file
+    assert not any(n.startswith(cfg.rules.workspace.releases.folder + "/") for n in plain)
 
 
 def test_members_follow_the_folder_order_and_unknown_folders_come_last(cfg: ExportConfig) -> None:

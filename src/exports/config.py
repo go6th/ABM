@@ -1057,6 +1057,36 @@ class RestoreRules(_Strict):
         return self
 
 
+class DataFileRules(_Strict):
+    """The ``data/`` members written from stored rows in the owner's reference file names
+    (``company_record``, ``news_events``, ``jobs_12mo``, ``teams``, ``derived/`` …,
+    2026-11-05): the source label and the one-line note a member prints when the run stored
+    nothing for it (never an invented row)."""
+
+    source: str = Field(min_length=1)
+    none_recorded: str = Field(min_length=1)
+    jobs_window_months: int = Field(gt=0, le=60)
+
+    @model_validator(mode="after")
+    def _plain(self) -> DataFileRules:
+        _no_vendor_words([self.source, self.none_recorded], "data file text")
+        return self
+
+
+class ReadmeRules(_Strict):
+    """``notes/README.md``: what the package is, in the owner's reference wording."""
+
+    title: str = Field(min_length=1)
+    intro: str = Field(min_length=1)
+    contents_heading: str = Field(min_length=1)
+    folder_line: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _plain(self) -> ReadmeRules:
+        _no_vendor_words([self.intro], "readme text")
+        return self
+
+
 class WorkspaceRules(_Strict):
     """Workspace zip contents and caps (D-25)."""
 
@@ -1080,6 +1110,8 @@ class WorkspaceRules(_Strict):
     web_searches: WebSearchFileRules
     sense_check: SenseCheckFileRules
     pass1: Pass1FileRules
+    data_files: DataFileRules
+    readme: ReadmeRules
 
     @model_validator(mode="after")
     def _members_are_distinct(self) -> WorkspaceRules:

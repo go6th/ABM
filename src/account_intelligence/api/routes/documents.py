@@ -5,7 +5,9 @@
   to object storage, sent in ``chunk_bytes`` chunks (``protocol: resumable``), or, only where the
   store has none, ``PUT /v1/documents/{id}/content`` with a one-time token. Bytes land in
   quarantine; a file never passes through the web app.
-* ``POST /v1/documents/{id}/complete``: size checked; the scan is enqueued. Nothing is parsed
+* ``POST /v1/documents/{id}/complete`` ``{size_bytes?, crc32c?}``: the stored object's size and
+  CRC32C are checked against what the browser reported (a mismatch rejects the document); the
+  scan is enqueued. Nothing is parsed
   before the scan passed.
 * ``GET /v1/documents/drive-files?source=&q=``: the caller's own Google Drive (``source``
   ``google_drive``, the default) or OneDrive (``onedrive``) files a research can read (Mail and
@@ -15,6 +17,10 @@
   there it is scanned and read exactly like an upload.
 * ``GET /v1/documents/{id}/status``, ``GET /v1/documents``: scanning, reading (parts done of
   parts total), indexed or failed, with the detected company and each failed part's reason.
+* ``GET /v1/documents/{id}/members``: the files inside an uploaded zip, each with its role in
+  the workspace package, whether it was read, skipped or failed and why, and what it produced.
+* ``GET /v1/documents/{id}/members/{member_id}``: one file inside an uploaded zip, as uploaded
+  (owner 2026-11-05: the account page opens every file of the package, not only lists it).
 * ``POST /v1/documents/{id}/parts/{n}/retry``: "Try again" on a failed part (n from 1).
 * ``POST /v1/documents/confirm-company``: the user confirms the company; the documents are bound
   to its account and indexed.
@@ -34,7 +40,7 @@ from collections.abc import AsyncIterator
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
@@ -51,6 +57,7 @@ DOMAIN = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$"
 _STATUS = {
     "not_found": 404, "account_not_found": 404, "upload_closed": 409, "upload_expired": 410,
     "already_bound": 409, "not_uploaded": 409, "part_not_failed": 409,
+    "not_held_for_company": 409, "too_large": 413,
 }  # fmt: skip
 
 
@@ -62,6 +69,18 @@ class UploadStart(BaseModel):
     size_bytes: int = Field(ge=0)
     mime: str | None = Field(default=None, max_length=200)
     account_id: UUID | None = None
+    # who may see it: everyone on the account (the default), or the uploader and admins only
+    audience: Literal["client", "owner_only"] = "client"
+
+
+class DocumentCompleteBody(BaseModel):
+    """What the browser reports about the file it sent (both optional): its size and its CRC32C
+    (base64 of the 4 big-endian bytes, the form Cloud Storage keeps). The API compares them with
+    the stored object. No tenant field."""
+
+    model_config = ConfigDict(extra="forbid")
+    size_bytes: int | None = Field(default=None, ge=0)
+    crc32c: str | None = Field(default=None, max_length=12)
 
 
 DriveSource = Literal["google_drive", "onedrive"]
@@ -156,6 +175,7 @@ async def start_upload(
             body.mime,
             body.account_id,
             origin=_origin(),
+            audience=body.audience,
         )
     except DocumentError as error:
         raise _problem(error) from None
@@ -338,13 +358,23 @@ async def upload_content(
 
 @router.post("/{document_id}/complete", response_model=C.DocumentStatus)
 async def complete(
-    document_id: UUID, request: Request, ident: Identity = Depends(require_role(*UPLOADERS))
+    document_id: UUID,
+    request: Request,
+    body: DocumentCompleteBody | None = None,
+    ident: Identity = Depends(require_role(*UPLOADERS)),
 ) -> dict[str, Any]:
-    """Check what arrived and enqueue the scan."""
+    """Check what arrived (its size and CRC32C against what the browser reported) and enqueue
+    the scan. The body is optional: without a checksum only the size declared at the start is
+    checked."""
     from documents.service import DocumentError
 
     try:
-        out = await _docs(request).complete(ident.tenant_id, document_id)
+        out = await _docs(request).complete(
+            ident.tenant_id,
+            document_id,
+            declared_size=body.size_bytes if body else None,
+            declared_crc32c=body.crc32c if body else None,
+        )
     except DocumentError as error:
         raise _problem(error) from None
     async with tenant_txn(ident.tenant_id) as s:
@@ -372,6 +402,53 @@ async def status(
         raise _problem(error) from None
 
 
+@router.get("/{document_id}/members", response_model=C.DocumentMembers)
+async def members(
+    document_id: UUID, request: Request, ident: Identity = Depends(require_role(*UPLOADERS))
+) -> dict[str, Any]:
+    """The files inside an uploaded zip: path, role, what the read did with each, the counts."""
+    from documents.service import DocumentError
+
+    try:
+        return dict(await _docs(request).members(ident.tenant_id, document_id))
+    except DocumentError as error:
+        raise _problem(error) from None
+
+
+@router.get("/{document_id}/members/{member_id}")
+async def member_file(
+    document_id: UUID,
+    member_id: UUID,
+    request: Request,
+    ident: Identity = Depends(require_role(*UPLOADERS)),
+) -> Response:
+    """One file inside an uploaded zip, as uploaded, named after its path inside the zip."""
+    import mimetypes
+
+    from documents.service import DocumentError
+
+    try:
+        path, body = await _docs(request).member_file(ident.tenant_id, document_id, member_id)
+    except DocumentError as error:
+        raise _problem(error) from None
+    async with tenant_txn(ident.tenant_id) as s:
+        await audit_action(
+            s,
+            request,
+            audit_class="export",
+            action="download_document_member",
+            resource_type="document",
+            resource_id=document_id,
+        )
+    name = path.rsplit("/", 1)[-1].replace('"', "")
+    media = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return Response(
+        body,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
 @router.post("/{document_id}/parts/{part}/retry", response_model=C.DocumentStatus)
 async def retry_part(
     document_id: UUID,
@@ -396,6 +473,36 @@ async def retry_part(
             request,
             audit_class="run",
             action="document_part_retry",
+            resource_type="document",
+            resource_id=document_id,
+        )
+    return dict(out)
+
+
+@router.post("/{document_id}/same-company", response_model=C.DocumentStatus)
+async def same_company(
+    document_id: UUID,
+    request: Request,
+    ident: Identity = Depends(require_role(*UPLOADERS)),
+) -> dict[str, Any]:
+    """The user confirms that the company an uploaded workspace names and the account it was
+    uploaded to are the same company (the upload was held because their domains differ): the
+    workspace's domain, name and careers hosts are bound to the account and the import runs.
+    "No, another company" is the ordinary ``confirm-company`` call with the workspace's
+    company, which binds the file to that account."""
+    from documents.service import DocumentError
+
+    await limit_user(ident, "part_retry")
+    try:
+        out = await _docs(request).same_company(ident.tenant_id, document_id)
+    except DocumentError as error:
+        raise _problem(error) from None
+    async with tenant_txn(ident.tenant_id) as s:
+        await audit_action(
+            s,
+            request,
+            audit_class="run",
+            action="document_same_company",
             resource_type="document",
             resource_id=document_id,
         )
@@ -454,7 +561,8 @@ async def list_documents(
 async def confirm_company(
     body: ConfirmCompany, request: Request, ident: Identity = Depends(require_role(*UPLOADERS))
 ) -> dict[str, Any]:
-    """Bind the documents to the confirmed company's account and index them."""
+    """Bind the documents to the confirmed company's account and index them; an upload held as
+    ``needs_account`` is released to it (the account picker on a held upload calls this)."""
     from account_intelligence.runs import lifecycle
     from documents import repo
     from documents.service import DocumentError
@@ -465,7 +573,10 @@ async def confirm_company(
         rows = await repo.many(s, list(body.document_ids))
         if len(rows) != len(set(body.document_ids)):
             raise APIProblem(404, "not_found", "Document refused", "A document was not found.")
-        bound_to = {r.account_id for r in rows if r.account_id is not None}
+        # an upload held as needs_account may be moved to any account the user picks (PR5)
+        bound_to = {
+            r.account_id for r in rows if r.account_id is not None and r.status != "needs_account"
+        }
         if bound_to:
             same: int = (
                 await s.execute(

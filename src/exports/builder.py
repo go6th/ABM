@@ -12,7 +12,8 @@ Steps, each failing closed (B15):
    the produced file equal the rows selected, once each and in order (B3); the PDF lost-row check
    (rowcheck), the document checks (stale phrases, excluded names, banned dashes, orphan citations),
    and the workbook recalculation (B12) when a converter is configured;
-5. build the workspace zip only when all five files passed (D-25, B13);
+5. build the workspace zip from the files that passed, naming the withheld ones (D-25, B13); the
+   zip alone is left out when its own text fails the client-output scan;
 6. store the set put-if-absent in one transaction (B14): a repeated build returns the stored set.
 
 Every error of every file is returned in ``BuildResult.errors``; a failed build stores nothing.
@@ -26,11 +27,12 @@ import asyncio
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from account_intelligence.grading.config import GradingConfig
 from account_intelligence.tracker.config import load_tracker_config
@@ -58,6 +60,7 @@ from exports.excel.jobs import expected_jobs, render_jobs
 from exports.excel.people import expected_people, render_people
 from exports.excel.tech import LIST_HEADER, expected_tech, render_tech
 from exports.models import (
+    AuthoredBlock,
     BuildManifest,
     BuildResult,
     FileEntry,
@@ -473,10 +476,12 @@ class ExportBuilder:
 
     def _releases(self, out: Assembly, ctx: MapContext) -> None:
         """The text files of the archived copies (``data/releases/``). A copy a client-output
-        rule refuses (a restricted term, a data tool's name or link, the word credits) is left
-        out of the zip and listed in the manifest by a hash of its address; it never stops the
-        delivery."""
+        rule refuses (a restricted term, a data tool's name or link, the word credits) is kept
+        with the refused words scrubbed to the record marker, as the run's own records are;
+        one still refused is left out of the zip and listed in the manifest by a hash of its
+        address. Neither stops the delivery."""
         content = ctx.content
+        marker = self.cfg.rules.quote_handling.record_marker
 
         def blocked(text: str) -> str | None:
             # the rule names are neutral: the manifest is scanned like every other member, and
@@ -486,15 +491,17 @@ class ExportBuilder:
                 return None
             return "leak" if rule == "leak" else "third_party"
 
-        out.releases, left_out = release_members(
+        out.releases, left_out, scrubbed = release_members(
             content,
             self.cfg.rules.workspace,
             lambda t: _mask_tools(ctx.mask(sanitise(t)), ctx.cfg.scope.mask),
             blocked,
+            lambda t: scrub_member(t, ctx.restricted, marker)[0],
         )
         for url, why in left_out:
             digest = hashlib.sha256(url.encode()).hexdigest()[:8]
             ctx.withheld_blocks.append(("workspace.releases", digest, why))
+        obs.releases_scrubbed(scrubbed)
 
     def _render_all(
         self,
@@ -803,7 +810,16 @@ class ExportBuilder:
     def _passthrough_texts(kind: str, model: Any) -> tuple[str, ...]:
         """Stored texts a document prints as they are (titles, names, findings, questions,
         links): outside the dash rule's scope, authored prose. A job title with a dash is the
-        posting's own, not punctuation the platform wrote (a fifth of stored titles carry one)."""
+        posting's own, not punctuation the platform wrote (a fifth of stored titles carry one).
+        The listed fields are joined by every other text the render model holds except the
+        authored blocks' prose (``stored_texts``): a stored sentence in a field the list did not
+        name withheld a whole Summary on staging (2026-11-04). The mapper already withholds an
+        authored block with a dash (``readers/summary.py``), so the document check is left as
+        the rule on what the renderer itself writes."""
+        return ExportBuilder._listed_passthrough(kind, model) + tuple(stored_texts(model))
+
+    @staticmethod
+    def _listed_passthrough(kind: str, model: Any) -> tuple[str, ...]:
         if kind == "summary":
             rows = [r for table in model.lanes for r in table.rows]
             return tuple(
@@ -1294,3 +1310,24 @@ class ExportBuilder:
 def error_codes(errors: tuple[str, ...]) -> Counter[str]:
     """Error codes of a result (the prefix before the first colon), counted."""
     return Counter(e.split(":", 1)[0] for e in errors)
+
+
+def stored_texts(model: Any) -> Iterator[str]:
+    """Every text a render model prints that distill did not write: stored rows, labels, links
+    and the code's own counted sentences, one line at a time. An ``AuthoredBlock``'s prose is
+    the one field left out (the mapper applies the prose rules to it). Lines are stripped and
+    split so ``verify.dash_count`` keeps its fast path (a passage with a space at an end or a
+    line break sends the whole scan down the slow one)."""
+    if isinstance(model, str):
+        for line in model.splitlines():
+            line = line.strip()
+            if len(line) > 1:
+                yield line
+    elif isinstance(model, BaseModel):
+        for name in type(model).model_fields:
+            if name == "text" and isinstance(model, AuthoredBlock):
+                continue
+            yield from stored_texts(getattr(model, name))
+    elif isinstance(model, (tuple, list)):
+        for item in model:
+            yield from stored_texts(item)

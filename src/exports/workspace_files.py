@@ -512,22 +512,32 @@ def release_members(
     rules: WorkspaceRules,
     clean: Clean,
     blocked: Callable[[str], str | None],
-) -> tuple[dict[str, bytes], tuple[tuple[str, str], ...]]:
-    """``(members, left_out)``: the text file of each archived copy the reader selected (newest
-    capture first, at most ``releases.max_files``), by member name in name order, and ``(url,
-    rule)`` for each copy left out because a client-output rule refused it (``blocked`` answers
-    the rule name, or None). A copy the rules refuse is never printed, and never stops the
-    delivery."""
+    scrub: Callable[[str], str] | None = None,
+) -> tuple[dict[str, bytes], tuple[tuple[str, str], ...], int]:
+    """``(members, left_out, scrubbed)``: the text file of each archived copy the reader selected
+    (newest capture first, at most ``releases.max_files``), by member name in name order,
+    ``(url, rule)`` for each copy left out because a client-output rule refused it (``blocked``
+    answers the rule name, or None), and how many copies were kept scrubbed. A copy a rule
+    refuses is first scrubbed (``scrub``: the refused words replaced by a marker, as the run's
+    own records are) and kept when the scrubbed text scans clean; a copy still refused is left
+    out. Twelve of a run's archived pages were left out whole for one word each (staging
+    2026-11-04). Nothing here stops the delivery."""
     out: dict[str, bytes] = {}
     left: list[tuple[str, str]] = []
+    scrubbed = 0
     for row in content.releases[: rules.releases.max_files]:
         body = release_text(row, rules, clean)
         why = blocked(body)
+        if why is not None and scrub is not None:
+            mended = scrub(body)
+            if blocked(mended) is None:
+                body, why = mended, None
+                scrubbed += 1
         if why is not None:
             left.append((row.url, why))
             continue
         out[release_name(row, rules, clean)] = body.encode()
-    return dict(sorted(out.items())), tuple(left)
+    return dict(sorted(out.items())), tuple(left), scrubbed
 
 
 def restore_member(
@@ -561,6 +571,452 @@ def restore_member(
     return "\n".join(lines).encode()
 
 
+# ---- the data/ members after the owner's reference workspace (2026-11-05) -----------------------
+#
+# Each member carries the owner's file name and record shape, built from the run's stored rows
+# and nothing else; a source with no rows prints the one-line note (``data_files.none_recorded``)
+# and never an invented row. Text goes through ``clean`` (sanitised, masked) and every address
+# through the link rules, as the other members do. Provider payloads (profiles, posts,
+# connections) are not among them: D-25 keeps them out until D-10 is decided.
+
+
+def _shown(url: str | None, link_rule: LinkRule | None) -> str | None:
+    ok = url and not denied_link(url) and not (link_rule and link_rule(url))
+    return url if ok else None
+
+
+def _none(rules: WorkspaceRules, what: str) -> bytes:
+    df = rules.data_files
+    return _dump(
+        {"source": df.source, "count": 0, "note": df.none_recorded.format(what=what)},
+        sort_keys=False,
+    )
+
+
+def _day(value: Any) -> str | None:
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
+
+
+def _text(clean: Clean, value: str | None) -> str | None:
+    return clean(value) if value else value
+
+
+def company_record_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/company_record.json``: the account as the run resolved it (name, domain, careers
+    host, listing, the lock's legal name, home page, allowed domains and subsidiaries)."""
+    lock = content.entity_lock or {}
+    record = {
+        "source": rules.data_files.source,
+        "domain": content.domain,
+        "company_name": clean(content.account_name),
+        "brand": _text(clean, content.brand_name),
+        "legal_name": _text(clean, lock.get("legal_name")),
+        "careers_host": content.careers_host,
+        "is_public": content.is_public,
+        "home_url": _shown(lock.get("home_url"), link_rule),
+        "research_date": content.as_of.isoformat(),
+        "allowed_domains": list(lock.get("allowed_domains") or ()),
+        "subsidiary_domains_reported": [
+            d for d in (lock.get("allowed_domains") or ()) if d != lock.get("primary_domain")
+        ],
+        "subsidiaries_reported": lock.get("subsidiaries") or [],
+    }
+    return _dump(record, sort_keys=False)
+
+
+def subsidiary_domains_member(content: SnapshotContent, rules: WorkspaceRules) -> bytes:
+    """``data/subsidiary_domains.json``: the domains the lock lets count as the account beside
+    the primary one, each with the careers hosts it brought."""
+    lock = content.entity_lock
+    if lock is None:
+        return _none(rules, "subsidiary domains")
+    primary = lock.get("primary_domain")
+    careers = list(lock.get("careers_hosts") or ())
+    domains = [
+        {
+            "domain": d,
+            "kept": True,
+            "careers_hosts": [h for h in careers if registrable(h) == registrable(d)],
+        }
+        for d in (lock.get("allowed_domains") or ())
+        if d != primary
+    ]
+    return _dump(
+        {
+            "source": rules.data_files.source,
+            "params": {"domain": primary or content.domain},
+            "count": len(domains),
+            "domains": domains,
+        },
+        sort_keys=False,
+    )
+
+
+def news_events_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/news_events.json``: the run's stored news events, newest first."""
+    if not content.news:
+        return _none(rules, "news events")
+    rows = [
+        {
+            "headline": clean(n.headline),
+            "summary": _text(clean, n.summary),
+            "category": n.category,
+            "found_at": _day(n.found_at),
+            "effective_date": _day(n.effective_date),
+            "confidence": n.confidence,
+            "source_url": _shown(n.source_url, link_rule),
+            "location": _text(clean, n.location),
+            "article_sentence": _text(clean, n.article_sentence),
+        }
+        for n in content.news
+    ]
+    return _dump(
+        {"source": rules.data_files.source, "count": len(rows), "events": rows}, sort_keys=False
+    )
+
+
+def _posting_record(
+    p: Any, clean: Clean, link_rule: LinkRule | None, *, description: bool
+) -> dict[str, Any]:
+    record = {
+        "id": p.posting_key,
+        "title": _text(clean, p.title),
+        "url": _shown(p.url, link_rule),
+        "status": p.status,
+        "posted_at": _day(p.posted_at),
+        "first_seen": _day(p.first_seen),
+        "last_seen": _day(p.last_seen),
+        "location": _text(clean, p.location),
+        "seniority": p.seniority,
+        "platforms": list(p.platforms),
+        "class": p.posting_class,
+        "source": p.origin,
+        "window": p.window_bucket,
+    }
+    if description:
+        record["description"] = clean(p.description) if p.description else ""
+    return record
+
+
+def jobs_window_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/jobs_12mo.json``: every posting the run stored for its window, with the text it
+    read (the owner's feed pull, in the product's own rows)."""
+    if not content.postings:
+        return _none(rules, "job postings")
+    months = rules.data_files.jobs_window_months
+    jobs = [
+        _posting_record(p, clean, link_rule, description=True)
+        for p in sorted(content.postings, key=lambda p: (str(p.first_seen or ""), p.posting_key))
+    ]
+    return _dump(
+        {
+            "source": rules.data_files.source,
+            "domain": content.domain,
+            "params": {
+                "first_seen_from": months_before(content.as_of, months).isoformat(),
+                "as_of": content.as_of.isoformat(),
+                "active_only": False,
+            },
+            "count_saved": len(jobs),
+            "jobs": jobs,
+        },
+        sort_keys=False,
+    )
+
+
+def live_postings_index_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/live_postings_index.json``: the postings seen on the live careers board, each with
+    the archived copy it has under ``data/releases/``."""
+    live = [p for p in content.postings if p.origin == "live_board"]
+    if not live:
+        return _none(rules, "live board postings")
+    by_url = {r.url: release_name(r, rules, clean) for r in content.releases if r.kind == "posting"}
+    rows = [
+        {
+            "req": p.posting_key,
+            "title": _text(clean, p.title),
+            "url": _shown(p.url, link_rule),
+            "in_feed": False,
+            "captured_file": by_url.get(p.url or ""),
+        }
+        for p in sorted(live, key=lambda p: p.posting_key)
+    ]
+    return _dump(rows, sort_keys=False)
+
+
+def techstack_confirmed_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean
+) -> bytes:
+    """``data/techstack_confirmed.json``: the organisation's confirmed stack by business
+    function, in the stored order."""
+    if not content.stack:
+        return _none(rules, "confirmed stack items")
+    functions: dict[str, list[dict[str, Any]]] = {}
+    for x in content.stack:
+        functions.setdefault(clean(x.business_function), []).append(
+            {
+                "category": clean(x.category),
+                "technology": clean(x.technology),
+                "postings": x.postings,
+            }
+        )
+    return _dump(
+        {
+            "source": rules.data_files.source,
+            "count": len(content.stack),
+            "stack": [
+                {"business_function": f, "technologies": items} for f, items in functions.items()
+            ],
+        },
+        sort_keys=False,
+    )
+
+
+def teams_member(content: SnapshotContent, rules: WorkspaceRules, clean: Clean) -> bytes:
+    """``data/teams.json``: the platform teams of the run, most postings first."""
+    if not content.teams:
+        return _none(rules, "platform teams")
+    rows = [
+        {
+            "name": clean(t.name),
+            "jobs_count": t.postings,
+            "lane_technologies": clean(t.lane_technologies),
+            "technologies": clean(t.technologies),
+            "locations": clean(t.locations),
+            "job_functions": clean(t.job_functions),
+            "first_activity": t.first_activity,
+            "last_activity": t.last_activity,
+        }
+        for t in content.teams
+    ]
+    return _dump(
+        {
+            "source": rules.data_files.source,
+            "total_matching": content.teams_matching,
+            "since": content.teams_since.isoformat() if content.teams_since else None,
+            "count": len(rows),
+            "teams": rows,
+        },
+        sort_keys=False,
+    )
+
+
+def _tsv(header: Sequence[str], rows: Sequence[Sequence[Any]]) -> bytes:
+    def cell(v: Any) -> str:
+        return " ".join(str(v if v is not None else "").split())
+
+    lines = ["\t".join(header), *("\t".join(cell(v) for v in r) for r in rows)]
+    return ("\n".join(lines) + "\n").encode()
+
+
+def people_grid_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/people_grid.txt``: one tab-separated line per person of the People List, in the
+    list's order (the owner's grid: row id, name, title, headline, profile link, employer, lane,
+    level, priority, how found)."""
+    if not content.people:
+        return rules.data_files.none_recorded.format(what="people").encode() + b"\n"
+    header = (
+        "row_id", "name", "title", "headline", "linkedin_url", "employer", "lane", "level",
+        "priority", "source",
+    )  # fmt: skip
+    rows = [
+        (
+            i,
+            clean(p.name),
+            clean(p.title),
+            _text(clean, p.profile_title) or "",
+            _shown(p.profile_url, link_rule) or "",
+            clean(content.account_name),
+            clean(p.lanes),
+            clean(p.level),
+            p.priority,
+            p.origin,
+        )
+        for i, p in enumerate(content.people, start=1)
+    ]
+    return _tsv(header, rows)
+
+
+def releases_index_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/releases_index.json``: every archived copy under ``data/releases/`` with its
+    address, title, day, kind and file name."""
+    if not content.releases:
+        return _none(rules, "captured pages")
+    rows = [
+        {
+            "url": _shown(r.url, link_rule),
+            "title": clean(r.title),
+            "date": r.day.isoformat(),
+            "kind": r.kind,
+            "file": release_name(r, rules, clean),
+        }
+        for r in content.releases
+    ]
+    return _dump(rows, sort_keys=False)
+
+
+def _own_hosts(content: SnapshotContent) -> set[str]:
+    lock = content.entity_lock or {}
+    hosts = {registrable(d) for d in (lock.get("allowed_domains") or ()) if d}
+    if content.domain:
+        hosts.add(registrable(content.domain))
+    return {h for h in hosts if h}
+
+
+def _host_of(url: str) -> str:
+    rest = url.split("://", 1)[-1]
+    return rest.split("/", 1)[0].split("@")[-1].split(":")[0].casefold()
+
+
+def site_map_news_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/site_map_news.txt``: the account's own pages the run read (news items, pages and
+    sources on the account's domains), one ``address<TAB>title`` line each, by address."""
+    own = _own_hosts(content)
+    seen: dict[str, str] = {}
+    for r in content.releases:
+        if r.kind != "posting" and registrable(_host_of(r.url)) in own:
+            seen.setdefault(r.url, clean(r.title))
+    for s in content.sources:
+        if s.url and registrable(_host_of(s.url)) in own:
+            seen.setdefault(s.url, clean(s.title or s.publisher or s.code))
+    lines = [f"{u}\t{t}" for u, t in sorted(seen.items()) if _shown(u, link_rule)]
+    if not lines:
+        return rules.data_files.none_recorded.format(what="own-site pages").encode() + b"\n"
+    return ("\n".join(lines) + "\n").encode()
+
+
+def derived_postings_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/derived/postings.json``: the merged postings the Job Postings file was rendered
+    from, in the owner's compact record (``t`` title, ``d`` description, ``f`` first seen, ``l``
+    last seen, ``status``, ``url``, ``loc``, ``sen``, ``req``, ``src``) plus the platforms and
+    class the file shows."""
+    if not content.postings:
+        return _none(rules, "job postings")
+    rows = [
+        {
+            "t": _text(clean, p.title),
+            "d": clean(p.description) if p.description else "",
+            "f": _day(p.first_seen),
+            "l": _day(p.last_seen),
+            "status": p.status,
+            "url": _shown(p.url, link_rule),
+            "loc": _text(clean, p.location),
+            "sen": p.seniority,
+            "req": p.posting_key,
+            "src": p.origin,
+            "platforms": list(p.platforms),
+            "class": p.posting_class,
+        }
+        for p in content.postings
+    ]
+    return _dump(rows, sort_keys=False)
+
+
+def derived_people_member(
+    content: SnapshotContent, rules: WorkspaceRules, clean: Clean, link_rule: LinkRule | None
+) -> bytes:
+    """``data/derived/people.json``: the people the People List was rendered from, in the
+    owner's record (``rid``, ``name``, ``title``, ``level``, ``lane``, ``url``, ``src``,
+    ``priority``, ``loc``, ``si``), and the exclusions the list's Summary states."""
+    counts = content.people_counts
+    excluded = [list(x) for x in (counts.excluded if counts else ())]
+    if not content.people and not excluded:
+        return _none(rules, "people")
+    people = [
+        {
+            "rid": str(i),
+            "name": clean(p.name),
+            "title": clean(p.title),
+            "level": clean(p.level),
+            "lane": clean(p.lanes),
+            "url": _shown(p.profile_url, link_rule),
+            "src": p.origin,
+            "priority": p.priority,
+            "loc": _text(clean, p.location),
+            "si": [clean(e) for e in p.former_employers] if p.former_employers else [],
+            "profile_title": _text(clean, p.profile_title),
+            "second_url": _shown(p.second_profile_url, link_rule),
+            "role_lane": p.role_lane,
+        }
+        for i, p in enumerate(content.people, start=1)
+    ]
+    return _dump({"people": people, "excluded": excluded}, sort_keys=False)
+
+
+def derived_stats_member(content: SnapshotContent, rules: WorkspaceRules) -> bytes:
+    """``data/derived/stats.json``: the counts the files quote, each from a stored row set."""
+    people = {
+        (f"{label} ({detail})" if detail else label): value
+        for label, detail, value in (content.people_counts.summary if content.people_counts else ())
+    }
+    jobs = {
+        key: {"label": label, "value": value, "base": base}
+        for key, label, value, base in (content.jobs_counts.lines if content.jobs_counts else ())
+    }
+    return _dump(
+        {
+            "source": rules.data_files.source,
+            "as_of": content.as_of.isoformat(),
+            "people": {"listed": len(content.people), **people},
+            "jobs": {"stored": len(content.postings), **jobs},
+            "detections": len(content.detections),
+            "confirmed_stack_items": len(content.stack),
+            "teams": len(content.teams),
+            "news_events": len(content.news),
+            "captured_pages": len(content.releases),
+            "sources": len(content.sources),
+            "facts": len(content.facts),
+        },
+        sort_keys=False,
+    )
+
+
+def captured_urls_member(
+    content: SnapshotContent, rules: WorkspaceRules, link_rule: LinkRule | None
+) -> bytes:
+    """``data/derived/captured_urls.txt``: every captured address, one per line, in order."""
+    urls = sorted({u for r in content.releases if (u := _shown(r.url, link_rule))})
+    if not urls:
+        return rules.data_files.none_recorded.format(what="captured addresses").encode() + b"\n"
+    return ("\n".join(urls) + "\n").encode()
+
+
+def readme_member(content: SnapshotContent, rules: WorkspaceRules, clean: Clean) -> bytes:
+    """``notes/README.md``: what this package is and what each folder holds."""
+    rd = rules.readme
+    account = clean(content.account_name)
+    lines = [
+        rd.title.format(account=account),
+        "",
+        rd.intro.format(
+            account=account, domain=content.domain or "", as_of=content.as_of.isoformat()
+        ),
+        "",
+        rd.contents_heading,
+        *(
+            rd.folder_line.format(folder=folder, what=rules.restore.folders[folder])
+            for folder in rules.folders
+        ),
+    ]
+    return ("\n".join(lines) + "\n").encode()
+
+
 def workspace_members(
     content: SnapshotContent,
     rules: WorkspaceRules,
@@ -579,10 +1035,27 @@ def workspace_members(
     zip holds (a file left out of the set is not listed); ``link_rule`` keeps out of the records
     a link a client file may not carry."""
     built: dict[str, bytes] = {
+        "data/company_record.json": company_record_member(content, rules, clean, link_rule),
+        "data/subsidiary_domains.json": subsidiary_domains_member(content, rules),
         "data/entity_lock.json": entity_lock_member(content, rules),
-        "data/web_searches.json": web_searches_member(content, rules, clean, link_rule),
+        "data/news_events.json": news_events_member(content, rules, clean, link_rule),
+        "data/jobs_12mo.json": jobs_window_member(content, rules, clean, link_rule),
+        "data/live_postings_index.json": live_postings_index_member(
+            content, rules, clean, link_rule
+        ),
         "data/techstack_detections.json": techstack_detections_member(content, clean, link_rule),
+        "data/techstack_confirmed.json": techstack_confirmed_member(content, rules, clean),
+        "data/teams.json": teams_member(content, rules, clean),
+        "data/people_grid.txt": people_grid_member(content, rules, clean, link_rule),
+        "data/web_searches.json": web_searches_member(content, rules, clean, link_rule),
+        "data/releases_index.json": releases_index_member(content, rules, clean, link_rule),
+        "data/site_map_news.txt": site_map_news_member(content, rules, clean, link_rule),
+        "data/derived/postings.json": derived_postings_member(content, rules, clean, link_rule),
+        "data/derived/people.json": derived_people_member(content, rules, clean, link_rule),
+        "data/derived/stats.json": derived_stats_member(content, rules),
+        "data/derived/captured_urls.txt": captured_urls_member(content, rules, link_rule),
         "build/urls.json": urls_member(content, link_rule),
+        "notes/README.md": readme_member(content, rules, clean),
         "notes/pull_log.md": pull_log_member(content, rules, filenames, clean),
         "notes/pass1.md": pass1_member(content, rules, internal_reason_texts),
         "notes/sense_check.md": sense_check_member(content, rules, label_of, clean),

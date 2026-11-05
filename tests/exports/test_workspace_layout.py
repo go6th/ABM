@@ -9,7 +9,7 @@ import io
 import json
 import zipfile
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -17,16 +17,33 @@ from account_intelligence.connectors.base import Operation
 from account_intelligence.tracker.config import load_tracker_config
 from exports.builder import ExportBuilder
 from exports.config import ExportConfig, provider_hosts
-from exports.content import PullCall, SenseCheckRow, SnapshotContent, WebHit
+from exports.content import NewsRow, PullCall, SenseCheckRow, SnapshotContent, WebHit
 from exports.workspace import check_zip
 from tests.exports.corpus import account
 from tests.fakes.exports import MemoryStore
 
+# the run records, in zip order: the owner's reference data/ files (UCB audit 2026-11-05), the
+# source link map, and the notes
 NEW_MEMBERS = (
+    "data/company_record.json",
+    "data/subsidiary_domains.json",
     "data/entity_lock.json",
-    "data/web_searches.json",
+    "data/news_events.json",
+    "data/jobs_12mo.json",
+    "data/live_postings_index.json",
     "data/techstack_detections.json",
+    "data/techstack_confirmed.json",
+    "data/teams.json",
+    "data/people_grid.txt",
+    "data/web_searches.json",
+    "data/releases_index.json",
+    "data/site_map_news.txt",
+    "data/derived/postings.json",
+    "data/derived/people.json",
+    "data/derived/stats.json",
+    "data/derived/captured_urls.txt",
     "build/urls.json",
+    "notes/README.md",
     "notes/pull_log.md",
     "notes/pass1.md",
     "notes/sense_check.md",
@@ -146,6 +163,72 @@ async def test_members_in_order_and_listed_in_the_manifest(
     listed = {m["name"] for m in json.loads(members["MANIFEST.json"])["members"]}
     assert {"RESTORE.md", *NEW_MEMBERS} <= listed
     assert check_zip(body, cfg.rules) == ()
+
+
+@pytest.mark.asyncio
+async def test_data_members_hold_the_stored_rows_in_the_owners_shapes(
+    make_builder: Callable[..., ExportBuilder], cfg: ExportConfig
+) -> None:
+    # UCB audit 2026-11-05: the data/ files follow the owner's reference workspace file by file
+    # and are built from stored rows only
+    news = (
+        NewsRow(
+            id="n1",
+            headline="Synthetic Alpha opens a plant",
+            summary="A plant opens.",
+            category="expands_facilities",
+            found_at=date(2026, 9, 1),
+            source_url="https://press.example/plant",
+        ),
+    )
+    content = _content(news=news)
+    _, members = await _zip(make_builder, content)
+    events = json.loads(members["data/news_events.json"])
+    assert events["count"] == 1 and events["events"][0]["headline"] == news[0].headline
+    assert events["events"][0]["found_at"] == "2026-09-01"
+    jobs = json.loads(members["data/jobs_12mo.json"])
+    assert jobs["count_saved"] == len(content.postings) == len(jobs["jobs"])
+    assert {
+        "id",
+        "title",
+        "url",
+        "status",
+        "first_seen",
+        "platforms",
+        "class",
+        "description",
+    } <= set(jobs["jobs"][0])
+    derived = json.loads(members["data/derived/postings.json"])
+    assert [r["req"] for r in derived] == [p.posting_key for p in content.postings]
+    assert {"t", "d", "f", "l", "status", "url", "loc", "sen", "req", "src"} <= set(derived[0])
+    people = json.loads(members["data/derived/people.json"])["people"]
+    assert [p["name"] for p in people] == [p.name for p in content.people]
+    grid = members["data/people_grid.txt"].decode().splitlines()
+    assert grid[0].split("\t")[:3] == ["row_id", "name", "title"]
+    assert len(grid) == len(content.people) + 1
+    stack = json.loads(members["data/techstack_confirmed.json"])
+    assert stack["count"] == len(content.stack)
+    stats = json.loads(members["data/derived/stats.json"])
+    assert stats["people"]["listed"] == len(content.people)
+    assert stats["jobs"]["stored"] == len(content.postings) and stats["news_events"] == 1
+    record = json.loads(members["data/company_record.json"])
+    assert record["domain"] == content.domain and record["legal_name"] == LOCK["legal_name"]
+    subs = json.loads(members["data/subsidiary_domains.json"])
+    assert subs["params"]["domain"] == LOCK["primary_domain"]
+    readme = members["notes/README.md"].decode()
+    assert readme.startswith(f"# {content.account_name} research package\n")
+    for folder in cfg.rules.workspace.folders:
+        assert f"- {folder}/: " in readme
+    # a source with no rows says so in one line and never invents a row
+    assert json.loads(members["data/teams.json"])["count"] == 0
+    assert cfg.rules.workspace.data_files.none_recorded.format(what="platform teams") in (
+        members["data/teams.json"].decode()
+    )
+    # a provider payload is never among the members (D-25)
+    assert not any(
+        n.endswith(("profiles_full.json", "posts_comments.json", "connections.json"))
+        for n in members
+    )
 
 
 @pytest.mark.asyncio

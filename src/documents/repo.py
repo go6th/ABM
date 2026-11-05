@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -24,7 +24,8 @@ _COLS = (
     "id, account_id, name, declared_bytes, size_bytes, declared_type, detected_type, sha256,"
     " quarantine_key, upload_token_sha256, object_key, status, reject_reason, stop_detail,"
     " redaction_tier, authoritative, detected_company, passages, redactions, uploaded_by,"
-    " upload_expires_at, created_at, updated_at, parts_total, indexed_through"
+    " upload_expires_at, created_at, updated_at, parts_total, indexed_through, audience,"
+    " imported_at, scan_attempts"
 )
 PART_SPAN = 10_000_000  # passage numbers per part: part n writes n * PART_SPAN + 1, + 2, ...
 # a text column is multi-valued (a cell holds "a, b; c" items) when a fifth or more of its
@@ -156,6 +157,66 @@ async def reject(s: AsyncSession, document_id: UUID, reason: str, detail: str | 
     )
 
 
+async def begin_scan(s: AsyncSession, document_id: UUID) -> None:
+    """Move a document to ``scanning`` and count the attempt (``scan_attempts``)."""
+    await s.execute(
+        text(
+            "UPDATE documents SET status = 'scanning', scan_attempts = scan_attempts + 1,"
+            " updated_at = now() WHERE tenant_id = (SELECT app_tenant()) AND id = :d"
+        ),
+        {"d": document_id},
+    )
+
+
+async def scan_failed(s: AsyncSession, document_id: UUID, detail: str | None) -> None:
+    """End a scan attempt ``scan_failed``: the scanner could not be reached, so the file is
+    neither clean nor infected. It is never read; its quarantine object is kept for a retry."""
+    await s.execute(
+        text(
+            "UPDATE documents SET status = 'scan_failed', reject_reason = 'scan_unavailable',"
+            " stop_detail = :dt, lease_owner = NULL, lease_expires_at = NULL,"
+            " updated_at = now() WHERE tenant_id = (SELECT app_tenant()) AND id = :d"
+        ),
+        {"d": document_id, "dt": (detail or None) and detail[:600]},
+    )
+
+
+async def requeue_scans(
+    s: AsyncSession, tenant_id: UUID, idle_before: datetime, max_attempts: int, limit: int
+) -> list[UUID]:
+    """``scan_failed`` documents of one client that have waited since ``idle_before`` and have
+    attempts left go back to ``quarantined`` (their reason is cleared); their ids."""
+    rows = await s.execute(
+        text(
+            "UPDATE documents SET status = 'quarantined', reject_reason = NULL, stop_detail = NULL,"
+            " updated_at = now() WHERE id IN (SELECT id FROM documents WHERE tenant_id = :t"
+            " AND status = 'scan_failed' AND scan_attempts < :m AND updated_at < :b"
+            " ORDER BY updated_at, id LIMIT :l FOR UPDATE SKIP LOCKED)"
+            " AND tenant_id = :t RETURNING id"
+        ),
+        {"t": tenant_id, "m": max_attempts, "b": idle_before, "l": limit},
+    )
+    return [UUID(str(r.id)) for r in rows.all()]
+
+
+async def abandon_stale(
+    s: AsyncSession, tenant_id: UUID, started_before: datetime, limit: int
+) -> list[tuple[UUID, str]]:
+    """``awaiting_upload`` documents of one client that began before ``started_before`` become
+    ``abandoned`` (their upload token is dropped); ``(id, quarantine_key)`` of each."""
+    rows = await s.execute(
+        text(
+            "UPDATE documents SET status = 'abandoned', upload_token_sha256 = NULL,"
+            " updated_at = now() WHERE id IN (SELECT id FROM documents WHERE tenant_id = :t"
+            " AND status = 'awaiting_upload' AND created_at < :b"
+            " ORDER BY created_at, id LIMIT :l FOR UPDATE SKIP LOCKED)"
+            " AND tenant_id = :t RETURNING id, quarantine_key"
+        ),
+        {"t": tenant_id, "b": started_before, "l": limit},
+    )
+    return [(UUID(str(r.id)), str(r.quarantine_key)) for r in rows.all()]
+
+
 async def claim(
     s: AsyncSession, document_id: UUID, owner: str, ttl_s: int, statuses: Sequence[str]
 ) -> Any:
@@ -258,21 +319,105 @@ async def write_passages(
         )
 
 
-async def bind_account(s: AsyncSession, document_ids: Sequence[UUID], account_id: UUID) -> int:
-    """Bind unbound documents (and their passages and map) to the confirmed account."""
+async def bind_account(
+    s: AsyncSession, document_ids: Sequence[UUID], account_id: UUID, *, rebind: bool = False
+) -> int:
+    """Bind unbound documents (and their passages, map, table store and zip members) to the
+    confirmed account. The table store moves too: Ask lists tables by account, so a table left
+    unbound is never offered and every count question falls back to search (2026-11-04).
+    ``rebind`` also moves documents held as ``needs_account`` that were bound to another account
+    (the user picked a different one)."""
+    held = " OR status = 'needs_account'" if rebind else ""
     res = await s.execute(
         text(
-            "UPDATE documents SET account_id = :a, updated_at = now() WHERE id = ANY(:ids)"
-            " AND (account_id IS NULL OR account_id = :a)"
+            "UPDATE documents SET account_id = :a, updated_at = now()"
+            " WHERE tenant_id = (SELECT app_tenant()) AND id = ANY(:ids)"
+            f" AND (account_id IS NULL OR account_id = :a{held})"  # nosec B608 -- fixed text.
+            " RETURNING id"
         ),
         {"a": account_id, "ids": list(document_ids)},
     )
-    for table in ("document_passages", "document_redactions"):
+    # only the documents whose own row moved take their passages, map, tables and members along
+    moved = [UUID(str(r.id)) for r in res.all()]
+    if not moved:
+        return 0
+    for table in (
+        "document_passages",
+        "document_redactions",
+        "document_tables",
+        "document_table_rows",
+        "document_members",
+    ):
         await s.execute(
-            text(f"UPDATE {table} SET account_id = :a WHERE document_id = ANY(:ids)"),  # nosec B608 -- table from a fixed tuple.
-            {"a": account_id, "ids": list(document_ids)},
+            text(
+                f"UPDATE {table} SET account_id = :a"  # nosec B608 -- table from a fixed tuple.
+                " WHERE tenant_id = (SELECT app_tenant()) AND document_id = ANY(:ids)"
+            ),
+            {"a": account_id, "ids": moved},
         )
-    return int(res.rowcount or 0)  # type: ignore[attr-defined]
+    return len(moved)
+
+
+async def release_hold(s: AsyncSession, document_ids: Sequence[UUID]) -> list[UUID]:
+    """Release uploads held as ``needs_account`` (now bound) back to ``parsed``; the ids moved."""
+    rows = await s.execute(
+        text(
+            "UPDATE documents SET status = 'parsed', updated_at = now()"
+            " WHERE tenant_id = (SELECT app_tenant()) AND id = ANY(:ids)"
+            " AND status = 'needs_account' AND account_id IS NOT NULL RETURNING id"
+        ),
+        {"ids": list(document_ids)},
+    )
+    return [UUID(str(r.id)) for r in rows]
+
+
+async def account_identity(s: AsyncSession, account_id: UUID) -> Any:
+    """The domain, name and watch config of a live account of the tenant (None when absent):
+    what the workspace gate compares an uploaded package with."""
+    return (
+        await s.execute(
+            text(
+                "SELECT domain, name, watch_config_json FROM accounts"
+                " WHERE tenant_id = (SELECT app_tenant()) AND id = :a AND deleted_at IS NULL"
+            ),
+            {"a": account_id},
+        )
+    ).first()
+
+
+async def account_domain(s: AsyncSession, account_id: UUID) -> str | None:
+    """The domain of a live account of the tenant (RLS limits it to the user's own)."""
+    value = (
+        await s.execute(
+            text(
+                "SELECT domain FROM accounts WHERE tenant_id = (SELECT app_tenant())"
+                " AND id = :a AND deleted_at IS NULL"
+            ),
+            {"a": account_id},
+        )
+    ).scalar_one_or_none()
+    return str(value) if value else None
+
+
+async def account_for_domain(
+    s: AsyncSession, document_id: UUID, registrable_domain: str
+) -> UUID | None:
+    """The live account of the document's owner whose domain is ``registrable_domain`` (or a
+    subdomain of it); None when there is none. The tenant is the session's (``app_tenant()``)."""
+    row = (
+        await s.execute(
+            text(
+                "SELECT a.id FROM accounts a JOIN documents d ON d.id = :d"
+                " AND d.tenant_id = a.tenant_id AND a.owner_user_id = d.owner_user_id"
+                " WHERE a.tenant_id = (SELECT app_tenant()) AND a.deleted_at IS NULL"
+                " AND (a.domain = :r OR right(a.domain, length(:r) + 1) = '.' || :r)"
+                " ORDER BY a.domain = :r DESC, a.id"
+                " LIMIT 1"
+            ),
+            {"d": document_id, "r": registrable_domain},
+        )
+    ).first()
+    return UUID(str(row.id)) if row else None
 
 
 async def passages(s: AsyncSession, document_id: UUID) -> list[Any]:
@@ -727,6 +872,7 @@ async def clear_part(s: AsyncSession, document_id: UUID, part_no: int) -> None:
         " AND passage_seq BETWEEN :lo AND :hi",
         "DELETE FROM document_passages WHERE document_id = :d AND seq BETWEEN :lo AND :hi",
         "DELETE FROM document_table_rows WHERE document_id = :d AND part_no = :n",
+        "DELETE FROM document_members WHERE document_id = :d AND part_no = :n",
     ):
         await s.execute(text(sql), {"d": document_id, "lo": lo, "hi": hi, "n": part_no})
 
@@ -783,6 +929,173 @@ async def retry_part(s: AsyncSession, document_id: UUID, part_no: int) -> bool:
             " WHERE document_id = :d AND part_no = :n AND status = 'failed'"
         ),
         {"d": document_id, "n": part_no},
+    )
+    return bool(res.rowcount)  # type: ignore[attr-defined]
+
+
+_MEMBER_COLS = (
+    "id, member_path, role, declared_type, bytes, status, failure, passages, tables, audience,"
+    " part_no, rows_imported, rows_merged, rows_skipped, created_at, updated_at"
+)
+
+
+async def set_member_import_counts(
+    s: AsyncSession, document_id: UUID, member_path: str, imported: int, merged: int, skipped: int
+) -> None:
+    """What the import made of a member's rows (the reconciliation on the Uploaded files sheet)."""
+    await s.execute(
+        text(
+            "UPDATE document_members SET rows_imported = :i, rows_merged = :m, rows_skipped = :k,"
+            " updated_at = now() WHERE document_id = :d AND member_path = :p"
+        ),
+        {"d": document_id, "p": member_path, "i": imported, "m": merged, "k": skipped},
+    )
+
+
+async def record_members(
+    s: AsyncSession,
+    document_id: UUID,
+    account_id: UUID | None,
+    part_no: int | None,
+    members: Sequence[Mapping[str, Any]],
+) -> int:
+    """One row per file inside an uploaded zip (``document_members``, 0102), written by the
+    part that read, skipped or failed it: an existing row for the path is overwritten (a part
+    read again starts clean). Each item: ``member_path``, ``role``, ``declared_type``,
+    ``bytes``, ``status`` (read, skipped, failed), ``failure``, ``passages``, ``tables``,
+    ``audience``. Returns the rows written."""
+    n = 0
+    for m in members:
+        await s.execute(
+            text(
+                "INSERT INTO document_members (owner_user_id, document_id, account_id,"
+                " member_path, role, declared_type, bytes, status, failure, passages, tables,"
+                " audience, part_no) SELECT d.owner_user_id, d.id, :a, :p, :r, :t, :b, :st, :f,"
+                " :np, :nt, :au, :pn FROM documents d WHERE d.id = :d"
+                " ON CONFLICT (document_id, member_path) DO UPDATE SET role = EXCLUDED.role,"
+                " declared_type = EXCLUDED.declared_type, bytes = EXCLUDED.bytes,"
+                " status = EXCLUDED.status, failure = EXCLUDED.failure,"
+                " passages = EXCLUDED.passages, tables = EXCLUDED.tables,"
+                " audience = EXCLUDED.audience, part_no = EXCLUDED.part_no, updated_at = now()"
+            ),
+            {
+                "d": document_id,
+                "a": account_id,
+                "p": str(m["member_path"])[:1024],
+                "r": str(m.get("role") or "other"),
+                "t": (str(m["declared_type"])[:40] if m.get("declared_type") else None),
+                "b": int(m["bytes"]) if m.get("bytes") is not None else None,
+                "st": str(m.get("status") or "read"),
+                "f": (str(m["failure"])[:200] if m.get("failure") else None),
+                "np": int(m.get("passages") or 0),
+                "nt": int(m.get("tables") or 0),
+                "au": str(m.get("audience") or "client"),
+                "pn": part_no,
+            },
+        )
+        n += 1
+    return n
+
+
+async def members(s: AsyncSession, document_id: UUID) -> list[Any]:
+    """A document's member rows in path order (empty for a file that is not an archive)."""
+    rows = await s.execute(
+        text(
+            f"SELECT {_MEMBER_COLS} FROM document_members WHERE document_id = :d"  # nosec B608 -- fixed columns.
+            " ORDER BY member_path"
+        ),
+        {"d": document_id},
+    )
+    return list(rows.all())
+
+
+async def member_paths(s: AsyncSession, document_id: UUID) -> set[str]:
+    """The member paths a document already has rows for."""
+    rows = await s.execute(
+        text("SELECT member_path FROM document_members WHERE document_id = :d"),
+        {"d": document_id},
+    )
+    return {str(r.member_path) for r in rows}
+
+
+async def import_notes(
+    s: AsyncSession,
+    account_id: UUID,
+    run_id: UUID,
+    document_id: UUID,
+    notes: Sequence[Mapping[str, Any]],
+) -> int:
+    """Store the notes of an uploaded workspace (``research_notes``, 0105): each item has
+    ``kind`` (pull_log, pass1, sense_check, restore, note), ``title``, ``text``, ``audience``
+    and ``member_path``; a note the run already holds is left as is. Returns the rows written."""
+    written = 0
+    for note in notes:
+        body = str(note.get("text") or "")[:200000]
+        if not body.strip():
+            continue
+        res = await s.execute(
+            text(
+                "INSERT INTO research_notes (owner_user_id, account_id, run_id, document_id,"
+                " kind, title, text, audience, member_path)"
+                " SELECT d.owner_user_id, :a, :r, d.id, :kind, :title, :body, :audience, :member"
+                " FROM documents d WHERE d.id = :d"
+                " ON CONFLICT (tenant_id, run_id, kind, title) DO NOTHING"
+            ),
+            {
+                "a": account_id,
+                "r": run_id,
+                "d": document_id,
+                "kind": str(note.get("kind") or "note"),
+                "title": str(note.get("title") or "note")[:300],
+                "body": body,
+                "audience": str(note.get("audience") or "client"),
+                "member": (str(note.get("member_path") or "")[:1024] or None),
+            },
+        )
+        written += int(bool(res.rowcount))  # type: ignore[attr-defined]
+    return written
+
+
+async def import_pull_calls(
+    s: AsyncSession,
+    account_id: UUID,
+    run_id: UUID,
+    document_id: UUID,
+    calls: Sequence[Mapping[str, Any]],
+) -> int:
+    """Store the pull log's call table of an uploaded workspace (``pull_log_calls``, 0105), one
+    row per line in order; a position the run already holds is left as is."""
+    written = 0
+    for position, call in enumerate(calls):
+        res = await s.execute(
+            text(
+                "INSERT INTO pull_log_calls (owner_user_id, account_id, run_id, position, step,"
+                " tool_role, parameters, result_count, output_file)"
+                " SELECT d.owner_user_id, :a, :r, :p, :step, :tool, :params, :count, :file"
+                " FROM documents d WHERE d.id = :d"
+                " ON CONFLICT (tenant_id, run_id, position) DO NOTHING"
+            ),
+            {
+                "a": account_id,
+                "r": run_id,
+                "d": document_id,
+                "p": position,
+                "step": (str(call.get("step") or "")[:40] or None),
+                "tool": (str(call.get("tool") or "")[:200] or None),
+                "params": (str(call.get("parameters") or "")[:4000] or None),
+                "count": (str(call.get("result") or "")[:1000] or None),
+                "file": (str(call.get("output") or "")[:500] or None),
+            },
+        )
+        written += int(bool(res.rowcount))  # type: ignore[attr-defined]
+    return written
+
+
+async def set_audience(s: AsyncSession, document_id: UUID, audience: str) -> bool:
+    """Who may see a document: client, owner_only or internal (0102)."""
+    res = await s.execute(
+        text("UPDATE documents SET audience = :v, updated_at = now() WHERE id = :d"),
+        {"d": document_id, "v": audience},
     )
     return bool(res.rowcount)  # type: ignore[attr-defined]
 
@@ -938,6 +1251,47 @@ async def log_embedding_call(
     )
 
 
+async def add_embedding_tokens(
+    s: AsyncSession, tenant_id: UUID, document_id: UUID, tokens: int
+) -> None:
+    """Add one embedding batch's tokens to the document's running total (called in the same
+    transaction as ``log_embedding_call``, so the total equals the call-log rows)."""
+    await s.execute(
+        text(
+            "UPDATE documents SET embedding_tokens = embedding_tokens + :n"
+            " WHERE tenant_id = :t AND id = :d"
+        ),
+        {"n": tokens, "t": tenant_id, "d": document_id},
+    )
+
+
+async def mark_analysis_run(
+    s: AsyncSession, tenant_id: UUID, document_id: UUID, run_id: UUID
+) -> None:
+    """Record the run of the document's own analysis (step 5); the first one stays."""
+    await s.execute(
+        text(
+            "UPDATE documents SET analysis_run_id = coalesce(analysis_run_id, :r)"
+            " WHERE tenant_id = :t AND id = :d"
+        ),
+        {"r": run_id, "t": tenant_id, "d": document_id},
+    )
+
+
+async def set_analysis_tokens(
+    s: AsyncSession, tenant_id: UUID, run_id: UUID, input_tokens: int, output_tokens: int
+) -> None:
+    """Set (not add) the model tokens of a settled analysis run on the document it analysed
+    (``runs.lifecycle.settle_once``); a run that is no document's analysis changes no row."""
+    await s.execute(
+        text(
+            "UPDATE documents SET analysis_input_tokens = :i, analysis_output_tokens = :o"
+            " WHERE tenant_id = :t AND analysis_run_id = :r"
+        ),
+        {"i": input_tokens, "o": output_tokens, "t": tenant_id, "r": run_id},
+    )
+
+
 async def mark_imported(s: AsyncSession, document_id: UUID, at: datetime) -> None:
     """Record that the document's rows were read for the deliverable workbooks
     (``documents.deliverables``), rows found or not; the sweep's backfill skips it from then on."""
@@ -946,17 +1300,26 @@ async def mark_imported(s: AsyncSession, document_id: UUID, at: datetime) -> Non
     )
 
 
-async def claim_imports(s: AsyncSession, now: datetime, limit: int) -> list[Any]:
+async def claim_imports(
+    s: AsyncSession, now: datetime, limit: int, *, max_attempts: int = 3, base_s: int = 300
+) -> list[Any]:
     """Claim up to ``limit`` indexed documents bound to an account whose rows were never read
     for the deliverable workbooks, by marking them now (``FOR UPDATE SKIP LOCKED``: two sweeps
-    running at once never read the same document); their ids and owners."""
+    running at once never read the same document); their ids and owners. An import that failed
+    as a whole waits ``base_s`` x 2^(attempts - 1) before it is tried again, and is not tried
+    again after ``max_attempts`` (its import run stays failed; PR3, 2026-11-04)."""
     rows = await s.execute(
         text(
-            "UPDATE documents SET imported_at = :at WHERE id IN (SELECT id FROM documents"
-            " WHERE status = 'indexed' AND account_id IS NOT NULL AND imported_at IS NULL"
-            " ORDER BY created_at LIMIT :n FOR UPDATE SKIP LOCKED) RETURNING id, owner_user_id"
+            "UPDATE documents SET imported_at = :at WHERE id IN (SELECT d.id FROM documents d"
+            " WHERE d.tenant_id = app_tenant() AND d.status = 'indexed'"
+            " AND d.account_id IS NOT NULL AND d.imported_at IS NULL"
+            " AND NOT EXISTS (SELECT 1 FROM import_runs r WHERE r.tenant_id = d.tenant_id"
+            "   AND r.document_id = d.id AND r.status = 'failed' AND (r.attempts >= :max"
+            "   OR r.finished_at > CAST(:at AS timestamptz)"
+            "     - make_interval(secs => :base * power(2, r.attempts - 1))))"
+            " ORDER BY d.created_at LIMIT :n FOR UPDATE SKIP LOCKED) RETURNING id, owner_user_id"
         ),
-        {"at": now, "n": limit},
+        {"at": now, "n": limit, "max": max_attempts, "base": base_s},
     )
     return list(rows.all())
 
@@ -1089,15 +1452,19 @@ async def set_table_schema(s: AsyncSession, table_id: UUID, record: dict[str, An
 
 async def tables_for(s: AsyncSession, accounts: Sequence[UUID]) -> list[Any]:
     """The ingested tables of these accounts (newest document first, then by name), with the
-    document's name."""
+    document's name. A table written before its document was bound (bind_account before
+    2026-11-04 left it unbound) counts under the document's account."""
     if not accounts:
         return []
     rows = await s.execute(
         text(
-            "SELECT t.id, t.document_id, t.account_id, t.member, t.table_name, t.columns,"
+            "SELECT t.id, t.document_id, coalesce(t.account_id, d.account_id) AS account_id,"
+            " t.member, t.table_name, t.columns,"
             " t.payload_columns, t.business_key, t.row_count, coalesce(d.name, 'an uploaded"
             " file') AS document, d.created_at FROM document_tables t JOIN documents d ON d.id ="
-            " t.document_id WHERE t.account_id = ANY(:scope) AND t.row_count > 0"
+            " t.document_id WHERE coalesce(t.account_id, d.account_id) = ANY(:scope)"
+            # an upload held for its account (it names another company) answers nothing yet
+            " AND t.row_count > 0 AND d.status <> 'needs_account'"
             " ORDER BY d.created_at DESC, d.id, t.table_name"
         ),
         {"scope": list(accounts)},
@@ -1118,8 +1485,103 @@ _VIEW_ROWS = (
 )
 
 
-def _view_params(view: Any) -> dict[str, Any]:
-    return {
+def _newest(table: str, alias: str, same: str) -> str:
+    """The account's CURRENT row of each thing the research records per run (the rule of
+    ``account_intelligence.replica.current.newest_only``, leakage review 2026-10-30, F2): a
+    research that resumes or repeats an account records its people and postings again under a
+    new run, and an import adds its rows under the file-import run, so of the rows that are the
+    same thing only the newest is read."""
+    return (
+        f" AND NOT EXISTS (SELECT 1 FROM {table} n WHERE n.tenant_id = {alias}.tenant_id"
+        f" AND n.account_id = {alias}.account_id AND {same}"
+        f" AND (n.created_at, n.id) > ({alias}.created_at, {alias}.id))"
+    )
+
+
+# The accounts' current rows in their native tables, read with the same row shape (the
+# ``native`` source of ``documents.tables.ViewSource``): an uploaded workspace is imported into
+# ``people``, ``job_postings`` and ``tech_detections`` under a file-import run that no export
+# reader materialises (``views.materialize`` reads a run's pipeline records, which an import has
+# none of; UCB 2026-11-04: Ask had no count tools over 1,600 imported people). Each fragment is
+# fixed text whose values are all bound (``:accts``, and ``:hidden`` where the tenant's current
+# exclusions apply); the row number counts the table's rows in (account, stored order), the
+# ``file_row`` cell the row's place within its account, ``account`` names the account. Dates are
+# ISO text (blank when unknown), as the research tables print them. Besides row level security,
+# each fragment carries the session tenant (``app_tenant()``) as its own predicate, so a read
+# by a role RLS never applies to still sees one tenant (upload hardening PR1, 2026-11-04).
+_NATIVE_ROWS: dict[str, str] = {
+    "people": (
+        "(SELECT row_number() OVER (ORDER BY p.account_id, p.created_at, p.id) AS row_no,"
+        " 0 AS seq, jsonb_build_object('account', coalesce(a.name, a.domain),"
+        " 'file_row', row_number() OVER (PARTITION BY p.account_id ORDER BY p.created_at, p.id),"
+        " 'name', coalesce(p.name, ''), 'title', coalesce(p.title, ''),"
+        " 'level', coalesce(p.job_level, ''), 'location', coalesce(p.location, ''),"
+        " 'lanes', coalesce(array_to_string(p.lanes, ', '), ''),"
+        " 'priority', coalesce(p.priority, ''), 'scope', coalesce(p.scope_status, ''),"
+        " 'origin', coalesce(p.origin, ''), 'profile_url', coalesce(p.profile_url, ''),"
+        " 'former_employers', coalesce((SELECT array_to_string(pp.prior_employers, ', ')"
+        "   FROM person_profiles pp WHERE pp.tenant_id = p.tenant_id AND pp.run_id = p.run_id"
+        "   AND pp.person_key = p.person_key AND pp.erased_at IS NULL LIMIT 1), ''),"
+        " 'headline', coalesce(p.headline, ''), 'note', coalesce(p.note, '')) AS cells"
+        " FROM people p JOIN accounts a ON a.tenant_id = p.tenant_id AND a.id = p.account_id"
+        " WHERE p.tenant_id = app_tenant() AND p.account_id = ANY(:accts) AND NOT p.excluded"
+        " AND p.merged_into IS NULL"
+        " AND p.erased_at IS NULL AND NOT coalesce(p.internal_only, false)"
+        " AND CAST(p.id AS text) <> ALL(CAST(:hidden AS text[]))"
+        + _newest("people", "p", "p.person_key IS NOT NULL AND n.person_key = p.person_key")
+        + ") r"
+    ),
+    "jobs": (
+        "(SELECT row_number() OVER (ORDER BY j.account_id, j.created_at, j.id) AS row_no,"
+        " 0 AS seq, jsonb_build_object('account', coalesce(a.name, a.domain),"
+        " 'file_row', row_number() OVER (PARTITION BY j.account_id ORDER BY j.created_at, j.id),"
+        " 'requisition', CASE WHEN left(j.posting_key, 3) = 'id:' THEN substr(j.posting_key, 4)"
+        "   ELSE '' END,"
+        " 'title', coalesce(j.title, ''), 'status', initcap(j.status),"
+        " 'location', coalesce(j.location, ''),"
+        " 'platforms', coalesce(array_to_string(j.platforms, ', '), ''),"
+        " 'lanes', coalesce(array_to_string(j.lanes, ', '), ''),"
+        " 'class', coalesce(j.posting_class, ''), 'seniority', coalesce(j.seniority, ''),"
+        " 'posted', coalesce(to_char(j.posted_at, 'YYYY-MM-DD'), ''),"
+        " 'first_seen', coalesce(to_char(j.first_seen, 'YYYY-MM-DD'), ''),"
+        " 'last_seen', coalesce(to_char(j.last_seen, 'YYYY-MM-DD'), ''),"
+        " 'entity', coalesce(j.entity_tag, ''), 'url', coalesce(j.url, ''),"
+        " 'summary', coalesce(j.summary_read, '')) AS cells"
+        " FROM job_postings j JOIN accounts a ON a.tenant_id = j.tenant_id AND a.id = j.account_id"
+        " WHERE j.tenant_id = app_tenant() AND j.account_id = ANY(:accts)"
+        " AND NOT coalesce(j.hostile, false)"
+        " AND CAST(j.id AS text) <> ALL(CAST(:hidden AS text[]))"
+        + _newest("job_postings", "j", "n.posting_key = j.posting_key")
+        + ") r"
+    ),
+    "tech": (
+        "(SELECT row_number() OVER (ORDER BY t.account_id, t.created_at, t.id) AS row_no,"
+        " 0 AS seq, jsonb_build_object('account', coalesce(a.name, a.domain),"
+        " 'file_row', row_number() OVER (PARTITION BY t.account_id ORDER BY t.created_at, t.id),"
+        " 'technology', t.technology, 'sources', coalesce(t.source_count, 0),"
+        " 'cross_check', coalesce(t.cross_check_result, ''),"
+        " 'first_seen', coalesce(t.first_seen_at, ''), 'last_seen', coalesce(t.last_seen_at, ''))"
+        " AS cells"
+        " FROM tech_detections t JOIN accounts a ON a.tenant_id = t.tenant_id"
+        " AND a.id = t.account_id"
+        " WHERE t.tenant_id = app_tenant() AND t.account_id = ANY(:accts)"
+        + _newest("tech_detections", "t", "n.technology = t.technology")
+        + ") r"
+    ),
+}
+NATIVE_KINDS = tuple(_NATIVE_ROWS)
+
+
+def rows_source(view: Any) -> tuple[str, dict[str, Any]]:
+    """The row source of a research table (``documents.tables.ViewSource``) as the fixed SQL
+    fragment aliased ``r`` (``row_no``, ``seq``, ``cells``) and the parameters it binds."""
+    if getattr(view, "source", "view_rows") == "native":
+        sql = _NATIVE_ROWS[view.kind]
+        params: dict[str, Any] = {"accts": list(view.account_ids)}
+        if ":hidden" in sql:
+            params["hidden"] = [str(h) for h in getattr(view, "hidden", ())]
+        return sql, params
+    return _VIEW_ROWS, {
         "runs": list(view.run_ids),
         "kind": view.kind,
         "accts": list(view.account_ids),
@@ -1140,14 +1602,15 @@ async def table_rows(
     column whitelist and never from the caller's text), in row order, at most ``limit``. ``view``
     (a ``documents.tables.ViewSource``) reads a research table from ``view_rows`` instead."""
     if view is not None:
+        source, bound = rows_source(view)
         found = await s.execute(
             text(
                 "SELECT r.row_no, r.seq, r.cells FROM "  # nosec B608
-                + _VIEW_ROWS  # fixed text; the fragment binds every value (see above)
+                + source  # fixed text; the fragment binds every value (see above)
                 + (f" WHERE ({where})" if where else "")
                 + " ORDER BY r.row_no LIMIT :n"
             ),
-            {**params, **_view_params(view), "n": limit},
+            {**params, **bound, "n": limit},
         )
         return list(found.all())
     rows = await s.execute(
@@ -1167,9 +1630,10 @@ async def table_chars(s: AsyncSession, table_id: UUID, *, view: Any | None = Non
     """The characters the table's rows hold (cells as JSON): what ``replica.read_plan`` weighs
     against the budget before it puts a whole table in front of the model."""
     if view is not None:
+        source, bound = rows_source(view)
         found = await s.scalar(
-            text("SELECT coalesce(sum(length(r.cells::text)), 0) FROM " + _VIEW_ROWS),  # nosec B608
-            _view_params(view),
+            text("SELECT coalesce(sum(length(r.cells::text)), 0) FROM " + source),  # nosec B608
+            bound,
         )
     else:
         found = await s.scalar(
@@ -1189,13 +1653,14 @@ async def table_rows_by_no(
     query leaves out), in row order. The numbers are bound as one array parameter."""
     numbers = [int(n) for n in row_nos]
     if view is not None:
+        source, bound = rows_source(view)
         found = await s.execute(
             text(
                 "SELECT r.row_no, r.cells FROM "
-                + _VIEW_ROWS  # nosec B608
+                + source  # nosec B608
                 + " WHERE r.row_no = ANY(:rows) ORDER BY r.row_no"
             ),
-            {**_view_params(view), "rows": numbers},
+            {**bound, "rows": numbers},
         )
         return list(found.all())
     rows = await s.execute(
@@ -1312,3 +1777,19 @@ async def documents_with_sha(s: AsyncSession, sha256: str) -> int:
 async def remove_raw_file(s: AsyncSession, sha256: str) -> None:
     """Drop the registry row of a hash (the caller deletes the object; 0078)."""
     await s.execute(text("DELETE FROM raw_files WHERE sha256 = :h"), {"h": sha256})
+
+
+async def any_not_indexed(
+    s: AsyncSession, account_id: UUID | None, statuses: Sequence[str]
+) -> bool:
+    """Whether a bound document of the account (of every account the caller sees, without one)
+    is still in one of ``statuses`` (not yet indexed: Ask says its search may miss it)."""
+    found = await s.scalar(
+        text(
+            "SELECT 1 FROM documents WHERE tenant_id = (SELECT app_tenant())"
+            " AND account_id IS NOT NULL AND status = ANY(:st)"
+            " AND (CAST(:a AS uuid) IS NULL OR account_id = :a) LIMIT 1"
+        ),
+        {"a": account_id, "st": list(statuses)},
+    )
+    return found is not None

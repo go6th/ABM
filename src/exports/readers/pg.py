@@ -56,6 +56,7 @@ from exports.content import (
     FindingRow,
     FoundVia,
     JobsCounts,
+    NewsRow,
     PeopleCounts,
     PersonRow,
     PostingRow,
@@ -66,6 +67,7 @@ from exports.content import (
     SnapshotContent,
     SourceRow,
     StackRow,
+    TeamRow,
     TrackerLine,
     WebHit,
 )
@@ -108,6 +110,20 @@ _FACT_COLS = (
 # and ``id > :after ORDER BY id`` reads one page by the primary key (``id::text`` could not use it:
 # every page scanned and sorted the whole run, an hour of one database core for BD, 2026-11-01)
 _FIRST_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _counted(items: Any, key: str) -> str:
+    """A stored list of ``{key, postings}`` objects the way the reference prints it:
+    ``name (count); name (count)`` (no count: the name alone)."""
+    if not isinstance(items, list):
+        return ""
+    parts = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get(key):
+            continue
+        count = item.get("postings")
+        parts.append(f"{item[key]} ({count})" if count is not None else str(item[key]))
+    return "; ".join(parts)
 
 
 async def _keyset(
@@ -464,6 +480,38 @@ class PgContentReader:
                 "tech_stack_items",
             )
 
+            # the platform teams of the run (the Platform teams sheet; stored by a workspace
+            # import, empty for a run of the research graph until a pipeline stores them)
+            counts["platform_teams"] = await _count(
+                s, "SELECT count(*) FROM platform_teams WHERE run_id = :r AND account_id = :a", p
+            )
+            teams = await _keyset(
+                s,
+                "SELECT id, team, function, postings_count, first_activity, last_activity,"
+                " lane_technologies, technologies, locations FROM platform_teams"
+                " WHERE run_id = :r AND account_id = :a AND id > CAST(:after AS uuid)"
+                " ORDER BY id LIMIT :batch",
+                p,
+                self.batch,
+                counts["platform_teams"],
+                "platform_teams",
+            )
+            # the news events of the run (data/news_events.json of the workspace zip)
+            counts["news_events"] = await _count(
+                s, "SELECT count(*) FROM news_events WHERE run_id = :r AND account_id = :a", p
+            )
+            news = await _keyset(
+                s,
+                "SELECT id, headline, summary, category, found_at, effective_date, confidence,"
+                " source_url, location, article_sentence FROM news_events"
+                " WHERE run_id = :r AND account_id = :a AND id > CAST(:after AS uuid)"
+                " ORDER BY id LIMIT :batch",
+                p,
+                self.batch,
+                counts["news_events"],
+                "news_events",
+            )
+
             factory = session_factory(s, tid)
             people_part = await self._people(factory, tid, account_id, run_id, s)
             jobs_part = await self._jobs(factory, tid, account_id, run_id, s, head.domain)
@@ -579,6 +627,39 @@ class PgContentReader:
                     postings=int(x.postings),
                 )
                 for x in sorted(stack, key=lambda x: (x.position, str(x.id)))
+            ),
+            teams=tuple(
+                TeamRow(
+                    id=str(t.id),
+                    name=t.team,
+                    lane_technologies="; ".join(t.lane_technologies or ()),
+                    postings=int(t.postings_count),
+                    first_activity=str(t.first_activity) if t.first_activity else None,
+                    last_activity=str(t.last_activity) if t.last_activity else None,
+                    technologies=_counted(t.technologies, "name"),
+                    locations=_counted(t.locations, "place"),
+                    job_functions=t.function or "",
+                )
+                for t in sorted(teams, key=lambda t: (-int(t.postings_count), t.team.casefold()))
+            ),
+            news=tuple(
+                NewsRow(
+                    id=str(n.id),
+                    headline=n.headline or "",
+                    summary=n.summary,
+                    category=n.category,
+                    found_at=n.found_at,
+                    effective_date=n.effective_date,
+                    confidence=float(n.confidence) if n.confidence is not None else None,
+                    source_url=n.source_url,
+                    location=n.location,
+                    article_sentence=n.article_sentence,
+                )
+                for n in sorted(
+                    news,
+                    key=lambda n: (str(n.found_at or n.effective_date or ""), str(n.id)),
+                    reverse=True,
+                )
             ),
             tracker=tracker,
             tracker_tally=tally,

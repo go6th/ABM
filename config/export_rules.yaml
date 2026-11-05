@@ -791,14 +791,44 @@ workspace:
   # 2026-10-24; folders and names after the reference workspace), in zip order within their
   # folder. A zip missing one fails its check. Each is built only from rows the run stored; a
   # source with no rows says so in one line and never carries invented rows.
+  # The data/ members follow the owner's reference workspace file by file (UCB audit
+  # 2026-11-05): company record and subsidiary domains (from the entity lock), news events,
+  # the postings of the window, the live board index, detections, confirmed stack, teams, the
+  # people grid, web searches, the index of captured pages, the account's own news pages, and
+  # data/derived/ (the merged postings and people the files were built from, the counts, the
+  # captured addresses). Provider payloads stay out (D-25, D-10).
   required_members:
+    - data/company_record.json
+    - data/subsidiary_domains.json
     - data/entity_lock.json
-    - data/web_searches.json
+    - data/news_events.json
+    - data/jobs_12mo.json
+    - data/live_postings_index.json
     - data/techstack_detections.json
+    - data/techstack_confirmed.json
+    - data/teams.json
+    - data/people_grid.txt
+    - data/web_searches.json
+    - data/releases_index.json
+    - data/site_map_news.txt
+    - data/derived/postings.json
+    - data/derived/people.json
+    - data/derived/stats.json
+    - data/derived/captured_urls.txt
     - build/urls.json
+    - notes/README.md
     - notes/pull_log.md
     - notes/pass1.md
     - notes/sense_check.md
+  data_files:
+    source: "6th agents"
+    none_recorded: "No {what} were stored for this run."
+    jobs_window_months: 12
+  readme:
+    title: "# {account} research package"
+    intro: "Account research by 6th agents on {account} ({domain}), research as of {as_of}. RESTORE.md states the layout, the canonical query definitions and the entity rules; MANIFEST.json holds the SHA-256 of every member. Only Confirmed findings may be stated to a prospect."
+    contents_heading: "## Contents"
+    folder_line: "- {folder}/: {what}"
   entity_lock:
     none_recorded: "No entity lock recorded for this run."
   web_searches:

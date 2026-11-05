@@ -55,6 +55,9 @@ _INTERNAL_ONLY_NAME = re.compile(r"(internal|operator)[\s_.\-]*only", re.IGNOREC
 _UNSAFE_STEM = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 _SHEET_TITLE_BAD = re.compile(r"[\[\]:*?/\\]")
 _CONTENTS = "Contents:"
+# README lines for a table or sheet that had no rows this run and so got no file
+NO_ROWS_NOTE = "{title}: no rows this run, so no file was written."
+EMPTY_SHEETS_NOTE = "{title}: sheets with no rows this run, not written: {sheets}."
 _ABOUT_WIDTHS = (18, 60)  # the About sheet's two columns, in characters
 
 
@@ -549,9 +552,22 @@ def _section(members: Sequence[str], prefix: str) -> list[str]:
     return sorted(m for m in members if m.startswith(prefix))
 
 
-def render_readme(profile: WorkspaceProfile, members: Sequence[str], notes: Sequence[str]) -> str:
+LOGS_TEXT = "what the repair changed, and every row it left out."
+TABLES_TEXT = "every table whole, as CSV (all fields quoted) and as Excel."
+
+
+def render_readme(
+    profile: WorkspaceProfile,
+    members: Sequence[str],
+    notes: Sequence[str],
+    *,
+    logs_text: str = LOGS_TEXT,
+    tables_text: str = TABLES_TEXT,
+) -> str:
     """README.txt generated from the member list that is actually written. The last block,
-    ``Contents:``, lists every path once per line; ``validate_readme`` reads only that block."""
+    ``Contents:``, lists every path once per line; ``validate_readme`` reads only that block.
+    ``logs_text`` and ``tables_text`` say what those folders hold (an imported workspace's
+    archive holds the uploaded files' own tables and an import report, not a repair)."""
     lines = [
         f"Everything collected for {profile.account_name}.",
         f"Exported: {profile.run_date.isoformat()}",
@@ -568,13 +584,13 @@ def render_readme(profile: WorkspaceProfile, members: Sequence[str], notes: Sequ
         lines.append("")
 
     block(DELIVERABLES, DELIVERABLES, "the current files of the account.")
-    block(TABLES, TABLES, "every table whole, as CSV (all fields quoted) and as Excel.")
+    block(TABLES, TABLES, tables_text)
     block(
         INTERNAL,
         INTERNAL,
         f"your own files and tables. {INTERNAL_MARK}.",
     )
-    block(LOGS, LOGS, "what the repair changed, and every row it left out.")
+    block(LOGS, LOGS, logs_text)
     lines.append("Not done / Partial:")
     clean_notes = [n.strip() for n in notes if n and n.strip()]
     lines.extend(f"    {n}" for n in clean_notes)
@@ -662,6 +678,11 @@ def _timestamp(day: date) -> tuple[int, int, int, int, int, int]:
     return (max(1980, day.year), day.month, day.day, 0, 0, 0)
 
 
+def fit_name(folder: str, name: str, used: set[str]) -> str:
+    """A safe, unique member path in ``folder`` for a caller's file name (``_fit``)."""
+    return _fit(folder, _caller_name(name), used)
+
+
 def build_members(
     profile: WorkspaceProfile,
     tables: Mapping[str, RepairedTable],
@@ -691,11 +712,21 @@ def build_members(
         private = table.internal or any(s.private for s in table.sheets)
         folder = INTERNAL if table.internal else TABLES
         stem = _stem(table.title) + (" (internal)" if private else "")
-        for i, sheet in enumerate(table.sheets):
+        # a sheet with no rows is not written (owner 2026-11-05: no blank files; a header-only
+        # CSV and an empty workbook said nothing); the README names the table instead
+        filled = [s for s in table.sheets if s.rows]
+        empty = [s.name for s in table.sheets if not s.rows]
+        if not filled:
+            table_notes.append(NO_ROWS_NOTE.format(title=table.title))
+            table_notes.extend(f"{table.title}: {n}" for n in table.notes)
+            continue
+        if empty:
+            table_notes.append(EMPTY_SHEETS_NOTE.format(title=table.title, sheets=", ".join(empty)))
+        for i, sheet in enumerate(filled):
             name = f"{stem}.csv" if i == 0 else f"{stem} - {_stem(sheet.name)}.csv"
             files[_fit(folder, name, used)] = csv_bytes(sheet)
         data, dropped = write_xlsx_checked(
-            table.sheets,
+            filled,
             profile.account_name,
             private=private,
             title=table.title,
@@ -750,12 +781,17 @@ def _clean_table(table: RepairedTable) -> RepairedTable:
 
 
 def finish_readme(
-    profile: WorkspaceProfile, member_names: Iterable[str], notes: Sequence[str]
+    profile: WorkspaceProfile,
+    member_names: Iterable[str],
+    notes: Sequence[str],
+    *,
+    logs_text: str = LOGS_TEXT,
+    tables_text: str = TABLES_TEXT,
 ) -> str:
     """The README for the members that were actually written, validated against them
     (``PackageInvalid`` when it lists a path that is missing or misses a member)."""
     names = [README, *sorted(n for n in member_names if n != README)]
-    readme = render_readme(profile, names, notes)
+    readme = render_readme(profile, names, notes, logs_text=logs_text, tables_text=tables_text)
     problems = validate_readme(readme, names)
     if problems:
         raise PackageInvalid(problems)
@@ -773,7 +809,8 @@ def build_zip(
     extra_exclusions: Sequence[Exclusion] = (),
 ) -> bytes:
     """The workspace archive: ``README.txt``, ``Deliverables/``, ``Tables/`` (CSV and XLSX of every
-    non-internal table; an extra CSV ``<Title> - <Sheet name>.csv`` for each further sheet),
+    non-internal table that has rows; an extra CSV ``<Title> - <Sheet name>.csv`` for each
+    further sheet with rows; a table or sheet with no rows gets no file and a README line),
     ``Internal - your files/`` (internal files and internal tables) and ``Logs/``
     (``repair_report.md``, ``exclusions.csv``). Deterministic: the same input gives the same bytes
     (fixed timestamps from the run date, README first, then sorted). Raises ``PackageInvalid``

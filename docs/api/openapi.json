@@ -408,6 +408,14 @@
             ],
             "title": "Id"
           },
+          "import_problems": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ImportProblem"
+            },
+            "title": "Import Problems",
+            "type": "array"
+          },
           "lanes": {
             "default": [],
             "items": {
@@ -710,6 +718,36 @@
         "title": "Alerts",
         "type": "object"
       },
+      "AnswerInsight": {
+        "additionalProperties": false,
+        "description": "One insight of an open question's answer (2026-11-03): a seller's conclusion of at most\nthree sentences, the grade it rests on and the one next action.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "conclusion": {
+            "title": "Conclusion",
+            "type": "string"
+          },
+          "grade": {
+            "enum": [
+              "Confirmed",
+              "Probable",
+              "Hypothesis"
+            ],
+            "title": "Grade",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conclusion",
+          "grade",
+          "action"
+        ],
+        "title": "AnswerInsight",
+        "type": "object"
+      },
       "AnswerItems": {
         "additionalProperties": false,
         "description": "A titled list shown in its own card under the answer (for example first call questions).",
@@ -806,8 +844,19 @@
       },
       "AnswerSection": {
         "additionalProperties": false,
-        "description": "One section of a structured answer (render_answer, 2026-10-17): a table with every\nmatching row, prose of at most two sentences, one callout, or next steps. Citations in\nthe strings are written [n] and number into the answer's sources list.",
+        "description": "One section of a structured answer (render_answer, 2026-10-17): a table with every\nmatching row, prose of at most two sentences, one callout, next steps, or an open question's\ninsights (2026-11-03). Citations in the strings are written [n] and number into the answer's\nsources list. A ``collapsed`` table (the facts an insights answer rests on) opens under\n\"Sources\" instead of beside the answer.",
         "properties": {
+          "collapsed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collapsed"
+          },
           "columns": {
             "anyOf": [
               {
@@ -821,6 +870,20 @@
               }
             ],
             "title": "Columns"
+          },
+          "insights": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AnswerInsight"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insights"
           },
           "items": {
             "anyOf": [
@@ -841,7 +904,8 @@
               "table",
               "prose",
               "callout",
-              "steps"
+              "steps",
+              "insights"
             ],
             "title": "Kind",
             "type": "string"
@@ -933,9 +997,46 @@
         "title": "AnswerSection",
         "type": "object"
       },
+      "AnswerSheetLink": {
+        "additionalProperties": false,
+        "description": "The deep-dive sheet a cited table opens in: the sheet ``key`` (``jobs``, ``people``,\n``technology``, ...) and, when the answer's query narrowed the table on one column, the\nsheet column and text the page is matched by (``sheets.Query.match``).",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "match": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match"
+          },
+          "match_col": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Col"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "AnswerSheetLink",
+        "type": "object"
+      },
       "AnswerSource": {
         "additionalProperties": false,
-        "description": "A stored row an answer cites: what it is, when, and where to open it (``url`` is the\noriginal page; ``label`` reads \"6th / LinkedIn\", never a data connector's name).",
+        "description": "A stored row an answer cites: what it is, when, and where to open it (``url`` is the\noriginal page; ``label`` reads \"6th / LinkedIn\", never a data connector's name). ``sheet``:\na cited table that is a deep-dive sheet opens there (never through ``url``).",
         "properties": {
           "account_domain": {
             "anyOf": [
@@ -1005,6 +1106,16 @@
           "n": {
             "title": "N",
             "type": "integer"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerSheetLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "title": "Title",
@@ -2206,6 +2317,11 @@
             "title": "Answered",
             "type": "boolean"
           },
+          "context_tokens": {
+            "default": 0,
+            "title": "Context Tokens",
+            "type": "integer"
+          },
           "followups": {
             "items": {
               "type": "string"
@@ -2222,6 +2338,13 @@
                 "type": "null"
               }
             ]
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
           },
           "offer": {
             "anyOf": [
@@ -2259,6 +2382,17 @@
                 "type": "null"
               }
             ]
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking"
           },
           "used": {
             "$ref": "#/components/schemas/AnswerUsed"
@@ -3987,10 +4121,6 @@
             "title": "Max File Bytes",
             "type": "integer"
           },
-          "model_router_on": {
-            "title": "Model Router On",
-            "type": "boolean"
-          },
           "models": {
             "items": {
               "$ref": "#/components/schemas/ConsoleModel"
@@ -4014,6 +4144,14 @@
             "title": "Run Dollar Cap Usd",
             "type": "number"
           },
+          "schedule_tick_max_per_tenant": {
+            "title": "Schedule Tick Max Per Tenant",
+            "type": "integer"
+          },
+          "schedule_tick_max_starts": {
+            "title": "Schedule Tick Max Starts",
+            "type": "integer"
+          },
           "skill_installed": {
             "title": "Skill Installed",
             "type": "boolean"
@@ -4024,6 +4162,10 @@
           },
           "stall_after_s": {
             "title": "Stall After S",
+            "type": "integer"
+          },
+          "stall_after_s_default": {
+            "title": "Stall After S Default",
             "type": "integer"
           },
           "updated_at": {
@@ -4051,7 +4193,9 @@
           "run_dollar_cap_usd",
           "repeat_call_limit",
           "stall_after_s",
-          "model_router_on",
+          "stall_after_s_default",
+          "schedule_tick_max_starts",
+          "schedule_tick_max_per_tenant",
           "skill_version",
           "skill_installed",
           "admins",
@@ -5123,6 +5267,16 @@
         "additionalProperties": false,
         "description": "Row counts of the deep-dive tables (mail and drive: the caller's own items only; coverage:\nthe tracker items Done out of all items of the latest finished run).",
         "properties": {
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "connections": {
+            "default": 0,
+            "title": "Connections",
+            "type": "integer"
+          },
           "coverage_done": {
             "default": 0,
             "title": "Coverage Done",
@@ -5138,6 +5292,16 @@
             "title": "Facts",
             "type": "integer"
           },
+          "files": {
+            "default": 0,
+            "title": "Files",
+            "type": "integer"
+          },
+          "findings": {
+            "default": 0,
+            "title": "Findings",
+            "type": "integer"
+          },
           "jobs": {
             "title": "Jobs",
             "type": "integer"
@@ -5148,6 +5312,11 @@
           },
           "news": {
             "title": "News",
+            "type": "integer"
+          },
+          "notes": {
+            "default": 0,
+            "title": "Notes",
             "type": "integer"
           },
           "people": {
@@ -5165,6 +5334,11 @@
           },
           "sources": {
             "title": "Sources",
+            "type": "integer"
+          },
+          "teams": {
+            "default": 0,
+            "title": "Teams",
             "type": "integer"
           },
           "tech": {
@@ -5379,6 +5553,32 @@
               }
             ],
             "title": "Run Dollar Cap Usd"
+          },
+          "schedule_tick_max_per_tenant": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Tick Max Per Tenant"
+          },
+          "schedule_tick_max_starts": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Tick Max Starts"
           },
           "stall_after_s": {
             "anyOf": [
@@ -5601,6 +5801,38 @@
         "title": "Disconnected",
         "type": "object"
       },
+      "DocumentCompleteBody": {
+        "additionalProperties": false,
+        "description": "What the browser reports about the file it sent (both optional): its size and its CRC32C\n(base64 of the 4 big-endian bytes, the form Cloud Storage keeps). The API compares them with\nthe stored object. No tenant field.",
+        "properties": {
+          "crc32c": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crc32C"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          }
+        },
+        "title": "DocumentCompleteBody",
+        "type": "object"
+      },
       "DocumentDeleted": {
         "additionalProperties": false,
         "description": "Response body: what a deletion removed and marked.",
@@ -5758,6 +5990,150 @@
         "title": "DocumentList",
         "type": "object"
       },
+      "DocumentMember": {
+        "additionalProperties": false,
+        "description": "One file inside an uploaded zip (``document_members``, 0102): its path, its role in the\nworkspace package, what the read did with it and what it produced. ``id`` addresses the\nfile itself: ``GET /v1/documents/{document_id}/members/{id}`` downloads it as uploaded.",
+        "properties": {
+          "audience": {
+            "enum": [
+              "client",
+              "owner_only",
+              "internal"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          },
+          "declared_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Type"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "member": {
+            "title": "Member",
+            "type": "string"
+          },
+          "passages": {
+            "title": "Passages",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "rows_imported": {
+            "default": 0,
+            "title": "Rows Imported",
+            "type": "integer"
+          },
+          "rows_merged": {
+            "default": 0,
+            "title": "Rows Merged",
+            "type": "integer"
+          },
+          "rows_skipped": {
+            "default": 0,
+            "title": "Rows Skipped",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "read",
+              "skipped",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tables": {
+            "title": "Tables",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "member",
+          "role",
+          "declared_type",
+          "bytes",
+          "status",
+          "reason",
+          "passages",
+          "tables",
+          "audience"
+        ],
+        "title": "DocumentMember",
+        "type": "object"
+      },
+      "DocumentMembers": {
+        "additionalProperties": false,
+        "description": "Response body: every file inside an uploaded zip, in path order, with the counts.",
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "read": {
+            "title": "Read",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "members",
+          "read",
+          "skipped",
+          "failed"
+        ],
+        "title": "DocumentMembers",
+        "type": "object"
+      },
       "DocumentPartFailure": {
         "additionalProperties": false,
         "description": "A part of a document that could not be read, and why (counted from 1).",
@@ -5911,6 +6287,15 @@
               }
             ],
             "title": "Account Id"
+          },
+          "audience": {
+            "enum": [
+              "client",
+              "owner_only",
+              "internal"
+            ],
+            "title": "Audience",
+            "type": "string"
           },
           "authoritative": {
             "title": "Authoritative",
@@ -6066,7 +6451,8 @@
           "parts_failed",
           "indexed_passages",
           "members_read",
-          "members_skipped"
+          "members_skipped",
+          "audience"
         ],
         "title": "DocumentStatus",
         "type": "object"
@@ -7688,6 +8074,47 @@
           "connections"
         ],
         "title": "IdpConnections",
+        "type": "object"
+      },
+      "ImportProblem": {
+        "additionalProperties": false,
+        "description": "A part of an uploaded file's import that failed or has not finished (migration 0106).",
+        "properties": {
+          "document_name": {
+            "title": "Document Name",
+            "type": "string"
+          },
+          "part": {
+            "title": "Part",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rows_skipped": {
+            "title": "Rows Skipped",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_name",
+          "part",
+          "status",
+          "rows_skipped"
+        ],
+        "title": "ImportProblem",
         "type": "object"
       },
       "IntentBody": {
@@ -9393,6 +9820,58 @@
         "title": "ModelChoices",
         "type": "object"
       },
+      "ModelFallback": {
+        "additionalProperties": false,
+        "description": "A research step whose chosen model (Kimi K3 or Grok 4.5) could not meet its output\nschema and was served by the role's Claude default: a billing event (ADR-0119).",
+        "properties": {
+          "discarded_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discarded Usd"
+          },
+          "extra_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Usd"
+          },
+          "from_model": {
+            "title": "From Model",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          },
+          "to_model": {
+            "title": "To Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "from_model",
+          "to_model",
+          "reason"
+        ],
+        "title": "ModelFallback",
+        "type": "object"
+      },
       "MonitoringBudget": {
         "additionalProperties": false,
         "description": "Response body: monitoring budget.",
@@ -9640,53 +10119,6 @@
         "description": "No caller-supplied tenant, owner or budget fields.",
         "properties": {},
         "title": "NewThread",
-        "type": "object"
-      },
-      "NewTurn": {
-        "additionalProperties": false,
-        "description": "One append-only user turn. Model selection is handled automatically by the backend router.",
-        "properties": {
-          "account_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Account Id"
-          },
-          "content": {
-            "maxLength": 60000,
-            "minLength": 1,
-            "title": "Content",
-            "type": "string"
-          },
-          "enforce_project_scope": {
-            "default": true,
-            "description": "Reject queries outside the domain of ABM and account intelligence.",
-            "title": "Enforce Project Scope",
-            "type": "boolean"
-          },
-          "fresh_output": {
-            "default": true,
-            "description": "Guarantee fresh, non-cached output unique to this user.",
-            "title": "Fresh Output",
-            "type": "boolean"
-          },
-          "request_id": {
-            "format": "uuid",
-            "title": "Request Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "request_id",
-          "content"
-        ],
-        "title": "NewTurn",
         "type": "object"
       },
       "Notification": {
@@ -10017,6 +10449,32 @@
         "title": "OperatorSession",
         "type": "object"
       },
+      "OperatorSessionMinted": {
+        "additionalProperties": false,
+        "description": "A console session token (shown once; only its hash is kept) and its limits.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "idle_timeout_s": {
+            "title": "Idle Timeout S",
+            "type": "integer"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at",
+          "idle_timeout_s"
+        ],
+        "title": "OperatorSessionMinted",
+        "type": "object"
+      },
       "ParityBundle": {
         "additionalProperties": false,
         "description": "The bundle document of a version (``prose.internal_only`` and the pursuing client's real\nname only for an admin).",
@@ -10157,38 +10615,6 @@
         "title": "ParityCountRows",
         "type": "object"
       },
-      "ParityEdit": {
-        "additionalProperties": false,
-        "description": "An edit request: the version it corrects (the newest built one when absent) and the\ncorrections; the reply is the new version.",
-        "properties": {
-          "overrides": {
-            "items": {
-              "$ref": "#/components/schemas/ParityOverride"
-            },
-            "maxItems": 200,
-            "minItems": 1,
-            "title": "Overrides",
-            "type": "array"
-          },
-          "version": {
-            "anyOf": [
-              {
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Version"
-          }
-        },
-        "required": [
-          "overrides"
-        ],
-        "title": "ParityEdit",
-        "type": "object"
-      },
       "ParityFile": {
         "additionalProperties": false,
         "description": "One stored file of a built version (the manifest entry).",
@@ -10280,63 +10706,6 @@
           "summary"
         ],
         "title": "ParityManifest",
-        "type": "object"
-      },
-      "ParityOverride": {
-        "additionalProperties": false,
-        "description": "One analyst correction to a person: by name; priority, lane or note.",
-        "properties": {
-          "lane": {
-            "anyOf": [
-              {
-                "maxLength": 120,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lane"
-          },
-          "name": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "priority": {
-            "anyOf": [
-              {
-                "enum": [
-                  "A",
-                  "B",
-                  "C"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Priority"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "ParityOverride",
         "type": "object"
       },
       "ParityScreen": {
@@ -11077,65 +11446,6 @@
         "title": "PublishBody",
         "type": "object"
       },
-      "PullOption": {
-        "additionalProperties": false,
-        "description": "Response body: pull option.",
-        "properties": {
-          "available": {
-            "title": "Available",
-            "type": "boolean"
-          },
-          "pull_run_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pull Run Id"
-          },
-          "pulled_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pulled At"
-          },
-          "rows_blocked": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rows Blocked"
-          },
-          "rows_stored": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rows Stored"
-          }
-        },
-        "required": [
-          "available"
-        ],
-        "title": "PullOption",
-        "type": "object"
-      },
       "Quarantine": {
         "additionalProperties": false,
         "description": "Response body: quarantine.",
@@ -11635,6 +11945,14 @@
             "title": "Domain",
             "type": "string"
           },
+          "gaps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResearchGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -11866,6 +12184,14 @@
           "file_usage": {
             "$ref": "#/components/schemas/UsageEstimate"
           },
+          "gaps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResearchGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
           "minutes": {
             "title": "Minutes",
             "type": "integer"
@@ -11889,6 +12215,37 @@
           "file_public_usage"
         ],
         "title": "ResearchEstimate",
+        "type": "object"
+      },
+      "ResearchGap": {
+        "additionalProperties": false,
+        "description": "Something a research started now cannot do, and where to fix it first (2026-11-05).",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "fix_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix Path"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "text"
+        ],
+        "title": "ResearchGap",
         "type": "object"
       },
       "ResearchJobTask": {
@@ -13511,6 +13868,16 @@
             "title": "Key",
             "type": "string"
           },
+          "match": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetMatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "offset": {
             "title": "Offset",
             "type": "integer"
@@ -13752,6 +14119,31 @@
           "count"
         ],
         "title": "SheetFilter",
+        "type": "object"
+      },
+      "SheetMatch": {
+        "additionalProperties": false,
+        "description": "The match a sheet page is narrowed by (a link from an Ask citation): the rows whose\n``col`` cell contains ``value``; ``label`` is the column's heading.",
+        "properties": {
+          "col": {
+            "title": "Col",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "col",
+          "label",
+          "value"
+        ],
+        "title": "SheetMatch",
         "type": "object"
       },
       "SheetRow": {
@@ -14219,6 +14611,17 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "replay_extra_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replay Extra Usd"
           },
           "run_id": {
             "title": "Run Id",
@@ -14923,70 +15326,6 @@
         "title": "TenantLiveSpend",
         "type": "object"
       },
-      "TenantModelKeyBody": {
-        "additionalProperties": false,
-        "description": "Admin-supplied BYO key; it is never returned or written to logs.",
-        "properties": {
-          "api_key": {
-            "format": "password",
-            "title": "Api Key",
-            "type": "string",
-            "writeOnly": true
-          }
-        },
-        "required": [
-          "api_key"
-        ],
-        "title": "TenantModelKeyBody",
-        "type": "object"
-      },
-      "TenantModelKeyDeleted": {
-        "additionalProperties": false,
-        "description": "Confirmation that a tenant's optional model key was removed.",
-        "properties": {
-          "deleted": {
-            "title": "Deleted",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "deleted"
-        ],
-        "title": "TenantModelKeyDeleted",
-        "type": "object"
-      },
-      "TenantModelKeyStatus": {
-        "additionalProperties": false,
-        "description": "Non-secret status of a tenant's optional model key.",
-        "properties": {
-          "available": {
-            "title": "Available",
-            "type": "boolean"
-          },
-          "configured": {
-            "title": "Configured",
-            "type": "boolean"
-          },
-          "updated_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Updated At"
-          }
-        },
-        "required": [
-          "available",
-          "configured",
-          "updated_at"
-        ],
-        "title": "TenantModelKeyStatus",
-        "type": "object"
-      },
       "TenantOverview": {
         "additionalProperties": false,
         "description": "Response body: tenant overview.",
@@ -15224,6 +15563,14 @@
             ],
             "title": "Expected Tokens"
           },
+          "fallbacks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ModelFallback"
+            },
+            "title": "Fallbacks",
+            "type": "array"
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -15339,6 +15686,15 @@
               }
             ],
             "title": "Account Id"
+          },
+          "audience": {
+            "default": "client",
+            "enum": [
+              "client",
+              "owner_only"
+            ],
+            "title": "Audience",
+            "type": "string"
           },
           "mime": {
             "anyOf": [
@@ -18538,6 +18894,99 @@
         ]
       }
     },
+    "/operator/v1/sessions": {
+      "post": {
+        "description": "Trade a verified staff IdP token (fresh MFA) for an opaque console session (ADR-0111).\nA session token cannot mint another one: the absolute limit holds.",
+        "operationId": "mint_operator_session_operator_v1_sessions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorSessionMinted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mint Operator Session",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
+    "/operator/v1/sessions/current": {
+      "delete": {
+        "description": "Sign out: revoke the presented console session (400 for an IdP token, which has none).",
+        "operationId": "end_operator_session_operator_v1_sessions_current_delete",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "End Operator Session",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
     "/operator/v1/tenants": {
       "get": {
         "description": "Every tenant's metadata (no names, no content).",
@@ -20517,75 +20966,6 @@
         ]
       }
     },
-    "/v1/accounts/{domain}/parity/edits": {
-      "post": {
-        "description": "Apply analyst corrections (priority, lane, note by person) to a built version: the\ncorrections are recorded as overrides, every number is recomputed and the files are\nrendered again as the account's next version (built or failed).",
-        "operationId": "parity_edit_v1_accounts__domain__parity_edits_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "domain",
-            "required": true,
-            "schema": {
-              "title": "Domain",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ParityEdit"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ParityVersionInfo"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Parity Edit",
-        "tags": [
-          "accounts"
-        ]
-      }
-    },
     "/v1/accounts/{domain}/parity/files/{name}": {
       "get": {
         "description": "One stored file of a built version as an attachment, with the right MIME type; the\ninternal-only file only for an admin (anyone else sees 404).",
@@ -21190,6 +21570,41 @@
           },
           {
             "in": "query",
+            "name": "match_col",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match Col"
+            }
+          },
+          {
+            "in": "query",
+            "name": "match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match"
+            }
+          },
+          {
+            "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
@@ -21355,6 +21770,41 @@
             }
           },
           {
+            "in": "query",
+            "name": "match_col",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match Col"
+            }
+          },
+          {
+            "in": "query",
+            "name": "match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match"
+            }
+          },
+          {
             "in": "header",
             "name": "authorization",
             "required": false,
@@ -21471,6 +21921,41 @@
                 }
               ],
               "title": "Dir"
+            }
+          },
+          {
+            "in": "query",
+            "name": "match_col",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match Col"
+            }
+          },
+          {
+            "in": "query",
+            "name": "match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match"
             }
           },
           {
@@ -21665,6 +22150,41 @@
                 }
               ],
               "title": "Dir"
+            }
+          },
+          {
+            "in": "query",
+            "name": "match_col",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match Col"
+            }
+          },
+          {
+            "in": "query",
+            "name": "match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match"
             }
           },
           {
@@ -22736,162 +23256,6 @@
         ]
       }
     },
-    "/v1/chat/provider-key": {
-      "delete": {
-        "description": "Remove encrypted BYO key bytes and audit the content-free administrative action.",
-        "operationId": "remove_provider_key_v1_chat_provider_key_delete",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TenantModelKeyDeleted"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Remove Provider Key",
-        "tags": [
-          "chat"
-        ]
-      },
-      "get": {
-        "description": "Return only whether a BYO key is set and when it was last changed.",
-        "operationId": "provider_key_status_v1_chat_provider_key_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TenantModelKeyStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Provider Key Status",
-        "tags": [
-          "chat"
-        ]
-      },
-      "put": {
-        "description": "Encrypt a tenant's optional Anthropic key with KMS; audit without its value.",
-        "operationId": "set_provider_key_v1_chat_provider_key_put",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TenantModelKeyBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TenantModelKeyStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Provider Key",
-        "tags": [
-          "chat"
-        ]
-      }
-    },
     "/v1/chat/threads": {
       "get": {
         "description": "List only this member's 100 most recently active threads.",
@@ -23113,74 +23477,6 @@
           }
         },
         "summary": "Thread",
-        "tags": [
-          "chat"
-        ]
-      }
-    },
-    "/v1/chat/threads/{thread_id}/turns/stream": {
-      "post": {
-        "description": "Reserve a bounded turn before returning SSE, then persist token/cost attribution.",
-        "operationId": "stream_turn_v1_chat_threads__thread_id__turns_stream_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Thread Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewTurn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Stream Turn",
         "tags": [
           "chat"
         ]
@@ -24295,7 +24591,7 @@
     },
     "/v1/documents/confirm-company": {
       "post": {
-        "description": "Bind the documents to the confirmed company's account and index them.",
+        "description": "Bind the documents to the confirmed company's account and index them; an upload held as\n``needs_account`` is released to it (the account picker on a held upload calls this).",
         "operationId": "confirm_company_v1_documents_confirm_company_post",
         "parameters": [
           {
@@ -24848,7 +25144,7 @@
     },
     "/v1/documents/{document_id}/complete": {
       "post": {
-        "description": "Check what arrived and enqueue the scan.",
+        "description": "Check what arrived (its size and CRC32C against what the browser reported) and enqueue\nthe scan. The body is optional: without a checksum only the size declared at the start is\nchecked.",
         "operationId": "complete_v1_documents__document_id__complete_post",
         "parameters": [
           {
@@ -24878,6 +25174,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DocumentCompleteBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -24972,6 +25285,134 @@
           }
         },
         "summary": "Upload Content",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}/members": {
+      "get": {
+        "description": "The files inside an uploaded zip: path, role, what the read did with each, the counts.",
+        "operationId": "members_v1_documents__document_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentMembers"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Members",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}/members/{member_id}": {
+      "get": {
+        "description": "One file inside an uploaded zip, as uploaded, named after its path inside the zip.",
+        "operationId": "member_file_v1_documents__document_id__members__member_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Member Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Member File",
         "tags": [
           "documents"
         ]
@@ -25124,6 +25565,66 @@
           }
         },
         "summary": "Passages",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{document_id}/same-company": {
+      "post": {
+        "description": "The user confirms that the company an uploaded workspace names and the account it was\nuploaded to are the same company (the upload was held because their domains differ): the\nworkspace's domain, name and careers hosts are bound to the account and the import runs.\n\"No, another company\" is the ordinary ``confirm-company`` call with the workspace's\ncompany, which binds the file to that account.",
+        "operationId": "same_company_v1_documents__document_id__same_company_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Same Company",
         "tags": [
           "documents"
         ]
@@ -27110,65 +27611,6 @@
           }
         },
         "summary": "Create Run",
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/v1/runs/pull-option": {
-      "get": {
-        "description": "Whether \"Phase 2 only\" may be offered for the account, with the pull's date and coverage\n(work item 2). Counts only; no content, provider or cost.",
-        "operationId": "get_pull_option_v1_runs_pull_option_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "domain",
-            "required": true,
-            "schema": {
-              "title": "Domain",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PullOption"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Pull Option",
         "tags": [
           "runs"
         ]
