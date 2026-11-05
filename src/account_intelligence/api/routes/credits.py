@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
-from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.errors import APIProblem, require_confirmed_twice
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.account_workspace import account_id_of
@@ -135,6 +135,10 @@ class RefreshBody(BaseModel):
     # the effort beside each model for this run (medium or high; owner decision 2026-10-20)
     research_effort: str | None = Field(default=None, min_length=1, max_length=16)
     analysis_effort: str | None = Field(default=None, min_length=1, max_length=16)
+    # the two confirmations a person gives before research spends money (``runs.start_guard``):
+    # both must be true, or the request is refused with 428 ``confirm_twice``
+    confirm: bool = False
+    confirm_again: bool = False
 
     @model_validator(mode="after")
     def _topic_matches_scope(self) -> RefreshBody:
@@ -153,6 +157,7 @@ async def confirm_refresh(
     domain: str, body: RefreshBody, request: Request, ident: Identity = Depends(authorize)
 ) -> dict[str, Any]:
     """Reserve the credits the user saw and start the refresh."""
+    require_confirmed_twice(body.confirm, body.confirm_again)
     now = datetime.now(UTC)
     async with tenant_txn(ident.tenant_id) as s:
         account_id = await account_id_of(s, domain)

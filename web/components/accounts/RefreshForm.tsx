@@ -12,7 +12,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
 import { ResearchModelChips, useResearchModels } from "@/components/ModelMenu";
-import { UsageProceed } from "@/components/UsageProceed";
+import { CONFIRMED_TWICE, UsageProceed } from "@/components/UsageProceed";
 import { api, ApiError } from "@/lib/api";
 import type { RefreshOptions, RefreshStarted } from "@/lib/gen/api.gen";
 import { dollars, tokenCount } from "@/lib/usage";
@@ -69,7 +69,7 @@ export function RefreshForm({ view, initialTopic }: { view: RefreshOptions; init
     inFlight.current = true;
     setBusy(true);
     setMessage(null);
-    const body = { scope, ...(scope === "topic" ? { topic: topicText } : {}), ...models.body };
+    const body = { scope, ...(scope === "topic" ? { topic: topicText } : {}), ...models.body, ...CONFIRMED_TWICE };
     try {
       await api<RefreshStarted>("POST", `/v1/accounts/${encodeURIComponent(view.domain)}/refresh`, { request_id: request.key(body), ...body });
       request.done();

@@ -13,6 +13,9 @@ month, and the scheduler tick that starts due refreshes from the client's credit
   research left the refresh is skipped this cycle and the owner is told
   (``research_limit_reached``). Either way the account's next refresh moves on by its cadence,
   so a used-up limit never piles up jobs.
+* The tick starts nothing unless ``RESEARCH_AUTOMATIC_STARTS=on`` (``runs.start_guard``, owner's
+  rule 2026-11-05: nothing paid starts without a person saying yes twice). Only the scheduler
+  makes waiting jobs, so the promotion below is off with it.
 
 GUARANTEE(test_a_due_refresh_with_no_research_left_is_skipped_and_the_owner_told)
 """
@@ -147,6 +150,10 @@ Start = Callable[[UUID, UUID], Awaitable[None]]
 
 async def tick(now: datetime, start: Start) -> dict[str, int]:
     """Start every due scheduled refresh the pools can cover; queue the rest as waiting."""
+    from account_intelligence.runs.start_guard import automatic_starts_allowed
+
+    if not automatic_starts_allowed():
+        return {"started": 0, "waiting": 0, "promoted": 0, "deferred": 0}
     async with untenanted_session() as plain:
         due = (
             await plain.execute(text("SELECT * FROM due_scheduled_refreshes(:n)"), {"n": now})

@@ -2371,6 +2371,8 @@ export type Reconcile = z.infer<typeof Reconcile>;
 export const RefreshBody = z.object({
   "analysis_effort": z.string().nullable().optional(),
   "analysis_model": z.string().nullable().optional(),
+  "confirm": z.boolean().optional(),
+  "confirm_again": z.boolean().optional(),
   "credits": z.number().int().nullable().optional(),
   "from_turn_id": z.string().nullable().optional(),
   "request_id": z.string(),
@@ -2445,6 +2447,8 @@ export const ResearchBody = z.object({
   "analysis_effort": z.string().nullable().optional(),
   "analysis_model": z.string().nullable().optional(),
   "company_name": z.string(),
+  "confirm": z.boolean().optional(),
+  "confirm_again": z.boolean().optional(),
   "credits": z.number().int().nullable().optional(),
   "domain": z.string(),
   "goal": z.string().nullable().optional(),
@@ -2558,6 +2562,8 @@ export const ResetPasswordBody = z.object({
 export type ResetPasswordBody = z.infer<typeof ResetPasswordBody>;
 
 export const ResumeBody = z.object({
+  "confirm": z.boolean().optional(),
+  "confirm_again": z.boolean().optional(),
   "request_id": z.string(),
   "run_id": z.string(),
 }).strict();
@@ -2573,6 +2579,8 @@ export type RowSource = z.infer<typeof RowSource>;
 export const RunBody = z.object({
   "acknowledged_stale_rows": z.array(z.string()).optional(),
   "company": CompanyInput.nullable().optional(),
+  "confirm": z.boolean().optional(),
+  "confirm_again": z.boolean().optional(),
   "depth": z.string().optional(),
   "domain": z.string().nullable().optional(),
   "file": FileInput.nullable().optional(),

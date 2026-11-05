@@ -34,7 +34,7 @@ from sqlalchemy.exc import DBAPIError
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity
-from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.errors import APIProblem, require_confirmed_twice
 from account_intelligence.api.guard import authorize
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.ratelimit import limit_user
@@ -103,6 +103,10 @@ class ResearchBody(BaseModel):
     # what the research is for, in the user's words (owner decision 2026-10-23): adds a few
     # searches on top of the plan and steers the summary; never replaces the plan
     goal: str | None = Field(default=None, max_length=500)
+    # the two confirmations a person gives before research spends money (``runs.start_guard``):
+    # both must be true, or the request is refused with 428 ``confirm_twice``
+    confirm: bool = False
+    confirm_again: bool = False
 
     @field_validator("goal")
     @classmethod
@@ -120,6 +124,8 @@ async def start_research(
 ) -> dict[str, Any]:
     """Add the company for the caller, reserve the credits they saw and start the research."""
     from tenancy import settings as tenant_settings
+
+    require_confirmed_twice(body.confirm, body.confirm_again)
 
     now = datetime.now(UTC)
     async with tenant_txn(ident.tenant_id) as s:
@@ -225,6 +231,10 @@ class ResumeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_id: UUID
     request_id: UUID
+    # the two confirmations a person gives before research spends money (``runs.start_guard``):
+    # both must be true, or the request is refused with 428 ``confirm_twice``
+    confirm: bool = False
+    confirm_again: bool = False
 
 
 @router.post("/resume", response_model=C.ResearchResumed, status_code=201)
@@ -237,6 +247,7 @@ async def resume_research(
     for. A stalled run is ended PARTIAL first, with everything it holds. It continues the research
     already counted: it uses none of the user's researches. 409 when the run is still moving or
     finished whole."""
+    require_confirmed_twice(body.confirm, body.confirm_again)
     await limit_user(ident, "research_resume")
     from account_intelligence.replica import auto_resume
 

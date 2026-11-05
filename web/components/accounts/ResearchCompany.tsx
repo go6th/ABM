@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { LimitNote, LimitReached, limitLine, limitReached, useMyLimits } from "@/components/Limits";
 import { ResearchModelChips, useResearchModels } from "@/components/ModelMenu";
-import { UsageProceed } from "@/components/UsageProceed";
+import { CONFIRMED_TWICE, UsageProceed } from "@/components/UsageProceed";
 import { api, ApiError } from "@/lib/api";
 import { DOMAIN_RE, cleanDomain } from "@/lib/documents";
 import type { ResearchEstimate, ResearchStarted } from "@/lib/gen/api.gen";
@@ -61,6 +61,7 @@ export function ResearchCompany({ estimate, idPrefix = "rc", onStarted }: {
       domain,
       ...(goal.trim() ? { goal: goal.trim() } : {}),
       ...models.body,
+      ...CONFIRMED_TWICE,
     };
     try {
       const started = await api<ResearchStarted>("POST", "/v1/research", { request_id: request.key(body), ...body });

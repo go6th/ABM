@@ -14,7 +14,7 @@ import { api, ApiError, newIdempotencyKey } from "@/lib/api";
 import { DOMAIN_RE, allIndexed, cleanDomain, detectedCompany, needingCompany, type CompanyCandidate } from "@/lib/documents";
 import type { CompanyConfirmed, DocumentStatus, ResearchEstimate, RunCreated, RunStatusView } from "@/lib/gen/api.gen";
 import { LimitNote, LimitReached, limitReached, useMyLimits } from "@/components/Limits";
-import { UsageProceed } from "@/components/UsageProceed";
+import { CONFIRMED_TWICE, UsageProceed } from "@/components/UsageProceed";
 import { DocumentDrop } from "@/components/ws/DocumentDrop";
 import { ResearchCompany } from "./ResearchCompany";
 import { reasonOr } from "./ResumeResearch";
@@ -175,7 +175,7 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    const body = { input_mode: "file", file: { document_ids: docs.map((d) => d.document_id), account_id: bound, enrich_public: enrich, credit_cap: null } };
+    const body = { input_mode: "file", file: { document_ids: docs.map((d) => d.document_id), account_id: bound, enrich_public: enrich, credit_cap: null }, ...CONFIRMED_TWICE };
     const text = JSON.stringify(body);
     if (key.current?.body !== text) key.current = { value: newIdempotencyKey(), body: text };
     let created: RunCreated;
@@ -206,12 +206,9 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
 
   const usage = estimate ? (enrich ? estimate.file_public_usage : estimate.file_usage) : null;
   const analyze = () => {
+    // every analysis asks twice before it starts (UsageProceed), with or without an estimate
     if (!ready || busy) return;
-    if (usage && !asking) {
-      setAsking(true);
-      return;
-    }
-    void start();
+    setAsking(true);
   };
 
   return (
@@ -239,6 +236,7 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
             <button type="button" className="sw" role="switch" aria-checked={enrich} aria-label="Also check public sources"
               onClick={() => { setEnrich((v) => !v); setAsking(false); }} />
           </section>
+          <p className="sm-text" role="note">Uploading starts nothing: no web research and no model reading. Analyze file asks you twice before anything is paid for.</p>
           <div className="card pad-sm row-space wrap">
             <span className="mut">This analysis uses</span>
             <b>{uses}</b>
@@ -246,10 +244,11 @@ function FileTab({ initialDrive, estimate }: { initialDrive: boolean; estimate: 
           {hit ? <LimitReached kind={hit.kind} message={hit.message} pending={limits?.pending_requests.includes(hit.kind)} /> : null}
           {error && !asking ? <p className="sm-text bad-text" role="alert">{error}</p> : null}
           <LimitNote limits={limits} kind="chats" />
-          {asking && usage && hit === null ? (
+          {asking && hit === null ? (
             <UsageProceed
               usage={usage}
               what="This analysis"
+              doing={enrich ? "starts the model reading your files and research on the web" : "starts the model reading your files"}
               busy={busy}
               message={error}
               note={enrich ? (

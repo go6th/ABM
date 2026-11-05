@@ -26,6 +26,8 @@ Bounded and honest:
 * never while a worker still holds the run's lease (the heartbeat may lag one long call);
 * idempotent: the continuation's ``request_id`` is derived from the stopped run's id, so a sweep
   that runs twice, or on two workers, reserves one job;
+* off unless ``RESEARCH_AUTOMATIC_STARTS=on`` (``runs.start_guard``, owner's rule 2026-11-05:
+  nothing paid starts without a person saying yes twice); a stopped research waits for Resume;
 * visible: the owner is told once per continuation (``research_resumed``), the chain is in
   ``research_jobs.resume_from``, and the audit trail records ``run.auto_resume_research``.
 
@@ -343,6 +345,10 @@ async def auto_resume_pass(
     ``continued`` (jobs reserved and handed to the worker) and ``skipped`` (candidates the rules
     left alone this pass)."""
     from account_intelligence.replica import jobs
+    from account_intelligence.runs.start_guard import automatic_starts_allowed
+
+    if not automatic_starts_allowed():
+        return {"continued": 0, "skipped": 0}
 
     async with untenanted_session() as plain:
         tenants = [

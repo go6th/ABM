@@ -1,9 +1,12 @@
 "use client";
 // A research that stopped before finishing, or stalled (owner decision 2026-10-14): what it
 // holds is kept; "Resume research" continues it and reuses everything already found at no cost,
-// so only the missing steps are paid for. It uses none of the user's researches.
+// so only the missing steps are paid for. It uses none of the user's researches. The button asks
+// twice before anything starts (owner's rule 2026-11-05): "Resume this research?", then "Are you
+// sure?".
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CONFIRMED_TWICE, SecondConfirm } from "@/components/UsageProceed";
 import { api, ApiError } from "@/lib/api";
 import type { ResearchResumed, StoppedRun } from "@/lib/gen/api.gen";
 
@@ -71,6 +74,8 @@ export function ResumeButton({ runId, compact = false, onResumed }: {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<ResearchResumed | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // 0: the button; 1: "Resume this research?"; 2: "Are you sure?" (only its Yes posts)
+  const [step, setStep] = useState<0 | 1 | 2>(0);
 
   const resume = async () => {
     if (inFlight.current) return;
@@ -78,7 +83,7 @@ export function ResumeButton({ runId, compact = false, onResumed }: {
     setBusy(true);
     setMessage(null);
     try {
-      const resumed = await api<ResearchResumed>("POST", "/v1/research/resume", { run_id: runId, request_id: request.key({ run_id: runId }) });
+      const resumed = await api<ResearchResumed>("POST", "/v1/research/resume", { run_id: runId, request_id: request.key({ run_id: runId }), ...CONFIRMED_TWICE });
       request.done();
       setDone(resumed);
       onResumed?.(resumed);
@@ -87,16 +92,31 @@ export function ResumeButton({ runId, compact = false, onResumed }: {
       request.failed(cause);
       setMessage(reasonOr(cause, "The research could not be resumed. Try again in a moment."));
       setBusy(false);
+      setStep(0);
     } finally {
       inFlight.current = false;
     }
   };
 
   if (done) return <ResumingNote resumed={done} compact={compact} />;
+  if (step === 1) {
+    return (
+      <div className="usage-ask" role="group" aria-label="Confirm the resume">
+        <p className="sm-text">Resume this research? It continues on the web and pays for the steps still missing.</p>
+        <div className="row-12">
+          <button type="button" className={`btn primary${compact ? " sm" : ""}`} onClick={() => setStep(2)}>Yes, resume</button>
+          <button type="button" className={`btn${compact ? " sm" : ""}`} onClick={() => setStep(0)}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+  if (step === 2) {
+    return <SecondConfirm cost={null} busy={busy} message={message} yes="Yes, resume it" onYes={() => void resume()} onNo={() => setStep(0)} />;
+  }
   return (
     <>
       {message ? <span className="sm-text bad-text" role="alert">{message}</span> : null}
-      <button type="button" className={`btn primary${compact ? " sm" : " align-start"}`} disabled={busy} aria-busy={busy} onClick={() => void resume()}>{busy ? "Resuming…" : "Resume research"}</button>
+      <button type="button" className={`btn primary${compact ? " sm" : " align-start"}`} disabled={busy} aria-busy={busy} onClick={() => { setMessage(null); setStep(1); }}>{busy ? "Resuming…" : "Resume research"}</button>
     </>
   );
 }

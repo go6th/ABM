@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // "This much will be used, should I proceed" (owner decision 2026-10-21): each refresh scope shows
-// its expected tokens and dollars, Confirm asks first, and nothing is sent until Proceed.
+// its expected tokens and dollars, Confirm asks first, and nothing is sent until Proceed and the
+// second question, "Are you sure?", are both answered yes.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RefreshForm } from "@/components/accounts/RefreshForm";
@@ -76,5 +77,17 @@ test("confirm shows the expected use and only Proceed starts the refresh", async
   fireEvent.click(screen.getByRole("button", { name: "Confirm refresh" }));
   expect(screen.getByRole("group", { name: "Confirm the expected use" }).textContent).toContain("about 2.5M tokens (about $11.00)");
   fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
+  const second = screen.getByRole("group", { name: "Confirm again" });
+  expect(second.textContent).toContain("Are you sure?");
+  expect(second.textContent).toContain("about $11.00");
+  expect(posts).toEqual([]); // nothing sent before the second yes
+
+  fireEvent.click(screen.getByRole("button", { name: "No, cancel" }));
+  expect(screen.queryByRole("group", { name: "Confirm again" })).toBeNull();
+  expect(posts).toEqual([]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Confirm refresh" }));
+  fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yes, start it" }));
   await waitFor(() => expect(posts).toEqual(["/v1/accounts/acme.example/refresh"]));
 });

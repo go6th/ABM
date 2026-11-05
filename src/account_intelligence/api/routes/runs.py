@@ -31,7 +31,7 @@ from sqlalchemy import text
 from account_intelligence.api import contract as C
 from account_intelligence.api.audit_log import audit_action
 from account_intelligence.api.auth import Identity, require_role
-from account_intelligence.api.errors import APIProblem
+from account_intelligence.api.errors import APIProblem, require_confirmed_twice
 from account_intelligence.api.policy import register, tenant_route
 from account_intelligence.api.routes.accounts import exclusion_rule
 from account_intelligence.db.session import tenant_txn
@@ -104,6 +104,10 @@ class RunBody(BaseModel):
     # Durable runs: continue an earlier run of the same account; every finished call and model
     # reply of that run is reused at cost 0 whatever its age (only missing work is paid for).
     resume_from: UUID | None = None
+    # the two confirmations a person gives before research spends money (``runs.start_guard``):
+    # both must be true, or the request is refused with 428 ``confirm_twice``
+    confirm: bool = False
+    confirm_again: bool = False
 
 
 def _container(request: Request) -> Any:
@@ -118,6 +122,7 @@ async def create_run(
     ident: Identity = Depends(require_role("admin", "seller")),
 ) -> dict[str, Any]:
     """Create a run (both rows, reservation, tracker in one transaction) and enqueue slice 0."""
+    require_confirmed_twice(body.confirm, body.confirm_again)
     container = _container(request)
     mode = _input_mode(body)
     if mode == "file":

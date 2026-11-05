@@ -11791,6 +11791,16 @@
             ],
             "title": "Analysis Model"
           },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "confirm_again": {
+            "default": false,
+            "title": "Confirm Again",
+            "type": "boolean"
+          },
           "credits": {
             "anyOf": [
               {
@@ -12086,6 +12096,16 @@
             "minLength": 1,
             "title": "Company Name",
             "type": "string"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "confirm_again": {
+            "default": false,
+            "title": "Confirm Again",
+            "type": "boolean"
           },
           "credits": {
             "anyOf": [
@@ -12706,6 +12726,16 @@
         "additionalProperties": false,
         "description": "Resume research: the stopped (or stalled) run to continue. No tenant field.",
         "properties": {
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "confirm_again": {
+            "default": false,
+            "title": "Confirm Again",
+            "type": "boolean"
+          },
           "request_id": {
             "format": "uuid",
             "title": "Request Id",
@@ -12791,6 +12821,16 @@
                 "type": "null"
               }
             ]
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "confirm_again": {
+            "default": false,
+            "title": "Confirm Again",
+            "type": "boolean"
           },
           "depth": {
             "default": "standard",

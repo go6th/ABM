@@ -39,3 +39,17 @@ class NotConfigured(RuntimeError):
     def __init__(self, dependency: str) -> None:
         super().__init__(f"{dependency} is not configured")
         self.dependency = dependency
+
+
+def require_confirmed_twice(confirm: bool | None, confirm_again: bool | None) -> None:
+    """428 ``confirm_twice`` unless a start request carries both confirmations
+    (``runs.start_guard``: nothing paid starts without a person saying yes twice)."""
+    from account_intelligence.runs.start_guard import (
+        CONFIRM_TWICE_CODE,
+        CONFIRM_TWICE_TEXT,
+        CONFIRM_TWICE_TITLE,
+        confirmed_twice,
+    )
+
+    if not confirmed_twice(confirm, confirm_again):
+        raise APIProblem(428, CONFIRM_TWICE_CODE, CONFIRM_TWICE_TITLE, CONFIRM_TWICE_TEXT)

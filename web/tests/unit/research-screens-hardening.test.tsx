@@ -156,15 +156,23 @@ test("resume: a network error keeps the request id, a refusal gets a new one, a 
   let release: (v: unknown) => void = () => undefined;
   api.mockImplementationOnce(() => Promise.reject(new TypeError("network")));
   render(<ResumeButton runId="r1" />);
-  fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+  // Resume research, then "Yes, resume" and "Yes, resume it" (it asks twice)
+  const askTwice = () => {
+    fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, resume" }));
+  };
+  askTwice();
+  fireEvent.click(screen.getByRole("button", { name: "Yes, resume it" }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/could not be resumed/));
   api.mockImplementationOnce(() => Promise.reject(new ApiError(409, "job_open", "")));
-  fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+  askTwice();
+  fireEvent.click(screen.getByRole("button", { name: "Yes, resume it" }));
   // an empty reason never shows an empty alert
   await waitFor(() => expect(api).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/could not be resumed/));
   api.mockImplementationOnce(() => new Promise((r) => { release = r; }));
-  const button = screen.getByRole("button", { name: "Resume research" });
+  askTwice();
+  const button = screen.getByRole("button", { name: "Yes, resume it" });
   fireEvent.click(button);
   fireEvent.click(button);
   expect(api).toHaveBeenCalledTimes(3);
@@ -184,8 +192,9 @@ test("start research: retrying after a network error resends the same request id
   fireEvent.change(screen.getByLabelText("Website"), { target: { value: "acme.example" } });
   fireEvent.click(screen.getByRole("button", { name: "Start research" }));
   fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yes, start it" }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/could not be started/));
-  fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yes, start it" }));
   await waitFor(() => expect(onStarted).toHaveBeenCalled());
   const [a, b] = api.mock.calls.map((c) => (c[2] as { request_id: string }).request_id);
   expect(b).toBe(a);

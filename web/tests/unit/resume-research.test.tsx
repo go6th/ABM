@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Resume research is offered wherever the server says a run can be resumed (the account page's
 // rule, sent as ``can_resume`` on the Research board and the run page): one button posts the
-// resume, says how much is already done, and shows the server's reason when it is refused.
+// resume, says how much is already done, and shows the server's reason when it is refused. It asks
+// twice first ("Resume this research?", then "Are you sure?"); nothing posts before both.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -25,24 +26,31 @@ afterEach(() => {
   api.mockReset();
 });
 
+/** Resume research, then both confirmations. */
+function resumeTwice() {
+  fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yes, resume" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yes, resume it" }));
+}
+
 const resumed = { job_id: "j2", resumes_run_id: "r1", domain: "acme.example", status: "queued", steps_done: 4, steps_total: 8 };
 
 test("the button resumes the run and says how much is already done", async () => {
   api.mockResolvedValue(resumed);
   const onResumed = vi.fn();
   render(<ResumeButton runId="r1" compact onResumed={onResumed} />);
-  fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+  resumeTwice();
   await waitFor(() => expect(screen.getByRole("status").textContent).toBe(
     "Resuming: 4 of 8 steps already done. You will be notified when it finishes.",
   ));
-  expect(api).toHaveBeenCalledWith("POST", "/v1/research/resume", { run_id: "r1", request_id: expect.any(String) });
+  expect(api).toHaveBeenCalledWith("POST", "/v1/research/resume", { run_id: "r1", request_id: expect.any(String), confirm: true, confirm_again: true });
   expect(onResumed).toHaveBeenCalledWith(resumed);
 });
 
 test("a refused resume shows the server's reason and keeps the button", async () => {
   api.mockRejectedValue(new ApiError(409, "job_open", "This account already has a research running."));
   render(<ResumeButton runId="r1" />);
-  fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+  resumeTwice();
   await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("This account already has a research running."));
   expect((screen.getByRole("button", { name: "Resume research" }) as HTMLButtonElement).disabled).toBe(false);
 });
@@ -51,9 +59,30 @@ test("the account card still explains the stop and becomes the resuming line", a
   api.mockResolvedValue(resumed);
   render(<ResumeResearch stopped={{ run_id: "r1", stalled: false, reason: "The worker was lost.", steps_done: 4, steps_total: 8 }} />);
   expect(screen.getByText("This research stopped before finishing")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+  resumeTwice();
   await waitFor(() => expect(screen.queryByText("This research stopped before finishing")).toBeNull());
   expect(screen.getByRole("status").textContent).toContain("Resuming: 4 of 8 steps already done");
+});
+
+test("nothing is resumed until both questions are answered yes; No at either one posts nothing", () => {
+  render(<ResumeButton runId="r1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+  expect(screen.getByText(/Resume this research\?/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Resume research" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yes, resume" }));
+  expect(screen.getByText(/Are you sure\?/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "No, cancel" }));
+  expect(screen.getByRole("button", { name: "Resume research" })).toBeTruthy();
+  expect(api).not.toHaveBeenCalled();
+});
+
+test("current replay keys show no warning", () => {
+  expect(replayWarning(null)).toBeNull();
+  expect(replayWarning(0)).toBeNull();
+  render(<ResumeResearch stopped={{ run_id: "r1", stalled: false, reason: "The worker was lost.", steps_done: 4, steps_total: 8, replay_extra_usd: null }} />);
+  expect(screen.queryByRole("note")).toBeNull();
+  expect(screen.getByText(/reuses it at no cost/)).toBeTruthy();
 });
 
 test("the board offers Resume only on an ended item the server marks resumable", () => {

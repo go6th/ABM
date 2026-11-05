@@ -48,8 +48,13 @@ function fill(goal?: string) {
 async function proceed() {
   fireEvent.click(screen.getByRole("button", { name: "Start research" }));
   fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
+  expect(api).not.toHaveBeenCalled(); // the second question comes first
+  fireEvent.click(screen.getByRole("button", { name: "Yes, start it" }));
   await waitFor(() => expect(api).toHaveBeenCalled());
-  return api.mock.calls[0]?.[2] as Record<string, unknown>;
+  const body = api.mock.calls[0]?.[2] as Record<string, unknown>;
+  expect(body.confirm).toBe(true);
+  expect(body.confirm_again).toBe(true);
+  return body;
 }
 
 test("a written goal is sent trimmed, with a counter of its 500 characters", async () => {
